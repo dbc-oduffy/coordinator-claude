@@ -98,10 +98,11 @@ for kv_line in m.group(1).splitlines():
 if not fm:
     sys.exit(0)
 
-created = str(fm.get("created", "")).strip()
-sender  = str(fm.get("from", "")).strip()
-title   = str(fm.get("title", "")).strip()
-status  = str(fm.get("status", "")).strip()
+created      = str(fm.get("created", "")).strip()
+sender       = str(fm.get("from", "")).strip()
+title        = str(fm.get("title", "")).strip()
+status       = str(fm.get("status", "")).strip()
+picked_up_by = str(fm.get("picked_up_by", "")).strip()
 
 # Must have a status field to be a lifecycle-aware memo.
 if not status:
@@ -111,8 +112,14 @@ if not status:
 if created and created <= "2026-05-21":
     sys.exit(0)
 
-# Receiver-inbound: surface only memos awaiting action (status: open).
-if status != "open":
+# Receiver-inbound: surface memos awaiting action (open) AND in-flight claims
+# (in_progress). An in_progress memo is actively claimed by a live session — it is
+# NOT free work, but hiding it entirely makes the inbox "look free mid-action" (the
+# 2026-06-20 collision). Surface it with a [CLAIMED by ...] tag so the operator sees
+# who holds it. Staleness-aware resurfacing is deferred: the dead-PID reaper reverts a
+# stale claim back to open, at which point the open path below picks it up for free.
+# Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C4
+if status not in ("open", "in_progress"):
     sys.exit(0)
 
 # Parse kind — default to "ask" when absent (safe default: surfaces with urgency,
@@ -129,6 +136,12 @@ band_rank = "1" if kind == "fyi" else "0"
 # |-delimited line; a literal | in a title would corrupt IFS='|' read splits in bash,
 # breaking the kind field. Replace with en-dash so titles can never inject extra fields.
 title = title.replace("|", "–")
+# in_progress memos are attributed, not hidden: append a [CLAIMED by ...] tag so the
+# operator sees the memo is actively owned (not free work). Zero coupling — picked_up_by
+# is already in frontmatter; no liveness probe needed here.
+if status == "in_progress":
+    who = picked_up_by.replace("|", "–") if picked_up_by else "unknown"
+    title = f"{title} [CLAIMED by {who}]"
 print(f"{band_rank}|{created}|{sender}|{title}|{kind}")
 PYEOF
   )
@@ -166,9 +179,12 @@ except Exception:
   fi
 
   stale_flag=""
-  # Receiver-inbound: only status: open memos surface here.
-  # Stale if sitting open for more than 7 days without being actioned.
-  if [[ "$age_days" -gt 7 ]]; then
+  # Stale if sitting OPEN for more than 7 days without being actioned. A claimed
+  # (in_progress) memo carries a [CLAIMED by ...] marker in its title — it is actively
+  # owned, so "awaiting your action" would be wrong; suppress the stale flag for it.
+  # (A stale CLAIM is the reaper's concern — it reverts a dead-PID claim back to open,
+  # at which point this stale-flag path applies again.)
+  if [[ "$age_days" -gt 7 && "$title" != *"[CLAIMED"* ]]; then
     stale_flag=" [STALE — awaiting your action]"
   fi
 

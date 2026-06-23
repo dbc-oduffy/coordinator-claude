@@ -138,6 +138,8 @@ Mark as: `PRESERVE: [filename] — [brief reason]`
 - `## Current State` / `## Files Modified` → `[EPHEMERAL]`
 Do NOT classify an entire handoff as EPHEMERAL — even if it contains mostly task tracking, the decision and accomplishment sections have lasting value.
 
+**Canonical plans** (`docs/plans/*.md`): plans reaching your batch have already been **ripeness-filtered at Phase 0** (only RIPE/delivered plans are in scope; PARTIAL/IN-FLIGHT/ABANDONED were classified SKIP and excluded — see `PIPELINE.md` § Phase 0 ripeness gate). Scan the plan's structural sections for `[DECISION]` / `[KNOWLEDGE:{system}]` nuggets as usual; `SHIPPED: X (was: Y)` ALLOWLIST corrections are high-value `[DECISION]` nuggets (the decision is the shipped shape `X`). Do NOT attempt to re-classify a plan's ripeness here — that gate is Phase 0's, not yours. **Defensive sentinel (catch a Phase-0 bug, do not re-gate):** if a plan in your batch carries frontmatter `status: draft` / `in-progress` / `reviewed` / `superseded` / `abandoned`, it should have been classified SKIP upstream — emit `WARN: <filename> — status <X> reached Phase 1 unexpectedly` and treat it as SKIP (extract no nuggets) rather than harvesting an in-flight/abandoned plan.
+
 **Research outputs** (`docs/research/*.md`, `~/docs/research/*.md`, files with "Deep Research" or "Pipeline" in their title, `*-claims.json`, `*-summary.md` from research pipelines) and **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path): Always mark as `[PRESERVE]` — these are never deleted, never modified in place. They are output verbatim to the wiki without synthesis. Do NOT extract nuggets from them.
 
 ## Rules

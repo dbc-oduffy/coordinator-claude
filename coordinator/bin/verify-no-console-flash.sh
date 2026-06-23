@@ -27,6 +27,11 @@
 #        # verify-no-console-flash: allow
 #      (use for: the launcher itself, this guard script, test fixtures,
 #       or any spawn that is verifiably not on the Windows hot-path)
+#   d) The FILE carries a header allow marker within its first 10 lines:
+#        # verify-no-console-flash: file-allow — <rationale>
+#      (use for: physically-Linux-only scripts — RunPod / training pipelines —
+#       where no Windows conhost can be allocated regardless of spawn shape, so
+#       per-line allow on 20+ interpreter calls is just noise)
 #
 # IMPORTANT — live-tree state:
 #   As of Wave 2 execution, the live tree still contains unsuppressed spawns in
@@ -58,6 +63,15 @@ _is_suppressed() {
     local line="$1"
     # Allowlist marker (trailing comment)
     grep -q 'verify-no-console-flash:[[:space:]]*allow' <<<"$line" && return 0
+    # File-level allow: a `verify-no-console-flash: file-allow` marker in the file's
+    # first 10 lines suppresses the whole file (physically-Linux-only scripts). Extract
+    # the path from the `path:lineno:content` grep line drive-letter-safely — strip the
+    # `:lineno:content` suffix, NOT split on the first ':' (which eats a Windows `C:`).
+    local _faline_path; _faline_path="$(printf '%s' "$line" | sed -E 's/:[0-9]+:.*$//')"
+    if [[ -f "$_faline_path" ]] && head -10 "$_faline_path" 2>/dev/null \
+        | grep -q 'verify-no-console-flash:[[:space:]]*file-allow'; then
+        return 0
+    fi
     # Routes through spawn-hidden.sh
     grep -q 'spawn-hidden' <<<"$line" && return 0
     # Explicit suppression flags

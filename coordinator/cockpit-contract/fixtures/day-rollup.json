@@ -1,0 +1,36 @@
+{
+  "grain": "day",
+  "period": "2026-06-22",
+  "repo": "",
+  "coordinator_root_path": ".",
+  "deterministic_facts": {
+    "chains_completed": 2,
+    "tshirt_counts": { "XS": 1, "M": 1 },
+    "opus_dispatches": 0,
+    "commits": 7
+  },
+  "narrative": {
+    "text": "Picked up and shipped the tc-2 work-state contract; memo-pickup claim-lock landed.",
+    "generated_by": "claude-opus-4-8",
+    "generated_at": "2026-06-22T18:00:00Z",
+    "input_watermark": {
+      "max_observed_at": "2026-06-22T17:59:00Z",
+      "max_commit_sha": "647732fa",
+      "source_count": 9
+    }
+  },
+  "input_watermark": {
+    "max_observed_at": "2026-06-22T17:59:00Z",
+    "max_commit_sha": "647732fa",
+    "source_count": 9
+  },
+  "freshness": "current",
+  "provenance": {
+    "source_kind": "coordinator_artifact",
+    "repo": ".claude-prime",
+    "ref": { "branch": "work/macbookair/2026-06-17to22", "sha": "647732fa" },
+    "path": "archive/daily-summaries/2026-06-22.md",
+    "observed_at": "2026-06-22T18:00:01Z",
+    "derivation": "rolled_up"
+  }
+}

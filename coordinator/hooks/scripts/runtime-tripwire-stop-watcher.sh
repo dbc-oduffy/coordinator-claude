@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Runtime Tripwire — asyncRewake Stop Watcher (L2 backstop)
 #
 # Purpose: Registered on the Stop hook event with asyncRewake: true.

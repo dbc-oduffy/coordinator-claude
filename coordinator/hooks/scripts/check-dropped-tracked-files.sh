@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: surface (offer-shaped) tracked files that were silently
 # deleted from the working tree — the harness-drop / CRLF-race / concurrent-
 # session failure mode that has repeatedly clobbered config in this repo

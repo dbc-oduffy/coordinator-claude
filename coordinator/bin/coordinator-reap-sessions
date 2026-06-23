@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-reap-sessions — Thin wrapper: archive stale agent dirs then stale session dirs.
 #
 # Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 4

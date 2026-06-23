@@ -111,6 +111,10 @@ Present the digest from Steps 1–4, then ask:
 
 **Wait for the PM's response.** Write the answer verbatim (as a checklist) to `state/week-changelog/HEADER.md` in the `Priorities` section. Mirror to `docs/project-tracker.md` if it exists (append under a `## Week of YYYY-MM-DD` heading or update an existing one). HEADER.md is canonical; the tracker copy is for visibility.
 
+<!-- Review: A-F9 — goal-event emission removed from Step 5 to prevent double-emit.
+     Goal events are emitted exactly once from Step 6, covering both the reset and
+     update-in-place branches. Do NOT add an emission block here. -->
+
 ---
 
 ## Step 6: Reset-or-Update Decision
@@ -142,12 +146,25 @@ If `Last /workweek-start:` is `(none)` OR `Prior week released:` commit is newer
    - [ ] <priority 3 from PM>
    ```
 
+   After writing the fresh HEADER.md, for each priority checkbox, emit a structured weekly goal event by running:
+   ```bash
+   # Review: A-F13 — absolute path required; /workweek-start runs from arbitrary cwd
+   # Review: A-F9 — single-emission point: emitted here (reset path) and in update-in-place path
+   bash "${CLAUDE_HOME:-$HOME}/.claude/plugins/coordinator/bin/append-goal-event.sh" --period week --period-value <current-ISO-week, e.g. 2026-W26> --text "<the bold priority title>"
+   ```
+   This runs automatically as part of the ceremony — it adds NO new manual PM action.
+
 If `Last /workweek-start:` is set AND no `/workweek-complete` has occurred since (i.e., `Prior week released:` commit predates `Last /workweek-start:`) — this is a mid-week re-run:
 
 → **Update in place:**
 1. Update the `Priorities` section with the new priorities from Step 5.
 2. Update `Last /workweek-start:` to today's date.
 3. Leave daily files untouched.
+4. For each priority checkbox, emit a structured weekly goal event (single-emission, A-F9):
+   ```bash
+   # Review: A-F13 — absolute path required; /workweek-start runs from arbitrary cwd
+   bash "${CLAUDE_HOME:-$HOME}/.claude/plugins/coordinator/bin/append-goal-event.sh" --period week --period-value <current-ISO-week, e.g. 2026-W26> --text "<the bold priority title>"
+   ```
 
 **In both cases,** commit the HEADER.md change:
 ```bash

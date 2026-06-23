@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# claude-home — bare-name forwarder. The real reader installs to ~/.claude/bin
+# (CLAUDE_HOME-aware); this forwarder lives in the harness-injected plugin bin so
+# bare `claude-home` resolves on POSIX tool shells where ~/.claude/bin is NOT on PATH.
+# Spec: docs/plans/2026-06-18-machine-local-bare-invocation-macos.md
+set -euo pipefail
+# CLAUDE_HOME is a $HOME-substitute per machine-local-registry.md §4a (CLAUDE_HOME=/x → install at /x/.claude/), so the .claude suffix is correct here.
+# Review: code-reviewer slice1-F2 — clarifying comment; the expansion below is doctrinally correct, do NOT alter it.
+_real="${CLAUDE_HOME:-$HOME}/.claude/bin/claude-home"
+if [ ! -x "$_real" ]; then
+  echo "claude-home: resolver not installed at $_real — run /coordinator:setup (Phase 3)." >&2
+  exit 127
+fi
+exec "$_real" "$@"

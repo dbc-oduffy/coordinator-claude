@@ -1,0 +1,5 @@
+# tsx + vitest pull esbuild, whose postinstall links the platform-native binary;
+# without this allowlist a clean `pnpm install` leaves esbuild unbuilt and tsx
+# fails at runtime. (pnpm 11 moved build-script allowlisting out of package.json.)
+allowBuilds:
+  esbuild: true

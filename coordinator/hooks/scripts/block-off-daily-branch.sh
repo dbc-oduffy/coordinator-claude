@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks branch creation/switch operations that would put the
 # main checkout on anything other than an allowed workstream branch or main.
 #

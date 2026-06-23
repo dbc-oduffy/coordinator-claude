@@ -208,7 +208,10 @@ _assert_exit_nonzero "B3: empty-files-field → non-zero exit" "$EXIT_B3"
 _assert_stderr_contains "B3: empty-files-field → names chunk" "chunk-1" "$STDERR_B3"
 _assert_stdout_not_contains "B3: empty-files-field → no partial output" "EXECUTOR DISPATCH BLOCK" "$STDOUT_B3"
 
-# B4: too many fields (4 tab-separated fields)
+# B4: 4-field row with a pinned-interface column — now VALID (optional 4th column accepted).
+# The 4th field 'extra-field' is not a well-formed <symbol>@<path> pin, so the helper
+# emits a NOTE about the malformed pin on stderr but still exits 0 and emits the block.
+# Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2 (AC2)
 SPEC_B4="${TMPDIR_ROOT}/spec_b4.tsv"
 printf 'chunk-1\tBrief\tfile.py\textra-field\n' > "$SPEC_B4"
 
@@ -220,9 +223,8 @@ STDOUT_B4="$(bash "$HELPER" --spec "$SPEC_B4" 2>${TMPDIR_ROOT}/stderr_b4.txt)" |
 STDERR_B4="$(cat ${TMPDIR_ROOT}/stderr_b4.txt)"
 cd - >/dev/null
 
-_assert_exit_nonzero "B4: too-many-fields → non-zero exit" "$EXIT_B4"
-_assert_stderr_contains "B4: too-many-fields → names row" "row 1" "$STDERR_B4"
-_assert_stdout_not_contains "B4: too-many-fields → no partial output" "EXECUTOR DISPATCH BLOCK" "$STDOUT_B4"
+_assert_exit_zero "B4: 4-field row (optional pin column) → zero exit (backward-compat: 4 fields now valid)" "$EXIT_B4"
+_assert_stdout_contains "B4: 4-field row → dispatch block still emitted" "EXECUTOR DISPATCH BLOCK" "$STDOUT_B4"
 
 # B5: embedded newline in a field — breaks the row into fragments whose field-count
 # won't be 3, so the line-based parser catches it via field-count mismatch.
@@ -511,6 +513,158 @@ OUT_H2="$(unset MACHINE_LOCAL_FAN_OUT_LARGE_WAVE_THRESHOLD; LARGE_WAVE_THRESHOLD
 cd - >/dev/null
 _assert_stdout_contains "H3a: env=3 beats registry=5 → NOTE at 3 chunks" "$NOTE_PHRASE" "$OUT_H3"
 _assert_stdout_not_contains "H3b: env=3 → no NOTE at 2 chunks" "$NOTE_PHRASE" "$OUT_H2"
+
+# ---------------------------------------------------------------------------
+# Test I — Pinned-interface column, symbol IS present in producer write-target
+#           → no NOTE on stderr, exit 0, dispatch blocks emitted.
+# Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2 (AC1)
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test I: pinned-interface pin present → silent, exit 0, blocks emitted ==="
+
+REPO_I="${TMPDIR_ROOT}/repo_i"
+_make_git_repo "$REPO_I"
+
+# Create the producer write-target containing the pinned symbol.
+PRODUCER_FILE_I="${TMPDIR_ROOT}/producer_i.py"
+cat > "$PRODUCER_FILE_I" <<'PYEOF'
+def my_pinned_function(x):
+    """The interface the consumer chunk expects."""
+    return x
+PYEOF
+
+SPEC_I="${TMPDIR_ROOT}/spec_i.tsv"
+printf "chunk-producer\tAuthor the producer\t${PRODUCER_FILE_I}\n" > "$SPEC_I"
+printf "chunk-consumer\tAuthor the consumer\tconsumer.py\tmy_pinned_function@${PRODUCER_FILE_I}\n" >> "$SPEC_I"
+
+STDOUT_I=""
+STDERR_I=""
+EXIT_I=0
+cd "$REPO_I"
+STDOUT_I="$(bash "$HELPER" --spec "$SPEC_I" 2>${TMPDIR_ROOT}/stderr_i.txt)" || EXIT_I=$?
+STDERR_I="$(cat "${TMPDIR_ROOT}/stderr_i.txt")"
+cd - >/dev/null
+
+_assert_exit_zero "I1: symbol present → exit 0" "$EXIT_I"
+_assert_stdout_contains "I2: symbol present → producer block emitted" "EXECUTOR DISPATCH BLOCK: chunk-producer" "$STDOUT_I"
+_assert_stdout_contains "I3: symbol present → consumer block emitted" "EXECUTOR DISPATCH BLOCK: chunk-consumer" "$STDOUT_I"
+_assert_stderr_not_contains "I4: symbol present → no NOTE about missing interface" "NOT found" "$STDERR_I"
+_assert_stderr_not_contains "I5: symbol present → no NOTE about file not existing" "does not exist" "$STDERR_I"
+
+# ---------------------------------------------------------------------------
+# Test J — Pinned-interface column, symbol is ABSENT from producer write-target
+#           → offer NOTE on stderr naming serial-fallback + exit 0 + dispatch blocks present.
+# Negative-spec: exit code MUST be 0 (not 1 like the overlap pass). NOTE on stderr, not stdout.
+# Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2 (AC1)
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test J: pinned-interface pin absent → offer NOTE on stderr, exit 0, blocks present ==="
+
+REPO_J="${TMPDIR_ROOT}/repo_j"
+_make_git_repo "$REPO_J"
+
+# Producer file exists but does NOT contain the pinned symbol.
+PRODUCER_FILE_J="${TMPDIR_ROOT}/producer_j.py"
+cat > "$PRODUCER_FILE_J" <<'PYEOF'
+def some_other_function():
+    """This file exists but does not define the expected interface."""
+    pass
+PYEOF
+
+SPEC_J="${TMPDIR_ROOT}/spec_j.tsv"
+printf "chunk-producer\tAuthor the producer\t${PRODUCER_FILE_J}\n" > "$SPEC_J"
+printf "chunk-consumer\tAuthor the consumer\tconsumer.py\tmissing_symbol@${PRODUCER_FILE_J}\n" >> "$SPEC_J"
+
+STDOUT_J=""
+STDERR_J=""
+EXIT_J=0
+cd "$REPO_J"
+STDOUT_J="$(bash "$HELPER" --spec "$SPEC_J" 2>${TMPDIR_ROOT}/stderr_j.txt)" || EXIT_J=$?
+STDERR_J="$(cat "${TMPDIR_ROOT}/stderr_j.txt")"
+cd - >/dev/null
+
+# AC1 — exit 0 (observer, not gate)
+_assert_exit_zero "J1: symbol absent → exit 0 (offer, not gate)" "$EXIT_J"
+
+# AC1 — NOTE on stderr naming serial-fallback
+_assert_stderr_contains "J2: symbol absent → NOTE on stderr" "NOTE:" "$STDERR_J"
+_assert_stderr_contains "J3: symbol absent → names the missing symbol" "missing_symbol" "$STDERR_J"
+_assert_stderr_contains "J4: symbol absent → names serial-fallback as remediation" "serial" "$STDERR_J"
+
+# Dispatch blocks still present in stdout (concurrent dispatch proceeds)
+_assert_stdout_contains "J5: symbol absent → producer block still emitted" "EXECUTOR DISPATCH BLOCK: chunk-producer" "$STDOUT_J"
+_assert_stdout_contains "J6: symbol absent → consumer block still emitted" "EXECUTOR DISPATCH BLOCK: chunk-consumer" "$STDOUT_J"
+
+# The NOTE must be on STDERR, not STDOUT — check stdout is clean of the NOTE
+_assert_stdout_not_contains "J7: NOTE goes to stderr, not stdout" "serial predecessor" "$STDOUT_J"
+
+# ---------------------------------------------------------------------------
+# Test J2 — Pinned-interface column, producer file does NOT exist (file-absent NOTE path)
+#            → offer NOTE on stderr, exit 0, dispatch blocks present.
+# Review: code-reviewer — exercises fan-out-dispatch.sh:298-300 (file-absent branch), which
+# was previously untested. Negative-spec: exit 0 (observer, not gate); NOTE on stderr.
+# Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2 (AC1)
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test J2: pinned-interface pin, producer file absent → offer NOTE on stderr, exit 0, blocks present ==="
+
+REPO_J2="${TMPDIR_ROOT}/repo_j2"
+_make_git_repo "$REPO_J2"
+
+# Producer file does NOT exist at all (not created on disk).
+PRODUCER_FILE_J2="${TMPDIR_ROOT}/nonexistent_producer.py"
+
+SPEC_J2="${TMPDIR_ROOT}/spec_j2.tsv"
+printf "chunk-producer\tAuthor the producer\t${PRODUCER_FILE_J2}\n" > "$SPEC_J2"
+printf "chunk-consumer\tAuthor the consumer\tconsumer.py\tsome_symbol@${PRODUCER_FILE_J2}\n" >> "$SPEC_J2"
+
+STDOUT_J2=""
+STDERR_J2=""
+EXIT_J2=0
+cd "$REPO_J2"
+STDOUT_J2="$(bash "$HELPER" --spec "$SPEC_J2" 2>${TMPDIR_ROOT}/stderr_j2.txt)" || EXIT_J2=$?
+STDERR_J2="$(cat "${TMPDIR_ROOT}/stderr_j2.txt")"
+cd - >/dev/null
+
+# AC1 — exit 0 (observer, not gate)
+_assert_exit_zero "J2a: file absent → exit 0 (offer, not gate)" "$EXIT_J2"
+
+# File-absent NOTE on stderr
+_assert_stderr_contains "J2b: file absent → NOTE on stderr" "NOTE:" "$STDERR_J2"
+_assert_stderr_contains "J2c: file absent → names the missing file" "does not exist" "$STDERR_J2"
+_assert_stderr_contains "J2d: file absent → names serial-fallback as remediation" "serial" "$STDERR_J2"
+
+# Dispatch blocks still present in stdout (concurrent dispatch proceeds)
+_assert_stdout_contains "J2e: file absent → producer block still emitted" "EXECUTOR DISPATCH BLOCK: chunk-producer" "$STDOUT_J2"
+_assert_stdout_contains "J2f: file absent → consumer block still emitted" "EXECUTOR DISPATCH BLOCK: chunk-consumer" "$STDOUT_J2"
+
+# ---------------------------------------------------------------------------
+# Test K — Legacy 3-field row → parses unchanged, exit 0.
+#           Backward-compat guard: 3-field rows must continue to work exactly as before.
+# Spec backlink: docs/plans/2026-06-22-invariant-verification-observers.md §C2 (AC2)
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test K: legacy 3-field row → backward-compat, exit 0 ==="
+
+REPO_K="${TMPDIR_ROOT}/repo_k"
+_make_git_repo "$REPO_K"
+
+SPEC_K="${TMPDIR_ROOT}/spec_k.tsv"
+printf 'legacy-chunk-1\tFix the legacy module\tlegacy.py,legacy_test.py\n' > "$SPEC_K"
+printf 'legacy-chunk-2\tFix another legacy module\tother.py\n' >> "$SPEC_K"
+
+STDOUT_K=""
+STDERR_K=""
+EXIT_K=0
+cd "$REPO_K"
+STDOUT_K="$(bash "$HELPER" --spec "$SPEC_K" 2>${TMPDIR_ROOT}/stderr_k.txt)" || EXIT_K=$?
+STDERR_K="$(cat "${TMPDIR_ROOT}/stderr_k.txt")"
+cd - >/dev/null
+
+_assert_exit_zero "K1: 3-field rows → exit 0" "$EXIT_K"
+_assert_stdout_contains "K2: 3-field rows → chunk-1 block emitted" "EXECUTOR DISPATCH BLOCK: legacy-chunk-1" "$STDOUT_K"
+_assert_stdout_contains "K3: 3-field rows → chunk-2 block emitted" "EXECUTOR DISPATCH BLOCK: legacy-chunk-2" "$STDOUT_K"
+_assert_stderr_not_contains "K4: 3-field rows → no interface-pin NOTE" "pinned interface" "$STDERR_K"
 
 # ---------------------------------------------------------------------------
 # Summary

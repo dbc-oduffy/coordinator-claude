@@ -107,19 +107,29 @@ if [[ ! -f "$_SELECTOR" ]]; then
   exit 2
 fi
 
-# Resolve a Python 3 interpreter the same way scan-addon-health.sh does.
-PY="${COORDINATOR_PYTHON:-}"
+# Resolve a Python 3 interpreter via the shared lib (honors COORDINATOR_PYTHON
+# env var and machine-local coordinator.python pin before falling through to
+# OS-level resolution).
+# shellcheck source=../lib/resolve-python.sh
+source "${_SCRIPT_DIR}/../lib/resolve-python.sh" || {
+  echo "[coordinator-doctor] ERROR: failed to source resolve-python.sh" >&2
+  exit 2
+}
+PY="$PYTHON_BIN"
 if [[ -z "$PY" ]]; then
-  if command -v python3 >/dev/null 2>&1; then
-    PY=python3
-  elif command -v python >/dev/null 2>&1; then
-    PY=python
-  else
-    # Without python we cannot run the selector or emit JSON safely.
-    echo "[coordinator-doctor] ERROR: no Python interpreter found — cannot run selector or probes" >&2
-    exit 2
-  fi
+  # Without python we cannot run the selector or emit JSON safely.
+  echo "[coordinator-doctor] ERROR: no Python interpreter found — cannot run selector or probes" >&2
+  exit 2
 fi
+
+# Human-readable identity of the interpreter the whoami / envelope probes use.
+# Editable installs (pip install -e) register only in ONE interpreter's
+# site-packages, so a "not importable" RED is ambiguous unless the note names
+# WHICH interpreter was tried — a genuine python3-vs-venv mismatch otherwise
+# looks identical to a stale install-timing RED. Naming it makes P-5/P-6/P-6s
+# self-diagnosing. (cross-repo memo 2026-06-20-coordinator-doctor-whoami-false-red.)
+_PY_PATH="$(command -v "$PY" 2>/dev/null || echo "$PY")"
+_PY_IDENT="$("$PY" --version 2>&1 | head -1) at $_PY_PATH"
 
 # ---------------------------------------------------------------------------
 # Compute ACTIVE_PROBES via the selector
@@ -251,10 +261,10 @@ fi
 if is_active "P-4"; then
   if [[ -n "$ml_cmd" ]]; then
     if ! "$ml_cmd" keys >/dev/null 2>&1; then
-      note_red "P-4" "machine-local CLI failed — verify ~/.claude/bin/ on PATH and registry.toml parses"
+      note_red "P-4" "machine-local CLI failed — registry.toml unparseable; re-run /coordinator:install Phase 3 (on macOS, ~/.claude/bin is reached via the coordinator/bin forwarder, not PATH directly)"
     fi
   else
-    note_red "P-4" "machine-local CLI not found on PATH — re-run /coordinator:install Phase 3"
+    note_red "P-4" "machine-local CLI not found on PATH — re-run /coordinator:install Phase 3 (on macOS, ~/.claude/bin is reached via the coordinator/bin forwarder, not PATH directly)"
   fi
 fi
 
@@ -276,7 +286,7 @@ _whoami_importable() {
 
 if is_active "P-5"; then
   if ! _whoami_importable; then
-    note_red "P-5" "coordinator_whoami not importable — pip install -e plugins/coordinator/whoami/"
+    note_red "P-5" "coordinator_whoami not importable under $_PY_IDENT — pip install -e plugins/coordinator/whoami/ (editable installs are per-interpreter; install under THIS interpreter, or set COORDINATOR_PYTHON to the one that has it)"
   fi
 fi
 
@@ -298,7 +308,7 @@ assert d.get('contract_version') == 1, 'contract_version != 1'
       note_red "P-6" "coordinator_whoami.project_rag envelope invalid — check registry keys + contract docs"
     fi
   else
-    note_red "P-6" "coordinator_whoami not importable — cannot probe project_rag envelope (fix P-5 first)"
+    note_red "P-6" "coordinator_whoami not importable under $_PY_IDENT — cannot probe project_rag envelope (fix P-5 first)"
   fi
 fi
 
@@ -321,7 +331,7 @@ assert d.get('plugin_name') == 'coordinator-session', 'plugin_name != coordinato
       note_red "P-6s" "coordinator_whoami.session envelope invalid — expected contract_version=1, plugin_name=coordinator-session"
     fi
   else
-    note_red "P-6s" "coordinator_whoami not importable — cannot probe session envelope (fix P-5 first)"
+    note_red "P-6s" "coordinator_whoami not importable under $_PY_IDENT — cannot probe session envelope (fix P-5 first)"
   fi
 fi
 
@@ -377,7 +387,7 @@ if is_active "P-10"; then
       note_red "P-10" "claude-home plugins did not resolve to a directory — resolver drift"
     fi
   else
-    note_red "P-10" "claude-home resolver not found — re-run /coordinator:install Phase 3"
+    note_red "P-10" "claude-home resolver not found — re-run /coordinator:install Phase 3 (on macOS, ~/.claude/bin is reached via the coordinator/bin forwarder, not PATH directly)"
   fi
 fi
 
@@ -457,6 +467,22 @@ if is_active "P-13"; then
     esac
   fi
   # If probe script is missing: silently skip (pre-ship install; not an error).
+fi
+
+# --- P-14: bare-name resolution of ~/.claude/bin resolvers (macOS regression net) ---
+# spec-backlink: docs/plans/2026-06-18-machine-local-bare-invocation-macos.md § C3
+# P-4/P-10 resolve ml_cmd/ch_cmd ABSOLUTE-path-first, so they pass even when bare-name
+# resolution is broken (the macOS ~/.claude/bin-not-on-PATH bug). This probe asserts the
+# bare names resolve on PATH (via the coordinator/bin forwarders), catching that regression.
+if is_active "P-14"; then
+  _bare_missing=""
+  command -v machine-local >/dev/null 2>&1 || _bare_missing="machine-local"
+  # builds "machine-local, claude-home" or just the single missing name
+  # Review: code-reviewer slice1-F5 — clarifying comment on concatenation idiom
+  command -v claude-home  >/dev/null 2>&1 || _bare_missing="${_bare_missing:+$_bare_missing, }claude-home"
+  if [[ -n "$_bare_missing" ]]; then
+    note_red "P-14" "bare-name resolver(s) not on PATH: $_bare_missing — coordinator/bin forwarder missing; re-run /coordinator:install (Phase 3)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

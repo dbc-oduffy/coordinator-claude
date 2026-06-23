@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: Initialize the coordinator session directory and write the
 # .current-session-id sentinel so coordinator-safe-commit can resolve the
 # session_id from a non-hook subprocess (the EM's interactive Bash).
@@ -169,7 +169,10 @@ unset _sw_pid_file _sw_pid
 # double-runs: the second mv fails ENOENT (file already archived), cs_archive
 # returns 1, and cs_reap_stale silently skips the entry. No data loss, no
 # double-archive. Review: code-reviewer — confirmed idempotent.
-if command -v cs_reap_stale &>/dev/null; then
+# Review: code-reviewer — guard tests cs_reap_stale_claims (what this block protects);
+# both cs_reap_stale and cs_reap_stale_claims live in the same sourced lib so they are
+# co-present, but the guard should name what it actually gates.
+if command -v cs_reap_stale_claims &>/dev/null; then
   REAP_MARKER="${SESSIONS_DIR}/.last-reap"
   REAP_INTERVAL=$(( 12 * 3600 ))
   _reap_now=$(date +%s 2>/dev/null || echo 0)
@@ -178,11 +181,14 @@ if command -v cs_reap_stale &>/dev/null; then
     # Review: code-reviewer — fallback 0 is intentional: unknown mtime → treat
     # as epoch-0, so the gap always exceeds REAP_INTERVAL and the reaper fires.
     # "trigger reap" default, not "skip reap".
+    # Review: code-reviewer — two-stat fallback chain (GNU stat -c %Y, BSD stat -f %m)
+    # is equivalent to lib's _cs_mtime_epoch $OSTYPE branch; harmonization deferred.
     _reap_last=$(stat -c %Y "$REAP_MARKER" 2>/dev/null || stat -f %m "$REAP_MARKER" 2>/dev/null || echo 0)
   fi
   if [[ "$_reap_now" -gt 0 && $(( _reap_now - _reap_last )) -ge "$REAP_INTERVAL" ]]; then
-    cs_reap_stale  >/dev/null 2>&1 || true
-    cs_reap_agents >/dev/null 2>&1 || true
+    cs_reap_stale        >/dev/null 2>&1 || true
+    cs_reap_agents       >/dev/null 2>&1 || true
+    cs_reap_stale_claims >/dev/null 2>&1 || true   # basename-only handoff claims (DR-110 fix)
     : > "$REAP_MARKER" 2>/dev/null || true
   fi
 fi

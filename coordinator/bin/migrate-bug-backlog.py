@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/bin/sh
 # ── sh/python polyglot trampoline ──────────────────────────────────────────────
 # The next line is inert Python (a bare string literal) but executable sh/bash.
 # It lets this CLI be invoked three ways that ALL Just Work:

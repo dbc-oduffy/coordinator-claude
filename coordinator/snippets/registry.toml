@@ -16,16 +16,20 @@
 # Path conventions in `consumers` arrays:
 #   - "agents/<name>.md"           → resolves under $PLUGIN_ROOT (coordinator plugin root)
 #   - "../<plugin>/agents/<name>"  → sibling plugin under the plugins/ tree
+#     (same-marketplace siblings only — cross-marketplace consumers use a file-exists conditional_consumer, not this flat form)
 #
-# Conditional consumers (e.g. holodeck sibling repo) use [[snippet.<name>.conditional_consumer]]:
-#   - `condition_type = "machine-local-key"` is the only supported type today.
-#   - `condition_key` resolves via the machine-local registry (env var is
-#     DERIVED — uppercase, dots/hyphens → underscores). See machine-local-registry.md § 4.
-#   - `path` is relative to the directory resolved by `condition_key` — i.e., the
-#     value of `machine-local get <condition_key>`. For
-#     condition_key = "repos.claude_unreal_holodeck" this resolves to the holodeck
-#     repo root, so "coordinator/agents/staff-eng.md" resolves as
-#     $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md.
+# Conditional consumers use [[snippet.<name>.conditional_consumer]] with a `condition_type` axis:
+#   - `condition_type = "file-exists"` (cross-marketplace live-install consumers): `path` is
+#     relative to $PLUGIN_ROOT and emitted iff the file exists (graceful -f skip otherwise).
+#     `condition_key` is FORBIDDEN on file-exists entries (parse-error). Use this for consumers
+#     in a SIBLING marketplace tree (e.g. game-dev under claude-unreal-holodeck): from
+#     $PLUGIN_ROOT (plugins/coordinator-claude/coordinator) the live install is
+#     "../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md". A runtime verifier syncs
+#     LIVE-INSTALL copies only — never a sibling repo's source working tree (publish.sh-outward).
+#   - `condition_type = "machine-local-key"` (sibling-REPO presence via the registry): `path` is
+#     relative to the directory resolved by `condition_key` (env var DERIVED — uppercase,
+#     dots/hyphens → underscores; see machine-local-registry.md § 4). `condition_key` REQUIRED.
+#     No current consumer uses this form (retained as a supported, tested future axis).
 #   (Review: patrik-c2 — F1: disambiguate conditional-consumer path resolution root
 #    vs. the $PLUGIN_ROOT / ../<sibling> conventions used in `consumers` arrays.)
 #
@@ -36,9 +40,10 @@
 # set-equality, not sequence-equality.
 # (Review: patrik-c2 — F5: consumer ordering must be specified for C3/C4 consumers.)
 #
-# Required vs. optional fields:
+# Required vs. optional fields (per-condition_type contract — DR F6 as amended 2026-06-19):
 #   [snippet.<name>]                      sentinel_begin, sentinel_end, consumers — all REQUIRED
-#   [[snippet.<name>.conditional_consumer]] path, condition_type, condition_key — all REQUIRED
+#   [[…conditional_consumer]] condition_type=machine-local-key: path + condition_type + condition_key REQUIRED
+#   [[…conditional_consumer]] condition_type=file-exists:        path + condition_type REQUIRED; condition_key FORBIDDEN
 # (Review: patrik-c2 — F6: enumerate required/optional fields for C3/C4 implementers.)
 #
 # schema_version: bump when the field set changes. Readers (C3 CLI, C4 verifier)
@@ -52,12 +57,14 @@
 
 # Review: patrik-c2 — F4: schema_version field; bump on field-set changes;
 # C3 CLI and C4 verifier MUST fail-loud on unknown version.
-schema_version = 1
+# v2 (2026-06-19): added condition_type "file-exists"; per-condition_type field contract
+# (machine-local-key requires condition_key; file-exists FORBIDS it). See DR § file-exists.
+schema_version = 2
 
 # ---------------------------------------------------------------------------
 # reviewer-calibration — Patrik calibration block, consumed by all named
-# Opus-tier reviewer personas + vp-product, plus 2 holodeck conditionals
-# (coordinator/staff-eng AND game-dev/staff-game-dev).
+# Opus-tier reviewer personas + vp-product, plus 1 holodeck conditional
+# (game-dev/staff-game-dev, file-exists live-install).
 # ---------------------------------------------------------------------------
 [snippet.reviewer-calibration]
 sentinel_begin = "<!-- BEGIN reviewer-calibration (synced from snippets/reviewer-calibration.md) -->"
@@ -66,24 +73,18 @@ consumers = [
   "agents/staff-eng.md",
   "agents/vp-product.md",
   "../data-science/agents/staff-data-sci.md",
-  "../game-dev/agents/staff-game-dev.md",
   "../web-dev/agents/senior-front-end.md",
 ]
 
-# Both holodeck conditionals present: coordinator-side staff-eng.md carries the
-# reviewer-calibration sentinel (verified against holodeck repo); game-dev/staff-game-dev.md
-# also carries it. This snippet is unique among the 4 in having 2 holodeck conditionals.
-# (Review: patrik-c2 — F3: document why reviewer-calibration has 2 holodeck conditionals
-# while the other 3 snippets have only 1.)
+# game-dev/staff-game-dev.md (live install under the claude-unreal-holodeck marketplace dir)
+# carries the reviewer-calibration sentinel — resolved via file-exists against $PLUGIN_ROOT,
+# graceful-skip when the holodeck marketplace is not installed.
+# (2026-06-19: the prior coordinator/staff-eng.md machine-local-key conditional was removed —
+# holodeck vendors no staff-eng.md, and a runtime verifier syncs live-install copies only, not
+# a sibling repo's source tree. See DR § file-exists + live-install principle.)
 [[snippet.reviewer-calibration.conditional_consumer]]
-path           = "coordinator/agents/staff-eng.md"
-condition_type = "machine-local-key"
-condition_key  = "repos.claude_unreal_holodeck"
-
-[[snippet.reviewer-calibration.conditional_consumer]]
-path           = "game-dev/agents/staff-game-dev.md"
-condition_type = "machine-local-key"
-condition_key  = "repos.claude_unreal_holodeck"
+path           = "../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md"
+condition_type = "file-exists"
 
 # ---------------------------------------------------------------------------
 # docs-checker-consumption — pre-review docs-checker sidecar consumption,
@@ -96,18 +97,14 @@ consumers = [
   "agents/eng-director.md",
   "agents/staff-eng.md",
   "../data-science/agents/staff-data-sci.md",
-  "../game-dev/agents/staff-game-dev.md",
   "../web-dev/agents/senior-front-end.md",
 ]
 
-# Sid (staff-game-dev) is the only holodeck consumer; coordinator-side
-# staff-eng.md in holodeck does NOT carry this sentinel (verified against
-# holodeck $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md on dispatch).
-# (Review: patrik-c2 — F3: document asymmetry vs. reviewer-calibration's 2 conditionals.)
+# game-dev/staff-game-dev.md (live install) is the only holodeck conditional for this snippet,
+# resolved via file-exists against $PLUGIN_ROOT (graceful-skip when holodeck is not installed).
 [[snippet.docs-checker-consumption.conditional_consumer]]
-path           = "game-dev/agents/staff-game-dev.md"
-condition_type = "machine-local-key"
-condition_key  = "repos.claude_unreal_holodeck"
+path           = "../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md"
+condition_type = "file-exists"
 
 # ---------------------------------------------------------------------------
 # plan-coverage-check-consumption — plan-coverage-checker sidecar consumption,
@@ -123,14 +120,11 @@ consumers = [
   "../web-dev/agents/senior-front-end.md",
 ]
 
-# Sid (staff-game-dev) is the only holodeck consumer; coordinator-side
-# staff-eng.md in holodeck does NOT carry this sentinel (verified against
-# holodeck $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md on dispatch).
-# (Review: patrik-c2 — F3: document asymmetry vs. reviewer-calibration's 2 conditionals.)
+# game-dev/staff-game-dev.md (live install) is the only holodeck conditional for this snippet,
+# resolved via file-exists against $PLUGIN_ROOT (graceful-skip when holodeck is not installed).
 [[snippet.plan-coverage-check-consumption.conditional_consumer]]
-path           = "game-dev/agents/staff-game-dev.md"
-condition_type = "machine-local-key"
-condition_key  = "repos.claude_unreal_holodeck"
+path           = "../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md"
+condition_type = "file-exists"
 
 # ---------------------------------------------------------------------------
 # prior-art-check-consumption — prior-art-checker sidecar consumption,
@@ -143,15 +137,11 @@ consumers = [
   "agents/eng-director.md",
   "agents/staff-eng.md",
   "../data-science/agents/staff-data-sci.md",
-  "../game-dev/agents/staff-game-dev.md",
   "../web-dev/agents/senior-front-end.md",
 ]
 
-# Sid (staff-game-dev) is the only holodeck consumer; coordinator-side
-# staff-eng.md in holodeck does NOT carry this sentinel (verified against
-# holodeck $HOLODECK_REPO_ROOT/coordinator/agents/staff-eng.md on dispatch).
-# (Review: patrik-c2 — F3: document asymmetry vs. reviewer-calibration's 2 conditionals.)
+# game-dev/staff-game-dev.md (live install) is the only holodeck conditional for this snippet,
+# resolved via file-exists against $PLUGIN_ROOT (graceful-skip when holodeck is not installed).
 [[snippet.prior-art-check-consumption.conditional_consumer]]
-path           = "game-dev/agents/staff-game-dev.md"
-condition_type = "machine-local-key"
-condition_key  = "repos.claude_unreal_holodeck"
+path           = "../../claude-unreal-holodeck/game-dev/agents/staff-game-dev.md"
+condition_type = "file-exists"

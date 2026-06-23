@@ -23,7 +23,7 @@ Extract knowledge from accumulated session artifacts into evergreen wiki documen
 
 | Artifact | Fate | Rationale |
 |---|---|---|
-| Canonical plan / spec (`docs/plans/*.md`) | **Trim → move to `archive/specs/`** | Keep the "how" greppable; strip review-applied wrappers and side-channel meta only after re-homing any constraints they introduced. |
+| Canonical plan / spec (`docs/plans/*.md`) — **RIPE only** | **Trim → move to `archive/specs/YYYY-MM/`** | Keep the "how" greppable; strip review-applied wrappers and side-channel meta only after re-homing any constraints they introduced. **Only RIPE (delivered) plans take this fate** — ripeness is classified by the `plan-delivery-audit` Oracle (`skills/plan-delivery-audit/SKILL.md:128-136`): `status: implemented`/`shipped` + ACs-pass-at-HEAD → RIPE. PARTIAL / IN-FLIGHT / ABANDONED plans are SKIP (not harvested, not archived) — see `PIPELINE.md` § Phase 0 ripeness gate. |
 | Enriched stubs, reviewer outputs, integrator triage, docs-checker reports | **Delete** | Pure scaffolding. Recoverable from git via distillation log. |
 | Wiki entries (`docs/wiki/*.md`) | **Write/update** | What-and-why summary. Carries provenance frontmatter. |
 | Archived handoffs (`archive/handoffs/*.md`) — added 2026-05-08 | **Extract → delete (opt-out via `--no-delete`)** | Post-`/pickup` paper trail. Contains decision rationale and reusable patterns; once those are distilled into DRs and wiki entries, the source is recoverable from git. See § Handoff distillation below. |
@@ -98,7 +98,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 3c** | Coordinator (mechanical) | `DIRECTORY_GUIDE.md` assembly — read Phase 2 frontmatter + Phase 0 wiki inventory, write `directory_entries:` YAML manifest + prose preview; no subagent |
 | **Phase 3d** | Sonnet (single) | Deletion manifest — per-file `deletions:` YAML block and (schema v2) grouped `deletion_groups:` sibling key; >50-row self-check switches bulk EPHEMERAL/ALREADY_CAPTURED to grouped form; prose table is derived PM-readable view. Full schema: `agent-prompts/phase-3d.md` |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest + DIRECTORY_GUIDE.md preview, wait for explicit approval |
-| **Phase 5** | Coordinator | Apply wiki writes via manifest-driven done-conditions (file-path set-diff vs. `git diff --stat`); trim + archive canonical specs (including rationale extraction); delete scaffolding via YAML `deletions:` manifest; update distillation log; run link-heal pass |
+| **Phase 5** | Coordinator | Apply wiki writes via manifest-driven done-conditions (file-path set-diff vs. `git diff --stat`); **trim + archive the ripe-plan cohort first and bank it (harvest-before-disposal invariant, see § Phase 5 intro)** — including **Decision Rationale extraction** (§ 5a, required); delete scaffolding via YAML `deletions:` manifest; update distillation log; run link-heal pass |
 <!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
 
 **If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3d and presents the summary.
@@ -213,13 +213,45 @@ Add `cross-repo/archive/<basename>.md` to the path-rewrite ripgrep set alongside
 
 ---
 
+## Phase 4 — PM Gate: Atlas Staleness Advisory (sensor, non-blocking)
+
+Before presenting the deletion manifest at the Phase 4 PM gate, `/distill` runs a **read-only atlas staleness check** and, if warranted, surfaces a one-line advisory. **`/distill` is the sensor; `/architecture-audit` is the actuator** — distill NEVER invokes the audit, NEVER blocks on the result, and NEVER writes the atlas. The advisory simply lets the PM choose to refresh the architecture map *before* the source material being mapped is buried. The two skills stay separate (no fusion, no breadcrumb lay-up). Doctrine source for the sensor/actuator split: `docs/wiki/atlas-watch-script-convention.md` (this is a third read-only consumer of the sensor, after `/architecture-audit` Step 1 and `/workweek-complete`); DR-153, DR-154.
+
+**Procedure:**
+
+1. **Run the sensor:** `bash ${CLAUDE_PLUGIN_ROOT}/bin/check-atlas-watch-drift.sh` (pure read, always exits 0; emits one `FRESH|DRIFT|MISSING|STALE <system> …` line per atlas page).
+2. **Map this run's churn to atlas systems** via a **simple keyword/path-prefix map** (explicitly NOT a pluggable predicate framework — aligns with `atlas-watch-script-convention.md` non-goal). **The churn set is the file paths the run's RIPE plans actually MODIFIED** — read from each ripe plan's `File Lists` / `## Files` section (or the commit range that shipped it), NOT the plan's own `docs/plans/…` filename — **plus subsystem references in the archived handoffs being processed.** Match those modified-file paths against the path-prefix column below. (Maintenance: keep the 7 rows reconciled with the atlas system pages `check-atlas-watch-drift.sh` enumerates from `docs/architecture/systems/*.md` — when a system page is added, add a row.) Seed map (heuristic — extend as systems are added):
+
+   | Atlas system | Path-prefix / keyword signals |
+   |---|---|
+   | `coordinator-pipeline` | `skills/`, `pipelines/`, `commands/` (pipeline orchestration) |
+   | `coordinator-skills` | `skills/<name>/SKILL.md` (skill bodies specifically) |
+   | `coordinator-runtime` | `bin/`, `hooks/`, `lib/`, `snippets/` |
+   | `support-reviewers` | `agents/` (reviewer personas) |
+   | `ci-validation` | `.github/`, `validate-*.py`, `check-*.py`, `run-all-checks` |
+   | `deep-research` | `plugins/deep-research/` |
+   | `holodeck-plugins` | `plugins/claude-unreal-holodeck/`, `game-dev/`, `holodeck-control/` |
+
+3. **Surface the advisory (non-blocking):** for each churned system whose sensor line is `DRIFT` or `STALE`, emit at the gate:
+   > _Good cause to run `/architecture-audit` on `<system(s)>` before deletion — `last_mapped`/`last_attested` is staler than the material this run buries._
+
+   The PM may proceed or pause to refresh. Either way distill continues only on the existing Phase 4 approval — this adds a decision item to the gate, not a new halt.
+4. **No-map path — fail-loud-soft (observability).** When the run's churn maps to **no** atlas system, do NOT go silent — emit one line at the gate:
+   > _churn touched `<top-level paths>`; no atlas-system mapping — advisory skipped._
+
+   A silent no-map would make the advisory toothless-by-omission (the exact "detect-then-silently-pick is a footgun" failure). The degradation to status-quo is fine; it must be **observable**, not invisible. (A missed/`FRESH` mapping is silent — only the no-map case emits the skipped-line.)
+
+---
+
 ## Phase 5 — Apply, Trim + Archive, Delete, Heal
+
+**Harvest-before-disposal ordering invariant (the plan-priority rule).** Plan files are the highest-yield distillation source (see § four-fate intro and `PIPELINE.md:49`), and plan trim+archive (§ 5a) is also the heaviest, most-likely-to-be-skipped sub-step — so it runs **first and is banked (committed or staged) before any ephemera deletion**. The order is: (1) apply wiki/DR writes, (2) **trim + archive the ripe-plan cohort (§ 5a) and commit that**, (3) only then delete scaffolding/handoffs/memos. A budget-truncated run must complete the plan harvest before the disposal tier — the cheap mechanical deletion never preempts the expensive plan archival. This directly counters the "apply-agent silently drops the transform when budget tightens" failure noted under § 5a Apply-agent slice rubric.
 
 Phase 5 has four major sub-steps. They run in order; each depends on the prior.
 
 ### 5a. Spec Trim + Archive — Structural Rubric
 
-Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffolding and moved to `archive/specs/YYYY-MM-DD-<name>.md`. Do not delete — move. The trimmed spec remains greppable by RAG.
+Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffolding and moved to `archive/specs/YYYY-MM/<name>.md` — **month-foldered by the spec's date prefix** (`<name>` retains its full dated filename, e.g. `archive/specs/2026-04/2026-04-29-port-patterns-implementation.md`). Do not delete — move. The trimmed spec remains greppable by RAG. (Month-foldering keeps `archive/specs/` navigable as it grows past ~100 entries; the `YYYY-MM` segment is derived mechanically from the leading `YYYY-MM-DD` of the spec filename.)
 
 **ALLOWLIST sections — survive verbatim:**
 - Goal
@@ -265,7 +297,7 @@ Re-homing handles structural items (constraints, ACs, decisions stated as such).
 3. Extract Decision Rationale from DENYLIST sections (still in place) into `## Decision Rationale` section.
 4. Strip DENYLIST sections — runs only after steps 2 + 3 are complete and EM-approved.
 5. Review MIDDLE sections for EM approval.
-6. Move (not copy) trimmed result to `archive/specs/YYYY-MM-DD-<name>.md`.
+6. Move (not copy) trimmed result to `archive/specs/YYYY-MM/<name>.md` — derive the `YYYY-MM/` subdir from the spec's `YYYY-MM-DD` filename prefix; `mkdir -p` the month dir if absent.
 
 **Apply-agent slice rubric:** When dispatching apply-agents in Phase 5, slice "mv files" steps separately from "transform contents" steps. Bundling them in a single agent brief lets the apply-agent silently drop the transform when its budget tightens (mv work is mechanical and visibly succeeds; content transforms are higher-risk and quietly skipped). One agent per slice — keep mv-only briefs and content-transform briefs in separate dispatches.
 <!-- Review: the Staff Engineer R3 — F0: steps 2+3 both operate on the pre-strip spec; step 3 sources rationale FROM DENYLIST sections, so stripping (step 4) must follow both; preconditions made explicit -->
@@ -278,14 +310,16 @@ Every wiki entry produced by or updated during a distill run that summarizes a n
 
 ```yaml
 provenance:
-  - archived_spec: archive/specs/2026-04-29-port-patterns-implementation.md
+  - archived_spec: archive/specs/2026-04/2026-04-29-port-patterns-implementation.md
     original_path: docs/plans/2026-04-29-port-patterns-implementation.md
     last_verbose_sha: acc49ed5
     distilled: 2026-04-29
 ```
 
+`archived_spec:` carries the **month-foldered** post-move path (`archive/specs/YYYY-MM/<name>.md`); `original_path:` retains the **pre-move** `docs/plans/` path verbatim (it is correct as a historical reference and is NOT a link-heal target — see § 5d carve-out).
+
 **Retrieval recipes (in order of preference):**
-1. Read the trimmed archived spec at `archive/specs/<name>.md` — covers structure, decisions, and rationale.
+1. Read the trimmed archived spec at `archive/specs/YYYY-MM/<name>.md` — covers structure, decisions, and rationale.
 2. For verbose original (review history, integrator chatter): `git show <last_verbose_sha>:<original_path>`.
 
 ---
@@ -323,9 +357,12 @@ Path: `state/distillation-log.md` (per-project). Created on first distill run; p
 After specs are moved and scaffolding is deleted, stale references exist across the codebase. The link-heal pass finds and rewrites them.
 
 **Targets to rewrite:**
-- Canonical spec path (`docs/plans/foo.md`, with or without `§` section refs) → `archive/specs/<new>.md`
+- Canonical spec path (`docs/plans/foo.md`, with or without `§` section refs) → month-foldered `archive/specs/YYYY-MM/<new>.md`
+- **Pre-existing flat archived-spec references** (`archive/specs/<name>.md`, from before month-foldering) → `archive/specs/YYYY-MM/<name>.md`. **`spec_backlink:` frontmatter/field references are a NAMED non-hyperlink heal-target class** — they are NOT markdown links, so the generic ripgrep link-set misses them; grep `spec_backlink:\s*archive/specs/` explicitly and rewrite each to the foldered path.
 - Deleted stub paths (`tasks/<feature>/stubs/*.md`) → wiki target with parenthetical `(formerly tasks/<feature>/stubs/P1-A.md @ <sha>)`
 - Intra-spec references inside the archived spec itself pointing to sibling stubs that were just deleted (second pass on the trimmed spec after archival)
+
+**Carve-out — paths that legitimately RETAIN the flat/pre-move form (do NOT rewrite):** `original_path:` lines (intentionally the pre-move `docs/plans/…` path), `provenance:` blocks, `state/distillation-log.md` rows, and `git show <sha>:<original_path>` retrieval-recipe lines. (Note: `archived_spec:` is NOT in this carve-out for a different reason — post-migration it already carries the month-foldered path, so it is not a stale ref needing either rewrite or exemption.) These intentionally preserve the pre-move path as a historical reference (per § 5b). Scope the heal to **link contexts** (markdown link targets + `spec_backlink:`); exclude provenance/log/recipe lines as an architectural carve-out, not a glob afterthought.
 
 **Tooling:** `ripgrep --multiline --multiline-dotall` covering file types `md, json, yaml, yml, ps1, sh, py, ts, js, txt`. Scan: `.claude/`, `tasks/`, `docs/`, `archive/`, plugin dirs, repo root configs.
 
@@ -420,7 +457,14 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 | `/distill` | Extract knowledge into wiki docs, trim + archive canonical specs, delete scaffolding |
 | `/update-docs` Phase 8b | Bulk prune without knowledge extraction — runs unconditionally under conservative thresholds (`pipelines/update-docs/artifact-pruning.md`) |
 
-The two are complementary: `/distill` extracts knowledge into wiki *before* source material is discarded; `/update-docs` Phase 8b performs the raw cleanup. Run `/distill` when there's wiki-worthy knowledge in the artifacts about to age out; rely on `/update-docs` Phase 8b for routine bulk pruning.
+**Two meanings of "archive" — the load-bearing division.** "Archive" names two distinct lifecycles, and the two commands own one each:
+
+- **Knowledge-archival (`/distill` owns it).** Trim a *ripe, delivered* plan to its canonical skeleton and move it to `archive/specs/YYYY-MM/`, *after* extracting its knowledge into wiki/DR. This is extraction-coupled — re-homing constraints (§ 5a) MUST precede the move — so it cannot be hoisted out of `/distill` into a dumber janitor. The trimmed spec is itself a canonical shape (RAG-greppable structure), complementary to the wiki's narrative.
+- **Age-archival (`/update-docs` Phase 8b owns it).** Time-thresholded janitorial pruning of aged, non-knowledge-bearing artifacts. No extraction, no trim — just bulk cleanup once material crosses an age line.
+
+The two are complementary, and the lineage is already partially documented: `/distill` extracts knowledge into wiki *before* the source material gets pruned (see § "For bulk pruning…" above), and `docs/wiki/cruft-sweep-cadence.md` frames "filesystem hygiene is a distinct lifecycle from knowledge extraction (`/distill`) and artifact pruning (`/update-docs` Phase 8b)." Run `/distill` when there's wiki-worthy knowledge in the artifacts about to age out; rely on `/update-docs` Phase 8b for routine bulk pruning.
+
+**Ordering hazard (same shape as the cross-repo-memo 90d floor):** `/update-docs` Phase 8b age-deletes plans older than its retention floor. That floor MUST exceed the `/distill` cadence — otherwise age-archival could `git rm` a RIPE-but-unharvested plan before knowledge-archival extracts it (git history survives, but the wiki/DR promotion never runs). See `pipelines/update-docs/artifact-pruning.md` § Scope (plans row).
 
 **Prior-art-checker:** Phase 2.5 judgment entries are written to `docs/wiki/codebase-judgment/`. Prior-art-checker consults this subdirectory (via recursive `docs/wiki/**/*.md` glob) on every plan check, so future plans receive cached Opus-tier judgment at Sonnet cost with zero additional wiring. See `agents/prior-art-checker.md` and `docs/wiki/prior-art-checker.md`.
 

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: nudge the EM to delegate web research to dedicated skills/agents.
 # Uses "allow" — never blocks, just injects a nudge into Claude's context.
 # Single URL from the user = proceed directly. Everything else = delegate.

@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+/* ============================================================================
+   Design tokens — dark-first shell
+   ============================================================================ */
+
+:root {
+  /* Core colors — dark theme as primary */
+  --background: #0D1313;
+  --foreground: #FFFFFF;
+  --muted: #6B7280;
+  --muted-foreground: #9CA3AF;
+
+  /* Brand */
+  --primary: #00DDD6;
+  --primary-dark: #005C7E;
+  --primary-foreground: #000000;
+
+  /* Surface colors */
+  --card: #1A1F1F;
+  --card-foreground: #FFFFFF;
+  --border: #2D3333;
+
+  /* Semantic colors */
+  --destructive: #EF4444;
+  --warning: #F59E0B;
+  --success: #22C55E;
+
+  /* Scrollbar tokens */
+  --scrollbar-width: 8px;
+  --scrollbar-track: var(--background);
+  --scrollbar-thumb: var(--border);
+  --scrollbar-thumb-hover: var(--muted);
+}
+
+/* Tailwind v4 theme extensions — maps CSS custom properties to utility classes
+   (bg-card, border-border, text-muted-foreground, etc.). */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+
+  /* Popover / dropdown surfaces */
+  --color-popover: var(--card);
+  --color-popover-foreground: var(--card-foreground);
+  --color-accent: #2D3333;
+  --color-accent-foreground: var(--foreground);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", monospace;
+}
+
+/* Base styles */
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}

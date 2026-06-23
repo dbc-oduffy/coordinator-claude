@@ -142,8 +142,13 @@ VERSION_FLAG=false
 PHASE_LIST=false
 LAST_STATUS=false
 I_AM_AGENT=false
-
-export SKIP_DEP_CHECK ACCEPT_MISSING_DEPS_RISK CHECK_FLAG HELP_FLAG VERSION_FLAG PHASE_LIST LAST_STATUS I_AM_AGENT
+# chain-preinstall is stateful-by-contract (NOT in the read-only carve-out): the --phase
+# case sets this marker instead of exiting inline, so the post-parse agent/token gate decides
+# exit 92 vs no-op body. Mirrors coordinator setup.sh. agent-install-contract.md § chain-preinstall.
+_RUN_CHAIN_PREINSTALL=false
+# (Pre-loop export removed for parity with coordinator setup.sh F5 — code-reviewer slice-A F1.
+#  The post-loop export at the canonical block below is authoritative; a pre-loop export would
+#  ship the stale pre-parse `_RUN_CHAIN_PREINSTALL=false` to any subshell launched mid-parse.)
 
 while [[ $# -gt 0 ]]; do
     arg="$1"
@@ -155,6 +160,11 @@ while [[ $# -gt 0 ]]; do
             echo "  --help                     Print this help and exit."
             echo "  --version                  Print script version and exit."
             echo "  --phase-list               List install phases and exit."
+            echo "  --phase <name>             Run a named install phase and exit."
+            echo "                             Stateful phases (gated): chain-preinstall — pre-restart"
+            echo "                               full-install seam; requires \$COORDINATOR_CHAIN_PREINSTALL_CONSENT (or"
+            echo "                               the override pair) in agent mode; no-op body (DR is pure-plugin)."
+            echo "                             Unknown phase names exit non-zero (fail-loud)."
             echo "  --last-status              Print last install status JSON and exit."
             echo "  --check                    Read-only dep probe + status report. No state written."
             echo "                             DR-specific read-only extension (chain step 4 of 5)."
@@ -173,8 +183,43 @@ while [[ $# -gt 0 ]]; do
             ;;
         --phase-list)
             PHASE_LIST=true
-            echo "dep-check:  probe coordinator-claude soft dep and report status"
+            echo "Available --phase <name> values:"
+            echo "  chain-preinstall  Pre-restart full-install seam (stateful-by-contract; gated by \$COORDINATOR_CHAIN_PREINSTALL_CONSENT in agent mode; no-op body — DR is pure-plugin)"
+            echo ""
+            echo "Informational (NOT --phase <name> values):"
+            echo "  dep-check:  probe coordinator-claude soft dep and report status"
             exit 0
+            ;;
+        --phase)
+            # Value-taking dispatch flag (added for chain-preinstall — DR's first --phase).
+            # Mirrors coordinator setup.sh: flag-shaped-value guard + unknown-phase fail-loud.
+            if [[ $# -lt 2 ]]; then
+                echo "ERROR: --phase requires a phase name argument." >&2
+                echo "Run with --phase-list to see available phases." >&2
+                echo "Run with --help for full usage." >&2
+                exit 1
+            fi
+            _PHASE_NAME="$2"
+            shift  # consume the phase name token ($2); inner case branches exit or fall through
+            if [[ "${_PHASE_NAME}" == --* ]]; then
+                echo "ERROR: --phase requires a phase name, but got a flag ('${_PHASE_NAME}'). Did you forget the phase name?" >&2
+                exit 1
+            fi
+            case "${_PHASE_NAME}" in
+                chain-preinstall)
+                    # Stateful-by-contract — NOT an inline read-only exit. Set the marker and
+                    # DO NOT exit; the post-parse agent/token gate decides exit 92 vs no-op body.
+                    # Phase-level gate, uniform across legs. agent-install-contract.md § chain-preinstall.
+                    # (DR seeds no seed-install-spinoff: coordinator seeds DR's spinoff from a template.)
+                    _RUN_CHAIN_PREINSTALL=true
+                    ;;
+                *)
+                    echo "ERROR: Unknown --phase value: '${_PHASE_NAME}'" >&2
+                    echo "Run with --phase-list to see available phase names." >&2
+                    echo "Run with --help for full usage." >&2
+                    exit 1
+                    ;;
+            esac
             ;;
         --last-status)
             LAST_STATUS=true
@@ -207,7 +252,7 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-export SKIP_DEP_CHECK ACCEPT_MISSING_DEPS_RISK CHECK_FLAG HELP_FLAG VERSION_FLAG PHASE_LIST LAST_STATUS I_AM_AGENT
+export SKIP_DEP_CHECK ACCEPT_MISSING_DEPS_RISK CHECK_FLAG HELP_FLAG VERSION_FLAG PHASE_LIST LAST_STATUS I_AM_AGENT _RUN_CHAIN_PREINSTALL
 
 # ---------------------------------------------------------------------------
 # Override-flag pair integrity check.
@@ -232,14 +277,36 @@ fi
 if [[ "${I_AM_AGENT:-false}" == true || "${ADDON_RUN_MODE:-}" == "agent" ]]; then
     if [[ "${SKIP_DEP_CHECK:-false}" == true && "${ACCEPT_MISSING_DEPS_RISK:-false}" == true ]]; then
         : # full override pair present — fall through
+    elif [[ "${_RUN_CHAIN_PREINSTALL:-false}" == true && -n "${COORDINATOR_CHAIN_PREINSTALL_CONSENT:-}" ]]; then
+        : # chain-preinstall phase inside a consented chain walk — fall through.
+          # The consent token is the same trust altitude as the override pair (a deliberate
+          # redirect-guard escape, not a capability token). agent-install-contract.md § chain-preinstall.
     else
         echo "AGENT_MANIFEST_PATH=docs/install/AGENT.md" >&2
         echo "[setup] Agent-direct invocation detected. Use /deep-research:setup instead." >&2
         echo "[setup] Agent install guide: docs/install/AGENT.md" >&2
-        echo "[setup] To run non-interactively, supply both:" >&2
-        echo "[setup]   --i-am-agent --skip-dep-check --accept-missing-deps-risk" >&2
+        if [[ "${_RUN_CHAIN_PREINSTALL:-false}" == true ]]; then
+            echo "[setup] --phase chain-preinstall requires a consented chain walk:" >&2
+            echo "[setup]   set \$COORDINATOR_CHAIN_PREINSTALL_CONSENT (the chain-walk token) — or supply the override pair" >&2
+            echo "[setup]   --i-am-agent --skip-dep-check --accept-missing-deps-risk" >&2
+        else
+            echo "[setup] To run non-interactively, supply both:" >&2
+            echo "[setup]   --i-am-agent --skip-dep-check --accept-missing-deps-risk" >&2
+        fi
         exit 92
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# chain-preinstall phase body (post-gate). Reached only when the agent/token
+# gate above passed (or in non-agent mode). deep-research-claude is a pure
+# coordinator-plugin with no script-install body, so chain-preinstall is a
+# no-op here — it still routes THROUGH the gate above (phase-level gate,
+# uniform across legs), then exits 0. NOT in the read-only carve-out.
+# ---------------------------------------------------------------------------
+if [[ "${_RUN_CHAIN_PREINSTALL:-false}" == true ]]; then
+    echo "deep-research-claude: chain step 4 of 5 — nothing to preinstall (chain-preinstall no-op body; pure-plugin, no script-install). Capability install happens at downstream heavy-install legs."
+    exit 0
 fi
 
 # ---------------------------------------------------------------------------

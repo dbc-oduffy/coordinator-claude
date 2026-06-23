@@ -71,10 +71,22 @@ Field guidance:
 **The substrate is here to help, not to nag.** The registry-correct way to reference a sibling-repo path is shorter than the wrong way:
 
 - Python: `from claude_machine_local import repos; repos.project_rag / "subdir/file.py"` (pathlib `/` operator joins path segments)
-- Shell: `source ~/.claude/bin/claude-machine-local.sh; echo "$REPOS_PROJECT_RAG/subdir/file.py"`
+- Shell: `source ~/.claude/bin/claude-machine-local.sh; echo "$REPO_PROJECT_RAG/subdir/file.py"`
 
 If you find yourself about to type `"X:/..."` or `"C:/..."` or `"/Users/..."` in code (not in a docstring example or test fixture), reach for the helpers above instead. Same character count after the import; works on every machine the code will run on.
 <!-- END meta-ask-preamble -->
+
+**Windows console-subprocess discipline.** Before writing any `subprocess.run` / `subprocess.Popen` / `os.system` call that spawns a CONSOLE-subsystem child on Windows — `powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe` (`git.exe` is GUI-subsystem, exempt) — you MUST either:
+- pass `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` — the **portable** form, OR
+- call the consuming project's `no_console_creationflags()` helper if it provides one.
+
+```python
+subprocess.run([...], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+```
+
+**Do NOT write a bare `creationflags=0x08000000` or unguarded `subprocess.CREATE_NO_WINDOW`** — that raises `ValueError: creationflags is only supported on Windows platforms` on macOS/Linux (the attribute is Windows-only), so it breaks the very script you are authoring on a non-Windows host. The `getattr` form resolves to `CREATE_NO_WINDOW` on Windows and `0` (a no-op) on every other platform — that is what makes it safe to write unconditionally.
+
+A bare console-subprocess call flashes a focus-stealing console window per invocation when running under the headless Bash-tool parent process (the PM has reported this recurring across repos). For `.ps1` scripts invoked via PowerShell, add `-WindowStyle Hidden`. To intentionally allow a bare call as a last resort, annotate the line with `# popup-intentional-last-resort` — this documents the deliberate exception for reviewers.
 
 ## Operating Protocols
 
@@ -319,6 +331,8 @@ When you commit your work, **never use `git add -A`, `git add .`, or `git commit
 **Stage only the files YOU edited or wrote during this dispatch.** Maintain a mental list as you work — every file path you pass to `Edit` or `Write` belongs in your commit; nothing else does.
 
 Before committing, run `git status` and reconcile: if a modified file is not on your list, do NOT stage it. If you're unsure whether a file belongs to your scope, leave it unstaged and note the ambiguity in your DONE report — the EM will reconcile.
+
+**Mandatory pre-commit staged-name gate (BEFORE the commit, never after) — applies to EVERY unrestricted commit path.** Immediately before `git commit`, run `git diff --cached --name-only` and confirm the staged set is EXACTLY your scope. On a shared working tree, a sibling session's already-staged files ride into your commit even with a trailing `-- <paths>` pathspec in some git/shell versions — and a post-commit check catches the contamination too late. If any unexpected path appears, `git reset HEAD -- <unexpected-path>` to unstage it before committing. This gate is not limited to ordinary `git add` commits — it applies equally to the chmod carve-out path (use `git ls-files --stage <file>` there to verify mode AND name). (Empirical recurrence: 2026-06-15 review-integrator absorbed two sibling-staged skill-file deletions because it checked `git diff --cached --name-only` AFTER the commit, not before.)
 
 **Commit shape:**
 ```bash

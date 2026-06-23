@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-daily-branch.sh — Shared helpers for daily-branch discipline enforcement
 #
 # NOTE on examples: tests under bin/tests/ use `striker` / `STRIKER` as

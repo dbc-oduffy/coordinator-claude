@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Runtime Tripwire — Agent-Side Advisory (PostToolUse hook)
 #
 # Purpose: Fires inside a SUBAGENT session. Emits an additionalContext nudge

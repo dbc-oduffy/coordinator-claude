@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PreToolUse hook: Blocks coordinator:executor Edit/Write to docs/plans/**/*.md
 # plan bodies. Other subagents (review-integrator, enricher, prior-art-checker,
 # plan-coverage-checker, named reviewers, etc.) are allowed — applying findings
@@ -46,9 +46,9 @@
 #       e.g. an explicitly plan-authoring executor dispatch).
 #
 # Deny mechanism: hookSpecificOutput.permissionDecision → stdout → exit 0
-#   (mirrors block-off-daily-branch.sh:262-277, NOT the monolith hook's
-#    {"decision":"block"}→stderr→exit 1 shape which is documented as a non-blocking
-#    failure mode in hook-best-practices.md:14-28).
+#   (the Form-A deny shape, mirroring block-off-daily-branch.sh:262-277; the
+#    block-* hooks including block-completion-monolith-write.sh all now use this
+#    correct shape — hook-best-practices.md:14-28).
 #
 # Tripwires registry: docs/wiki/coordinator-tripwires.md (EXECUTOR-PLAN-BODY-IMMUTABLE)
 

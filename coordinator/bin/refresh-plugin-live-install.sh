@@ -236,6 +236,22 @@ if plugin_name not in mirrors:
 entry = mirrors[plugin_name]
 prop_mode = entry.get("propagation_mode", "")
 if prop_mode == "source_is_live":
+    # source_is_live is a structural no-op for CONTENT (the live install IS the
+    # canonical source — e.g. an NTFS junction or ~/.claude itself). But an
+    # editable-installed Python plugin can still carry STALE venv metadata: pip
+    # show / importlib.metadata report the version recorded at the last
+    # `pip install -e`, which lags pyproject after a version bump nobody reinstalled
+    # (holodeck-em 2026-06-09: project-rag junction live at 0.10.0, pip show 0.8.0).
+    # Surface source_path + dist_name so the shell can run a venv-currency probe;
+    # fall back to the bare SOURCE_IS_LIVE sentinel when there is nothing to probe
+    # (no source_path, or a non-Python plugin with no pyproject.toml).
+    sil_source = entry.get("source_path", "")
+    sil_dist = entry.get("dist_name", plugin_name.replace("-", "_"))
+    if sil_source and (pathlib.Path(sil_source) / "pyproject.toml").exists():
+        print("SOURCE_IS_LIVE_VENV")
+        print(f"source_path={sil_source}")
+        print(f"dist_name={sil_dist}")
+        sys.exit(0)
     print("SOURCE_IS_LIVE")
     sys.exit(0)
 
@@ -286,6 +302,113 @@ REGISTRY_OUTPUT="$(_read_registry)" || {
 # Handle source_is_live mode — structural no-op, clean exit.
 if [[ "$REGISTRY_OUTPUT" == "SOURCE_IS_LIVE" ]]; then
     echo "refresh-plugin-live-install.sh: $PLUGIN has propagation_mode=source_is_live — live install IS the canonical source. No refresh needed."
+    exit 0
+fi
+
+# Handle source_is_live mode WITH a venv-currency probe.
+#
+# Content is canonical (the live install IS the source — junction / ~/.claude), so
+# there is no git/copy leg. But an editable-installed Python plugin can still carry
+# STALE pip/venv metadata: the dist-info Version is frozen at the last
+# `pip install -e`, and lags pyproject after a version bump nobody reinstalled
+# (holodeck-em 2026-06-09: project-rag junction live at 0.10.0, pip show 0.8.0 —
+# importlib.metadata then mis-reports the version to any consumer that reads it).
+# We read the installed Version from dist-info METADATA directly (what `pip show`
+# reads) rather than spawning `pip show` — no subprocess → no Windows console popup.
+# On skew we re-run the editable install into the plugin's own .venv.
+if [[ "$(printf '%s' "$REGISTRY_OUTPUT" | head -1)" == "SOURCE_IS_LIVE_VENV" ]]; then
+    SIL_SOURCE=""
+    SIL_DIST=""
+    while IFS='=' read -r key value; do
+        # Review: code-reviewer F2 — skip the sentinel line so it never lands in a
+        # case branch (SOURCE_IS_LIVE_VENV has no '=' so value would be empty, but
+        # making the contract explicit prevents surprises if the sentinel ever changes).
+        [[ "$key" == "SOURCE_IS_LIVE_VENV" ]] && continue
+        case "$key" in
+            source_path) SIL_SOURCE="$value" ;;
+            dist_name)   SIL_DIST="$value"   ;;
+        esac
+    done <<< "$REGISTRY_OUTPUT"
+    SIL_SOURCE="${SIL_SOURCE//\\//}"   # normalise Windows backslashes from registry
+
+    # pyproject version (the canonical source-of-truth version).
+    SIL_PYPROJECT="$SIL_SOURCE/pyproject.toml"
+    SIL_SRC_VER="$(grep -E '^version[[:space:]]*=' "$SIL_PYPROJECT" 2>/dev/null \
+        | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*["'\'']?([^"'\'' ]+)["'\'']?.*/\1/' | tr -d '\r')" || SIL_SRC_VER=""
+
+    # Installed version from dist-info METADATA in the plugin's own .venv (source IS live).
+    SIL_VENV="$SIL_SOURCE/.venv"
+    SIL_DIST_INFO=""
+    for _sp in "$SIL_VENV"/Lib/site-packages "$SIL_VENV"/lib/python*/site-packages; do
+        [[ -d "$_sp" ]] || continue
+        for _di in "$_sp/${SIL_DIST}"-*.dist-info; do
+            [[ -d "$_di" ]] && { SIL_DIST_INFO="$_di"; break 2; }
+        done
+    done
+    SIL_INST_VER=""
+    if [[ -n "$SIL_DIST_INFO" && -f "$SIL_DIST_INFO/METADATA" ]]; then
+        SIL_INST_VER="$(grep -E '^Version:' "$SIL_DIST_INFO/METADATA" 2>/dev/null \
+            | head -1 | sed -E 's/^Version:[[:space:]]*//' | tr -d '\r')" || SIL_INST_VER=""
+    fi
+
+    # Nothing actionable (no pyproject version, or no installed dist-info) → structural no-op.
+    # Review: code-reviewer F4 — include dist_name in the message so a misconfigured or
+    # absent dist_name is immediately diagnosable rather than silently reporting '?'.
+    if [[ -z "$SIL_SRC_VER" || -z "$SIL_INST_VER" ]]; then
+        echo "refresh-plugin-live-install.sh: $PLUGIN propagation_mode=source_is_live — content canonical; venv-currency not probeable (dist_name='${SIL_DIST:-?}' source='${SIL_SRC_VER:-?}' installed='${SIL_INST_VER:-?}'). No refresh needed."
+        exit 0
+    fi
+
+    if [[ "$SIL_SRC_VER" == "$SIL_INST_VER" ]]; then
+        echo "refresh-plugin-live-install.sh: $PLUGIN propagation_mode=source_is_live — venv current (v$SIL_INST_VER). No refresh needed."
+        exit 0
+    fi
+
+    # Version skew → re-run the editable install so pip metadata catches up to source.
+    echo "refresh-plugin-live-install.sh: $PLUGIN propagation_mode=source_is_live — venv STALE: installed=v$SIL_INST_VER, source=v$SIL_SRC_VER. Re-running editable install."
+
+    # Resolve the venv interpreter for `--python` (mirrors the editable_sibling_venv leg).
+    SIL_UNAME="$(uname -s 2>/dev/null || echo '')"
+    if [[ "$SIL_UNAME" == MINGW* ]] || [[ "$SIL_UNAME" == CYGWIN* ]] || [[ -n "${WINDIR:-}" ]]; then
+        SIL_VENV_PY="$SIL_VENV/Scripts/python.exe"
+    else
+        SIL_VENV_PY="$SIL_VENV/bin/python"
+    fi
+
+    SIL_RC=0
+    SIL_INSTALL_TOOL=""
+    if [[ -n "${COORDINATOR_REFRESH_VENV_INSTALL_CMD:-}" ]]; then
+        # Test/override seam (explicit override → default, build-for-someone-else's-machine
+        # path order). The command receives SIL_SOURCE / SIL_VENV_PY in the environment.
+        # Review: code-reviewer F5 — emit a visible warning so the seam is never silently
+        # active in a real operator run (the seam is test-only; it is never set from
+        # registry or stream input, so no injection risk beyond the warning).
+        echo "refresh-plugin-live-install.sh: WARNING: COORDINATOR_REFRESH_VENV_INSTALL_CMD override active — skipping real editable install" >&2
+        SIL_INSTALL_TOOL="seam-override"
+        SIL_SOURCE="$SIL_SOURCE" SIL_VENV_PY="$SIL_VENV_PY" bash -c "$COORDINATOR_REFRESH_VENV_INSTALL_CMD" || SIL_RC=$?
+    elif command -v uv >/dev/null 2>&1; then
+        # Review: code-reviewer F6 — record which install path was taken.
+        SIL_INSTALL_TOOL="uv"
+        uv pip install -e "$SIL_SOURCE" --python "$SIL_VENV_PY" || SIL_RC=$?
+    elif [[ -x "$SIL_VENV_PY" ]]; then
+        SIL_INSTALL_TOOL="pip"
+        "$SIL_VENV_PY" -m pip install -e "$SIL_SOURCE" --quiet || SIL_RC=$?
+    else
+        echo "refresh-plugin-live-install.sh: $PLUGIN source_is_live venv refresh — no uv on PATH and no venv python at '$SIL_VENV_PY'." >&2
+        echo "  Manual: uv pip install -e '$SIL_SOURCE' --python '$SIL_VENV_PY'" >&2
+        exit 1
+    fi
+    if [[ $SIL_RC -ne 0 ]]; then
+        echo "refresh-plugin-live-install.sh: $PLUGIN source_is_live venv refresh FAILED (exit $SIL_RC)." >&2
+        echo "  Manual retry: uv pip install -e '$SIL_SOURCE' --python '$SIL_VENV_PY'" >&2
+        exit 1
+    fi
+    if [[ -n "${REFRESH_LOG:-}" ]]; then
+        # Review: code-reviewer F6 — append install_tool so the audit row records which path ran.
+        printf '%s %s source_is_live venv-refresh v%s->v%s install_tool=%s\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$PLUGIN" "$SIL_INST_VER" "$SIL_SRC_VER" "${SIL_INSTALL_TOOL:-unknown}" >> "$REFRESH_LOG" 2>/dev/null || true
+    fi
+    echo "refresh-plugin-live-install.sh: $PLUGIN source_is_live venv refreshed to v$SIL_SRC_VER."
     exit 0
 fi
 

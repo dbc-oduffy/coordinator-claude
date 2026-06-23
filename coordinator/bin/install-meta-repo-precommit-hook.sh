@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Install the meta-repo pre-commit exec-bit drift gate.
 #
 # Idempotent. Conditional: only installs when cwd is the meta-repo

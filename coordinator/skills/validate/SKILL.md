@@ -3,7 +3,7 @@ name: validate
 description: Use before commit, /merge-to-main, /workday-complete, or to validate repo state. Resolves and runs the project's configured fast-test command.
 description-budget: 175
 version: 2.0.0
-spec_backlink: archive/specs/2026-05-28-workday-complete-fast-test-resolution.md §3.5
+spec_backlink: archive/specs/2026-05/2026-05-28-workday-complete-fast-test-resolution.md §3.5
 ---
 
 # Local CI Validation

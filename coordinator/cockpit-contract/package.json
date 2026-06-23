@@ -1,0 +1,30 @@
+{
+  "name": "@coordinator/cockpit-contract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Work-state data contract (tc-2) — the pinned interface every cockpit producer and consumer speaks. Canonical wire format is the emitted JSON Schema under schema/.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "schema", "src"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "emit": "tsx scripts/emit-schema.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "prepare": "pnpm run build"
+  },
+  "dependencies": {
+    "zod": "~4.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}

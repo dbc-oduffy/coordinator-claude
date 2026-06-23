@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/bin/sh
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
 """
 migrate-bug-backlog.test.py — unit tests for migrate-bug-backlog.py
 

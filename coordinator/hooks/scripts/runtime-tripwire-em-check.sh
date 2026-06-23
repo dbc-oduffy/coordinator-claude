@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Runtime Tripwire — EM-Side Awareness (PostToolUse hook)
 #
 # Purpose: Fires in the EM session. Self-throttled 5 min. Reads the EM's

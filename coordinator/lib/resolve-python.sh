@@ -157,6 +157,71 @@ _resolve_python_pyorg_search() {
   return 1
 }
 
+# ---------------------------------------------------------------------------
+# Pinned-interpreter tier (OS-agnostic, runs before OS detection).
+#
+# Resolution order:
+#   1. COORDINATOR_PYTHON env var (non-empty)
+#   2. machine-local get coordinator.python (if machine-local CLI is available)
+#
+# A found pin is VALIDATED — a file that exists but cannot run
+# `python -c 'import sys'` (e.g. a dangling venv shim) is a hard failure:
+# print an error and return 1.  Silently falling through to bare python3 when
+# a pin is broken masks the exact failure this guard exists to catch.
+#
+# On success: PYTHON_BIN is set and PYTHON_ARGS is reset to () so a stale
+# ("-3") from a prior run cannot leak onto an absolute-path pin.
+# On no-pin-found: fall through to the OS-detection block below.
+#
+# Spec backlink: docs/plans/2026-06-20-whoami-durable-install-surface.md § C1
+# ---------------------------------------------------------------------------
+_resolve_python_pin_candidate=""
+
+# 1. Env var override.
+if [[ -n "${COORDINATOR_PYTHON:-}" ]]; then
+  _resolve_python_pin_candidate="$COORDINATOR_PYTHON"
+fi
+
+# 2. machine-local registry (only if env var not set).
+if [[ -z "$_resolve_python_pin_candidate" ]]; then
+  _ml_cli=""
+  if command -v machine-local &>/dev/null; then
+    _ml_cli="machine-local"
+  else
+    # Lib-relative fallback: <lib-dir>/../bin/machine-local
+    _ml_librel="$(dirname "${BASH_SOURCE[0]}")/../bin/machine-local"
+    if [[ -x "$_ml_librel" ]]; then
+      _ml_cli="$_ml_librel"
+    fi
+  fi
+  unset _ml_librel
+
+  if [[ -n "$_ml_cli" ]]; then
+    _ml_pin="$("$_ml_cli" get coordinator.python 2>/dev/null || true)"
+    if [[ -n "$_ml_pin" ]]; then
+      _resolve_python_pin_candidate="$_ml_pin"
+    fi
+    unset _ml_pin
+  fi
+  unset _ml_cli
+fi
+
+# Validate and apply any pin found.
+if [[ -n "$_resolve_python_pin_candidate" ]]; then
+  if "$_resolve_python_pin_candidate" -c 'import sys' >/dev/null 2>&1; then
+    PYTHON_BIN="$_resolve_python_pin_candidate"
+    PYTHON_ARGS=()
+  else
+    echo "resolve-python: pinned interpreter '$_resolve_python_pin_candidate' is invalid (exists but cannot run 'import sys'). Run bin/ensure-coordinator-venv.sh to rebuild the coordinator venv." >&2
+    unset _resolve_python_pin_candidate
+    return 1
+  fi
+fi
+unset _resolve_python_pin_candidate
+
+# ---------------------------------------------------------------------------
+# OS-detection fallback — runs only when no pin was applied above.
+#
 # Windows: prefer windowless variants (pythonw.exe / pyw.exe) to avoid
 # brief console-window flashes on every hook invocation. python.exe is
 # /SUBSYSTEM:CONSOLE and Windows allocates a fresh console when the parent
@@ -175,64 +240,66 @@ _resolve_python_pyorg_search() {
 # whatever gate the script implements.  Use lib/spawn-hidden.sh with
 # --stdin-mode=pipe for those sites (which passes through transparently,
 # preserving the live handle, and relies on the machine-belt for suppression).
-_is_windows=0
-case "$(uname -s 2>/dev/null)" in
-  MINGW*|MSYS*|CYGWIN*|Windows*) _is_windows=1 ;;
-esac
+if [[ -z "$PYTHON_BIN" ]]; then
+  _is_windows=0
+  case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*|Windows*) _is_windows=1 ;;
+  esac
 
-if [[ "$_is_windows" == "1" ]]; then
-  # Step 1 — direct probe of the python.org installer locations. This bypasses
-  # PATH entirely (and therefore the Store-Python symlink farm in
-  # %LOCALAPPDATA%\Microsoft\WindowsApps\), preferring the windowless variant
-  # to keep console-flash suppression.
-  _resolved="$(_resolve_python_pyorg_search 1 || true)"
-  if [[ -n "$_resolved" ]]; then
-    PYTHON_BIN="$_resolved"
-  fi
-  unset _resolved
+  if [[ "$_is_windows" == "1" ]]; then
+    # Step 1 — direct probe of the python.org installer locations. This bypasses
+    # PATH entirely (and therefore the Store-Python symlink farm in
+    # %LOCALAPPDATA%\Microsoft\WindowsApps\), preferring the windowless variant
+    # to keep console-flash suppression.
+    _resolved="$(_resolve_python_pyorg_search 1 || true)"
+    if [[ -n "$_resolved" ]]; then
+      PYTHON_BIN="$_resolved"
+    fi
+    unset _resolved
 
-  # Step 2 — fall back to PATH resolution, but reject any match under WindowsApps.
-  if [[ -z "$PYTHON_BIN" ]]; then
-    # pythonw3 is not a real binary on any python.org Windows distribution.
-    # Review: code-reviewer — pythonw3 does not exist; removed from probe list.
-    for _name in pythonw python3 python; do
-      if command -v "$_name" &>/dev/null; then
-        _candidate="$(_resolve_python_absolutize "$_name" || true)"
-        if [[ -n "$_candidate" ]] && ! _resolve_python_is_store "$_candidate"; then
-          PYTHON_BIN="$_candidate"
-          break
+    # Step 2 — fall back to PATH resolution, but reject any match under WindowsApps.
+    if [[ -z "$PYTHON_BIN" ]]; then
+      # pythonw3 is not a real binary on any python.org Windows distribution.
+      # Review: code-reviewer — pythonw3 does not exist; removed from probe list.
+      for _name in pythonw python3 python; do
+        if command -v "$_name" &>/dev/null; then
+          _candidate="$(_resolve_python_absolutize "$_name" || true)"
+          if [[ -n "$_candidate" ]] && ! _resolve_python_is_store "$_candidate"; then
+            PYTHON_BIN="$_candidate"
+            break
+          fi
         fi
-      fi
-    done
-    unset _name _candidate
-  fi
+      done
+      unset _name _candidate
+    fi
 
-  # Step 3 — the `py` / `pyw` launcher. Trust it: it reads PEP 514 registry
-  # entries and selects an installed 3.x — typically the python.org install
-  # if one exists, not the Store package.
-  if [[ -z "$PYTHON_BIN" ]]; then
-    if command -v pyw &>/dev/null && pyw -3 --version &>/dev/null; then
-      PYTHON_BIN="pyw"
-      PYTHON_ARGS=("-3")
-    elif command -v py &>/dev/null && py -3 --version &>/dev/null; then
-      PYTHON_BIN="py"
-      PYTHON_ARGS=("-3")
+    # Step 3 — the `py` / `pyw` launcher. Trust it: it reads PEP 514 registry
+    # entries and selects an installed 3.x — typically the python.org install
+    # if one exists, not the Store package.
+    if [[ -z "$PYTHON_BIN" ]]; then
+      if command -v pyw &>/dev/null && pyw -3 --version &>/dev/null; then
+        PYTHON_BIN="pyw"
+        PYTHON_ARGS=("-3")
+      elif command -v py &>/dev/null && py -3 --version &>/dev/null; then
+        PYTHON_BIN="py"
+        PYTHON_ARGS=("-3")
+      fi
+    fi
+  else
+    # Non-Windows — bare-name PATH resolution, then absolutize.
+    if command -v python3 &>/dev/null; then
+      PYTHON_BIN="python3"
+    elif command -v python &>/dev/null; then
+      PYTHON_BIN="python"
+    fi
+    if [[ -n "$PYTHON_BIN" ]]; then
+      _resolved="$(_resolve_python_absolutize "$PYTHON_BIN" || true)"
+      [[ -n "$_resolved" ]] && PYTHON_BIN="$_resolved"
+      unset _resolved
     fi
   fi
-else
-  # Non-Windows — bare-name PATH resolution, then absolutize.
-  if command -v python3 &>/dev/null; then
-    PYTHON_BIN="python3"
-  elif command -v python &>/dev/null; then
-    PYTHON_BIN="python"
-  fi
-  if [[ -n "$PYTHON_BIN" ]]; then
-    _resolved="$(_resolve_python_absolutize "$PYTHON_BIN" || true)"
-    [[ -n "$_resolved" ]] && PYTHON_BIN="$_resolved"
-    unset _resolved
-  fi
-fi
-unset _is_windows
+  unset _is_windows
+fi  # end: no-pin fallback block
 
 # Seed PATH so child processes that re-resolve the interpreter by name (Python
 # subprocess.run(["python3"]), uv, pip, venv shims) find a working binary in

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Context Pressure Advisory — PostToolUse hook
 #
 # Moved from UserPromptSubmit (2026-03-28): UserPromptSubmit hooks block

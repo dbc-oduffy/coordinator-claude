@@ -86,6 +86,8 @@ The auditor answers: *"Did the synthesis carry the research?"* It emits a `-cove
 
 These are distinct artifacts with distinct owners. The auditor does not replace or modify `gap-report.md`.
 
+**Dispatch context — Agent-Teams vs `Workflow()`.** The pipelines natively dispatch the auditor as an Agent-Teams non-teammate, where `Write` to its sidecar path is permitted. If you instead drive the repo pipeline inside a `Workflow()` (a legitimate deterministic harness for repo research — scout → specialist → synth → audit), the Workflow runtime denies subagent `Write` ("subagents return findings as text"). The auditor now carries `Bash` and self-heals via a heredoc fallback (see `agents/coverage-auditor.md` § Persistence), so its sidecar still lands on disk — but **verify the sidecar exists on disk** after a Workflow-dispatched audit rather than trusting the returned text.
+
 ### Depth→relay mapping
 
 In addition to the always-on coverage auditor, deep-tier pipelines run a **fidelity relay**: idle specialists are woken (via `SendMessage`) to verify their own content was faithfully represented in the synthesis. The relay runs as an internal synthesizer phase before TeamDelete — never as a Team-2 step.

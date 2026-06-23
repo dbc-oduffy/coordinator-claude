@@ -6,6 +6,6 @@
 **The substrate is here to help, not to nag.** The registry-correct way to reference a sibling-repo path is shorter than the wrong way:
 
 - Python: `from claude_machine_local import repos; repos.project_rag / "subdir/file.py"` (pathlib `/` operator joins path segments)
-- Shell: `source ~/.claude/bin/claude-machine-local.sh; echo "$REPOS_PROJECT_RAG/subdir/file.py"`
+- Shell: `source ~/.claude/bin/claude-machine-local.sh; echo "$REPO_PROJECT_RAG/subdir/file.py"`
 
 If you find yourself about to type `"X:/..."` or `"C:/..."` or `"/Users/..."` in code (not in a docstring example or test fixture), reach for the helpers above instead. Same character count after the import; works on every machine the code will run on.

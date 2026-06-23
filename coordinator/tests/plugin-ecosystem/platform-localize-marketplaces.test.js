@@ -587,3 +587,113 @@ describe('codex opt-in path (install Phase 6 Codex Integration)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Suite 3 — self-heal of a clone-bound coordinator-claude marketplace
+//
+// `claude plugin marketplace add <clone-path>` registers a *directory* source
+// that Claude Code resolves from that path on every load and never copies into
+// ~/.claude. Move/delete the clone and the installed plugins orphan even though
+// the payload is still cached. platform-localize.sh repairs exactly that broken
+// state — and ONLY that state — by rewriting the entry to the public GitHub
+// source so Claude Code re-caches it self-containedly.
+//
+// Source issue: coordinator-plugin-clone-dependency (2026-06-22 Windows dogfood).
+// ---------------------------------------------------------------------------
+describe('platform-localize.sh self-heals a clone-bound coordinator-claude marketplace', () => {
+  // Fail loud at the suite level if the live hook is absent — these tests assert
+  // runtime behavior of the installed script, so a missing script is a real
+  // problem here, not a reason to silently pass (matches Suite 2's stance).
+  before(function () {
+    if (!fs.existsSync(SCRIPT)) {
+      throw new Error(`platform-localize.sh not found at ${SCRIPT} — cannot run self-heal tests`);
+    }
+  });
+
+  function seedCoordinator(sandbox, { sourcePath, makeCache }) {
+    const pluginsDir = path.join(sandbox, '.claude', 'plugins');
+    const kmPath = path.join(pluginsDir, 'known_marketplaces.json');
+    const km = {
+      'coordinator-claude': {
+        source: { source: 'directory', path: sourcePath },
+        installLocation: sourcePath,
+        lastUpdated: '2026-06-22T00:00:00Z',
+      },
+    };
+    fs.writeFileSync(kmPath, JSON.stringify(km, null, 2) + '\n');
+    if (makeCache) {
+      fs.mkdirSync(path.join(pluginsDir, 'cache', 'coordinator-claude', 'coordinator', '2.7.1'), { recursive: true });
+    }
+    return kmPath;
+  }
+
+  // Mirror of AC4: run the repo's known_marketplaces schema validator against the
+  // sandbox so the repaired github entry is proven schema-valid (installLocation +
+  // lastUpdated are required on EVERY entry — github included).
+  function assertSchemaValid(sandbox) {
+    if (!PYTHON) return; // Python-less env: skip the schema cross-check, structural asserts still ran.
+    const validatorPath = path.join(findRepoRoot(), '.github', 'scripts', 'validate-json-schemas.py');
+    if (!fs.existsSync(validatorPath)) return;
+    execFileSync(PYTHON, [validatorPath], {
+      cwd: path.join(sandbox, '.claude'),
+      env: sandboxedHomeEnv(sandbox),
+      stdio: 'pipe',
+    });
+  }
+
+  it('rewrites a MISSING clone-bound directory source to the GitHub source', () => {
+    const sandbox = mkSandbox();
+    try {
+      const missing = path.join(sandbox, 'gone', 'coordinator-claude'); // never created
+      const kmPath = seedCoordinator(sandbox, { sourcePath: missing, makeCache: true });
+      runScript(sandbox);
+      const km = JSON.parse(fs.readFileSync(kmPath, 'utf8'));
+      const entry = km['coordinator-claude'];
+      assert.ok(entry, 'coordinator-claude entry must survive the repair (not be deleted)');
+      assert.equal(entry.source.source, 'github',
+        'a missing clone-bound directory source must be rewritten to a github source');
+      assert.equal(entry.source.repo, 'dbc-oduffy/coordinator-claude');
+      // Schema parity: the validator requires installLocation + lastUpdated (string) on every entry.
+      assert.equal(typeof entry.installLocation, 'string', 'repaired entry must carry installLocation');
+      assert.ok(entry.installLocation.includes('marketplaces'),
+        'installLocation must point under plugins/marketplaces/ (the github cache path CC populates)');
+      assert.equal(typeof entry.lastUpdated, 'string', 'repaired entry must carry lastUpdated');
+      assertSchemaValid(sandbox);
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves an EXISTING clone-bound directory source untouched (contributor dev-loop)', () => {
+    let sandbox, cloneDir;
+    try {
+      sandbox = mkSandbox();
+      cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coord-clone-present-'));
+      const kmPath = seedCoordinator(sandbox, { sourcePath: cloneDir, makeCache: true });
+      runScript(sandbox);
+      const km = JSON.parse(fs.readFileSync(kmPath, 'utf8'));
+      assert.ok(km['coordinator-claude'], 'an existing clone-bound entry must NOT be deleted by stale-removal');
+      assert.equal(km['coordinator-claude'].source.source, 'directory',
+        'a directory source whose path still exists is intentional (dev-loop) and must be left alone');
+      assert.equal(km['coordinator-claude'].source.path, cloneDir);
+    } finally {
+      if (sandbox) fs.rmSync(sandbox, { recursive: true, force: true });
+      if (cloneDir) fs.rmSync(cloneDir, { recursive: true, force: true });
+    }
+  });
+
+  it('does NOT convert when the cached payload is absent (nothing to repair to)', () => {
+    const sandbox = mkSandbox();
+    try {
+      const missing = path.join(sandbox, 'gone', 'coordinator-claude');
+      const kmPath = seedCoordinator(sandbox, { sourcePath: missing, makeCache: false });
+      runScript(sandbox);
+      const km = JSON.parse(fs.readFileSync(kmPath, 'utf8'));
+      assert.ok(km['coordinator-claude'], 'entry must be preserved (coordinator-claude is excluded from stale-removal)');
+      assert.equal(km['coordinator-claude'].source.source, 'directory',
+        'with no cached payload there is nothing to repair to — leave the entry as-is');
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true });
+    }
+  });
+});

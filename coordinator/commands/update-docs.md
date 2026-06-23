@@ -7,8 +7,6 @@ argument-hint: "[--no-distill]"
 
 # Update Documentation — Repo-Wide Maintenance
 
-Ensure all documentation reflects the current state of the codebase.
-
 ## Instructions
 
 Repo-wide maintenance — syncs all documentation artifacts to match the current codebase state, regardless of which agent(s) made the changes.
@@ -21,15 +19,11 @@ Repo-wide maintenance — syncs all documentation artifacts to match the current
 
 **Out-of-scope actions for the doc-maintenance agent:** DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, or any `gh` command mutating GitHub state beyond pushing the current branch. DO NOT commit to `main`. If you find yourself reaching for a merge, STOP and surface to the EM. The EM merges via `/merge-to-main`.
 
-### Execution Workflow
-
-Phases below are the source of truth — the headings enumerate everything this command does. No separate "what this does" list (it drifts).
-
 ### Pre-flight: Fresh-Repo Precondition Probe
 
 Before running any phase, probe whether the repo has accumulated anything worth maintaining. If ALL THREE axes below indicate a freshly-scaffolded repo with no doc-relevant activity, emit the no-op-loud message and EXIT — do NOT dispatch the doc-maintenance agent against empty inputs.
 
-This is the **produce-not-prescribe** principle (`docs/wiki/produce-not-prescribe.md`) applied as a downstream self-gate: `/coordinator:repo-setup` produces the minimum-viable substrate (orientation_cache.md, project-tracker.md, README.md, CLAUDE.md); `/update-docs` adds-to those artifacts once content accumulates, rather than re-creating from scratch on a fresh repo.
+Applies the **produce-not-prescribe** principle (`docs/wiki/produce-not-prescribe.md`): `/update-docs` adds-to the substrate `/coordinator:repo-setup` produced; it does not re-create from scratch on a fresh repo.
 
 **Threshold (conjunctive AND — all three must be true for the no-op to fire):**
 
@@ -40,9 +34,12 @@ if [ ! -f CLAUDE.md ] && [ ! -f .git/HEAD ]; then
   : # explicit no-op; skip the probe entirely
 else
 
-# Axis 1 — source-file surface: DIRECTORY.md does not yet exist (no source indexed)
+# Axis 1 — source-file surface: no DIRECTORY.md anywhere (no source indexed)
+# Check BOTH the documented default (root ./DIRECTORY.md, per Phase 2) and docs/DIRECTORY.md.
+# Either present ⇒ source is indexed ⇒ axis1=0. Keying on docs/ alone false-flagged
+# repos using the documented root convention as "freshly-scaffolded" (false no-op).
 axis1=0
-[ ! -f docs/DIRECTORY.md ] && axis1=1
+[ ! -f docs/DIRECTORY.md ] && [ ! -f DIRECTORY.md ] && axis1=1
 
 # Axis 2 — completed-work archive: empty
 # Note: archive/completed/ containing only .gitkeep will set axis2=0 (probe falls through to pipeline — intentional false-negative-NEVER bias)
@@ -69,9 +66,9 @@ fi
 fi
 ```
 
-**Portability note (per DR-148):** Execution target is **bash ≥ 4 + BSD coreutils**. The probe uses portable idioms only — no `grep -P`, no `realpath`, no GNU-only `find` flags. `find tasks -name '*.md' -type f` is portable across BSD and GNU `find`; `ls -A` is portable. Verify with `bash -n` before committing — see `docs/wiki/cross-platform-shell-portability.md` for the BSD coreutils-axis specifics. For future maintainers: paste the probe block into a `.sh` file and run `bash -n <file>` to verify syntax — the markdown-fenced block here cannot be lint-checked in place.
+**Portability note (per DR-148):** Uses portable idioms only — no `grep -P`, no `realpath`, no GNU-only `find` flags. See `docs/wiki/cross-platform-shell-portability.md`.
 
-**Bias:** false-negative-NEVER. The conjunctive AND means if even ONE axis suggests real maintenance is due, the probe falls through and the full pipeline runs. Better to run a no-op pipeline than silently skip real work.
+**Bias:** false-negative-NEVER. If even ONE axis suggests maintenance is due, the probe falls through and the full pipeline runs.
 
 #### Phase 0: Quick-Save Before Docs
 
@@ -193,7 +190,7 @@ Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
 
 Spec backlink: `docs/plans/2026-06-08-tasks-state-folder-split.md` § C5.
 
-**`state/`** is load-bearing session substrate (queues, trackers, ledgers, handoffs, recheck markers, etc.). **`/update-docs` never archives, prunes, or deletes any path under `state/`.** Sweeps of `state/` surfaces are surgical and named — `coordinator:learn-lessons` writes `state/lessons.md`; Phase 11i's queue pruner operates on named queue files only; the orientation-cache regenerator (Phase 10) runs its own schema-governed replacement. No blanket sweep ever touches `state/`.
+**`state/`** is load-bearing session substrate (queues, trackers, ledgers, handoffs, recheck markers, etc.). **`/update-docs` never archives, prunes, or deletes any path under `state/`.** Only surgical named sweeps apply (e.g., Phase 11i queue pruner on named queue files; Phase 10 orientation-cache regenerator on its own schema).
 
 **`tasks/`** is the aggressive sweep target: UUID flight-recorder dirs, dated reports, dated topic dirs, and loose scratch. Phases 8b and 13 may archive or delete from `tasks/` under the thresholds defined in their respective sub-routines. Specific rules:
 
@@ -203,7 +200,7 @@ Spec backlink: `docs/plans/2026-06-08-tasks-state-folder-split.md` § C5.
 - **UUID flight-recorder dirs** — managed by the Tasks API; `/update-docs` does **NOT** touch them.
 - **Frontmatter `status: superseded` or `status: archived`** on any `tasks/*.md` → archive immediately regardless of age.
 
-**Hard constraint — `state/scratch/<managed-namespace>/`** (deep-architecture-survey, bug-blitz, artifact-distillation): these roots are sustained cross-session work products, not ephemera. They are protected by the `state/` no-touch rule above. Only loose `tasks/scratch/*` files are fair game; the managed-namespace roots under `state/scratch/` are never swept.
+**Hard constraint — `state/scratch/<managed-namespace>/`** (deep-architecture-survey, bug-blitz, artifact-distillation): sustained cross-session work products protected by the `state/` no-touch rule. Only loose `tasks/scratch/*` files are fair game.
 
 #### Phase 8b: Prune Accumulated Artifacts
 
@@ -217,16 +214,16 @@ Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
    If unpushed commits remain, push explicitly.
 3. If push fails, **warn the PM explicitly**
 
-**Note:** Pushes to the current branch only. Getting to main is the caller's responsibility (`/workday-complete` or `/merge-to-main`). If on main here, Phase 0 failed.
+**Note:** Pushes to the current branch only — getting to main is the caller's responsibility (`/workday-complete` or `/merge-to-main`). If on main here, Phase 0 failed.
 
 #### Detection-Gating Contract — RAG_PRESENT
 
 All "when RAG present" gates in this command use the same detection mechanism: check whether any MCP tool matching `mcp__*project-rag*` (case-insensitive substring) is available in the current session. A positive match sets the logical `RAG_PRESENT` flag for this run. Future maintainers: the same detection is used by `coordinator/hooks/project-rag-detect.*` (W1 hook) — keep them in sync.
 
-**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):** See `docs/wiki/repomap-rag-gating.md` for the full gating doctrine. Summary:
-- **RAG absent:** repomap retains its primary role — generate unconditionally.
+**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):** See `docs/wiki/repomap-rag-gating.md`. Summary:
+- **RAG absent:** generate unconditionally.
 - **RAG present + stale or uninitialized:** generate as fallback stopgap; emit audit log entry (Phase 10b).
-- **RAG present + fresh:** skip repomap generation entirely.
+- **RAG present + fresh:** skip entirely.
 
 #### Phase 9b: Repomap Regeneration (RAG-gated)
 
@@ -255,7 +252,7 @@ If `state/orientation_cache.md` exists, regenerate it from spec via the shared r
 bash ~/.claude/plugins/coordinator/bin/regenerate-orientation-cache.sh --invoker update-docs
 ```
 
-This phase is **where bloat dies.** Any section accreted by a mid-session writer outside `## Pinboard` (a `## Recent Work` paragraph, a `## Health Snapshot` from an older schema, a `## Key Documentation` block) is discarded — only schema-conformant sections regenerate. The verifier (Phase 11b) catches any drift introduced after this phase.
+This phase is **where bloat dies.** Any section accreted outside `## Pinboard` is discarded — only schema-conformant sections regenerate. The verifier (Phase 11b) catches any drift introduced after this phase.
 
 Include the regenerated cache in the Phase 9 commit (or amend if already committed).
 
@@ -265,7 +262,7 @@ If no cache exists: skip. Project hasn't run `/workday-start` yet.
 
 **Only execute when:** RAG present AND repomap generated as fallback this run (stale/uninitialized, not fresh).
 
-Emit a single log entry to `state/repomap-audit.log` (create if absent, append-only — load-bearing append-log, lives under `state/` per the tasks-state-folder-split):
+Emit a single log entry to `state/repomap-audit.log` (create if absent, append-only):
 
 ```
 YYYY-MM-DD | repomap_unique_value: yes|no | <brief justification — what did repomap reveal that RAG could not?>
@@ -283,7 +280,7 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 #### Phase 11b: Snippet Sync Check
 
-Run every snippet-sync verifier across all installed plugins. The glob covers current verifiers (preamble, calibration, docs-checker, prior-art, text-only, default-routing) and any future ones added under the same `bin/verify-*-sync.sh` convention.
+Run every snippet-sync verifier across all installed plugins (`bin/verify-*-sync.sh` convention, covers current and future verifiers).
 
 ```bash
 set +e
@@ -303,9 +300,7 @@ exit $fail
 #### Phase 11g: Plugin-bundled wiki validate
 
 > Spec backlink: `docs/plans/2026-05-15-plugin-wiki-write-direction-trap.md` § Phase 4
-> Semantics changed 2026-05-15 (Option B): no longer syncs dev-side → bundled; now verifies no plugin-cited wiki has a dev-side mirror.
-
-Verify that no plugin-doctrine wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator/docs/wiki/<name>.md` — dev-side mirrors re-introduce the write-direction trap. Wiki names are auto-discovered by grepping plugin files for `docs/wiki/<name>.md` references.
+> Semantics changed 2026-05-15 (Option B): verifies no plugin-cited wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator/docs/wiki/<name>.md`.
 
 ```bash
 ~/.claude/plugins/coordinator/bin/sync-plugin-wiki.sh
@@ -313,13 +308,13 @@ Verify that no plugin-doctrine wiki has a dev-side mirror at `~/.claude/docs/wik
 
 **If the script exits 0:** log in the Phase 14 report: "Plugin-bundled wiki: clean (N validated)."
 
-**If the script exits 5:** a dev-side mirror exists for a plugin-doctrine wiki. Output names both paths and remediation steps. Resolve before proceeding (override with `COORDINATOR_OVERRIDE_WIKI_MIRROR=1` only for wikis genuinely not belonging in the plugin tree).
+**If the script exits 5:** a dev-side mirror exists. Output names both paths and remediation steps. Resolve before proceeding (override with `COORDINATOR_OVERRIDE_WIKI_MIRROR=1` only for wikis genuinely not belonging in the plugin tree).
 
 **If the script reports WARN (missing-bundled):** a wiki name is referenced but absent from the bundled tree. Doc-link health (Phase 12) handles broken links separately — don't auto-fix here. Log the warning count in the Phase 14 report.
 
 #### Phase 11c: Query Callout Refresh
 
-Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... -->` blocks in tracked markdown files:
+Regenerate `<!-- BEGIN query: ... -->` blocks in tracked markdown files:
 
 ```bash
 ~/.claude/plugins/coordinator/bin/refresh-queries.sh
@@ -327,15 +322,13 @@ Run the query callout refresh helper to regenerate any `<!-- BEGIN query: ... --
 
 **If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). Log in the Phase 14 report: "Query callouts: N file(s) updated."
 
-**If the script exits non-zero** (parse error or query failure): surface the error to PM with the stderr output. Do NOT abort the rest of `/update-docs` — log the failure and continue.
+**If the script exits non-zero** (parse error or query failure): surface the error to PM. Do NOT abort the rest of `/update-docs` — log the failure and continue.
 
 **If the script reports no changes:** note in the Phase 14 report: "Query callouts: up to date."
 
 #### Phase 11d: Frontmatter Schema Drift Sweep
 
 The W1 PreToolUse validator runs in WARN mode — violations do NOT block writes. This phase surfaces accumulated drift counts at every `/update-docs` run.
-
-Run the lint:
 
 ```bash
 ~/.claude/plugins/coordinator/bin/lint-frontmatter.sh --json
@@ -357,13 +350,11 @@ Parse the JSON. Three behaviors:
 
 ### ── EM resumes here (Sonnet doc-maintenance agent has returned) ──
 
-The Sonnet agent's Phase 1–11d work is complete. The EM owns every phase below. The first one (11e) exists at this seam *specifically because* it requires `Agent` dispatch, which only the EM can perform.
+The EM owns every phase below. Phase 12 exists at this seam *specifically because* it requires `Agent` dispatch, which only the EM can perform.
 
 #### Phase 12: Doc-link health check (plugin assets) — EM-LED
 
 > **EM-only phase. The Sonnet doc-maintenance agent MUST NOT execute this — subagents cannot dispatch other subagents.** If you are the Sonnet doc-maintenance agent reading this: STOP at the end of Phase 11d and return to the EM. The EM dispatches `doc-link-checker` here, then runs Phases 11f through 11i (mechanical bash) and the Phase 13+ tail itself.
-
-The EM dispatches the `doc-link-checker` agent with the prompt below. The agent returns a `DONE: <actual-path>` reply.
 
 After the worker returns, read the report and surface counts in the Phase 14 rollup:
 - Broken-link count (rows with `status: broken`)
@@ -404,9 +395,7 @@ Asserts the four reviewers in the parallel-code-review skill's lens-domain manif
 
 **On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. A collision means the parallel-review carve-out's preconditions no longer hold (`coordinator/CLAUDE.md` § Review Sequencing). Fix: rename the colliding lens domain or remove the reviewer from the parallel pool.
 
-**On zero exit:** Report "Parallel-review lens-orthogonality: clean."
-
-This phase is informational like 11e; does NOT halt `/update-docs`.
+**On zero exit:** Report "Parallel-review lens-orthogonality: clean." Informational — does NOT halt `/update-docs`.
 
 #### Phase 11h: Super-skill anchor-link check
 
@@ -418,9 +407,7 @@ Walks every super-skill SKILL.md and verifies each `CLAUDE.md § <section>` cita
 
 **On non-zero exit (DEAD anchors found):** Surface to PM — do NOT auto-fix. Fix: lift the cited content into project-level `coordinator/CLAUDE.md` as a stub bullet, or qualify the citation as global.
 
-**On zero exit:** Report "Super-skill anchor links: clean (N total, K qualified-global)."
-
-This phase is informational like 11e/11f; does NOT halt `/update-docs`.
+**On zero exit:** Report "Super-skill anchor links: clean (N total, K qualified-global)." Informational — does NOT halt `/update-docs`.
 
 #### Phase 11h2: Cross-reference coverage sweep
 
@@ -430,11 +417,9 @@ Walks the coordinator-claude plugin tree, extracts every `<plugin>:<name>` refer
 node ~/.claude/plugins/coordinator/bin/verify-coverage.js
 ```
 
-The script exits non-zero on any orphan reference. This phase HALTS `/update-docs` until orphans are resolved — retarget to the real artifact, add to `REF_ALLOWLIST` in `bin/verify-coverage.js` with a rationale, or create the missing artifact.
+The script exits non-zero on any orphan reference. **This phase HALTS `/update-docs` on orphans** — retarget to the real artifact, add to `REF_ALLOWLIST` in `bin/verify-coverage.js` with a rationale, or create the missing artifact.
 
-**On orphans:** Report `Cross-reference coverage: N orphan(s) — /update-docs HALTED. Resolve before re-running.` and stop.
-
-**On zero orphans:** Report "Cross-reference coverage: clean."
+**On orphans:** Report `Cross-reference coverage: N orphan(s) — /update-docs HALTED.` and stop. **On zero orphans:** Report "Cross-reference coverage: clean."
 
 #### Phase 11i: Prune resolved-state bloat from queues
 
@@ -444,8 +429,6 @@ Aggressively strip resolved-state bloat and schema ceremony from the three queue
 - Closure-log sections: `## Processed` / `## Resolved*` / `## History` / `## Closed` / `## Done` / `## Archive` / `## Closeout` — entire body stripped to next `##` heading.
 - Entry-shape closure annotations (queue files only): any entry whose `resolution:` is not `pending`/`in_progress`, or which carries a `**Closeout:**` sub-line — entire entry deleted.
 - Trivial schema ceremony (queue files only): `  recurring: 0`, `  resolution: pending`, `  resolution: in_progress` sub-lines — stripped, main line preserved.
-
-This is belt-and-suspenders. The write-time discipline (main-line-only entries; delete on resolution) lives in `learn-lessons` and `workweek-complete`; the pruner is the structural backstop that catches drift regardless of writer.
 
 ```bash
 for queue in state/coordinator-improvement-queue.md state/improvement-queue.md state/bug-backlog.md; do
@@ -457,7 +440,7 @@ for queue in state/coordinator-improvement-queue.md state/improvement-queue.md s
 done
 ```
 
-**On non-zero exit:** Surface the file path and line from the pruner's error output to the PM — do NOT skip. The pruner fails loud on unexpected structure and must not be bypassed.
+**On non-zero exit:** Surface the file path and error output to the PM — do NOT skip. The pruner fails loud on unexpected structure and must not be bypassed.
 
 **On zero exit with lines pruned:** Include the diff in the docs-maintenance commit (or a separate `chore(queues): prune resolved-state bloat` commit if large). Report pruned counts in the summary.
 
@@ -471,13 +454,10 @@ Check whether accumulated artifacts warrant distillation into wiki documents:
 
 1. **Count artifacts:**
    ```bash
-   # Count across distillation source directories
+   # Count across distillation source directories (state/ excluded by scope)
    PLANS=$(find docs/plans/ -name "*.md" 2>/dev/null | wc -l)
    HANDOFFS=$(find archive/handoffs/ -name "*.md" 2>/dev/null | wc -l)
    COMPLETED=$(find archive/completed/ -name "*.md" 2>/dev/null | wc -l)
-   # state/ is excluded by directory scope. The previous -not -name filters for
-   # lessons.md / health-ledger.md / bug-backlog.md / debt-backlog.md were dropped
-   # per the tasks-state-folder-split (those files now live under state/).
    TASKS=$(find tasks/ -mindepth 2 -name "*.md" 2>/dev/null | wc -l)
    TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
    ```

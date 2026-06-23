@@ -1,23 +1,18 @@
 #!/usr/bin/env bats
 # cs-claim-handoff-foreign-cwd.bats — regression net for cs_claim_handoff's optional
-# baton-repo-root arg (foreign-cwd /pickup hardening).
+# baton-repo-root arg AND its basename-only shared claim path.
 #
-# Purpose: cs_claim_handoff gained an optional 2nd positional arg = the baton's repo
-# root. When supplied, the atomic claim dir lives under the BATON repo's .git, so two
-# pickups of the same baton from different cwds contest the same mkdir. When absent,
-# behavior is byte-for-byte the legacy cwd path. A supplied-but-non-git root fails loud.
+# Purpose: cs_claim_handoff's claim dir is BASENAME-ONLY (`<base>/handoff-claims/<basename>/`,
+# NOT sid-namespaced), so two same-machine sessions with DISTINCT session-ids contend for the
+# SAME lock per handoff — restoring DR-110's same-machine concurrent-pickup guard, which the
+# per-session-sid switch (spike 031909d8) had silently defeated. The optional 2nd positional arg
+# (baton repo root) places that lock under the BATON repo so foreign-cwd pickups contend too.
 #
-# Spec backlink: docs/plans/2026-06-17-foreign-cwd-pickup-hardening.md § C3 (AC1-AC3, AC8, AC9)
+# Spec backlinks: docs/plans/2026-06-17-foreign-cwd-pickup-hardening.md § C3;
+#                 docs/plans/2026-06-17-concurrent-pickup-guard-sid-regression.md § C3
 #
 # Run: npx bats plugins/coordinator-claude/coordinator/tests/cs-claim-handoff-foreign-cwd.bats
 #      from the ~/.claude repo root.
-#
-# Note on the collision test (T3): the claim dir is sid-namespaced
-# (<base>/<sid>/handoff-claims/<basename>), so two claims collide only when they share a
-# sid. That is the property baton-rooting fixes — a shared-sid sibling resolves the SAME
-# lock location regardless of cwd. The cross-session/cross-machine authority is a separate
-# layer (SKILL.md Gate 2: the consumed_by frontmatter check after git fetch); this primitive
-# is the same-machine/shared-sid belt-and-suspenders. T3 therefore pins a shared sid on purpose.
 #
 # MSYS note (bash-on-windows-gotchas.md §10): temp paths come from mktemp -d (no leading-slash
 # literals that MSYS would rewrite), so the path-translation trap does not apply here.
@@ -35,9 +30,10 @@ _mkrepo() {
 
 setup() {
   # The primitive resolves sid from COORDINATOR_SESSION_ID → CLAUDE_SESSION_ID →
-  # CLAUDE_CODE_SESSION_ID → sentinel. Clear the higher-priority slots so the test
-  # controls sid via CLAUDE_CODE_SESSION_ID (the documented test-override slot).
-  unset COORDINATOR_SESSION_ID CLAUDE_SESSION_ID
+  # CLAUDE_CODE_SESSION_ID → sentinel. Clear ALL inherited slots (the bats runner itself
+  # runs inside a Claude Code session and inherits CLAUDE_CODE_SESSION_ID) so each test
+  # controls sid explicitly and no call falls through to a runner value.
+  unset COORDINATOR_SESSION_ID CLAUDE_SESSION_ID CLAUDE_CODE_SESSION_ID
 
   TEST_ROOT="$(mktemp -d)"
   BATON_REPO="${TEST_ROOT}/baton"
@@ -55,43 +51,49 @@ teardown() {
   [[ -n "${TEST_ROOT:-}" && -d "$TEST_ROOT" ]] && rm -rf "$TEST_ROOT"
 }
 
-# AC1 (T1) — foreign-cwd happy path: claim lands under the BATON repo, never under cwd.
-@test "T1: baton-root claim lands under baton repo, ABSENT under cwd (AC1)" {
+# AC2/AC3 (T1) — foreign-cwd happy path: claim lands under the BATON repo at the BASENAME-ONLY
+# path (no <sid> segment), never under cwd.
+@test "T1: baton-root claim lands under baton repo (basename-only), ABSENT under cwd (AC2/AC3)" {
   export CLAUDE_CODE_SESSION_ID="sidT1"
   cd "$CWD_A"
   run cs_claim_handoff "foo.md" "$BATON_REPO"
   [ "$status" -eq 0 ]
-  # positive: claim exists under the baton repo
-  [ -d "${BATON_REPO}/.git/coordinator-sessions/sidT1/handoff-claims/foo.md" ]
+  # positive: claim exists under the baton repo, basename-only (no sid segment)
+  [ -d "${BATON_REPO}/.git/coordinator-sessions/handoff-claims/foo.md" ]
   # hard negative: nothing written under the cwd repo
-  [ ! -d "${CWD_A}/.git/coordinator-sessions/sidT1/handoff-claims/foo.md" ]
+  [ ! -d "${CWD_A}/.git/coordinator-sessions/handoff-claims/foo.md" ]
 }
 
-# AC2 (T2) — legacy one-arg call is unchanged: claim under the cwd repo.
-@test "T2: legacy one-arg claim lands under cwd repo (AC2)" {
+# AC4 (T2) — legacy one-arg call: claim under the cwd repo, basename-only.
+@test "T2: legacy one-arg claim lands under cwd repo (basename-only) (AC4)" {
   export CLAUDE_CODE_SESSION_ID="sidT2"
   cd "$CWD_A"
   run cs_claim_handoff "bar.md"
   [ "$status" -eq 0 ]
-  [ -d "${CWD_A}/.git/coordinator-sessions/sidT2/handoff-claims/bar.md" ]
+  [ -d "${CWD_A}/.git/coordinator-sessions/handoff-claims/bar.md" ]
 }
 
-# AC3 (T3) — shared-sid collision: the second claim of the same baton from a DIFFERENT cwd
-# resolves the same baton-rooted path and is rejected (live holder PID). Proves the lock
-# location is cwd-independent. (Shared sid is the precondition — see header note.)
-@test "T3: same sid + same baton, different cwds → second claim rejected (AC3)" {
-  export CLAUDE_CODE_SESSION_ID="sidT3"
+# AC1 (T3) — cross-sid collision REGRESSION NET: two DISTINCT session-ids, same baton, different
+# cwds → first wins, second is rejected. This is the case that fails on HEAD (sid-namespaced paths
+# never collide across distinct sids) and must pass after the basename-only fix.
+@test "T3: distinct sids, same baton, different cwds → second claim rejected (AC1 regression)" {
+  # Review: code-reviewer — sidX/sidY are literal + distinct; setup() unset the runner's inherited
+  # CLAUDE_CODE_SESSION_ID so neither call falls through to it (isolation guaranteed by unset, not env -u).
   cd "$CWD_A"
-  run cs_claim_handoff "baz.md" "$BATON_REPO"
+  CLAUDE_CODE_SESSION_ID="sidX" run cs_claim_handoff "baz.md" "$BATON_REPO"
   [ "$status" -eq 0 ]
+  # first session won and recorded its own identity
+  [ "$(cat "${BATON_REPO}/.git/coordinator-sessions/handoff-claims/baz.md/session_id")" = "sidX" ]
+  # a DIFFERENT session, from a DIFFERENT cwd, must lose — proves real cross-sid contention
   cd "$CWD_B"
-  run cs_claim_handoff "baz.md" "$BATON_REPO"
+  CLAUDE_CODE_SESSION_ID="sidY" run cs_claim_handoff "baz.md" "$BATON_REPO"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"concurrent /pickup detected"* ]]
+  # Review: code-reviewer — self-describing diagnostic on assertion failure
+  [[ "$output" == *"concurrent /pickup detected"* ]] || { echo "expected 'concurrent /pickup detected' in: $output" >&2; return 1; }
 }
 
-# AC8 (T4) — fail-loud on a supplied-but-non-git baton root; never a silent cwd fallback.
-@test "T4: supplied non-git baton root fails loud, no cwd fallback (AC8)" {
+# AC4 (T4) — fail-loud on a supplied-but-non-git baton root; never a silent cwd fallback.
+@test "T4: supplied non-git baton root fails loud, no cwd fallback (AC4)" {
   export CLAUDE_CODE_SESSION_ID="sidT4"
   cd "$CWD_A"
   NONGIT="$(mktemp -d)"
@@ -99,17 +101,16 @@ teardown() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"is not a git repo"* ]]
   # must NOT have silently written the claim under the cwd repo
-  [ ! -d "${CWD_A}/.git/coordinator-sessions/sidT4/handoff-claims/qux.md" ]
+  [ ! -d "${CWD_A}/.git/coordinator-sessions/handoff-claims/qux.md" ]
   rmdir "$NONGIT"
 }
 
-# AC9 (T5) — stale-PID takeover walks the BATON root (not cwd): a baton-rooted claim held
-# by a dead PID is reclaimed by a same-sid pickup. Exercises the exact self-heal path the
-# release-asymmetry wart relies on.
-@test "T5: stale-PID takeover reclaims baton-rooted claim dir, not cwd (AC9)" {
+# AC4 (T5) — stale-PID takeover walks the BATON root (not cwd): a baton-rooted claim held by a
+# dead PID is reclaimed by a later pickup. Basename-only path.
+@test "T5: stale-PID takeover reclaims baton-rooted claim dir (basename-only), not cwd (AC4)" {
   export CLAUDE_CODE_SESSION_ID="sidT5"
   cd "$CWD_A"
-  CLAIM="${BATON_REPO}/.git/coordinator-sessions/sidT5/handoff-claims/stale.md"
+  CLAIM="${BATON_REPO}/.git/coordinator-sessions/handoff-claims/stale.md"
   mkdir -p "$CLAIM"
   # Guaranteed-dead PID: spawn a child, reap it, then reuse its (now-dead) PID.
   ( exit 0 ) & DEAD=$!
@@ -125,5 +126,5 @@ teardown() {
   # pid file now holds the live (reclaiming) process, not the dead seed PID
   [ "$(cat "${CLAIM}/pid")" != "$DEAD" ]
   # and nothing leaked under the cwd repo
-  [ ! -d "${CWD_A}/.git/coordinator-sessions/sidT5/handoff-claims/stale.md" ]
+  [ ! -d "${CWD_A}/.git/coordinator-sessions/handoff-claims/stale.md" ]
 }

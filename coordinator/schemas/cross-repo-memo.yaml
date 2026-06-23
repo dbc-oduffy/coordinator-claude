@@ -17,9 +17,16 @@ applies_to: "cross-repo/inbox/[0-9]*.md"
 # Memos dated 2026-05-21 and earlier are pre-lifecycle artifacts; the validator
 # skips them.
 #
-# State machine: open → actioned (terminal, in-place)
+# State machine: open → in_progress → actioned (terminal, in-place)
+#   open        — sender wrote the memo; awaiting receiver action.
+#   in_progress — a receiver session has claimed it at pickup-start (cs_claim_memo +
+#                 picked_up_by stamp); concurrent pickup is fail-loud. Released back to
+#                 open on a non-terminal disposition (Decline/Surface-to-PM that ends the
+#                 session) or reaped on dead-PID. Mirrors handoff deployment_state: in_flight.
+#   actioned    — terminal; receiver applied a disposition (decision optional).
 # Back-compat statuses retained for grandfathered memos: reviewed, action_taken,
 # closed, superseded (from the 2026-05-21 dual-write lifecycle — no longer issued).
+# Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C2
 #
 # Lifecycle timestamps are ISO-8601 CONVENIENCE METADATA only. The authoritative
 # audit trail lives in the receiver repo's git log of the lifecycle-transition commit.
@@ -33,10 +40,12 @@ required:
   created: iso-date
   status:
     type: enum
-    # Primary lifecycle: open → actioned (terminal, receiver-side in-place edit).
+    # Primary lifecycle: open → in_progress → actioned (receiver-side in-place edits).
+    # in_progress is the claim state (cs_claim_memo at pickup-start; picked_up_by required
+    # when present — enforced via cross-field rule in schema.js).
     # Back-compat values retained for grandfathered 2026-05-21 dual-write memos:
     # reviewed, action_taken, closed, superseded.
-    values: [open, actioned, reviewed, action_taken, closed, superseded]
+    values: [open, in_progress, actioned, reviewed, action_taken, closed, superseded]
   delivery_mode:
     type: enum
     # Single-surface model: the CLI only ever issues 'receiver-repo' (one dirty
@@ -51,6 +60,13 @@ optional:
   supersedes: string
   # Set by receiver when this memo is superseded by a newer one
   superseded_by: string
+  # Claim attribution (stamped at pickup-start when status flips to in_progress).
+  # picked_up_by is REQUIRED when status == in_progress (cross-field rule in schema.js);
+  # both are cleared on release back to open. Session-id resolved via
+  # $CLAUDE_CODE_SESSION_ID → .current-session-id fallback, same as handoff consumed_by.
+  # Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C2
+  picked_up_by: string
+  picked_up_at: string
   # Lifecycle timestamps (populated by receiver-side Edit + commit on the memo file).
   # These are convenience metadata — authoritative audit trail is the commit itself.
   received_at: string

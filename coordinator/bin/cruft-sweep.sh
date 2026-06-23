@@ -1029,6 +1029,23 @@ _get_parent_whitelist() {
   echo "$_raw"
 }
 
+# Portable default parent roots: the unique parent directories of registered
+# machine-local [repos]. Replaces the former hardcoded ("X:/" "E:/dev/") Striker-only
+# default that resolved to nothing on every other machine (2026-06-19 portability sweep).
+# Emits one path per line; empty if machine-local is unavailable (caller's [[ -d ]] guard
+# then no-ops, as it did with the absent hardcoded drives).
+_default_parent_roots() {
+  local _ml="${HOME}/.claude/plugins/coordinator/bin/machine-local"
+  [[ -x "$_ml" ]] || return 0
+  local _key _p
+  while IFS= read -r _key; do
+    [[ -n "$_key" ]] || continue
+    _p="$("$_ml" get "$_key" 2>/dev/null || true)"
+    [[ -n "$_p" ]] || continue
+    dirname "$_p"
+  done < <("$_ml" keys 2>/dev/null | grep '^repos\.' || true) | awk '!seen[$0]++'
+}
+
 _sweep_orphans() {
   local apply="$1"
   local json_mode="$2"
@@ -1039,7 +1056,12 @@ _sweep_orphans() {
   if [[ "${#PARENT_ROOTS[@]}" -gt 0 ]]; then
     _roots_arr=("${PARENT_ROOTS[@]}")
   else
-    _roots_arr=("X:/" "E:/dev/")
+    # Portable default: parent dirs of registered machine-local [repos] (was hardcoded
+    # Striker drives "X:/" "E:/dev/"). --parent-root still overrides.
+    local _r
+    while IFS= read -r _r; do
+      [[ -n "$_r" ]] && _roots_arr+=("$_r")
+    done < <(_default_parent_roots)
   fi
 
   # Load machine-local whitelist (newline-separated names)

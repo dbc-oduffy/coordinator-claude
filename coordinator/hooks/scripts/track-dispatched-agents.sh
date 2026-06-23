@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # PostToolUse hook (matcher: Agent): records agentIds dispatched by the EM,
 # enabling later coordinator-safe-commit invocations to union the executors'
 # touched-file lists into scope.

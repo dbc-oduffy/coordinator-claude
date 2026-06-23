@@ -31,7 +31,10 @@ KEY="fan_out.large_wave_threshold"
 # Resolve Python via the canonical portable resolver (handles python3/python/py on Windows).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/resolve-python.sh
-source "${SCRIPT_DIR}/../lib/resolve-python.sh"
+# `|| true`: a broken COORDINATOR_PYTHON pin makes the lib print its reason and `return 1`;
+# don't let that abort us under `set -e`. PYTHON_BIN="" is already set (lib initializes it),
+# so the empty-check below degrades gracefully (skip, exit 0).
+source "${SCRIPT_DIR}/../lib/resolve-python.sh" || true
 if [[ -z "$PYTHON_BIN" ]]; then
     echo "WARN: capture-fan-out-threshold.sh: no Python on PATH; skipping threshold capture" >&2
     exit 0

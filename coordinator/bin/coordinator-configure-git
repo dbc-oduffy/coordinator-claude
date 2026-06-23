@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-configure-git — apply coordinator's git-config hardening to a repo.
 #
 # Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md (holodeck consult);

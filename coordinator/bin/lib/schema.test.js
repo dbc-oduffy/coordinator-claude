@@ -114,6 +114,90 @@ describe('parseFrontmatter', () => {
     const { frontmatter } = parseFrontmatter(content);
     assert.equal(frontmatter.predecessor, null);
   });
+
+  // ---------------------------------------------------------------------------
+  // Leading HTML comment tolerance — seed-handoff templates lead with <!-- ... -->
+  // ---------------------------------------------------------------------------
+
+  it('(a) single-line leading comment then frontmatter: parses correctly', () => {
+    const content = `<!-- Seed comment: replace before use -->\n---\ntitle: Seeded handoff\ncreated: 2026-06-15\n---\n# Body\n`;
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null, 'frontmatter should not be null with leading comment');
+    assert.equal(frontmatter.title, 'Seeded handoff');
+    assert.equal(frontmatter.created, '2026-06-15');
+    assert.ok(body.includes('# Body'), 'body should contain the markdown body');
+  });
+
+  it('(b) multi-line leading comment then frontmatter: parses correctly', () => {
+    const content = [
+      '<!-- ',
+      '  This is a multi-line seed comment.',
+      '  Replace all placeholders before committing.',
+      '-->',
+      '---',
+      'title: Multi-line comment handoff',
+      'created: 2026-06-15',
+      '---',
+      '# Body text',
+    ].join('\n') + '\n';
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null, 'frontmatter should not be null with multi-line leading comment');
+    assert.equal(frontmatter.title, 'Multi-line comment handoff');
+    assert.ok(body.includes('# Body text'));
+  });
+
+  it('(c) leading comment then NO frontmatter: returns frontmatter:null', () => {
+    const content = `<!-- Seed comment: replace before use -->\n# Just a heading\nNo frontmatter here.\n`;
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.equal(frontmatter, null, 'frontmatter should be null when no --- block follows comment');
+    // body is the original content (no-frontmatter path preserves original)
+    assert.ok(body.includes('# Just a heading'));
+  });
+
+  it('(d) regression: no comment, frontmatter at line 1 still works', () => {
+    const content = `---\ntitle: Regression test\ncreated: 2026-05-01\n---\n# Regression body\n`;
+    const { frontmatter, body } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null, 'standard frontmatter must still parse without comment prefix');
+    assert.equal(frontmatter.title, 'Regression test');
+    assert.ok(body.includes('# Regression body'));
+  });
+
+  it('(e) leading comment then bare HR then markdown prose: returns frontmatter:null (P1 regression guard)', () => {
+    // A bare --- HR after a leading comment must NOT be parsed as frontmatter.
+    // parseYaml is lenient and returns {} for prose, which the empty-object guard
+    // now catches. This test was failing before the Finding 1 fix was applied.
+    const content = [
+      '<!-- seed -->',
+      '---',
+      '# Heading',
+      'body prose',
+      '---',
+      'rest',
+    ].join('\n') + '\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.equal(frontmatter, null, 'HR-after-comment must yield null frontmatter, not empty {}');
+  });
+
+  it('(f) two consecutive leading comments then frontmatter: parses correctly', () => {
+    // The comment-skip loop must iterate more than once to handle consecutive comments.
+    const content = [
+      '<!-- A -->',
+      '<!-- B -->',
+      '---',
+      'title: X',
+      '---',
+      '# Body',
+    ].join('\n') + '\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null, 'two consecutive comments then frontmatter must parse');
+    assert.equal(frontmatter.title, 'X');
+  });
+
+  it('unclosed <!-- comment: returns frontmatter:null safely (no hang)', () => {
+    const content = `<!-- Unclosed comment\n---\ntitle: Trap\n---\n# Body\n`;
+    const { frontmatter } = parseFrontmatter(content);
+    assert.equal(frontmatter, null, 'unclosed HTML comment must return null frontmatter');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -439,6 +523,67 @@ describe('validateFrontmatter — cross-repo-memo summary length rule', () => {
 });
 
 // ---------------------------------------------------------------------------
+// validateFrontmatter — cross-repo-memo in_progress claim-state rule
+// Spec backlink: docs/plans/2026-06-21-memo-pickup-claim-lock-and-routed-plan-reconcile.md § C2
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — cross-repo-memo in_progress claim-state', () => {
+  const memoSchema = SCHEMAS['cross-repo-memo'];
+
+  function baseMemo(overrides = {}) {
+    return Object.assign({
+      title: 'Test memo',
+      from: 'claude-central-em',
+      to: 'project-rag-em',
+      created: '2026-06-21',
+      status: 'open',
+      delivery_mode: 'receiver-repo',
+    }, overrides);
+  }
+
+  it('in_progress WITH picked_up_by PASSES', () => {
+    const fm = baseMemo({ status: 'in_progress', picked_up_by: 'sid-abc', picked_up_at: '2026-06-21T10:00:00Z' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `in_progress with picked_up_by should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('in_progress WITHOUT picked_up_by FAILS (cross-field rule)', () => {
+    const fm = baseMemo({ status: 'in_progress' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'in_progress without picked_up_by should fail');
+    const err = result.errors.find(e => e.field === 'picked_up_by');
+    assert.ok(err, `Expected picked_up_by error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /required when status=in_progress/);
+  });
+
+  it('in_progress with EMPTY-STRING picked_up_by FAILS (trim guard)', () => {
+    const fm = baseMemo({ status: 'in_progress', picked_up_by: '' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'in_progress with empty picked_up_by should fail');
+    assert.ok(result.errors.find(e => e.field === 'picked_up_by'), `Expected picked_up_by error, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('in_progress with WHITESPACE-ONLY picked_up_by FAILS (trim guard)', () => {
+    const fm = baseMemo({ status: 'in_progress', picked_up_by: '   ' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'in_progress with whitespace-only picked_up_by should fail');
+    assert.ok(result.errors.find(e => e.field === 'picked_up_by'), `Expected picked_up_by error, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('open memo without the new claim fields PASSES (back-compat)', () => {
+    const fm = baseMemo();
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `open memo without claim fields should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('actioned memo without the new claim fields PASSES (back-compat)', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `actioned memo should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateFrontmatter — plan schema (status enum incl. superseded)
 // ---------------------------------------------------------------------------
 
@@ -543,6 +688,18 @@ describe('validateFrontmatter — review', () => {
     };
     const result = validateFrontmatter(fm, reviewSchema);
     assert.ok(result.ok);
+  });
+
+  it('reviewer: code-reviewer passes (Sonnet merge-gate reviewer)', () => {
+    const fm = {
+      title: 'code-reviewer slice review',
+      created: '2026-06-15',
+      reviewer: 'code-reviewer',
+      target: 'structured-queue-medium-rollout — slice A',
+      findings_count: 10,
+    };
+    const result = validateFrontmatter(fm, reviewSchema);
+    assert.ok(result.ok, `code-reviewer should be a valid reviewer enum value, got: ${JSON.stringify(result.errors)}`);
   });
 
   it('invalid reviewer enum fails', () => {
@@ -878,7 +1035,7 @@ describe('_matchGlob', () => {
   });
 
   it('** matches across directories', () => {
-    assert.ok(_matchGlob('tasks/**/*.md', 'state/handoffs/sub/foo.md'));
+    assert.ok(_matchGlob('tasks/**/*.md', 'tasks/handoffs/sub/foo.md'));
   });
 
   it('exact path matches itself', () => {
@@ -891,7 +1048,7 @@ describe('_matchGlob', () => {
   });
 
   it('Windows backslash paths are normalised', () => {
-    assert.ok(_matchGlob('state/handoffs/*.md', 'tasks\\handoffs\\foo.md'));
+    assert.ok(_matchGlob('state/handoffs/*.md', 'state\\handoffs\\foo.md'));
   });
 
   // Bracket character-class passthrough tests.

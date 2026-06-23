@@ -89,6 +89,28 @@ See `ARCHITECTURE.md § The Write-Ahead Status Protocol` for the full state mach
 
 "The first duty of every Starfleet officer is to the truth." — Jean-Luc Picard
 
+## Skill inline-bash blocks → first-class scripts via parallel executor extraction
+
+When a skill accumulates inline bash blocks under shifting requirements, the correct response is **parallel-executor extraction with the contract spec'd in the dispatch prompt** — not EM-DIY prose-tightening of the skill body.
+
+**The empirical instance (2026-06-16, workday-complete refactor):** The EM attempted inline rewriting of Step 2.5's bash block. The PM reoriented: "we should try and have scripts to run instead of code blocks ... first-class: idempotent, multi-OS, etc. you can probably dispatch against them instead of DIY." Four scripts were then extracted in parallel via 4 background `coordinator:executor` dispatches, each carrying the shared contract spec (workday-start-step0.sh pattern + `cross-platform-shell-portability` + idempotency contract + smoke-test sibling). The result: 67 PASS / 0 FAIL across all suites; skill prose collapsed 517 → 295 lines (43%).
+
+**Rule:** when a skill step contains bash logic complex enough to have a "contract" — idempotency, multi-OS portability, smoke-test sibling — extract it to a first-class script dispatched via parallel executor, not rewritten in place by the EM. The dispatch prompt carries: the reference pattern (an existing script of the same style), the cross-platform-shell portability constraint, the idempotency contract, and the smoke-test requirement. EM-DIY prose-tightening of inline bash is a false shortcut — it produces code that still lacks a test harness and breaks on the other OS.
+
+## Measure blast radius before framing fix shape — corpus-grep + class-classify FIRST
+
+When a convention/citation sweep is proposed (e.g. "rewrite all `bin/X` citations to bare-name form"), the EM must measure the corpus and classify affected call-sites BEFORE framing the fix shape to the PM. A confident "small/mechanical" estimate stated pre-measurement is the tell that this rule has been violated.
+
+**The empirical instance:** Asked to fix one `bin/X` citation, the EM reported "~300, mechanical" to the PM without grepping. The actual corpus was ~1200 entries spanning heterogeneous classes: executable `.sh` scripts, launcher-run `.js`/`.py` files, data references in `.toml` files, and dead references — most NOT uniformly convertible by the same rewrite rule. The "small/mechanical" framing was reversed immediately on grep.
+
+**Rule:** corpus-grep + class-classify BEFORE offering the PM a fix shape for any sweep. The sequence:
+1. Grep the corpus for all instances of the pattern.
+2. Classify by call-site kind (executable / launcher-invoked / data-reference / dead).
+3. Determine which classes are uniformly convertible and which need per-site judgment.
+4. THEN frame the fix shape: "N instances, M mechanical, K need judgment, proposed shape is..."
+
+A confident estimate given pre-measurement is a red flag in the session record — if you catch yourself saying "roughly N, should be mechanical" before running the grep, stop and measure first.
+
 ## EM clock heartbeat — RETIRED (2026-06-15)
 
 The `CronCreate`-based heartbeat (L3b in the runtime-tripwire layered fix) is retired. The runtime has no silent-delivery channel: every cron fire injects its prompt as a `Human:`-labeled turn into the transcript, so even a "silence is the only acceptable response" prompt renders as a wall of user-shaped noise every N minutes. Three successive prompt shapes (tracked-agent summary; clock-only stamp; explicit silence directive) all failed for the same structural reason. Time anchoring now happens via explicit timestamp checks when the EM needs them. **Do not re-introduce without a runtime-side silent-inject mechanism distinct from `CronCreate`'s user-turn channel.**

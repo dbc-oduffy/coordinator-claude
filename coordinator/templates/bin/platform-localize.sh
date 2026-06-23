@@ -45,7 +45,7 @@ fi
 # Main logic in Python for JSON/TOML manipulation
 # ---------------------------------------------------------------------------
 "$PYTHON" - "$CLAUDE_HOME" "$PLUGINS_DIR" "$SETTINGS_LOCAL" "$KNOWN_MARKETPLACES" "$REGISTRY_LOCAL" <<'PYEOF'  # verify-no-console-flash: allow (install-time localize template; runs once at setup)
-import sys, json, os, re
+import sys, json, os, re, datetime
 
 claude_home = sys.argv[1]
 plugins_dir = sys.argv[2]
@@ -188,23 +188,89 @@ if os.path.isfile(known_mp_path):
 
 changed = False
 
-# Update/add entries for discovered marketplaces
+# Update/add entries for discovered marketplaces.
+# Required-field invariant: every entry MUST carry `lastUpdated` (ISO 8601 string) —
+# Claude Code's known_marketplaces schema rejects entries without it and the
+# `/plugin` command refuses to enumerate. See validate-json-schemas.py.
+now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 for mp_name, mp_path in marketplace_dirs.items():
     entry = existing_km.get(mp_name, {})
     current_src = entry.get("source", {})
     current_path = current_src.get("path", "") if isinstance(current_src, dict) else ""
-    if current_path != mp_path or entry.get("installLocation", "") != mp_path:
+    has_last_updated = isinstance(entry.get("lastUpdated"), str)
+    if current_path != mp_path or entry.get("installLocation", "") != mp_path or not has_last_updated:
         existing_km[mp_name] = {
             "source": {"source": "directory", "path": mp_path},
-            "installLocation": mp_path
+            "installLocation": mp_path,
+            "lastUpdated": entry.get("lastUpdated") if has_last_updated else now_iso,
         }
         changed = True
 
+# Backfill `lastUpdated` on any pre-existing entries the hook doesn't own
+# (URL-sourced git/github entries written by Claude Code itself). Older CC
+# versions wrote these without the field; the new schema requires it.
+for mp_name, entry in list(existing_km.items()):
+    if not isinstance(entry, dict):
+        continue
+    if not isinstance(entry.get("lastUpdated"), str):
+        entry["lastUpdated"] = now_iso
+        existing_km[mp_name] = entry
+        changed = True
+
+# --- Self-heal coordinator-claude's own marketplace registration ---
+# `claude plugin marketplace add <clone-path>` registers a *directory* source
+# that Claude Code resolves from that path on every load and never copies into
+# ~/.claude. Move or delete the clone and the installed plugins orphan
+# (/reload-plugins -> 0 plugins) even though the payload is still cached. When we
+# detect exactly that broken state — coordinator-claude registered as a
+# directory source whose path no longer exists, while the plugin payload is
+# still cached under ~/.claude/plugins/cache/coordinator-claude/ — rewrite the
+# entry to the public GitHub source so Claude Code re-caches it self-containedly.
+# Conservative by design: a directory source whose path STILL EXISTS is left
+# untouched (it may be a contributor's intentional dev-loop install, where the
+# clone IS the runtime source on purpose — see CONTRIBUTING.md), and so is any
+# source already pointing inside ~/.claude.
+# Ordering: runs AFTER the lastUpdated backfill loop above, so the entry written
+# here carries lastUpdated directly and needs no backfill pass.
+COORDINATOR_MP = "coordinator-claude"
+COORDINATOR_GITHUB_REPO = "dbc-oduffy/coordinator-claude"
+coord_entry = existing_km.get(COORDINATOR_MP)
+if isinstance(coord_entry, dict):
+    coord_src = coord_entry.get("source", {})
+    if isinstance(coord_src, dict) and coord_src.get("source") == "directory":
+        coord_path = coord_src.get("path", "")
+        cache_present = os.path.isdir(os.path.join(plugins_dir, "cache", COORDINATOR_MP))
+        claude_home_prefix = os.path.abspath(claude_home) + os.sep
+        path_under_claude_home = bool(coord_path) and \
+            os.path.abspath(coord_path).startswith(claude_home_prefix)
+        if coord_path and not os.path.exists(coord_path) \
+                and cache_present and not path_under_claude_home:
+            # installLocation = the marketplaces/ cache path Claude Code itself
+            # writes for a github source (and `validate-json-schemas.py` requires a
+            # string installLocation on EVERY entry, github included). CC populates
+            # the dir on resolve — the same shape `claude plugin marketplace add
+            # <github>` produces.
+            existing_km[COORDINATOR_MP] = {
+                "source": {"source": "github", "repo": COORDINATOR_GITHUB_REPO},
+                "installLocation": os.path.join(plugins_dir, "marketplaces", COORDINATOR_MP),
+                "lastUpdated": now_iso,
+            }
+            changed = True
+            sys.stderr.write(
+                "[platform-localize] repaired coordinator-claude marketplace: "
+                "clone-bound directory source '%s' is missing; rewrote to GitHub "
+                "source (run /reload-plugins to reload)\n" % coord_path
+            )
+
 # Remove stale directory-source entries for marketplaces no longer on disk.
 # Only touch entries this hook owns (source.source == "directory"); leave
-# URL-sourced entries (git, github) untouched.
+# URL-sourced entries (git, github) untouched. coordinator-claude is excluded —
+# its disposition is owned by the self-heal block above (repair, never blanket
+# delete), so a CLI/clone install is never silently dropped here.
 stale_keys = []
 for mp_name, entry in existing_km.items():
+    if mp_name == COORDINATOR_MP:
+        continue
     src = entry.get("source", {})
     if isinstance(src, dict) and src.get("source") == "directory":
         if mp_name not in marketplace_dirs:

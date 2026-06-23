@@ -37,6 +37,7 @@ Before scanning the plan, build an inventory of available prior-art sources. You
 2. **Global wikis** — files under `~/.claude/docs/wiki/`. Use `~/.claude/docs/wiki/DIRECTORY_GUIDE.md` (if present) as the index. If the active project IS `~/.claude` (i.e., editing the coordinator central), the project and global corpora are the same — note this and avoid double-reading.
 3. **Project lessons** — `state/lessons.md` (if present). Recent unfiled lessons that haven't yet been promoted to wikis but may still bear on the plan.
 4. **Central improvement queue** — `~/.claude/state/coordinator-improvement-queue.md`. Universal lessons awaiting doctrinal promotion.
+5. **Skill definitions** — `skills/**/SKILL.md` in the active project. A plan reinventing a predicate or classifier already handled by a SKILL (e.g., re-implementing a pre-substrate check that `coordinator:plan` already does) is prior art. Glob `skills/**/SKILL.md` and skim each skill's stated purpose before cross-referencing the plan's claims.
 
 Build a mental index: title + one-line summary for each candidate source. **Do not** read every wiki cover-to-cover during inventory — just enough to know what's available. Full reads happen during cross-reference (Phase 2).
 

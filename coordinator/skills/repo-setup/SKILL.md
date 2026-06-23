@@ -13,6 +13,7 @@ version: 1.0.0
 - `/update-docs` reports `tracker_missing` — the project lacks coordination infrastructure
 - PM asks to set up project tracking in an existing repo
 - **Marketplace first-run** — new coordinator plugin user setting up their first project
+- **Creating a NEW repo from scratch** (not onboarding an existing folder)? → use `coordinator:new-project`, which creates + scaffolds a stack + delegates the onboarding half back to this skill.
 
 **Setup is sufficient — downstream skills add-to, never create-from-scratch.** This skill produces minimum-viable versions of all coordinator artifacts the operator will rely on (`state/orientation_cache.md`, `docs/project-tracker.md`, `docs/README.md`, `CLAUDE.md`). Downstream skills (`/update-docs`, `/workstream-start`) add to these artifacts as content accumulates, and they self-gate when invoked against fresh substrate. → [`docs/wiki/produce-not-prescribe.md`](../../docs/wiki/produce-not-prescribe.md) for the underlying principle. (`/workday-start` is the morning cadence skill — it runs unconditionally as part of session orientation, so the produce-not-prescribe / self-gate axis does not apply to it.)
 
@@ -555,6 +556,54 @@ touch state/.repo-setup-just-ran
 ```
 
 The sentinel is single-shot: `/workstream-start`'s Preflight consumes it on first read (`rm -f`). It MUST be gitignored — see Phase 3f for the `.gitignore` line. Per-machine transient marker, never committed.
+
+## Optional Tripwire Installs
+
+After Phase 3 scaffolding completes, offer to install coordinator-standard tripwire tests into the consuming repo's test suite. Each tripwire is a copyable template — copy, customize the allowlist, and wire into CI.
+
+### Windows console-subprocess tripwire (offer always on Windows-operator repos)
+
+Offer this tripwire when the consuming repo includes shell scripts that may run on
+Windows operator machines (any `*.sh` in the repo root or a `scripts/` / `bin/` subtree
+is a reliable signal).
+
+**What it catches:** bare `python -c`, `python3 -c`, `python.exe -c`, `powershell.exe`,
+and PowerShell `& python` invocations in `*.sh` files — shapes that pop a
+focus-stealing console window on Windows when spawned from the headless Bash-tool
+parent process.
+
+**Canonical suppression marker:** `# popup-intentional-last-resort` (shell/Python
+comment form). Place on the same line as the bare call. When inside an embedded
+interpreter string (`python -c "..."`) place the marker on the surrounding SHELL
+line, outside the string — the marker inside a Python string argument is parsed by
+Python at runtime, not by the tripwire regex. The retired form
+`# noqa: bare-subprocess-windows` is NOT honoured; do not use it.
+
+**Install steps:**
+
+```bash
+# 1. Copy the template into the consuming repo
+cp "$HOME/.claude/plugins/coordinator/tests/templates/test_no_bare_console_subprocess.py" \
+   tests/test_no_bare_console_subprocess.py
+
+# 2. Customize the allowlist at the top of the copied file:
+#    PREFIXES  — subtree paths that are known-safe (e.g. "vendor/", "tests/fixtures/")
+#    EXACT_FILES — individual files allowed to use bare calls (e.g. the safe-path wrapper itself)
+
+# 3. Verify it runs and reports nothing unexpected:
+python3 tests/test_no_bare_console_subprocess.py
+# or:
+pytest tests/test_no_bare_console_subprocess.py
+
+# 4. Add `# popup-intentional-last-resort` to any remaining intentional bare calls
+#    in files NOT covered by the allowlist.
+```
+
+**Template path:** `~/.claude/plugins/coordinator/tests/templates/test_no_bare_console_subprocess.py`
+
+Offer the install when the PM has not already done so (check for the file in the
+consuming repo's test tree). If the PM declines, note it in the Phase 4 REPORT under
+`### Needs Attention` with a one-line pointer to the template path.
 
 ## Coordinator Conventions — Discovery Summary
 

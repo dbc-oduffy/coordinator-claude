@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/bin/sh
 # ── sh/python polyglot trampoline ─────────────────────────────────────────────
 # Matches the CLI's trampoline so `bash coordinator-queue-append.test.py` works.
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # audit-roadmap.sh — Phase 2 close cross-file audits for coordinator:roadmap-planning.
 #
 # Closes the gap that bin/lint-frontmatter.js cannot enforce per-file: rules that compare

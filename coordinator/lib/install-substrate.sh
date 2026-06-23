@@ -3,7 +3,7 @@
 #
 # Lays down ~/.claude/machine-local/ substrate, installs bin/ resolvers
 # (machine-local + claude-home families), and runs Windows PATH/AppX
-# health checks. Called by coordinator/commands/setup.md Phase 3.
+# health checks. Called by coordinator/commands/install.md Phase 3.
 #
 # MUST be executed as a subprocess, never sourced. Uses _-prefixed globals
 # and `exit` (not `return`); sourcing would pollute the caller's env.

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-resolve-validation-cmd.sh — Resolver for the per-project test commands
 #
 # Purpose: resolve which shell command to use for test validation. Two tiers:

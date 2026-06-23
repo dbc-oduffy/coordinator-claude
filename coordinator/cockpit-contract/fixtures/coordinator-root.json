@@ -1,0 +1,19 @@
+{
+  "repo": "claude-unreal-holodeck",
+  "owner": "dbc-oduffy",
+  "coordinator_root_path": ".",
+  "visibility": "PRIVATE",
+  "archived": false,
+  "is_fork": false,
+  "default_branch": "main",
+  "last_activity_at": "2026-06-22T02:09:17Z",
+  "open_pr_count": 0,
+  "provenance": {
+    "source_kind": "github_graphql",
+    "repo": "claude-unreal-holodeck",
+    "ref": { "branch": "main", "sha": "22dc6eed" },
+    "path": "",
+    "observed_at": "2026-06-22T03:00:00Z",
+    "derivation": "parsed"
+  }
+}

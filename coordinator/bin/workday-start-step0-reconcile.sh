@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # workday-start-step0-reconcile.sh — Step 0.4.5 (Reconcile with origin/main).
 #
 # Called by workday-start-step0.sh after the precedence switch resolves on a

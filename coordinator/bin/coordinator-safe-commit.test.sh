@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # coordinator-safe-commit.test.sh — Tests for the --blanket foreign-staging pre-check.
 #
 # Covers _blanket_check_foreign_staging() added per the blanket-pre-check queue entry
