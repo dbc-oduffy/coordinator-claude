@@ -9,10 +9,21 @@
 
 set -euo pipefail
 
+# Resolve coordinator content root via the portable resolver (CLAUDE_PLUGIN_ROOT →
+# COORDINATOR_ROOT → registry clone → versioned cache → flat layout).
+_rcc_resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/resolve-coordinator-clone.sh"
+if [[ -f "$_rcc_resolver" ]]; then
+    # shellcheck source=../lib/resolve-coordinator-clone.sh
+    source "$_rcc_resolver" 2>/dev/null || true
+fi
+if [[ -z "${COORDINATOR_CONTENT_ROOT:-}" ]]; then
+    COORDINATOR_CONTENT_ROOT="${HOME}/.claude/plugins/coordinator-claude/coordinator"
+fi
+
 # Self-claim: source coordinator session lib to register the marker file write.
 # Spec backlink: ~/.claude/plans/safe-commit-fixes.md § Phase 3b
 # Best-effort — no-op if lib absent or no active session.
-_CS_LIB="${HOME}/.claude/plugins/coordinator/lib/coordinator-session.sh"
+_CS_LIB="${COORDINATOR_CONTENT_ROOT}/lib/coordinator-session.sh"
 if [[ -f "$_CS_LIB" ]]; then
     # shellcheck source=/dev/null
     source "$_CS_LIB" 2>/dev/null || true

@@ -8,7 +8,7 @@
 # record via validate-cockpit-record.mjs before writing.
 #
 # Spec backlink: docs/plans/2026-06-22-cockpit-tc-3-coordinator-emission.md § C5
-# Contract version: 0.1.0 (tc-2 frozen, 2026-06-22)
+# Contract version: sourced at runtime from cockpit-contract/schema/cockpit-contract.schema.json
 #
 # Usage:
 #   emit-cockpit-snapshot.sh
@@ -114,8 +114,15 @@ validate_main_record() {
   # Review: B-F8 — capture output once; re-running node on failure doubles startup cost
   # and risks divergent output if the record changes between calls (it can't here, but
   # the pattern is still wrong). One capture, one conditional print.
-  _val_output="$(node "$VALIDATE_MJS" "$entity" "$tmpf" 2>&1)"
-  _val_rc=$?
+  # NOTE: the `if` wrapper is load-bearing under `set -e` — a bare `_val_output="$(node …)"`
+  # assignment aborts the whole script the instant node exits non-zero, BEFORE the rc-check
+  # below can print which record failed (the error path is then unreachable; failures look
+  # like a silent exit 1). The `if` disables set -e for this one command so the diagnostic runs.
+  if _val_output="$(node "$VALIDATE_MJS" "$entity" "$tmpf" 2>&1)"; then
+    _val_rc=0
+  else
+    _val_rc=$?
+  fi
   if [[ "$_val_rc" -ne 0 ]]; then
     echo "ERROR: main-array $entity record failed validation (code bug, not data gap)${description:+ — $description}" >&2
     echo "Record JSON:" >&2
@@ -140,8 +147,8 @@ validate_main_record() {
 # ===========================================================================
 echo "[emit] collecting handoffs..." >&2
 
-HANDOFFS_LIVE_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type handoff --format json 2>/dev/null || echo "[]")"
-HANDOFFS_ARCH_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type handoff-archived --format json 2>/dev/null || echo "[]")"
+HANDOFFS_LIVE_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type handoff --limit 0 --format json 2>/dev/null || echo "[]")"
+HANDOFFS_ARCH_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type handoff-archived --limit 0 --format json 2>/dev/null || echo "[]")"
 
 # Merge live + archived into one array
 ALL_HANDOFFS_JSON="$(jq -s '.[0] + .[1]' <(echo "$HANDOFFS_LIVE_JSON") <(echo "$HANDOFFS_ARCH_JSON"))"
@@ -225,9 +232,9 @@ fi
 # ===========================================================================
 echo "[emit] collecting backlogs..." >&2
 
-BUG_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type bug --format json 2>/dev/null || echo "[]")"
-DEBT_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type debt --format json 2>/dev/null || echo "[]")"
-IMPROV_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type improvement --format json 2>/dev/null || echo "[]")"
+BUG_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type bug --limit 0 --format json 2>/dev/null || echo "[]")"
+DEBT_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type debt --limit 0 --format json 2>/dev/null || echo "[]")"
+IMPROV_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type improvement --limit 0 --format json 2>/dev/null || echo "[]")"
 
 # Build BacklogItemSummary records — bug type
 # Review: B-F1 — enum-invalid severity (e.g. "p1" lowercase, unknown value) quarantines
@@ -258,8 +265,10 @@ build_backlog_records() {
         created: $fm.created,
         status: $fm.status,
         title: $fm.title,
+        repo: $repo,
         from_repo: ($fm.from_repo // "claude-central-em"),
         coordinator_root_path: ".",
+        queue_scope: ($fm.queue_scope // "project"),
         severity: (if $type == "bug" then ($fm.severity // null) else null end),
         risk: (if $type == "debt" then ($fm.risk // null) else null end),
         provenance: {
@@ -344,7 +353,7 @@ _RT_PATHS_TMP="$(mktemp "${TMPDIR:-/tmp}/cockpit-rt-paths.XXXXXX")"
 bash "$COORDINATOR_ROOT/bin/list-review-trail-records.sh" 2>/dev/null > "$_RT_PATHS_TMP" || true
 
 _RT_RESULT="$(
-  python3 - "$REPO_NAME" "$OBSERVED_AT" "$GIT_BRANCH" "$GIT_SHA" "$_RT_PATHS_TMP" <<'PYEOF'
+  python3 - "$REPO_NAME" "$OBSERVED_AT" "$GIT_BRANCH" "$GIT_SHA" "$_RT_PATHS_TMP" <<'PYEOF' # verify-no-console-flash: allow — verify/emit analysis tool, not interactive-session hot-path
 import json, sys, os, re
 
 repo = sys.argv[1]
@@ -865,7 +874,7 @@ if [[ -s "$GOALS_TMP" ]]; then
   # Read JSONL, group by (repo, coordinator_root_path, period, period_value), keep latest
   GOALS_ARRAY="$(
     # Parse all lines, group and deduplicate
-    python3 - "$GOALS_TMP" "$OBSERVED_AT" "$GIT_BRANCH" "$GIT_SHA" "$REPO_NAME" <<'PYEOF'
+    python3 - "$GOALS_TMP" "$OBSERVED_AT" "$GIT_BRANCH" "$GIT_SHA" "$REPO_NAME" <<'PYEOF' # verify-no-console-flash: allow — verify/emit analysis tool, not interactive-session hot-path
 import json
 import sys
 
@@ -1052,17 +1061,148 @@ BRANCH_RECORD="$(jq -cn \
 validate_main_record "branch" "$BRANCH_RECORD" "branch"
 
 # ===========================================================================
+# SECTION 8.5 — LessonSummary records
+# Sources: {state/lessons.md} ∪ {state/lessons-outbox/*.yaml} ∪ {state/lessons-outbox/drained/*.yaml}
+# Union-dedup on lesson_key (first 16 hex chars of sha256(normalize(title))).
+# promotion_state precedence (C-F3): drained > pending > captured.
+# A lesson present ONLY in drained/ is still emitted — full outer join, not left-join.
+# parse_status="partial" entries are emitted (degraded-but-counted), not quarantined.
+# Spec backlink: docs/plans/2026-06-23-cockpit-contract-ext-wave2-emit-and-queue-migration.md § C3
+# ===========================================================================
+echo "[emit] collecting lessons..." >&2
+
+LESSONS_ARRAY="$(python3 "$COORDINATOR_ROOT/bin/lib/emit-lesson-summaries.py" \
+  "$ROOT" "$REPO_NAME" "$GIT_BRANCH" "$GIT_SHA" "$OBSERVED_AT" \
+  2>/dev/null || echo "[]")"
+
+# Validate each lesson record (lesson-summary entity)
+LESSON_COUNT="$(echo "$LESSONS_ARRAY" | jq 'length')"
+if [[ "$LESSON_COUNT" -gt 0 ]]; then
+  for i in $(seq 0 $((LESSON_COUNT - 1))); do
+    rec="$(echo "$LESSONS_ARRAY" | jq -c ".[$i]")"
+    validate_main_record "lesson-summary" "$rec" "index $i"
+  done
+fi
+
+# ===========================================================================
+# SECTION 8.6 — PlanSummary records
+# Sources: query-records.js --type plan (sidecar-free via the C4a producer-side
+# denylist — review sidecars never reach this consumer).
+# Composite natural key: (repo, coordinator_root_path, path).
+# created truncated to date-only (schema IsoDate rejects a full datetime).
+# author emitted verbatim from frontmatter (no git-blame inference — C-F6).
+# status validated against the 8-value PlanStatus enum; non-conforming or
+# missing-required-field rows quarantine to malformed_records.plans (handoffs
+# section is the template — quarantine, do not silent-drop).
+# Spec backlink: docs/plans/2026-06-23-cockpit-contract-ext-wave2-emit-and-queue-migration.md § C4b
+# ===========================================================================
+echo "[emit] collecting plans..." >&2
+
+PLANS_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type plan --limit 0 --format json 2>/dev/null || echo "[]")"
+
+PLANS_ARRAY="$(echo "$PLANS_JSON" | jq -c --arg repo "$REPO_NAME" --arg observed_at "$OBSERVED_AT" --arg branch "$GIT_BRANCH" --arg sha "$GIT_SHA" '
+  [
+    .[] | . as $rec |
+    ($rec.frontmatter) as $fm |
+    ($rec.path) as $p |
+    # Required fields present + status within the frozen 8-value PlanStatus enum
+    select(
+      ($fm.title | type) == "string" and
+      ($fm.created | type) == "string" and
+      ($fm.author | type) == "string" and
+      ($fm.status | type) == "string" and
+      ($fm.status | . == "draft" or . == "reviewed" or . == "approved" or . == "executing" or . == "implemented" or . == "deferred" or . == "abandoned" or . == "superseded")
+    ) |
+    {
+      repo: $repo,
+      coordinator_root_path: ".",
+      path: $p,
+      title: $fm.title,
+      # IsoDate (YYYY-MM-DD): truncate any IsoDateTime to date-only before emit.
+      created: ($fm.created | .[0:10]),
+      author: $fm.author,
+      status: $fm.status,
+      scope_mode: ($fm.scope_mode // null),
+      reviewer: ($fm.reviewer // null),
+      branch: ($fm.branch // null),
+      superseded_by: ($fm.superseded_by // null),
+      # Review: code-reviewer — source maps roadmap_id for roadmap-sourced plans (schema source field is free-text)
+      source: ($fm.source // $fm.roadmap_id // null),
+      provenance: {
+        source_kind: "local_fs",
+        repo: $repo,
+        ref: { branch: $branch, sha: $sha },
+        path: $p,
+        observed_at: $observed_at,
+        derivation: "parsed"
+      }
+    }
+  ]
+' || echo "[]")"
+
+# Quarantine: missing required field OR status outside the PlanStatus enum.
+# Review: code-reviewer — guarded with || echo "[]" to match PLANS_JSON/BUG_RECORDS/DEBT_RECORDS pattern (F2)
+MALFORMED_PLANS="$(echo "$PLANS_JSON" | jq -c '
+  [
+    .[] | . as $rec |
+    ($rec.frontmatter) as $fm |
+    select(
+      (($fm.title | type) != "string") or
+      (($fm.created | type) != "string") or
+      (($fm.author | type) != "string") or
+      (($fm.status | type) != "string") or
+      (($fm.status | . != "draft" and . != "reviewed" and . != "approved" and . != "executing" and . != "implemented" and . != "deferred" and . != "abandoned" and . != "superseded"))
+    ) |
+    {
+      path: $rec.path,
+      reason: "missing required field (title/created/author/status) or status outside PlanStatus enum",
+      frontmatter_keys: ($fm | keys)
+    }
+  ]
+' || echo "[]")"
+
+# Validate all plan records
+echo "[emit] validating plans..." >&2
+PLAN_COUNT="$(echo "$PLANS_ARRAY" | jq 'length')"
+if [[ "$PLAN_COUNT" -gt 0 ]]; then
+for i in $(seq 0 $((PLAN_COUNT - 1))); do
+  rec="$(echo "$PLANS_ARRAY" | jq -c ".[$i]")"
+  validate_main_record "plan-summary" "$rec" "index $i"
+done
+fi
+
+# ===========================================================================
 # SECTION 9 — Compose final envelope
 # ===========================================================================
 echo "[emit] composing envelope..." >&2
 
 EMITTED_AT="$(date -u +%FT%TZ)"
 
+# ---------------------------------------------------------------------------
+# Source schema_version from the canonical contract bundle (the Staff Engineer F1).
+# Reads the top-level .version field from the emitted JSON Schema bundle so
+# schema_version in the output can never desync from CONTRACT_VERSION.
+# Spec backlink: state/handoffs/2026-06-22_230001_roadmap-cockpit-contract-ext-2026-06-22-tc-1.md
+# Negative-spec: do NOT hardcode the version string here — that is what this
+# block replaces.
+# ---------------------------------------------------------------------------
+CONTRACT_SCHEMA_BUNDLE="$COORDINATOR_ROOT/cockpit-contract/schema/cockpit-contract.schema.json"
+if [[ ! -f "$CONTRACT_SCHEMA_BUNDLE" ]]; then
+  echo "ERROR: contract schema bundle not found: $CONTRACT_SCHEMA_BUNDLE" >&2
+  echo "Run: cd $COORDINATOR_ROOT/cockpit-contract && pnpm run emit-schema" >&2
+  exit 1
+fi
+SCHEMA_VERSION="$(jq -r '.version // empty' "$CONTRACT_SCHEMA_BUNDLE")"
+if [[ -z "$SCHEMA_VERSION" ]]; then
+  echo "ERROR: .version field missing or empty in $CONTRACT_SCHEMA_BUNDLE" >&2
+  exit 1
+fi
+
 # Build malformed_records
 MALFORMED_CR_ARRAY="$([ -n "${CR_MALFORMED:-}" ] && echo "[$CR_MALFORMED]" || echo "[]")"
 
 FINAL_JSON="$(jq -cn \
-  --arg schema_version "0.1.0" \
+  --arg schema_version "$SCHEMA_VERSION" \
   --arg emitted_at "$EMITTED_AT" \
   --arg emitted_by_machine "$HOSTNAME_VAL" \
   --argjson coordinator_root "$([ "$COORDINATOR_ROOT_RECORD" != "null" ] && echo "$COORDINATOR_ROOT_RECORD" || echo "null")" \
@@ -1080,6 +1220,9 @@ FINAL_JSON="$(jq -cn \
   --argjson malformed_review_trail "$MALFORMED_REVIEW_TRAIL" \
   --argjson malformed_coordinator_root "$MALFORMED_CR_ARRAY" \
   --argjson branch "$BRANCH_RECORD" \
+  --argjson lessons "$LESSONS_ARRAY" \
+  --argjson plans "$PLANS_ARRAY" \
+  --argjson malformed_plans "$MALFORMED_PLANS" \
   '{
     schema_version: $schema_version,
     emitted_at: $emitted_at,
@@ -1099,12 +1242,15 @@ FINAL_JSON="$(jq -cn \
     review_trail: $review_trail,
     routine_signals: $routine_signals,
     goals_current: $goals_current,
+    lessons: $lessons,
+    plans: $plans,
     narrative_views: null,
     malformed_records: {
       handoffs: $malformed_handoffs,
       backlogs: $malformed_backlogs,
       review_trail: $malformed_review_trail,
-      coordinator_root: $malformed_coordinator_root
+      coordinator_root: $malformed_coordinator_root,
+      plans: $malformed_plans
     }
   }')"
 
@@ -1113,9 +1259,11 @@ printf '%s\n' "$FINAL_JSON" | jq . > "$OUT_FILE"
 echo "[emit] wrote $OUT_FILE" >&2
 
 # Print summary
+# Review: code-reviewer — include .malformed_records.plans so quarantined plans are counted in the total (F11)
 MALFORMED_TOTAL="$(echo "$FINAL_JSON" | jq '
   .malformed_records.handoffs + .malformed_records.backlogs +
-  .malformed_records.review_trail + .malformed_records.coordinator_root |
+  .malformed_records.review_trail + .malformed_records.coordinator_root +
+  .malformed_records.plans |
   length
 ')"
 
@@ -1127,6 +1275,8 @@ echo "backlogs_improv: $(echo "$FINAL_JSON" | jq '.backlogs.improvement | length
 echo "review_trail:    $(echo "$FINAL_JSON" | jq '.review_trail | length')" >&2
 echo "routine_signals: $(echo "$FINAL_JSON" | jq '.routine_signals | length')" >&2
 echo "goals_current:   $(echo "$FINAL_JSON" | jq '.goals_current | length')" >&2
+echo "lessons:         $(echo "$FINAL_JSON" | jq '.lessons | length')" >&2
+echo "plans:           $(echo "$FINAL_JSON" | jq '.plans | length')" >&2
 echo "malformed_total: $MALFORMED_TOTAL" >&2
 echo "schema_version:  $(echo "$FINAL_JSON" | jq -r '.schema_version')" >&2
 echo "========================" >&2

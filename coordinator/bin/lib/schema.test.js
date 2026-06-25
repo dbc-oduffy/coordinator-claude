@@ -5,11 +5,14 @@
  * Run with: node --test bin/lib/schema.test.js
  *
  * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1 Tests
+ * C2-tests spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C2
  */
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const {
   loadSchemas,
   matchSchemaForPath,
@@ -18,6 +21,7 @@ const {
   validateLessonsFile,
   _parseYaml,
   _matchGlob,
+  matchSchema,
 } = require('./schema.js');
 
 const SCHEMAS_DIR = path.resolve(__dirname, '../../schemas');
@@ -31,21 +35,27 @@ const SCHEMAS = loadSchemas(SCHEMAS_DIR);
 // ---------------------------------------------------------------------------
 
 describe('loadSchemas', () => {
-  it('loads all eight schemas', () => {
-    const names = Object.keys(SCHEMAS).filter(k => k !== '_byGlob');
-    assert.ok(names.includes('handoff'), 'handoff schema missing');
-    assert.ok(names.includes('handoff-archived'), 'handoff-archived schema missing');
-    assert.ok(names.includes('decision'), 'decision schema missing');
-    assert.ok(names.includes('plan'), 'plan schema missing');
-    assert.ok(names.includes('review'), 'review schema missing');
-    assert.ok(names.includes('lesson-entry'), 'lesson-entry schema missing');
-    assert.ok(names.includes('completion-entry'), 'completion-entry schema missing');
-    assert.ok(names.includes('cross-repo-memo'), 'cross-repo-memo schema missing');
-    // code-review F13: the count 8 names the schemas enumerated by the includes() checks
-    // above: handoff, handoff-archived, decision, plan, review, lesson-entry,
-    // completion-entry, cross-repo-memo. Update this comment (not just the count) when
-    // a schema is added or removed, so the assertion stays self-documenting.
-    assert.equal(names.length, 8, `expected 8 schemas, got ${names.length}`);
+  it('loads every schema present in the schemas dir', () => {
+    // Exclude internal index keys (_byGlob, and _byKind once the kind-discriminator lands).
+    const names = Object.keys(SCHEMAS).filter(k => k !== '_byGlob' && k !== '_byKind');
+    // Core long-lived schemas.
+    for (const core of ['handoff', 'handoff-archived', 'decision', 'plan', 'review',
+                         'lesson-entry', 'completion-entry', 'cross-repo-memo']) {
+      assert.ok(names.includes(core), `${core} schema missing`);
+    }
+    // Deliverable-type-taxonomy additions (2026-06-23).
+    for (const added of ['review-sidecar', 'prior-art-check', 'plan-coverage-check',
+                         'docs-check-sidecar', 'integration-summary', 'problem-set', 'archived-memo']) {
+      assert.ok(names.includes(added), `${added} schema missing`);
+    }
+    // Count is DERIVED from disk, not hard-coded — adding a schema no longer breaks this
+    // test, and a mismatch also catches a duplicate `schema:` name collision across files.
+    const fs = require('fs');
+    const path = require('path');
+    const yamlCount = fs.readdirSync(path.join(__dirname, '../../schemas'))
+      .filter(f => f.endsWith('.yaml')).length;
+    assert.equal(names.length, yamlCount,
+      `loaded ${names.length} schema names but ${yamlCount} .yaml files on disk (duplicate schema: name?)`);
   });
 
   it('_byGlob index has an entry per applies_to schema', () => {
@@ -80,6 +90,24 @@ describe('matchSchemaForPath', () => {
   it('docs/wiki/some-guide.md → no match', () => {
     const match = matchSchemaForPath('docs/wiki/some-guide.md', SCHEMAS);
     assert.equal(match, null);
+  });
+});
+
+describe('matchSchema — unknown/null kind falls through to glob', () => {
+  // S1-F3: an unknown kind value must fall through to glob-fallback rather than returning null.
+  it('unknown kind falls through to glob: plan path with unknown kind → plan schema', () => {
+    const result = matchSchema('docs/plans/2026-01-01-foo.md', { kind: 'completely-unknown-kind' }, SCHEMAS);
+    assert.ok(result !== null, 'unknown kind must fall through to glob and return a match');
+    assert.equal(result.schemaName, 'plan',
+      `unknown kind on plan path must resolve to plan via glob, got ${result && result.schemaName}`);
+  });
+
+  // S1-F8: null kind must not be treated as a valid discriminator; must fall through to glob.
+  it('null kind falls through to glob: plan path with kind:null → plan schema', () => {
+    const result = matchSchema('docs/plans/2026-01-01-foo.md', { kind: null }, SCHEMAS);
+    assert.ok(result !== null, 'null kind must fall through to glob and return a match');
+    assert.equal(result.schemaName, 'plan',
+      `null kind on plan path must resolve to plan via glob, got ${result && result.schemaName}`);
   });
 });
 
@@ -301,7 +329,7 @@ describe('validateFrontmatter — handoff category + summary cutoff rules', () =
     return Object.assign({
       title: 'Post-cutoff handoff',
       created: '2026-05-29',
-      branch: 'work/striker/2026-05-29',
+      branch: 'work/machine-a/2026-05-29',
       status: 'active',
       predecessor: null,
       category: 'infra',
@@ -313,7 +341,7 @@ describe('validateFrontmatter — handoff category + summary cutoff rules', () =
     const fm = {
       title: 'Legacy handoff',
       created: '2026-05-28',
-      branch: 'work/striker/2026-05-28',
+      branch: 'work/machine-a/2026-05-28',
       status: 'active',
       predecessor: null,
       // category and summary intentionally absent
@@ -326,7 +354,7 @@ describe('validateFrontmatter — handoff category + summary cutoff rules', () =
     const fm = {
       title: 'Old handoff',
       created: '2026-05-01',
-      branch: 'work/striker/2026-05-01',
+      branch: 'work/machine-a/2026-05-01',
       status: 'consumed',
       predecessor: null,
     };
@@ -398,7 +426,7 @@ describe('validateFrontmatter — handoff supersedes kind-gate', () => {
     return Object.assign({
       title: 'Spinoff install baton',
       created: '2026-05-29',
-      branch: 'work/striker/2026-05-29',
+      branch: 'work/machine-a/2026-05-29',
       status: 'active',
       predecessor: null,
       kind: 'spinoff',
@@ -417,7 +445,7 @@ describe('validateFrontmatter — handoff supersedes kind-gate', () => {
     const fm = {
       title: 'Roadmap stub',
       created: '2026-05-29',
-      branch: 'work/striker/2026-05-29',
+      branch: 'work/machine-a/2026-05-29',
       status: 'active',
       predecessor: null,
       kind: 'spinoff-roadmap',
@@ -444,7 +472,7 @@ describe('validateFrontmatter — handoff supersedes kind-gate', () => {
     const fm = {
       title: 'Recovery baton',
       created: '2026-05-29',
-      branch: 'work/striker/2026-05-29',
+      branch: 'work/machine-a/2026-05-29',
       status: 'active',
       predecessor: null,
       kind: 'recovery',
@@ -576,10 +604,154 @@ describe('validateFrontmatter — cross-repo-memo in_progress claim-state', () =
     assert.ok(result.ok, `open memo without claim fields should pass, got: ${JSON.stringify(result.errors)}`);
   });
 
-  it('actioned memo without the new claim fields PASSES (back-compat)', () => {
-    const fm = baseMemo({ status: 'actioned', decision: 'accepted' });
+  it('actioned+accepted with realized_by but no picked_up_by PASSES (picked_up_by not mandated on actioned)', () => {
+    // realized_by is required on actioned+accepted (2026-06-23 claim-of-record rule); picked_up_by is
+    // preserved-not-mandated on the terminal flip, so its absence here must still validate.
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'inline' });
     const result = validateFrontmatter(fm, memoSchema);
     assert.ok(result.ok, `actioned memo should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateFrontmatter — cross-repo-memo realized_by claim-of-record rule
+// Spec backlink: docs/plans/2026-06-23-memo-pickup-realization-claim-visibility.md § C1/C3
+// ---------------------------------------------------------------------------
+
+describe('validateFrontmatter — cross-repo-memo realized_by claim-of-record', () => {
+  const memoSchema = SCHEMAS['cross-repo-memo'];
+
+  function baseMemo(overrides = {}) {
+    return Object.assign({
+      title: 'Test memo',
+      from: 'holodeck-em',
+      to: 'claude-central-em',
+      created: '2026-06-23',
+      status: 'open',
+      delivery_mode: 'receiver-repo',
+    }, overrides);
+  }
+
+  it('(a) actioned+accepted with realized_by plan path PASSES', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'docs/plans/2026-06-23-foo.md' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `actioned+accepted with plan path should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('(b) actioned+accepted with realized_by "inline" PASSES', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'inline' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `actioned+accepted with inline sentinel should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('(c) actioned+accepted WITHOUT realized_by FAILS', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'actioned+accepted without realized_by should fail');
+    const err = result.errors.find(e => e.field === 'realized_by');
+    assert.ok(err, `Expected realized_by error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /required when status=actioned and decision=accepted/);
+  });
+
+  it('(d) actioned+accepted with EMPTY-STRING and WHITESPACE-ONLY realized_by FAIL (trim guard)', () => {
+    for (const v of ['', '   ']) {
+      const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: v });
+      const result = validateFrontmatter(fm, memoSchema);
+      assert.equal(result.ok, false, `actioned+accepted with realized_by="${v}" should fail`);
+      assert.ok(result.errors.find(e => e.field === 'realized_by'), `Expected realized_by error for "${v}", got: ${JSON.stringify(result.errors)}`);
+    }
+  });
+
+  it('(e) actioned+declined WITHOUT realized_by PASSES (exemption — no work realized)', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'declined' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `actioned+declined should be exempt, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('(f) actioned+accepted with created < 2026-05-22 PASSES (grandfather short-circuit)', () => {
+    const fm = baseMemo({ created: '2026-05-21', status: 'actioned', decision: 'accepted' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `pre-cutoff actioned+accepted should be grandfathered, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('(g) actioned+partial WITHOUT realized_by FAILS (partial also realizes work)', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'partial' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'actioned+partial without realized_by should fail');
+    const err = result.errors.find(e => e.field === 'realized_by');
+    assert.ok(err, `Expected realized_by error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /required when status=actioned and decision=partial/);
+  });
+
+  it('(h) actioned+accepted with malformed realized_by (bare prose word) FAILS shape check', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'done' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, 'malformed realized_by should fail shape check');
+    const err = result.errors.find(e => e.field === 'realized_by');
+    assert.ok(err, `Expected realized_by shape error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /malformed realized_by/);
+  });
+
+  it('(i) actioned+accepted with realized_by tasks/<feature>/todo.md path PASSES (path shape)', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'tasks/memo-pickup/todo.md' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `path-shaped realized_by should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('(j) actioned+accepted with realized_by 7-char hex SHA PASSES (SHA shape)', () => {
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'a1b2c3d' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `SHA-shaped realized_by should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  // (j2) F1+F9 — SHA-256 64-char hex PASSES (widened upper bound: 7–64 hex chars).
+  // Regex widened from /^[0-9a-f]{7,40}$/ → /^[0-9a-fA-F]{7,64}$/ for SHA-256 object names.
+  it('(j2) actioned+accepted with 64-char hex SHA PASSES (SHA-256 upper bound)', () => {
+    const sha256 = 'a'.repeat(64);
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: sha256 });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `64-char hex SHA should pass, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  // (j3) F1+F9 — 65-char hex FAILS shape check (exceeds 64-char upper bound).
+  it('(j3) actioned+accepted with 65-char hex SHA FAILS shape check (exceeds upper bound)', () => {
+    const tooLong = 'a'.repeat(65);
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: tooLong });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, '65-char hex should fail shape check');
+    const err = result.errors.find(e => e.field === 'realized_by');
+    assert.ok(err, `Expected realized_by shape error, got: ${JSON.stringify(result.errors)}`);
+    assert.match(err.error, /malformed realized_by/);
+  });
+
+  // (f2) F2 — grandfather boundary: created: 2026-05-22 is NOT grandfathered (cutoff is strict <).
+  // realized_by is required here; the test confirms the rule fires on the exact cutoff date.
+  it('(f2) actioned+accepted with created 2026-05-22 FAILS (NOT grandfathered — cutoff is strict <)', () => {
+    const fm = baseMemo({ created: '2026-05-22', status: 'actioned', decision: 'accepted' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.equal(result.ok, false, '2026-05-22 should NOT be grandfathered (cutoff is created < 2026-05-22)');
+    const err = result.errors.find(e => e.field === 'realized_by');
+    assert.ok(err, `Expected realized_by error for 2026-05-22 (not grandfathered), got: ${JSON.stringify(result.errors)}`);
+  });
+
+  // (e2) F3 — consult/fyi terminal path: absent decision is exempt from realized_by rule.
+  // status=actioned without a decision field (consult/fyi terminal path) realizes no work → no realized_by required.
+  it('(e2) actioned with NO decision field PASSES (consult/fyi terminal path — rule exempts absent decision)', () => {
+    // consult/fyi path: the receiver marks actioned but has no work-realizing decision (accepted/partial).
+    // The rule only fires when decision === 'accepted' || decision === 'partial'.
+    const fm = baseMemo({ status: 'actioned' }); // no decision field at all
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `actioned with no decision should pass (consult/fyi path — not a work-realizing disposition), got: ${JSON.stringify(result.errors)}`);
+  });
+
+  // F4 — documents the deliberate '/' path permissiveness: 'see/above' passes.
+  // The '/' check catches the common path case; a slash-containing prose value is a
+  // pathological input not worth over-fitting against (realized_by is advisory attribution).
+  it('(F4-doc) realized_by "see/above" PASSES (deliberate: / check is intentionally permissive)', () => {
+    // This is a documenting test — the permissive '/' shape is intentional, not a bug.
+    const fm = baseMemo({ status: 'actioned', decision: 'accepted', realized_by: 'see/above' });
+    const result = validateFrontmatter(fm, memoSchema);
+    assert.ok(result.ok, `realized_by with a slash is always accepted (deliberate permissiveness), got: ${JSON.stringify(result.errors)}`);
   });
 });
 
@@ -863,11 +1035,12 @@ describe('validateFrontmatter — cross-repo-memo', () => {
     assert.ok(result.ok, `Expected ok for actioned without decision, got errors: ${JSON.stringify(result.errors)}`);
   });
 
-  it('status:actioned with optional decision also passes', () => {
+  it('status:actioned with decision:accepted and realized_by passes', () => {
     const fm = baseMemo({
       status: 'actioned',
       action_taken_at: '2026-05-24T10:00:00Z',
       decision: 'accepted',
+      realized_by: 'inline',  // required on actioned+accepted (2026-06-23 claim-of-record rule)
     });
     const result = validateFrontmatter(fm, memoSchema);
     assert.ok(result.ok, `Expected ok for actioned with decision, got errors: ${JSON.stringify(result.errors)}`);
@@ -1121,6 +1294,78 @@ describe('_parseYaml', () => {
 });
 
 // ---------------------------------------------------------------------------
+// parseScalar #-truncation fix (Camelia C-F6 / Patrik F5)
+//
+// A `#` inside an unquoted YAML value must NOT be stripped when it is followed
+// immediately by a non-space character (e.g. issue numbers, hashtags like #4).
+// Only `\s#\s` and `\s#$` (space before `#`, space-or-EOL after `#`) are
+// genuine trailing YAML comments.
+//
+// tc-5 spec backlink:
+//   state/handoffs/2026-06-22_230005_roadmap-cockpit-contract-ext-2026-06-22-tc-5.md
+// ---------------------------------------------------------------------------
+
+describe('parseScalar #-truncation fix', () => {
+  it('planted title "Borrow #4 widgets" round-trips intact through parseFrontmatter', () => {
+    // The canonical planted-title test from the AC: unquoted `#4` must not be stripped.
+    const content = '---\ntitle: Borrow #4 widgets\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null, 'frontmatter must parse');
+    assert.equal(frontmatter.title, 'Borrow #4 widgets',
+      `Expected full title "Borrow #4 widgets" but got "${frontmatter.title}" — ` +
+      '#-truncation fix not applied');
+  });
+
+  it('quoted title "Borrow #4 widgets" round-trips intact (pre-fix baseline)', () => {
+    // Double-quoted values were always safe; verify the fix did not break them.
+    const content = '---\ntitle: "Borrow #4 widgets"\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null, 'frontmatter must parse');
+    assert.equal(frontmatter.title, 'Borrow #4 widgets');
+  });
+
+  it('genuine trailing comment "value  # trailing note" is still stripped', () => {
+    // Regression-guard: `\s#\s` must still be treated as a comment.
+    const content = '---\nstatus: draft  # work in progress\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null);
+    assert.equal(frontmatter.status, 'draft',
+      'Trailing comment after space-#-space must still be stripped');
+  });
+
+  it('"issue #123 fixed" (unquoted #NNN) round-trips intact', () => {
+    const content = '---\ntitle: issue #123 fixed\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null);
+    assert.equal(frontmatter.title, 'issue #123 fixed');
+  });
+
+  it('"value  # comment" (space-#-space) is stripped even with preceding double-space', () => {
+    const content = '---\ntitle: foo  # comment here\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null);
+    assert.equal(frontmatter.title, 'foo');
+  });
+
+  it('"has#no-space" (no space before #) is never stripped', () => {
+    const content = '---\ntitle: has#no-space\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null);
+    assert.equal(frontmatter.title, 'has#no-space');
+  });
+
+  // Review: F2 — tab after '#' must also be treated as a comment opener.
+  // 'value  #\ttab comment' → 'value'  (was preserved verbatim before this fix).
+  it('"value  #\\ttab comment" (tab after #) is stripped as a comment', () => {
+    const content = '---\nstatus: value  #\ttab comment\ncreated: 2026-06-22\n---\n';
+    const { frontmatter } = parseFrontmatter(content);
+    assert.ok(frontmatter !== null);
+    assert.equal(frontmatter.status, 'value',
+      'Tab after # must be treated as comment opener just like a space');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // validateFrontmatter — nested object (loe / chain_loe in completion-entry)
 // ---------------------------------------------------------------------------
 
@@ -1207,5 +1452,288 @@ describe('validateFrontmatter — nested object (completion-entry loe)', () => {
     assert.equal(result.ok, false);
     assert.equal(result.errors[0].field, 'loe.agent_dispatches');
     assert.match(result.errors[0].error, /number or null/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C2-tests: matchSchema / _byKind index — RED-first regression net
+//
+// These tests will FAIL until C2-impl lands:
+//   - matchSchema is not yet exported from schema.js (undefined → not a function)
+//   - loadSchemas does not yet build _byKind or throw on duplicate kind ownership
+//
+// Purpose: encode AC1/AC2/AC3/F1/F5 oracle so the impl wave lands into a net.
+// Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C2
+// ---------------------------------------------------------------------------
+
+describe('matchSchema — kind-wins-over-glob (AC1)', () => {
+  // AC1: a file at a plan-glob path with kind: review-sidecar must resolve to
+  // the review-sidecar schema, NOT the plan schema. This is the core design
+  // decision — kind-first, glob-fallback.
+  it('kind-wins-over-glob: review-sidecar sidecar at docs/plans/ resolves to review-sidecar schema', () => {
+    // matchSchema is undefined until C2-impl — this throws "matchSchema is not a function"
+    // which is the expected RED state.
+    const result = matchSchema(
+      'docs/plans/2026-06-23-my-plan.zoli-review.md',
+      { kind: 'review-sidecar' },
+      SCHEMAS
+    );
+    assert.ok(result !== null, 'expected a match');
+    assert.equal(result.schemaName, 'review-sidecar',
+      `expected review-sidecar, got ${result && result.schemaName}`);
+  });
+
+  it('kind-wins-over-glob: staff-eng-review kind also resolves to review-sidecar schema', () => {
+    const result = matchSchema(
+      'docs/plans/2026-06-23-my-plan.patrik-review.md',
+      { kind: 'staff-eng-review' },
+      SCHEMAS
+    );
+    assert.ok(result !== null, 'expected a match');
+    assert.equal(result.schemaName, 'review-sidecar',
+      `expected review-sidecar, got ${result && result.schemaName}`);
+  });
+
+  it('kind-wins-over-glob: kind match beats the broader plan glob at docs/plans/', () => {
+    // docs/plans/*.md matches the PLAN schema by glob. A kind: review-sidecar
+    // frontmatter field must override that and return review-sidecar instead.
+    // This is the fight-the-hook fix: the file lives in docs/plans/ but is NOT
+    // a plan; its kind: discriminator is the authoritative type signal.
+    const globMatch = matchSchemaForPath('docs/plans/2026-06-23-my-plan.zoli-review.md', SCHEMAS);
+    // The glob still matches plan (unchanged path-only resolution)
+    assert.ok(globMatch !== null, 'glob should still match plan by path');
+    assert.equal(globMatch.schemaName, 'plan', 'glob alone resolves to plan');
+
+    // But matchSchema with kind: review-sidecar overrides to the correct schema
+    const kindMatch = matchSchema(
+      'docs/plans/2026-06-23-my-plan.zoli-review.md',
+      { kind: 'review-sidecar' },
+      SCHEMAS
+    );
+    assert.ok(kindMatch !== null, 'expected kind-match to return a result');
+    assert.equal(kindMatch.schemaName, 'review-sidecar',
+      'kind must win over the glob when frontmatter.kind is set');
+  });
+});
+
+describe('matchSchema — kindless-plan-fallback (AC2)', () => {
+  // AC2: a real plan with no kind: in frontmatter must still resolve to plan.yaml
+  // via the existing glob mechanism (back-compat for all 174 existing plans).
+  it('kindless-plan-fallback: plan without kind field resolves to plan schema via glob', () => {
+    const result = matchSchema(
+      'docs/plans/2026-01-01-real-plan.md',
+      { title: 'a real plan', author: 'em', status: 'draft' },
+      SCHEMAS
+    );
+    assert.ok(result !== null, 'expected a match for a plan path');
+    assert.equal(result.schemaName, 'plan',
+      `expected plan schema via glob fallback, got ${result && result.schemaName}`);
+  });
+
+  it('kindless-plan-fallback: null frontmatter falls back to glob (matchSchemaForPath parity)', () => {
+    // matchSchemaForPath is equivalent to matchSchema(path, null, schemas).
+    // The glob-fallback path must behave identically whether frontmatter is
+    // null, undefined, or a frontmatter object with no kind: field.
+    const viaNull = matchSchema('docs/plans/2026-01-01-foo.md', null, SCHEMAS);
+    const viaMatchForPath = matchSchemaForPath('docs/plans/2026-01-01-foo.md', SCHEMAS);
+    assert.ok(viaNull !== null, 'null frontmatter should fall back to glob');
+    assert.equal(
+      viaNull && viaNull.schemaName,
+      viaMatchForPath && viaMatchForPath.schemaName,
+      'matchSchema(path, null) must be identical to matchSchemaForPath(path)'
+    );
+  });
+
+  it('kindless-plan-fallback: handoff without kind still resolves to handoff schema', () => {
+    // Ensures the glob-fallback path works for non-plan schema families too.
+    const result = matchSchema(
+      'state/handoffs/2026-01-01-test.md',
+      { title: 'test handoff', status: 'active' },
+      SCHEMAS
+    );
+    assert.ok(result !== null, 'expected a match for handoff path');
+    assert.equal(result.schemaName, 'handoff',
+      `expected handoff via glob fallback, got ${result && result.schemaName}`);
+  });
+});
+
+describe('matchSchema — per-type-clean-validate (AC3)', () => {
+  // AC3: a review-sidecar frontmatter carrying ONLY its own type's fields
+  // (no plan-schema fields like title/author/status enum) must pass
+  // validateFrontmatter against the review-sidecar schema.
+  //
+  // This is the "no fight-the-hook" assertion: the sidecar validates cleanly
+  // against ITS OWN schema without requiring plan-schema fields.
+  it('per-type-clean-validate: review-sidecar fm with only plan: passes review-sidecar schema', () => {
+    const reviewSidecarSchema = SCHEMAS['review-sidecar'];
+    assert.ok(reviewSidecarSchema, 'review-sidecar schema must be loaded (C1 precondition)');
+
+    // Only the minimal required field per the Execution Notes (required: plan only)
+    const fm = { plan: 'docs/plans/2026-06-23-my-plan.md' };
+    const result = validateFrontmatter(fm, reviewSidecarSchema);
+    assert.ok(result.ok,
+      `review-sidecar fm with only {plan:} should pass its own schema, got: ${JSON.stringify(result && result.errors)}`);
+  });
+
+  it('per-type-clean-validate: review-sidecar fm without plan: field FAILS (required field)', () => {
+    // Negative: the one required field (plan:) must be enforced.
+    const reviewSidecarSchema = SCHEMAS['review-sidecar'];
+    assert.ok(reviewSidecarSchema, 'review-sidecar schema must be loaded (C1 precondition)');
+
+    const fm = { reviewer: 'patrik', verdict: 'approve' }; // missing plan:
+    const result = validateFrontmatter(fm, reviewSidecarSchema);
+    assert.equal(result.ok, false,
+      'review-sidecar without plan: field should fail');
+    const err = result.errors && result.errors.find(e => e.field === 'plan');
+    assert.ok(err, `Expected plan field error, got: ${JSON.stringify(result.errors)}`);
+  });
+
+  it('per-type-clean-validate: review-sidecar fm does NOT require plan-schema fields (title/author/status)', () => {
+    // The anti-fight-the-hook assertion: a sidecar lacking title/author/status
+    // must NOT fail against the review-sidecar schema. If it fails here, the
+    // fight-the-hook defect has been re-created in the new schema.
+    const reviewSidecarSchema = SCHEMAS['review-sidecar'];
+    assert.ok(reviewSidecarSchema, 'review-sidecar schema must be loaded (C1 precondition)');
+
+    const fm = { plan: 'docs/plans/2026-06-23-my-plan.md' };
+    // Explicitly confirm title/author/status are NOT required by the schema
+    const result = validateFrontmatter(fm, reviewSidecarSchema);
+    assert.ok(result.ok,
+      'review-sidecar schema MUST NOT require title/author/status — that recreates fight-the-hook');
+  });
+});
+
+describe('matchSchema — legacy-kinds-resolve (AC for F1)', () => {
+  // Legacy kind values from the disk census must all resolve to review-sidecar.
+  // These legacy values stay as resolvers (no data migration, per Decision 2).
+  // Full disk census (2026-06-23): plan-review(6), review(5), code-review(4),
+  // review-sidecar(3), patrik-review(3), substrate-adjudication(1), plan-rereview(1).
+  // Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 2
+
+  const LEGACY_REVIEW_KINDS = [
+    'patrik-review',
+    'substrate-adjudication',
+    'plan-rereview',
+    // Additional census values (confirmed to be in kinds: list in review-sidecar.yaml)
+    'plan-review',
+    'review',
+    'review-sidecar',
+    'code-review',
+  ];
+
+  for (const kind of LEGACY_REVIEW_KINDS) {
+    it(`legacy kind "${kind}" resolves to review-sidecar schema`, () => {
+      const result = matchSchema(
+        'docs/plans/2026-06-23-my-plan.some-suffix.md',
+        { kind },
+        SCHEMAS
+      );
+      assert.ok(result !== null,
+        `expected a match for kind: ${kind}`);
+      assert.equal(result.schemaName, 'review-sidecar',
+        `kind "${kind}" must resolve to review-sidecar (legacy resolver), got ${result && result.schemaName}`);
+    });
+  }
+
+  it('role-based canonical kind "staff-eng-review" resolves to review-sidecar schema', () => {
+    const result = matchSchema(
+      'docs/plans/2026-06-23-my-plan.patrik-review.md',
+      { kind: 'staff-eng-review' },
+      SCHEMAS
+    );
+    assert.ok(result !== null, 'staff-eng-review should match');
+    assert.equal(result.schemaName, 'review-sidecar',
+      `staff-eng-review must resolve to review-sidecar, got ${result && result.schemaName}`);
+  });
+
+  it('role-based canonical kind "eng-director-review" resolves to review-sidecar schema', () => {
+    const result = matchSchema(
+      'docs/plans/2026-06-23-my-plan.zoli-review.md',
+      { kind: 'eng-director-review' },
+      SCHEMAS
+    );
+    assert.ok(result !== null, 'eng-director-review should match');
+    assert.equal(result.schemaName, 'review-sidecar',
+      `eng-director-review must resolve to review-sidecar, got ${result && result.schemaName}`);
+  });
+});
+
+describe('loadSchemas — dup-kind-fail-loud (F5)', () => {
+  // Decision 1: "Detect-then-silently-pick is a footgun" (CLAUDE.md).
+  // loadSchemas MUST throw if two schemas declare the same kind: value.
+  // A copy-paste duplicate (e.g. "foo" in both A.yaml and B.yaml) would otherwise
+  // be a silent first-win, mis-routing a whole artifact family.
+  // Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 1
+
+  it('dup-kind-fail-loud: two schemas sharing the same kind: value causes loadSchemas to throw', () => {
+    // Build a throwaway tmpdir with two minimal schemas both claiming kind "foo".
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'schema-test-dup-'));
+    try {
+      const schemaA = [
+        'schema: schema-a',
+        'applies_to: "docs/foo-a/*.md"',
+        'kinds: [foo, unique-to-a]',
+        'required:',
+        '  plan: string',
+      ].join('\n') + '\n';
+      const schemaB = [
+        'schema: schema-b',
+        'applies_to: "docs/foo-b/*.md"',
+        'kinds: [foo, unique-to-b]',  // "foo" is duplicated here
+        'required:',
+        '  plan: string',
+      ].join('\n') + '\n';
+
+      fs.writeFileSync(path.join(tmpDir, 'schema-a.yaml'), schemaA, 'utf8');
+      fs.writeFileSync(path.join(tmpDir, 'schema-b.yaml'), schemaB, 'utf8');
+
+      // loadSchemas must throw — detect-then-fail-loud on duplicate kind ownership.
+      assert.throws(
+        () => loadSchemas(tmpDir),
+        (err) => {
+          // The error must name the duplicate kind value so the author can find
+          // the offending schema immediately.
+          return err instanceof Error && /foo/.test(err.message);
+        },
+        'loadSchemas must throw when two schemas share a kind: value'
+      );
+    } finally {
+      // Clean up tmpdir regardless of test outcome.
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('dup-kind-fail-loud: schemas with DISJOINT kinds do NOT throw (negative guard)', () => {
+    // Ensure the throw only fires on actual duplicates, not on any multi-kind schema.
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'schema-test-nodup-'));
+    try {
+      const schemaA = [
+        'schema: schema-a',
+        'applies_to: "docs/foo-a/*.md"',
+        'kinds: [alpha, beta]',
+        'required:',
+        '  plan: string',
+      ].join('\n') + '\n';
+      const schemaB = [
+        'schema: schema-b',
+        'applies_to: "docs/foo-b/*.md"',
+        'kinds: [gamma, delta]',  // disjoint — no duplicate
+        'required:',
+        '  plan: string',
+      ].join('\n') + '\n';
+
+      fs.writeFileSync(path.join(tmpDir, 'schema-a.yaml'), schemaA, 'utf8');
+      fs.writeFileSync(path.join(tmpDir, 'schema-b.yaml'), schemaB, 'utf8');
+
+      // Must NOT throw — disjoint kinds are fine.
+      let schemas;
+      assert.doesNotThrow(() => {
+        schemas = loadSchemas(tmpDir);
+      }, 'loadSchemas must not throw when kind ownership is disjoint');
+
+      assert.ok(schemas, 'schemas object should be returned');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

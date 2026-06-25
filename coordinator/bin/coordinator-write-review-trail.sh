@@ -246,6 +246,10 @@ mkdir -p "$TRAIL_DIR"
 # Compose JSON record
 # ---------------------------------------------------------------------------
 
+# NOTE: sha_range is consumed PER-COMMIT by lib/review-coverage-core.sh (via `git rev-list`);
+# do NOT "fix" the recorded format to be endpoint-inclusive — per-commit consumption handles
+# the A..B boundary correctly, and changing the format breaks workweek-trail-scope.sh +
+# cockpit-tc-3 ReviewTrail reader. See docs/wiki/workstream-complete-review.md § A..B footgun.
 JSON_RECORD="{\"sha_range\":\"${SHA_RANGE}\",\"reviewer\":\"${REVIEWER}\",\"scope\":\"${SCOPE}\",\"scope_kind\":\"${SCOPE_KIND}\",\"verdict\":\"${VERDICT}\",\"diff_loc\":${DIFF_LOC},\"session_id\":\"${SESSION_ID}\"}"
 
 # ---------------------------------------------------------------------------

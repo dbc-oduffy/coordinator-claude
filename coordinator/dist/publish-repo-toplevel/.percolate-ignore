@@ -22,6 +22,12 @@ README-meta.md
 # Publish-repo's Python venv pin (per-publish-repo, not authored here).
 .python-version
 
+# Publish-side install-provenance sentinel — written by publish.sh
+# (install-sentinel-write) at the END of each target sync (= source meta-repo HEAD).
+# Not authored in dist/; protect from the flat-mirror Phase-2 delete so it isn't
+# churned (deleted then recreated) on every publish.
+version.txt
+
 # Publish-repo's CLAUDE.md is the depersonalized OSS-facing variant of our doctrine.
 # Today it's authored in the publish repo; back-percolating it is a separate decision
 # (would require running publish-time-transform.sh against ~/.claude/CLAUDE.md and

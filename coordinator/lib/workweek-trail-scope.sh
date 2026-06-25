@@ -19,6 +19,7 @@
 #   HEADER_FILE — path to state/week-changelog/HEADER.md (required)
 #
 # Spec backlink: coordinator/commands/workweek-complete.md § Step 7 prelude
+# C2 extraction backlink: docs/plans/2026-06-23-chain-end-review-coverage-gate.md § C2
 
 set -euo pipefail
 
@@ -43,12 +44,28 @@ export WEEK_START TODAY
 TRAIL_FILES=$(find state/review-trail -maxdepth 1 -name "*.json" -type f 2>/dev/null | sort)
 export TRAIL_FILES
 
-# Resolve Python interpreter — same portable pattern as coordinator-session.sh.
-# Initialise PYTHON_ARGS as an empty array BEFORE sourcing resolve-python.sh —
-# `set -u` would otherwise crash on `"${PYTHON_ARGS[@]}"` if the source step is
-# skipped (resolve-python.sh absent / not on disk in the fallback location).
+# ---------------------------------------------------------------------------
+# Temp dir for inter-step communication; cleaned up on exit.
+# ---------------------------------------------------------------------------
+_WWTS_TMPDIR=$(mktemp -d)
+trap 'rm -rf "$_WWTS_TMPDIR"' EXIT
+
+# ---------------------------------------------------------------------------
+# Resolve the shared coverage core path (co-located in the same lib/ dir).
+# ---------------------------------------------------------------------------
+_WWTS_SELFDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COVERAGE_CORE="${_WWTS_SELFDIR}/review-coverage-core.sh"
+if [[ ! -x "$COVERAGE_CORE" ]]; then
+  echo "ERROR: shared coverage core not found or not executable: $COVERAGE_CORE" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve Python interpreter — still needed for the seam-detection block,
+# which remains local to this script.
+# ---------------------------------------------------------------------------
 PYTHON_ARGS=()
-_WWTS_LIB="$(dirname "${BASH_SOURCE[0]}")/resolve-python.sh"
+_WWTS_LIB="${_WWTS_SELFDIR}/resolve-python.sh"
 [[ ! -f "$_WWTS_LIB" ]] && _WWTS_LIB="${HOME}/.claude/plugins/coordinator/lib/resolve-python.sh"
 if [[ -f "$_WWTS_LIB" ]]; then
   # shellcheck source=/dev/null
@@ -59,63 +76,34 @@ if [[ -z "${PYTHON_BIN:-}" ]]; then
   exit 1
 fi
 
-"$PYTHON_BIN" "${PYTHON_ARGS[@]}" - <<'PYEOF'  # verify-no-console-flash: allow (weekly-gate only; not session hot-path)
-import json, os, re, subprocess, sys
+# ---------------------------------------------------------------------------
+# Step 1: get per-segment data (sha_range + shas + files) via the shared core.
+#
+# The shared core applies:
+#   - verdict filter: pending → excluded (fixes the latent weekly-gate gap
+#     where pending records previously counted as reviewed; now BOTH this gate
+#     and the chain-end gate inherit the same semantics from one place)
+#   - SAFE_RANGE validator: argument-injection defence
+#   - JSON-OR-JSONL dual-shape parse
+#
+# --segments-json mode emits per-segment {sha_range, shas, files} records so
+# the local seam-detection block can do pairwise file-set intersection.
+# ---------------------------------------------------------------------------
+SEGMENTS_JSON_FILE="${_WWTS_TMPDIR}/segments.json"
+bash "$COVERAGE_CORE" --segments-json > "$SEGMENTS_JSON_FILE"
 
-# A safe git rev-range from an UNTRUSTED trail-JSON sha_range. Each side must
-# START with an alphanumeric (blocks leading-dash argument injection — e.g.
-# "--output=/x..y" reaching `git rev-list` as a flag) and contains no whitespace
-# or shell metacharacters. Permits the legitimate shapes the trail emits:
-# hex SHAs, the literal HEAD, and ^ / ~N ancestry suffixes
-# (e.g. "009505d6..HEAD", "b05a1dcf^..817dba14", "71e24142~1..fd413ff9").
-SAFE_RANGE = re.compile(r"^[0-9A-Za-z_/.][0-9A-Za-z_/.~^]*\.\.\.?[0-9A-Za-z_/.][0-9A-Za-z_/.~^]*$")
+# ---------------------------------------------------------------------------
+# Step 2: seam detection (stays LOCAL — it is weekly-gate specific).
+#
+# Cross-segment seams are file paths touched by ≥2 distinct segments.
+# A segment whose file-set intersects with the seam set contributes its
+# reviewed commits to patrik_shas (they need another look in the context of
+# the adjacent segment that touched the same file).
+# ---------------------------------------------------------------------------
+"$PYTHON_BIN" "${PYTHON_ARGS[@]}" - "$SEGMENTS_JSON_FILE" <<'PYEOF'  # verify-no-console-flash: allow (weekly-gate only; not session hot-path)
+import json, subprocess, sys
 
-week_start = os.environ.get("WEEK_START", "")
-today      = os.environ.get("TODAY", "")
-trail_env  = os.environ.get("TRAIL_FILES", "")
-
-if not week_start or not today:
-    print("ERROR: WEEK_START and TODAY must be set before invoking this block", file=sys.stderr)
-    sys.exit(1)
-
-trail_files = [f.strip() for f in trail_env.split("\n") if f.strip() and f.strip().endswith(".json")]
-week_records = []
-# Writer-side doctrine: review-trail records are accepted in either shape —
-#   (a) one JSON object per file (single-line OR pretty-printed; both round-trip
-#       through json.load on the whole file), OR
-#   (b) JSONL — one JSON object per line, used when an integrator envelope is
-#       appended to the original reviewer record without rewriting the file.
-# Convergence lives in the parser (here), not in three independent writers —
-# review-integrator, workstream-complete, and chunk-fanout can each pick the
-# shape that fits the write site. Downstream loop already tolerates records
-# without sha_range (legacy WARN+skip) or with scope_kind in {plan,integration},
-# so appending all JSONL objects is safe — integrator envelopes fall into the
-# non-diff path.
-for f in trail_files:
-    basename = os.path.basename(f)
-    date_prefix = basename[:10]
-    if not (week_start <= date_prefix <= today):
-        continue
-    try:
-        with open(f) as fh:
-            rec = json.load(fh)
-        week_records.append(rec)
-    except json.JSONDecodeError as json_err:
-        # JSONL fallback — one object per line.
-        try:
-            with open(f) as fh:
-                for ln, line in enumerate(fh, 1):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    week_records.append(json.loads(line))
-        except Exception as e:
-            # Chain both root causes so the operator sees what failed where.
-            print(f"ERROR: could not parse trail record {f} — failed as JSON ({json_err}) and JSONL ({e})", file=sys.stderr)
-            sys.exit(1)
-    except Exception as e:
-        print(f"ERROR: could not parse trail record {f}: {e}", file=sys.stderr)
-        sys.exit(1)
+segments_json_file = sys.argv[1]
 
 def run(cmd):
     result = subprocess.run(cmd, capture_output=True, text=True, shell=False)
@@ -124,59 +112,11 @@ def run(cmd):
         sys.exit(1)
     return result.stdout.strip()
 
-segment_shas  = []
-segment_files = []
+with open(segments_json_file) as fh:
+    segments = json.load(fh)
 
-for rec in week_records:
-    sha_range = rec.get("sha_range", "")
-
-    # --- Classification: typed field (scope_kind) takes precedence over inference ---
-    # When scope_kind is present (records written by coordinator-write-review-trail.sh
-    # after the typed-field addition), use it directly:
-    #   diff        → code-diff record; include in scope accounting.
-    #   plan        → plan/doc/integration review; legitimately non-diff; skip silently.
-    #   integration → same as plan.
-    # When scope_kind is absent (legacy records written before the field was added),
-    # fall back to the original ".." presence inference for backward compatibility.
-    # Negative-spec: do NOT emit a WARN for records that are typed as plan/integration —
-    # the typed field makes the intent explicit; a WARN would be noise, not signal.
-    scope_kind = rec.get("scope_kind")
-    if scope_kind is not None:
-        if scope_kind in ("plan", "integration"):
-            # Legitimately non-diff; skip silently.
-            continue
-        # Review: focused-review — typed-diff path must be at least as informative as the
-        # legacy path it supersedes. Guard empty sha_range explicitly before SAFE_RANGE check.
-        if not sha_range:
-            artifact = rec.get("artifact", "<unknown>")
-            print(f"WARN: diff-typed trail record has empty sha_range: {artifact}", file=sys.stderr)
-            continue
-        # scope_kind == "diff" (or any future value): fall through to sha_range processing.
-    else:
-        # Legacy record — no scope_kind field. Fall back to ".." inference.
-        if not sha_range or ".." not in sha_range:
-            # Plan/doc reviews (and any non-diff-scoped record) legitimately carry no
-            # SHA range. Emit a WARN only on this legacy path — typed records suppress it.
-            artifact = rec.get("artifact", "<unknown>")
-            print(f"WARN: skipping non-diff trail record (sha_range={sha_range!r}): {artifact}", file=sys.stderr)
-            continue
-
-    if not SAFE_RANGE.match(sha_range):
-        # Has ".." but is not a safe rev-range — refuse to hand it to git.
-        # Defends against argument injection via an untrusted trail-JSON record.
-        artifact = rec.get("artifact", "<unknown>")
-        print(f"WARN: skipping unsafe sha_range {sha_range!r} (failed rev-range validation): {artifact}", file=sys.stderr)
-        continue
-    shas_out  = run(["git", "rev-list", sha_range])
-    # Use git-log --name-only (union of all touched files across the range)
-    # rather than git-diff --name-only (net diff, which undercounts when a file
-    # is modified then reverted within the range — those vanish from the net diff
-    # but should still be considered "touched" for seam detection).
-    log_out   = run(["git", "log", "--name-only", "--format=", sha_range])
-    files_out_lines = [l for l in log_out.splitlines() if l.strip()]
-    # Dedupe across commits in the range (log emits one path per commit-that-touched-it).
-    segment_shas.append(set(shas_out.splitlines()) if shas_out else set())
-    segment_files.append(set(files_out_lines) if files_out_lines else set())
+segment_shas  = [set(seg["shas"])  for seg in segments]
+segment_files = [set(seg["files"]) for seg in segments]
 
 reviewed_set = set().union(*segment_shas) if segment_shas else set()
 

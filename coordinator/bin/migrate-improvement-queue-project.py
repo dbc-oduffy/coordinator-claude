@@ -6,6 +6,7 @@
 #   python  migrate-improvement-queue-project.py ... # explicit interpreter
 #   bash    migrate-improvement-queue-project.py ... # re-execs under python
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 migrate-improvement-queue-project.py — one-shot migration of project-specific entries
 from the legacy pipe-delimited state/improvement-queue.md into structured YAML files

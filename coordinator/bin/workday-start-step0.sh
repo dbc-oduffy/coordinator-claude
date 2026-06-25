@@ -41,6 +41,30 @@ MACHINE=$(cs_compute_machine)
 TODAY=$(date -u +%Y-%m-%d)
 CURRENT=$(git branch --show-current 2>/dev/null || echo "")
 
+# Step 0.2a — Machine-slug registry self-heal and drift detection
+# Spec backlink: docs/plans/2026-06-22-persist-machine-slug-registry.md § Seeding item 2 + § Drift detection
+# Guard: CLI absent (exit 127) or key absent (exit 1) must never abort this script (set -eu active).
+_ML_BIN="${MACHINE_LOCAL_BIN:-machine-local}"
+if command -v "$_ML_BIN" &>/dev/null; then
+  if ! "$_ML_BIN" has coordinator.machine_slug &>/dev/null; then
+    # Key absent — seed from live hostname (not from COORDINATOR_MACHINE env override).
+    # cs_compute_machine_live: env→COMPUTERNAME→hostname→HOSTNAME→"unknown" (no registry read).
+    _LIVE_SLUG=$(cs_compute_machine_live)
+    "$_ML_BIN" set coordinator.machine_slug "$_LIVE_SLUG" &>/dev/null || true
+  else
+    # Key present — compare persisted value against live hostname; surface drift, do not pick.
+    _PERSISTED=$("$_ML_BIN" get --default "" coordinator.machine_slug 2>/dev/null || true)
+    _LIVE_SLUG=$(cs_compute_machine_live)
+    if [[ -n "$_PERSISTED" && "$_PERSISTED" != "$_LIVE_SLUG" ]]; then
+      echo "Machine-slug drift: persisted='${_PERSISTED}', this session's hostname yields '${_LIVE_SLUG}'." >&2
+      echo "  Option 1 — stale session: this process has a stale hostname. Keeping persisted value is correct; no action needed." >&2
+      echo "  Option 2 — machine renamed: run 'machine-local set coordinator.machine_slug ${_LIVE_SLUG}' to update the registry." >&2
+      # MACHINE retains the value from cs_compute_machine (persisted/env/hostname) — not overwritten here.
+    fi
+  fi
+fi
+unset _ML_BIN _LIVE_SLUG _PERSISTED
+
 # Step 0.3 — Precedence switch
 
 # Check 1 — Stale-commit guard
@@ -112,7 +136,7 @@ fi
 OLD="$CURRENT"
 # Guard: Check 4 is only reachable when cs_parse_branch_span SHOULD succeed
 # (Checks 2, 3, 3.5 catch unparseable forms). If it doesn't, abort loudly
-# rather than constructing a malformed branch name like work/striker/to20.
+# rather than constructing a malformed branch name like work/machine-a/to20.
 if ! parsed_span=$(cs_parse_branch_span "$OLD" 2>/dev/null); then
   echo "ERROR: Check 4 reached with unparseable branch '$OLD' — precedence switch fell through unexpectedly" >&2
   exit 1

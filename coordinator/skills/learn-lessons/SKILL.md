@@ -231,7 +231,7 @@ EM produces `records.yaml` inline from the extraction (no router dispatch — lo
 
 ## Phase 2.6 — Lessons-Outbox Drain (Central Mode Only)
 
-<!-- Spec backlink: docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md § C4 -->
+<!-- Spec backlink: archive/specs/2026-06/2026-06-15-universal-lesson-routing-mechanical-capture.md § C4 -->
 <!-- Negative-spec: Do NOT read outbox YAMLs during local-mode runs — the outbox drain is a
      DoE-owned central-mode operation only. Local-mode routing writes TO the outbox via
      coordinator-lesson-promote; Phase 2.6 reads FROM the outbox. -->

@@ -1,0 +1,6 @@
+# Byte-equal cross-repo conformance fixture: pin LF explicitly so it does not
+# diverge to CRLF under autocrlf on a Windows checkout. This .gitattributes lives
+# INSIDE the publish source root (not the meta-repo root) so the pin ships to the
+# OSS coordinator-claude publish. See docs/wiki/cross-repo-contract-test-discipline.md
+# and docs/wiki/step-zero-emitter-contract.md.
+tests/fixtures/step-zero-conformance.json text eol=lf

@@ -141,7 +141,7 @@ This rule restates coordinator doctrine in your prompt because subagents do not 
 
 ### EM-Only Commit Gate
 
-<!-- Spec backlink: docs/plans/2026-06-15-executor-no-self-commit-em-only-gate.md (DoE follow-up 8, source lesson ue-addon-L93). -->
+<!-- Spec backlink: archive/specs/2026-06/2026-06-15-executor-no-self-commit-em-only-gate.md (DoE follow-up 8, source lesson ue-addon-L93). -->
 
 **Do not self-commit unless the dispatch brief explicitly authorizes commit (the `expected_branch:` pattern of SC-DR-008 IS authorized commit).** Your dispatch brief is the contract — if it says no-commit (the default), report DONE without committing; the EM commits after spot-check. If the brief explicitly authorizes commit (e.g. carries `expected_branch:` per SC-DR-008), follow `## Commit Discipline § Standing Order — expected_branch pass-through` below.
 

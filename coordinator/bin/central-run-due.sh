@@ -19,11 +19,23 @@ set -uo pipefail
 
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 CONFIG="$CLAUDE_HOME/state/learn-lessons-config.md"
+
+# Resolve coordinator content root via the portable resolver (CLAUDE_PLUGIN_ROOT →
+# COORDINATOR_ROOT → registry clone → versioned cache → flat layout).
+_rcc_resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/resolve-coordinator-clone.sh"
+if [[ -f "$_rcc_resolver" ]]; then
+    # shellcheck source=../lib/resolve-coordinator-clone.sh
+    source "$_rcc_resolver" 2>/dev/null || true
+fi
+if [[ -z "${COORDINATOR_CONTENT_ROOT:-}" ]]; then
+    COORDINATOR_CONTENT_ROOT="$CLAUDE_HOME/plugins/coordinator-claude/coordinator"
+fi
+
 # Discovery roots are PER-MACHINE, derived from the machine-local [repos] registry by this helper
 # (NOT the old BEGIN/END learn-lessons-roots sentinel in $CONFIG, which is retired). $CONFIG is read
 # below only for the central_volume_threshold knob.
-ROOTS_HELPER="$CLAUDE_HOME/plugins/coordinator/bin/learn-lessons-roots.sh"
-EXTRACT="$CLAUDE_HOME/plugins/coordinator/bin/extract-lessons.py"
+ROOTS_HELPER="$COORDINATOR_CONTENT_ROOT/bin/learn-lessons-roots.sh"
+EXTRACT="$COORDINATOR_CONTENT_ROOT/bin/extract-lessons.py"
 # Python 3 interpreter: python3 on macOS/Linux, python on Windows git-bash.
 PYTHON="$(command -v python3 || command -v python || true)"
 

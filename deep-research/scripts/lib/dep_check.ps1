@@ -170,12 +170,33 @@ function Test-DrDepProbe {
         }
         'python_import' {
             if (-not $Python) {
-                # Resolve Python if not provided.
-                foreach ($candidate in @('python', 'python3')) {
+                # Resolve Python with a functional probe — not just Get-Command / --version.
+                # The Windows 11 WindowsApps Store stub passes existence checks but exits
+                # non-zero when actually invoked.  We execute a version-gate expression
+                # (sys.version_info >= (3,11)) so the returned candidate is confirmed
+                # working AND meets the minimum version. Parity with setup.ps1 Find-Python
+                # and bash _co_find_python (Store-stub hardened). PS parity 2026-06-23.
+                $versionCheck = 'import sys; sys.exit(0 if sys.version_info[:2] >= (3,11) else 1)'
+                foreach ($candidate in @('python3', 'python')) {
+                    if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
                     try {
-                        $v = & $candidate --version 2>&1
-                        if ($LASTEXITCODE -eq 0 -and "$v" -match '^Python 3') { $Python = $candidate; break }
+                        & $candidate -c $versionCheck 2>$null
+                        if ($LASTEXITCODE -eq 0) { $Python = $candidate; break }
                     } catch {}
+                }
+                # py launcher fallback — bypasses WindowsApps aliases on Windows.
+                if (-not $Python -and (Get-Command 'py' -ErrorAction SilentlyContinue)) {
+                    foreach ($pyVer in @('-3.12', '-3.11', '-3', '')) {
+                        try {
+                            $pyArgs = if ($pyVer -ne '') { @($pyVer, '-c', $versionCheck) } else { @('-c', $versionCheck) }
+                            & py @pyArgs 2>$null
+                            if ($LASTEXITCODE -eq 0) {
+                                $resolveArgs = if ($pyVer -ne '') { @($pyVer, '-c', 'import sys;print(sys.executable)') } else { @('-c', 'import sys;print(sys.executable)') }
+                                $resolved = (& py @resolveArgs 2>$null | Out-String).Trim()
+                                if ($resolved -and (Test-Path $resolved)) { $Python = $resolved; break }
+                            }
+                        } catch {}
+                    }
                 }
             }
             if (-not $Python) { return 'present-but-broken' }

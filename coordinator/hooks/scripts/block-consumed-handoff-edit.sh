@@ -17,20 +17,26 @@
 # next checkpoint goes in a new file.
 #
 # Exemptions baked in:
-# - `/pickup` mutation step itself — the legitimate edits at pickup-time are the
-#   frontmatter status/consumed_by/consumed_at fields. Those are written BEFORE
-#   the file is `status: consumed`, so this hook does not see them (the on-disk
-#   state at the moment of the Edit is still `status: active`).
+# - Pickup consume transition and ship-stamp — `cs_consume_handoff` (pickup
+#   consume transition) and `stamp_shipped_in` (ship/supersede) in
+#   `lib/coordinator-archive-stamp.sh` write frontmatter via node-over-Bash.
+#   They are NOT matched by this Edit-family-only hook. The lifecycle write
+#   sails through; manual Edit-tool body-appends to a consumed handoff stay
+#   blocked — that is the behavior we want.
+# - `/pickup` in-place status-flip (legacy Edit path) — the frontmatter fields
+#   status/consumed_by/consumed_at were written BEFORE the file reaches
+#   `status: consumed`, so this hook did not see them (the on-disk state at the
+#   moment of the Edit was still `status: active`). Now superseded by the
+#   `cs_consume_handoff` bash helper above.
 # - `/handoff` chain-archival — moves the file to archive/handoffs/ via shell
 #   `git mv` / `mv`, not a Write/Edit tool call; this hook does not fire on Bash.
-# - Recovery flavor sweep — the recovery-flavor crash-rescue sweep in the handoff
-#   skill writes one-line crash-invalidation notes into sibling handoffs. Those
-#   siblings are typically `status: active`; if they happen to be `consumed`,
-#   set COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1 for the sweep.
 #
-# Override: COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1 (rare-use; recovery
-# sweep, fixture authoring, a one-off correction that is genuinely a paper-trail
-# patch and not a progress append).
+# Override: COORDINATOR_OVERRIDE_CONSUMED_HANDOFF_EDIT=1 is recovery-only —
+# reserved for recovery-flavor crash-invalidation notes into sibling consumed
+# handoffs (the handoff skill's recovery sweep) and one-off paper-trail
+# corrections. It is NOT needed for routine pickup; the lifecycle write now
+# routes through the bash helper family above, which bypasses this hook by
+# tool-type. Never use this override for progress appends.
 #
 # Deny mechanism: hookSpecificOutput.permissionDecision → stdout → exit 0
 #   (matches block-tracker-edit.sh; the {"decision":"block"}→stderr→exit 1 shape

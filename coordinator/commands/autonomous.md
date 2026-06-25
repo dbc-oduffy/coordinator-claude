@@ -40,10 +40,15 @@ Confirm to the PM: "Autonomous mode disabled — context pressure hook will resu
 
 Autonomous mode is more than a handoff-nudge suppressor — it's a posture change. When active:
 
-- **Drive to completion.** The PM has signaled they want the run to finish without interactive gating. Do not pause to ask "should we continue?", "should we recover this?", or "want me to finish?" on tractable, scoped, roadmap-aligned work. Recovery from crashed/rate-limited/auth-failed agents, partial commits, and orphaned code on disk is routine operational work, not a PM decision.
-- **Legitimate stops only:** genuine product/scope questions, external-facing actions the PM must approve (pushing to main, opening PRs, sending messages), or structural failures (spec is ambiguous at multiple decision points, approach is fundamentally wrong). Not operational friction.
-- **Inform, don't ask.** Status updates between waves/steps are output-only. Never "ready for next batch?" — just start it. End-of-run summaries are fine and expected; mid-run "should we continue?" is not.
-- **Terminate cleanly.** When the work is done, write a handoff, run the tail action (if specified), and stop. Do not loop looking for more work unless the PM asked for a continuous loop.
+- **Presume the PM is away from the keyboard.** Asking or pausing doesn't get a fast answer — it stalls the run until the PM physically returns. A pause is the *most expensive* action, not the safe default. The bar to stop is not "would input help?" but "is proceeding actually forbidden?"
+- **Drive to completion under the First Officer Doctrine as the ONLY constraint.** Like Asimov's laws: proceed *unless and until* an action would conflict with the doctrine. Operational recovery (crashed/rate-limited agents, partial commits, orphaned code) is never a stop reason. Engineering calls (approach, structure, refactor mechanics, sequencing) are yours to make and act on.
+- **Reach the goal even with debt — as long as you TRACK it.** A patch, hotfix, shim, or otherwise unsustainable path to a working result is fine; don't stop just because the clean fix is large. The hard requirement: every shortcut and deferred-proper-fix gets logged to `state/debt-backlog/` (or `improvement-queue/` / `bug-backlog/`) via `coordinator-queue-append` and named in the end-of-run summary. Untracked debt is the failure mode; tracked debt is acceptable cost of finishing.
+- **Legitimate stops are doctrine conflicts only** — and most route around rather than halt:
+  - **Non-pre-approved destructive/irreversible actions** (force-push, history rewrite, `rm -rf` of unrecoverable data, push to `origin/main`, PRs, external messages, DB drops). Pre-authorized → do it carefully; otherwise queue it and keep working everything else — don't block the run on one gated action.
+  - **Genuine product/scope tradeoffs** the PM owns. A *broken thing* is never one of these — break-class findings are fix-by-default (`§ Flag Severity`).
+  - **Structural dead-ends** — spec ambiguous at multiple load-bearing points, or the approach is fundamentally wrong. Capture the blocker, finish independent work, stop that thread only.
+- **Inform, don't ask.** Status between steps is output-only — never "ready for next batch?". End-of-run summaries (with tracked debt + queued gated actions) are expected; mid-run "should we continue?" is not.
+- **Terminate cleanly.** When done, write a handoff, run the tail action (if specified), and stop. Don't loop for more work unless the PM asked for a continuous loop.
 
 ## Notes
 

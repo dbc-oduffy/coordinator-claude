@@ -6,6 +6,7 @@
 #   python  migrate-improvement-queue-universals.py ... # explicit interpreter
 #   bash    migrate-improvement-queue-universals.py ... # re-execs under python
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 migrate-improvement-queue-universals.py — one-shot migration of [universal]+central-wiki
 entries from a per-project improvement-queue.md into the structured lessons-outbox.

@@ -174,6 +174,33 @@ make_payload() {
   [ -z "$output" ]
 }
 
+@test "AC2/AC4: second suppression marker '# popup-safe-env-suppressed' suppresses C1" {
+  # Review: code-reviewer (A-F3) — renamed from AC9b to AC2/AC4 to align with the
+  # reconcile plan's AC numbering (2026-06-22-popup-suppression-marker-two-vocabulary-reconcile.md).
+  # Mirror of AC9 — second env-agnostic suppression marker must also exit 0 silently.
+  local payload
+  payload=$(make_payload "python -c 'print(1)'  # popup-safe-env-suppressed")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "AC9c: env-var prefix alone (no marker) does NOT suppress advisory" {
+  # Deliberate residual behavior: a bare env-var prefix such as
+  # FOR_DISABLE_CONSOLE_CTRL_HANDLER=1 is NOT a suppression marker and must
+  # NOT silence the hook.  The generic-substrate escape is marker-only.
+  local payload
+  payload=$(make_payload "FOR_DISABLE_CONSOLE_CTRL_HANDLER=1 python -c 'print(1)'")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"permissionDecision"'* ]]
+  [[ "$output" == *'"allow"'* ]]
+  [[ "$output" == *'"additionalContext"'* ]]
+  [[ "$output" == *'WINDOWS CONSOLE POPUP ADVISORY'* ]]
+}
+
 # ---------------------------------------------------------------------------
 # F15 — netstat.exe positive test (was missing; Pattern 4 coverage)
 # ---------------------------------------------------------------------------
@@ -188,6 +215,90 @@ make_payload() {
   [[ "$output" == *'"permissionDecision"'* ]]
   [[ "$output" == *'"allow"'* ]]
   [[ "$output" == *'"additionalContext"'* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Item 4a (holodeck-em 2026-06-22 calibration) — PATH-lookup subexpressions
+# (command -v / which / type / hash <tok>) resolve a PATH entry and never spawn
+# the binary; the hook must stay SILENT rather than false-positive on them.
+# ---------------------------------------------------------------------------
+
+@test "item4a: 'command -v powershell.exe' is a PATH lookup — silent" {
+  local payload
+  payload=$(make_payload "command -v powershell.exe >/dev/null 2>&1")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "item4a: 'type netstat.exe' is a PATH lookup — silent" {
+  local payload
+  payload=$(make_payload "type netstat.exe")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "item4a: 'which powershell.exe' is a PATH lookup — silent" {
+  local payload
+  payload=$(make_payload "which powershell.exe")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "item4a: 'hash netstat.exe' is a PATH lookup — silent" {
+  # Review F4 — `hash` is in the lookup alternation; guard against a future edit dropping it.
+  local payload
+  payload=$(make_payload "hash netstat.exe")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "item4a: compound 'command -v X && X ...' still FIRES on the real spawn half" {
+  # The lookup half is stripped from the scan copy, but the genuine spawn that
+  # follows must still trigger the advisory — neutralizing must not mask a spawn.
+  local payload
+  payload=$(make_payload "command -v powershell.exe && powershell.exe -NoProfile -Command Get-Date")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"permissionDecision"'* ]]
+  [[ "$output" == *'"allow"'* ]]
+  [[ "$output" == *'WINDOWS CONSOLE POPUP ADVISORY'* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Item 4b (holodeck-em 2026-06-22 calibration) — spawn-hidden.sh is the
+# coordinator's console-suppressing launcher; a command routed through it is
+# already popup-safe (same class as python-quiet.sh). Hook must stay SILENT.
+# ---------------------------------------------------------------------------
+
+@test "item4b: spawn-hidden.sh-wrapped python3 -c is already suppressed — silent" {
+  local payload
+  payload=$(make_payload "lib/spawn-hidden.sh --stdin-mode=safe python3 -c 'print(1)'")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+@test "item4b-known-limitation: bare python -c mentioning spawn-hidden.sh in a comment is also suppressed (accepted false-negative)" {
+  # Review F6 — the skip-list is a substring match; a command that merely NAMES spawn-hidden.sh
+  # is skipped even if the actual invocation is a bare interpreter. This is the accepted
+  # false-negative (advisory-only hook, false-positive is the costlier failure). Declared as
+  # a spec, not accidental — mirrors the python-quiet.sh precedent.
+  local payload
+  payload=$(make_payload "python3 -c 'print(1)'  # could use spawn-hidden.sh here")
+  run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
+      bash "$SUBJECT" <<< "$payload"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -219,5 +330,7 @@ make_payload() {
   run env -i HOME="$HOME" WINDIR="C:\\Windows" PATH="$PATH" \
       bash "$SUBJECT" <<< "$payload"
   [ "$status" -eq 0 ]
+  # Review F8 — skip rather than spuriously fail if python3 is absent from the runner's PATH.
+  command -v python3 >/dev/null 2>&1 || skip "python3 unavailable"
   printf '%s' "$output" | python3 -c 'import json,sys; json.load(sys.stdin)'
 }

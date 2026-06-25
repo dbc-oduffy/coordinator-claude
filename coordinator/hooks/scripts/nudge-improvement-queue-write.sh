@@ -74,7 +74,7 @@ if command -v jq &>/dev/null; then
 elif command -v python &>/dev/null || command -v python3 &>/dev/null; then
   PY=$(command -v python || command -v python3)
   # Field-per-line (NOT space-joined) — file_path/transcript_path can contain
-  # spaces (e.g. a Windows path under "C:\Users\First Last\"), which the old
+  # spaces (e.g. a Windows path under "C:\Users\user name\"), which the old
   # `read -r A B C` form split across the wrong vars and silently mis-routed.
   # Mirrors the fix already in nudge-unauthorized-handoff.sh (the Staff Engineer P1,
   # 2026-05-29). Paths never contain newlines, so line-delimited is safe; each
@@ -132,29 +132,50 @@ fi
 
 FILE_PATH_NORM="${FILE_PATH//\\//}"
 
-# Only fire on improvement-queue files (central + per-project both end in this).
+# Only fire on improvement-queue files (central + per-project both match this).
+# Matches:
+#   - state/improvement-queue/*.yaml  (structured YAML entries, the current form)
+#   - state/improvement-queue.md      (legacy per-project prose form, now retired but still guarded)
+# The retired central prose file state/coordinator-improvement-queue.md is no longer
+# written; any attempt to write it is caught by the *improvement-queue.md arm below.
 case "$FILE_PATH_NORM" in
-  *improvement-queue.md)
-    ;;
+  *state/improvement-queue/*.yaml) ;;
+  *improvement-queue.md) ;;
   *)
     exit 0
     ;;
 esac
 
-# For Edit: only fire if the new_string introduces an entry line that the
-# old_string didn't carry. Match the queue main-line schema "- YYYY-MM-DD".
-# This lets pruning edits, recurrence bumps, and reformat passes through silently.
+# For Edit: only fire if a new entry is being added, not for pruning/reformat passes.
+#
+# Review: code-reviewer — F7/F3: The entry-count gate applies ONLY to the legacy
+# *improvement-queue.md prose path (where entries look like "- YYYY-MM-DD | ...").
+# For *.yaml paths the "- YYYY-MM-DD |" pattern never matches YAML content, so
+# the old gate silently passed every Edit on a YAML file (no nudge). This is
+# intentional for YAML: a Write of a new YAML file is already caught by the Write
+# branch above; field-level Edits to an existing YAML entry are legitimately
+# lower-friction (no new entry is being added). Apply the pipe-row count gate only
+# for the legacy improvement-queue.md file path.
 if [[ "$TOOL_NAME" == "Edit" ]]; then
-  # Count entry lines on both sides; if new doesn't add any, skip (covers
-  # pruning, reformat, recurrence-bump-only, and any edit that doesn't grow
-  # the entry count).
-  NEW_ENTRIES=$(printf '%s' "$NEW_STRING" | grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \|' 2>/dev/null || echo 0)
-  OLD_ENTRIES=$(printf '%s' "$OLD_STRING" | grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \|' 2>/dev/null || echo 0)
-  NEW_ENTRIES=$(printf '%s' "$NEW_ENTRIES" | tr -d '\r\n ')
-  OLD_ENTRIES=$(printf '%s' "$OLD_ENTRIES" | tr -d '\r\n ')
-  if [[ "${NEW_ENTRIES:-0}" -le "${OLD_ENTRIES:-0}" ]]; then
-    exit 0
-  fi
+  case "$FILE_PATH_NORM" in
+    *improvement-queue.md)
+      # Legacy prose form: count "- YYYY-MM-DD |" pipe-row entry lines on both sides.
+      # If new_string doesn't add any rows beyond old_string, pass through silently
+      # (covers pruning, reformat, recurrence-bump-only edits).
+      NEW_ENTRIES=$(printf '%s' "$NEW_STRING" | grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \|' 2>/dev/null || echo 0)
+      OLD_ENTRIES=$(printf '%s' "$OLD_STRING" | grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \|' 2>/dev/null || echo 0)
+      NEW_ENTRIES=$(printf '%s' "$NEW_ENTRIES" | tr -d '\r\n ')
+      OLD_ENTRIES=$(printf '%s' "$OLD_ENTRIES" | tr -d '\r\n ')
+      if [[ "${NEW_ENTRIES:-0}" -le "${OLD_ENTRIES:-0}" ]]; then
+        exit 0
+      fi
+      ;;
+    *state/improvement-queue/*.yaml)
+      # Structured YAML form: field Edits to an existing YAML entry are lower-friction
+      # than a Write (no new queue entry is being created). Pass through silently.
+      exit 0
+      ;;
+  esac
 fi
 
 # Skip when an authoring skill that owns queue maintenance is active. These
@@ -178,11 +199,12 @@ if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
 fi
 
 # Build the friction message.
+# Central entries now live under state/improvement-queue/*.yaml (queue_scope: central
+# field in the YAML), not the retired prose file state/coordinator-improvement-queue.md.
+# Both central and project-scoped entries share the same path pattern
+# (*improvement-queue*), so we use a single accurate label here rather than
+# attempting to detect queue_scope from file content at hook time.
 QUEUE_LABEL="improvement queue"
-case "$FILE_PATH_NORM" in
-  *coordinator-improvement-queue.md) QUEUE_LABEL="CENTRAL improvement queue (universal patterns)" ;;
-  *) QUEUE_LABEL="per-project improvement queue" ;;
-esac
 
 TRIVIAL_HINT=""
 if [[ "${TRIVIAL_REASON:-0}" == "1" ]]; then
@@ -274,7 +296,10 @@ else
   # ambiguity around --stdin-mode=safe. The launcher's safe mode is documented as
   # heredoc/redirect/args-only — argv-only is unambiguously safe and avoids relying
   # on undocumented pipe-stdin survival through pythonw.exe.
-  REASON_JSON=$(REASON="$REASON" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe python -c 'import json,os,sys; sys.stdout.write(json.dumps(os.environ["REASON"]))' 2>/dev/null \
+  # python3-first resolver — bare `python` is absent on modern macOS / many Linux;
+  # the sed-based `|| printf` fallback below still covers the no-interpreter case.
+  _PY="$(command -v python3 || command -v python)"
+  REASON_JSON=$(REASON="$REASON" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe "${_PY:-python3}" -c 'import json,os,sys; sys.stdout.write(json.dumps(os.environ["REASON"]))' 2>/dev/null \
     || printf '"%s"' "$(printf '%s' "$REASON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n')")
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$REASON_JSON"
 fi

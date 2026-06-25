@@ -3,8 +3,8 @@
 #
 # Why this exists: on Windows's case-insensitive filesystem, `.git/HEAD` can store
 # a ref name in a case different from the actual on-disk ref file (e.g. HEAD says
-# `refs/heads/work/STRIKER/2026-05-07` but the ref file is
-# `refs/heads/work/striker/2026-05-07`). `git branch --show-current` reads HEAD
+# `refs/heads/work/MACHINE-A/2026-05-07` but the ref file is
+# `refs/heads/work/machine-a/2026-05-07`). `git branch --show-current` reads HEAD
 # literally and returns the stored case; `git push origin <that-name>` then fails
 # with "cannot be resolved to branch" because git's ref lookup is case-sensitive
 # against the canonical name.

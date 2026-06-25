@@ -1,6 +1,6 @@
 # Phase 3a: Sonnet Contradiction Detection Prompt
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#2, AC#6a -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#2, AC#6a -->
 
 ```
 You are a contradiction-detection agent. Your task is to compare the Phase 2 synthesis

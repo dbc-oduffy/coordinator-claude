@@ -62,8 +62,13 @@ case "${MODE}" in --check|--fix|--list) ;;
 #        -name "*.md" -type f 2>/dev/null | sort
 # Run date: 2026-06-15. Count: 45 (plan estimated 44; the discrepancy is one extra coordinator
 # agent — vp-product.md was present at plan-write time, counted as 18 coordinator agents, not 17).
-# Paths are relative to HOME to remain location-stable across machines.
+# Coordinator agents (18 entries) use $_COORD_ROOT — the resolved content root. When
+# COORDINATOR_CONTENT_ROOT is set in the environment (e.g. by a test harness or a cache install),
+# it overrides PLUGIN_ROOT so the agents are found in the correct install location. Sibling plugin
+# entries keep $HOME because they are always at the flat install layout (no per-plugin cache tier).
 # Spec backlink: docs/plans/2026-06-15-nudge-quota-exhausted-agent.md § Chunk 1 — CONSUMERS array
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md § C2b-bin
+_COORD_ROOT="${COORDINATOR_CONTENT_ROOT:-$PLUGIN_ROOT}"
 CONSUMERS=(
     "$HOME/.claude/plugins/claude-unreal-holodeck/game-dev/agents/bp-test-evidence-parser.md"
     "$HOME/.claude/plugins/claude-unreal-holodeck/game-dev/agents/perf-trace-classifier.md"
@@ -79,24 +84,24 @@ CONSUMERS=(
     "$HOME/.claude/plugins/claude-unreal-holodeck/holodeck-control/agents/ue-python-executor.md"
     "$HOME/.claude/plugins/claude-unreal-holodeck/holodeck-control/agents/ue-virtual-production.md"
     "$HOME/.claude/plugins/claude-unreal-holodeck/holodeck-control/agents/ue-world-builder.md"
-    "$HOME/.claude/plugins/coordinator/agents/code-architect.md"
-    "$HOME/.claude/plugins/coordinator/agents/code-reviewer-weekly.md"
-    "$HOME/.claude/plugins/coordinator/agents/code-reviewer.md"
-    "$HOME/.claude/plugins/coordinator/agents/dep-cve-auditor.md"
-    "$HOME/.claude/plugins/coordinator/agents/doc-link-checker.md"
-    "$HOME/.claude/plugins/coordinator/agents/docs-checker.md"
-    "$HOME/.claude/plugins/coordinator/agents/eng-director.md"
-    "$HOME/.claude/plugins/coordinator/agents/enricher.md"
-    "$HOME/.claude/plugins/coordinator/agents/executor.md"
-    "$HOME/.claude/plugins/coordinator/agents/external-pattern-checker.md"
-    "$HOME/.claude/plugins/coordinator/agents/parallel-review-synthesizer.md"
-    "$HOME/.claude/plugins/coordinator/agents/plan-coverage-checker.md"
-    "$HOME/.claude/plugins/coordinator/agents/prior-art-checker.md"
-    "$HOME/.claude/plugins/coordinator/agents/review-integrator.md"
-    "$HOME/.claude/plugins/coordinator/agents/security-audit-worker.md"
-    "$HOME/.claude/plugins/coordinator/agents/staff-eng.md"
-    "$HOME/.claude/plugins/coordinator/agents/test-evidence-parser.md"
-    "$HOME/.claude/plugins/coordinator/agents/vp-product.md"
+    "$_COORD_ROOT/agents/code-architect.md"
+    "$_COORD_ROOT/agents/code-reviewer-weekly.md"
+    "$_COORD_ROOT/agents/code-reviewer.md"
+    "$_COORD_ROOT/agents/dep-cve-auditor.md"
+    "$_COORD_ROOT/agents/doc-link-checker.md"
+    "$_COORD_ROOT/agents/docs-checker.md"
+    "$_COORD_ROOT/agents/eng-director.md"
+    "$_COORD_ROOT/agents/enricher.md"
+    "$_COORD_ROOT/agents/executor.md"
+    "$_COORD_ROOT/agents/external-pattern-checker.md"
+    "$_COORD_ROOT/agents/parallel-review-synthesizer.md"
+    "$_COORD_ROOT/agents/plan-coverage-checker.md"
+    "$_COORD_ROOT/agents/prior-art-checker.md"
+    "$_COORD_ROOT/agents/review-integrator.md"
+    "$_COORD_ROOT/agents/security-audit-worker.md"
+    "$_COORD_ROOT/agents/staff-eng.md"
+    "$_COORD_ROOT/agents/test-evidence-parser.md"
+    "$_COORD_ROOT/agents/vp-product.md"
     "$HOME/.claude/plugins/data-science/agents/staff-data-sci.md"
     "$HOME/.claude/plugins/deep-research/agents/coverage-auditor.md"
     "$HOME/.claude/plugins/deep-research/agents/repo-scout.md"

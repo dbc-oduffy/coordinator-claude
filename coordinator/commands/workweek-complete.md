@@ -219,9 +219,17 @@ Presence-detected. Applies only when `scripts/lint-owner-file-invariants.py` exi
 ```bash
 if [[ -f scripts/lint-owner-file-invariants.py ]]; then
   set +e
-  _LINT_OUT=$(python scripts/lint-owner-file-invariants.py 2>&1); _LINT_RC=$?
+  # python3-first resolver — `python` is absent on modern macOS / many Linux.
+  # No interpreter → clean SKIP with notice (advisory step); do NOT fall back to a
+  # literal `python3` that 127s and surfaces as a spurious rc into the weekly summary.
+  PY="$(command -v python3 || command -v python)"
+  if [[ -z "$PY" ]]; then
+    echo "---"; echo "owner-file-invariant advisory: SKIP — no python3/python on PATH"; echo "---"
+  else
+    _LINT_OUT=$("$PY" scripts/lint-owner-file-invariants.py 2>&1); _LINT_RC=$?
+    echo "---"; echo "owner-file-invariant advisory (rc=$_LINT_RC):"; echo "$_LINT_OUT"; echo "---"
+  fi
   set -e
-  echo "---"; echo "owner-file-invariant advisory (rc=$_LINT_RC):"; echo "$_LINT_OUT"; echo "---"
 fi
 ```
 
@@ -637,7 +645,7 @@ A non-zero exit here means a surface was missed — fix it before Step 11. (This
 
 ## Step 10.5: Release Publish — Backstop Un-Draft (catch-all for non-merge-tagged work)
 
-<!-- spec-backlink: docs/plans/2026-06-01-boot-currency-notification-hook.md § C1 — Release cadence -->
+<!-- spec-backlink: archive/specs/2026-06/2026-06-01-boot-currency-notification-hook.md § C1 — Release cadence -->
 <!-- purpose: belt-and-suspenders catch-all for non-trivial work that reached main via direct
      daily-branch commits that bypassed /merge-to-main (and therefore bypassed the per-merge
      tagged-publish leg in skills/merging-to-main/SKILL.md Step 1.5). -->

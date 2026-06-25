@@ -5,7 +5,7 @@
 # Spec backlink: docs/plans/2026-05-07-mixed-case-branch-creation-tripwire.md
 #
 # Why: on Windows's case-insensitive FS, a ref created via `git checkout -b
-# work/STRIKER/...` lands on disk as lowercase but `.git/HEAD` stores the
+# work/MACHINE-A/...` lands on disk as lowercase but `.git/HEAD` stores the
 # mixed-case literal. `git branch --show-current` returns HEAD's stored case;
 # `git push origin <that>` fails ref lookup (case-sensitive against canonical).
 # The hook now blocks creating new mixed-case refs (cs_is_canonical_branch);

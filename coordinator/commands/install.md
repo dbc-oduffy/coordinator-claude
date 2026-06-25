@@ -1,14 +1,81 @@
 ---
 description: Install the coordinator plugin — check prerequisites, verify environment, configure project. Safe to re-run.
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "AskUserQuestion"]
-argument-hint: "[--check-only] [--non-interactive]"
+argument-hint: "[--check-only] [--non-interactive] [--accept-no-git-auth]"
 ---
 
 # Coordinator Install
 
-<!-- spec-backlink: docs/plans/2026-05-19-coordinator-installer-redesign-implementation.md -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-19-coordinator-installer-redesign-implementation.md -->
 
 Environment and project setup for the coordinator plugin. This is a **guided install** — you participate in the shape decisions; the agent moves fast on mechanism. Safe to re-run — skips anything already configured.
+
+## Step Zero — Functional preflight and env-normalization
+
+<!-- spec-backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md -->
+
+Before any phase, run a functional gate to verify prerequisites and fix what can be fixed automatically.
+
+### 1. Preflight gate
+
+<!-- Review: code-reviewer F8 — bare bash invocation trains the 3.2 antipattern on macOS; operator must have bash ≥ 4 on PATH first -->
+> **macOS prerequisite:** `bash scripts/setup.sh --preflight` requires bash ≥ 4 on PATH. macOS ships bash 3.2 at `/bin/bash` — install a current bash first: `brew install bash` (adds `/opt/homebrew/bin/bash`). Once brew bash is on your PATH, `bash --version` will report 5.x and the command below will work correctly.
+
+```bash
+bash scripts/setup.sh --preflight
+```
+
+`--preflight` is a **superset of `--check`**: it runs manifest-dependency probes AND environment-prerequisite probes through a single tabling + NDJSON emitter. Exit behavior is severity-aware:
+
+| Probe | Severity | Exit behavior |
+|---|---|---|
+| `python` | **hard** | Non-zero exit — install MUST stop until resolved |
+| `uv` | advisory WARN | Logged; install continues |
+| `clone_auth` | **semi-hard** | Blocks unless resolved or `--accept-no-git-auth` (exit 94 — see `agent-install-contract.md` exit-code table) |
+| `longpaths` | advisory WARN | Logged; install continues (Windows-only) |
+| `pwsh` | advisory WARN | Logged; install continues — see PowerShell 5.1 note below |
+| `ue` | advisory WARN | Logged; install continues |
+
+The probe library is `scripts/lib/prereq_probe.sh` — a read-only SSOT that never mutates state. The gate reads from it; the fixer (below) writes. Any `inconclusive` probe result is surfaced explicitly and treated as advisory WARN (not a hard failure).
+
+**`clone_auth` semi-hard gate — interactive offer and non-interactive contract.**
+
+When the `clone_auth` probe fires (no GitHub auth found), the gate behavior depends on mode:
+
+- **Interactive (default):** offer to run `gh auth login` now (or, if the operator is on GitLab, point to `glab auth login`). On accept, re-run the `clone_auth` probe — if it passes, proceed. On decline or failure, instruct the operator to either configure auth manually and re-run, or pass `--accept-no-git-auth` to skip the gate and continue without git auth.
+
+  ```
+  clone_auth probe: no GitHub auth found.
+  Offer: run `gh auth login` to authenticate now? [Y/n]
+    → Y: runs `gh auth login`; re-probes; proceeds on pass.
+    → N: re-run with --accept-no-git-auth to skip this gate, or configure auth manually first.
+  ```
+
+- **`--non-interactive` with no auth and no `--accept-no-git-auth`:** FAIL-LOUD — no TTY to run the offer; exit non-zero with remediation message. This matches the manifest hard-dep non-TTY pattern (exit-90 spirit). Cite: `docs/wiki/coordinator-installer-shape.md § --non-interactive contract`. Status: `clone_auth: failed (no auth — re-run with --accept-no-git-auth or configure auth first)`.
+
+- **`--accept-no-git-auth` (any mode):** skip the gate; emit advisory `clone_auth: skipped (--accept-no-git-auth)` and continue. Private repos that require auth will fail at clone time, not here.
+
+- **`--check-only`:** report `clone_auth: semi-hard (would block without --accept-no-git-auth)` — do NOT exit non-zero. Check-only never mutates or blocks; it only reports what *would* happen.
+
+**PowerShell 5.1 fallback (#03).** The `pwsh` probe checks for PowerShell 7+ (`pwsh`). If `pwsh` is absent or below version 7, the probe WARNs but does not block — the coordinator falls back to the inbuilt Windows PowerShell 5.1 (`powershell.exe`) for `.ps1` scripts that require it. `pwsh` 7+ is preferred (cross-platform, fully supported); 5.1 is the fallback, not the target. See `1c.2` below and `docs/wiki/coordinator-installer-shape.md` § Step Zero.
+
+### 2. Env-normalization
+
+If the preflight reports fixable advisory WARNs, run the env-normalizer **dry-run first** to preview mutations without applying them:
+
+```bash
+# Preview only — no changes made
+bash scripts/normalize-env.sh --dry-run
+
+# Apply all consented mutations
+bash scripts/normalize-env.sh --yes
+```
+
+`normalize-env.sh` is idempotent and consent-gated: it enumerates each proposed mutation and requires explicit acceptance per mutation. Blast-radius-last ordering applies (higher-impact mutations are offered last). On Windows, every mutation creates a backup and `--restore` reverts to the pre-run state. On macOS/Linux, the script is offers-only (no Windows-specific mutations run).
+
+Proceed to Phase 1 after Step Zero. Any hard failure from `--preflight` must be resolved before continuing.
+
+---
 
 ## Requirements
 
@@ -18,7 +85,7 @@ Phase 1 checks each item and fails loud (or warns) per the D4 contract.
 - **git** — branch management, commits, handoffs, auto-push.
 - **Python 3** — hooks and JSON manipulation.
 - **jq** — required for JSON output in `/workday-start` addon-health.
-- **Node 18+** — only for NotebookLM deep-research add-on.
+- **uv** — only for the NotebookLM deep-research add-on (provides `uvx`, which launches the Python MCP server; see §1d).
 - **scc** — optional; powers code statistics in session orientation.
 - **PowerShell 7+ (`pwsh`)** — default-on, all platforms. Windows hidden-spawn / auto-push / `.ps1` scripts target it (falling back to the inbuilt Windows PowerShell 5.1); offered on macOS, Linux, and Windows. Not a hard blocker.
 - **Windows Terminal** — default-on, Windows only. Modern console host paired with `pwsh` 7 (no legacy conhost flash on hidden-spawn paths).
@@ -59,9 +126,17 @@ Branch on **`state=`** (the `track=` field is a backward-compat binary alias —
 
 If `$ARGUMENTS` contains `--check-only`: report environment state without making any changes. Every phase runs its read-only checks and emits status rows, then stops before any mutation. Combine with `--non-interactive` freely — both flags are orthogonal.
 
+## Flags reference
+
+| Flag | Effect |
+|---|---|
+| `--check-only` | Read-only report pass — no mutations. Orthogonal to `--non-interactive`. |
+| `--non-interactive` | Suppresses all `AskUserQuestion` prompts; per-site D4 fallback applies (`skip-with-note` / `default-with-warning` / `fail-loud`). |
+| `--accept-no-git-auth` | Skips the `clone_auth` semi-hard gate. Use when git auth is intentionally absent (e.g. public-only repos, CI installs, headless machines with no interactive auth flow). Without this flag, `--non-interactive` with no git auth is a `fail-loud` exit. |
+
 ## D4 Non-Interactive Contract
 
-<!-- spec-backlink: D4 in docs/plans/2026-05-19-coordinator-installer-redesign-implementation.md -->
+<!-- spec-backlink: D4 in archive/specs/2026-05/2026-05-19-coordinator-installer-redesign-implementation.md -->
 
 Each prompt site is annotated: `skip-with-note` (skip, surface in status table), `default-with-warning` (apply safe default, surface value), or `fail-loud` (exit non-zero with remediation; no safe default). Unannotated sites default to `fail-loud`. `--check-only` prevents all mutation; `--non-interactive` controls only prompt fallback. Both are orthogonal and may be combined.
 
@@ -260,6 +335,54 @@ Idempotent. `gc.autoDetach` is scoped per-repo (not global — would change auto
 git config --global core.checkStat minimal
 ```
 
+### 1a.2. Operator `~/.claude` exec-bit pre-commit gate (conditional)
+
+If the operator git-tracks their `~/.claude` (the template-recommended setup), install the exec-bit drift gate into `~/.claude/.git/hooks/pre-commit` so a shebanged script can never be committed at `100644` (the failure mode that ships a non-functional install to anyone cloning that tree on Unix). Pass `"$HOME/.claude"` explicitly — the installer is cwd-independent and self-guards to the meta-repo identity, so it no-ops cleanly when `~/.claude` is not a git repo.
+
+```bash
+"$HOME/.claude/plugins/coordinator/bin/install-meta-repo-precommit-hook.sh" "$HOME/.claude"
+```
+
+Under `--check-only`, do NOT run the installer — the script has no check-only mode (it always mutates). Instead, omit the invocation and report the gate's current presence:
+
+```bash
+[ -f "$HOME/.claude/.git/hooks/pre-commit" ] && grep -q coordinator-precommit-exec-bit-check "$HOME/.claude/.git/hooks/pre-commit" && echo "exec-bit gate: present" || echo "exec-bit gate: absent (would install)"
+```
+
+Idempotent (no-op if the gate marker is already present). This is the OSS-user analogue of `/repo-setup` § 3f.5.5: `/coordinator:install` is the surface every operator runs against their own `~/.claude`, so the gate must land here — `/repo-setup` only fires it against the consumer *project* repos it scaffolds, where the helper correctly no-ops.
+
+### 1a.3. Git-LFS enablement (idempotent, harmless — proactive coverage)
+
+Proactively enable Git LFS so that any LFS-backed repo the operator clones later (e.g. project-rag-ue-addon, holodeck with `*.uasset`/`*.umap`) materializes real binary content instead of silent ~130-byte pointers. This is the "cover it before they get there" move — `git lfs install` is a harmless, idempotent global config write even for operators who never clone an LFS repo. Reaching this step does NOT depend on `first-run.sh` having run (which is the canonical fresh-clone bootstrap that also enables LFS, but is not traversed on every install path — e.g. coordinator already present on an existing machine). Doctrine: `docs/wiki/install-surface-completeness.md` § Git-LFS materialization.
+
+This is **act-not-gate**: enable when the binary is present; emit advisory remediation when absent. It does NOT hard-fail — the `git_lfs` row in the `--preflight` gate (`scripts/lib/prereq_probe.sh _co_probe_git_lfs`) is the advisory verifier and stays advisory (PM-decided 2026-06-24, AC10). The `--check-only` branch comes first and never mutates — it reports state and returns, matching the inline check-only pattern used elsewhere in Phase 1.
+
+```bash
+if [[ "${ARGUMENTS:-}" == *"--check-only"* ]]; then
+  # FB-2 functional-not-existence: binary present AND global filter wired (a bare
+  # filter.lfs.clean key can survive a partial/aborted install).
+  if git lfs version >/dev/null 2>&1 && [ -n "$(git config --global --get filter.lfs.clean 2>/dev/null)" ]; then
+    echo "git_lfs: enabled"
+  else
+    echo "git_lfs: not enabled (would enable)"
+  fi
+elif git lfs version >/dev/null 2>&1; then
+  # Plain `install`, NOT `--force` — coexists with existing pre-push/post-commit hooks.
+  if git lfs install 2>/tmp/coordinator-lfs-install.err; then
+    echo "git_lfs: enabled (global, idempotent)"
+  else
+    echo "git_lfs: git lfs install failed — re-run after resolving git-lfs setup" >&2
+    cat /tmp/coordinator-lfs-install.err >&2
+    echo "git_lfs: failed (see stderr)"
+  fi
+else
+  echo "git_lfs: absent (advisory) — install git-lfs to materialize LFS-backed clones — macOS: brew install git-lfs | Windows: winget install GitHub.GitLFS | Linux: apt install git-lfs (or distro equivalent) — then re-run /coordinator:install" >&2
+  echo "git_lfs: absent (advisory)"
+fi
+```
+
+Idempotent (re-running `git lfs install` is a no-op once the global filters are wired). The meta-repo `~/.claude` itself LFS-tracks nothing, so no materialization (`git lfs pull` + pointer-scan) runs here — that hard assert is the per-repo step-zero surface for repos that *do* LFS-track content (§ altitude split in the doctrine wiki). Add a `git_lfs` row to the Phase 7 status table.
+
 ### 1b. Agent Teams env var
 
 ```bash
@@ -367,7 +490,7 @@ echo "not_found"
 
 **If found:** ready. Note which pipelines are available. Also check:
 - Agent Teams env var (already checked above — if missing, flag it as **required** here, not just recommended)
-- NotebookLM sub-plugin: check for `notebooklm/.mcp.json` in the deep-research plugin directory. If present, note that Pipeline D (media research) requires the `notebooklm-mcp-cli` package and Google authentication (`nlm login`).
+- NotebookLM sub-plugin: check for `notebooklm/.mcp.json` in the deep-research plugin directory. If present, note that Pipeline D (media research) requires `uv` on PATH (the server is a Python package launched via `uvx --from notebooklm-mcp-cli notebooklm-mcp`) and Google authentication (`nlm login`).
 
 **If not found:** the deep-research plugin is **default-on** — offer to install from `https://github.com/dbc-oduffy/deep-research-claude` into `~/.claude/plugins/deep-research/`. Do NOT offer the UE/holodeck/game-dev stack or project-rag alongside it.
 
@@ -470,6 +593,8 @@ bash "${CLAUDE_PLUGIN_ROOT}/lib/install-substrate.sh"
 
 Helper: fails-loud on missing source-of-truth dirs; honors `CLAUDE_HOME` (`docs/wiki/machine-local-registry.md § 4a`) and `COORDINATOR_NON_INTERACTIVE=1`; preserves operator-customized files with one-line notices; skips Windows checks on non-Windows. Installs 7 bin/ artifacts (3 `machine-local`, 3 `claude-home`, 1 `python3.cmd` shim — shims prevent "Select an app" pickers on extensionless scripts). Orphan AppX stub deletion requires `[y/N]` consent.
 
+**Step 3e — `claude` CLI on PATH (cross-platform, idempotent).** The helper also ensures the standalone `claude` binary's dir (native-installer convention: `~/.local/bin`) is on the user's shell PATH — a sentinel-guarded block in the login rc on macOS/Linux, the user PATH via PowerShell on Windows. This closes the most common desktop-app onboarding failure: installing plugins inside the Claude Code desktop app, then opening a terminal and finding `claude` is not a recognized command (the CLI dir was never on the shell PATH). If no CLI binary is found at the standard location, the helper emits a note pointing at the CLI install docs rather than guessing a path. Status row: `claude_on_path: ready (<dir>) | added (<dir> → <rc>) | not found (install CLI)`.
+
 ### Step 1b — Run the install-health orchestrator (drop-in scripts; each self-gates)
 
 ```bash
@@ -488,7 +613,7 @@ If `~/.claude/machine-local/registry.toml` or `registry.local.toml` exists, leav
 
 Full interactive script (prompt text, On Y write procedure, `machine-local set` invocations, On N): `docs/wiki/setup-reference-detail.md` § Phase 3 Step 3.
 
-**Skip entirely** if either registry file already exists (idempotency). Under `--non-interactive`: emit `machine_local_seed: skipped (non-interactive; copy .example files to seed manually)`. Under interactive: offer Y/n to seed the four standard `repos.*` keys via `machine-local set` (never hand-edit). **On N:** leave both absent.
+**Skip entirely** if either registry file already exists (idempotency). Under `--non-interactive`: emit `machine_local_seed: skipped (non-interactive; copy .example files to seed manually)`. Under interactive: offer Y/n to seed the four standard `repos.*` keys via `machine-local set` (never hand-edit). After the `repos.*` seeds, also seed `coordinator.machine_slug` (absent-only, idempotent) from `cs_compute_machine_live` (hostname-derived; never from a transient env override — see `setup-reference-detail.md § Phase 3 Step 3` for the exact command). **On N:** leave both absent.
 
 <!-- Review: chunk-1 Finding 7 — restored "Test surface" block removed in spec trim; inline spec is more immediately accessible than linked doc for test authors. -->
 **Test surface** (expected; do not actually run setup): Fresh install → directory, all tracked files, all 7 bin/ artifacts present; seed prompt fires. Re-run → no overwrites, no prompts. `--non-interactive` → substrate laid, no seed prompt, no registry files. Operator-modified file → preserved with notice.
@@ -515,7 +640,7 @@ Add a `Coordinator plugin.mirrors` row to the Phase 7 status table.
 
 ### Step 6 — Install `coordinator_whoami` package (idempotent)
 
-<!-- spec-backlink: docs/plans/2026-05-21-whoami-first-class-substrate.md § Chunk 1 / AC-1, AC-2, AC-3, AC-15 — superseded for Step 6 by the 2026-06-20 plan below; these ACs no longer address the Step 6 implementation shape. -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-21-whoami-first-class-substrate.md § Chunk 1 / AC-1, AC-2, AC-3, AC-15 — superseded for Step 6 by the 2026-06-20 plan below; these ACs no longer address the Step 6 implementation shape. -->
 <!-- spec-backlink: docs/plans/2026-06-20-whoami-durable-install-surface.md (durable venv install surface) -->
 <!-- D4: default-with-warning — no prompt site; install fires mechanically under --non-interactive same as interactive. -->
 
@@ -552,7 +677,7 @@ Add row to Phase 7 table.
 
 ### Step 7 — Scaffold canonical document structure (idempotent)
 
-<!-- spec-backlink: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 6 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 6 -->
 <!-- the Director of Engineering F5: pass --root explicitly so the scaffold targets the coordinator install root, not whatever cwd is at invocation time. -->
 
 Scaffold (eager entries from `canonical-structure.yaml`) into `~/.claude`, landing `cross-repo/` with its README. Skip mutations under `--check-only` (emit `canonical_structure: would scaffold`).
@@ -594,7 +719,9 @@ else
   bash "$HOME/.claude/bin/platform-localize.sh"
   # Confirm the output is schema-valid before continuing
   if [[ -f .github/scripts/validate-json-schemas.py ]] && [[ -f "$HOME/.claude/plugins/known_marketplaces.json" ]]; then
-    python .github/scripts/validate-json-schemas.py 2>&1 | grep -E '(known_marketplaces|passed)' | head -3
+    # python3-first resolver — `python` is absent on modern macOS / many Linux.
+    PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+    "$PY" .github/scripts/validate-json-schemas.py 2>&1 | grep -E '(known_marketplaces|passed)' | head -3
   fi
 fi
 ```
@@ -663,7 +790,7 @@ fast_test_cmd: "<your-project-fast-test-command>"  # optional; omit when not app
 
 ### Currency stamp (idempotent)
 
-<!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
 <!-- D4: default-with-warning — stamp is written silently; skip-with-note under --check-only. -->
 
 Record which `COORDINATOR_SCHEMA_VERSION` the current repo's scaffolding was set up against, enabling drift probe (doctor P-13, Wave-2). Under `--check-only`: report `currency_stamp: current (vN)` / `drift (vN->vM)` / `unstamped(legacy)` / `would write`. Otherwise (idempotent write):
@@ -695,7 +822,7 @@ If customize: no `rename-personas.sh` ships yet — hand-edit names across agent
 ### Codex Integration (optional opt-in)
 
 <!-- D4: opt-in — default declined; only --check-only reports state. -->
-<!-- Spec backlink: docs/plans/2026-06-14-codex-reviewer-integration-opt-in.md -->
+<!-- Spec backlink: archive/specs/2026-06/2026-06-14-codex-reviewer-integration-opt-in.md -->
 <!-- Sync: Leg-A and Leg-B Python heredocs below are mirrored verbatim in tests/plugin-ecosystem/platform-localize-marketplaces.test.js — any change here MUST be mirrored there. -->
 
 Register the `openai-codex` marketplace + `codex@openai-codex` plugin as an optional second-opinion reviewer for `/workweek-complete` Step 7.4 and `/bug-sweep --codex-verify`. Default declined; opt-in is per-user.
@@ -789,6 +916,50 @@ PY
 
 **Status row.** `codex_integration: installed (registered; enabled in <project>)` when Leg B fired with a write; `installed (registered; no project detected — run /plugin enable)` when Leg B was a meta-repo skip or no-cwd-project; `present` for an existing canonical entry; `present (existing entry preserved — shape may differ from canonical)` when an existing entry was preserved but its shape diverges from `git+url`.
 
+### GitHub Auth via 1Password (optional opt-in)
+
+<!-- D4: opt-in — default declined; no-ops cleanly on machines without 1Password. -->
+<!-- Doctrine: docs/wiki/github-auth-setup.md (Tier-1 interactive recipe). -->
+
+Optionally wire GitHub auth + SSH commit signing through the **1Password SSH agent** on this
+(interactive) machine — the Tier-1 standard in `docs/wiki/github-auth-setup.md`. This is fully
+opt-in: it **no-ops with a clean exit** on machines without 1Password, so coordinator users who
+don't use 1Password can decline or ignore it. Headless machines keep token HTTPS
+(`gh auth setup-git`) — do not run this there.
+
+Under `--non-interactive`: skip silently. Status row: `github_auth_1password: skipped (non-interactive)`.
+
+Under `--check-only`: run the helper in report mode (no mutation) and read its final
+machine-readable line, `STATUS: github_auth_1password=<token>`:
+
+```bash
+bash scripts/setup-github-auth-1password.sh --check | sed -n 's/^STATUS: github_auth_1password=//p'
+```
+
+Map the token to the status row: `present` → `present`; `absent` → `absent (would offer)`
+(1Password detected but not yet wired); `n-a-no-1password` → `n/a (no 1Password)`.
+
+Under interactive:
+
+> Set up GitHub auth + commit signing via 1Password (SSH agent over port 443, `op-ssh-sign`
+> signing)? Recommended for interactive dev machines; offers to install the `op` CLI if absent.
+> Skip if you don't use 1Password — headless machines should use `gh auth setup-git` instead. **[y/N]**
+
+**On NO:** status row `github_auth_1password: declined`.
+
+**On YES:** run the consent-gated, idempotent helper (it offers each change individually):
+
+```bash
+bash scripts/setup-github-auth-1password.sh
+```
+
+The helper detects 1Password, optionally installs the `op` CLI, routes `github.com` over
+`ssh.github.com:443`, configures global SSH commit signing, and offers to flip the current repo's
+`origin` to SSH. It backs up `~/.ssh/config` before editing and verifies `git ls-remote` before
+keeping a remote change. Read its final `STATUS: github_auth_1password=<token>` line for the row:
+`configured` → `configured`; `incomplete` → `declined` (1Password present but the operator declined
+one or more offers); `n-a-no-1password` → `n/a (no 1Password — skipped)`.
+
 ### Percolation Setup (if applicable)
 
 Check `test -f setup/publish.sh`. If absent: skip silently (not a percolation source). If present: check registered targets via `source setup/publish-targets.sh && echo "TARGET_COUNT:${#TARGETS[@]}"`.
@@ -818,6 +989,8 @@ Add a `Setup-state receipt` row to the status table (`recorded` / `pre-existing`
 
 **Phase 7 status table — codex_integration row.** Driven from the Phase 6 Codex Integration step's outcome. Value-set: `installed (registered; enabled in <project>)` | `installed (registered; no project detected — run /plugin enable)` | `declined` | `present` | `present (existing entry preserved — shape may differ from canonical)` | `absent (would offer)` | `skipped (non-interactive)`.
 
+**Phase 7 status table — github_auth_1password row.** Driven from the Phase 6 GitHub Auth via 1Password step's outcome. Value-set: `configured` | `present` | `declined` | `absent (would offer)` | `n/a (no 1Password)` | `n/a (no 1Password — skipped)` | `skipped (non-interactive)`.
+
 Present a summary table with one row per check above. Full status-row value-sets and available-commands list: `docs/wiki/setup-reference-detail.md` § Phase 7.
 
 ### Plugin-bundled doctrine wikis
@@ -842,7 +1015,7 @@ End with: _"`/coordinator:install` is environment-only. Run `/coordinator:repo-s
 
 ### Optional next step — bootstrap repo scaffolding
 
-<!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 4 / AC8 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 4 / AC8 -->
 <!-- D4 annotation: skip-with-note — elective offer; suppressed under --non-interactive and --check-only. -->
 
 **Suppressed under `--non-interactive` or `--check-only`.** Status row: `repo_setup_offer: suppressed (--non-interactive|--check-only)`. No `AskUserQuestion`, no `/coordinator:repo-setup --batch` invocation, no offer text.

@@ -1,6 +1,6 @@
 {
   "name": "deep-research",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Multi-agent deep research pipelines — internet research with iterative deepening (Pipeline A v2.2), repo assessment with repomap and atlas generation (Pipeline B), and structured schema-conforming research (Pipeline C). All pipelines use Agent Teams with Haiku scouts, Sonnet specialists, and Opus sweep agents.",
   "license": "MIT",
   "author": {

@@ -2,7 +2,7 @@
 name: review-code
 description: Use when a code change / diff / PR is ready for review or code-review findings have landed.
 version: 1.0.0
-spec_backlink: docs/plans/2026-05-06-review-code-super-skill.md
+spec_backlink: archive/specs/2026-05/2026-05-06-review-code-super-skill.md
 ---
 
 # coordinator:review-code

@@ -4,7 +4,7 @@ Cross-plugin MCP whoami package. Owns the canonical contract schema, the
 plugin-agnostic envelope validator + builder, and per-plugin subpackages
 (project-rag ships first; holodeck-control slots in without refactor).
 
-Spec backlink: `docs/plans/2026-05-19-whoami-substrate-migration.md`
+Spec backlink: `archive/specs/2026-05/2026-05-19-whoami-substrate-migration.md`
 Contract spec: `docs/wiki/cross-plugin-whoami-contract.md`
 
 ## Install

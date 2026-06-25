@@ -22,6 +22,10 @@ This plugin uses a single-phase Agent Teams architecture. The EM scopes the rese
 - Plus tier (500 queries/day): 1-2 workers, 7-8 questions each
 - Ultra tier (5,000 queries/day): up to 3 workers, 8 questions each
 
+## Runtime
+
+The MCP server is a **Python** package launched via `uvx --from notebooklm-mcp-cli notebooklm-mcp` (see `.mcp.json`). This makes `uv` (which ships `uvx`) a runtime prerequisite for this add-on — uvx auto-fetches the package on first run and caches it, the Python analog of `npx`. It is NOT an npm package.
+
 ## Authentication
 
 - **Initial login:** Run `nlm login` in a terminal. This opens a browser for Google account authentication and extracts session cookies automatically.
@@ -55,13 +59,20 @@ For manual cleanup of accumulated notebooks:
 
 ## MCP Tools
 
-The MCP server exposes ~35 tools. Workers use a subset (~13) for the research pipeline. The sweep agent uses `notebook_delete` for cleanup. The full tool list is available via `ToolSearch("notebooklm")`. Key tools for research:
+The MCP server exposes ~39 tools (checked at v0.7.8; unpinned, so the count may drift — run `ToolSearch("notebooklm")` for the current list). Workers use a subset (~15) for the research pipeline. Notebook deletion is deferred to the EM's post-auditor step (the sweep does NOT delete). The full tool list is available via `ToolSearch("notebooklm")`. Key tools for research:
 
 - `notebook_create` / `notebook_delete` — lifecycle management
 - `notebook_get` / `notebook_list` — status and inventory
+- `tag` — tag notebooks (`action="add"`) with the run slug, or smart-select by query (`action="select"`)
 - `source_add` — ingest URLs, YouTube links, Drive files, text, PDFs
-- `source_describe` / `source_get_content` — inspect processed sources
-- `notebook_query` — ask questions with AI, get cited responses
-- `studio_create` / `studio_status` / `download_artifact` — generate reports, mind maps, slides
-- `research_start` / `research_status` / `research_import` — NLM built-in content discovery
+- `source_describe` / `source_get_content` — inspect processed sources; **`source_get_content` returns raw indexed text (transcripts/article bodies) at ZERO query-budget cost** — use it for bulk extraction instead of `notebook_query`
+- `notebook_query` — ask questions with AI, get cited responses (spends the binding 50/day free-tier budget — reserve for synthesis)
+- `cross_notebook_query` — verify/compare a claim across multiple notebooks (`notebook_names=` or `tags=`) in one aggregated, parallel call with per-notebook citations. **Orchestration win (one call, aggregated), not a query-budget win** — it fans out one query per notebook internally
+- `batch` — `batch(action="query"|"studio", tags=…)` runs a query or generates an artifact across all tagged notebooks at once
+- `studio_create` / `studio_status` / `download_artifact` — generate artifacts. Valid `artifact_type`: `audio` (formats: deep_dive/brief/critique/debate), `video` (explainer/brief/cinematic), `report`, `quiz`, `flashcards`, `mind_map`, `slide_deck`, `infographic`, `data_table`
+- `research_start` / `research_status` / `research_import` — NLM built-in content discovery (`mode=fast|deep`; `research_import(..., cited_only=True)` for report-cited sources only)
 - `refresh_auth` — refresh authentication tokens
+
+### Notebook topology — tag the run
+
+Each worker tags its notebook with the **run slug** (`{topic-slug}`) on create: `tag(action="add", notebook_id=<id>, tags="<run-slug>")`. This makes a run's `{a,b,c}` notebooks addressable as a set, so the sweep and auditor can `cross_notebook_query(tags="<run-slug>")` or `batch(action="query"|"studio", tags="<run-slug>")` across the whole run in one call instead of iterating notebook-by-notebook. (The sweep also accepts `notebook_names=` built from `{letter}-summary.md` frontmatter — that path needs no run-slug plumbed into the sweep prompt and is the default there.)

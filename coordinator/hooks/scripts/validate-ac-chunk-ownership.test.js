@@ -486,4 +486,137 @@ describe('validate-ac-chunk-ownership hook', () => {
     assert.equal(stdout, '', 'sh: with $HOME path is ambiguous and must be skipped silently');
   });
 
+  // -------------------------------------------------------------------------
+  // Combinator ownership cases.
+  // Spec: check-acceptance-oracle.sh combinator grammar (shipped 2026-06-22).
+  // -------------------------------------------------------------------------
+
+  // CO1: pytest:tests/a.py AND pytest:tests/b.py → both paths must be checked.
+  // When both paths are owned, hook is silent. When one is unowned, hook emits.
+  it('combinator-AND-both-paths-extracted — pytest:a.py AND pytest:b.py extracts both paths', () => {
+    // Both paths owned → silent.
+    const bothOwnedPlan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| ID | Criterion | Test | Binding-Class | Status |',
+      '|---|---|---|---|---|',
+      '| AC1 | Combinator both owned | pytest:tests/a.py AND pytest:tests/b.py | gate-bound | realized |',
+      '',
+      '## Dispatch Ledger',
+      '',
+      '| dispatch # | chunk-id | one-line brief | write-files | gate-kind | runs | est-min | status |',
+      '|---|---|---|---|---|---|---|---|',
+      '| 1 | C1 | Do work | tests/a.py, tests/b.py | none | parallel | 5 | pending |',
+      '',
+    ].join('\n');
+    const { stdout: outBoth, status: sBoth } = runHook(writePlanPayload(bothOwnedPlan));
+    assert.equal(sBoth, 0, 'must exit 0');
+    assert.equal(outBoth, '', 'both paths owned — must be silent');
+
+    // Only one path owned → violation for unowned path.
+    const oneUnownedPlan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| ID | Criterion | Test | Binding-Class | Status |',
+      '|---|---|---|---|---|',
+      '| AC1 | Combinator one unowned | pytest:tests/a.py AND pytest:tests/b.py | gate-bound | realized |',
+      '',
+      '## Dispatch Ledger',
+      '',
+      '| dispatch # | chunk-id | one-line brief | write-files | gate-kind | runs | est-min | status |',
+      '|---|---|---|---|---|---|---|---|',
+      '| 1 | C1 | Do work | tests/a.py | none | parallel | 5 | pending |',
+      '',
+    ].join('\n');
+    const { stdout: outOne, status: sOne } = runHook(writePlanPayload(oneUnownedPlan));
+    assert.equal(sOne, 0, 'must exit 0');
+    assert.ok(outOne.length > 0, 'one unowned path must emit output');
+    const parsed = JSON.parse(outOne);
+    const ctx = parsed.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('tests/b.py'), `must name the unowned path tests/b.py, got: ${ctx}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // F8: Combinator where all operands extract zero file paths (e.g. cargo:foo AND cargo:bar)
+  // must be silently skipped regardless of ledger contents.
+  // Review: code-reviewer F8 — add ownership test for all-zero-path combinator.
+  // -------------------------------------------------------------------------
+  it('combinator-zero-path — cargo:foo AND cargo:bar (no file paths) is silently skipped', () => {
+    const plan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| ID | Criterion | Test | Binding-Class | Status |',
+      '|---|---|---|---|---|',
+      '| AC1 | Cargo combinator (no paths) | cargo:foo AND cargo:bar | gate-bound | realized |',
+      '',
+      '## Dispatch Ledger',
+      '',
+      '| dispatch # | chunk-id | one-line brief | write-files | gate-kind | runs | est-min | status |',
+      '|---|---|---|---|---|---|---|---|',
+      '| 1 | C1 | Do work | src/lib.rs | none | parallel | 5 | pending |',
+      '',
+    ].join('\n');
+    const { stdout, status } = runHook(writePlanPayload(plan));
+    assert.equal(status, 0, 'hook must always exit 0');
+    assert.equal(
+      stdout, '',
+      'cargo:foo AND cargo:bar extracts zero file paths — must be silently skipped regardless of ledger'
+    );
+  });
+
+  // CO2: Mixed-prefix combinator grep:X@docs/a.md AND bash:tests/b.sh
+  // → grep extracts docs/a.md, bash extracts tests/b.sh; both must be checked.
+  it('combinator-mixed-prefix-both-paths — grep:X@docs/a.md AND bash:tests/b.sh extracts both paths', () => {
+    const bothOwnedPlan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| ID | Criterion | Test | Binding-Class | Status |',
+      '|---|---|---|---|---|',
+      '| AC1 | Mixed prefix combinator | grep:X@docs/a.md AND bash:tests/b.sh | gate-bound | realized |',
+      '',
+      '## Dispatch Ledger',
+      '',
+      '| dispatch # | chunk-id | one-line brief | write-files | gate-kind | runs | est-min | status |',
+      '|---|---|---|---|---|---|---|---|',
+      '| 1 | C1 | Do work | docs/a.md, tests/b.sh | none | parallel | 5 | pending |',
+      '',
+    ].join('\n');
+    const { stdout, status } = runHook(writePlanPayload(bothOwnedPlan));
+    assert.equal(status, 0, 'must exit 0');
+    assert.equal(stdout, '', 'both paths owned — must be silent');
+
+    // Now omit docs/a.md from write-files → should emit violation for docs/a.md.
+    const missingGrepPlan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| ID | Criterion | Test | Binding-Class | Status |',
+      '|---|---|---|---|---|',
+      '| AC1 | Mixed prefix combinator | grep:X@docs/a.md AND bash:tests/b.sh | gate-bound | realized |',
+      '',
+      '## Dispatch Ledger',
+      '',
+      '| dispatch # | chunk-id | one-line brief | write-files | gate-kind | runs | est-min | status |',
+      '|---|---|---|---|---|---|---|---|',
+      '| 1 | C1 | Do work | tests/b.sh | none | parallel | 5 | pending |',
+      '',
+    ].join('\n');
+    const { stdout: outMissing, status: sMissing } = runHook(writePlanPayload(missingGrepPlan));
+    assert.equal(sMissing, 0, 'must exit 0');
+    assert.ok(outMissing.length > 0, 'must emit output when grep path unowned');
+    const parsed = JSON.parse(outMissing);
+    const ctx = parsed.hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('docs/a.md'), `must name unowned grep path docs/a.md, got: ${ctx}`);
+  });
+
 });
+

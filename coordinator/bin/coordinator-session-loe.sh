@@ -123,7 +123,11 @@ count_session() {
     # Count Opus dispatches: column 2 (model field) matching ^opus.
     # Legacy 1-column records have no tab -> cut -f2 returns the full line (no tab = field 1
     # and field 2 are the same), which won't match ^opus, so legacy rows count 0 Opus. Correct.
-    od=$(cut -f2 "$agents_file" 2>/dev/null | grep -c '^opus' 2>/dev/null || echo 0)
+    # NOTE: grep -c prints its count (incl. "0") AND exits 1 on zero matches.
+    # `|| echo 0` would then fire too, concatenating stdout to "00" (octal-parsed,
+    # malformed LoE frontmatter). Use `|| true` to swallow the exit without a 2nd write;
+    # the `[[ -z "$od" ]] && od=0` guard below covers a genuinely-empty result.
+    od=$(cut -f2 "$agents_file" 2>/dev/null | grep -c '^opus' 2>/dev/null || true)
     od="${od//[[:space:]]/}"
     [[ -z "$od" ]] && od=0
   fi

@@ -23,11 +23,12 @@ This skill is mirror-shaped to `/handoff`: a small set of sequential gates plus 
 
 1. **Step 1 → Step 1.2 micro-chain** — classification reads the lesson Step 1 just wrote. Skip both together if no new lesson.
 2. **Step 2.6 internal chain** (Steps 2.6.1 → 2.6.2 → 2.6.3 → 2.6.4 → 2.6.5 → 2.6.5a → 2.6.6 → 2.6.7) — the per-entry archive write is a real chain: AUTO-MIGRATE → chain-slug resolve → Sonnet nature-infer → session-id resolve → LoE block → write entry. Internal to Step 2.6 only.
-3. **Step 2.9** (code review) — integrator-edited files must be staged in Step 3.
+3. **Step 2.9** (code review) — integrator-edited files must be staged in Step 3. On chain-end sessions, Step 2.9's chain-end coverage gate (`review-coverage-gate.sh`) is a predecessor to Step 3: the gate must emit `VERDICT=COVERED` (or an explicit `COORDINATOR_OVERRIDE_COVERAGE_GATE=1` waiver) before Step 3 may proceed.
 4. **Step 2.4 → Step 3 staging edge** — when a governing plan exists, Step 2.4's reconciled plan doc (the corrected `docs/plans/<feature>.md`) must be staged in Step 3 before commit. Step 2.4 is a micro-chain off Step 2 in the todo-list cluster (see below); its output is part of Step 3's fan-in union, identical in shape to the existing Step 2.9-integrator-edits → Step 3 staging edge.
-5. **Step 3** (commit + verify remote) — fan-in of ALL preceding file edits (lessons, plan docs, archive entries, orientation cache, action-items, review-integrator outputs, reconciled plan doc, **Step 2.67 deletions named in commit body**); commit consumes the union via explicit-path staging. Step 3 step 1.5 (structural gate) runs between stage and commit; step 2 commits FROM the validated file via `git commit -F`.
+5. **Step 3** (commit + verify remote) — fan-in of ALL preceding file edits (lessons, plan docs, archive entries, orientation cache, action-items, review-integrator outputs, reconciled plan doc, **Step 2.67 deletions named in commit body**); commit consumes the union via explicit-path staging. Step 3 step 1.5 (structural gate) runs between stage and commit; step 2 commits FROM the validated file via `git commit -F "$msg_file" -- "${WSC_PATHS[@]}"` (explicit pathspec — never a bare `git commit -F`, which would absorb a sibling's staged files on the shared index).
 6. **Step 3.5** (archive session claim) — consumes Step 3's pushed commit.
-7. **Step 4** (final summary) — informational.
+7. **Step 4** (final summary) — informational. Fan-in of todo-list outputs: lessons (Step 1/1.2), plan update (Step 2/2.4), archive entry (Step 2.6), handoff archive (Step 2.7), orientation refresh (Step 2.8), code review disposition (Step 2.9/2.9b), cross-cutting check (Step 2.95), and **completeness-checklist advisory WARN (Step 2.96)** — the Step 2.96 one-liner (`Completeness checklist: N items unverified — WARN emitted` / `all verified / not applicable`) is a required input to the Step 4 summary.
+   <!-- Review: code-reviewer — F10: added Step 2.96 to the Step 4 gate summary line so the completeness-checklist advisory feeds the final summary explicitly -->
 
 **Todo-list (execute in any order, batch parallel where two independently read/write different files — with the Step 2→2.4 micro-chain exception noted below):**
 
@@ -38,6 +39,7 @@ This skill is mirror-shaped to `/handoff`: a small set of sequential gates plus 
 - **Step 2.8** — refresh orientation documents (pinboard + tracker + action-items + docs README)
 - **Step 2.9b** — dispatch-shape observation (read-only; never blocks; surface any offer into Step 4 summary) — parallel-safe with the 2.x cluster
 - **Step 2.95** — cross-cutting check (big-workstream only; one-line `clear` / `<finding>` in Step 4 summary) — parallel-safe with the 2.x cluster
+- **Step 2.96** — completeness-checklist advisory WARN (opt-in: fires only when consumed baton carries `completeness_checklist:` frontmatter; silent no-op on ordinary sessions) — parallel-safe with the 2.x cluster
 
 These six slots touch disjoint surfaces. Among peer slots, none consumes another's output — where two slots operate on different paths, run them in the same response via parallel tool calls. **Step 3 is a fan-in:** it stages the union of all files touched by the cluster; peer ordering is irrelevant, only their position before Step 3 matters.
 
@@ -60,7 +62,19 @@ Format: bold title + 1-2 sentence rule, max 3 lines. Prefer merging with an exis
 
 For each new lesson, ask: **"Would this apply to any project type using the coordinator pipeline?"** Autonomous self-classification; no review step.
 
-- **Yes (universal):** (a) tag with `[universal]` on the bold title line; (b) append one-liner to `~/.claude/state/coordinator-improvement-queue.md`: `- YYYY-MM-DD | <source-repo> | state/lessons.md:<line> | <summary> | proposed target: <coordinator file>`. Skip if that `<source-file>:<line>` already exists.
+- **Yes (universal):** (a) tag with `[universal]` on the bold title line; (b) write a structured central improvement-queue entry via the CLI — `from_repo` is auto-derived from the invoking repo's git root (registered repos use the machine-local shortname; unregistered repos fall back to the basename): <!-- Review: code-reviewer — F8: from_repo derivation clarified -->
+  ```
+  coordinator-queue-append --schema improvement-queue --queue-scope central \
+    --title "<summary>" \
+    --body "<the rule / context; cite evidence: state/lessons.md:<line> and proposed target: <coordinator file>" \
+    --surface "state/lessons.md:<line>" \
+    --proposed-target "<coordinator file>" \
+    --change-kind <skill-edit|hook-edit|wiki-append|wiki-new|agent-prompt-edit> \
+    --status open
+  # Review: code-reviewer — F2: pick the most accurate --change-kind for the lesson.
+  # Valid values: skill-edit, hook-edit, wiki-append, wiki-new, agent-prompt-edit.
+  ```
+  The CLI writes directly to `~/.claude/state/improvement-queue/<date>-<slug>.yaml` when `--queue-scope central` is set (dedup is not enforced by the CLI — skip the write if the same `state/lessons.md:<line>` evidence already appears in an existing entry under `~/.claude/state/improvement-queue/`). `from_repo` is auto-derived from the invoking repo's git root (registered repos use the machine-local shortname; unregistered repos fall back to the basename). <!-- Review: code-reviewer — F8: from_repo derivation restated accurately -->
 - **No (project-specific):** no further action.
 - **Nothing new in Step 1:** skip entirely.
 
@@ -251,7 +265,18 @@ When the session's work resolves a cross-repo memo in **this repo's** `cross-rep
 1. **Glob** `cross-repo/inbox/*.md` in the current repo. Parse YAML frontmatter; filter to `status: open` (or absent → treat as open).
 2. **If zero matches:** skip this step silently.
 3. **If ≥1 matches:** list each as a numbered line — `N. <basename> — <title or first heading> (from: <from>, topic: <topic>)`. Then ask once, plain prose: _"Any of these resolved this session? If yes, give me the numbers; I'll flip `status: actioned` and add a one-line `decision:` you dictate. (Type none if none.)"_
-4. **For each named memo:** Edit the file in place — set `status: actioned` and append `decision: <PM-supplied line>` to the frontmatter. Then **sweep it out of the inbox**: `git mv cross-repo/inbox/<file> cross-repo/archive/<file>`. Create `cross-repo/archive/` if absent. Both the edit and the move fold into Step 3's commit.
+4. **For each named memo:** Edit the file in place — set `status: actioned` and append `decision: <PM-supplied line>` to the frontmatter. The flip (judgment: which memos this session resolved) is non-automatable and stays here.
+5. **Sweep the inbox via the shared function** — do NOT hand-roll per-memo `git mv`. After the flips, run the same sweep session-init uses so the just-flipped memos (and any actioned stragglers) move to `cross-repo/archive/` (flat) with the skip/idempotency/claim-safety guards in one place:
+   ```bash
+   source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
+   cs_sweep_actioned_memos "$(git rev-parse --show-toplevel)" >/dev/null
+   cs_sweep_terminal_plans "$(git rev-parse --show-toplevel)" >/dev/null
+   ```
+   Both functions stage their moves (neither commits); they fold into Step 3's commit alongside the in-place edits. `cs_sweep_terminal_plans` archives terminal (implemented/superseded/abandoned) plans from `docs/plans/` to `archive/specs/YYYY-MM/` using the same enumerate/skip/git-mv shape as the memo sweep. Skip this step's prompt if the glob in (1) found zero open memos — the staged moves are still picked up because the functions re-enumerate independently.
+
+**Belt-and-suspenders, not load-bearing:** this step is now an *immediate* sweep (cheaper than waiting for the next session-init). Even if it is skipped entirely — a bare `/pickup` that actions a memo and never reaches `/workstream-complete` — the next `session-init.sh` boot auto-sweeps the actioned memo via the same `cs_sweep_actioned_memos`. The in-place `status: actioned` commit is therefore always safe to leave in the inbox; archival is guaranteed downstream.
+
+**Do-now violation check (belt-and-suspenders).** While the inbox is globbed, also scan for the deferral anti-pattern: an `ask` memo the session **accepted in word but didn't land** — `decision: accepted` with no real `realized_by` (missing, or a prose value the schema would reject), or an `open`/`in_progress` memo whose `decision_note` reads *"will land before <release/gate>."* That is a do-now ask deferred (→ `docs/wiki/cross-repo-communication.md` § Do-now applies to memos). A *"land before X happens"* ask is do-now: landing on `origin/main` is the work-gate (do-now); synchronized go-live is the PM-owned release-gate, not a reason to leave the fix undone. **Do the work now** and stamp a real `realized_by: <SHA>`, or — if genuinely blocked — Decline-with-rationale / Surface-to-PM. Never close the session on an accepted-but-unlanded memo.
 
 **Out of scope here:** sender side; memos the session created or moved; memos in `cross-repo/archive/`. Do NOT touch any other repo's `cross-repo/`.
 
@@ -412,11 +437,50 @@ The weekly `/workweek-complete` Step 7 merge-gate is a separate, independent cer
 **Chain-end detection:**
 - Resolve session-id: `$CLAUDE_SESSION_ID` (explicit override) first; then `$CLAUDE_CODE_SESSION_ID` (platform-injected, unclobberable); then `.git/coordinator-sessions/.current-session-id` sentinel (last-writer-wins fallback) — identical resolution order to `bin/coordinator-write-review-trail.sh:182-199`.
 - Chain-end signal: session opened via `/pickup` AND ending without `/handoff` or `/spinoff` invocation this session.
-- **Trail is the only valid code-output coverage signal.** Read records via `list-review-trail-records.sh` (live AND archived — live-only glob misses prior-week reviews). Plan-level the Staff Engineer reviews are NOT trail records; a "the Staff Engineer reviewed the plan" handoff note does NOT satisfy the chain-end `code-reviewer` floor. No trail record covering the sha-range = unreviewed.
 
-**Diff scope:**
-- Chain-end → `git log $(git merge-base origin/main HEAD)..HEAD`
-- Mid-chain → `git log $LAST_REVIEW_SHA..HEAD` (`$LAST_REVIEW_SHA` = most-recent trail record via `list-review-trail-records.sh | tail -1` whose `sha_range` head passes `git merge-base --is-ancestor <sha> HEAD`; iterate oldest to newest; fall back to session-start SHA if none passes).
+**Coverage gate (chain-end path — mechanical, required):**
+
+Run `review-coverage-gate.sh` over the full chain, scoped to the closing workstream's files when known. Derive scope from the governing plan or handoff `scope:` field. If no scope paths are known, run UNSCOPED — never pass an empty pathspec.
+
+<!-- TEMPLATE: set SCOPE_ARGS below from the governing plan or handoff scope: field before running -->
+<!-- VERBATIM — run this block exactly as written; adapt SCOPE_ARGS for your workstream scope -->
+```bash
+REPO=$(git rev-parse --show-toplevel)
+GATE="$REPO/plugins/coordinator/bin/review-coverage-gate.sh"
+
+# Review: F9 — use SCOPE_ARGS variable; angle-bracket placeholder would be read as a redirect if unsubstituted
+SCOPE_ARGS=""  # set to: --scope-paths path1 path2 ... when scope known from plan/handoff; empty = unscoped (safe fallback)
+
+VERDICT_LINE=$(bash "$GATE" $SCOPE_ARGS)
+echo "$VERDICT_LINE"
+if echo "$VERDICT_LINE" | grep -q 'VERDICT=UNCOVERED'; then
+  # Review: F3 — uncovered commits already surfaced on stderr from the first call above; no re-run needed
+  # Review: F2 — COORDINATOR_OVERRIDE_COVERAGE_GATE=1 allows PM-authorized bypass
+  if [ "${COORDINATOR_OVERRIDE_COVERAGE_GATE:-0}" = "1" ]; then
+    echo "WARNING: COORDINATOR_OVERRIDE_COVERAGE_GATE=1 — coverage gate bypassed by PM override." >&2
+  else
+    echo "HALT: coverage gate UNCOVERED — dispatch coordinator:review-code on the listed commits, then re-run the gate." >&2
+    echo "Override (PM-authorized only): set COORDINATOR_OVERRIDE_COVERAGE_GATE=1 to bypass." >&2
+    # The uncovered commits MUST go under coordinator:review-code before asserting merge-ready.
+    # After review integration completes and the trail record is written, re-run the gate.
+    # The gate must show VERDICT=COVERED before proceeding to Step 3.
+    exit 1
+  fi
+fi
+```
+<!-- /VERBATIM -->
+
+Output line shape: `range=… chain_commits=N covered=M uncovered=K VERDICT={COVERED|UNCOVERED}`. On `UNCOVERED`, per-commit `uncovered: <sha> <subject>` lines appear on stderr. The gate exits 0 on both verdicts — parse the VERDICT token, do NOT rely on exit code.
+
+**On UNCOVERED:** the listed commits MUST be dispatched to `coordinator:review-code` before this session asserts merge-ready. After review integration completes and the trail record is written, re-run the gate — it must show `VERDICT=COVERED` before proceeding.
+
+**The mechanical gate is the only valid coverage signal.** A workstream is unreviewed until the gate emits `VERDICT=COVERED` — no prose note, handoff frontmatter, or plan-review annotation substitutes for the gate.
+
+**Coverage-completeness risk:** `--scope-paths` narrowing is a coverage-completeness risk if the handoff scope is underspecified — commits that touched the workstream's real surface but fall outside the declared pathspec are excluded from `chain_set` and silently pass. The unscoped `/merge-to-main` gate is the intended backstop. An empty or missing scope falls back to UNSCOPED whole-chain.
+
+**Diff scope (mid-chain path):**
+- Chain-end → default range `$(git merge-base origin/main HEAD)..HEAD` (the gate's built-in default)
+- Mid-chain → `git log $LAST_REVIEW_SHA..HEAD` (`$LAST_REVIEW_SHA` = most-recent trail record via `list-review-trail-records.sh | tail -1` whose `sha_range` head passes `git merge-base --is-ancestor <sha> HEAD`; iterate oldest to newest; fall back to session-start SHA if none passes)
 
 **Dispatch:** invoke `coordinator:review-code` Branch A.2 with the resolved diff scope.
 
@@ -492,7 +556,7 @@ The doctrine root is `docs/wiki/tool-output-flakiness-protocol.md § API quota e
 
 ### Step 2.9b: Dispatch-Shape Observation (read-only, never blocks)
 
-<!-- spec-backlink: docs/plans/2026-06-22-invariant-verification-observers.md § C3 -->
+<!-- spec-backlink: archive/specs/2026-06/2026-06-22-invariant-verification-observers.md § C3 -->
 
 **Peer read-only slot — parallel-safe with the 2.x cluster.** Runs alongside Step 2.95 and the other 2.x slots. Does NOT gate the commit (Step 3) or any other step. Read-only: consumes the plan's Dispatch Ledger and the session's dispatched-agents.txt; writes nothing.
 
@@ -533,6 +597,54 @@ bash ~/.claude/plugins/coordinator/bin/check-machine-local-regeneratability.sh
 
 A `session-accumulated-must-survive-crash` key with no tracked baseline declaration in `registry.toml` IS an install-surface defect (fresh-machine clone loses the value). The script emits a remediation offer on stderr when the condition is detected; it is silent on a clean registry. See `docs/wiki/machine-local-registry.md § 13` for the regeneratability classification table and `docs/wiki/install-surface-completeness.md § Bootstrap gap` for the broader context.
 
+### Step 2.96: Completeness-Checklist Advisory WARN (refuses-silent-done)
+
+<!-- spec-backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § C7 -->
+<!-- enforcement model: docs/wiki/install-surface-completeness.md § Post-Consumer Gates Must Be Advisory WARN, Not Hard-Fail -->
+
+**Opt-in — fires only when all three conditions hold:**
+
+1. This session was opened via `/pickup` (a handoff was consumed, i.e. `consumed_by:` was stamped at Step 5 of the pickup skill).
+2. The consumed handoff carries a `completeness_checklist:` frontmatter field (literal token — install/onboarding batons only; ordinary continuation handoffs are silent no-ops here).
+3. At least one checklist item remains unverified (open Tasks-API task from the pickup step, or not explicitly waived by the EM).
+
+**If any condition does not hold → skip silently. No warning, no ceremony tax.**
+
+**If all three hold:**
+
+1. **Locate the consumed handoff.** Resolve via `state/handoffs/` entries with `consumed_by:` matching this session id (same resolution used in Step 2.7). If already archived by Step 2.7, read from `archive/handoffs/`.
+
+2. **Read the `completeness_checklist:` field.** It is a `list-of-string` (YAML sequence); each item obeys the grammar `<class>: <assertion text> [probe: <shell-command>]` where `<class>` ∈ `{live, restart-gated}`.
+
+3. **Cross-reference with open Tasks-API todos** from the pickup step (those created by `/pickup` under the `completeness_checklist` instantiation). Open tasks are per-conversation reminders; this step is the actual close-out check.
+
+4. **Count unverified items.** An item is considered verified if:
+   - Its corresponding Tasks-API task is marked done, OR
+   - The EM has explicitly waived it with a one-line rationale (inline during the session).
+
+   **Cross-conversation note:** In a cross-conversation session (pickup Tasks not visible — e.g. session was resumed after compaction or in a new conversation), every uncompleted checklist item is treated as **unverified** unless a durable waiver exists in the handoff body or a commit message. Tasks-API state is per-conversation; it does not survive cross-conversation pickup. Do not assume an item is verified because no open Task is visible — absence of a Task record is NOT proof of completion.
+   <!-- Review: code-reviewer — F7: added cross-conversation clause for cases where Tasks are not visible -->
+
+
+5. **Emit the WARN** (to the session output, NOT as a hard-fail or process exit):
+
+   ```
+   WARN [completeness-checklist]: N completeness item(s) unverified on consumed baton <handoff-basename>.
+   Validate or explicitly waive each before this counts as shipped.
+
+   Unverified items:
+     - <class>: <assertion text>
+     ...
+
+   Reference: docs/wiki/install-surface-completeness.md § Running-in-Claude-Code
+   To waive: note each item explicitly ("waiving: <item> — <rationale>") and re-run /workstream-complete,
+   or mark the corresponding Tasks-API task done after verifying.
+   ```
+
+**This step is ADVISORY per § Post-Consumer Gates Must Be Advisory WARN, Not Hard-Fail (`docs/wiki/install-surface-completeness.md`).** It does NOT block the commit, does NOT hard-fail workstream-complete, and does NOT gate Step 3. The WARN is the "refuses silent done" surface — an honest signal that the checklist was not fully cleared. The EM may proceed past it with an explicit waiver or acknowledgement. Silent-proceed without the WARN being emitted is the failure mode this step prevents.
+
+**Execution shape:** this step is a peer slot in the todo-list cluster (parallel-safe with Steps 2.6, 2.7, 2.8, 2.9, 2.9b, 2.95 — it reads the consumed handoff file and open Tasks; it does NOT write any files). Its output feeds the **Step 4 Final Summary** as a one-liner: `Completeness checklist: N items unverified — WARN emitted` or `Completeness checklist: all verified / not applicable`.
+
 ### Step 3: Commit + Verify Remote
 
 #### Step 3.0: Pre-terminate dirty-tree gate
@@ -548,7 +660,18 @@ A `session-accumulated-must-survive-crash` key with no tracked baseline declarat
 
 The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files = Edit-tool atomic-write crash (CLAUDE.md § Verifying Executor Output) — diff against target before deleting; do not stash blind.
 
-1. **Stage only paths this session touched — never `git add -A`.** Name each path explicitly: `git add <path1> <path2> ...`. Typical set: `state/lessons.md`, `docs/plans/<feature>.md` (if Step 2.4 ran), `archive/completed/YYYY-MM/<entry>.md`, `docs/project-tracker.md`, action-items, `docs/README.md`, `state/handoff-tracker.md` (if Step 2.75 ran), **`git rm` of any Step 2.67 deletions** (each `git rm` both removes the file and stages the deletion atomically — no separate `git add` needed). Unfamiliar dirty files → Step 3.0 gate first; "leave alone" is only correct for case (b) named-owner files.
+1. **Stage only paths this session touched — never `git add -A`.** Capture the explicit session path set ONCE into a shell array and reuse it for both `git add` and `git commit` — this ensures the same set drives both operations and a sibling EM's already-staged files on the shared index are never absorbed (2026-06-24: a workstream-complete commit absorbed 6 files a concurrent session had staged when `git commit -F` was invoked without a pathspec). Step 2.67 git-rm deletions MUST be listed in `WSC_PATHS` too, so the pathspec commit includes them.
+
+   ```bash
+   # Capture the explicit session path set ONCE — reuse for BOTH stage and commit so a
+   # sibling EM's already-staged files on the shared index are never absorbed (2026-06-24:
+   # a workstream-complete commit absorbed 6 files a concurrent session had staged).
+   # Step 2.67 git-rm deletions MUST be listed here too, so the pathspec commit includes them.
+   WSC_PATHS=( state/lessons.md "docs/plans/<feature>.md" "archive/completed/YYYY-MM/<entry>.md" )  # explicit, this session only
+   git add -- "${WSC_PATHS[@]}"
+   ```
+
+   Typical set: `state/lessons.md`, `docs/plans/<feature>.md` (if Step 2.4 ran), `archive/completed/YYYY-MM/<entry>.md`, `docs/project-tracker.md`, action-items, `docs/README.md`, `state/handoff-tracker.md` (if Step 2.75 ran), **`git rm` of any Step 2.67 deletions** (each `git rm` both removes the file and stages the deletion atomically — no separate `git add` needed; still list the path in `WSC_PATHS` so the commit pathspec covers it). Unfamiliar dirty files → Step 3.0 gate first; "leave alone" is only correct for case (b) named-owner files.
 
 <!-- mandatory-commit-shape -->
 **Mandatory commit shape (concurrent-EM safe).** Plain explicit-path git is the default per SC-DR-008; the helper is reserved for sweep ceremonies + the executor's branch-pin path. Use ONE of:
@@ -591,7 +714,9 @@ Plain-git is listed first deliberately — the helper is the carve-out, not the 
 
    If the session had no Step 2.67 deletions or keeps to record (e.g. a doc-only session), the structured blocks may be omitted — the gate then has nothing to validate and is effectively a no-op. The PID-scoped file is still the canonical artifact passed to `git commit -F`.
 
-2. **Commit FROM the validated file** — `git commit -F "$msg_file"`. **`git commit -m "..."` is forbidden for this commit** (it would let a divergent message land that the gate never saw). After the commit lands, `rm -f "$msg_file"`. The post-commit hook will auto-push on work/feature branches.
+1.6. **Pre-commit scope-verify.** Run `git diff --cached --name-only` and confirm the staged set matches `WSC_PATHS`. If OTHER files appear, that signals a concurrent sibling session staged something before this commit — note the observation but do not abort. The explicit `-- "${WSC_PATHS[@]}"` pathspec in step 2 will keep those sibling-staged files out of this commit automatically.
+
+2. **Commit FROM the validated file with an explicit pathspec** — `git commit -F "$msg_file" -- "${WSC_PATHS[@]}"`. A bare `git commit -F` with no pathspec commits the whole index, absorbing any sibling session's staged files on the shared branch — the explicit `-- "${WSC_PATHS[@]}"` is what prevents that. **`git commit -m "..."` is also forbidden for this commit** (it would let a divergent message land that the gate never saw). After the commit lands, `rm -f "$msg_file"`. The post-commit hook will auto-push on work/feature branches.
 3. If nothing to commit, check for unpushed commits: `git log "origin/$(~/.claude/plugins/coordinator/bin/coordinator-current-branch)..HEAD" 2>/dev/null`
 4. **Verify remote is synced:** confirm no unpushed commits remain. If auto-push failed, push explicitly and warn the PM.
 5. If on main (shouldn't happen, but safety): push explicitly — `git push origin main`
@@ -652,6 +777,8 @@ Present a brief end-of-session summary:
 **Orientation refreshed:** [orientation cache patched / tracker updated / action items checked off / nothing to update / no orientation docs exist]
 **Pushed to remote:** [yes — branch name / no — reason]
 ```
+
+**Classify flags by severity before listing.** A break-class defect (broken / would-break / fails / leaks / silently-bypasses) is **fix-by-default** — fix it (or dispatch / propose a plan) and report the *fix*, not a passive `Flag to PM:` choice. Only direction-class items (product / prioritization / genuine tradeoff) belong under Flag-to-PM. → global `CLAUDE.md § Flag Severity`; `docs/wiki/flag-severity-triage.md`.
 
 **Flag to PM:** Explicitly note the push so they can verify nothing breaks for other consumers.
 

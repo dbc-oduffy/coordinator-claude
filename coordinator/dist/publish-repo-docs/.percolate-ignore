@@ -23,6 +23,10 @@
 .percolate-ignore
 README-meta.md
 
+# Publish-side install-provenance sentinel — written by publish.sh (install-sentinel-write)
+# at the END of each target sync. Protect from the Phase-2 delete/recreate churn.
+version.txt
+
 # Publish-repo-authored docs/ files (not yet back-percolated; protect from deletion).
 README.md
 architecture.md

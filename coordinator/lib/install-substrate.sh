@@ -21,7 +21,29 @@
 
 set -euo pipefail
 
-[[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]] || { echo "install-substrate: CLAUDE_PLUGIN_ROOT not set" >&2; exit 1; }
+# D2-15: derive CLAUDE_PLUGIN_ROOT from BASH_SOURCE when not set in env.
+# This file lives at <root>/lib/install-substrate.sh, so the root is the
+# parent of lib/. Env var takes precedence when set (allows test overrides).
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md D2-15
+if [[ -z "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    # Review: code-reviewer F6 — guard against BASH_SOURCE[0] being empty (e.g. bash -c "source ...").
+    # When BASH_SOURCE[0] is empty or not a real file, dirname derives "." and cd ../.. silently
+    # resolves to cwd's parent — fail loud instead of trusting a wrong path.
+    if [[ -z "${BASH_SOURCE[0]:-}" ]] || [[ ! -f "${BASH_SOURCE[0]}" ]]; then
+        echo "install-substrate: cannot derive CLAUDE_PLUGIN_ROOT from BASH_SOURCE (empty or not a real file) — set CLAUDE_PLUGIN_ROOT explicitly" >&2
+        exit 1
+    fi
+    CLAUDE_PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fi
+
+# Validate the resolved root has the expected layout before proceeding.
+# Fail-loud if the layout is wrong — a silently bad root is worse than no root.
+if [[ ! -d "${CLAUDE_PLUGIN_ROOT}/lib" ]] || [[ ! -d "${CLAUDE_PLUGIN_ROOT}/templates" ]]; then
+    echo "install-substrate: CLAUDE_PLUGIN_ROOT does not have expected layout (lib/ and templates/ must exist)" >&2
+    echo "  Resolved root: ${CLAUDE_PLUGIN_ROOT}" >&2
+    echo "  Set CLAUDE_PLUGIN_ROOT explicitly to override the BASH_SOURCE derivation." >&2
+    exit 1
+fi
 
 _ml_templates="${CLAUDE_PLUGIN_ROOT}/templates/machine-local"
 _ml_bin="${CLAUDE_PLUGIN_ROOT}/templates/bin"
@@ -52,6 +74,22 @@ EOF
 done
 [[ ${#SETUP_TEMPLATE_FILES[@]} -gt 0 ]] || { echo "install-substrate: SETUP_TEMPLATE_FILES is empty — setup-templates-manifest.sh failed to source or is corrupt" >&2; exit 1; }
 
+# --- Partial-invocation flag (C7a) ---
+# --setup-only runs ONLY the machine-local substrate seeding region (tracked
+# machine-local files + bin/ resolvers + settings-manifest + hardware audit) and
+# exits before the machine-environment ops (percolation setup/, claude-CLI PATH,
+# fnm binary, Windows health). This is the single source of truth the OSS
+# installer (dist/publish-repo-setup/install.sh) calls, so its machine-local
+# layer cannot drift from coordinator:install's. Absent flag → full Phase 3,
+# byte-for-byte unchanged.
+# Spec backlink: docs/plans/2026-06-23-setup-time-substrate-completeness.md §C7a
+SETUP_ONLY="0"
+for _arg in "$@"; do
+    case "$_arg" in
+        --setup-only) SETUP_ONLY="1" ;;
+    esac
+done
+
 # --- Resolve install destination (same precedence as claude-home) ---
 _install_base="${CLAUDE_HOME:-${HOME}}"
 _ml_dst="${_install_base}/.claude/machine-local"
@@ -74,6 +112,18 @@ done
 if [[ ! -f "${_ml_dst}/unreal.toml" ]]; then
     cp "${_ml_templates}/unreal.toml.example" "${_ml_dst}/unreal.toml"
     echo "[machine-local] installed unreal.toml baseline (schema-only; add values to unreal.local.toml)"
+fi
+
+# --- Step 2c: seed live registry.toml on first install (D2-16) ---
+# registry.toml is the primary machine-local key/value store. The .example is
+# consumer-valid (schema=1, concerns=["project_rag","unreal"]) and used as the
+# baseline. Copied only when the target does not exist — never overwrites an
+# operator-customized registry.toml. Runs in both interactive and non-interactive
+# modes (non-interactive installs previously left only the .example with no live file).
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md D2-16
+if [[ ! -f "${_ml_dst}/registry.toml" ]]; then
+    cp "${_ml_templates}/registry.toml.example" "${_ml_dst}/registry.toml"
+    echo "[machine-local] seeded live registry.toml from example"
 fi
 
 # --- Step 3: bin/ resolvers ---
@@ -99,9 +149,10 @@ _install_one() {
     return 0
 }
 
-for _f in machine-local _machine_local.py machine-local.cmd python3.cmd; do
+for _f in machine-local _machine_local.py machine-local.cmd python3.cmd resolve-coordinator-clone; do
     _exec=no
     [[ "$_f" == "machine-local" ]] && _exec=yes
+    [[ "$_f" == "resolve-coordinator-clone" ]] && _exec=yes
     _install_one "${_ml_bin}/${_f}" "${_bin_dst}/${_f}" "$_exec" "machine-local"
 done
 
@@ -126,6 +177,10 @@ if [[ -f "$_manifest_src" ]]; then
     _install_one "$_manifest_src" "$_manifest_dst" "no" "machine-local"
 fi
 
+# --- Steps 3d + 3e are machine-environment ops, skipped under --setup-only ---
+# (percolation setup/ and claude-CLI PATH; the OSS installer owns its own
+#  setup/ delivery and PATH handling). Body intentionally left un-reindented.
+if [[ "$SETUP_ONLY" != "1" ]]; then
 # --- Step 3d: percolation mechanism (~/.claude/setup/) ---
 # File list is the single source of truth in lib/setup-templates-manifest.sh.
 SETUP_DEST="${_install_base}/.claude/setup"
@@ -146,6 +201,265 @@ for _hf in "${SETUP_TEMPLATE_HOOK_FILES[@]}"; do
     mkdir -p "$SETUP_DEST/$(dirname "$_hf")"
     _install_one "$_setup_src/$_hf" "$SETUP_DEST/$_hf" "no" "machine-local"
 done
+
+# --- Step 3e: ensure the standalone `claude` CLI dir is on the user PATH (cross-platform) ---
+# The native Claude Code installer places the `claude` binary at ~/.local/bin on
+# every platform. Operators who install Claude Code via the desktop app (or whose
+# login shell never picked up ~/.local/bin) hit "claude: command not found" the
+# moment they open a terminal to follow the CLI install steps. We detect a CLI
+# binary in the standard location and idempotently add ITS dir to PATH.
+#
+# We deliberately probe the standard install dir rather than `command -v claude`:
+# inside a desktop-app session `claude` may resolve to an app-bundled binary whose
+# internal dir must NOT be put on the shell PATH. Only a real CLI binary in a
+# conventional location is actionable.
+_claude_bin=""
+for _cand in "${_install_base}/.local/bin/claude" "${_install_base}/.local/bin/claude.exe"; do
+    if [[ -x "$_cand" || -f "$_cand" ]]; then _claude_bin="$_cand"; break; fi
+done
+if [[ -z "$_claude_bin" ]]; then
+    echo "[setup] note: no standalone \`claude\` CLI found at ${_install_base}/.local/bin —"
+    echo "[setup]   if \`claude\` is not on your terminal PATH, install the CLI (https://docs.anthropic.com/en/docs/claude-code) so non-app shells can run it."
+elif [[ "${OSTYPE:-}" == "msys" || "${OSTYPE:-}" == "cygwin" || "${OS:-}" == "Windows_NT" ]]; then
+    # Windows: add the claude dir to the user PATH (mirrors Step 3b; env-var passing
+    # keeps the path out of the PowerShell string to defend against quoting injection).
+    _claude_dir_win=$(cygpath -w "$(dirname "$_claude_bin")" 2>/dev/null || echo "")
+    if [[ -z "$_claude_dir_win" ]]; then
+        echo "[setup] WARNING: cygpath unavailable; cannot resolve Windows path for the claude CLI dir; skipping PATH integration" >&2
+    else
+        _claude_set=$(CLAUDE_DIR_WIN="$_claude_dir_win" powershell.exe -NoProfile -WindowStyle Hidden -Command \
+            "\$p=[Environment]::GetEnvironmentVariable('PATH','User'); \
+             \$t=\$env:CLAUDE_DIR_WIN; \
+             if (\$p -split ';' | Where-Object {\$_ -ieq \$t}) {'yes'} else {'no'}" \
+            2>/dev/null | tr -d '\r')
+        if [[ -z "$_claude_set" ]]; then
+            echo "[setup] WARNING: could not read Windows user PATH; skipping claude-CLI PATH integration" >&2
+        elif [[ "$_claude_set" != "yes" ]]; then
+            CLAUDE_DIR_WIN="$_claude_dir_win" powershell.exe -NoProfile -WindowStyle Hidden -Command \
+                "\$p = [Environment]::GetEnvironmentVariable('PATH','User'); \
+                 [Environment]::SetEnvironmentVariable('PATH', \"\$env:CLAUDE_DIR_WIN;\$p\", 'User')" \
+                && echo "[setup] added ${_claude_dir_win} (claude CLI) to Windows user PATH — restart shells for it to take effect" \
+                || echo "[setup] WARNING: failed to add ${_claude_dir_win} to Windows user PATH" >&2
+        fi
+    fi
+else
+    # macOS / Linux: idempotently prepend the claude dir via a sentinel-guarded
+    # block in the login rc (mirrors install.md Phase 1 Offer C). The written
+    # guard is re-source-safe (case match) so it never duplicates PATH entries.
+    _claude_dir="$(dirname "$_claude_bin")"
+    case "$(basename "${SHELL:-zsh}")" in
+        zsh)  _rc="${_install_base}/.zprofile" ;;
+        bash) _rc="${_install_base}/.bash_profile" ;;
+        *)    _rc="${_install_base}/.profile" ;;
+    esac
+    _claude_sentinel="# coordinator-install: ensure claude CLI on PATH"
+    if [[ -f "$_rc" ]] && grep -qF "$_claude_sentinel" "$_rc"; then
+        : # already wired
+    elif { [[ -e "$_rc" ]] && [[ ! -w "$_rc" ]]; } || { [[ ! -e "$_rc" ]] && [[ ! -w "$(dirname "$_rc")" ]]; }; then
+        echo "[setup] WARNING: $_rc not writable; add this to your shell profile manually:" >&2
+        echo "[setup]   export PATH=\"$_claude_dir:\$PATH\"" >&2
+    else
+        {
+            printf '%s\n' "$_claude_sentinel"
+            printf 'case ":$PATH:" in *":%s:"*) ;; *) export PATH="%s:$PATH" ;; esac\n' "$_claude_dir" "$_claude_dir"
+        } >> "$_rc" \
+            && echo "[setup] added $_claude_dir (claude CLI) to PATH via $_rc — open a new shell or \`source $_rc\` to use \`claude\`" \
+            || echo "[setup] WARNING: failed to append claude-CLI PATH block to $_rc" >&2
+    fi
+fi
+fi  # end --setup-only guard for Steps 3d/3e
+
+# --- Step 3f: hardware concern baseline (copy .example → live name, first-install only) ---
+# hardware.toml ships as the schema-only baseline for the `hardware.*` concern namespace.
+# Copied only when the target does not exist — never overwrites operator-provisioned state.
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C4
+if [[ ! -f "${_ml_dst}/hardware.toml" ]]; then
+    cp "${_ml_templates}/hardware.toml.example" "${_ml_dst}/hardware.toml"
+    echo "[machine-local] installed hardware.toml baseline (schema-only; values written by detect-hardware.sh)"
+fi
+
+# --- Step 3g: ensure `hardware` is registered in concerns (idempotent migration) ---
+# Existing installs have concerns = ["project_rag","unreal"] with no `hardware`.
+# Without this, machine-local get hardware.* resolves nothing.
+# Uses an inline Python TOML-aware upsert so both the inline-array form (the
+# existing registry.toml shape) and the flat-multiline form are handled correctly.
+# machine-local array-append uses the flat multiline shape and cannot update the
+# inline array without a round-trip conflict; Python tomllib + regex is safer here.
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C4 (AC10)
+_registry_live="${_ml_dst}/registry.toml"
+if [[ -f "$_registry_live" ]]; then
+    # Resolve python interpreter (same logic as machine-local wrapper).
+    _py3=""
+    if command -v python3 >/dev/null 2>&1; then _py3=python3
+    elif command -v python >/dev/null 2>&1; then _py3=python
+    fi
+    if [[ -n "$_py3" ]]; then
+        "$_py3" - "${_registry_live}" <<'PYEOF' || echo "[setup] WARNING: could not register 'hardware' in concerns — add it manually to ${_registry_live}" >&2
+import sys, re, os
+
+# Review: reviewer — Finding 2 (P1): tomllib is stdlib only in Python 3.11+;
+# Ubuntu 22.04 LTS ships 3.10 where `import tomllib` raises ImportError.
+# The || echo WARNING on the heredoc swallows the error and hardware is never
+# registered. Portable fallback: try tomllib (3.11+), then tomli (pip package),
+# then degrade to regex-only write path with a loud remediation message.
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib  # type: ignore[no-redef]
+    except ImportError:
+        tomllib = None  # type: ignore[assignment]
+
+path = sys.argv[1]
+with open(path, 'r', encoding='utf-8') as f:
+    content = f.read()
+
+# Parse to check if hardware already listed (requires a working TOML parser).
+if tomllib is not None:
+    try:
+        data = tomllib.loads(content)
+    except Exception:
+        sys.exit(0)  # malformed — don't touch it; install-substrate has already seeded a valid file
+
+    concerns = data.get('concerns')
+    if not isinstance(concerns, list):
+        sys.exit(0)  # unexpected shape — leave it alone
+
+    if 'hardware' in concerns:
+        sys.exit(0)  # already registered — no-op
+else:
+    # No TOML parser available — check via regex so we still skip if already present.
+    # Review: reviewer — if neither tomllib nor tomli is importable, we cannot safely
+    # round-trip a multiline array; emit loud remediation rather than silently no-op.
+    if re.search(r'["\']hardware["\']', content):
+        sys.exit(0)  # already present — no-op
+    print('[setup] WARNING: neither tomllib (Python 3.11+) nor tomli (pip install tomli) '
+          'available. Falling back to regex-only write for concerns migration. '
+          'Install tomli (`pip install tomli`) to ensure full TOML safety.', file=sys.stderr)
+
+# Try to update the inline or multiline array form: concerns = [...].
+# Falls back to appending a new top-level key when no array is found.
+# Review: reviewer — Finding 1 (P1 DATA LOSS): original regex lacked re.DOTALL so
+# multiline array form (concerns = [\n  "a",\n  "b",\n]) did not match and the
+# else-branch inserted a SECOND top-level key; TOML last-key-wins silently dropped
+# existing entries. Fix: (1) add re.DOTALL; (2) detect multiline vs inline by
+# presence of newline in captured inner text and insert a new element line before
+# the closing ] rather than appending to rstripped inner (which produced double-comma).
+inline_pat = re.compile(r'^(concerns\s*=\s*\[)([^\]]*?)(\])', re.MULTILINE | re.DOTALL)
+m = inline_pat.search(content)
+if m:
+    inner = m.group(2)
+    if '\n' in inner:
+        # Multiline form: insert a new element line before the closing ].
+        lines = inner.rstrip().split('\n')
+        last_line = lines[-1] if lines else ''
+        indent_count = len(last_line) - len(last_line.lstrip())
+        indent_str = ' ' * indent_count if indent_count else '  '
+        insert = indent_str + '"hardware",\n'
+        new_content = content[:m.end(2)] + insert + content[m.end(2):]
+    else:
+        # Inline form: append within the same line.
+        inner_stripped = inner.strip()
+        if inner_stripped:
+            new_inner = inner_stripped + ', "hardware"'
+        else:
+            new_inner = '"hardware"'
+        new_content = content[:m.start(2)] + new_inner + content[m.end(2):]
+else:
+    # Absent concerns key — append a flat concerns line before first [section].
+    section_pat = re.compile(r'^\[', re.MULTILINE)
+    sm = section_pat.search(content)
+    insert_line = 'concerns = ["hardware"]\n'
+    if sm:
+        new_content = content[:sm.start()] + insert_line + '\n' + content[sm.start():]
+    else:
+        new_content = content.rstrip('\n') + '\n' + insert_line
+
+# Sanity: new content must parse, contain hardware, AND preserve pre-existing concerns.
+if tomllib is not None:
+    try:
+        parsed = tomllib.loads(new_content)
+        new_concerns = parsed.get('concerns', [])
+        if 'hardware' not in new_concerns:
+            sys.exit(1)
+        # Review: reviewer — verify pre-existing entries survived (not just hardware present).
+        if tomllib is not None:
+            orig_concerns = tomllib.loads(content).get('concerns', [])
+            for c in orig_concerns:
+                if c not in new_concerns:
+                    print(f'[setup] ERROR: concern "{c}" was lost during migration — aborting write',
+                          file=sys.stderr)
+                    sys.exit(1)
+    except Exception:
+        sys.exit(1)
+
+tmp = path + '.tmp.' + str(os.getpid())
+try:
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    os.replace(tmp, path)
+except Exception as e:
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    print(f'[setup] WARNING: could not update {path}: {e}', file=sys.stderr)
+    sys.exit(1)
+
+print('[machine-local] registered hardware concern in registry.toml')
+PYEOF
+    else
+        echo "[setup] WARNING: python3/python not found; cannot register 'hardware' in concerns — add it manually to ${_registry_live}" >&2
+    fi
+fi
+
+# --- Step 3h: hardware audit (cross-platform; runs BEFORE the non-Windows exit guard) ---
+# detect-hardware.sh probes CPU cores, RAM, and (best-effort) GPU/VRAM and
+# persists values into hardware.local.toml via the --concern writer. Idempotent.
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C4 (AC11)
+_detect_hw="${CLAUDE_PLUGIN_ROOT}/lib/detect-hardware.sh"
+if [[ -x "$_detect_hw" ]]; then
+    bash "$_detect_hw" || echo "[setup] WARNING: hardware audit failed — re-run install or set hardware.* keys manually" >&2
+elif [[ -f "$_detect_hw" ]]; then
+    bash "$_detect_hw" || echo "[setup] WARNING: hardware audit failed — re-run install or set hardware.* keys manually" >&2
+else
+    echo "[setup] WARNING: detect-hardware.sh not found at ${_detect_hw}; skipping hardware audit" >&2
+fi
+
+# --- --setup-only stops here: machine-local layer is fully seeded ---
+# Everything beyond is a machine-environment op (fnm binary, Windows health) the
+# OSS installer does not delegate. The full coordinator:install path falls through.
+if [[ "$SETUP_ONLY" == "1" ]]; then
+    echo "[install-substrate] --setup-only: machine-local substrate seeded; skipping fnm/Windows machine-env steps"
+    exit 0
+fi
+
+# --- Step 3i: fnm binary install (cross-platform; runs BEFORE the non-Windows exit guard) ---
+# Ensures the fnm (Fast Node Manager) binary is present on the machine.
+# Machine-level binary install ONLY — per-repo pin resolution (fnm install <ver>)
+# lives in lib/setup-fnm-pin.sh and is not duplicated here.
+# Idempotent: if fnm is already on PATH, emit a notice and skip.
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C5a
+if command -v fnm >/dev/null 2>&1; then
+    echo "[setup] fnm already installed at $(command -v fnm) — skipping binary install"
+else
+    if command -v brew >/dev/null 2>&1; then
+        echo "[setup] installing fnm via brew..."
+        brew install fnm \
+            && echo "[setup] fnm installed via brew" \
+            || { echo "[setup] ERROR: brew install fnm failed — install fnm manually: https://github.com/Schniz/fnm#installation" >&2; exit 1; }
+    elif command -v curl >/dev/null 2>&1; then
+        echo "[setup] installing fnm via official curl installer..."
+        curl -fsSL https://fnm.vercel.app/install | bash \
+            && echo "[setup] fnm installed via curl installer" \
+            || { echo "[setup] ERROR: curl installer for fnm failed — install fnm manually: https://github.com/Schniz/fnm#installation" >&2; exit 1; }
+    else
+        echo "[setup] ERROR: cannot install fnm — neither brew nor curl is available." >&2
+        echo "[setup]   Remediation:" >&2
+        echo "[setup]     (a) Install Homebrew: https://brew.sh/ then re-run install" >&2
+        echo "[setup]     (b) Install curl (e.g. apt install curl / choco install curl) then re-run install" >&2
+        echo "[setup]     (c) Install fnm directly: https://github.com/Schniz/fnm#installation" >&2
+        exit 1
+    fi
+fi
 
 # --- Step 3b/3c: Windows-only PATH + AppX Python health ---
 # Skip silently on non-Windows.

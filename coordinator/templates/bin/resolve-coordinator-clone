@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# resolve-coordinator-clone — fixed-path out-of-tree entry shim for the
+# coordinator install-root resolver (lib/resolve-coordinator-clone.sh).
+#
+# Out-of-tree consumers (project-rag, project-rag-ue-addon, claude-unreal-holodeck)
+# call this ONE fixed path instead of each hand-rolling a find-the-resolver locator:
+#
+#     ~/.claude/bin/resolve-coordinator-clone --for-content
+#     ~/.claude/bin/resolve-coordinator-clone --for-git-ops
+#
+# The shim's only job is to LOCATE lib/resolve-coordinator-clone.sh — the
+# chicken-and-egg an out-of-tree caller cannot solve (the lib lives inside the
+# very clone it resolves) — and then `exec` it, passing all args through. The LIB
+# owns ALL content/git-ops precedence; this shim only finds the lib file. Its
+# ladder is a deliberate SUBSET of the lib's (just locate the script), centralized
+# in ONE coordinator-owned file instead of N hand-rolled consumer copies.
+#
+# Position-independent BY DESIGN: it does NOT use its own BASH_SOURCE to find the
+# lib (that would just relocate the consumer's chicken-and-egg). It anchors on the
+# fixed ${CLAUDE_HOME:-$HOME}/.claude home. Every installed copy is therefore
+# byte-identical (satisfies the verify-templates-bin-sync byte-identity gate).
+#
+# CLAUDE_HOME is a $HOME SUBSTITUTE, not a .claude substitute (matches the lib's
+# _rcc_claude_home_dir and install-substrate.sh:_install_base): CLAUDE_HOME=/tmp/sb
+# redirects the whole install to /tmp/sb/.claude/. The `.claude` suffix is appended
+# here, NOT folded into the default — `${CLAUDE_HOME:-$HOME/.claude}` would silently
+# break the sandbox/CI escape hatch CLAUDE_HOME exists to provide.
+#
+# Public contract surface: this fixed path + the lib's --for-content/--for-git-ops
+# flags + the CLAUDE_PLUGIN_ROOT/COORDINATOR_ROOT/COORDINATOR_CLONE/CLAUDE_HOME env
+# overrides. CONTRACT STABILITY: these are append-only — removing/renaming any is a
+# breaking change requiring a coordinated cross-repo memo wave to the three consumers
+# (project-rag / project-rag-ue-addon / claude-unreal-holodeck), never a silent edit.
+#
+# Spec backlink: docs/plans/2026-06-23-coordinator-owned-resolver-shim.md
+#
+# Cross-platform shell (DR-148): parses+runs under bash 3.2; uses no GNU-only
+# version-sort flag, no path-canonicalizer call, and no PCRE grep. The compare is a
+# numeric bash loop mirroring lib/resolve-coordinator-clone.sh::_rcc_newest_cache
+# so 2.10.0 sorts above 2.9.0 (a lexicographic sort would invert that).
+
+set -euo pipefail
+
+_LIB_REL="lib/resolve-coordinator-clone.sh"
+_HOME_DIR="${CLAUDE_HOME:-$HOME}/.claude"
+_lib=""
+
+# 1. Env override — any root the caller pins that holds the lib file wins (harness
+#    injection, test sandboxes, explicit overrides). Tried in the lib's own root
+#    precedence: CLAUDE_PLUGIN_ROOT (content tier 1), COORDINATOR_ROOT (content
+#    tier 2), COORDINATOR_CLONE (git-ops root — also a valid lib-file location).
+#    The shim only needs to FIND the lib here; the lib re-applies full precedence.
+for _root in "${CLAUDE_PLUGIN_ROOT:-}" "${COORDINATOR_ROOT:-}" "${COORDINATOR_CLONE:-}"; do
+    if [ -n "$_root" ] && [ -f "$_root/$_LIB_REL" ]; then
+        _lib="$_root/$_LIB_REL"
+        break
+    fi
+done
+
+# 2. Flat layout (source_is_live / single-clone install).
+if [ -z "$_lib" ]; then
+    _flat="$_HOME_DIR/plugins/coordinator-claude/coordinator/$_LIB_REL"
+    [ -f "$_flat" ] && _lib="$_flat"
+fi
+
+# 3. Versioned plugin cache — newest version dir. DR-148-safe numeric-compare loop
+#    (pure bash, no GNU version-sort); resolves 2.10.0 above 2.9.0 where lex inverts.
+if [ -z "$_lib" ]; then
+    _cache_parent="$_HOME_DIR/plugins/cache/coordinator-claude/coordinator"
+    if [ -d "$_cache_parent" ]; then
+        _newest="" _na=0 _nb=0 _nc=0
+        for _d in "$_cache_parent"/*/; do
+            _base="${_d%/}"
+            [ -d "$_base" ] || continue
+            [ -f "$_base/$_LIB_REL" ] || continue
+            _base="${_base##*/}"
+            _a="${_base%%.*}"; _rest="${_base#*.}"
+            _b="${_rest%%.*}"; _c="${_rest#*.}"
+            _a="${_a%%[!0-9]*}"; _b="${_b%%[!0-9]*}"; _c="${_c%%[!0-9]*}"
+            _a="${_a:-0}"; _b="${_b:-0}"; _c="${_c:-0}"
+            if [ "$_a" -gt "$_na" ] || \
+               { [ "$_a" -eq "$_na" ] && [ "$_b" -gt "$_nb" ]; } || \
+               { [ "$_a" -eq "$_na" ] && [ "$_b" -eq "$_nb" ] && [ "$_c" -gt "$_nc" ]; }; then
+                _newest="${_d%/}"; _na="$_a"; _nb="$_b"; _nc="$_c"
+            fi
+        done
+        [ -n "$_newest" ] && _lib="$_newest/$_LIB_REL"
+    fi
+fi
+
+# 4. FAIL-LOUD — no lib located anywhere on the ladder.
+if [ -z "$_lib" ]; then
+    echo "resolve-coordinator-clone: cannot locate ${_LIB_REL} under any known coordinator install location." >&2
+    echo "  Searched: \$CLAUDE_PLUGIN_ROOT, \$COORDINATOR_ROOT, \$COORDINATOR_CLONE, ${_HOME_DIR}/plugins/coordinator-claude/coordinator/, and the versioned plugin cache." >&2
+    echo "  Remediation: install/repair the coordinator plugin, or set CLAUDE_PLUGIN_ROOT to its checkout." >&2
+    exit 1
+fi
+
+exec bash "$_lib" "$@"

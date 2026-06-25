@@ -18,16 +18,22 @@ Daily is a branch wrap, not a release ceremony. Each step below is an explicit s
 ## Step 1: Validate (blocking gate)
 
 ```bash
-eval "$(~/.claude/plugins/coordinator/bin/workday-complete-step1-validate.sh)"
+# Capture stdout AND the script's exit code SEPARATELY. `eval "$(script)"` discards
+# the script's exit code — command substitution throws it away, so `$?` after the
+# eval is the status of the assignment line (always 0), silently passing every
+# Step-1 failure (build break, test failure, UBT-blocked, missing interpreter).
+# Capture stdout first (real exit code in $?), THEN eval the assignment line.
+_STEP1_OUT="$(~/.claude/plugins/coordinator/bin/workday-complete-step1-validate.sh)"
 RC_STEP1=$?
+eval "$_STEP1_OUT"
 ```
 
-The script runs the UBT pending-record resolution (UE work only, presence-detected) then the configured fast-test command. Emits `RC_UBT=…` (informs the Step 1 branch decision below) and `RC_VALIDATE=…` (forwarded to Step 9 via env). All other output is on stderr.
+The script runs the UBT pending-record resolution (UE work only, presence-detected) then the configured fast-test command. Emits `RC_UBT=…` (informs the Step 1 branch decision below) and `RC_VALIDATE=…` (forwarded to Step 9 via env) on **stdout** (the single eval-safe assignment line); all human-readable detail is on **stderr**, which streams to the terminal uncaptured.
 
 **Exit-code branch:**
 - `0` — both gates ok or skipped. Proceed.
 - `1` — UBT resolved blocked. Stop and fix the C++ compile error. Override with `COORDINATOR_OVERRIDE_UBT_GATE=1` only when the PM authorises (override path emits `RC_VALIDATE=ubt-overridden` so Step 9 can distinguish bypass from a real validation pass).
-- `2` — fast-test build failure. Stop and fix.
+- `2` — fast-test build failure, a `127` command-not-found (missing interpreter/binary), or the resolver itself hitting a missing interpreter (`RC_VALIDATE=interp-missing`). Stop and fix — these are blocking environment/build failures, never a silent skip.
 - `3` — fast-test test failures only. Fix what's quick, flag the rest, proceed.
 - `4` — resolver lib missing (`RC_VALIDATE=lib-missing`, distinct from "no fast-test configured" which emits `RC_VALIDATE=skipped`). Configure `fast_test_cmd:` in `coordinator.local.md` or `$COORDINATOR_FAST_TEST_CMD`, or repair the install if the lib was deleted.
 
@@ -100,6 +106,39 @@ The script: syncs main, discovers same-machine sibling workstream branches (case
 
 ---
 
+## Step 3.5: Backfill Skipped Days (default-on)
+
+The daily window is a rolling ~24h (`YESTERDAY 23:59Z .. TODAY 23:59Z`). A day that ran sessions but never ran `/workday-complete` falls **permanently** between windows — its commits are before the next run's floor and no window ever picks them up. This step closes that gap automatically: it detects past days with commits but no daily summary, and backfills the summary + per-day changelog block deterministically from the on-disk dated substrate (handoffs, completion entries, review-trail records — all still present). No hand-reconstruction.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/workday-complete-backfill-scan.sh" --lookback 14
+```
+
+Output is TSV (oldest-first), one row per missed day: `<date>\t<commit_count>\t<baseline_sha>\t<tip_sha>`. **Empty output → no missed days; skip the rest of this step silently** (the healthy common case).
+
+**Cap:** if the scan returns **> 10** rows, do NOT auto-fan the whole wave — surface the list to the PM (`Backfill scan found N skipped days going back to <oldest>; backfill all, or a bounded subset?`) and wait. A 10+-day gap is a signal worth a human glance, not a silent 10-agent burst.
+
+**Phase A (parallel):** dispatch one Sonnet analyst (`general-purpose`, `run_in_background: true`) per row — independent days, fan out and await all. Each analyst is parameterized to its date — same prompt as Step 4b (`docs/wiki/daily-summary-procedure.md` § Sonnet Analyst Prompt Template) but:
+   - baseline/tip = the row's `<baseline_sha>..<tip_sha>` (that day's commit span), not `<baseline>..HEAD`.
+   - completions source = `query-completions --where "created=<date>"`.
+   - writes `archive/daily-summaries/<date>.md` with `backfilled: true` in frontmatter and a one-line `> _Backfilled on <today> — ceremony was not run on <date>._` note under the H1.
+
+**Phase B (oldest-first, serial):** for each row once its summary exists, append the changelog block — run `step9 --for-date <date>` oldest-first so the changelog reads chronologically:
+   ```bash
+   bash "${CLAUDE_PLUGIN_ROOT}/bin/workday-complete-step9-append-changelog.sh" --for-date <date>
+   ```
+   `--for-date` overrides `TODAY` so the whole block (commit window, `<date>-<machine>.md` filename, summary link, review-trail `--date-prefix`) keys to that day. It commits + pushes the per-day changelog file alongside the backfilled summary.
+
+**Do NOT run the strategic observer (Step 4c) for backfilled days** — debt/risk rows are a *today* signal; re-deriving them for a past day risks stale or duplicate DSR rows. Backfill produces the durable artifacts (summary + changelog), not the live triage surface.
+
+**Cross-machine note:** backfill writes one per-machine changelog block (the machine running it); if multiple machines worked a date and none wrapped, other machines' blocks stay absent — accepted, the summary is the durable artifact.
+
+Report: `Backfilled N skipped days: <date list>.` Then proceed to Step 4 for *today*.
+
+> Spec / convergence: `cross-repo/archive/2026-06-23-workday-complete-skipped-day-backfill.md` (project-opticon-em independently root-caused the same gap). Scan: `bin/workday-complete-backfill-scan.sh`. Override: `step9 --for-date`.
+
+---
+
 ## Step 4: Strategic Daily Review
 
 Produce `archive/daily-summaries/YYYY-MM-DD.md`. Heavy-weight templates, the failure-mode table, health-ledger schema, and debt-backlog DSR-ID format live in `docs/wiki/daily-summary-procedure.md` — walk that wiki for detail; do not re-author it inline.
@@ -152,7 +191,7 @@ The daily summary artifact is committed by Step 9 alongside the changelog row �
 
 ## Step 4.5: Completion-Log Clustering Pass
 
-<!-- Spec backlink: docs/plans/2026-05-19-completion-log-phase1-foundational-loop.md § Chunk 4 (plan archived; sidecar at docs/plans/2026-05-19-completion-log-phase1-foundational-loop.plan-coverage-check.md retained) -->
+<!-- Spec backlink: archive/specs/2026-05/2026-05-19-completion-log-phase1-foundational-loop.md § Chunk 4 (plan archived; sidecar at docs/plans/2026-05-19-completion-log-phase1-foundational-loop.plan-coverage-check.md retained) -->
 
 Groups today's completion entries by `chain:` field and synthesizes a machine-readable `narrative:` for each multi-entry chain. Single-entry chains skip. Enables `/workweek-complete` editorial bucketing to read `narrative:` rather than re-derive.
 

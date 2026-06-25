@@ -48,7 +48,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 1. **Inventory artifact directories:** `archive/handoffs/`, `plans/`, `docs/completed-work/`, completed `tasks/*/` dirs, `docs/research/`, `~/docs/research/`, `docs/superpowers/specs/`, `tasks/*/spec.md`, `tasks/*/design.md`, `cross-repo/archive/` (closed `status: actioned` memos — see `commands/distill.md` § Cross-repo archive distillation)
 
-   **Plan files are the priority cohort.** Ripe plans under `docs/plans/` (enumerated via `bin/query-records --type plan --format paths`, ripeness classified per § Phase 0 ripeness gate below) are the highest-yield distillation source (`commands/distill.md:20-21`) and carry the heaviest Phase 5 sub-step (trim+archive). They are processed **first** and banked before ephemera disposal — see the harvest-before-disposal invariant in Phase 5 and `commands/distill.md § Phase 5`.
+   **Plan files are the priority cohort.** Terminal plans already swept to `archive/specs/` by the session-init sweep (enumerated via `bin/query-records --type plan --format paths --root archive/specs/`, minus any paths already recorded in `docs/wiki/.distill-log.md` — the un-harvested set = "harvest debt") are the highest-yield distillation source (`commands/distill.md:20-21`) and carry the heaviest Phase 5 sub-step (knowledge-harvest). They are processed **first** and banked before ephemera disposal — see the harvest-debt drain contract in Phase 5 and `commands/distill.md § Phase 5`.
 2. **Catalog artifact formats:** identify which directories contain frontmatter-bearing markdown, plain markdown, JSON/YAML, or mixed formats.
 3. **Inventory existing wiki:** `docs/wiki/`, `docs/decisions/` — needed for idempotent merging. Extract guide headings/topic lists for the reality check. Also note any gaps: systems that appear in specs or research but have no corresponding guide yet (these are new-guide candidates). **Index on filename, not just H1 title.** Capture the full `docs/wiki/*.md` and `docs/decisions/*.md` filename list alongside the H1/topic headings — near-duplicate FILENAME collisions (e.g. `coordinator-installer-shape.md` already on disk while a synthesizer later proposes `coordinator-installer.md`) are invisible to a heading-keyed index. Pass the filename list to the reality-check scout so ALREADY_CAPTURED classification can match on filename stem similarity, not only on title. (sibling: `CLAUDE.md` § Pre-Dispatch Verification — "grep existing surface before scaffolding agent-facing files; collisions hide under longer existing names".)
 
@@ -66,13 +66,13 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
    - **NotebookLM outputs** (`tasks/notebooklm-*/`, any file with "notebooklm" in its path, `*-claims.json`, `*-summary.md` from research pipelines): always **PRESERVE** — never deleted, never modified in place. Key claims may be extracted into guides at synthesizer discretion.
    - **Archived handoffs** (`archive/handoffs/*.md`): always **NEW** — the `## What Was Accomplished`, `## Key Decisions Made`, and `## Blockers or Issues` sections contain architectural decisions and gotchas that must be extracted into guides and decision records.
    - **Design specs** (`docs/superpowers/specs/*.md`, `tasks/*/spec.md`, `tasks/*/design.md`): classify as **NEW** if the spec was executed (check for corresponding implementation in git log or code) — extract all design decisions as decision records in the relevant guide, then mark the spec as archivable. Classify as **SKIP** if the spec is still in-progress or unapproved.
-   - **Canonical plans** (`docs/plans/*.md`): classified by the **ripeness gate** below — only RIPE (delivered) plans are **NEW** (extract + trim→archive fate); PARTIAL / IN-FLIGHT / ABANDONED plans are **SKIP** (not harvested, not archived).
+   - **Canonical plans** (`archive/specs/**/*.md`): classified by the **ripeness gate** below — only RIPE (delivered) plans are **NEW** (harvest: extract knowledge nuggets); PARTIAL and ABANDONED plans are **SKIP** (un-harvested, retained in `archive/specs/`, not deleted — the session-init sweep already moved them there); IN-FLIGHT plans remain in `docs/plans/` and are not in this cohort at all.
 
-   **Phase 0 ripeness gate (plans — delegates to `plan-delivery-audit`).** Do NOT hand-roll a done-vs-in-flight predicate — the canonical classifier is `skills/plan-delivery-audit/SKILL.md:128-136`. For each `docs/plans/*.md`, classify by frontmatter `status:` + AC verifiability at HEAD:
+   **Phase 0 ripeness gate (plans — delegates to `plan-delivery-audit`).** Do NOT hand-roll a done-vs-in-flight predicate — the canonical classifier is `skills/plan-delivery-audit/SKILL.md:128-136`. For each plan in `archive/specs/` (the harvest-debt set = plans in `archive/specs/` minus plans already recorded in `docs/wiki/.distill-log.md`), classify by frontmatter `status:` + AC verifiability at HEAD. IN-FLIGHT plans are not in this cohort — they remain in `docs/plans/` untouched by the sweep:
    - **RIPE → NEW** (harvest: extract nuggets + trim→archive): `status: implemented` or `status: shipped` AND all typed-prefix ACs pass at HEAD (Oracle DELIVERED+REVIEWED or DELIVERED-UNREVIEWED). This is the dominant case — `status: implemented` is on the large majority of completed plans.
-   - **PARTIAL → SKIP**: `status: implemented`/`shipped` but ACs fail or are absent/unverifiable ("self-assertion without machine-checkable evidence is not delivery" — Oracle PARTIAL tie-break). Logged, not archived, not deleted.
-   - **IN-FLIGHT → SKIP**: `status: in-progress` / `draft` / `reviewed`. Logged, untouched.
-   - **ABANDONED → SKIP**: `status: superseded` / `abandoned` / `cancelled`. **Never harvested** — an abandoned plan must NOT be trim→archived as if delivered.
+   - **PARTIAL → SKIP**: `status: implemented`/`shipped` but ACs fail or are absent/unverifiable ("self-assertion without machine-checkable evidence is not delivery" — Oracle PARTIAL tie-break). Logged, un-harvested, retained in `archive/specs/` — the sweep moved it there but knowledge-harvest is deferred until ACs are verifiable.
+   - **IN-FLIGHT → SKIP**: `status: in-progress` / `draft` / `reviewed`. NOT in the archive/specs/ cohort — these plans remain in `docs/plans/`, not yet swept, untouched.
+   - **ABANDONED → SKIP**: `status: superseded` / `abandoned` / `cancelled`. The sweep moved the plan to `archive/specs/` (terminal status), but it is **never harvested** — retained in archive, not deleted. An abandoned plan must NOT be harvested as if delivered.
    - **Default on ambiguity → SKIP** (treat as PARTIAL). Wrongly burying a live plan costs more than leaving a ripe plan one cycle; the conservative default is intentional.
    - **Excluded signals (do NOT use):** `## Deviations` sections (retired 2026-06-15 at `skills/workstream-complete/SKILL.md:93` — dead surface), and `SHIPPED: X (was: Y)` annotations (a forecast-correction marker on a small minority of plans, a Phase 1 knowledge input, NOT a ripeness gate). `status: consumed`/`shipped`-as-handoff-status do not apply to plans.
 
@@ -253,7 +253,7 @@ Mine the run's reviewer sidecars for cross-spec convergence patterns — finding
 
 ## Phase 2.7-QG: Coverage Gate (Haiku, parallel by cluster)
 
-<!-- spec-backlink: docs/plans/2026-05-28-distill-structured-manifests.md § Chunk 2 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-28-distill-structured-manifests.md § Chunk 2 -->
 
 **Model:** Haiku. **Dispatch:** One agent per Phase 2 cluster, all simultaneously. **Runs after:** Phase 2 fully complete.
 
@@ -278,7 +278,7 @@ Full prompt and verdict schema: `agent-prompts/phase-2-7-qg.md`.
 
 ## Phase 3a: Contradiction Detection (Sonnet, parallel by cluster)
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#2, AC#6a, AC#6e -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#2, AC#6a, AC#6e -->
 
 **Model:** Sonnet. **Dispatch:** One agent per topic cluster, all simultaneously.
 
@@ -326,7 +326,7 @@ Full prompt (Opus resolution + Sonnet fidelity-check): `agent-prompts/phase-3-es
 
 ## Phase 3b: Decision-Record Dedup (Sonnet, single)
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#3, AC#6d -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#3, AC#6d -->
 
 **Model:** Sonnet. **Dispatch:** Single agent. **Runs after:** Phase 3a complete and cross-cluster check done (and Opus escalation, if triggered).
 
@@ -348,7 +348,7 @@ Instruct the agent in its prompt to use Read and Write.
 
 ## Phase 3c: DIRECTORY_GUIDE.md Assembly (Coordinator, mechanical)
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#4 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#4 -->
 
 **Model:** Coordinator (no subagent). **Runs after:** Phase 3b complete.
 
@@ -387,7 +387,7 @@ directory_entries:
 
 ## Phase 3d: Deletion Manifest (Sonnet, single)
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d -->
 
 **Model:** Sonnet. **Dispatch:** Single agent. **Runs after:** Phase 3b complete. 3d does not consume 3c output, so 3d may overlap with 3c — but both depend on 3b's deduped DR set and run after 3b.
 
@@ -466,7 +466,7 @@ Present to PM:
 
 ## Phase 5: Apply and Clean (Coordinator-orchestrated, Sonnet-applied)
 
-**Harvest-before-disposal invariant (plan-priority).** The ripe-plan trim+archive pass (`commands/distill.md § 5a`) runs first and is committed (step 4) **before** the deletion steps (5-6). A budget-truncated run completes the plan harvest before any ephemera disposal — the cheap mechanical deletion never preempts the expensive plan archival. Full rationale + ordering: `commands/distill.md § Phase 5` intro.
+**Harvest-debt drain contract (plan-priority).** The move of plans to `archive/specs/` is already done by the session-init sweep — decoupled from `/distill`. What Phase 5 runs first is the knowledge-harvest pass over the un-harvested set (plans in `archive/specs/` not yet in `docs/wiki/.distill-log.md`). This harvest pass is committed (step 4) **before** the deletion steps (5-6). A budget-truncated run drains harvest debt before any ephemera disposal — the cheap mechanical deletion never preempts the expensive knowledge-harvest. Full rationale + ordering: `commands/distill.md § Phase 5` intro.
 
 0. **Pre-check:** If `git status` shows uncommitted changes outside wiki and artifact directories, warn PM and offer to commit those separately first — keeps the safety checkpoint scoped to distillation.
 1. **Safety commit:** `CLAUDE_INVOKING_COMMAND=distillation ~/.claude/plugins/coordinator/bin/coordinator-safe-commit --blanket "pre-distillation checkpoint"`

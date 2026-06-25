@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# verify-no-console-flash: file-allow — test scaffolding; interpreter spawns run in the CI/local test harness, never the Windows interactive coordinator hot-path
 # routine-signals.sh — AC3: verify routine_signals contains all 6 kinds, each
 # validating as a routine-signal per the contract schema, with required fields present.
 #

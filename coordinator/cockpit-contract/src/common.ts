@@ -26,7 +26,7 @@ export const IsoDate = z.iso.date();
 export const OwnerNamespace = z.enum([
   "dbc-oduffy",
   "Delphi-Interactive",
-  "oduffy-work",
+  "workstation",
 ]);
 export type OwnerNamespace = z.infer<typeof OwnerNamespace>;
 

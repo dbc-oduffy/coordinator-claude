@@ -5,7 +5,7 @@ allowed-tools: ["Read", "Bash", "Agent"]
 argument-hint: "[--skip-dep-check --accept-missing-deps-risk]"
 ---
 
-<!-- spec-backlink: docs/plans/2026-06-15-deep-research-install-chain-application-phase-b.md § C4 -->
+<!-- spec-backlink: archive/specs/2026-06/2026-06-15-deep-research-install-chain-application-phase-b.md § C4 -->
 
 # /deep-research:setup
 
@@ -51,7 +51,20 @@ Determine whether this skill is running inside the nested working-repo (under `~
 # Flat publish-repo: docs/install/AGENT.md exists directly under CLAUDE_PLUGIN_ROOT/../
 # Nested working-repo: CLAUDE_PLUGIN_ROOT is plugins/coordinator-claude/deep-research
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
+# Review: code-reviewer — F5: add CLAUDE_PLUGIN_ROOT fallback guard; BASH_SOURCE fallback
+# for OSS install layouts where CLAUDE_PLUGIN_ROOT may not be set.
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}"
+else
+  # Derive from BASH_SOURCE: skills/setup/SKILL.md → two levels up = plugin root
+  _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+  PLUGIN_ROOT="$(cd "${_SCRIPT_DIR}/../.." && pwd)"
+  if [[ ! -d "${PLUGIN_ROOT}" ]]; then
+    echo "ERROR: CLAUDE_PLUGIN_ROOT is unset and cannot derive plugin root from BASH_SOURCE — set CLAUDE_PLUGIN_ROOT before running" >&2
+    exit 1
+  fi
+fi
+
 FLAT_AGENT_MD="${PLUGIN_ROOT}/docs/install/AGENT.md"
 
 if [ -f "${FLAT_AGENT_MD}" ]; then
@@ -84,7 +97,7 @@ cat "${MANIFEST}"
 ```
 
 Parse the manifest to extract:
-- `agent_install_contract_version` — must be 1 or 2 (reject anything outside `{1, 2}` with a remediation message)
+- `agent_install_contract_version` — must be 1, 2, or 3 (reject anything outside `{1, 2, 3}` with a remediation message). DR reads coordinator's manifest during chain-walk; coordinator ships v3 as of the 2026-06-23 cutover.
 - `repo_id` — should be `"deep-research-claude"`
 - `direct_deps` — the list to walk (DR declares one: `coordinator-claude`, severity `soft`)
 - `override_flags` — the flag pair names for consent-gate invocations
@@ -104,8 +117,12 @@ The visited-set is a disk-resident file used for diamond-DAG and cycle detection
 <!-- the Staff Engineer Finding 4 (plan §7 C3 + §9): visited-set path is ~/.claude/deep-research-claude/ NOT ~/.deep-research-claude/ -->
 
 ```bash
-# Generate a session UUID (stdlib only — no python -c uuid fallback needed; date+$$ is sufficient for uniqueness)
-SESSION_ID="$(python -c 'import uuid; print(str(uuid.uuid4()))')"
+# python3-first interpreter resolution — `python` is absent on modern macOS / many
+# Linux (only python3); `python3` is absent on Windows/pyenv (only python).
+PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+
+# Generate a session UUID
+SESSION_ID="$("$PY" -c 'import uuid; print(str(uuid.uuid4()))')"
 
 VISITED_DIR="${HOME}/.claude/deep-research-claude"
 VISITED_FILE="${VISITED_DIR}/chain-walk-${SESSION_ID}.json"
@@ -115,7 +132,7 @@ mkdir -p "${VISITED_DIR}"
 find "${VISITED_DIR}" -name 'chain-walk-*.json' -mmin +60 -delete 2>/dev/null || true
 
 # Create the new visited-set file with empty visited array
-python -c "
+"$PY" -c "
 import json, sys
 data = {'session_id': sys.argv[1], 'started_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z', 'visited': []}
 open(sys.argv[2], 'w').write(json.dumps(data, indent=2))
@@ -134,7 +151,8 @@ For each dep in `direct_deps` (DR declares one: `coordinator-claude`, severity `
 ### 4a. Read the visited-set and skip if already claimed
 
 ```bash
-python -c "
+PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+"$PY" -c "
 import json, sys
 data = json.load(open(sys.argv[1]))
 print('already_visited' if sys.argv[2] in data['visited'] else 'proceed')
@@ -159,14 +177,14 @@ For the **nested working-repo** layout, `REPO_PARENT` is `plugins/coordinator-cl
 
 ### 4c. Run the functional probe
 
-The manifest declares `functional_probe: {kind: "file_exists", path: "plugins/coordinator/CLAUDE.md"}` for this dep.
+The manifest declares `functional_probe: {kind: "file_exists", path: "coordinator/CLAUDE.md"}` for this dep.
 
 In the flat publish-repo: the probe path resolves relative to the coordinator sibling repo root.
 In the nested working-repo: the probe path resolves relative to the repo root (which contains `plugins/coordinator/CLAUDE.md`).
 
 ```bash
 # Probe result
-if [ -f "${SIBLING_PATH}/plugins/coordinator/CLAUDE.md" ] || \
+if [ -f "${SIBLING_PATH}/coordinator/CLAUDE.md" ] || \
    [ -f "${REPO_ROOT}/../coordinator/CLAUDE.md" ]; then
   PROBE_STATUS="present"
 else
@@ -211,7 +229,8 @@ If only ONE of the two override flags is present, exit with remediation (mirrors
 When a dep is present (probe passes), atomically append its ID to the visited-set before dispatching:
 
 ```bash
-python -c "
+PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+"$PY" -c "
 import json, os, sys
 p = sys.argv[1]
 d = json.load(open(p))
@@ -254,15 +273,17 @@ The dispatched subagent:
 
 ---
 
-## Step 6 — Terminal report
+## Step 6 — Terminal report with live Claude-Code-integration validation
 
-After walking all deps, print a structured summary:
+<!-- spec-backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § C6 -->
+
+After walking all deps, print a structured summary followed by an explicit **running-in-Claude-Code** validation assert. The distinction between install-surface-completeness and running-in-Claude-Code is defined in `coordinator/docs/wiki/install-surface-completeness.md § Running-in-Claude-Code`; this step operationalises it for deep-research-claude.
 
 ```
 ## /deep-research:setup — chain step 4 of 5
 
 Manifest: plugins/deep-research/docs/install/agent-install-manifest.json
-Contract version: 2
+Contract version: <agent_install_contract_version from the walked manifest>
 Layout: <flat | nested>
 Session ID: <uuid>
 
@@ -281,7 +302,169 @@ OR
 <Walk halted: <reason>>
 ```
 
+### 6a — Plugin-local prerequisite check (`--check-only`)
+
 If the walk completed without halting, run `/deep-research:install --check-only` to verify the plugin-local prerequisites (Agent Teams env var, pipeline availability) are also satisfied, and include the result in the terminal report.
+
+### 6b — Live Claude-Code-integration validation
+
+This section performs the running-in-Claude-Code validation for deep-research-claude. Work through the three axes in order: **restart-batch items first** (see 6b-i), then live assertions (6b-ii, 6b-iii).
+
+Classification follows `coordinator/docs/wiki/install-surface-completeness.md § Discriminator`:
+- **restart-gated-expected** — ✘ after the settle window but no load-bearing restart has occurred since config-write → surface in the restart-batch block; do NOT count as failure.
+- **configured-but-broken** — ✘ after the settle window AND after the load-bearing restart → **fail loud** (emit a ✘ FAIL line and abort the "complete" verdict).
+
+#### 6b-i — restart-batch (emit up front, before any live assertions)
+
+Before running any live checks, collect ALL items that are `restart-gated-expected` and emit them as ONE consolidated block:
+
+```
+### restart-batch — restart required before re-validating
+
+The following deep-research-claude items require ONE Claude Code restart:
+
+  [ ] <item-1 description>
+  [ ] <item-2 description>
+  ...
+
+→ Restart Claude Code now, then re-run /deep-research:setup to re-validate.
+   (These are restart-gated-expected, not configured-but-broken — see
+    coordinator/docs/wiki/install-surface-completeness.md § Running-in-Claude-Code)
+```
+
+If no restart-gated items exist, omit this block entirely.
+
+#### 6b-ii — Agent Teams env var
+
+Check whether the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` env var is set and live in the current Claude Code session environment:
+
+```bash
+if [ "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS}" = "1" ]; then
+  echo "AGENT_TEAMS_STATUS=live"
+else
+  echo "AGENT_TEAMS_STATUS=absent_or_unset"
+fi
+```
+
+Classification:
+- **Present (`= "1"`)** → ✓ Agent Teams live.
+- **Absent / unset** — determine the restart-occurred status (did a restart occur after writing `settings.json`?). See `coordinator/docs/wiki/install-surface-completeness.md § Restart discriminator` for the settle-window + restart-occurred axis used to classify restart-gated-expected vs. configured-but-broken.
+  <!-- Review: code-reviewer — F12: added cross-ref to wiki § Restart discriminator -->
+  - If no restart has occurred since `settings.json` was written → **restart-gated-expected**: add to the restart-batch block above; do NOT fail.
+  - If a restart has already occurred and the var is still absent → **configured-but-broken**: emit `✘ FAIL: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS not set after restart. All deep-research pipelines will fail. Remediation: add "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1" under the "env" key in settings.json, then restart.`
+
+#### 6b-iii — DR skill discovery preconditions
+
+<!-- negative-spec: do NOT attempt to shell-invoke a skill to test it — skill invocability is model-driven, not bash-testable (the Staff Engineer F1, plan § Anti-scope). Discovery preconditions only. -->
+
+For each DR skill file under `skills/` (at minimum: `setup/SKILL.md`, `research/SKILL.md`, `install/SKILL.md`), assert the three discovery preconditions:
+
+1. **File parses** — the SKILL.md file exists and is readable (non-zero byte file).
+2. **`description:` trigger phrases present** — the frontmatter `description:` field is non-empty and contains at least one trigger phrase (a human-readable phrase that Claude Code can match to invoke the skill).
+3. **Plugin enabled** — the deep-research plugin appears in `settings.json` `enabledPlugins` (or equivalent enablement surface for the current layout).
+
+```bash
+PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+
+SKILLS_DIR="${PLUGIN_ROOT}/skills"
+SETTINGS_JSON="${HOME}/.claude/settings.json"
+
+echo "=== DR skill discovery preconditions ==="
+
+# Precondition 3 (plugin enabled) — check once, applies to all skills
+PLUGIN_ENABLED="false"
+if [ -f "${SETTINGS_JSON}" ]; then
+  ENABLED=$("$PY" -c "
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+    plugins = d.get('enabledPlugins', [])
+    # Accept full path or basename match for deep-research
+    print('true' if any('deep-research' in str(p) for p in plugins) else 'false')
+except Exception as e:
+    print('error:' + str(e))
+" "${SETTINGS_JSON}")
+  PLUGIN_ENABLED="${ENABLED}"
+fi
+
+if [ "${PLUGIN_ENABLED}" = "true" ]; then
+  echo "  plugin-enabled: ✓"
+elif [ "${PLUGIN_ENABLED}" = "false" ]; then
+  # Not enabled: restart-gated if no restart has occurred, configured-but-broken otherwise
+  echo "  plugin-enabled: ✘ (deep-research not in enabledPlugins — see restart-batch if pre-restart, else configured-but-broken)"
+else
+  echo "  plugin-enabled: ✘ ERROR reading settings.json: ${PLUGIN_ENABLED}"
+fi
+
+# Preconditions 1 + 2: per-skill file-parse and description-field check
+for SKILL_DIR in "${SKILLS_DIR}"/*/; do
+  SKILL_FILE="${SKILL_DIR}SKILL.md"
+  SKILL_NAME="$(basename "${SKILL_DIR}")"
+  if [ ! -s "${SKILL_FILE}" ]; then
+    echo "  ${SKILL_NAME}: ✘ FAIL (configured-but-broken) — SKILL.md missing or empty at ${SKILL_FILE}"
+    continue
+  fi
+  # Extract description: field from YAML frontmatter (between first --- pair)
+  DESC=$("$PY" -c "
+import sys, re
+content = open(sys.argv[1]).read()
+m = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+if not m:
+    print('')
+    sys.exit(0)
+fm = m.group(1)
+# Review: code-reviewer — F5: match coordinator:setup Probe 3's regex — handle both
+# single-quoted and double-quoted description: values (SKILL.md files use both forms).
+desc_match = re.search(r'description:\s*[\"\'](.*?)[\"\']', fm, re.DOTALL)
+if not desc_match:
+    desc_match = re.search(r'description:\s*(.+)', fm)
+if desc_match:
+    print(desc_match.group(1).strip())
+else:
+    print('')
+" "${SKILL_FILE}")
+  if [ -z "${DESC}" ]; then
+    echo "  ${SKILL_NAME}: ✘ FAIL (configured-but-broken) — no description: trigger phrase in frontmatter of ${SKILL_FILE}"
+  else
+    echo "  ${SKILL_NAME}: ✓ (description trigger present)"
+  fi
+done
+```
+
+Any skill whose `description:` field is missing or empty is **configured-but-broken** — it cannot be discovered by Claude Code and is therefore not running-in-Claude-Code, regardless of whether the file is present on disk. Emit a ✘ FAIL for each such skill.
+
+A plugin-enabled status of `false` after a restart is **configured-but-broken** (add to the manifest, restart). A plugin-enabled status of `false` with no prior restart is **restart-gated-expected** (add to the restart-batch block in 6b-i).
+
+### 6c — Consolidated running-in-Claude-Code verdict
+
+After running all checks in 6b, emit one of:
+
+```
+### deep-research-claude: running-in-Claude-Code status
+
+✓ All live checks passed — deep-research-claude is validated running-in-Claude-Code.
+```
+
+or, if there are restart-gated items but no configured-but-broken failures:
+
+```
+### deep-research-claude: running-in-Claude-Code status
+
+⚠ RESTART REQUIRED — see restart-batch block above. Re-validate after restart.
+  (No configured-but-broken failures detected; items above are restart-gated-expected.)
+```
+
+or, if any configured-but-broken failure was detected:
+
+```
+### deep-research-claude: running-in-Claude-Code status
+
+✘ FAIL — configured-but-broken items detected (see ✘ FAIL lines above).
+  install-surface-completeness ≠ running-in-Claude-Code for this installation.
+  Fix the above items before treating deep-research-claude as operational.
+```
+
+The verdict must always be one of these three shapes — no silent-pass on partial checks (vacuous-pass anti-pattern, `coordinator/docs/wiki/install-surface-completeness.md § Vacuous-pass anti-pattern`).
 
 ---
 

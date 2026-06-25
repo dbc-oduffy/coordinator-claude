@@ -124,7 +124,7 @@ fi
 #   ERROR <message>
 # ---------------------------------------------------------------------------
 # Strip \r so Python's Windows CRLF output doesn't corrupt bash variable comparisons.
-PARSE_OUTPUT="$("$PYTHON_BIN" - "$REGISTRY_TOML" "$PLUGIN_ROOT" <<'PYEOF' | tr -d '\r'
+PARSE_OUTPUT="$("$PYTHON_BIN" - "$REGISTRY_TOML" "$PLUGIN_ROOT" <<'PYEOF' | tr -d '\r' # verify-no-console-flash: allow — verify/emit analysis tool, not interactive-session hot-path
 import sys
 import os
 
@@ -421,7 +421,7 @@ done <<< "$PARSE_OUTPUT"
 detect_script_mode() {
     local script_path="$1"
 
-    "$PYTHON_BIN" - "$script_path" <<'PYEOF' | tr -d '\r'
+    "$PYTHON_BIN" - "$script_path" <<'PYEOF' | tr -d '\r' # verify-no-console-flash: allow — verify/emit analysis tool, not interactive-session hot-path
 import sys
 import re
 
@@ -458,7 +458,7 @@ extract_script_consumers_legacy() {
     local script_path="$1"
     local plugin_root="$2"
 
-    "$PYTHON_BIN" - "$script_path" "$plugin_root" <<'PYEOF' | tr -d '\r'
+    "$PYTHON_BIN" - "$script_path" "$plugin_root" <<'PYEOF' | tr -d '\r' # verify-no-console-flash: allow — verify/emit analysis tool, not interactive-session hot-path
 import sys
 import re
 import os

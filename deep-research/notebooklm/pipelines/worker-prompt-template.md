@@ -44,16 +44,17 @@ If ceiling reached: write partial output (claims.json with what you have, summar
 2. Read strategy.md — find ## Notebook [NOTEBOOK_LETTER] for focus, custom instructions, questions, source strategy
 3. Read sources.md — find ## Sources for Notebook [NOTEBOOK_LETTER] for your URLs or research_start query
 4. Create notebook named '[NOTEBOOK_NAME]' via notebook_create — record the notebook ID
-5. Set custom instructions via chat_configure (from strategy.md)
-6. Ingest sources:
+5. Tag the notebook with the run slug: `tag(action="add", notebook_id=<id>, tags="[TOPIC_SLUG]")` — makes the whole run addressable as a set for `cross_notebook_query(tags=…)` / `batch(tags=…)`
+6. Set custom instructions via chat_configure (from strategy.md)
+7. Ingest sources:
    - If scout-provided: source_add each URL with wait: true
-   - If research_start: research_start with the query, poll research_status, research_import
-7. Verify ingestion with a simple query
-8. Run all research questions from strategy.md via notebook_query, capturing full responses
-9. Generate Studio artifacts (if requested in strategy.md):
+   - If research_start: `research_start(query, source="web", mode="fast"|"deep")` (deep = ~40 sources + AI report, web only, 3-5 min), poll research_status, then `research_import(notebook_id, task_id, cited_only=True)` to import only report-cited sources. Discard the AI report itself — import its sources and extract claims via our own path (the canned report is intentionally not consumed).
+8. Verify ingestion: check processing status via `notebook_get`, then run a simple query to confirm sources processed (silent failures — missing captions, paywalls — are common)
+9. **Quota discipline:** pull raw source text (transcripts, verbatim excerpts for `evidence_excerpt`) via `source_get_content(source_id)` — zero query-budget cost; reserve `notebook_query` for questions that need AI synthesis (binding constraint: 50 queries/day free tier). Run the synthesis questions from strategy.md via notebook_query, capturing full responses
+10. Generate Studio artifacts (if requested in strategy.md):
    - Use studio_create with the requested artifact_type, poll studio_status for completion, then download_artifact
    - If no artifacts requested, skip this step
-10. For each query response, decompose into discrete claim objects and write [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json
+11. For each query response, decompose into discrete claim objects and write [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json
 
     Each claim follows this schema:
     ```json
@@ -80,7 +81,7 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     - **transcription_suspect:** Set true if finding contains technical terms that look garbled from audio/video transcription — API names, library names, proper nouns that don't parse correctly (e.g., "you gameplay ability" instead of UGameplayAbility). Especially important for YouTube and podcast sources.
     - **evidence_excerpt:** Copy the most relevant 1-3 sentences verbatim. If condensing, paraphrase and prefix with [PARAPHRASED].
 
-11. Write [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md — include YAML front-matter at the top:
+12. Write [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md — include YAML front-matter at the top:
     ```yaml
     ---
     notebook_id: "{id from notebook_create}"
@@ -97,8 +98,8 @@ If ceiling reached: write partial output (claims.json with what you have, summar
     ```
     The body is a human-readable overview: metadata table, sources table, brief claims summary narrative, and artifacts section. See your agent definition for the full format.
 
-12. **MANDATORY (all exit paths):** Mark task completed: TaskUpdate — the sweep agent is blocked on this
-13. **MANDATORY (all exit paths):** Send DONE: SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] complete — [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json + [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md")
+13. **MANDATORY (all exit paths):** Mark task completed: TaskUpdate — the sweep agent is blocked on this
+14. **MANDATORY (all exit paths):** Send DONE: SendMessage(to: "[SWEEP_NAME]", message: "DONE: Notebook [NOTEBOOK_LETTER] complete — [SCRATCH_DIR]/[NOTEBOOK_LETTER]-claims.json + [SCRATCH_DIR]/[NOTEBOOK_LETTER]-summary.md")
 
 See your agent definition for full execution phases, failure handling, and output format.
 ```

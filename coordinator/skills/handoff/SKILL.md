@@ -196,6 +196,7 @@ _Continuing from [previous handoff filename]: [what the prior session had comple
 [Repeat for each key decision]
 
 ## Blockers or Issues
+<!-- Classify by severity before listing. A break-class defect (broken / would-break / fails / leaks / silently-bypasses) is fix-by-default — fix it (or dispatch / propose a plan) before handing off; do NOT park a correctness defect here as a passive "want me to fix?" flag. Only genuine PM-input/external-system blockers belong. → global CLAUDE.md § Flag Severity; docs/wiki/flag-severity-triage.md -->
 - [Anything that's stuck or needs human intervention]
 
 ## Recommended Next Steps
@@ -260,7 +261,7 @@ Then replace the placeholder comment cells in the `## Session Ledger` block with
 
 > **Design note — body, not frontmatter.** Session Ledger lives in the body, not in the YAML frontmatter. The frontmatter schema (`schemas/handoff.yaml`) already carries `reviewed_at_workstream_complete`; adding LoE there would bloat the schema and complicate `bin/query-records` frontmatter parsing. Body placement keeps the data accessible to the Chunk 6 query extension without schema changes.
 >
-> **Spec backlink:** `docs/plans/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md` § Chunk 4 (plan lines 162–188).
+> **Spec backlink:** `archive/specs/2026-05/2026-05-19-completion-log-phase2-loe-and-handoff-ledger.md` § Chunk 4 (plan lines 162–188).
 
 ### Durability Rules for Next-Steps and In-Progress Sections
 
@@ -431,7 +432,7 @@ The forbidden outcome is terminating with case-(c) files still dirty and unnamed
 
 #### Step 3.5: Archive Session Claim
 
-Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Session claims are consumed by the helper's `--blanket` sweep ceremonies (workstream-start, workday-complete, update-docs, relay-protocol, distillation) and the `--expected-branch` gate in `agents/executor.md` — those are the post-SC-DR-008 paths that still touch the claims directory. Without archival, dead-PID claims accumulate and force concurrent sweep ceremonies to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
+Now that the final commit has landed and pushed, archive this session's claim directory so concurrent sessions don't see stale claims accumulating until the 24h reaper fires. Session claims are consumed by the helper's `--blanket` sweep ceremonies (workstream-start, update-docs, relay-protocol, distillation) and the `--expected-branch` gate in `agents/executor.md` — those are the post-SC-DR-008 paths that still touch the claims directory. Without archival, dead-PID claims accumulate and force concurrent sweep ceremonies to either wait 24h, set `COORDINATOR_OVERRIDE_SCOPE=1` (which masks the gap), or manually `cs_archive` each defunct session by hand.
 
 Run:
 ```bash

@@ -1,6 +1,6 @@
 # Phase 3b: Sonnet Decision-Record Dedup Prompt
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#3, AC#6d -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#3, AC#6d -->
 
 ```
 You are a decision-record deduplication agent. Your task is to read all Phase 2 synthesis

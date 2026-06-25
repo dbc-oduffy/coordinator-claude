@@ -4,7 +4,9 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
-## [2.9.0] — 2026-06-22
+## [2.9.0] — 2026-06-24
+
+> Theme: **native-CLI install migration + install-suite hardening, from a week of clean-target dogfooding.** This release cuts over to the native `claude plugin` CLI as the primary install path and is the harvest of stress-testing `coordinator:install`, `repo-setup`, the install-chain walker, and the publish/percolate path against fresh machines (macOS Apple-Silicon + new-clone). Most entries close a gap that only appears on a machine you've never seen.
 
 ### Breaking changes
 
@@ -37,6 +39,14 @@ Rationale: new-project setup is infrequent enough that muscle-memory cost is low
 - **Atlas attestation clock split** — a `last_attested:` schema field separates "when the doc was written" from "when its claims were last verified."
 - **Durable coordinator venv pin.** `ensure-coordinator-venv.sh` (idempotent create + seed + pin, build mutex, network-aware fail-loud) gives `coordinator_whoami` and the doctor a stable interpreter on a fresh machine.
 - **Windows console-flash suppression.** PreToolUse Bash/Write offer-hooks plus portable `creationflags` for subprocess spawns stop the console-window flash on Windows installs.
+- **Coordinator declares its full `system_prerequisites`.** The agent-install manifest now carries `bash` (hard, ≥4.3 — `coordinator-safe-commit` uses `local -n`), `claude_code` (semi-hard, canonical CLI runtime, auto-install), `node` (auto-with-confirmation), and `typescript` (semi-hard, auto-install) entries — 13 entries total, manifest contract v3. Restart guidance is now concrete (terminal → `cd ~/.claude` → `claude`) with auto-accept-mode encouragement across the guided playbook and `AGENT.md`.
+- **Onboarding spine discovers and interleaves ORIENT batons agnostically.** Step 0 of the install-chain walker previously found install batons only via `grep -l 'install_chain_order:'` — the exact field separately-seeded *orient* batons omit, so orientation fell on the floor at walk time. The spine now runs a second agnostic discovery sweep (`kind: spinoff` + no `install_chain_order:` + orient-shaped filename/title), pairs install↔orient legs by longest-prefix stem (equal-tie → ambiguous, never auto-pick), and interleaves them (`ready_to_fire` after its install leg, `awaiting_gate` to the tail). New optional `orient_after: <repo-id | "leaf">` baton field expresses knowledge-before-control cross-capability dependencies.
+- **Setup-time substrate completeness.** `repo-setup` now seeds the downstream artifacts a project needs to be coordinator-operable from minute one: test-command keys, a health-ledger, an explicit RAG-index decision, and `.node-version`/`.nvmrc` resolution via `fnm`. `install-substrate.sh` audits host cores/RAM into a `hardware.*` machine-local SSOT (registered concern + P-16 doctor probe) and installs the `fnm` binary. OSS installer is at parity via a new `install-substrate.sh --setup-only` flag (seeds the machine-local region, exits before machine-env ops; full-install path byte-unchanged), removing ~200 lines of duplicated seeding.
+- **`bin/handoff-transition.js consume` + `cs_consume_handoff` wrapper.** An atomic single-write frontmatter transition (`status→consumed`, `deployment_state→in_flight`, `+consumed_at/consumed_by`) for the `/pickup` Step 5 lifecycle write. Because it writes via node-over-Bash it is structurally invisible to the Edit-only consumed-handoff freeze hook — the prior two-sequential-Edit approach tripped its own hook.
+- **Chain-end review-coverage gate** (`bin/review-coverage-gate.sh` + shared `lib/review-coverage-core.sh`) — unconditional Step 2.9 in `/workstream-complete` and Step 1.65 in `/merge-to-main`, verifying every workstream in a session's range has a passing review trail before the chain-end ceremony.
+- **Cockpit-contract 1.0 cutover** — `SnapshotEnvelope`/`LessonSummary`/`PlanSummary` entities; `schema_version` sourced from the contract bundle (killed the hardcoded literal); `query-records` `TYPE_TO_GLOB` derived from the schema registry (single SSOT).
+- **Deliverable-type schema taxonomy** — frontmatter validation now discriminates by `kind:` field, not directory position (fixes the sidecar fight-the-hook problem); 7 content-shaped sidecar schemas shipped.
+- **prereq-probe self-source collision guard** — fail-loud when a vendored lib resolves to the coordinator's own copy; isolated-subdir vendor directive.
 
 ### Changed
 
@@ -52,6 +62,11 @@ Rationale: new-project setup is infrequent enough that muscle-memory cost is low
 - **Cross-machine portability for Claude-home settings** — a settings union + per-machine overrides driven by a `platform-localize` hook.
 - **`#!/bin/bash` → `#!/usr/bin/env bash`** normalized across 82 scripts.
 - **`/update-docs` doc-link check** renumbered from Phase 11e to Phase 12 (EM-led); DoE handoff-tracker refresh wired into `/workday-start`.
+- **git-lfs is a step-zero materialization requirement.** New `/coordinator:install` step 1a.3 runs an idempotent `git lfs install` (act-not-gate) so operators reaching `install` directly — not just via `first-run.sh` — get LFS enablement; the prior enablement lived only in first-run, leaving direct-install operators with an advisory WARN. Doctrine seeded in `install-surface-completeness.md`: the silent-pointer/orphaned-object failure shape, the `git lfs pull` + `git lfs ls-files` materialization-assert, and the altitude split (coordinator proactive-install + advisory-verify; LFS-content repos own the hard pull+assert).
+- **Exec-bit precommit gate is wired into `/coordinator:install`.** `install-meta-repo-precommit-hook.sh` gained an explicit repo-root arg and is now installed from `commands/install.md` § 1a.2 + `repo-setup` § 3f.5.5 against `"$HOME/.claude"` — so every operator (ours and any OSS coordinator-claude user) gets the gate on their own `~/.claude`. It was previously wired only into `/repo-setup`, which runs with cwd = a consumer project where the helper no-ops.
+- **agent-install contract § step 5 blesses curated ordered-leg `/pickup`.** The contract previously prescribed `/workday-start` as the sole sanctioned post-restart instruction; it now blesses a curated, ordered direct `/pickup` of seeded *leg* batons as equally valid, recasting the sanctioned test as the safety goal (no dangling-spine hard-`/pickup`; legs idempotently re-seeded) rather than the specific verb — the right UX for a leaf-is-entry-point downstream.
+- **`do-now` applies to cross-repo memo asks.** Landing a fix on `origin/main` is the work-gate (do-now); a synchronized go-live is the PM-owned *release*-gate and is never the EM's standing reason to hold a landable fix. Codified in `cross-repo-communication.md`, the `/pickup` M3 Accept gate, and a `/workstream-complete` Step 2.65 belt-and-suspenders check.
+- **`/autonomous` encodes an away-from-keyboard posture.** When autonomous mode is active, a pause is the most expensive action (it stalls the run until the PM physically returns). The First Officer Doctrine becomes the sole gate; reaching the goal via tracked patches/shims is acceptable provided the debt is logged and named in the end-of-run summary.
 
 ### Fixed
 
@@ -61,6 +76,12 @@ Rationale: new-project setup is infrequent enough that muscle-memory cost is low
 - **Runtime-tripwire EM-side false positive** firing on already-completed agents.
 - **`mktemp` concurrency collision on BSD/macOS** (predictable suffix when `X` is not template-terminal) in the snapshot emitter.
 - **snippet-sync** now fails loud when a canonical body extracts empty, and restored missing sentinels in the docs-checker / prior-art-check canonicals.
+- **`bin/machine-local` reader exit-code contract + version-aware interpreter resolution.** The wrapper resolved its interpreter via `command -v python3`, which under a stripped daemon PATH picked system Python 3.9, tripped the 3.11+ guard, and returned rc=1 — indistinguishable from a genuinely-absent key. The wrapper now prefers a ≥3.11 interpreter (self-healing for any caller), and the reader contract is explicit: `0`=found, `1`=clean-absence, `2`=operational error (chosen over the literal memo proposal to preserve every `get X || fallback` consumer and the `has` boolean idiom).
+- **`COORDINATOR_ROOT` test-only override no longer mis-roots workday ceremonies.** `/workday-complete` Step 3.5 backfill and `/workday-start` Step 1.85 detector hard-coded `COORDINATOR_ROOT="$HOME/.claude"`, but `COORDINATOR_ROOT` is the repo-root override — so on any non-meta project repo the skipped-day scan and changelog writes mis-rooted into the meta-repo. Removed from all three call sites; both scripts now warn-guard when `COORDINATOR_ROOT` is set but differs from the cwd git toplevel (`COORDINATOR_ROOT_WARN_SUPPRESS=1` escape).
+- **session-init orphan sweep no longer false-abandons live handoffs.** The sweep now uses the canonical 30-minute liveness window with a `consumed_at` floor and is background-session-aware, and runs its liveness check in a `$GIT_ROOT` subshell (fixes OS1 isolation + OS4 cwd regression).
+- **`/workstream-complete` Step 3 commit is scoped to the session pathspec.** It committed via `git commit -F "$msg_file"` with no pathspec, so on a shared branch it swept in files a sibling session had staged. It now captures the session path set into `WSC_PATHS` and commits scoped, with a pre-commit scope-verify step.
+- **`setup/publish.sh` scoped publish no longer aborts on an unrelated unset registry key.** `_load_targets` hard-aborted any scoped publish when an unrelated portable target had an unset machine-local key; a DRYed `_rc1_skip_or_abort` helper now skips-when-filtered and fails-loud otherwise across all three loader arms.
+- **Acceptance-oracle exit-4 remap gated to opted-in runners.** The oracle's default runner is bare `pytest`, which reserves exit-4 for its own usage error — so a real misconfiguration was silently downgraded RED → ENV-UNPROVISIONED. The exit-4→ENV remap now fires only when a custom runner was explicitly configured (`COORDINATOR_PYTEST_CMD` / `pytest_cmd:`); the default runner keeps exit-4 RED.
 
 ### Removed
 
@@ -277,7 +298,7 @@ Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bund
 
 ### Sanitization
 
-- Generalized hardcoded `c:/users/oduffy/.claude` path in `/update-docs` Phase 14 (Step 2c MEDIUM).
+- Generalized hardcoded `c:/users/<user>/.claude` path in `/update-docs` Phase 14 (Step 2c MEDIUM).
 - Dropped hardcoded `/x/<peer-repo>` list from `staff-eng.md` routing note (Step 2c MEDIUM).
 - Source-edit sanitization sweep per audit Section 4.3.
 
@@ -297,7 +318,7 @@ Five themes:
 - **`coordinator:writing-plans` → `coordinator:plan`.** Skill body refactored from prose to decision-tree super-skill (Branch A triage / B substrate / C compose / Exit). Long-form doctrine extracted to `docs/wiki/writing-plans.md`. Existing `Skill(coordinator:writing-plans)` invocations break.
 - **`coordinator:requesting-code-review` → `coordinator:review-code`.** Same super-skill refactor. `/requesting-code-review` slash command no longer exists.
 - **`coordinator:using-git-worktrees` removed.** Doctrine carried by `CLAUDE.md` § Concurrent-EM Git Operations bullet 1 ("Worktrees forbidden") — no separate wiki page.
-- **Daily-branch naming: `work/{machine}/{date}` → `work/{machine}/{span}`.** Span format carries dates across days for multi-day workstreams; midnight rename is silent. Validated regex from `lib/coordinator-daily-branch.sh`: `^work/[^/]+/[0-9]{4}-[0-9]{2}-[0-9]{2}(to[0-9]{2})?$`. Span branches look like `work/STRIKER/2026-05-04to07` — suffix is the trailing day-of-month only, separator is a literal `to`. External tooling that parsed the date suffix must handle date-or-span shape.
+- **Daily-branch naming: `work/{machine}/{date}` → `work/{machine}/{span}`.** Span format carries dates across days for multi-day workstreams; midnight rename is silent. Validated regex from `lib/coordinator-daily-branch.sh`: `^work/[^/]+/[0-9]{4}-[0-9]{2}-[0-9]{2}(to[0-9]{2})?$`. Span branches look like `work/MACHINE-A/2026-05-04to07` — suffix is the trailing day-of-month only, separator is a literal `to`. External tooling that parsed the date suffix must handle date-or-span shape.
 - **`description-budget` validator hard CI gate.** Skills with descriptions exceeding 150 chars (175 PM-gated) need explicit `description-budget: <N>` frontmatter exemption. `/workday-complete` Step 0b blocks on failure.
 
 ### Migration

@@ -118,6 +118,7 @@ concerns = ["project_rag", "unreal"]
 # See docs/wiki/machine-local-registry.md § 13 for the full classification rationale.
 # ---------------------------------------------------------------------------
 [regeneratability]
+"coordinator.machine_slug"     = "idempotent-regeneratable"
 "coordinator.python"           = "idempotent-regeneratable"
 "plugin.mirrors"               = "idempotent-regeneratable"
 "publish.targets"              = "idempotent-regeneratable"

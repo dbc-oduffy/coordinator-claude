@@ -37,7 +37,12 @@ coordinator-claude, observes the empty dep list, and terminates:
 ## Three install verbs — disambiguation
 
 coordinator-claude ships three distinct slash-commands that sound similar but serve different
-purposes. Use the right one:
+purposes. Use the right one.
+
+> **For the OSS solo install (the common path), the only post-restart verb you need is
+> `/coordinator:install`** (then `/coordinator:repo-setup` to onboard a project). The three-verb
+> disambiguation below is for agents arriving in a multi-repo chain-walk context — see
+> [`docs/agent-install.md`](../../dist/publish-repo-docs/agent-install.md) for the solo playbook.
 
 - **`/coordinator:setup`** — the **install-chain walker** required by the agent-install contract.
   Reads `agent-install-manifest.json`, walks the `direct_deps` list (empty for this DAG root),
@@ -93,15 +98,25 @@ check fires — override flags exist for schema-conformance only.
 The coordinator plugin is the session-management spine of the Claude Code agentic ecosystem:
 
 - **Session orchestration** — handoffs, spinoffs, workday/workweek cadence, fan-out dispatch
-- **Review pipeline** — named Opus reviewers (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering), code-reviewer,
+- **Review pipeline** — named Opus reviewers (Patrik, Sid, Camelia, Palí, Fru, Zolí), code-reviewer,
   review-integrator
 - **Skills** — plan, enrich, review, workstream-complete, pickup, repo-setup, and more
 - **Hooks** — PreToolUse tripwires, commit guards, auto-push, session-init
 - **Agents** — executor, enricher, reviewer personas, scouts
 
-Install the plugin first via `/coordinator:install` before walking the chain via `/coordinator:setup`.
+Install the plugin first before walking the chain via `/coordinator:setup`. The plugin itself is
+installed with the native Claude Code CLI (coordinator's canonical runtime — preferred over the
+desktop app; install via `npm install -g @anthropic-ai/claude-code` if absent) from the public
+GitHub repo — `claude plugin marketplace add dbc-oduffy/coordinator-claude` then `claude plugin
+install coordinator@coordinator-claude` — after which a fresh session loads the commands and
+`/coordinator:install` finishes the environment wiring. To start that fresh session: open a terminal,
+`cd ~/.claude`, run `claude` (that is what "restart your session from `~/.claude`" means throughout
+the install docs).
+(Registering the GitHub repo rather than a clone path keeps the install self-contained under
+`~/.claude`; the clone is only a build-time input.) See
+[`docs/agent-install.md`](../../dist/publish-repo-docs/agent-install.md) for the full guided install playbook.
 
 ---
 
-<!-- spec-backlink: ~/.claude/docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 -->
-<!-- spec-backlink: plugins/coordinator/docs/wiki/agent-install-contract.md -->
+<!-- spec-backlink: ~/.claude/archive/specs/2026-06/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C1 -->
+<!-- spec-backlink: plugins/coordinator-claude/coordinator/docs/wiki/agent-install-contract.md -->

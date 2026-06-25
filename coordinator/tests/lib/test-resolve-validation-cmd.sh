@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# verify-no-console-flash: file-allow — test scaffolding; interpreter spawns run in the CI/local test harness, never the Windows interactive coordinator hot-path
 # test-resolve-validation-cmd.sh — Tests for coordinator-resolve-validation-cmd.sh
 #
 # Purpose: verifies the five AC cases for cs_resolve_fast_test_cmd — env-var precedence,
@@ -31,6 +32,11 @@ fi
 PASS=0
 FAIL=0
 FAIL_MSGS=()
+
+# Expected interpreter the resolver emits — BARE name (python3-first), resolved via
+# PATH at exec time. Computed once (not hardcoded) so assertions are deterministic on
+# python3-only AND python-only machines. Used by Test 2 and the normalization tests.
+_EXP_INTERP="$(command -v python3 >/dev/null 2>&1 && echo python3 || echo python)"
 
 pass() { echo "  PASS: $1"; (( PASS++ )) || true; }
 fail() {
@@ -94,7 +100,7 @@ run_resolver() {
   tmp_err=$(mktemp)
   TMP_ROOTS+=("$tmp_out" "$tmp_err")
 
-  env "$@" bash -c "
+  env "$@" "$BASH" -c "
     source $(printf '%q' "$LIB")
     cs_resolve_fast_test_cmd $(printf '%q' "$repo_root")
   " >"$tmp_out" 2>"$tmp_err"
@@ -141,9 +147,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 1b: env_var_bare_python_normalized
+# COORDINATOR_FAST_TEST_CMD="python foo.py" exercises the ENV-VAR branch's
+# normalization (a distinct return point from Test 2's local-md branch) — guards
+# against the env-var branch's _cs_normalize_python_token call regressing silently.
+# ---------------------------------------------------------------------------
+echo "--- Test 1b: env_var_bare_python_normalized"
+
+T1b=$(make_tmp_dir)
+run_resolver "$T1b" "COORDINATOR_FAST_TEST_CMD=python foo.py"
+
+if [[ "$EXIT_CODE" -eq 0 && "$STDOUT" == "$_EXP_INTERP foo.py" ]]; then
+  pass "env_var_bare_python_normalized: stdout = '$_EXP_INTERP foo.py' (env-var branch normalized)"
+else
+  fail "env_var_bare_python_normalized: expected '$_EXP_INTERP foo.py' (exit 0), got '$STDOUT' (exit $EXIT_CODE)"
+fi
+
+# ---------------------------------------------------------------------------
 # Test 2: local_md_wins_when_no_env
 # env var unset, coordinator.local.md has fast_test_cmd: "python foo.py"
-# → stdout = "python foo.py", exit 0
+# → stdout = "<resolved-interp> foo.py", exit 0. The bare `python` token is
+#   normalized python3-first at resolution time (interpreter-portability fix).
 # ---------------------------------------------------------------------------
 echo "--- Test 2: local_md_wins_when_no_env"
 
@@ -152,7 +176,9 @@ write_local_md_with_cmd "$T2" "python foo.py"
 
 # Pass env var set to empty string — resolver's `[[ -n "${VAR:-}" ]]` guard treats
 # empty-string as unset-equivalent, so this exercises the local-md fallback path.
-# (If the guard ever changed to `[[ -v VAR ]]`, this test would break — that's intentional.)
+# (If the guard ever changed to `[[ -v VAR ]]`, an empty-string SET would be treated as
+# configured: the env-var branch would fire with an empty command and this test would
+# FAIL — that failure is the desired detector behavior for the regression.)
 run_resolver "$T2" "COORDINATOR_FAST_TEST_CMD="
 
 if [[ "$EXIT_CODE" -eq 0 ]]; then
@@ -161,10 +187,11 @@ else
   fail "local_md_wins_when_no_env: expected exit 0, got $EXIT_CODE"
 fi
 
-if [[ "$STDOUT" == "python foo.py" ]]; then
-  pass "local_md_wins_when_no_env: stdout = 'python foo.py'"
+# _EXP_INTERP computed once near the top of the file (python3-first bare name).
+if [[ "$STDOUT" == "$_EXP_INTERP foo.py" ]]; then
+  pass "local_md_wins_when_no_env: stdout = '$_EXP_INTERP foo.py' (bare python normalized)"
 else
-  fail "local_md_wins_when_no_env: expected 'python foo.py', got '$STDOUT'"
+  fail "local_md_wins_when_no_env: expected '$_EXP_INTERP foo.py', got '$STDOUT'"
 fi
 
 if echo "$STDERR" | grep -q 'step=local-md'; then
@@ -297,7 +324,7 @@ run_full_resolver() {
   tmp_out=$(mktemp)
   tmp_err=$(mktemp)
   TMP_ROOTS+=("$tmp_out" "$tmp_err")
-  env "$@" bash -c "
+  env "$@" "$BASH" -c "
     source $(printf '%q' "$LIB")
     cs_resolve_full_test_cmd $(printf '%q' "$repo_root")
   " >"$tmp_out" 2>"$tmp_err"
@@ -332,8 +359,10 @@ run_full_resolver "$T8" "COORDINATOR_FULL_TEST_CMD=" "COORDINATOR_FAST_TEST_CMD=
 if [[ "$EXIT_CODE" -eq 3 ]]; then pass "full_falls_back_to_fast: exit 3 (fallback signal)"; else fail "full_falls_back_to_fast: expected 3, got $EXIT_CODE"; fi
 if [[ "$STDOUT" == "fast-only.py" ]]; then pass "full_falls_back_to_fast: stdout = fast cmd"; else fail "full_falls_back_to_fast: expected 'fast-only.py', got '$STDOUT'"; fi
 if echo "$STDERR" | grep -q 'fast-fallback'; then pass "full_falls_back_to_fast: stderr names fast-fallback caveat"; else fail "full_falls_back_to_fast: missing fast-fallback caveat, got '$STDERR'"; fi
-# Documented dual-stderr shape (Finding 6): the inner fast resolver's own diagnostic also fires.
-if echo "$STDERR" | grep -q 'cs_resolve_fast_test_cmd.*step=local-md'; then pass "full_falls_back_to_fast: inner fast-resolver diagnostic also present"; else fail "full_falls_back_to_fast: expected inner fast step=local-md diagnostic, got '$STDERR'"; fi
+# Inner fast-resolver stderr is suppressed by design (`cs_resolve_fast_test_cmd … 2>/dev/null`
+# in the full-tier fallback — "fast-tier diags must not bleed into full-tier output"). The
+# full-tier fast-fallback caveat (asserted above) is the only diagnostic the caller sees.
+if echo "$STDERR" | grep -q 'cs_resolve_fast_test_cmd.*step=local-md'; then fail "full_falls_back_to_fast: inner fast-resolver diagnostic leaked (should be 2>/dev/null suppressed)"; else pass "full_falls_back_to_fast: inner fast-resolver diagnostic correctly suppressed"; fi
 
 # Test 9: full_unconfigured_both_tiers — neither key, no env → exit 2.
 echo "--- Test 9: full_unconfigured_both_tiers"
@@ -342,6 +371,58 @@ write_local_md_without_cmd "$T9"
 run_full_resolver "$T9" "COORDINATOR_FULL_TEST_CMD=" "COORDINATOR_FAST_TEST_CMD="
 if [[ "$EXIT_CODE" -eq 2 ]]; then pass "full_unconfigured_both_tiers: exit 2"; else fail "full_unconfigured_both_tiers: expected 2, got $EXIT_CODE"; fi
 if [[ -z "$STDOUT" ]]; then pass "full_unconfigured_both_tiers: stdout empty"; else fail "full_unconfigured_both_tiers: expected empty stdout, got '$STDOUT'"; fi
+
+# ---------------------------------------------------------------------------
+# Tests 10-13: _cs_normalize_python_token — interpreter-portability normalization
+# (the python3-first fix for site 1: coordinator.local.md stays interpreter-agnostic).
+# Call the helper directly in a sourced subshell.
+# ---------------------------------------------------------------------------
+norm() {
+  # $1 = command string; optional $2 = PATH override for the helper call.
+  # Sets NORM_OUT, NORM_RC.
+  local cmd="$1" path_override="${2:-}"
+  local tmp_out; tmp_out=$(mktemp); TMP_ROOTS+=("$tmp_out")
+  if [[ -n "$path_override" ]]; then
+    "$BASH" -c "source $(printf '%q' "$LIB"); PATH=$(printf '%q' "$path_override") _cs_normalize_python_token $(printf '%q' "$cmd")" >"$tmp_out" 2>/dev/null
+  else
+    "$BASH" -c "source $(printf '%q' "$LIB"); _cs_normalize_python_token $(printf '%q' "$cmd")" >"$tmp_out" 2>/dev/null
+  fi
+  NORM_RC=$?
+  NORM_OUT=$(cat "$tmp_out")
+}
+
+echo "--- Test 10: normalize_bare_python"
+norm "python .github/scripts/run-all-checks.py"
+if [[ "$NORM_RC" -eq 0 && "$NORM_OUT" == "$_EXP_INTERP .github/scripts/run-all-checks.py" ]]; then
+  pass "normalize_bare_python: rewrote leading token to '$_EXP_INTERP'"
+else
+  fail "normalize_bare_python: expected '$_EXP_INTERP .github/scripts/run-all-checks.py' (rc 0), got '$NORM_OUT' (rc $NORM_RC)"
+fi
+
+echo "--- Test 11: python3_untouched"
+norm "python3 -m pytest x"
+if [[ "$NORM_RC" -eq 0 && "$NORM_OUT" == "python3 -m pytest x" ]]; then
+  pass "python3_untouched: python3 passes through verbatim"
+else
+  fail "python3_untouched: expected 'python3 -m pytest x', got '$NORM_OUT' (rc $NORM_RC)"
+fi
+
+echo "--- Test 12: non_python_untouched"
+norm "pnpm test"
+if [[ "$NORM_RC" -eq 0 && "$NORM_OUT" == "pnpm test" ]]; then
+  pass "non_python_untouched: non-python command passes through verbatim"
+else
+  fail "non_python_untouched: expected 'pnpm test', got '$NORM_OUT' (rc $NORM_RC)"
+fi
+
+echo "--- Test 13: missing_interpreter_fails_loud"
+# PATH with no python3/python → bare-python token must fail loud (rc 127), NOT skip.
+norm "python x.py" "/nonexistent-dir-for-test"
+if [[ "$NORM_RC" -eq 127 ]]; then
+  pass "missing_interpreter_fails_loud: rc 127 (refuses to skip)"
+else
+  fail "missing_interpreter_fails_loud: expected rc 127, got $NORM_RC (out='$NORM_OUT')"
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

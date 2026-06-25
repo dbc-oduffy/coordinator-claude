@@ -144,6 +144,43 @@ def plugins_dir() -> Path:
     return claude_home_dir() / "plugins"
 
 
+def coordinator_root() -> Path:
+    """Return the for-content coordinator root (highest-precedence readable payload).
+
+    Mirrors the precedence chain of resolve-coordinator-clone.sh --for-content
+    but without the registry/cache tiers that require external tooling. This
+    subset is safe to call from any Python context without spawning bash.
+
+    Precedence (Python-accessible tiers only):
+      1. CLAUDE_PLUGIN_ROOT env var — harness / test sandbox injection wins.
+      2. COORDINATOR_ROOT env var — explicit content-root override.
+      3. Flat layout: ~/.claude/plugins/coordinator-claude/coordinator
+
+    For full precedence (including registry live_path and versioned-cache glob),
+    use the bash CLI: resolve-coordinator-clone.sh --for-content
+
+    Primary Python consumer: coordinator/whoami/.../probes.py (coordinator root
+    discovery for session-init and doctor probes).
+
+    Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md § C2a
+
+    Negative-spec:
+      - Does NOT read the registry (avoids spawning a subprocess from Python).
+      - Does NOT glob the versioned cache (the bash CLI owns that logic).
+      - Does NOT fail-loud — returns the flat-layout path even if it does not
+        exist on disk; callers validate existence when they need to.
+    """
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if plugin_root:
+        return Path(plugin_root)
+
+    coordinator_root_env = os.environ.get("COORDINATOR_ROOT")
+    if coordinator_root_env:
+        return Path(coordinator_root_env)
+
+    return plugins_dir() / "coordinator-claude" / "coordinator"
+
+
 # ---------------------------------------------------------------------------
 # JSON read / write for ~/.claude.json
 # ---------------------------------------------------------------------------
@@ -223,12 +260,16 @@ def write_config(data: dict[str, Any]) -> None:
 
 
 _USAGE = (
-    "Usage: claude-home {home|path|dir|machine-local|plugins}\n"
-    "  home           Absolute path to the $HOME analog (CLAUDE_HOME if set, else $HOME)\n"
-    "  path           Absolute path to ~/.claude.json\n"
-    "  dir            Absolute path to the ~/.claude directory\n"
-    "  machine-local  Absolute path to ~/.claude/machine-local/\n"
-    "  plugins        Absolute path to ~/.claude/plugins/\n"
+    "Usage: claude-home {home|path|dir|machine-local|plugins|coordinator-root}\n"
+    "  home             Absolute path to the $HOME analog (CLAUDE_HOME if set, else $HOME)\n"
+    "  path             Absolute path to ~/.claude.json\n"
+    "  dir              Absolute path to the ~/.claude directory\n"
+    "  machine-local    Absolute path to ~/.claude/machine-local/\n"
+    "  plugins          Absolute path to ~/.claude/plugins/\n"
+    "  coordinator-root For-content coordinator root (CLAUDE_PLUGIN_ROOT > COORDINATOR_ROOT >\n"
+    "                   flat ~/.claude/plugins/coordinator-claude/coordinator).\n"
+    "                   For full precedence including registry/cache, use:\n"
+    "                   resolve-coordinator-clone.sh --for-content\n"
 )
 
 
@@ -251,6 +292,9 @@ def _main(argv: list[str]) -> int:
         return 0
     if cmd == "plugins":
         print(plugins_dir())
+        return 0
+    if cmd == "coordinator-root":
+        print(coordinator_root())
         return 0
     sys.stderr.write(f"claude-home: unknown subcommand {cmd!r}\n")
     sys.stderr.write(_USAGE)

@@ -32,7 +32,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const { loadSchemas, matchSchemaForPath, parseFrontmatter, validateFrontmatter, validateLessonsFile } = require('../../bin/lib/schema.js');
+const { loadSchemas, matchSchema, matchSchemaForPath, parseFrontmatter, validateFrontmatter, validateLessonsFile } = require('../../bin/lib/schema.js');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -687,6 +687,8 @@ async function main() {
   }
 
   // Load schemas (telemetry-style: log to stderr on error, never block)
+  // The try/catch here makes a duplicate-kind throw from loadSchemas WARN-safe:
+  // the throw is caught, logged to stderr, and the hook exits silent.
   let schemas;
   try {
     schemas = loadSchemas(SCHEMAS_DIR);
@@ -695,13 +697,20 @@ async function main() {
     process.exit(0);
   }
 
-  // Match schema for this path
-  const match = matchSchemaForPath(repoRel, schemas);
-  if (!match) process.exit(0); // not a tracked-record path
-
-  const { schemaName, schema } = match;
-
-  // Build prospective content based on tool type
+  // Build prospective content based on tool type.
+  //
+  // This block moves ABOVE the tracked-ness gate so that parseFrontmatter can
+  // read kind: before matchSchema runs. Every silent-exit path is preserved:
+  //   - Edit: file-not-found → exit 0; old_string-not-matched → exit 0.
+  //   - MultiEdit: any edit mismatch → exit 0.
+  //   - Unknown tool → exit 0.
+  // Behavior is identical to the prior order for all existing tracked paths;
+  // the only change is that these exits now run for ALL .md writes rather than
+  // only for files the path glob already admitted.
+  //
+  // Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C3
+  // Negative-spec: do NOT re-order the memo-offer / own-inbox / routing branches
+  // above — those run before schema selection and are independent of this reorder.
   let prospectiveContent;
 
   if (toolName === 'Write') {
@@ -758,7 +767,26 @@ async function main() {
     process.exit(0);
   }
 
-  // Validate the prospective content against the schema
+  // Parse frontmatter so kind: is available for matchSchema.
+  // parseFrontmatter returns {frontmatter: object|null, body: string}.
+  // frontmatter may be null (no --- block) — matchSchema handles null gracefully
+  // (kind-first branch skips, falls to glob-fallback).
+  const { frontmatter } = parseFrontmatter(prospectiveContent);
+
+  // Tracked-ness gate: a file is validated if its path matches a glob OR its
+  // kind: maps to a schema. matchSchema implements kind-first, glob-fallback.
+  // Returns null if neither branch matches → not a tracked-record path → exit silent.
+  //
+  // Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 1
+  const match = matchSchema(repoRel, frontmatter, schemas);
+  if (!match) process.exit(0);
+
+  const { schemaName, schema } = match;
+
+  // Validate the prospective content against the schema.
+  // The lessons match_mode branch validates the DELTA (toolInput), not the parsed
+  // frontmatter — lessons.md has no frontmatter block, so frontmatter is null here
+  // and matchSchema reached this schema via glob-fallback (state/lessons.md → lessons glob).
   let validationResult;
 
   if (schema.match_mode === 'inline-tag-per-entry') {
@@ -796,8 +824,8 @@ async function main() {
     }
     validationResult = lessonErrors.length === 0 ? { ok: true } : { ok: false, errors: lessonErrors };
   } else {
-    // Standard frontmatter validation
-    const { frontmatter } = parseFrontmatter(prospectiveContent);
+    // Standard frontmatter validation.
+    // frontmatter was already parsed above — do NOT re-parse prospectiveContent here.
 
     // Missing frontmatter on a schema'd file → surface as warn (or deny under strict mode)
     if (frontmatter === null) {

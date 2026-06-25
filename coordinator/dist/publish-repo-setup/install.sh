@@ -57,10 +57,10 @@ TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")"
 # stable by 2.0.0. We warn-don't-fail below this floor.
 CLAUDE_CLI_MIN_VERSION="2.0.0"
 
-# Minimum Node.js version required by the NotebookLM optional add-on
-# (resolves via `npx -y notebooklm-mcp` at runtime). Matches Anthropic's stated
-# floor for Claude Code.
-NODE_MIN_VERSION="18"
+# The NotebookLM optional add-on resolves via `uvx --from notebooklm-mcp-cli
+# notebooklm-mcp` at runtime — a Python package, so `uv` (which ships `uvx`) is
+# its only runtime prerequisite. uvx bootstraps its own Python, so no separate
+# Python floor applies. (NotebookLM is NOT an npm package — npm 404s on it.)
 
 # Plugin metadata: name|default|source_kind|description
 #
@@ -90,7 +90,10 @@ PLUGIN_REGISTRY=(
   "data-science|on|local|Data Science reviewer"
   "deep-research|on|local|Multi-agent deep research pipelines (web/repo/structured)"
   "game-dev|off|local|Game Dev reviewer (Unreal Engine)"
-  "notebooklm|optional|npm|Media research via NotebookLM (npm-sourced add-on)"
+  # source_kind=npm here means "not copied locally — registered via marketplace
+  # manifest" (the copy-skip mechanic above), NOT that the MCP server is an npm
+  # package. The server is a Python package launched at runtime via uvx.
+  "notebooklm|optional|npm|Media research via NotebookLM (Python add-on, launched via uvx)"
 )
 
 # ---------------------------------------------------------------------------
@@ -188,7 +191,7 @@ Usage: setup/install.sh [OPTIONS]
   --plugins LIST          Comma-separated list of plugins to install
                           (coordinator always included). Use --profile for
                           common presets; --plugins for fine-grained control.
-  --install-notebooklm    Opt in to the NotebookLM add-on (npm-sourced).
+  --install-notebooklm    Opt in to the NotebookLM add-on (Python/uvx add-on).
   --no-notebooklm         Skip the NotebookLM add-on prompt.
   --enable-codex          Opt in to the codex-review-gate skill (requires
                           the external openai/codex-plugin-cc plugin).
@@ -335,27 +338,21 @@ check_prerequisites() {
     fi
   fi
 
-  # node/npm — surfaced here as warn-only. Hard-failed later (see
+  # uv — surfaced here as warn-only. Hard-failed later (see
   # check_notebooklm_prereqs) ONLY if the user opts into the NotebookLM add-on,
-  # which resolves via `npx -y notebooklm-mcp` at runtime.
-  NODE_VERSION=""
-  NPM_PRESENT=false
-  if command -v node &>/dev/null; then
-    NODE_VERSION="$(node --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true)"
+  # which resolves via `uvx --from notebooklm-mcp-cli notebooklm-mcp` at runtime.
+  # UV_PRESENT/UV_VERSION: script-global (no `local`) — consumed by
+  # check_notebooklm_prereqs after plugin selection.
+  UV_PRESENT=false
+  UV_VERSION=""
+  if command -v uv &>/dev/null; then
+    UV_PRESENT=true
+    UV_VERSION="$(uv --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
   fi
-  if command -v npm &>/dev/null || command -v npm.cmd &>/dev/null; then
-    NPM_PRESENT=true
-  fi
-  if [[ -n "$NODE_VERSION" ]]; then
-    local node_major
-    node_major="$(echo "$NODE_VERSION" | cut -d. -f1)"
-    if [[ "$node_major" -lt "$NODE_MIN_VERSION" ]]; then
-      echo "node       : $NODE_VERSION (below recommended $NODE_MIN_VERSION+ for NotebookLM add-on)"
-    else
-      echo "node       : $NODE_VERSION"
-    fi
+  if [[ "$UV_PRESENT" == true ]]; then
+    echo "uv         : ${UV_VERSION:-present}"
   else
-    echo "node       : not found (only required for the NotebookLM add-on)"
+    echo "uv         : not found (only required for the NotebookLM add-on)"
   fi
 
   # Optional tools — enhance functionality but not required
@@ -712,7 +709,7 @@ prompt_optional_addons() {
   if [[ -t 0 ]]; then
     echo ""
     echo "Optional add-on:"
-    echo "  notebooklm — Media research via NotebookLM (npm-sourced)"
+    echo "  notebooklm — Media research via NotebookLM (Python package, launched via uvx)"
     echo "  Resolved on enable by Claude Code from the marketplace manifest."
     read -r -p "Install the NotebookLM optional add-on? [y/N]: " nlm_choice
     nlm_choice="${nlm_choice:-N}"
@@ -736,43 +733,28 @@ prompt_optional_addons() {
 # Conditional prereqs (after plugin selection)
 # ---------------------------------------------------------------------------
 
-# Hard-fail if user opted into NotebookLM but doesn't have Node.js / npm.
-# The NotebookLM MCP server is invoked as `npx -y notebooklm-mcp` — without
-# node + npm + npx the add-on cannot start, and the user would only discover
-# this at first /notebooklm-research call (a much more painful failure mode).
+# Hard-fail if user opted into NotebookLM but doesn't have uv.
+# The NotebookLM MCP server is invoked as `uvx --from notebooklm-mcp-cli
+# notebooklm-mcp` (a Python package) — without uv (which ships uvx) the add-on
+# cannot start, and the user would only discover this at first
+# /notebooklm-research call (a much more painful failure mode).
 check_notebooklm_prereqs() {
   if [[ -z "${SELECTED[notebooklm]+_}" ]] || [[ "${SELECTED[notebooklm]}" != true ]]; then
     return 0
   fi
 
-  local fail=false
-  if [[ -z "$NODE_VERSION" ]]; then
-    echo "ERROR: NotebookLM add-on selected but node not found on PATH."
-    echo "       The notebooklm-mcp server runs via 'npx -y notebooklm-mcp'."
-    echo "       Install Node.js $NODE_MIN_VERSION+ from https://nodejs.org/"
-    echo "       (winget install OpenJS.NodeJS.LTS / brew install node /"
-    echo "        sudo apt install nodejs)"
-    fail=true
-  else
-    local node_major
-    node_major="$(echo "$NODE_VERSION" | cut -d. -f1)"
-    if [[ "$node_major" -lt "$NODE_MIN_VERSION" ]]; then
-      echo "ERROR: NotebookLM add-on selected but node $NODE_VERSION is below"
-      echo "       the required $NODE_MIN_VERSION+ floor. Upgrade Node.js."
-      fail=true
-    fi
-  fi
-
-  if [[ "$NPM_PRESENT" != true ]]; then
-    echo "ERROR: NotebookLM add-on selected but npm not found on PATH."
-    echo "       npm ships with the Node.js LTS installer — reinstall node."
-    fail=true
-  fi
-
-  if [[ "$fail" == true ]]; then
+  if [[ "$UV_PRESENT" != true ]]; then
+    echo "ERROR: NotebookLM add-on selected but 'uv' not found on PATH."
+    echo "       The notebooklm-mcp server runs via"
+    echo "       'uvx --from notebooklm-mcp-cli notebooklm-mcp' (a Python package;"
+    echo "       uvx ships with uv and auto-fetches the package on first run)."
+    echo "       Install uv:"
+    echo "         macOS/Linux: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    echo "         macOS:       brew install uv"
+    echo "         Windows:     winget install astral-sh.uv"
     echo ""
     echo "Re-run setup without --install-notebooklm (or answer 'n' at the prompt)"
-    echo "to skip the add-on, or install Node.js and re-run."
+    echo "to skip the add-on, or install uv and re-run."
     exit 1
   fi
 }
@@ -935,23 +917,18 @@ PYEOF
 # Setup/ percolation mechanism delivery
 # ---------------------------------------------------------------------------
 #
-# Mirrors the Step 3d delivery loop that ships in
-# coordinator/lib/install-substrate.sh — copies the publish/percolation
-# scripts from the just-copied coordinator plugin templates into
-# ~/.claude/setup/ so fresh users have a working `bash ~/.claude/setup/publish.sh`
-# entry point without re-cloning the publish repo.
+# Delivers the publish/percolation scripts (install-substrate.sh Step 3d) from
+# the just-copied coordinator plugin templates into ~/.claude/setup/ so fresh
+# users have a working `bash ~/.claude/setup/publish.sh` entry point without
+# re-cloning the publish repo.
 #
-# Why a minimal mirror and not a subprocess call to install-substrate.sh:
-#   install-substrate.sh is the coordinator /setup Phase 3 driver — it
-#   requires CLAUDE_PLUGIN_ROOT, hard-fails on any missing template dir, and
-#   executes machine-local substrate seeding + bin/ resolver installation +
-#   Windows PATH/AppX health checks. Invoking it from this installer would
-#   either run those side-effects out of band (wrong phase) or require a
-#   --setup-only flag that install-substrate.sh does not expose. The
-#   _install_one semantics for the setup/ files specifically are simple
-#   enough (existence check, no diff-preservation needed — operators don't
-#   customize publish.sh) that mirroring the loop is cheaper than refactoring
-#   install-substrate.sh to expose a partial-invocation surface.
+# Scope split (review F2/F6): setup/ percolation is delivered HERE; the
+# machine-local substrate (bin resolvers + concern templates + hardware audit)
+# is delegated to seed_machine_local_substrate() → `install-substrate.sh
+# --setup-only`, which deliberately SKIPS Step 3d (this function owns setup/).
+# The two functions cooperate; they are called in sequence from main(). setup/
+# delivery stays a direct loop here because its files are simple (existence
+# check, no diff-preservation — operators don't customize publish.sh).
 #
 # Single source of truth: the file list (publish.sh, publish_sync.py,
 # publish-targets.example.sh, .percolate-identity.example, and the
@@ -1059,53 +1036,6 @@ deliver_setup_templates() {
 }
 
 # ---------------------------------------------------------------------------
-# Bin essentials delivery
-# ---------------------------------------------------------------------------
-#
-# Delivers a minimal set of bin/ scripts that the plugin's hooks.json
-# references from ~/.claude/bin/. The full bin/ family is delivered by
-# install-substrate.sh (Phase 3 of /setup), but these specific scripts
-# are needed at first SessionStart — before /setup has run — because
-# hooks.json fires immediately after the plugin loads.
-
-deliver_bin_essentials() {
-  local bin_src="$PLUGINS_TARGET/coordinator/templates/bin"
-  local bin_dst="$CLAUDE_DIR/bin"
-
-  if [[ ! -d "$bin_src" ]]; then
-    echo "  SKIP: bin essentials (coordinator templates/bin/ not present)"
-    return 0
-  fi
-
-  mkdir -p "$bin_dst"
-  echo "Delivering ~/.claude/bin/ essentials..."
-
-  # platform-localize.sh — SessionStart hook for cross-machine portability
-  local f="platform-localize.sh"
-  if [[ -f "$bin_src/$f" ]]; then
-    if [[ ! -f "$bin_dst/$f" ]]; then
-      cp "$bin_src/$f" "$bin_dst/$f"
-      chmod +x "$bin_dst/$f"
-      echo "  OK:   bin/$f"
-    else
-      chmod +x "$bin_dst/$f" 2>/dev/null || true
-      echo "  KEEP: bin/$f (operator-preserved)"
-    fi
-  fi
-
-  # settings-manifest.md — companion doc for settings.json portability
-  local manifest_src="$PLUGINS_TARGET/coordinator/templates/settings-manifest.md"
-  local manifest_dst="$CLAUDE_DIR/settings-manifest.md"
-  if [[ -f "$manifest_src" ]]; then
-    if [[ ! -f "$manifest_dst" ]]; then
-      cp "$manifest_src" "$manifest_dst"
-      echo "  OK:   settings-manifest.md"
-    else
-      echo "  KEEP: settings-manifest.md (operator-preserved)"
-    fi
-  fi
-  echo ""
-}
 
 # ---------------------------------------------------------------------------
 # JSON helpers (inline Python)
@@ -1363,6 +1293,47 @@ write_install_sentinel() {
 }
 
 # ---------------------------------------------------------------------------
+# Machine-local substrate via install-substrate.sh --setup-only (C7)
+# ---------------------------------------------------------------------------
+#
+# Single source of truth: rather than re-mirror install-substrate.sh's seeding
+# region (the prior deliver_bin_essentials + seed_machine_local_hardware, which
+# drifted — the machine-local resolver family was omitted, leaving the hardware
+# audit inert), the OSS installer delegates to install-substrate.sh --setup-only.
+# That flag runs the identical machine-local seeding (tracked files + bin/
+# resolvers + settings-manifest + hardware audit) and exits before the
+# machine-environment ops (percolation setup/, claude-CLI PATH, fnm, Windows
+# health) — which the OSS installer owns separately (deliver_setup_templates)
+# or does not need. Eager SessionStart scripts (platform-localize.sh) are
+# delivered here at install time, before any session starts.
+#
+# Spec backlink: docs/plans/2026-06-23-setup-time-substrate-completeness.md §C7
+seed_machine_local_substrate() {
+  local _substrate="$PLUGINS_TARGET/coordinator/lib/install-substrate.sh"
+  if [[ ! -f "$_substrate" ]]; then
+    echo "  WARN: install-substrate.sh not found at $_substrate — skipping machine-local substrate seed" >&2
+    return 0
+  fi
+  echo "Seeding machine-local substrate (install-substrate.sh --setup-only)..."
+  # CLAUDE_HOME pins the install base to CLAUDE_DIR's parent so the substrate
+  # lands under $CLAUDE_DIR regardless of $HOME; CLAUDE_PLUGIN_ROOT points at the
+  # coordinator plugin tree copy_plugins() just laid down.
+  #
+  # INVARIANT (review F3): CLAUDE_DIR is always "$HOME/.claude" (set in main()),
+  # so dirname "$CLAUDE_DIR" == $HOME, and install-substrate.sh's
+  # _install_base=${CLAUDE_HOME:-$HOME} aligns with _machine_local.py's
+  # registry resolution (os.path.expanduser("~")/.claude/machine-local). If
+  # CLAUDE_DIR is ever parameterized away from $HOME/.claude, EITHER keep
+  # CLAUDE_HOME == $HOME here OR teach _machine_local.py's _registry_dir() to
+  # honour CLAUDE_HOME — otherwise hardware values write to one dir and resolve
+  # from another (silent cross-write, zero reads).
+  CLAUDE_HOME="$(dirname "$CLAUDE_DIR")" \
+  CLAUDE_PLUGIN_ROOT="$PLUGINS_TARGET/coordinator" \
+    bash "$_substrate" --setup-only \
+    || echo "  WARN: install-substrate.sh --setup-only exited non-zero — machine-local layer may be incomplete (validate_installation will FAIL on the missing artifacts)" >&2
+}
+
+# ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
@@ -1428,6 +1399,21 @@ print(sum(1 for k in plugins if k.endswith('@coordinator-claude')))
     echo "        Re-run the installer to restore it."
     errors=$((errors + 1))
   fi
+
+  # Machine-local substrate presence (review F1): seed_machine_local_substrate
+  # delegates to `install-substrate.sh --setup-only` and only WARNs on a non-zero
+  # exit, so a partial/failed seed would otherwise pass validation green. Assert
+  # the two load-bearing artifacts exist; a missing one means the machine-local
+  # layer (hardware SSOT, resolver, platform-localize hook) is incomplete.
+  for _ml_artifact in "machine-local/registry.toml" "bin/machine-local"; do
+    if [[ -e "$CLAUDE_DIR/$_ml_artifact" ]]; then
+      echo "  OK: machine-local $_ml_artifact present"
+    else
+      echo "  FAIL: machine-local $_ml_artifact missing — $CLAUDE_DIR/$_ml_artifact"
+      echo "        Re-run the installer; if it persists, run install-substrate.sh --setup-only directly."
+      errors=$((errors + 1))
+    fi
+  done
 
   # Issue #9: validation failure must be fatal.
   if [[ "$errors" -gt 0 ]]; then
@@ -1570,7 +1556,7 @@ main() {
 
   copy_plugins
   deliver_setup_templates
-  deliver_bin_essentials
+  seed_machine_local_substrate
   write_install_sentinel
 
   echo "Registering JSON config files..."

@@ -2,7 +2,7 @@
 name: review
 description: Use when a plan / design doc / RFC is ready for review or plan-review findings have landed.
 version: 1.0.0
-spec_backlink: docs/plans/2026-05-06-review-super-skill.md
+spec_backlink: archive/specs/2026-05/2026-05-06-review-super-skill.md
 ---
 
 # coordinator:review

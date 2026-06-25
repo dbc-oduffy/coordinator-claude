@@ -124,6 +124,38 @@ def _probe_os() -> dict[str, Any]:
     }
 
 
+def _sysctl_str(key: str) -> str | None:
+    """Read a single sysctl key as a string; return None on any failure.
+
+    Purpose: fail-soft sysctl helper. Callers:
+      _probe_arch() — hw.perflevel0.physicalcpu, hw.perflevel1.physicalcpu,
+                      machdep.cpu.brand_string (chip), hw.model
+      _probe_gpu()  — machdep.cpu.brand_string (chip name), hw.memsize (unified memory)
+
+    Note: _probe_memory() retains its own inline hw.memsize subprocess call and
+    does NOT delegate to this helper.
+
+    Guards missing keys, non-zero returncode, timeout, and parse errors so callers
+    never raise. Downstream consumer: project-rag host-profile taxonomy
+    (cross-repo-contract-parity.md source_is_live bump-memo obligation applies
+    on future removal/rename of fields that use this helper).
+    """
+    try:
+        r = subprocess.run(
+            ["sysctl", "-n", key],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            **_NO_CONSOLE_WINDOW,
+        )
+        if r.returncode == 0:
+            val = r.stdout.strip()
+            return val if val else None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError):
+        pass
+    return None
+
+
 def _probe_arch() -> dict[str, Any]:
     """Probe CPU architecture, logical core count, physical core count, and Apple Silicon flag.
 
@@ -132,6 +164,17 @@ def _probe_arch() -> dict[str, Any]:
       macOS: sysctl -n hw.physicalcpu
       Linux: unique (physical id, core id) pairs in /proc/cpuinfo
       Windows: PowerShell Get-CimInstance Win32_Processor sum of NumberOfCores
+
+    Apple Silicon additional fields (Darwin arm64 only; None on Intel/Linux/Windows):
+      performance_cores: hw.perflevel0.physicalcpu (highest-performance tier, P-cores).
+        Indexing convention — DO NOT INVERT: hw.perflevel0 is the highest tier.
+        EM-verified live 2026-06-23: perflevel0=5 P-cores, perflevel1=10 E-cores on M5 Pro.
+      efficiency_cores: hw.perflevel1.physicalcpu (efficiency tier, E-cores).
+      chip: machdep.cpu.brand_string ("Apple M5 Pro").
+      model: hw.model ("Mac17,9").
+    Downstream consumer: project-rag host-profile taxonomy. Per
+    cross-repo-contract-parity.md, future removal/rename of these fields owes a
+    bump-memo to project-rag-em (source_is_live pattern, not a freshness test).
     """
     machine = platform.machine()
     apple_silicon = (platform.system() == "Darwin") and (machine == "arm64")
@@ -197,21 +240,66 @@ def _probe_arch() -> dict[str, Any]:
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError):
         physical_cores = None
 
+    # Apple Silicon core topology — hw.perflevel* keys exist only on arm64 Darwin;
+    # fail-soft to None on Intel Macs / Linux / Windows (key absent → non-zero sysctl rc).
+    performance_cores: int | None = None
+    efficiency_cores: int | None = None
+    chip: str | None = None
+    model: str | None = None
+
+    if apple_silicon:
+        # perflevel0 = highest-performance tier (P-cores); perflevel1 = efficiency tier (E-cores).
+        # Convention pinned — DO NOT INVERT. EM-verified 2026-06-23 on Apple M5 Pro (Mac17,9):
+        # hw.perflevel0.physicalcpu=5, hw.perflevel1.physicalcpu=10, hw.physicalcpu=15.
+        try:
+            val0 = _sysctl_str("hw.perflevel0.physicalcpu")
+            if val0 is not None:
+                performance_cores = int(val0)
+        except (ValueError, TypeError):
+            performance_cores = None
+        try:
+            val1 = _sysctl_str("hw.perflevel1.physicalcpu")
+            if val1 is not None:
+                efficiency_cores = int(val1)
+        except (ValueError, TypeError):
+            efficiency_cores = None
+        chip = _sysctl_str("machdep.cpu.brand_string")
+        model = _sysctl_str("hw.model")
+
     return {
         "machine": machine,
         "apple_silicon": apple_silicon,
         "logical_cores": logical_cores,
         "physical_cores": physical_cores,
+        "performance_cores": performance_cores,
+        "efficiency_cores": efficiency_cores,
+        "chip": chip,
+        "model": model,
     }
 
 
 def _probe_gpu() -> dict[str, Any]:
-    """Probe GPU presence via nvidia-smi (fast, no torch import).
+    """Probe GPU presence via nvidia-smi or Apple Silicon sysctl (no torch import).
 
     Returns keys: present, vendor, vram_free_mib, cuda_driver,
-    vram_total_mib, name, compute_capability, driver_model, device_count.
-    On non-NVIDIA machines or when nvidia-smi is absent, present=False and
-    all new keys are None (device_count is None).
+    vram_total_mib, name, compute_capability, driver_model, device_count,
+    integrated, unified_memory_bytes, mps_capable.
+
+    All-branches shape totality: all twelve keys are present in every return dict.
+    On non-NVIDIA/non-Apple-Silicon machines, present=False and all keys are None
+    except integrated=False and mps_capable=False (boolean, not None).
+
+    Apple Silicon branch (Darwin arm64, nvidia-smi absent/failing):
+      present=True, vendor="apple", name=machdep.cpu.brand_string,
+      integrated=True, unified_memory_bytes=hw.memsize (bytes, int),
+      mps_capable=True (derived from Darwin+arm64 — NO torch import; same
+      platform-fact idiom as apple_silicon in _probe_arch()).
+      Nvidia-only fields (cuda_driver, compute_capability, driver_model,
+      vram_total_mib, vram_free_mib, device_count) are None.
+    Downstream consumer: project-rag host-profile taxonomy. Per
+    cross-repo-contract-parity.md, future removal/rename of integrated,
+    unified_memory_bytes, or mps_capable owes a bump-memo to project-rag-em
+    (source_is_live pattern — not a freshness test).
 
     Review: code-reviewer — P2: per-device fields (vram_total_mib, vram_free_mib, name,
     compute_capability, driver_model) describe device 0 only; device_count is the total
@@ -268,9 +356,40 @@ def _probe_gpu() -> dict[str, Any]:
                     "compute_capability": compute_cap,
                     "driver_model": driver_model,
                     "device_count": device_count,
+                    # Apple Silicon keys — absent on NVIDIA branch.
+                    "integrated": False,
+                    "unified_memory_bytes": None,
+                    "mps_capable": False,
                 }
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError, ValueError):
         pass
+
+    # Apple Silicon branch: Darwin + arm64 + no working nvidia-smi.
+    # mps_capable derives purely from platform facts — zero torch import.
+    if platform.system() == "Darwin" and platform.machine() == "arm64":
+        chip_name = _sysctl_str("machdep.cpu.brand_string")
+        unified_memory_bytes: int | None = None
+        try:
+            memsize_str = _sysctl_str("hw.memsize")
+            if memsize_str is not None:
+                unified_memory_bytes = int(memsize_str)
+        except (ValueError, TypeError):
+            unified_memory_bytes = None
+        return {
+            "present": True,
+            "vendor": "apple",
+            "name": chip_name,
+            "integrated": True,
+            "unified_memory_bytes": unified_memory_bytes,
+            "mps_capable": True,
+            # NVIDIA-only fields absent on Apple Silicon.
+            "vram_free_mib": None,
+            "cuda_driver": None,
+            "vram_total_mib": None,
+            "compute_capability": None,
+            "driver_model": None,
+            "device_count": None,
+        }
 
     return {
         "present": False,
@@ -282,6 +401,10 @@ def _probe_gpu() -> dict[str, Any]:
         "compute_capability": None,
         "driver_model": None,
         "device_count": None,
+        # Apple Silicon keys — absent on no-GPU fallback branch.
+        "integrated": False,
+        "unified_memory_bytes": None,
+        "mps_capable": False,
     }
 
 

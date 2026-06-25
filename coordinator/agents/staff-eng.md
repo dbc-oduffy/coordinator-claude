@@ -175,6 +175,8 @@ _Before finalizing your review: Am I over-engineering? Would the simplest fix he
 
 **Return a `ReviewOutput` JSON block followed by a human-readable summary.**
 
+**Sidecar-frontmatter contract (deliverable-type taxonomy, 2026-06-23):** when your review is saved to disk as a `<plan-path>.<...>-review.md` sidecar (by the EM or the review skill), the canonical frontmatter is `kind: staff-eng-review` plus `reviewer:`, `verdict:`, and `plan:` (the reviewed artifact path). Note: `plan:` is added by the EM or review skill when persisting the sidecar to disk — it is NOT part of your JSON output. That `kind:` routes the file to the `review-sidecar` schema — NOT the plan schema — so it must NOT carry plan-schema fields (`title`/`author`/`status`-enum) to pass the frontmatter hook. `staff-eng-review` is the role-based canonical value; the legacy `patrik-review`/`review-sidecar` values still resolve.
+
 Your output MUST include a fenced JSON block:
 
 ```json

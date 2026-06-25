@@ -82,11 +82,22 @@ def _validate_structural(instance: dict, schema: dict) -> None:
     # addons: object
     assert isinstance(instance.get("addons"), dict), "addons must be a dict"
 
-    # Sub-object required-key checks
+    # Sub-object required-key checks.
+    # New Apple Silicon keys (performance_cores, efficiency_cores, chip, model for arch;
+    # integrated, unified_memory_bytes, mps_capable for gpu) are asserted as PRESENT
+    # but null-permissive — they resolve to None on non-Apple-Silicon hosts.
     sub_required = {
         "os": ["name", "version", "shell"],
-        "arch": ["machine", "apple_silicon"],
-        "gpu": ["present"],
+        "arch": [
+            "machine", "apple_silicon",
+            # Apple Silicon enrichment (C2 — AC4): null on non-Apple-Silicon hosts.
+            "performance_cores", "efficiency_cores", "chip", "model",
+        ],
+        "gpu": [
+            "present",
+            # Apple Silicon GPU enrichment (C2 — AC4): null/False on non-Apple hosts.
+            "integrated", "unified_memory_bytes", "mps_capable",
+        ],
         "python": ["invoking_version", "invoking_path", "ms_store_shim", "venv_present"],
         "uv": ["present"],
         "claude": ["json_present", "project_rag_entry"],
@@ -250,6 +261,11 @@ def test_nvidia_gpu_present_validates(whoami_schema: dict) -> None:
             "name": "NVIDIA GeForce RTX 5070 Ti",
             "compute_capability": "12.0",
             "driver_model": "WDDM",
+            # Review: code-reviewer — nit (F7): NVIDIA sample omitted three new keys;
+            # add them so additive schema is verified not to collide with an NVIDIA sample.
+            "integrated": False,
+            "unified_memory_bytes": None,
+            "mps_capable": False,
         },
         "python": {
             "invoking_version": "3.12.0",

@@ -9,7 +9,7 @@ argument-hint: "[plan-glob — default: docs/plans/*.md]"
 
 # Plan-Delivery Audit
 
-> **Spec backlink:** `docs/plans/2026-05-28-archive-aware-review-oracle-and-audit-skill.md` § Chunk C5.
+> **Spec backlink:** `archive/specs/2026-05/2026-05-28-archive-aware-review-oracle-and-audit-skill.md` § Chunk C5.
 > **Origin:** Distilled from the 2026-05-27 holodeck audit
 > (`X:\claude-unreal-holodeck\tasks\recovery\2026-05-27-plan-delivery-audit.md`) where a
 > live-only review-trail read produced a false "most work unreviewed" alarm — 22 archived

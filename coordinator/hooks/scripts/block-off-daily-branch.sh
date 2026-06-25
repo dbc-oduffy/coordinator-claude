@@ -5,7 +5,7 @@
 # Spec backlink: docs/plans/2026-05-07-daily-branch-doctrine-rethink.md (Phase 2)
 #
 # The hook polices branch *shape*, not branch *date*. Allowed workstream branches:
-#   work/{machine}/{date-or-span}   (e.g. work/striker/2026-05-07 or work/striker/2026-05-06to07)
+#   work/{machine}/{date-or-span}   (e.g. work/machine-a/2026-05-07 or work/machine-a/2026-05-06to07)
 #   main                            (read-only, PR-only)
 # Policy oracle is cs_is_allowed_branch in coordinator-daily-branch.sh.
 #
@@ -130,13 +130,36 @@ if [[ -f "$LIB_PATH" ]]; then
 else
   # Fallback: inline the helpers if lib is missing (should not happen in normal install).
   # Mirrors coordinator-daily-branch.sh — keep in sync if lib changes.
-  # Drift-check (the Staff Engineer R-code follow-up): the inline copy below is a manual
-  # mirror. Whenever cs_compute_machine / cs_parse_branch_span / cs_is_allowed_branch /
-  # cs_is_canonical_branch change in the lib, update the fallback below in the
-  # same commit. Verification: diff the lib body against the function bodies
-  # below; they should be byte-equal (sans the 'cs_' prefix unification).
+  # Drift-check: the inline copies of cs_compute_machine and cs_compute_machine_live
+  # below must be byte-equal to the lib bodies. Enforced by
+  # bin/verify-coordinator-daily-branch-sync.sh (snippet-sync verifier). Whenever
+  # these functions change in the lib, update the fallback in the same commit.
+  # Spec backlink: docs/plans/2026-06-22-persist-machine-slug-registry.md § C1
   cs_compute_machine() {
     local m
+    if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then
+      m="$COORDINATOR_MACHINE"
+    else
+      local _ml_bin="${MACHINE_LOCAL_BIN:-machine-local}"
+      local _slug=""
+      if command -v "$_ml_bin" &>/dev/null; then
+        _slug=$("$_ml_bin" get --default "" coordinator.machine_slug 2>/dev/null || true)
+      fi
+      if [[ -n "$_slug" ]]; then
+        m="$_slug"
+      elif [[ -n "${COMPUTERNAME:-}" ]]; then
+        m="$COMPUTERNAME"
+      elif command -v hostname &>/dev/null; then
+        m=$(hostname 2>/dev/null | sed 's/\..*//')
+      else
+        m="${HOSTNAME:-unknown}"
+      fi
+    fi
+    echo "${m:-unknown}" | tr '[:upper:]' '[:lower:]'
+  }
+  cs_compute_machine_live() {
+    local m
+    # NOTE: env COORDINATOR_MACHINE is intentionally honoured here — drift detection compares the effective env-derived slug vs persisted, not raw hostname vs persisted. See plan § Residual coverage.
     if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then m="$COORDINATOR_MACHINE"
     elif [[ -n "${COMPUTERNAME:-}" ]]; then m="$COMPUTERNAME"
     elif command -v hostname &>/dev/null; then m=$(hostname 2>/dev/null | sed 's/\..*//')

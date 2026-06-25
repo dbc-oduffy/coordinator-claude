@@ -272,6 +272,51 @@ If `coordinator.local.md` declares `project_type: game-dev` AND `project_subtype
 
 Otherwise skip.
 
+### Step 1.65: Review-coverage gate (unconditional — every repo, every merge)
+
+<!-- Spec backlink: docs/plans/2026-06-23-chain-end-review-coverage-gate.md § C5 -->
+<!-- VERBATIM — run this block exactly as written; do not reorder above Step 1.5 (see dependency note below) -->
+
+Run the review-coverage gate UNSCOPED over the full merge diff. At merge time, everything on the branch ships, so the gate must cover the whole chain — no `--scope-paths` narrowing here.
+
+**Dependency:** `git fetch origin main` fires inside Step 1.5 (tagged-publish blocks at lines 183/211 of this file). This gate must never be reordered above that fetch — `origin/main..HEAD` resolves against the fresh remote the Step 1.5 fetch provides.
+
+```bash
+# Step 1.65: Review-coverage gate — unconditional, unscoped, every repo.
+# Gate exits 0 on both COVERED and UNCOVERED; caller (this skill) enforces halt on UNCOVERED.
+# Review: F5 — use mktemp to avoid concurrent-session collision on shared /tmp
+_GATE_STDERR=$(mktemp)
+GATE_OUT=$(bash "$(git rev-parse --show-toplevel)/plugins/coordinator/bin/review-coverage-gate.sh" \
+  origin/main..HEAD 2>"$_GATE_STDERR")
+echo "$GATE_OUT"
+cat "$_GATE_STDERR" >&2
+```
+
+**Verdict check (inline — do NOT rely on exit code; gate exits 0 on both verdicts):**
+
+```bash
+if echo "$GATE_OUT" | grep -q "VERDICT=UNCOVERED"; then
+  echo "HALT: review-coverage gate UNCOVERED — the following commits in origin/main..HEAD have no code-reviewer trail record:" >&2
+  cat "$_GATE_STDERR" >&2
+  echo "" >&2
+  echo "Remediation: dispatch coordinator:review-code over the uncovered commits listed above, then re-run /merge-to-main." >&2
+  echo "Override (PM-authorized only): set COORDINATOR_OVERRIDE_COVERAGE_GATE=1 to bypass." >&2
+  if [ "${COORDINATOR_OVERRIDE_COVERAGE_GATE:-0}" = "1" ]; then
+    echo "WARNING: COORDINATOR_OVERRIDE_COVERAGE_GATE=1 — coverage gate bypassed by PM override." >&2
+  else
+    rm -f "$_GATE_STDERR"
+    exit 1
+  fi
+fi
+rm -f "$_GATE_STDERR"
+```
+
+**Note — `/workweek-complete` Step 7 already covers the union-coverage case:** Step 7 enforces union coverage via `lib/workweek-trail-scope.sh`, which feeds unreviewed commits into the `code-semantics` reviewer scope. No change is needed there — the weekly gate's algorithm is correct and the unreviewed-commits flow is already load-bearing. This step closes the "consider Step 7 too" ask from the source memo as a reasoned no-op: Step 7 is already correct; the gap was at the per-merge and per-workstream-complete surfaces only.
+
+**This step is unconditional.** It is NOT guarded by `project_type` or `project_subtypes`. It runs on every repo — geneva, fifa-stats, project-rag, project-opticon, OSS coordinator, and Unreal repos alike. The UBT gate and reverse-drift gate in Step 1.6 are Unreal-only; this gate is not.
+
+<!-- /VERBATIM -->
+
 ### Step 1.7: Portability Check (optional, on by default)
 
 Run `portability-sweep <repo-root> --diff-only origin/main..HEAD --report-format md`.
@@ -332,9 +377,13 @@ gh pr checks <pr-number> --watch
 **Pre-merge quiet check (5-minute activity gate).** Run before `gh pr merge`:
 
 ```bash
+# python3-first interpreter resolution — `python` is absent on modern macOS / many
+# Linux (only python3); `python3` is absent on Windows/pyenv (only python). Fail loud
+# if neither exists rather than silently mis-gating the merge.
+PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
 last_iso=$(gh pr view "$PR" --json commits -q '.commits[-1].committedDate')
-last=$(python -c "import datetime,sys; print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$last_iso")
-now=$(python -c "import time; print(int(time.time()))")
+last=$("$PY" -c "import datetime,sys; print(int(datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00')).timestamp()))" "$last_iso")
+now=$("$PY" -c "import time; print(int(time.time()))")
 if [ $((now - last)) -lt 300 ]; then
   branch=$(gh pr view "$PR" --json headRefName -q .headRefName)
   echo "Source branch $branch has commits younger than 5 minutes — wait for activity to settle, or pass --force-merge-active-branch."

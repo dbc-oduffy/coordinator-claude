@@ -1,14 +1,20 @@
 
 # manifest_reader.ps1 — PowerShell JSON parser for the agent-install-manifest.
 # Reads docs/install/agent-install-manifest.json and emits one NDJSON line per
-# direct_dep to stdout. PowerShell parity with scripts/lib/manifest_reader.sh
-# (bash sibling). Uses ConvertFrom-Json (native; no third-party modules).
+# direct_dep to stdout. Uses ConvertFrom-Json (native; no third-party modules).
+# PS-parity note: the bash sibling reader is the VENDORED coordinator SSOT at
+#   scripts/lib/coordinator_prereq/manifest_reader.sh (the old scripts/lib/manifest_reader.sh
+#   _dr_ fork was deleted in the 2026-06-23 install-parity reconcile). This PS reader
+#   (manifest_reader.ps1) does not resolve Python — it uses ConvertFrom-Json natively.
+#   Python resolution for PS installs lives in setup.ps1 Find-Python and dep_check.ps1
+#   python_import branch, both of which adopted the Store-stub-hardened functional probe +
+#   py launcher fallback on 2026-06-23, achieving parity with coordinator's _co_find_python.
+#   See docs/plans/2026-06-23-deep-research-install-parity-with-coordinator.md §8.
 # Spec backlink: docs/plans/2026-06-15-deep-research-install-chain-application-phase-b.md §7 C3
 #
-# Reader-widen note (2026-05-23 cross-repo agreement): this reader accepts contract versions
-# {1, 2} via $knownAccepted. DR ships its manifest at v2; holodeck (DR's downstream
-# chain-walker) already accepts {1, 2} per the coordinated reader-widen-first sequencing.
-# Mirror the knownAccepted shape from claude-unreal-holodeck/scripts/lib/manifest_reader.ps1.
+# Reader-widen note: this reader accepts contract versions {1, 2, 3} via $knownAccepted.
+# Widened 2026-06-23 in the fleet-wide simultaneous-merge cutover; DR reads coordinator's
+# v3 manifest (DR's own manifest stays v2). No reader-widen-first round-trip.
 #
 # Output fields per line (JSON object):
 #   id, severity, sibling_dir_name, upstream_url,
@@ -67,12 +73,13 @@ foreach ($field in $requiredTopLevel) {
     }
 }
 
-# Reader-widen: accept v1 and v2 during the coordinated 1->2 bump (v2 adds
-# optional DirectDep.consumer_install_args; reader-widen-first sequencing per
-# cross-repo agreement 2026-05-23-addon-reply-s4-consumer-install-args-coreview.md).
-$knownAccepted = @(1, 2)
+# Reader-widen: accept v1, v2, and v3. v2 added optional DirectDep.consumer_install_args;
+# v3 added the optional system_prerequisites array (coordinator root, 2026-06-23). DR reads
+# coordinator's manifest during chain-walk, so DR's reader must accept coordinator's v3.
+# Widened in the fleet-wide simultaneous-merge cutover (no reader-widen-first round-trip).
+$knownAccepted = @(1, 2, 3)
 if ($manifest.agent_install_contract_version -notin $knownAccepted) {
-    [Console]::Error.WriteLine("ERROR: manifest agent_install_contract_version=$($manifest.agent_install_contract_version); this reader accepts versions $($knownAccepted -join ',') only.")
+    [Console]::Error.WriteLine("ERROR: manifest agent_install_contract_version=$($manifest.agent_install_contract_version); this reader accepts versions $($knownAccepted -join ', ') only.")
     [Console]::Error.WriteLine("  Upgrade deep-research-claude to a version that supports contract version $($manifest.agent_install_contract_version).")
     exit 3
 }

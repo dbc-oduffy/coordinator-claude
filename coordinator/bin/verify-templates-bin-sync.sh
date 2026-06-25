@@ -44,6 +44,11 @@ PAIRS=(
     # Canonical direction is template→live; use verify-mode as the gate, hand-resolve divergence.
     # After editing the template, propagate manually: cp plugins/.../templates/bin/_machine_local.py bin/_machine_local.py
     "_machine_local.py _machine_local.py"
+    # resolve-coordinator-clone: position-independent shim, byte-identical live↔template
+    # by design (it never reads its own BASH_SOURCE). Both copies are authored identical.
+    # NOTE: --fix copies live→template (like every pair here); when you edit the TEMPLATE,
+    # propagate manually: cp templates/bin/resolve-coordinator-clone bin/resolve-coordinator-clone
+    "resolve-coordinator-clone resolve-coordinator-clone"
 )
 
 EXIT_CODE=0

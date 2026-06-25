@@ -1,0 +1,14 @@
+schema: integration-summary
+applies_to: "docs/plans/*.integration-summary.md"
+kinds: [integration-summary]
+required:
+  plan: string
+optional:
+  integrator: string
+  reviewer: string
+  created: iso-date
+  status: string
+  title: string
+
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C1
+# Negative-spec: do NOT add status enum — legacy values like "reviewed" are off the plan-schema enum.

@@ -60,10 +60,10 @@ git log -1 --format='%ae' origin/<branch>
 | Branch | Local | Remote | Owner | Category |
 |--------|-------|--------|-------|----------|
 | main | yes | yes | — | trunk |
-| work/striker/2026-03-20 | yes | yes | me | mine (stale) |
+| work/machine-a/2026-03-20 | yes | yes | me | mine (stale) |
 | feature/foo | no | yes | me | mine (stale) |
 | feature/bar | no | yes | alice@co.com | other's — skipped |
-| work/striker/2026-03-23 | yes (current) | yes | me | current |
+| work/machine-a/2026-03-23 | yes (current) | yes | me | current |
 ```
 
 **Only branches categorized as "mine (stale)" proceed to Steps 2–5.** Other people's branches are reported but never touched.
@@ -166,7 +166,7 @@ Only after Step 3's inspection table and self-check are on the page, for each br
    - Do NOT force through conflicts blindly — each conflict is a signal that needs inspection
 
 **Report each absorption decision to the PM:**
-> "Branch `work/striker/2026-03-20` has 2 unique commits — both are experiment data snapshots already superseded by current branch. Skipping."
+> "Branch `work/machine-a/2026-03-20` has 2 unique commits — both are experiment data snapshots already superseded by current branch. Skipping."
 
 or:
 
@@ -235,22 +235,22 @@ When conflicts were resolved during cherry-pick or merge in Step 4 — especiall
 ## Branch Consolidation Complete
 
 ### Absorbed
-- `work/striker/2026-03-20` — no unique commits (already merged)
+- `work/machine-a/2026-03-20` — no unique commits (already merged)
 - `feature/foo` — 3 commits cherry-picked into current branch
 
 ### Skipped (superseded)
-- `work/striker/2026-03-19` — 1 commit (stale experiment data, current branch has newer version)
+- `work/machine-a/2026-03-19` — 1 commit (stale experiment data, current branch has newer version)
 
 ### Deleted
-- Local: work/striker/2026-03-20, work/striker/2026-03-19
-- Remote: origin/work/striker/2026-03-20, origin/work/striker/2026-03-19, origin/feature/foo
+- Local: work/machine-a/2026-03-20, work/machine-a/2026-03-19
+- Remote: origin/work/machine-a/2026-03-20, origin/work/machine-a/2026-03-19, origin/feature/foo
 - Worktrees: .claude/worktrees/agent-a07… (branch absorbed into main), .claude/worktrees/agent-aec… (branch absorbed into main)
 
 ### Left Untouched (other owners)
 - `feature/bar` (alice@co.com) — not ours, skipped
 
 ### Current State
-- On branch: `work/striker/2026-03-23` @ {sha}
+- On branch: `work/machine-a/2026-03-23` @ {sha}
 - Ahead of `origin/main` by N commits — not merged (consolidation only)
 - All of *my* sibling branches and worktrees absorbed or removed; only main + other owners' branches remain
 ```

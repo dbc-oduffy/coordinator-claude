@@ -118,8 +118,11 @@ function hasAcTable(content) {
       continue;
     }
     if (inAcSection) {
-      // Stop at the next heading
-      if (/^##/.test(line)) break;
+      // Stop at the next ## heading (require space after ## to match validate-ac-chunk-ownership.js
+      // tightened rule — avoids false-stopping on ### subsections inside the AC section).
+      // Review: code-reviewer — align with /^## / used in validate-ac-chunk-ownership.js
+      // extractAcPaths and extractLedgerWriteFiles so both hooks agree on section boundaries.
+      if (/^## /.test(line)) break;
       // Look for a pipe-delimited header row containing "Binding"
       if (line.includes('|') && /binding/i.test(line)) {
         return true;
@@ -171,8 +174,10 @@ function extractGateBoundRows(content) {
 
     if (!inAcSection) continue;
 
-    // Stop at the next heading
-    if (/^##/.test(line)) break;
+    // Stop at the next ## heading (require space after ## — align with validate-ac-chunk-ownership.js
+    // /^## / rule so ### subsections inside AC section are not treated as section boundaries).
+    // Review: code-reviewer F5 — align grammar hook stop rule to /^## / used in ownership hook.
+    if (/^## /.test(line)) break;
 
     if (!line.includes('|')) continue;
 
@@ -408,6 +413,54 @@ function validateArgShape(prefix, selector) {
 }
 
 // ---------------------------------------------------------------------------
+// Combinator support — AND/OR multi-operand Test cells
+//
+// Spec backlink: check-acceptance-oracle.sh combinator grammar (shipped 2026-06-22).
+//
+// A combinator cell is: two or more typed-prefix operands joined by ` AND ` or ` OR `
+// (uppercase, single-space-padded). Each operand is a typed-prefix token (S1-S4).
+// Recognition rule: split on ` AND ` / ` OR ` → ≥2 parts → each part looks like a
+// typed-prefix token (starts with a known prefix after an optional leading backtick).
+//
+// Negative-spec: a grep pattern containing "AND" without spaces (e.g. grep:fooANDbar@f)
+// does NOT trigger combinator splitting — the split yields only 1 part.
+//
+// LOCKSTEP: this helper is mirrored verbatim in validate-ac-chunk-ownership.js.
+// Both copies must be kept in sync. Update both files together.
+// ---------------------------------------------------------------------------
+
+const COMBINATOR_AND = ' AND ';
+const COMBINATOR_OR  = ' OR ';
+
+/**
+ * Attempt to split a Test cell as a combinator expression.
+ * Returns { op: 'AND'|'OR', operands: string[] } when the cell is a valid combinator,
+ * or null when the cell is not a combinator (caller falls through to single-token path).
+ *
+ * Recognition: split on ` AND ` first, then ` OR ` if AND yields <2 parts.
+ * If either split yields ≥2 operands AND every operand starts with a known-prefix
+ * token (after an optional leading backtick), this is a combinator cell.
+ *
+ * Does NOT validate that operands pass full S1-S4 grammar — that is the caller's job.
+ */
+function splitCombinator(cell) {
+  // Try AND first, then OR.
+  for (const [op, sep] of [['AND', COMBINATOR_AND], ['OR', COMBINATOR_OR]]) {
+    const parts = cell.split(sep);
+    if (parts.length < 2) continue;
+    // Every part must look like a typed-prefix token: optional leading `, then known prefix + colon.
+    const allLookLikeTokens = parts.every(p => {
+      const stripped = p.trim().replace(/^`/, '');
+      return KNOWN_PREFIXES.has(stripped.split(':')[0]);
+    });
+    if (allLookLikeTokens) {
+      return { op, operands: parts.map(p => p.trim()) };
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Finding builder
 // ---------------------------------------------------------------------------
 
@@ -444,8 +497,62 @@ function buildFindingMessage(id, verbatimCell, issue, prefix, rawSelector) {
 
 /**
  * Validate one gate-bound row. Returns a finding message string or null.
+ *
+ * Handles combinator cells (` AND `/` OR ` multi-operand) before single-token
+ * validation. A combinator is valid iff every operand passes S1-S4 grammar AND
+ * the cell is homogeneous (all AND or all OR, never mixed).
  */
 function validateRow(id, testCell) {
+  // --- Combinator detection (before single-token path) ---
+  // Call splitCombinator first; if it returns null the cell is a single token and
+  // no mixed-combinator check fires. The mixed check must only run on cells that are
+  // genuinely combinator-shaped (≥2 typed-prefix operands joined by AND/OR).
+  //
+  // Review: code-reviewer F6 — premature mixed check: the old code tested hasAnd && hasOr
+  // on the raw cell before splitCombinator confirmed combinator shape. A grep pattern like
+  // grep:fooANDbar@f (containing literal " AND " / " OR " substrings in the pattern)
+  // would be falsely rejected as "mixed". Fix: detect mixed AFTER confirming combinator
+  // shape via splitCombinator. If splitCombinator returns null → single token → skip the
+  // mixed check entirely.
+  const combo = splitCombinator(testCell);
+  if (combo) {
+    // Cell is a confirmed combinator. Check for mixed AND+OR (invalid regardless of
+    // operand validity). Both substrings present in the raw cell after confirming
+    // combinator shape is the reliable mixed indicator.
+    const hasAnd = testCell.includes(COMBINATOR_AND);
+    const hasOr  = testCell.includes(COMBINATOR_OR);
+    if (hasAnd && hasOr) {
+      return buildFindingMessage(
+        id, testCell,
+        'mixed AND/OR combinators not supported; use a single combinator per cell',
+        null, null
+      );
+    }
+
+    // Validate each operand as a full single-token grammar + known prefix + arg-shape.
+    for (const operand of combo.operands) {
+      const tok = tokenizeCell(operand);
+      if (!tok.ok) {
+        return buildFindingMessage(id, testCell,
+          `combinator operand \`${operand}\` does not match S1-S4 grammar: ${tok.issue}`,
+          tok.prefix, tok.rawSelector);
+      }
+      if (!KNOWN_PREFIXES.has(tok.prefix)) {
+        const issue = `combinator operand \`${operand}\` has unknown prefix \`${tok.prefix}:\` — supported: ${[...KNOWN_PREFIXES].join(', ')}`;
+        return buildFindingMessage(id, testCell, issue, null, null);
+      }
+      const argIssue = validateArgShape(tok.prefix, tok.selector);
+      if (argIssue) {
+        return buildFindingMessage(id, testCell,
+          `combinator operand \`${operand}\`: ${argIssue}`,
+          tok.prefix, tok.selector);
+      }
+    }
+    // All operands valid, cell is homogeneous (hasAnd XOR hasOr enforced above).
+    return null;
+  }
+
+  // --- Single-token path (unchanged) ---
   const tok = tokenizeCell(testCell);
 
   if (!tok.ok) {

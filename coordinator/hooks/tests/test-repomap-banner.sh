@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# verify-no-console-flash: file-allow — test scaffolding; interpreter spawns run in the CI/local test harness, never the Windows interactive coordinator hot-path
 # Test suite for the repomap staleness banner in project-orientation.sh.
 #
 # The banner is emitted on EVERY session path (above the cache early-exits).

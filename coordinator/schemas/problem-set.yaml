@@ -1,0 +1,21 @@
+schema: problem-set
+applies_to: "docs/problems/*.md"
+# ---------------------------------------------------------------------------
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C1b
+#
+# Problem-set files live at docs/problems/YYYY-MM-DD-<slug>.md and are
+# authored via /shape + PM ratification. They freeze the problem before any
+# solution; plans then cite them as the external coverage oracle.
+#
+# kinds: inline list consumed by deliverable-type indexer (later chunk).
+# The loader (bin/lib/schema.js) ignores unknown top-level keys, so this
+# is safe to add ahead of the indexer.
+# ---------------------------------------------------------------------------
+kinds: [problem-set]
+required:
+  title: string
+  status: string
+optional:
+  date: iso-date
+  ratified_by: string
+  ratified_date: iso-date

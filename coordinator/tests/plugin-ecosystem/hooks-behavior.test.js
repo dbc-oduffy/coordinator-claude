@@ -187,8 +187,8 @@ describe('coordinator-safe-commit', () => {
       assert.notEqual(r.status, 0, 'Expected non-zero exit when blanket used without CLAUDE_INVOKING_COMMAND');
       assert.ok(
         r.stderr.includes('workstream-start') &&
-          (r.stderr.includes('session-start') || r.stderr.includes('workday-complete')),
-        `Expected rejection message mentioning the new workstream-start token (and a deprecated/peer token). stderr: ${r.stderr}`
+          (r.stderr.includes('update-docs') || r.stderr.includes('distillation')),
+        `Expected rejection message mentioning workstream-start and a still-valid peer token (update-docs/distillation). /workday-complete was intentionally removed from the allow-list 2026-06-22 (migrated to the path-classifier). stderr: ${r.stderr}`
       );
     } finally {
       cleanupTempRepo(subRepo);

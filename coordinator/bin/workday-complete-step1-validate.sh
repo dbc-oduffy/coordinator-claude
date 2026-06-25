@@ -19,7 +19,7 @@
 # produces identical stdout and the same exit code.
 #
 # Stdout (caller eval's this line):
-#   RC_UBT='<n|skipped>' RC_VALIDATE='<n|skipped|blocked|ubt-overridden|lib-missing>'
+#   RC_UBT='<n|skipped>' RC_VALIDATE='<n|skipped|blocked|ubt-overridden|lib-missing|interp-missing>'
 #   Exactly one line, shell-eval-safe (values are single-quoted — eval injection defence).
 #   RC_VALIDATE feeds the Validation: field in Step 9 changelog synthesis.
 #
@@ -29,7 +29,10 @@
 #   0 — both gates ok or skipped; proceed.
 #   1 — UBT resolved to blocked (override with COORDINATOR_OVERRIDE_UBT_GATE=1).
 #   2 — fast-test exited non-zero AND output indicates a build failure
-#        (patterns: "error:" / "BUILD FAILED" / "Compilation").
+#        (patterns: "error:" / "BUILD FAILED" / "Compilation"), OR exited 127
+#        (command-not-found — missing interpreter/binary), OR the resolver itself
+#        failed with a missing-interpreter (RC_VALIDATE=interp-missing). All three
+#        are blocking environment/build failures, never a silent skip.
 #   3 — fast-test exited non-zero with test failures only (fix-quick or flag).
 #   4 — resolver lib missing at resolved path (flagged distinctly; fast-test skipped).
 #        RC_VALIDATE=lib-missing on this path (not skipped) to give Step 9 a distinct signal.
@@ -66,6 +69,14 @@ _classify_fast_test_output() {
   local output="$1" rc="$2"
   if [[ $rc -eq 0 ]]; then
     return 0
+  fi
+  # Exit 127 = command-not-found (missing interpreter/binary) — an ENVIRONMENT
+  # failure, not a test assertion. Surface as blocking (2), never as the
+  # swallow-prone test-only (3). Runtime half of the silent-127 fix: even if a
+  # bare `python` slipped past resolver normalization, a 127 here is never
+  # quietly downgraded to "some tests failed, proceed".
+  if [[ $rc -eq 127 ]]; then
+    return 2
   fi
   # Build-failure patterns (case-insensitive scan on the captured output).
   # grep -i / -E is POSIX ERE — no grep -P (BSD portability requirement).
@@ -140,12 +151,24 @@ CMD=$(cs_resolve_fast_test_cmd 2>"$_resolve_stderr") || _rc_resolve=$?
 # Always forward resolver stderr (step=env-var / step=local-md / step=skipped notices).
 [[ -s "$_resolve_stderr" ]] && cat "$_resolve_stderr" >&2
 
-if [[ $_rc_resolve -ne 0 ]]; then
-  # No command configured — resolver already emitted remediation hints above.
+if [[ $_rc_resolve -eq 2 ]]; then
+  # Exit 2 = genuine skip-with-notice (no command configured) — resolver already
+  # emitted remediation hints above. This is the ONLY resolver non-zero that maps
+  # to a non-blocking skip.
   RC_VALIDATE="skipped"
   # Review: code-reviewer — single-quote values in eval-safe stdout (eval injection defence).
   echo "RC_UBT='${RC_UBT}' RC_VALIDATE='${RC_VALIDATE}'"
   exit 0
+elif [[ $_rc_resolve -ne 0 ]]; then
+  # Any OTHER resolver non-zero is a HARD failure, NOT a skip. The canonical case
+  # is exit 127: the command resolved to a bare `python` token but no python3/python
+  # exists on PATH. Surfacing this as blocking (exit 2) is the resolve-time half of
+  # the silent-127 fix — a python3-only machine previously fell through to a skip and
+  # the day's validation never ran. RC_VALIDATE='interp-missing' gives Step 9 a
+  # distinct signal from a build failure.
+  echo "[workday-complete-step1] fast-test: resolver failed (rc=${_rc_resolve}) — interpreter/environment problem, NOT a skip. Validation gate is BLOCKED." >&2
+  echo "RC_UBT='${RC_UBT}' RC_VALIDATE='interp-missing'"
+  exit 2
 fi
 
 echo "[workday-complete-step1] fast-test: running: ${CMD}" >&2

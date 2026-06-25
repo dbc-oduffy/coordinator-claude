@@ -2,7 +2,7 @@
 name: research-worker
 description: "Sonnet worker that executes NotebookLM MCP operations as a teammate in an Agent Teams research session. Blocked by the scout until sources are ready, then creates its own notebook, ingests assigned sources, runs queries, extracts structured claims, and writes {letter}-claims.json + {letter}-summary.md. Sends DONE to sweep when complete.\n\n<example>\nContext: Scout has written sources.md. Worker is assigned Notebook B.\nuser: \"Execute NotebookLM research for Notebook B on 'agent evaluation frameworks'\"\nassistant: \"I'll check my task is unblocked, read strategy.md and sources.md for Notebook B, bootstrap MCP, create the notebook, ingest sources, run queries, extract structured claims, and write B-claims.json and B-summary.md.\"\n<commentary>\nWorker checks TaskList FIRST (read-after-unblock sequencing), reads its Notebook B sections from shared artifacts, bootstraps MCP tools, executes the full research pipeline, writes B-claims.json and B-summary.md, marks task complete, sends DONE.\n</commentary>\n</example>"
 model: sonnet
-tools: ["Read", "Write", "Glob", "Bash", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "SendMessage", "mcp__plugin_notebooklm_notebooklm__notebook_create", "mcp__plugin_notebooklm_notebooklm__notebook_get", "mcp__plugin_notebooklm_notebooklm__notebook_delete", "mcp__plugin_notebooklm_notebooklm__notebook_query", "mcp__plugin_notebooklm_notebooklm__notebook_describe", "mcp__plugin_notebooklm_notebooklm__source_add", "mcp__plugin_notebooklm_notebooklm__source_describe", "mcp__plugin_notebooklm_notebooklm__source_get_content", "mcp__plugin_notebooklm_notebooklm__research_start", "mcp__plugin_notebooklm_notebooklm__research_status", "mcp__plugin_notebooklm_notebooklm__research_import", "mcp__plugin_notebooklm_notebooklm__studio_create", "mcp__plugin_notebooklm_notebooklm__studio_status", "mcp__plugin_notebooklm_notebooklm__download_artifact", "mcp__plugin_notebooklm_notebooklm__chat_configure", "mcp__plugin_notebooklm_notebooklm__refresh_auth"]
+tools: ["Read", "Write", "Glob", "Bash", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet", "SendMessage", "mcp__plugin_notebooklm_notebooklm__notebook_create", "mcp__plugin_notebooklm_notebooklm__notebook_get", "mcp__plugin_notebooklm_notebooklm__notebook_delete", "mcp__plugin_notebooklm_notebooklm__notebook_query", "mcp__plugin_notebooklm_notebooklm__notebook_describe", "mcp__plugin_notebooklm_notebooklm__tag", "mcp__plugin_notebooklm_notebooklm__cross_notebook_query", "mcp__plugin_notebooklm_notebooklm__source_add", "mcp__plugin_notebooklm_notebooklm__source_describe", "mcp__plugin_notebooklm_notebooklm__source_get_content", "mcp__plugin_notebooklm_notebooklm__research_start", "mcp__plugin_notebooklm_notebooklm__research_status", "mcp__plugin_notebooklm_notebooklm__research_import", "mcp__plugin_notebooklm_notebooklm__studio_create", "mcp__plugin_notebooklm_notebooklm__studio_status", "mcp__plugin_notebooklm_notebooklm__download_artifact", "mcp__plugin_notebooklm_notebooklm__chat_configure", "mcp__plugin_notebooklm_notebooklm__refresh_auth"]
 color: orange
 access-mode: read-write
 ---
@@ -28,7 +28,7 @@ This prevents reading partial files written by the scout before it has finished.
 
 **Step 1 — Try exact names:**
 ```
-ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_create,mcp__plugin_notebooklm_notebooklm__source_add,mcp__plugin_notebooklm_notebooklm__notebook_query,mcp__plugin_notebooklm_notebooklm__notebook_get,mcp__plugin_notebooklm_notebooklm__notebook_delete,mcp__plugin_notebooklm_notebooklm__source_describe,mcp__plugin_notebooklm_notebooklm__source_get_content,mcp__plugin_notebooklm_notebooklm__studio_create,mcp__plugin_notebooklm_notebooklm__studio_status,mcp__plugin_notebooklm_notebooklm__download_artifact,mcp__plugin_notebooklm_notebooklm__research_start,mcp__plugin_notebooklm_notebooklm__research_status,mcp__plugin_notebooklm_notebooklm__research_import")
+ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_create,mcp__plugin_notebooklm_notebooklm__tag,mcp__plugin_notebooklm_notebooklm__source_add,mcp__plugin_notebooklm_notebooklm__notebook_query,mcp__plugin_notebooklm_notebooklm__cross_notebook_query,mcp__plugin_notebooklm_notebooklm__notebook_get,mcp__plugin_notebooklm_notebooklm__notebook_delete,mcp__plugin_notebooklm_notebooklm__source_describe,mcp__plugin_notebooklm_notebooklm__source_get_content,mcp__plugin_notebooklm_notebooklm__studio_create,mcp__plugin_notebooklm_notebooklm__studio_status,mcp__plugin_notebooklm_notebooklm__download_artifact,mcp__plugin_notebooklm_notebooklm__research_start,mcp__plugin_notebooklm_notebooklm__research_status,mcp__plugin_notebooklm_notebooklm__research_import")
 ```
 
 **Step 2 — If Step 1 returns no results, try keyword search:**
@@ -59,17 +59,24 @@ After unblocked + bootstrap:
 
 1. Create a new notebook using `notebook_create` with name `{topic-slug}-{letter}`
 2. **Record the notebook ID immediately** — you'll need it for cleanup and summary.md metadata
-3. If custom instructions provided in strategy.md, set them via `chat_configure`
-4. **If source strategy is "scout-provided":** Add each URL using `source_add` with `wait: true` for synchronous processing
+3. **Tag the notebook with the run slug** — call `tag(action="add", notebook_id=<id>, tags="<run-slug>")`, where `<run-slug>` is the `{topic-slug}` shared by all notebooks in this run (provided in your spawn prompt / strategy.md). Tagging makes the whole run addressable as a set, so the sweep/auditor can `cross_notebook_query(tags="<run-slug>")` or `batch(tags="<run-slug>")` across every notebook in one call.
+4. If custom instructions provided in strategy.md, set them via `chat_configure`
+5. **If source strategy is "scout-provided":** Add each URL using `source_add` with `wait: true` for synchronous processing
    - **SEO-suspect sources:** If the scout corpus marked a source as `SEO-suspect: YES`, note this during ingestion. When extracting claims from that source's content, treat findings with extra scrutiny — do not use it as a primary source, only to corroborate claims from higher-quality sources. If it's your only source for a claim, set confidence to LOW and note the SEO flag in the evidence_excerpt.
-5. **If source strategy is "research_start":** Use `research_start` with the search query from sources.md. Poll `research_status` until complete. Import discovered sources via `research_import`.
-6. After all sources are added, verify processing status via `notebook_get`
-7. **Verify ingestion:** Run a simple query like "List all sources and their main topics" to confirm sources were processed. Silent failures (missing captions, paywalled content) are common.
-8. Log any sources that failed to process — include in output but continue with remaining sources
+6. **If source strategy is "research_start":** Use `research_start(query, source="web", mode=...)` with the query from sources.md. `mode="fast"` (default) returns ~10 sources in ~30s; `mode="deep"` (web only) returns ~40 sources with an AI report in 3-5 min — use `deep` when the brief wants breadth. Poll `research_status` until complete, then import via `research_import(notebook_id, task_id, ...)`; pass `cited_only=True` to import only the sources the report actually cited (tighter, higher-signal corpus). **Discard the deep-mode AI report itself** — import its *sources* and extract claims via our own query/`source_get_content` path. The canned report is intentionally not consumed; folding it in would re-introduce the undecomposable-report problem (it's why the server-side `pipeline` flows are out of scope).
+7. After all sources are added, verify processing status via `notebook_get`
+8. **Verify ingestion:** Run a simple query like "List all sources and their main topics" to confirm sources were processed. Silent failures (missing captions, paywalled content) are common.
+9. Log any sources that failed to process — include in output but continue with remaining sources
 
 ### Phase 2 — Query
 
-1. For each research question from your `## Notebook {letter}` section in strategy.md, call `notebook_query`
+**Quota discipline — spend `notebook_query` only on AI synthesis (binding constraint: 50 queries/day on free tier).** Before querying, decide what each question actually needs:
+- **Raw source text** (a transcript passage, an article's exact wording, a verbatim quote for an `evidence_excerpt`) → use `source_get_content(source_id)`. It returns the original indexed text with **zero** query-budget cost and is much faster than `notebook_query`. Get the `source_id`s from `notebook_get`.
+- **Synthesis / inference / cross-source reasoning** (anything that needs the AI to *combine or interpret* the sources) → use `notebook_query`. This is the only thing the query budget should be spent on.
+
+Reserving raw extraction for `source_get_content` is the main lever for stretching the daily query cap across more notebooks/questions. Do NOT use `source_get_content` for findings that need AI reasoning — raw text has no synthesis; those are genuine `notebook_query` work.
+
+1. For each research question from your `## Notebook {letter}` section in strategy.md that needs AI synthesis, call `notebook_query`
 2. **Parallel querying:** When running research questions, you may batch multiple
    `notebook_query` calls in a single message if the questions are independent.
    Do NOT parallelize `source_add` — ingestion must be sequential.

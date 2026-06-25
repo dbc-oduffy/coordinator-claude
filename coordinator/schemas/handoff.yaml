@@ -107,6 +107,39 @@ optional:
   # handoffs only. See skills/spinoff/SKILL.md § Anti-scope.
   # Spec backlink: docs/plans/2026-05-08-session-end-review-and-marker-trail.md § T1
   reviewed_at_workstream_complete: string
+  # OPT-IN — intended for install/onboarding batons only. NOT a tax on ordinary
+  # continuation handoffs; absent field → no-op at /pickup and /workstream-complete.
+  #
+  # Each list item obeys the pinned grammar:
+  #   <class>: <assertion text> [probe: <shell-command>]
+  # where <class> ∈ {live, restart-gated}; the optional [probe: …] section runs from
+  # "probe: " to the final "]" (the final ] is the delimiter; a probe needing a literal
+  # trailing ] escapes it \]). Items are parsed and classified at /pickup by
+  # bin/parse-completeness-item.sh — fail-loud on malformed, never silent-skip. Schema
+  # validation is NOT per-item (grammar lives in the parser, not here).
+  #
+  # SECURITY: a [probe:] value is an arbitrary shell command and is UNTRUSTED input
+  #   (a baton may be picked up from a shared work/* branch). /pickup surfaces each probe
+  #   for explicit operator confirmation and NEVER auto-executes one from a non-self-authored
+  #   baton — command-injection surface. See skills/pickup/SKILL.md Step 5.5d.
+  #
+  # live          = must validate this session; advisory probe run at /pickup.
+  # restart-gated = expected-pending-restart; re-validate after the load-bearing restart.
+  #                 /pickup hoists all restart-gated items to the front and emits one
+  #                 consolidated restart-batch surface.
+  #
+  # Spec backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § C2
+  #
+  # PROJECTION AUDIT (Patrik F8):
+  # normalize-handoff-frontmatter.js, normalize-consumed-frontmatter.js, and
+  # stamp-shipped-in.js are pass-through preservers — they operate via surgical
+  # single-line key replacement (replaceFmField/insertFmField) on a named scalar
+  # allowlist and do NOT drop unknown fields, so this multi-line list field is preserved
+  # under today's normalizers. HOWEVER, all three normalizers are single-line-only
+  # (negative-spec: normalize-handoff-frontmatter.js:105 — "does NOT handle multi-line
+  # values"). A future single-line normalizer that touches this field by key would
+  # silently corrupt the list. Flag this file if authoring such a normalizer.
+  completeness_checklist: list-of-string
 
 # ---------------------------------------------------------------------------
 # Session Ledger — body convention, NOT a frontmatter field (Phase 2)

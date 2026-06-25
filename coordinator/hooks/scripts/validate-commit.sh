@@ -21,6 +21,9 @@
 #  10. bin/sh polyglot shebang tripwire — coordinator/bin/ scripts must use
 #      #!/bin/sh polyglot (not a named interpreter shebang) (warn-only; delegates to
 #      bin/check-bin-sh-polyglot.sh)
+#  11. Machine-path leak — settings.json absolute paths hard-block (deny);
+#      working-repos.yaml current-home paths warn (delegates to
+#      bin/check-machine-path-leak.sh)
 #
 # Input schema (PreToolUse for Bash):
 #   { "tool_name": "Bash", "tool_input": { "command": "git commit -m ..." } }
@@ -437,6 +440,13 @@ if [[ -n "$FRONTMATTER_MUTATIONS" ]]; then
   fi
 fi
 
+# Resolve coordinator content root once for checks 9–11 (bin script delegation).
+# Sourced (no args): sets COORDINATOR_CONTENT_ROOT in this scope (empty if unresolved).
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md § C2b
+_RCC_LIB_VC="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-coordinator-clone.sh"
+# shellcheck source=/dev/null
+[[ -f "$_RCC_LIB_VC" ]] && source "$_RCC_LIB_VC"
+
 # --- Check 9: Schema version bump tripwire ---
 # canonical-structure.yaml must not change without a corresponding bump to
 # coordinator-schema-version. Delegates to bin/check-schema-version-bump.sh
@@ -452,7 +462,7 @@ fi
 
 BUMP_CHECK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-schema-version-bump.sh"
 if [[ ! -f "$BUMP_CHECK_SCRIPT" ]]; then
-  BUMP_CHECK_SCRIPT="${HOME}/.claude/plugins/coordinator/bin/check-schema-version-bump.sh"
+  BUMP_CHECK_SCRIPT="${COORDINATOR_CONTENT_ROOT:-${HOME}/.claude/plugins/coordinator-claude/coordinator}/bin/check-schema-version-bump.sh"
 fi
 
 if [[ -f "$BUMP_CHECK_SCRIPT" ]]; then
@@ -474,7 +484,7 @@ fi
 
 SHEBANG_CHECK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-bin-sh-polyglot.sh"
 if [[ ! -f "$SHEBANG_CHECK_SCRIPT" ]]; then
-  SHEBANG_CHECK_SCRIPT="${HOME}/.claude/plugins/coordinator/bin/check-bin-sh-polyglot.sh"
+  SHEBANG_CHECK_SCRIPT="${COORDINATOR_CONTENT_ROOT:-${HOME}/.claude/plugins/coordinator-claude/coordinator}/bin/check-bin-sh-polyglot.sh"
 fi
 
 if [[ -f "$SHEBANG_CHECK_SCRIPT" ]]; then
@@ -488,8 +498,86 @@ if [[ -f "$SHEBANG_CHECK_SCRIPT" ]]; then
   # mirroring Check 9's BUMP_EXIT 2 treatment.
 fi
 
+# --- Check 11: Machine-path leak guard ---
+# settings.json staged in this commit → HARD BLOCK if a machine-specific absolute
+# path leaf value is found (any /Users/<n>/, /home/<n>/, C:\Users\, X:\, E:\).
+# working-repos.yaml staged in this commit → SOFT WARN if a current-machine
+# $HOME-rooted path leaf value is found (foreign-machine catalog paths are fine).
+# Delegates to bin/check-machine-path-leak.sh.
+# Doctrine: docs/plans/2026-06-23-machine-path-leak-guard.md
+# Greppable token: MACHINE-PATH-LEAK-TRIPWIRE
+
+MACHINE_PATH_LEAK_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/../../bin/check-machine-path-leak.sh"
+if [[ ! -f "$MACHINE_PATH_LEAK_SCRIPT" ]]; then
+  MACHINE_PATH_LEAK_SCRIPT="${COORDINATOR_CONTENT_ROOT:-${HOME}/.claude/plugins/coordinator-claude/coordinator}/bin/check-machine-path-leak.sh"
+fi
+
+if [[ -f "$MACHINE_PATH_LEAK_SCRIPT" ]]; then
+  # Identify which of the two sentinel files are in this commit's staged set.
+  # Review: reviewer — P2 Finding 7: use ${STAGED:-} so nounset cannot trip if STAGED is somehow unset.
+  SETTINGS_STAGED=$(echo "${STAGED:-}" | grep -E '(^|/)settings\.json$' || true)
+  WORKING_REPOS_STAGED=$(echo "${STAGED:-}" | grep -E '(^|/)working-repos\.yaml$' || true)
+
+  # --- settings.json: HARD BLOCK sink ---
+  if [[ -n "$SETTINGS_STAGED" ]]; then
+    while IFS= read -r _sf; do
+      [[ -z "$_sf" ]] && continue
+      LEAK_STDERR_TMP="$(mktemp 2>/dev/null || echo "/tmp/_machine_leak_err_$$")"
+      LEAK_STDOUT=$(bash "$MACHINE_PATH_LEAK_SCRIPT" "$_sf" 2>"$LEAK_STDERR_TMP")
+      LEAK_EXIT=$?
+      LEAK_STDERR=$(cat "$LEAK_STDERR_TMP" 2>/dev/null || true)
+      rm -f "$LEAK_STDERR_TMP"
+
+      if [[ $LEAK_EXIT -eq 1 ]]; then
+        # Hard violation — print accumulated warnings then emit deny JSON.
+        if [[ -n "$WARNINGS" ]]; then
+          printf '=== Commit Validation Warnings ===%b\n===================================\n' "$WARNINGS" >&2
+        fi
+        REASON="BLOCKED: ${_sf} contains machine-specific absolute path(s) that must not be committed."$'\n\n'
+        REASON+="${LEAK_STDERR}"$'\n\n'
+        REASON+="Machine-specific paths must live in gitignored settings.local.json or machine-local registry, not in tracked settings.json."$'\n'
+        REASON+="See docs/plans/2026-06-23-machine-path-leak-guard.md"
+
+        if command -v jq &>/dev/null; then
+          jq -nc --arg reason "$REASON" '{
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: $reason
+            }
+          }'
+        else
+          ESC_REASON=${REASON//\\/\\\\}
+          ESC_REASON=${ESC_REASON//\"/\\\"}
+          ESC_REASON=${ESC_REASON//$'\n'/\\n}
+          printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' "$ESC_REASON"
+        fi
+        exit 0
+      fi
+      # LEAK_EXIT 0 = OK; LEAK_EXIT 2 = infrastructure error — skip silently.
+    done <<< "$SETTINGS_STAGED"
+  fi
+
+  # --- working-repos.yaml: SOFT WARN sink ---
+  if [[ -n "$WORKING_REPOS_STAGED" ]]; then
+    while IFS= read -r _wf; do
+      [[ -z "$_wf" ]] && continue
+      LEAK_STDERR_TMP="$(mktemp 2>/dev/null || echo "/tmp/_machine_leak_err_$$")"
+      bash "$MACHINE_PATH_LEAK_SCRIPT" "$_wf" 2>"$LEAK_STDERR_TMP" || true
+      LEAK_STDERR=$(cat "$LEAK_STDERR_TMP" 2>/dev/null || true)
+      rm -f "$LEAK_STDERR_TMP"
+
+      # The guard emits "WARN:" lines to stderr for soft violations.
+      if echo "$LEAK_STDERR" | grep -q "^WARN:"; then
+        WARN_EXCERPT=$(echo "$LEAK_STDERR" | grep "^WARN:" | head -5)
+        WARNINGS="${WARNINGS}\nMACHINE-PATH-LEAK-TRIPWIRE (working-repos.yaml): ${_wf} contains current-machine home-rooted path(s) — consider moving to machine-local registry:\n${WARN_EXCERPT}"
+      fi
+    done <<< "$WORKING_REPOS_STAGED"
+  fi
+fi
+
 # --- Single warn-only flush ---
-# Every warn-only check (1-10) appends to WARNINGS above. This is the single sink
+# Every warn-only check (1-11) appends to WARNINGS above. This is the single sink
 # that surfaces them; the early-exit hard/strict blocks each printed WARNINGS
 # themselves before denying. Flushing here (not before Checks 8/9) is what fixes
 # the previously-dropped frontmatter + schema-bump warnings.

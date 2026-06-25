@@ -1,6 +1,6 @@
 # Phase 2.5 — Judgment Mining (full procedure)
 
-> Referenced by `PIPELINE.md` § Phase 2.5. Spec backlinks: `docs/plans/2026-05-07-codebase-judgment-mining.md` § D1, D2, D5–D8.
+> Referenced by `PIPELINE.md` § Phase 2.5. Spec backlinks: `archive/specs/2026-05/2026-05-07-codebase-judgment-mining.md` § D1, D2, D5–D8.
 
 **Model:** Sonnet. **Dispatch:** one agent per topic-cluster, all simultaneously. Coordinator owns fan-out; no nested sub-agents.
 

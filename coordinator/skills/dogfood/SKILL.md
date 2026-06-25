@@ -13,7 +13,7 @@ argument-hint: "<target> [--narrow|--broad|--shakedown]"
 
 # /dogfood — Smoke-Driven Fix-Through Super-Skill
 
-<!-- spec backlink: docs/plans/2026-05-07-dogfood-super-skill.md -->
+<!-- spec backlink: archive/specs/2026-05/2026-05-07-dogfood-super-skill.md -->
 
 Invoke a newly-built thing and exercise it until it works or gets replanned. **Dogfooding is binary — either fix it through or switch gears.** There is no third path: "log to backlog and keep going" is file-and-defer wearing a dogfood costume.
 

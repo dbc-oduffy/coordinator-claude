@@ -1,0 +1,32 @@
+schema: review-sidecar
+applies_to: "docs/plans/*-review.md"
+kinds: [staff-eng-review, eng-director-review, staff-ux-review, staff-game-dev-review, staff-data-sci-review, senior-front-end-review, code-review, plan-review, review, review-sidecar, patrik-review, substrate-adjudication, plan-rereview]
+required:
+  plan: string
+optional:
+  reviewer: string
+  verdict: string
+  created: iso-date
+  author: string
+  title: string
+  status: string
+  findings_count: number
+  diff_sha: string
+  mode: string
+  predecessor_review: string
+  prior_art_check: string
+  scope: string
+
+# kinds list: role-based canonical values FIRST (staff-eng-review, eng-director-review, etc.),
+# then legacy disk-census values (plan-review x6, review x5, code-review x4, review-sidecar x3,
+# patrik-review x3, substrate-adjudication x1, plan-rereview x1) retained as resolvers.
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 2
+# Negative-spec: do NOT add plan-only enum fields (e.g. status enum) — that recreates fight-the-hook.
+# applies_to: single glob; globToRegex compiles * → [^/]* so *-review.md spans all persona suffixes
+# and both <plan>-review.md and <plan>.md-review.md filename forms.
+#
+# Enumeration limitation (S2-F1/F3): irregular review-filename forms — re-review iterations such as
+# *.review-N.md, *-rereview-*.md, and *-review-<suffix>.md — are admitted by _byKind for VALIDATION
+# (their kind: field routes correctly) but are NOT enumerated by the single *-review.md glob here.
+# Widening to *review*.md is rejected because it over-matches plan files named *review*.
+# Validation is unaffected; query-records enumeration misses these ~3 iteration sidecars by design.

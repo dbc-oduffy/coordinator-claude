@@ -188,7 +188,7 @@ Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
 
 #### tasks/ vs state/ — sweep scope for Phases 8b and 13
 
-Spec backlink: `docs/plans/2026-06-08-tasks-state-folder-split.md` § C5.
+Spec backlink: `archive/specs/2026-06/2026-06-08-tasks-state-folder-split.md` § C5.
 
 **`state/`** is load-bearing session substrate (queues, trackers, ledgers, handoffs, recheck markers, etc.). **`/update-docs` never archives, prunes, or deletes any path under `state/`.** Only surgical named sweeps apply (e.g., Phase 11i queue pruner on named queue files; Phase 10 orientation-cache regenerator on its own schema).
 
@@ -299,7 +299,7 @@ exit $fail
 
 #### Phase 11g: Plugin-bundled wiki validate
 
-> Spec backlink: `docs/plans/2026-05-15-plugin-wiki-write-direction-trap.md` § Phase 4
+> Spec backlink: `archive/specs/2026-05/2026-05-15-plugin-wiki-write-direction-trap.md` § Phase 4
 > Semantics changed 2026-05-15 (Option B): verifies no plugin-cited wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator/docs/wiki/<name>.md`.
 
 ```bash
@@ -423,7 +423,7 @@ The script exits non-zero on any orphan reference. **This phase HALTS `/update-d
 
 #### Phase 11i: Prune resolved-state bloat from queues
 
-Spec backlinks: `docs/plans/2026-05-07-prune-resolved-state-bloat.md § S5`; `docs/decisions/DR-056-queue-delete-on-resolution.md` (amended 2026-05-17).
+Spec backlinks: `archive/specs/2026-05/2026-05-07-prune-resolved-state-bloat.md § S5`; `docs/decisions/DR-056-queue-delete-on-resolution.md` (amended 2026-05-17).
 
 Aggressively strip resolved-state bloat and schema ceremony from the three queue files:
 - Closure-log sections: `## Processed` / `## Resolved*` / `## History` / `## Closed` / `## Done` / `## Archive` / `## Closeout` — entire body stripped to next `##` heading.

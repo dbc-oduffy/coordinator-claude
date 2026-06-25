@@ -391,10 +391,10 @@ Idempotent — safe to re-run; a no-op if already hardened.
 #### 3f.5.5. Meta-repo pre-commit exec-bit gate (conditional)
 
 ```bash
-"$HOME/.claude/plugins/coordinator/bin/install-meta-repo-precommit-hook.sh"
+"$HOME/.claude/plugins/coordinator/bin/install-meta-repo-precommit-hook.sh" "$HOME/.claude"
 ```
 
-Idempotent. Internally gates on `git rev-parse --show-toplevel == $HOME/.claude` — installs the pre-commit gate only in the meta-repo itself, no-ops in consumer repos. If an existing `pre-commit` hook is present without the gate marker, the installer appends the invocation instead of clobbering it.
+Idempotent. Pass `"$HOME/.claude"` explicitly so the install is cwd-independent — without the arg the installer derives the repo root from cwd, which is the consumer *project* repo during `/repo-setup`, so the gate would silently never land in the meta-repo (the 2026-06-24 gap). The helper still internally gates on `canon(repo-root) == canon($HOME/.claude)` — installs the pre-commit gate only in the meta-repo itself, no-ops in consumer repos. If an existing `pre-commit` hook is present without the gate marker, the installer appends the invocation instead of clobbering it.
 
 **Why this is conditional.** The helper scans `~/.claude/plugins/*` for exec-bit drift on `.sh` files — a meta-repo concern. Consumer-repo commits don't touch that tree; installing the hook in a consumer repo would fire the helper on every commit only to have it immediately exit 0. The `/workday-complete` Step 5 gate remains the meta-repo's end-of-day backstop; this hook is the earlier-cadence catch.
 
@@ -427,7 +427,7 @@ Do NOT create this file directly — requires source file analysis handled by `/
 
 ### Phase 3i. Currency stamp (ALWAYS — idempotent)
 
-<!-- spec-backlink: docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 1 -->
 
 Record which `COORDINATOR_SCHEMA_VERSION` this project was onboarded against. Idempotent —
 safe to re-run; overwrites only when the schema version has been bumped since the last stamp.
@@ -468,6 +468,57 @@ Render to `state/orientation_cache.md` with the project context just gathered:
 ```
 
 Substitute the bracketed tokens from Phase 1.5 / Phase 2 ratified inputs. Leave `## Pinboard` empty (intentional — populated later). Future `/update-docs` Phase 13 reads this cache and updates it rather than overwriting from scratch.
+
+---
+
+### Phase 3j. Extended substrate seeds (ALWAYS — idempotent)
+
+<!-- spec-backlink: docs/plans/2026-06-23-setup-time-substrate-completeness.md § C1 -->
+
+Wire in the four substrate seeds that complete the coordinator machinery for this repo. Each helper is idempotent and fail-loud on ambiguity — safe to re-run; skips cleanly when the artifact already exists or the condition doesn't apply.
+
+Resolve `_PLUGIN_ROOT` as the coordinator plugin root (e.g. `~/.claude/plugins/coordinator-claude/coordinator`). Run each helper as a **subprocess** (`bash <path>`), **not** `source` — every helper is fail-loud and calls `exit` on ambiguity, so sourcing would terminate the repo-setup shell (and `setup-rag-decision.sh` is `$0`-guarded, so sourcing it bare silently no-ops the decision block); the subprocess form isolates each exit, and `bash <path>` is robust to the exec-bit being stripped on checkout (DR-151). The target repo root is passed explicitly as `"$(pwd)"` (required by the test-command detector; defaulted to cwd by the others). Run in sequence:
+
+**1. Test-command detection** — detect the stack's test command and write `fast_test_cmd` / `full_test_cmd` into `coordinator.local.md`:
+
+```bash
+bash "${_PLUGIN_ROOT}/lib/setup-detect-test-cmd.sh" --root "$(pwd)"
+```
+
+Detects `package.json` test scripts, `pyproject.toml`/`pytest.ini`, `Cargo.toml`. Presents candidates for operator confirmation (or accepts `--non-interactive` pre-set). Fails loud when multiple ambiguous candidates are found — never silent-picks. Writes both keys as flat top-level entries in `coordinator.local.md` (the shape `cs_resolve_fast_test_cmd` / `cs_resolve_full_test_cmd` already reads). Skip if both keys are already present.
+
+**2. Health ledger seed** — seed `state/health-ledger.md` from the daily-summary schema:
+
+```bash
+bash "${_PLUGIN_ROOT}/lib/setup-seed-health-ledger.sh" "$(pwd)"
+```
+
+Seeds every system row at grade `?` (never fabricates grades). Idempotent — skips if `state/health-ledger.md` already exists. Reference shape: this repo's own `state/health-ledger.md`.
+
+**3. RAG-index decision** — resolve the three-branch RAG-index decision tree and write the outcome into the repo `CLAUDE.md`:
+
+```bash
+bash "${_PLUGIN_ROOT}/lib/setup-rag-decision.sh" --root "$(pwd)"
+```
+
+Branch logic (do not write a dead offer for non-UE repos):
+- UE repo + project-rag daemon present → offer to index.
+- Non-UE repo (any daemon state) → tripwire path (upstream `.uproject`-abstention defect blocks non-UE indexing; cite the memo).
+- No daemon → tripwire path.
+
+Tripwire branches write `un-indexed; use Tier-3 (Read/Grep/Glob)` into the repo `CLAUDE.md`.
+
+**4. fnm pin-resolution** — ensure the repo's pinned Node version is installed via machine-level fnm:
+
+```bash
+bash "${_PLUGIN_ROOT}/lib/setup-fnm-pin.sh" "$(pwd)"
+```
+
+Acts only when `.node-version` or `.nvmrc` is present; pure no-op when neither exists. When a pin file is found: checks whether the `fnm` binary is installed; if present, runs `fnm install <pinned>` and emits `eval "$(fnm env)"` / PATH guidance for no-version-manager shells; if absent, fails loud: `"fnm not installed — run coordinator:install to install the Node toolchain manager, then re-run repo-setup."` **repo-setup MUST NOT install the fnm binary** — binary install is machine-level only (per `coordinator:install` Phase 3).
+
+Record outcomes in the Phase 4 REPORT under `### Created` or `### Already Existed` as appropriate. Any fail-loud exit from a helper surfaces under `### Needs Attention` with the helper's remediation text verbatim.
+
+**`coordinator:new-project` inherits all four seeds via its Phase-4 delegation to `coordinator:repo-setup` — no re-implementation in `new-project` is needed or permitted.**
 
 ---
 
@@ -572,12 +623,11 @@ and PowerShell `& python` invocations in `*.sh` files — shapes that pop a
 focus-stealing console window on Windows when spawned from the headless Bash-tool
 parent process.
 
-**Canonical suppression marker:** `# popup-intentional-last-resort` (shell/Python
-comment form). Place on the same line as the bare call. When inside an embedded
-interpreter string (`python -c "..."`) place the marker on the surrounding SHELL
-line, outside the string — the marker inside a Python string argument is parsed by
-Python at runtime, not by the tripwire regex. The retired form
-`# noqa: bare-subprocess-windows` is NOT honoured; do not use it.
+**Canonical suppression markers (two forms, honored identically by all layers):**
+- `# popup-intentional-last-resort` — the popup occurs and is accepted (pythonw fallback or genuine console need).
+- `# popup-safe-env-suppressed` — the popup is suppressed at this site by env-var means and is therefore safe.
+
+Place the applicable marker on the same line as the bare call (shell/Python comment form). When inside an embedded interpreter string (`python -c "..."`) place the marker on the surrounding SHELL line, outside the string — the marker inside a Python string argument is parsed by Python at runtime, not by the tripwire regex. The retired form `# noqa: bare-subprocess-windows` is NOT honoured; do not use it.
 
 **Install steps:**
 
@@ -595,8 +645,10 @@ python3 tests/test_no_bare_console_subprocess.py
 # or:
 pytest tests/test_no_bare_console_subprocess.py
 
-# 4. Add `# popup-intentional-last-resort` to any remaining intentional bare calls
-#    in files NOT covered by the allowlist.
+# 4. Add the appropriate suppression marker to any remaining bare calls in files NOT
+#    covered by the allowlist:
+#    - `# popup-intentional-last-resort`  if the popup is accepted (last-resort / pythonw fallback)
+#    - `# popup-safe-env-suppressed`      if the popup is already suppressed by env-var means
 ```
 
 **Template path:** `~/.claude/plugins/coordinator/tests/templates/test_no_bare_console_subprocess.py`
@@ -610,6 +662,7 @@ consuming repo's test tree). If the PM declines, note it in the Phase 4 REPORT u
 When a new project is onboarded, surface these convention introductions so the EM has them at hand from day one. These are one-line pointers; the canonical docs hold the full mechanics.
 
 - **Acceptance oracle (outer-loop):** Non-trivial reviewed plans declare bindable acceptance criteria gated at `/workstream-complete` Step 3.8. See `docs/wiki/writing-plans.md` § Acceptance Oracle.
+- **Extended substrate (Phase 3j):** setup now seeds `fast_test_cmd`/`full_test_cmd` in `coordinator.local.md`, `state/health-ledger.md` (grade `?` baseline), the RAG-index decision (index-offer or `un-indexed` tripwire in `CLAUDE.md`), and the fnm Node-version pin if `.node-version`/`.nvmrc` is present. These remove the silent-skip gaps in `/workday-complete` Step 1 and Step 4d and the Node toolchain mismatch on repos with a pinned version. → `docs/plans/2026-06-23-setup-time-substrate-completeness.md`.
 
 ## Onboarding Bug Fixes — Three-Layer Rule
 

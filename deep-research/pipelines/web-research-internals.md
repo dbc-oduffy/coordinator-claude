@@ -109,7 +109,7 @@ Write the merged document back to `{output-path}` and `{scratch-dir}/synthesis-m
 
 ## Fidelity Relay Protocol (deep-tier runs only)
 
-> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C7, § Resolved Decisions OD-2
+> Spec backlink: `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C7, § Resolved Decisions OD-2
 > Upstream doctrine: `coordinator/CLAUDE.md § Agent Teams — blockedBy Is a Gate, Not a Trigger`; `docs/wiki/agent-teams-patterns.md:38-44`
 
 The fidelity relay is a **Team-1 internal phase** that fires inside the sweep agent (see `agents/research-synthesizer.md § Fidelity Relay`) — it is NOT a Team-2 activity. This section documents the EM-side preconditions and the relay's placement in the command sequence.
@@ -139,7 +139,7 @@ If the synthesizer reports `RELAY_STALLED` (no specialist responses after timeou
 
 ## Coverage-Auditor Lifecycle (web pipeline)
 
-> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C1–C2, § Resolved Decisions RD-1, RD-3, RD-4, AC1–AC3
+> Spec backlink: `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C1–C2, § Resolved Decisions RD-1, RD-3, RD-4, AC1–AC3
 > Agent definition: `agents/coverage-auditor.md`
 
 The coverage auditor is a **non-teammate Agent dispatched by the EM** after the synthesis is complete and the synthesizer has marked its task done. It is dispatched at the driver's "On Completion Notification" step — **after** synthesis is written, **before** archive/TeamDelete.

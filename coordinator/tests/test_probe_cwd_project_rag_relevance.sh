@@ -377,7 +377,7 @@ cat > "$MOCK_PY_DIR/mock_py.sh" <<'MOCKPY'
 # but otherwise delegates to real python.
 ARGS=("$@")
 if [[ "${ARGS[*]}" == *"coordinator_whoami"* && "${ARGS[*]}" == *"get_whoami_json"* ]]; then
-  echo '{"project_kind": "ue", "binding": {"kind": "bound", "target": "/fake/project"}}'
+  echo 'ue'
   exit 0
 fi
 # For any other -c invocation, delegate to the real interpreter

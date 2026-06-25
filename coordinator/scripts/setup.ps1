@@ -25,6 +25,8 @@
 #   92  agent-direct invocation without override flag pair
 #   93  override flag pair incomplete (only one of two flags supplied)
 #
+# Env-prerequisite probes (clone_auth, longpaths, uv, ue, pwsh) are bash-only — run setup.sh --preflight for Step Zero env probes (see docs/wiki/coordinator-installer-shape.md § Windows platform — bash-only env-probe layer).
+#
 # Layout-agnostic repo_root resolution (mirrors setup.sh logic):
 #   Flat layout (publish-repo):   scripts\ lives directly under repo root;
 #                                 heuristic: ..\docs\install\AGENT.md exists.

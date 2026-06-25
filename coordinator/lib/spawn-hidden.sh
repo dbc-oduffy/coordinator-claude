@@ -56,7 +56,7 @@
 #
 # USAGE
 # -----
-#   source lib/spawn-hidden.sh    # not intended — use as a standalone launcher
+#   source lib/spawn-hidden.sh    # functions only (testing); main is main-guarded
 #
 #   lib/spawn-hidden.sh [--stdin-mode=safe|pipe] <interpreter> [args...]
 #
@@ -78,34 +78,6 @@
 #   Fully inherited from the launcher's own handles — the child gets exactly
 #   what the launcher got.  No buffering, no redirection.
 
-set -euo pipefail
-
-STDIN_MODE="pipe"   # conservative default: never risk breaking stdin
-
-# Parse --stdin-mode flag
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --stdin-mode=safe) STDIN_MODE="safe"; shift ;;
-    --stdin-mode=pipe) STDIN_MODE="pipe"; shift ;;
-    --stdin-mode=*)
-      echo "spawn-hidden.sh: unknown --stdin-mode value: $1" >&2
-      exit 1
-      ;;
-    --) shift; break ;;
-    *) break ;;
-  esac
-done
-
-if [[ $# -eq 0 ]]; then
-  echo "spawn-hidden.sh: no interpreter specified" >&2
-  echo "Usage: spawn-hidden.sh [--stdin-mode=safe|pipe] <interpreter> [args...]" >&2
-  exit 1
-fi
-
-INTERPRETER="$1"
-shift
-ARGS=("$@")
-
 # ------------------------------------------------------------------
 # Platform detection
 # ------------------------------------------------------------------
@@ -117,19 +89,70 @@ _on_windows() {
 }
 
 # ------------------------------------------------------------------
-# Resolve a windowless Python binary (SUBSYSTEM:WINDOWS variant).
-# Returns the resolved binary name via stdout, or empty string if none found.
-# Only safe when --stdin-mode=safe (caller controls stdin).
+# Resolve a windowless Python binary (SUBSYSTEM:WINDOWS variant) of the SAME
+# install the caller named.  Returns the resolved binary path/name via stdout,
+# or empty string if none found.  Only safe when --stdin-mode=safe (caller
+# controls stdin).
+#
+# D2-36: honor the caller's interpreter choice — resolve a pythonw of the SAME
+#   install, NEVER a PATH-global pythonw of a DIFFERENT install.  On a two-Python
+#   box (PATH python3 → 3.12 carrying the venv deps; PATH pythonw → 3.14 without)
+#   a bare PATH `pythonw` lookup silently runs the wrong environment, so a
+#   --stdin-mode=safe venv probe fails with ModuleNotFoundError while the same
+#   probe run directly against the passed interpreter succeeds.  Anchoring every
+#   resolution branch on the passed interpreter is the fix: each branch can only
+#   find that interpreter's co-located pythonw or none — never another install's.
 # ------------------------------------------------------------------
 _resolve_pythonw() {
   # Review: code-reviewer (F6) — returns ONLY the binary name; -3 is a separate arg
   #   passed at the call site, avoiding unquoted word-split on "pyw -3".
-  if command -v pythonw3 &>/dev/null; then echo "pythonw3"; return; fi
-  if command -v pythonw  &>/dev/null; then echo "pythonw";  return; fi
-  if command -v pyw &>/dev/null && pyw -3 --version &>/dev/null 2>&1; then
-    echo "pyw"; return
+  local _interp="${1:-}"
+  local _sib _resolved _real
+
+  # (1) Explicit interpreter PATH/.exe → its co-located windowless sibling
+  #     (e.g. a venv's .venv/Scripts/pythonw.exe).
+  if [[ -n "$_interp" && ( "$_interp" == */* || "$_interp" == *.exe ) ]]; then
+    _sib="$(dirname "$_interp")/pythonw.exe"
+    if [[ -f "$_sib" ]]; then printf '%s' "$_sib"; return; fi
   fi
-  echo ""
+
+  # (2) Bare-name interpreter ("python3"/"python"/"py", no path) → resolve the
+  #     pythonw of the SAME install the name resolves to.  Bare names are the
+  #     common caller shape (hooks pass `python3` / `${PYTHON:-python3}`), so the
+  #     D2-36 hazard bites here unless we anchor on the resolved interpreter.
+  if [[ -n "$_interp" && "$_interp" != */* && "$_interp" != *.exe ]]; then
+    # (2a) Cheap, flash-free: take command -v's resolved path and look for a
+    #      co-located pythonw.exe.  Anchored on the resolved python, this finds
+    #      only that install's pythonw or none — never a different install's.
+    _resolved="$(command -v "$_interp" 2>/dev/null || true)"
+    if [[ -n "$_resolved" ]]; then
+      _sib="$(dirname "$_resolved")/pythonw.exe"
+      if [[ -f "$_sib" ]]; then printf '%s' "$_sib"; return; fi
+    fi
+    # (2b) No co-located pythonw next to command -v's path.  This covers shims /
+    #      app-exec aliases (Microsoft Store `python3`, pyenv-win) where the real
+    #      install lives elsewhere — but it ALSO fires for any bare-name
+    #      interpreter whose resolved dir simply has no pythonw.exe (e.g. a
+    #      source-built or pythonw-less Python).  Ask the interpreter for its
+    #      authoritative sys.executable, then that exe's sibling pythonw.  Costs
+    #      ONE console spawn (a flash on Windows) on this no-co-located-pythonw
+    #      path only — correctness (the right interpreter) beats one flash.
+    _real="$("$_interp" -c 'import sys; print(sys.executable)' 2>/dev/null || true)"
+    if [[ -n "$_real" ]]; then
+      _sib="$(dirname "$_real")/pythonw.exe"
+      if [[ -f "$_sib" ]]; then printf '%s' "$_sib"; return; fi
+    fi
+  fi
+
+  # (3) No SAME-INSTALL windowless binary found → return empty.  We deliberately
+  #     do NOT fall back to a PATH-global `pythonw`/`pythonw3`/`pyw`: on a
+  #     two-Python box that global binary is a DIFFERENT install than the caller
+  #     named (the D2-36 hazard) and the call site would use it silently.  The
+  #     sender ask is explicit — "never a PATH-resolved global pythonw."  Empty
+  #     here makes the call site warn and exec the console interpreter (one honest
+  #     flash under the CORRECT interpreter), which beats silently running the
+  #     wrong one.
+  printf ''
 }
 
 # ------------------------------------------------------------------
@@ -144,82 +167,118 @@ _interp_base() {
 }
 
 # ------------------------------------------------------------------
-# Main dispatch
+# Main entry point — main-guarded so the helper functions above can be sourced
+# and unit-tested directly (the Windows interpreter-dispatch branch is otherwise
+# unreachable on a non-Windows authoring box).
 # ------------------------------------------------------------------
-INTERP_BASE="$(_interp_base "$INTERPRETER")"
+_spawn_hidden_main() {
+  set -euo pipefail
 
-if _on_windows; then
-  case "$INTERP_BASE" in
+  local STDIN_MODE="pipe"   # conservative default: never risk breaking stdin
 
-    python|python3|python3.*|py)
-      # ----------------------------------------------------------------
-      # Python on Windows
-      # ----------------------------------------------------------------
-      if [[ "$STDIN_MODE" == "safe" ]]; then
-        # Caller controls stdin → try windowless binary for true suppression.
-        PYTHONW="$(_resolve_pythonw)"
-        if [[ -n "$PYTHONW" ]]; then
-          # Review: code-reviewer (F6) — binary-only from _resolve_pythonw; pass -3 as a
-          #   separate arg when the resolved binary is pyw (mirrors resolve-python.sh pattern).
-          #   Quoted exec avoids SC2086 word-split; no disable needed.
-          if [[ "$PYTHONW" == "pyw" ]]; then
-            exec "$PYTHONW" -3 "${ARGS[@]+"${ARGS[@]}"}"
-          else
+  # Parse --stdin-mode flag
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --stdin-mode=safe) STDIN_MODE="safe"; shift ;;
+      --stdin-mode=pipe) STDIN_MODE="pipe"; shift ;;
+      --stdin-mode=*)
+        echo "spawn-hidden.sh: unknown --stdin-mode value: $1" >&2
+        exit 1
+        ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+
+  if [[ $# -eq 0 ]]; then
+    echo "spawn-hidden.sh: no interpreter specified" >&2
+    echo "Usage: spawn-hidden.sh [--stdin-mode=safe|pipe] <interpreter> [args...]" >&2
+    exit 1
+  fi
+
+  local INTERPRETER="$1"
+  shift
+  local ARGS=("$@")
+
+  local INTERP_BASE
+  INTERP_BASE="$(_interp_base "$INTERPRETER")"
+
+  if _on_windows; then
+    case "$INTERP_BASE" in
+
+      python|python3|python3.*|py)
+        # ----------------------------------------------------------------
+        # Python on Windows
+        # ----------------------------------------------------------------
+        if [[ "$STDIN_MODE" == "safe" ]]; then
+          # Caller controls stdin → resolve the SAME install's windowless pythonw
+          # for true suppression.  D2-36: _resolve_pythonw anchors on the passed
+          # interpreter and never returns a PATH-global pythonw of a different
+          # install, so it yields a full pythonw.exe path or empty.
+          local PYTHONW
+          PYTHONW="$(_resolve_pythonw "$INTERPRETER")"
+          if [[ -n "$PYTHONW" ]]; then
+            # Quoted exec avoids SC2086 word-split; no disable needed.
             exec "$PYTHONW" "${ARGS[@]+"${ARGS[@]}"}"
           fi
+          # No same-install windowless variant — fall through to console binary.
+          # Flash will occur under the CORRECT interpreter; warn so the caller knows.
+          echo "spawn-hidden.sh: WARNING: no same-install pythonw found; console flash will occur for $INTERPRETER" >&2
+        else
+          # --stdin-mode=pipe: MUST NOT use pythonw — would break harness stdin.
+          # No shell-level suppression available.  Pass through transparently.
+          # Flash will occur.  True suppression requires machine-belt (Chunk 5)
+          # or compiled shim (plan Addendum).
+          : # fall through to exec below
         fi
-        # No windowless variant found — fall through to console binary.
-        # Flash will occur; warn so the caller knows.
-        echo "spawn-hidden.sh: WARNING: no pythonw/pyw found; console flash will occur for $INTERPRETER" >&2
-      else
-        # --stdin-mode=pipe: MUST NOT use pythonw — would break harness stdin.
-        # No shell-level suppression available.  Pass through transparently.
-        # Flash will occur.  True suppression requires machine-belt (Chunk 5)
-        # or compiled shim (plan Addendum).
-        : # fall through to exec below
-      fi
-      exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
-      ;;
+        exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
+        ;;
 
-    node|node.exe)
-      # ----------------------------------------------------------------
-      # Node on Windows
-      # ----------------------------------------------------------------
-      # There is no "nodew.exe".  windowsHide:true only applies to spawns
-      # that Node itself makes via child_process — not to the Node process
-      # being spawned from here.  No shell-level suppression available.
-      # Flash will occur regardless of --stdin-mode.
-      # True suppression requires:
-      #   - the spawning PARENT (e.g. Claude Code) to set windowsHide/CREATE_NO_WINDOW, OR
-      #   - machine-belt (ConPTY delegation, Chunk 5), OR
-      #   - compiled C# shim (plan Addendum).
-      if [[ "$STDIN_MODE" == "safe" ]]; then
-        echo "spawn-hidden.sh: NOTE: no windowless node variant exists; console flash will occur." >&2
-      fi
-      exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
-      ;;
+      node|node.exe)
+        # ----------------------------------------------------------------
+        # Node on Windows
+        # ----------------------------------------------------------------
+        # There is no "nodew.exe".  windowsHide:true only applies to spawns
+        # that Node itself makes via child_process — not to the Node process
+        # being spawned from here.  No shell-level suppression available.
+        # Flash will occur regardless of --stdin-mode.
+        # True suppression requires:
+        #   - the spawning PARENT (e.g. Claude Code) to set windowsHide/CREATE_NO_WINDOW, OR
+        #   - machine-belt (ConPTY delegation, Chunk 5), OR
+        #   - compiled C# shim (plan Addendum).
+        if [[ "$STDIN_MODE" == "safe" ]]; then
+          echo "spawn-hidden.sh: NOTE: no windowless node variant exists; console flash will occur." >&2
+        fi
+        exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
+        ;;
 
-    pwsh|powershell|powershell.exe|pwsh.exe)
-      # ----------------------------------------------------------------
-      # PowerShell on Windows
-      # ----------------------------------------------------------------
-      # -WindowStyle Hidden is create-then-hide — the flash IS the console
-      # allocation; Hidden does not prevent it.  No shell-level true
-      # suppression exists.  Machine-belt is the correct lever.
-      # We pass through transparently; callers should still include
-      # -WindowStyle Hidden as the minimum-baseline flag.
-      exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
-      ;;
+      pwsh|powershell|powershell.exe|pwsh.exe)
+        # ----------------------------------------------------------------
+        # PowerShell on Windows
+        # ----------------------------------------------------------------
+        # -WindowStyle Hidden is create-then-hide — the flash IS the console
+        # allocation; Hidden does not prevent it.  No shell-level true
+        # suppression exists.  Machine-belt is the correct lever.
+        # We pass through transparently; callers should still include
+        # -WindowStyle Hidden as the minimum-baseline flag.
+        exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
+        ;;
 
-    *)
-      # Unknown interpreter — pass through.
-      exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
-      ;;
-  esac
-else
-  # ----------------------------------------------------------------
-  # Non-Windows: no console allocation, no suppression needed.
-  # exec directly — transparent pass-through.
-  # ----------------------------------------------------------------
-  exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
+      *)
+        # Unknown interpreter — pass through.
+        exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
+        ;;
+    esac
+  else
+    # ----------------------------------------------------------------
+    # Non-Windows: no console allocation, no suppression needed.
+    # exec directly — transparent pass-through.
+    # ----------------------------------------------------------------
+    exec "$INTERPRETER" "${ARGS[@]+"${ARGS[@]}"}"
+  fi
+}
+
+# Run main only when executed directly; sourcing exposes the functions for tests.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  _spawn_hidden_main "$@"
 fi

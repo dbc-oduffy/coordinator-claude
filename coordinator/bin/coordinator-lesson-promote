@@ -12,6 +12,7 @@
 # its path via command substitution, then execs it; under Python the whole line
 # is a no-op string. One `exec`, three-way probe — the canonical pattern.
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 coordinator-lesson-promote — write a universal lesson to the local lessons-outbox
 for drain by the central /learn-lessons --central procedure.

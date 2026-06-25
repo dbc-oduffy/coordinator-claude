@@ -41,43 +41,43 @@ echo "--- cs_rename_target"
 
 # 0-ahead, crossed a day boundary: span would be misleading → today-only.
 assert_eq "0-ahead crossing midnight collapses to today-only" \
-  "work/striker/2026-06-02" \
-  "$(cs_rename_target striker 2026-06-01 2026-06-02 0)"
+  "work/machine-a/2026-06-02" \
+  "$(cs_rename_target machine-a 2026-06-01 2026-06-02 0)"
 
 # 0-ahead, multi-day-old start (history all merged) → today-only, span dropped.
 assert_eq "0-ahead drops a multi-day span entirely" \
-  "work/striker/2026-06-02" \
-  "$(cs_rename_target striker 2026-05-31 2026-06-02 0)"
+  "work/machine-a/2026-06-02" \
+  "$(cs_rename_target machine-a 2026-05-31 2026-06-02 0)"
 
 # 0-ahead, start already today (no boundary) → today-only.
 assert_eq "0-ahead same-day stays today-only" \
-  "work/striker/2026-06-02" \
-  "$(cs_rename_target striker 2026-06-02 2026-06-02 0)"
+  "work/machine-a/2026-06-02" \
+  "$(cs_rename_target machine-a 2026-06-02 2026-06-02 0)"
 
 # >0-ahead crossing midnight: genuine WIP → span suffix carried forward.
 assert_eq "1-ahead crossing midnight keeps the span" \
-  "work/striker/2026-06-01to02" \
-  "$(cs_rename_target striker 2026-06-01 2026-06-02 1)"
+  "work/machine-a/2026-06-01to02" \
+  "$(cs_rename_target machine-a 2026-06-01 2026-06-02 1)"
 
 # >0-ahead, multi-day span with genuine WIP → full start-to-today span.
 assert_eq "5-ahead keeps the multi-day span" \
-  "work/striker/2026-05-31to02" \
-  "$(cs_rename_target striker 2026-05-31 2026-06-02 5)"
+  "work/machine-a/2026-05-31to02" \
+  "$(cs_rename_target machine-a 2026-05-31 2026-06-02 5)"
 
 # >0-ahead but start == today → cs_format_span_suffix collapses to single date.
 assert_eq "ahead but same-day yields single date (no spurious span)" \
-  "work/striker/2026-06-02" \
-  "$(cs_rename_target striker 2026-06-02 2026-06-02 3)"
+  "work/machine-a/2026-06-02" \
+  "$(cs_rename_target machine-a 2026-06-02 2026-06-02 3)"
 
 # Non-integer commits_ahead fails loud rather than silently picking 0-ahead.
-if cs_rename_target striker 2026-06-01 2026-06-02 "abc" >/dev/null 2>&1; then
+if cs_rename_target machine-a 2026-06-01 2026-06-02 "abc" >/dev/null 2>&1; then
   fail "non-integer commits_ahead should return non-zero"
 else
   pass "non-integer commits_ahead fails loud"
 fi
 
 # Empty commits_ahead fails loud (bash would otherwise treat '' as 0).
-if cs_rename_target striker 2026-06-01 2026-06-02 "" >/dev/null 2>&1; then
+if cs_rename_target machine-a 2026-06-01 2026-06-02 "" >/dev/null 2>&1; then
   fail "empty commits_ahead should return non-zero"
 else
   pass "empty commits_ahead fails loud"

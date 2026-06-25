@@ -249,7 +249,7 @@ fi
 # *other-OS* home) when those literals appear in source content authored on a
 # different machine and sync'd over. Empirically (2026-06-11 personal-data-
 # cleanup spinoff) Mac-side percolate runs missed Windows-flavor leaks like
-# `c:/users/oduffy` because $HOME on Mac is `/Users/thislaptop` — the audit
+# `c:/users/<user>` because $HOME on Mac is `/Users/<user>` — the audit
 # scanned for the wrong literal.
 #
 # These four patterns catch home-path SHAPES regardless of running OS:

@@ -5,10 +5,10 @@
 # (bash sibling). Uses ConvertFrom-Json (native; no third-party modules).
 # Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §7 C3
 #
-# Reader-widen note (2026-05-23 cross-repo agreement): this reader accepts contract versions
-# {1, 2} via $knownAccepted. Coord ships its manifest at v2; holodeck (coord's downstream
-# chain-walker) already accepts {1, 2} per the coordinated reader-widen-first sequencing.
-# Mirror the knownAccepted shape from claude-unreal-holodeck/scripts/lib/manifest_reader.ps1.
+# Reader-widen note: this reader accepts contract versions {1, 2, 3} via $knownAccepted.
+# Coord ships its manifest at v3 (2026-06-23 fleet-wide simultaneous-merge cutover added the
+# system_prerequisites array; every consumer reader widened to {1,2,3} in the same merge wave).
+# Mirror the knownAccepted shape from scripts/lib/manifest_reader.sh (POSIX sibling).
 #
 # Output fields per line (JSON object):
 #   id, severity, sibling_dir_name, upstream_url,
@@ -30,10 +30,26 @@ param(
 )
 
 # Locate manifest relative to repo root (this script lives at scripts/lib/).
+# Review: code-reviewer F5 — two-candidate resolver mirrors _co_resolve_manifest_path in manifest_reader.sh:
+#   1. nested working-tree/mirror layout: $RepoRoot\docs\install\agent-install-manifest.json
+#   2. flat publish-repo-root layout:     (parent of $RepoRoot)\docs\install\agent-install-manifest.json
 if (-not $ManifestPath) {
     $ScriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
     $RepoRoot    = Split-Path -Parent (Split-Path -Parent $ScriptDir)
-    $ManifestPath = Join-Path $RepoRoot 'docs\install\agent-install-manifest.json'
+    $RelPath     = 'docs\install\agent-install-manifest.json'
+    $Candidate1  = Join-Path $RepoRoot $RelPath
+    $Candidate2  = Join-Path (Split-Path -Parent $RepoRoot) $RelPath
+    if (Test-Path $Candidate1) {
+        $ManifestPath = $Candidate1
+    } elseif (Test-Path $Candidate2) {
+        $ManifestPath = $Candidate2
+    } else {
+        [Console]::Error.WriteLine("ERROR: install manifest not found in either layout location:")
+        [Console]::Error.WriteLine("  nested (working-tree/mirror): $Candidate1")
+        [Console]::Error.WriteLine("  flat   (publish-repo-root):   $Candidate2")
+        [Console]::Error.WriteLine("  Remediation: re-publish BOTH install-surface targets from the meta-repo.")
+        exit 1
+    }
 }
 
 if (-not (Test-Path $ManifestPath)) {
@@ -67,10 +83,10 @@ foreach ($field in $requiredTopLevel) {
     }
 }
 
-# Reader-widen: accept v1 and v2 during the coordinated 1->2 bump (v2 adds
-# optional DirectDep.consumer_install_args; reader-widen-first sequencing per
-# cross-repo agreement 2026-05-23-addon-reply-s4-consumer-install-args-coreview.md).
-$knownAccepted = @(1, 2)
+# Reader-widen: accept v1, v2, and v3. v2 added optional DirectDep.consumer_install_args;
+# v3 added the optional system_prerequisites array (2026-06-23 cutover). The {1,2,3} range
+# lets a manifest at any of these versions be walked during the coordinated bump.
+$knownAccepted = @(1, 2, 3)
 if ($manifest.agent_install_contract_version -notin $knownAccepted) {
     [Console]::Error.WriteLine("ERROR: manifest agent_install_contract_version=$($manifest.agent_install_contract_version); this reader accepts versions $($knownAccepted -join ',') only.")
     [Console]::Error.WriteLine("  Upgrade coordinator-claude to a version that supports contract version $($manifest.agent_install_contract_version).")

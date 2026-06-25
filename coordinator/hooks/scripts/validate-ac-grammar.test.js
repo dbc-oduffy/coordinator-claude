@@ -26,6 +26,45 @@ const os = require('node:os');
 
 const HOOK_SCRIPT = path.join(__dirname, 'validate-ac-grammar.js');
 
+// ---------------------------------------------------------------------------
+// Unit helpers — extract splitCombinator directly from the hook source.
+// We cannot require() the hook directly (it has a main() that would fire),
+// so extract splitCombinator by reading the source and eval-ing a self-contained
+// copy. This is the same technique used for sync-assertion (F1).
+// ---------------------------------------------------------------------------
+
+function extractFunctionBody(src, funcName) {
+  const marker = `function ${funcName}(`;
+  const start = src.indexOf(marker);
+  if (start === -1) throw new Error(`${funcName} not found in source`);
+  // Walk braces from opening { to find the matching close.
+  let depth = 0;
+  let i = start;
+  while (i < src.length) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') { depth--; if (depth === 0) { i++; break; } }
+    i++;
+  }
+  return src.slice(start, i);
+}
+
+const GRAMMAR_SRC = fs.readFileSync(HOOK_SCRIPT, 'utf8');
+const OWNERSHIP_SRC = fs.readFileSync(
+  path.join(__dirname, 'validate-ac-chunk-ownership.js'), 'utf8'
+);
+
+// Build a minimal eval context supplying the constants splitCombinator needs.
+function makeSplitCombinator(src) {
+  const body = extractFunctionBody(src, 'splitCombinator');
+  const knownPrefixes = new Set(['pytest', 'node', 'cargo', 'grep', 'cited', 'sh', 'bash', 'bats']);
+  // eslint-disable-next-line no-new-func
+  const fn = new Function(
+    'KNOWN_PREFIXES', 'COMBINATOR_AND', 'COMBINATOR_OR',
+    `${body}; return splitCombinator;`
+  );
+  return fn(knownPrefixes, ' AND ', ' OR ');
+}
+
 /**
  * Spawn the hook with the given payload (object → JSON string piped to stdin).
  * Returns { stdout, stderr, status }.
@@ -358,6 +397,132 @@ describe('validate-ac-grammar hook', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // Combinator cases (AND/OR multi-operand Test cells).
+  // Spec: check-acceptance-oracle.sh combinator grammar (shipped 2026-06-22).
+  // -------------------------------------------------------------------------
+
+  // C1: Two valid typed-prefix operands joined by AND → valid (no output).
+  it('combinator-AND-valid — bash:true AND grep:X@f is valid → silent', () => {
+    const plan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| AC | Description | Test | Binding-Class |',
+      '|---|---|---|---|',
+      '| AC-1 | Combinator AND | bash:true AND grep:X@f | gate-bound |',
+      '',
+    ].join('\n');
+    const { stdout, status } = runHook(writePlanPayload(plan));
+    assert.equal(status, 0, 'should exit 0 for valid combinator AND cell');
+    assert.equal(stdout, '', 'valid combinator AND cell must produce no output');
+  });
+
+  // C2: Two valid backtick-wrapped operands joined by OR → valid (no output).
+  it('combinator-OR-valid — `bash:true` OR `bash:false` is valid → silent', () => {
+    const plan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| AC | Description | Test | Binding-Class |',
+      '|---|---|---|---|',
+      '| AC-1 | Combinator OR | `bash:true` OR `bash:false` | gate-bound |',
+      '',
+    ].join('\n');
+    const { stdout, status } = runHook(writePlanPayload(plan));
+    assert.equal(status, 0, 'should exit 0 for valid combinator OR cell');
+    assert.equal(stdout, '', 'valid combinator OR cell must produce no output');
+  });
+
+  // C3: Mixed AND+OR in one cell → invalid (emits output with "mixed" message).
+  it('combinator-mixed-invalid — mixed AND+OR is invalid → additionalContext with mixed message', () => {
+    const plan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| AC | Description | Test | Binding-Class |',
+      '|---|---|---|---|',
+      '| AC-1 | Mixed combinator | bash:a AND bash:b OR bash:c | gate-bound |',
+      '',
+    ].join('\n');
+    const { stdout, status } = runHook(writePlanPayload(plan));
+    assert.equal(status, 0, 'should exit 0 even for mixed combinator');
+    assert.ok(stdout.length > 0, 'mixed combinator must emit output');
+    const parsed = JSON.parse(stdout);
+    // Review: code-reviewer F2 — tighten assertion: assert specifically on additionalContext
+    // (the non-strict path) and a distinctive substring "mixed AND/OR" rather than the
+    // broad disjunct (additionalContext || permissionDecisionReason).includes('mixed').
+    const ctx = parsed.hookSpecificOutput.additionalContext;
+    assert.ok(
+      typeof ctx === 'string',
+      `should emit additionalContext (non-strict mode), got hookSpecificOutput: ${JSON.stringify(parsed.hookSpecificOutput)}`
+    );
+    assert.ok(
+      ctx.toLowerCase().includes('mixed and/or'),
+      `additionalContext should contain distinctive "mixed AND/OR" substring, got: ${ctx}`
+    );
+  });
+
+  // C4: grep:fooANDbar@f (no spaces around AND) → treated as single token (valid grep), not combinator.
+  it('combinator-no-spaces — grep:fooANDbar@f (no spaces) is a valid single grep token, not combinator', () => {
+    const plan = [
+      '# Test plan',
+      '',
+      '## Acceptance Criteria',
+      '',
+      '| AC | Description | Test | Binding-Class |',
+      '|---|---|---|---|',
+      '| AC-1 | Single grep with AND in pattern | grep:fooANDbar@f | gate-bound |',
+      '',
+    ].join('\n');
+    const { stdout, status } = runHook(writePlanPayload(plan));
+    assert.equal(status, 0, 'should exit 0 for valid grep with AND in pattern');
+    assert.equal(stdout, '', 'grep:fooANDbar@f must be treated as a single valid token, not combinator');
+  });
+
+  // -------------------------------------------------------------------------
+  // F3 + F4: Direct splitCombinator unit tests.
+  // Review: code-reviewer F3 — splitCombinator('grep:fooANDbar@f') must return null
+  //   (no spaces around AND → single token, not combinator).
+  // Review: code-reviewer F4 — splitCombinator('bash:true AND grep:x@f') must return
+  //   { op: 'AND', operands: [...] } with 2 operands.
+  // -------------------------------------------------------------------------
+  it('splitCombinator-unit — no-space AND in pattern returns null (single token)', () => {
+    const splitCombinator = makeSplitCombinator(GRAMMAR_SRC);
+    const result = splitCombinator('grep:fooANDbar@f');
+    assert.equal(result, null, 'grep:fooANDbar@f has no space-padded AND — must return null');
+  });
+
+  it('splitCombinator-unit — spaced AND returns combinator with 2 operands', () => {
+    const splitCombinator = makeSplitCombinator(GRAMMAR_SRC);
+    const result = splitCombinator('bash:true AND grep:x@f');
+    assert.ok(result !== null, 'bash:true AND grep:x@f must be recognized as a combinator');
+    assert.equal(result.op, 'AND', 'combinator op must be AND');
+    assert.equal(result.operands.length, 2, 'must have 2 operands');
+    assert.ok(result.operands.includes('bash:true'), 'operands must include bash:true');
+    assert.ok(result.operands.includes('grep:x@f'), 'operands must include grep:x@f');
+  });
+
+  // -------------------------------------------------------------------------
+  // F1: Sync assertion — splitCombinator function body must be byte-for-byte
+  // identical in both hook files (enforces lockstep without a runtime dependency).
+  // Review: code-reviewer F1 — add a test that reads both source files, extracts
+  // the splitCombinator function body from each, and asserts equality.
+  // -------------------------------------------------------------------------
+  it('splitCombinator-lockstep — function body identical in grammar and ownership hooks', () => {
+    const grammarBody = extractFunctionBody(GRAMMAR_SRC, 'splitCombinator');
+    const ownershipBody = extractFunctionBody(OWNERSHIP_SRC, 'splitCombinator');
+    assert.equal(
+      grammarBody, ownershipBody,
+      'splitCombinator function body must be byte-for-byte identical in both hook files.\n' +
+      'Update both files together when changing this helper.\n' +
+      `Grammar:\n${grammarBody}\n\nOwnership:\n${ownershipBody}`
+    );
   });
 
 });

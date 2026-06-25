@@ -16,7 +16,7 @@
 #   CLAUDE_SESSION_ID            — explicit session-ID override (manual / tests)
 #   CLAUDE_CODE_SESSION_ID       — platform-injected session ID (Claude Code ≥ ~2.1.150;
 #                                  authoritative for the running session, beats the sentinel)
-#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: workstream-start, workday-complete, update-docs, relay-protocol, distillation)
+#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: workstream-start, update-docs, relay-protocol, distillation)
 #   COORDINATOR_OVERRIDE_SCOPE=1 — emergency: stage all dirty files, logs override, skip subtraction
 #
 # See: ~/.claude/plans/scoped-safety-commits.md  (design)
@@ -262,27 +262,26 @@ resolve_session_id() {
     fi
   fi
 
-  # Priority 4: find a session dir whose meta.json PID matches a live process
+  # Priority 4: auto-detect the lone live session by last_activity RECENCY.
+  # Liveness is keyed on last_activity recency (_cs_is_session_live), NOT a live
+  # PID — in-harness every Bash call runs in a fresh process whose recorded $$ is
+  # dead within seconds, so a kill -0 gate reports every session dead and this
+  # fallback always errored with "No live session found" on an old (pre-env-var)
+  # Claude Code host. Routing through cs_live_session_ids unifies this path with
+  # the single liveness model the rest of the codebase adopted at r1
+  # (state/handoffs/2026-06-23_153742_claim-lock-pid-death-false-positive.md);
+  # it also handles the .archive/.agents exclusions. Env-var Priorities 1-3
+  # (CLAUDE_CODE_SESSION_ID etc.) still resolve first — this is the fallback only.
   local base
   base=$(_cs_sessions_dir) || true
   if [[ -z "$base" || ! -d "$base" ]]; then
-    echo "" ; return 1
+    return 1   # errors go to stderr; caller reads exit code, not stdout, on this path
   fi
 
   local live_sessions=()
-  for sdir in "${base}"/*/; do
-    [[ -d "$sdir" ]] || continue
-    local sid
-    sid=$(basename "$sdir")
-    [[ "$sid" == ".archive" ]] && continue
-    [[ "$sid" == ".agents" ]] && continue
-
-    local pid
-    pid=$(_cs_read_meta_field "$sdir" "pid")
-    if _cs_pid_alive "$pid"; then
-      live_sessions+=("$sid")
-    fi
-  done
+  while IFS= read -r _liveid; do
+    [[ -n "$_liveid" ]] && live_sessions+=("$_liveid")
+  done < <(cs_live_session_ids 2>/dev/null || true)
 
   if [[ ${#live_sessions[@]} -eq 1 ]]; then
     echo "${live_sessions[0]}"
@@ -587,111 +586,6 @@ print_summary() {
 }
 
 # ---------------------------------------------------------------------------
-# BLANKET MODE — foreign-staging pre-check
-# ---------------------------------------------------------------------------
-#
-# _blanket_check_foreign_staging <current_session_id>
-#   Warn on stderr when --blanket is about to commit files claimed by sibling
-#   sessions.  Advisory only: does NOT block the commit.
-#
-# Spec backlink: state/coordinator-improvement-queue.md — blanket pre-check entry.
-#
-# Algorithm:
-#   1. Collect touched.txt paths from every live sibling session → $foreign_paths
-#   2. Collect would-be-staged paths via git status --porcelain → $prospective_paths
-#      (matches what git add -A will see, not --cached which is pre-add)
-#   3. Emit WARN block for any intersection, unless COORDINATOR_BLANKET_ACCEPT_FOREIGN=1
-_blanket_check_foreign_staging() {
-  local current_sid="${1:?session_id required}"
-
-  # Silently skip if the environment opt-out is set
-  if [[ "${COORDINATOR_BLANKET_ACCEPT_FOREIGN:-}" == "1" ]]; then
-    return 0
-  fi
-
-  local base
-  base=$(_cs_sessions_dir) || return 0
-  [[ -d "$base" ]] || return 0
-
-  # --- 1. Build foreign_paths: paths claimed by live sibling sessions ----------
-  # Read live session IDs into array. Use a read loop for bash 3.2 portability;
-  # process substitution avoids subshell variable scoping.
-  local -a live_sids=()
-  while IFS= read -r _lsid; do live_sids+=("$_lsid"); done < <(cs_live_session_ids 2>/dev/null || true)
-
-  # Map each foreign path to the short session id that claims it.
-  # Format: "path|sid-short"  (pipe separator avoids spaces-in-paths issues)
-  local -a foreign_entries=()
-  local sid
-  for sid in "${live_sids[@]:-}"; do
-    [[ -z "$sid" ]] && continue
-    [[ "$sid" == "$current_sid" ]] && continue
-    local tfile="${base}/${sid}/touched.txt"
-    [[ -f "$tfile" ]] || continue
-    local sid_short="${sid:0:8}"
-    local fpath
-    while IFS= read -r fpath; do
-      [[ -z "$fpath" ]] && continue
-      foreign_entries+=("${fpath}|${sid_short}")
-    done < "$tfile"
-  done
-
-  # Nothing foreign at all — fast exit
-  if [[ ${#foreign_entries[@]} -eq 0 ]]; then
-    return 0
-  fi
-
-  # --- 2. Build prospective_paths: what git add -A would stage -----------------
-  local -a prospective_paths=()
-  local status_line path_col
-  while IFS= read -r status_line; do
-    [[ -z "$status_line" ]] && continue
-    local xy="${status_line:0:2}"
-    local rest="${status_line:3}"
-    if [[ "$xy" == R* || "$xy" == *R ]]; then
-      # Rename line: "old -> new" — take the post-arrow path
-      path_col="${rest##* -> }"
-    else
-      path_col="$rest"
-    fi
-    prospective_paths+=("$path_col")
-  done < <(git status --porcelain 2>/dev/null || true)
-
-  if [[ ${#prospective_paths[@]} -eq 0 ]]; then
-    return 0
-  fi
-
-  # --- 3. Intersection: which prospective paths are also foreign ---------------
-  local -a overlap_entries=()
-  local entry fp_sid fp_path ppath
-  for entry in "${foreign_entries[@]}"; do
-    fp_path="${entry%%|*}"
-    fp_sid="${entry##*|}"
-    for ppath in "${prospective_paths[@]}"; do
-      if [[ "$ppath" == "$fp_path" ]]; then
-        overlap_entries+=("  ${fp_path}   (claimed by ${fp_sid})")
-        break
-      fi
-    done
-  done
-
-  # --- 4. Emit WARN block if any overlap found ---------------------------------
-  if [[ ${#overlap_entries[@]} -gt 0 ]]; then
-    local count=${#overlap_entries[@]}
-    {
-      echo "WARN: --blanket about to commit ${count} path(s) claimed by sibling session(s):"
-      local line
-      for line in "${overlap_entries[@]}"; do
-        echo "$line"
-      done
-      echo "If this is intentional (cross-session sweep), set COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 to suppress this warning."
-      echo "Proceeding with commit."
-    } >&2
-  fi
-
-  return 0
-}
-
 # ---------------------------------------------------------------------------
 # BLANKET MODE
 # ---------------------------------------------------------------------------
@@ -699,12 +593,13 @@ _blanket_check_foreign_staging() {
 do_blanket() {
   local session_id="$1"
 
-  # Carve-out enforcement: only valid from workstream-start or workday-complete
+  # Carve-out enforcement: only valid from authorized sweep ceremonies.
+  # /workday-complete was REMOVED 2026-06-22 — it migrated to the
+  # workday-complete-step2_5-dirty-tree.sh path-classifier and no longer uses --blanket.
   local invoking="${CLAUDE_INVOKING_COMMAND:-}"
   local allowed=false
 
   if [[ "$invoking" == "workstream-start" || \
-        "$invoking" == "workday-complete" || \
         "$invoking" == "update-docs" || "$invoking" == "relay-protocol" || \
         "$invoking" == "distillation" ]]; then
     allowed=true
@@ -719,7 +614,6 @@ do_blanket() {
       ppid_cmd=$(ps -p "$PPID" -o command= 2>/dev/null || true)
     fi
     if [[ "$ppid_cmd" == *"workstream-start.md"* || \
-          "$ppid_cmd" == *"workday-complete.md"* || \
           "$ppid_cmd" == *"update-docs.md"* || "$ppid_cmd" == *"relay-protocol.md"* || \
           "$ppid_cmd" == *"distillation"* ]]; then
       allowed=true
@@ -728,7 +622,7 @@ do_blanket() {
 
   if [[ "$allowed" == false ]]; then
     cat >&2 <<'ERR'
-ERROR: --blanket is only valid from authorized sweep ceremonies: /workstream-start, /workday-complete, /update-docs, relay-protocol, or distillation.
+ERROR: --blanket is only valid from authorized sweep ceremonies: /workstream-start, /update-docs, relay-protocol, or distillation.
 Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.
 ERR
     exit 1
@@ -744,9 +638,6 @@ ERR
     echo "$(_cs_now_iso) invoking_command=${invoking:-unknown}" >> "$log_file"
   fi
 
-  # Foreign-staging pre-check: warn if sibling sessions claim any prospective paths.
-  _blanket_check_foreign_staging "$session_id"
-
   # Stage everything (this is the ONE sanctioned use of git add -A)
   # Sentinel 1: capture HEAD before commit so we can detect silent no-ops.
   # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
@@ -757,12 +648,94 @@ ERR
   # signal handlers. Subshell ensures the env var dies with the subshell on any exit path.
   ( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git add -A )  # E1 hook bypass — sanctioned blanket-add path (SC-DR-014). Plan: harden-safe-commit-against-sibling-add-all.
 
+  # ---------------------------------------------------------------------------
+  # F0/F1: Foreign-path subtract — remove sibling-EM-claimed paths from the
+  # staged index so a blanket sweep captures orphans but never absorbs a
+  # concurrent sibling EM's in-flight files.
+  #
+  # Escape hatch: COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 skips the subtract and
+  # reverts to full-tree sweep (e.g. a deliberate cross-session consolidation).
+  #
+  # Initial-commit guard: when there is no HEAD yet (_pre_head == INITIAL) a
+  # genesis repo cannot have live siblings — skip subtract entirely.
+  #
+  # TOCTOU: the read-foreign → git reset window is an accepted residual
+  # (attribution-only loss, strictly narrower than the prior warn-only status quo),
+  # deliberately un-locked to preserve workstream-start autonomy.
+  # Cross-ref docs/wiki/concurrent-em-hazards.md.
+  #
+  # Spec backlink: docs/plans/2026-06-22-authorized-blanket-orphan-capture-not-sibling-sweep.md § C1a F0/F1.
+  # ---------------------------------------------------------------------------
+  local subtracted_count=0
+  # Initial-commit/genesis repos cannot have live siblings (single-operator bootstrap),
+  # so skipping the subtract is safe AND `git reset HEAD` would error without a HEAD.
+  if [[ "${COORDINATOR_BLANKET_ACCEPT_FOREIGN:-}" != "1" && "$_pre_head" != "INITIAL" ]]; then
+    # --- Build own set: own touched.txt + own-agent touched.txt ---
+    local _blanket_base
+    _blanket_base=$(_cs_sessions_dir) || true
+    declare -A _own_set
+    if [[ -n "$_blanket_base" && -f "${_blanket_base}/${session_id}/touched.txt" ]]; then
+      while IFS= read -r _op; do
+        [[ -n "$_op" ]] && _own_set["$_op"]=1
+      done < "${_blanket_base}/${session_id}/touched.txt"
+    fi
+    # exact mode: broadened would scoop a sibling EM's own sub-agent back-pointer into
+    # "own", causing the blanket to absorb the sibling's in-flight files — no downstream
+    # correction exists on the blanket path (the subtract IS the only correction).
+    # Review: code-reviewer — fail-open here under-populates own-set with no downstream
+    # re-subtraction (unlike do_scoped), so own-wins is under-applied on agent-enumeration
+    # failure — accepted edge on old/sentinel-collision hosts.
+    while IFS= read -r _ap; do
+      [[ -n "$_ap" ]] && _own_set["$_ap"]=1
+    done < <(_cs_my_agent_touched "$session_id" exact 2>/dev/null || true)
+
+    # --- Build sibling-claimed set: union of live sibling sessions' touched.txt ---
+    # Sibling = live session that is NOT this session.
+    declare -A _sibling_set
+    if [[ -n "${_blanket_base:-}" && -d "$_blanket_base" ]]; then
+      local _slsid
+      while IFS= read -r _slsid; do
+        [[ -z "$_slsid" ]] && continue
+        [[ "$_slsid" == "$session_id" ]] && continue
+        local _sl_touched="${_blanket_base}/${_slsid}/touched.txt"
+        [[ -f "$_sl_touched" ]] || continue
+        local _slpath
+        while IFS= read -r _slpath; do
+          [[ -n "$_slpath" ]] && _sibling_set["$_slpath"]=1
+        done < "$_sl_touched"
+      done < <(cs_live_session_ids 2>/dev/null || true)
+    fi
+
+    # --- Compute Foreign = sibling-claimed − (own ∪ agent), intersected with staged ---
+    # Only paths that are STAGED (after git add -A) AND claimed by a sibling but NOT
+    # by us are subtracted.
+    local _staged_path
+    while IFS= read -r _staged_path; do
+      [[ -z "$_staged_path" ]] && continue
+      # Is it sibling-claimed?
+      [[ -v "_sibling_set[$_staged_path]" ]] || continue
+      # Is it also own-claimed? If yes, own wins — do NOT subtract.
+      [[ -v "_own_set[$_staged_path]" ]] && continue
+      # Foreign confirmed — unstage it (preserves working-tree content).
+      git reset -q HEAD -- "$_staged_path" 2>/dev/null || true
+      subtracted_count=$(( subtracted_count + 1 ))
+    done < <(git diff --cached --name-only 2>/dev/null || true)
+
+    # All-foreign-subtracted: if the index is now empty, nothing to commit — clean exit.
+    # Do NOT fall through to the _pre_head == _post_head FAIL sentinel (that guards the
+    # genuine no-op bug where do_blanket ran but nothing was ever staged).
+    if [[ "$subtracted_count" -gt 0 ]] && git diff --cached --quiet 2>/dev/null; then
+      echo "INFO: blanket: nothing to commit — all staged paths belong to live siblings (${subtracted_count} path(s) subtracted) [session: ${session_id:-?}]" >&2
+      exit 0
+    fi
+  fi
+
   # Destructive-shape gate (soft-warn through 2026-06-01, then promote to fail).
   # Catches blanket commits laundering unauthorized substrate changes (572a548b class):
   # ≥3 files with deletion-heavy diffs AND no plan/handoff/PR/lessons/queue ref in subject.
   # Override: COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 silences the warning.
   # Strict (fail-loud): COORDINATOR_BLANKET_SHAPE_STRICT=1.
-  # Spec backlink: state/coordinator-improvement-queue.md (2026-05-16, blanket commit shape-check entry).
+  # Spec backlink: archive/improvement-queue/coordinator-improvement-queue.md (2026-05-16, blanket commit shape-check entry; prose file archived 2026-06).
   # Note: _blanket_check_destructive_shape is defined nested inside do_blanket
   # for locality with its single caller. `exit 3` inside the nested function
   # terminates the calling script (do_blanket → main), not just the function —
@@ -1151,33 +1124,14 @@ do_scoped() {
 
   # Issue A: union dispatched-agent touched files into my_touched.
   # Per docs/plans/2026-05-05-issue-a-agent-id-linkage.md (Patrik APPROVED_WITH_NOTES v3).
-  # The .agents/<aid>/em-session-id.txt back-pointer makes the read path
-  # sentinel-independent — the candidate em-sid set (own session + live siblings
-  # via cs_live_session_ids) lets the helper recover from sentinel pollution
-  # by an executor's SessionStart overwriting .current-session-id.
-  if [[ -n "$base" && -d "${base}/.agents" ]]; then
-    declare -A em_candidates
-    em_candidates["$session_id"]=1
-    while IFS= read -r sid_token; do
-      [[ -n "$sid_token" ]] && em_candidates["$sid_token"]=1
-    done < <(cs_live_session_ids 2>/dev/null)
-
-    for agent_dir in "${base}/.agents"/*/; do
-      [[ -d "$agent_dir" ]] || continue
-      local backptr="${agent_dir}em-session-id.txt"
-      [[ -f "$backptr" ]] || continue
-      local em_sid
-      em_sid=$(head -1 "$backptr" 2>/dev/null)
-      [[ -z "$em_sid" ]] && continue  # malformed back-pointer; soft-skip
-      [[ -v "em_candidates[$em_sid]" ]] || continue
-
-      local agent_touched="${agent_dir}touched.txt"
-      [[ -f "$agent_touched" ]] || continue
-      while IFS= read -r f; do
-        [[ -n "$f" ]] && my_touched+=("$f")
-      done < "$agent_touched"
-    done
-  fi
+  # Extracted to _cs_my_agent_touched in lib/coordinator-session.sh (C1a refactor).
+  # broadened mode: Issue-A sentinel-pollution recovery — on old Claude Code an executor's
+  # SessionStart can pollute .current-session-id, broadening to live sids recovers the EM's
+  # own fan-out output; over-reach is self-correcting because cs_compute_scope re-subtracts
+  # other_sessions downstream.
+  while IFS= read -r f; do
+    [[ -n "$f" ]] && my_touched+=("$f")
+  done < <(_cs_my_agent_touched "$session_id" broadened 2>/dev/null || true)
 
   # Capture cs_compute_scope output: stdout = my scope, stderr = skip + orphan messages
   local scope_stdout scope_stderr

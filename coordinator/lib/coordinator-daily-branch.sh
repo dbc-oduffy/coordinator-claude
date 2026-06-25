@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # coordinator-daily-branch.sh — Shared helpers for daily-branch discipline enforcement
 #
-# NOTE on examples: tests under bin/tests/ use `striker` / `STRIKER` as
+# NOTE on examples: tests under bin/tests/ use `machine-a` / `MACHINE-A` as
 # literal fixture values (test cases assert canonical-case behavior on a
 # concrete machine name; placeholders won't substitute mechanically). Doctrine
 # prose elsewhere in the plugin uses `<machine>` / `<MACHINE>` placeholders.
@@ -35,10 +35,45 @@
 #   [[ -f "$LIB_PATH" ]] && source "$LIB_PATH"
 
 # cs_compute_machine — echo the coordinator machine name, always lowercase.
-# Resolution order: $COORDINATOR_MACHINE → $COMPUTERNAME → hostname → $HOSTNAME → "unknown"
+# Resolution order: $COORDINATOR_MACHINE → machine-local registry coordinator.machine_slug
+#   → $COMPUTERNAME → hostname → $HOSTNAME → "unknown"
+# Pure-read: never writes to the registry (Option B per plan; machine-local-registry.md §7).
+# Registry read degrades gracefully: if the CLI is absent (exit 127) or the key is absent
+# (exit 1), falls through to hostname. Uses MACHINE_LOCAL_BIN env escape hatch so the
+# C4 test harness can mock the CLI. Spec backlink:
+#   docs/plans/2026-06-22-persist-machine-slug-registry.md § Resolver (pure read)
 # Single-tail-emit pattern: all paths converge to one echo+tr at the end (the Staff Engineer F11).
 cs_compute_machine() {
   local m
+  if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then
+    m="$COORDINATOR_MACHINE"
+  else
+    local _ml_bin="${MACHINE_LOCAL_BIN:-machine-local}"
+    local _slug=""
+    if command -v "$_ml_bin" &>/dev/null; then
+      _slug=$("$_ml_bin" get --default "" coordinator.machine_slug 2>/dev/null || true)
+    fi
+    if [[ -n "$_slug" ]]; then
+      m="$_slug"
+    elif [[ -n "${COMPUTERNAME:-}" ]]; then
+      m="$COMPUTERNAME"
+    elif command -v hostname &>/dev/null; then
+      m=$(hostname 2>/dev/null | sed 's/\..*//')
+    else
+      m="${HOSTNAME:-unknown}"
+    fi
+  fi
+  echo "${m:-unknown}" | tr '[:upper:]' '[:lower:]'
+}
+
+# cs_compute_machine_live — echo the coordinator machine name without a registry read.
+# Resolution order: $COORDINATOR_MACHINE → $COMPUTERNAME → hostname → $HOSTNAME → "unknown"
+# Purpose: seed source for the registry key and drift-detection comparator for workday-start.
+# Using this avoids circularity (seeding from the registry-preferring resolver) and avoids
+# persisting a transient COORDINATOR_MACHINE override into the registry.
+cs_compute_machine_live() {
+  local m
+  # NOTE: env COORDINATOR_MACHINE is intentionally honoured here — drift detection compares the effective env-derived slug vs persisted, not raw hostname vs persisted. See plan § Residual coverage.
   if [[ -n "${COORDINATOR_MACHINE:-}" ]]; then m="$COORDINATOR_MACHINE"
   elif [[ -n "${COMPUTERNAME:-}" ]]; then m="$COMPUTERNAME"
   elif command -v hostname &>/dev/null; then m=$(hostname 2>/dev/null | sed 's/\..*//')
@@ -61,7 +96,7 @@ cs_compute_machine() {
 #   Parser advances at most one month — spans >~28 days are anti-patterns routed
 #   through the A/B/C reconciliation flow, not through this parser.
 #
-# Negative spec: does NOT accept feature/foo, work/striker/feature-X, or branches
+# Negative spec: does NOT accept feature/foo, work/machine-a/feature-X, or branches
 # with invalid date components (month > 12, day > 31).
 cs_parse_branch_span() {
   local name="$1"
@@ -134,7 +169,7 @@ cs_parse_branch_span() {
 # "valid shape, wrong case" and fix it. For creation-time canonical-case
 # enforcement use cs_is_canonical_branch instead.
 #
-# Negative spec: rejects feature/foo, work/striker/feature-X, hotfix/*, etc.
+# Negative spec: rejects feature/foo, work/machine-a/feature-X, hotfix/*, etc.
 cs_is_allowed_branch() {
   local name="$1"
   local lc
@@ -153,8 +188,8 @@ cs_is_allowed_branch() {
 # block its creation in the first place.
 #
 # Why creation-time: on Windows's case-insensitive FS, a mixed-case ref
-# created via `git checkout -b work/STRIKER/...` lands on disk as
-# `refs/heads/work/striker/...` (lowercase) but `.git/HEAD` stores the
+# created via `git checkout -b work/MACHINE-A/...` lands on disk as
+# `refs/heads/work/machine-a/...` (lowercase) but `.git/HEAD` stores the
 # literal mixed-case text. `git branch --show-current` returns the stored
 # case, and `git push origin <that>` fails ref lookup case-sensitively
 # against the canonical form. The runtime canonicalization in
@@ -228,7 +263,7 @@ cs_rename_target() {
 #   - last commit is older than 48h (stale — routes to A/B/C triage, not rename prompt)
 #
 # Arguments:
-#   <branch>            — branch name (e.g. work/striker/2026-05-06)
+#   <branch>            — branch name (e.g. work/machine-a/2026-05-06)
 #   <today>             — today's date as YYYY-MM-DD
 #   <last-commit-epoch> — unix epoch of most recent commit on the branch
 #

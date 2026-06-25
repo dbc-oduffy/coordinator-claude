@@ -187,7 +187,7 @@ When you receive a notification that the sweep task is complete:
 
 ### Coverage Auditor Dispatch
 
-> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
+> **Spec backlink:** `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
 > § C4-web, § Resolved Decisions OD-2, § AC1, AC7, AC12
 
 The coverage auditor is **always-on for web**. Dispatch it after reading the synthesis (steps 1–4 above) and **before TeamDelete** — this is the resolved-decision contract (RD-1). The auditor must run before TeamDelete; do not defer it to after shutdown.

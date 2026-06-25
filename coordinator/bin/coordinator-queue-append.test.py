@@ -2,6 +2,7 @@
 # ── sh/python polyglot trampoline ─────────────────────────────────────────────
 # Matches the CLI's trampoline so `bash coordinator-queue-append.test.py` works.
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 coordinator-queue-append.test.py — integration tests for coordinator-queue-append CLI.
 
@@ -515,6 +516,190 @@ def test_id_prefix_pattern_enforced_on_explicit_id() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 9 — central queue_scope writes to CLAUDE_HOME, not cwd
+# ---------------------------------------------------------------------------
+
+def _improvement_queue_required_args(extra: list[str] | None = None) -> list[str]:
+    """Return the minimal valid CLI args for an improvement-queue entry."""
+    args = [
+        "--schema", "improvement-queue",
+        "--title", "Test central improvement entry",
+        "--body", "Body describing the improvement.",
+        "--surface", "state/lessons.md:42",
+        "--proposed-target", "plugins/coordinator/skills/workstream-complete/SKILL.md",
+        "--change-kind", "skill-edit",
+        "--status", "open",
+        "--from-repo", "test-repo-em",
+    ]
+    if extra:
+        args.extend(extra)
+    return args
+
+
+def test_central_scope_writes_to_claude_home() -> None:
+    """With CLAUDE_HOME set (no QUEUE_APPEND_OUTPUT_ROOT), --queue-scope central must write
+    to <CLAUDE_HOME>/state/improvement-queue/, even when cwd is a different tmpdir.
+
+    This is the load-bearing fix: a session in a sibling repo must not write central
+    entries into the sibling's state/improvement-queue/ — they must always land in
+    the meta-repo.
+
+    Spec backlink: docs/plans/2026-06-23-stale-doctrine-central-queue-fix.md § Part 1 test
+    """
+    name = "Test 9a — --queue-scope central writes to CLAUDE_HOME, not cwd"
+    with tempfile.TemporaryDirectory() as claude_home_dir, \
+         tempfile.TemporaryDirectory() as sibling_cwd:
+        # claude_home_dir simulates ~/.claude; sibling_cwd simulates a sibling repo.
+        env = {"CLAUDE_HOME": claude_home_dir}
+        # Do NOT set QUEUE_APPEND_OUTPUT_ROOT — that would override the central redirect.
+
+        result = _run_cli(
+            _improvement_queue_required_args(["--queue-scope", "central"]),
+            env=env,
+            cwd=sibling_cwd,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"CLI exited {result.returncode}: {result.stderr!r}")
+            return
+
+        # Entry must be under CLAUDE_HOME, not under sibling_cwd.
+        expected_dir = os.path.join(claude_home_dir, "state", "improvement-queue")
+        if not os.path.isdir(expected_dir):
+            fail_test(name, f"expected output dir not created under CLAUDE_HOME: {expected_dir}")
+            return
+
+        yaml_files = [f for f in os.listdir(expected_dir) if f.endswith(".yaml")]
+        if len(yaml_files) != 1:
+            fail_test(name, f"expected 1 YAML in CLAUDE_HOME; found {len(yaml_files)}: {yaml_files}")
+            return
+
+        # Confirm nothing was written to the sibling cwd.
+        sibling_queue_dir = os.path.join(sibling_cwd, "state", "improvement-queue")
+        if os.path.isdir(sibling_queue_dir):
+            sibling_files = [f for f in os.listdir(sibling_queue_dir) if f.endswith(".yaml")]
+            if sibling_files:
+                fail_test(name, f"YAML written to sibling cwd (wrong): {sibling_files}")
+                return
+
+        # Review: code-reviewer — F4: verify YAML content, not just file location.
+        # queue_scope must be "central" and from_repo must match the passed value.
+        yaml_path = os.path.join(expected_dir, yaml_files[0])
+        try:
+            parsed = _parse_yaml_file(yaml_path)
+        except RuntimeError as exc:
+            fail_test(name, f"YAML parse error: {exc}")
+            return
+
+        got_scope = parsed.get("queue_scope")
+        if got_scope != "central":
+            fail_test(name, f"expected queue_scope='central' in YAML; got {got_scope!r}")
+            return
+
+        got_from_repo = parsed.get("from_repo")
+        if got_from_repo != "test-repo-em":
+            fail_test(name, f"expected from_repo='test-repo-em' in YAML; got {got_from_repo!r}")
+            return
+
+        pass_test(name)
+
+
+def test_project_scope_still_writes_cwd_relative() -> None:
+    """Regression guard: project-scoped improvement-queue writes must remain cwd-relative.
+
+    Ensure the central-scope redirect does NOT affect the default project-scope path.
+    """
+    name = "Test 9b — project scope (default) still writes cwd-relative (regression guard)"
+    with tempfile.TemporaryDirectory() as claude_home_dir, \
+         tempfile.TemporaryDirectory() as project_cwd:
+        # Set CLAUDE_HOME to a different dir to confirm it is NOT used for project scope.
+        env = {"CLAUDE_HOME": claude_home_dir}
+
+        result = _run_cli(
+            _improvement_queue_required_args(),  # no --queue-scope → defaults to project
+            env=env,
+            cwd=project_cwd,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"CLI exited {result.returncode}: {result.stderr!r}")
+            return
+
+        # Entry must be under project_cwd, not under claude_home_dir.
+        expected_dir = os.path.join(project_cwd, "state", "improvement-queue")
+        if not os.path.isdir(expected_dir):
+            fail_test(name, f"expected output dir not created under cwd: {expected_dir}")
+            return
+
+        yaml_files = [f for f in os.listdir(expected_dir) if f.endswith(".yaml")]
+        if len(yaml_files) != 1:
+            fail_test(name, f"expected 1 YAML in cwd; found {len(yaml_files)}: {yaml_files}")
+            return
+
+        # Confirm nothing was written to claude_home_dir.
+        home_queue_dir = os.path.join(claude_home_dir, "state", "improvement-queue")
+        if os.path.isdir(home_queue_dir):
+            home_files = [f for f in os.listdir(home_queue_dir) if f.endswith(".yaml")]
+            if home_files:
+                fail_test(name, f"YAML written to CLAUDE_HOME (wrong for project scope): {home_files}")
+                return
+
+        # Review: code-reviewer — F5: verify queue_scope is absent or None in project-scope output.
+        # _build_yaml skips None-valued optional fields, so queue_scope must not appear in the YAML.
+        yaml_path = os.path.join(expected_dir, yaml_files[0])
+        try:
+            parsed = _parse_yaml_file(yaml_path)
+        except RuntimeError as exc:
+            fail_test(name, f"YAML parse error: {exc}")
+            return
+
+        got_scope = parsed.get("queue_scope")
+        if got_scope is not None and got_scope != "" and got_scope != "null":
+            fail_test(name, f"expected queue_scope absent/None in project-scope YAML; got {got_scope!r}")
+            return
+
+        pass_test(name)
+
+
+# ---------------------------------------------------------------------------
+# Test 10 — --queue-scope central rejected for non-improvement-queue schemas (F1 guard)
+# ---------------------------------------------------------------------------
+
+def test_queue_scope_central_rejected_for_non_improvement_schemas() -> None:
+    """Review: code-reviewer — F1: --schema debt-backlog --queue-scope central must exit non-zero.
+
+    Without the schema guard, a caller could silently redirect debt-backlog entries
+    into ~/.claude/state/debt-backlog/ — wrong semantics, undocumented behaviour.
+    """
+    name = "Test 10 — --queue-scope central rejected for non-improvement-queue schemas"
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--queue-scope", "central",
+                "--title", "T",
+                "--body", "B",
+                "--status", "open",
+                "--source", "daily-review/test",
+                "--risk", "Some risk.",
+                "--suggested-action", "Some action.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+    if result.returncode == 0:
+        fail_test(name, "--schema debt-backlog --queue-scope central should exit non-zero; got 0")
+        return
+    combined = result.stdout + result.stderr
+    if "improvement-queue" not in combined:
+        fail_test(
+            name,
+            f"error output should mention 'improvement-queue' as the only valid schema. stderr: {result.stderr!r}",
+        )
+        return
+    pass_test(name)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -530,6 +715,9 @@ def main() -> int:
     test_roundtrip_yaml_parseable()
     test_schema_doc_not_runtime_parsed()
     test_id_prefix_pattern_enforced_on_explicit_id()
+    test_central_scope_writes_to_claude_home()
+    test_project_scope_still_writes_cwd_relative()
+    test_queue_scope_central_rejected_for_non_improvement_schemas()
 
     print()
     print(f"Results: {TESTS_PASSED} passed, {TESTS_FAILED} failed")

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# verify-no-console-flash: file-allow — test scaffolding; interpreter spawns run in the CI/local test harness, never the Windows interactive coordinator hot-path
 # full-corpus-run.sh — AC9: emitter runs clean against the full current archive
 # (live + archived handoffs, all backlog types, full review-trail union);
 # malformed_records reported but non-fatal; at least one record in each main array.

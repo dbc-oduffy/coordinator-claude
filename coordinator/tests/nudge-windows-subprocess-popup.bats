@@ -14,7 +14,13 @@
 #
 # AC-coverage:
 #   AC3 — deny-with-offer on bare subprocess.run(["powershell.exe",...]) and & python
-#   AC9 — canonical marker `# popup-intentional-last-resort` suppresses the hook
+#   AC9 — BOTH canonical markers suppress the hook:
+#          `# popup-intentional-last-resort`  (popup occurs and is accepted)
+#          `# popup-safe-env-suppressed`       (popup suppressed by env-var means; safe)
+#   AC7 — bare env-var prefix (e.g. FOR_DISABLE_CONSOLE_CTRL_HANDLER=1) WITHOUT a marker
+#          is NOT a suppression escape — hook still fires deny on BOTH detection branches
+#          (the .ps1 branch and the .sh/.py subprocess.run/bare-python-c branch)
+# Review: code-reviewer (A-F2) — added second marker and AC7 to coverage header.
 #
 # Run: npx bats plugins/coordinator-claude/coordinator/tests/nudge-windows-subprocess-popup.bats
 #      from the ~/.claude repo root.
@@ -264,6 +270,72 @@ result = subprocess.run(["powershell.exe", "-Command", "Get-Date"], capture_outp
 }
 
 # ---------------------------------------------------------------------------
+# Negative: canonical marker `# popup-safe-env-suppressed` present → silent
+# AC9 — second canonical cross-layer marker (env-var suppression confirmed safe)
+# ---------------------------------------------------------------------------
+
+@test "AC9: # popup-safe-env-suppressed in .py suppresses hook → silent" {
+  local content
+  content='import subprocess
+# popup-safe-env-suppressed
+result = subprocess.run(["powershell.exe", "-Command", "Get-Date"], capture_output=True)'
+
+  run bash "$SUBJECT" <<< "$(write_json "/tmp/env_suppressed.py" "$content")"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# Negative: AC9 second marker in PowerShell file → silent
+# ---------------------------------------------------------------------------
+
+@test "AC9: # popup-safe-env-suppressed in .ps1 suppresses hook → silent" {
+  local content
+  content='# popup-safe-env-suppressed
+& python -c "print(42)"'
+
+  run bash "$SUBJECT" <<< "$(write_json "/tmp/env_suppressed.ps1" "$content")"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# Positive: bare env-var prefix WITHOUT a marker does NOT suppress the hook.
+# Pins the decision that structural env-var prefix alone is NOT a suppression
+# escape — only the explicit canonical markers are. (generic-substrate rule)
+# AC9 negative — env-prefix-only still fires deny
+# ---------------------------------------------------------------------------
+
+@test "AC9 neg: bare env-var prefix FOR_DISABLE_CONSOLE_CTRL_HANDLER=1 alone → still deny" {
+  local content
+  content='FOR_DISABLE_CONSOLE_CTRL_HANDLER=1 & python -c "print(42)"'
+
+  run bash "$SUBJECT" <<< "$(write_json "/tmp/env_prefix_only.ps1" "$content")"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"permissionDecision":"deny"'* ]] || \
+    [[ "$output" == *'permissionDecision": "deny"'* ]]
+}
+
+# ---------------------------------------------------------------------------
+# AC7 negative — env-var prefix on the .py / bare-python-c detection branch.
+# The AC9 neg above only exercises the .ps1 branch (& python pattern).
+# AC7 asserts the structural env-prefix escape is not adopted AT ALL — so the
+# .sh/.py detection branch (subprocess.run/bare python -c grep, lines ~195-210)
+# must also still fire deny when only the env-var prefix is present.
+# Review: code-reviewer (A-F1) — pin AC7 on BOTH detection branches.
+# ---------------------------------------------------------------------------
+
+@test "AC9 neg: bare env-var prefix FOR_DISABLE_CONSOLE_CTRL_HANDLER=1 on .py branch → still deny" {
+  local content
+  content='FOR_DISABLE_CONSOLE_CTRL_HANDLER=1 python -c "print(42)"'
+
+  run bash "$SUBJECT" <<< "$(write_json "/tmp/env_prefix_only.py" "$content")"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"permissionDecision":"deny"'* ]] || \
+    [[ "$output" == *'permissionDecision": "deny"'* ]]
+}
+
+# ---------------------------------------------------------------------------
 # Negative: PowerShell with -WindowStyle Hidden → silent
 # AC3 negative
 # ---------------------------------------------------------------------------
@@ -275,6 +347,41 @@ result = subprocess.run(["powershell.exe", "-Command", "Get-Date"], capture_outp
   run bash "$SUBJECT" <<< "$(write_json "/tmp/hidden.ps1" "$content")"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# Negative: SHELL (.sh) with powershell.exe -WindowStyle Hidden → silent
+# Regression: the .sh/.py allow-guard once recognized only Python suppressors
+# and omitted -WindowStyle Hidden, denying legitimately-suppressed powershell.exe
+# calls authored in shell scripts (e.g. install-substrate.sh Windows PATH steps).
+# A direct shell powershell.exe invocation IS suppressed by -WindowStyle Hidden,
+# matching the .ps1 branch and bin/verify-no-console-flash.sh.
+# ---------------------------------------------------------------------------
+
+@test "AC3 neg: shell .sh with powershell.exe -WindowStyle Hidden → silent" {
+  local content
+  content='#!/usr/bin/env bash
+powershell.exe -NoProfile -WindowStyle Hidden -Command "Get-Process"'
+
+  run bash "$SUBJECT" <<< "$(write_json "/tmp/path-add.sh" "$content")"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# Positive guard: SHELL (.sh) with bare powershell.exe (no -WindowStyle Hidden)
+# still denies — the fix must not weaken protection for unsuppressed calls.
+# ---------------------------------------------------------------------------
+
+@test "AC3: shell .sh with bare powershell.exe (no suppression) → deny" {
+  local content
+  content='#!/usr/bin/env bash
+powershell.exe -NoProfile -Command "Get-Process"'
+
+  run bash "$SUBJECT" <<< "$(write_json "/tmp/bare-ps.sh" "$content")"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"permissionDecision":"deny"'* ]] || \
+    [[ "$output" == *'permissionDecision": "deny"'* ]]
 }
 
 # ---------------------------------------------------------------------------

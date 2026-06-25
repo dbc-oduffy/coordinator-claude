@@ -30,7 +30,7 @@
 #   93 — override-flag-pair-incomplete (only one of the two flags provided)
 
 # ---------------------------------------------------------------------------
-# Guard: source manifest_reader.sh if not already loaded.
+# Guard: source vendored coordinator_prereq/manifest_reader.sh if not already loaded.
 # ---------------------------------------------------------------------------
 _DR_DEP_CHECK_LOADED="${_DR_DEP_CHECK_LOADED:-0}"
 if [[ "$_DR_DEP_CHECK_LOADED" == "1" ]]; then
@@ -39,9 +39,9 @@ fi
 _DR_DEP_CHECK_LOADED=1
 
 _dep_check_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=plugins/deep-research/scripts/lib/manifest_reader.sh
-source "$_dep_check_lib_dir/manifest_reader.sh" 2>/dev/null || {
-  echo "ERROR: dep_check.sh: cannot source manifest_reader.sh from $_dep_check_lib_dir" >&2
+# shellcheck source=plugins/deep-research/scripts/lib/coordinator_prereq/manifest_reader.sh
+source "$_dep_check_lib_dir/coordinator_prereq/manifest_reader.sh" 2>/dev/null || {
+  echo "ERROR: dep_check.sh: cannot source coordinator_prereq/manifest_reader.sh from $_dep_check_lib_dir" >&2
   exit 1
 }
 
@@ -176,12 +176,15 @@ _dr_dep_probe() {
   # Parse manifest to find this dep's entry.
   local _dep_json=""
   local _python
-  _python="$(_dr_find_python 2>/dev/null)" || {
+  _python="$(_co_find_python 2>/dev/null)" || {
     echo "missing"
     return 0
   }
 
-  _dep_json="$(_dr_manifest_read_ndjson 2>/dev/null | \
+  # _co_manifest_read_ndjson with no args relies on REPO_ROOT being pre-set by the
+  # caller (setup.sh exports it). Standalone use without REPO_ROOT will fail to
+  # locate the manifest.
+  _dep_json="$(_co_manifest_read_ndjson 2>/dev/null | \
     "$_python" -c "
 import json, sys
 dep_id = sys.argv[1]
@@ -250,7 +253,7 @@ for line in sys.stdin:
       local _expr
       _expr="$("$_python" -c "import json,sys; d=json.loads(sys.argv[1]); print(d.get('functional_probe_args',{}).get('expr',''))" "$_dep_json" 2>/dev/null)"
       local _python_probe
-      _python_probe="$(_dr_find_python 2>/dev/null)" || { echo "present-but-broken"; return 0; }
+      _python_probe="$(_co_find_python 2>/dev/null)" || { echo "present-but-broken"; return 0; }
       # Run from caller's cwd, NOT from sibling dir — the probe must match the
       # runtime's actual sys.path resolution (post-`pip install --system -e`).
       # cd-into-sibling would mask the partial-install state the consent gate
@@ -292,7 +295,7 @@ _dr_dep_probe_all() {
   local _sibling_root
   _sibling_root="$(cd "$_repo_root/.." && pwd)"
   local _python
-  _python="$(_dr_find_python 2>/dev/null)" || return 1
+  _python="$(_co_find_python 2>/dev/null)" || return 1
 
   while IFS= read -r _dep_line; do
     [[ -z "$_dep_line" ]] && continue
@@ -337,7 +340,10 @@ print(json.dumps({
     'hint': sys.argv[5],
 }))
 " "$_id" "$_severity" "$_status" "$_sibling_path" "$_hint"
-  done < <(_dr_manifest_read_ndjson 2>/dev/null)
+  # _co_manifest_read_ndjson with no args relies on REPO_ROOT being pre-set by the
+  # caller (setup.sh exports it). Standalone use without REPO_ROOT will fail to
+  # locate the manifest.
+  done < <(_co_manifest_read_ndjson 2>/dev/null)
 }
 
 # ---------------------------------------------------------------------------
@@ -427,7 +433,7 @@ _dr_visited_set_init() {
 
   local _visited_file="$_dr_dir/chain-walk-${_session_id}.json"
   local _python
-  _python="$(_dr_find_python)" || return 1
+  _python="$(_co_find_python)" || return 1
 
   local _started_at
   _started_at="$("$_python" -c "import datetime; print(datetime.datetime.utcnow().isoformat() + 'Z')" 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -457,7 +463,7 @@ _dr_visited_set_check() {
   local _dep_id="$2"
   local _visited_file="$HOME/.claude/deep-research-claude/chain-walk-${_session_id}.json"
   local _python
-  _python="$(_dr_find_python)" || return 1
+  _python="$(_co_find_python)" || return 1
 
   if [[ ! -f "$_visited_file" ]]; then
     return 1  # file doesn't exist → not visited
@@ -484,7 +490,7 @@ _dr_visited_set_append() {
   local _dep_id="$2"
   local _visited_file="$HOME/.claude/deep-research-claude/chain-walk-${_session_id}.json"
   local _python
-  _python="$(_dr_find_python)" || return 1
+  _python="$(_co_find_python)" || return 1
 
   "$_python" -c "
 import json, sys, os, tempfile
@@ -587,7 +593,7 @@ _dr_consent_gate() {
   while IFS= read -r _probe_line; do
     [[ -z "$_probe_line" ]] && continue
     local _python
-    _python="$(_dr_find_python 2>/dev/null)" || continue
+    _python="$(_co_find_python 2>/dev/null)" || continue
     local _severity _status _id
     _severity="$("$_python" -c "import json,sys; print(json.loads(sys.argv[1]).get('severity',''))" "$_probe_line" 2>/dev/null)"
     _status="$("$_python" -c "import json,sys; print(json.loads(sys.argv[1]).get('status',''))" "$_probe_line" 2>/dev/null)"

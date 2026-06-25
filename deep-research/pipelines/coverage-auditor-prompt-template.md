@@ -5,7 +5,7 @@
 > The EM dispatches this agent as a plain (non-teammate) Agent post-synthesis, at the
 > "On Completion Notification" step before archive and TeamDelete.
 >
-> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C2
+> Spec backlink: `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C2
 > Agent definition: `agents/coverage-auditor.md`
 
 ## Two Coverage Artifacts — Reader Contract
@@ -256,25 +256,30 @@ you cannot locate in the synthesis.
 MCP Bootstrap — graduated pattern (mirror from `notebooklm/agents/research-sweep.md`):
 
 Step 1 — Try exact tool names:
-  ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")
+  ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query,mcp__plugin_notebooklm_notebooklm__cross_notebook_query")
 
 Step 2 — If Step 1 returns no results, try keyword search:
   ToolSearch("+notebooklm notebook_query", max_results=5)
 
 Step 3 — If both return no results, the notebooklm MCP tools are not available.
   DEGRADE GRACEFULLY: proceed with claims-only coverage check using the
-  `{letter}-claims.json` files. Note the degradation explicitly in your sidecar:
-  "MCP tools unavailable — audit based on claims.json only. Notebook depth not verified."
+  `{letter}-claims.json` files. Note the degradation explicitly in your sidecar
+  header (verbatim contract string):
+  > DEGRADED: notebooklm MCP tools unavailable. Coverage audit based on on-disk claims.json only.
+  > Notebook queries were not run. A re-audit with MCP tools available may surface additional gaps.
   This is a documented, expected degradation path — not an error.
 
-Notebook IDs are sourced from `{letter}-summary.md` YAML frontmatter (`notebook_id`
-field) — never construct them manually.
+Notebook IDs/names are sourced from `{letter}-summary.md` YAML frontmatter
+(`notebook_id` / `notebook_name` fields) — never construct them manually. Use
+`notebook_query` to verify a claim against one notebook; use
+`cross_notebook_query(query, notebook_names="…")` to verify a cross-notebook claim
+against all the notebooks it spans in one aggregated call.
 
 CLEANUP NOTE: Do NOT delete notebooks. Notebook cleanup is deferred to the EM's
 post-audit completion step. Your role is read-only on notebooks.
 
-**Tool grant:** Read, Grep, Glob, Write + notebooklm MCP tools (notebook_query;
-see bootstrap above) — no web access, no team messaging.
+**Tool grant:** Read, Grep, Glob, Write + notebooklm MCP tools (notebook_query and
+cross_notebook_query; see bootstrap above) — no web access, no team messaging.
 ```
 
 ---

@@ -14,7 +14,7 @@ version: 1.0.0
 
 # /percolate — Publish Files to a Publish-Repo Target
 
-<!-- spec backlink: docs/plans/2026-05-08-formalize-percolation-spec2-push-to-publish-skill.md -->
+<!-- spec backlink: archive/specs/2026-05/2026-05-08-formalize-percolation-spec2-push-to-publish-skill.md -->
 
 Wraps the existing `publish.sh` + publish-repo CI gate into a single deterministic invocation: dry-run first, PM-confirm when changes are significant, real run, optional CI smoke, unified summary. Hook scripts registered under `setup/percolate-hooks/<target>/{pre-rsync,post-rsync,pre-ci}/` run at the corresponding boundaries — this skill does not name specific hooks; it runs whatever's registered.
 
@@ -173,8 +173,47 @@ tr '\n' '\0' < /tmp/percolate-scan-files.txt | xargs -0 grep -nIE \
   2>/dev/null
 
 # Tier MEDIUM — PM/EM identity, internal paths, peer-repo names. Surfaces to PM gate.
+#
+# OPERATOR IDENTITY TOKENS (machine codenames, home path, org slug): these live in
+# setup/.percolate-identity (gitignored, machine-local). The publish.sh Phase-4 audit
+# consumes them via PERSONAL_REVIEW_PATTERNS using perl_match (PCRE). This Step 2c
+# scan intentionally does NOT inline those tokens: grep -E on macOS/BSD does not
+# support \b word-boundaries reliably (GNU extension), so \bmymachine\b patterns
+# would silently fail to match. The two detection surfaces are kept separate by
+# design — see "Why Tier MEDIUM and publish.sh PERSONAL_REVIEW_PATTERNS are separate"
+# note below.
+#
+# IMPORTANT — FAIL LOUD if setup/.percolate-identity is unconfigured:
+# Before running the MEDIUM grep below, check whether the operator's identity token
+# file exists AND is populated. If it is absent or PERSONAL_REVIEW_PATTERNS is empty,
+# machine-slug detection relies entirely on the publish.sh Phase-4 audit. publish.sh
+# itself emits a WARNING for coordinator-claude*/deep-research-claude* mirror targets in
+# this case; this Step 2c check runs earlier (EM-layer, before the real publish) so you
+# catch it at dry-run time. Surface a visible warning so the operator knows the
+# identity-token net is down:
+#
+#   identity_file="$HOME/.claude/setup/.percolate-identity"
+#   if [[ ! -f "$identity_file" ]]; then
+#     echo "  NOTE: setup/.percolate-identity not found — machine-slug detection"
+#     echo "        (PERSONAL_REVIEW_PATTERNS in publish.sh Phase-4) is UNCONFIGURED."
+#     echo "        Copy setup/.percolate-identity.example → .percolate-identity and"
+#     echo "        populate PERSONAL_REVIEW_PATTERNS with your machine codenames."
+#     echo "        This Step 2c scan covers generic shapes only; operator-specific"
+#     echo "        tokens are NOT scanned until .percolate-identity is in place."
+#   else
+#     _prp_count=$(bash -c 'source "$1" 2>/dev/null; echo ${#PERSONAL_REVIEW_PATTERNS[@]}' _ "$identity_file" 2>/dev/null || echo 0)
+#     if [[ "${_prp_count:-0}" -eq 0 ]]; then
+#       echo "  NOTE: setup/.percolate-identity exists but PERSONAL_REVIEW_PATTERNS is"
+#       echo "        empty — machine-slug detection is effectively unconfigured."
+#       echo "        Populate PERSONAL_REVIEW_PATTERNS with your machine codenames."
+#     fi
+#   fi
+#
+# The generic shapes below catch ~/.claude internal paths, /x/ and drive-letter
+# peer-repo paths, and email addresses — no operator-specific literals ship here.
+# See docs/wiki/percolate-setup.md.
 tr '\n' '\0' < /tmp/percolate-scan-files.txt | xargs -0 grep -nIE \
-  "([Dd][óo]nal\\b|O'?[Dd]uffy|\\boduffy\\b|delphiinteractive|\\bstriker\\b|/c/Users/oduffy|~/\\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b)" \
+  "(~/\\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b)" \
   2>/dev/null
 
 # Tier LOW — informational only. Renders in panel without forcing gate.
@@ -219,6 +258,8 @@ Content-leakage scan:
 **Hook escape:** if a `<source_dir>/.percolate-scan-allowlist` file exists, treat each line as a `file:line` exemption (e.g. for a wiki that legitimately documents an example secret format). The exemption MUST be the exact file:line; pattern matches don't auto-allowlist. Exemptions are reviewed during percolation setup (see `docs/wiki/percolate-setup.md` § Drift Detection), not here.
 
 **False-positive caveat:** the regex set is intentionally broad. `Dónal` matches any first-name use (intended). Refining is the EM's call when integrating findings — but defaulting to "surface and let PM judge" beats "silently miss a real leak."
+
+**Why Tier MEDIUM and publish.sh `PERSONAL_REVIEW_PATTERNS` are separate detection surfaces (not unified):** the Director of Engineering F3 asked whether these two surfaces could share one per-operator token source (`setup/.percolate-identity`). The answer is: **no, kept separate — regex-dialect incompatibility is the binding reason.** The SKILL.md Tier MEDIUM scan is an EM-run bash procedure using `grep -nIE`; `grep -E` on macOS/BSD does not support `\b` word-boundary assertions (a GNU grep extension). Operator machine-slug tokens like `\bmymachine\b` would silently fail to match on macOS. The publish.sh audit uses `perl_match` (full PCRE, universally portable) which handles `\b` correctly on all platforms. Unifying the token source would require either (a) switching SKILL.md to `perl -ne` (changing an EM-procedure into a different execution shape) or (b) accepting that the SKILL.md scan would miss word-boundary-sensitive tokens on macOS. Neither is better than keeping the surfaces separate with clear documentation. **Decision: keep separate; the durable identity-token net is the publish.sh Phase-4 audit (`PERSONAL_REVIEW_PATTERNS`), not this inline scan.** The inline scan is a fast generic-shape first pass; the Phase-4 audit is the authoritative per-operator leak oracle. (Decision doc: `docs/plans/2026-06-24-coordinator-oss-personal-data-hardening.md` § C4 / F3.)
 
 #### Step 2d — Inverse-drift detection
 
@@ -373,7 +414,11 @@ If no `pre-ci` directory exists or it's empty, skip silently.
 If `<dest>/.github/scripts/run-all-checks.py` exists, run CI with cwd at the repo root:
 
 ```bash
-cd "<dest>" && python .github/scripts/run-all-checks.py
+# python3-first interpreter resolution — `python` is absent on modern macOS / many
+# Linux (only python3); `python3` is absent on Windows/pyenv (only python). Fail loud
+# if neither exists rather than silently skipping CI.
+PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+cd "<dest>" && "$PY" .github/scripts/run-all-checks.py
 ```
 
 Capture exit code. Surface full output to console. If the script does not exist, skip silently — not every target has CI.

@@ -60,7 +60,7 @@ fi
 # and don't have a stable on-disk directory we should mutate. Bare names only;
 # resolve-python.sh Step 3 does not absolutize the launcher path (see lib lines
 # 213-220), so an exact-match guard is sufficient.
-case "$PYTHON_BIN" in
+case "$PYTHON_BIN" in # verify-no-console-flash: allow — string literal, not an interpreter spawn; $PYTHON_BIN is a case discriminant
   py|pyw)
     echo "[ensure-python3-exe-shim] resolver returned launcher ($PYTHON_BIN); skipping (need a real install dir to shim)" >&2
     exit 0
@@ -70,9 +70,9 @@ esac
 # PYTHON_BIN is a Windows path (resolve-python.sh normalizes via cygpath -w on
 # MSYS/Cygwin). Convert to POSIX for filesystem ops here.
 if command -v cygpath &>/dev/null; then
-  _py_posix="$(cygpath -u "$PYTHON_BIN" 2>/dev/null || printf '%s' "$PYTHON_BIN")"
+  _py_posix="$(cygpath -u "$PYTHON_BIN" 2>/dev/null || printf '%s' "$PYTHON_BIN")" # verify-no-console-flash: allow — string literal, not an interpreter spawn; $PYTHON_BIN is an arg to cygpath/printf
 else
-  _py_posix="$(printf '%s' "$PYTHON_BIN" | tr '\\' '/')"
+  _py_posix="$(printf '%s' "$PYTHON_BIN" | tr '\\' '/')" # verify-no-console-flash: allow — string literal, not an interpreter spawn; $PYTHON_BIN is an arg to printf
 fi
 
 _py_dir="$(dirname "$_py_posix")"

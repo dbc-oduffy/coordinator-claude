@@ -213,7 +213,7 @@ Begin convergence when ANY of these conditions are met (AND the floor is satisfi
 
 ## Coverage-Auditor Lifecycle
 
-> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § OD-1 (structured = reduced auditor), § C6, § AC9
+> **Spec backlink:** `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § OD-1 (structured = reduced auditor), § C6, § AC9
 
 Pipeline C uses a **reduced** coverage auditor — dispatched by the EM as a non-teammate Agent **after** the synthesizer completes and **before** TeamDelete. The auditor answers one question for structured output: did every verifier finding get mapped to an output schema field, or if dropped, was it annotated?
 
@@ -225,7 +225,7 @@ Pipeline C uses a **reduced** coverage auditor — dispatched by the EM as a non
 
 ## Fidelity Relay: OUT OF SCOPE
 
-> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § OD-1, § Per-pipeline applicability matrix (C row)
+> **Spec backlink:** `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § OD-1, § Per-pipeline applicability matrix (C row)
 
 The fidelity relay (waking idle specialists to verify their content was faithfully represented in synthesis prose) is **not applicable to Pipeline C.** Two architectural reasons compose:
 
