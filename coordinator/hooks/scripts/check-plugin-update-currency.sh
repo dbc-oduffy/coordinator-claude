@@ -208,6 +208,13 @@ for plugin_entry in "${PLUGINS_TO_CHECK[@]}"; do
                 # from a cached 3-day record. If we see it, re-check live.
                 use_cached=0
                 ;;
+            behind-clone*)
+                # probe result: "behind-clone <n> <ref>"
+                # install_root is still in scope from the loop header parse above.
+                clone_n="$(echo "$cached_status"   | awk '{print $2}')"
+                clone_ref="$(echo "$cached_status" | awk '{print $3}')"
+                echo "📦 ${plugin_name} clone is ${clone_n} commits behind ${clone_ref} — git pull in ${install_root} to update"
+                ;;
             behind*)
                 from_ver="$(echo "$cached_status" | awk '{print $2}')"
                 to_ver="$(echo "$cached_status"   | awk '{print $3}')"
@@ -235,6 +242,16 @@ for plugin_entry in "${PLUGINS_TO_CHECK[@]}"; do
     case "$probe_result" in
         current|source_is_live)
             # Silent — write/refresh the 3-day sentinel so we don't recheck for 3 days
+            if [[ -n "$TODAY" ]]; then
+                _sentinel_write "$plugin_name" "$TODAY" "$probe_result"
+            fi
+            ;;
+        behind-clone*)
+            # probe_result: "behind-clone <n> <ref>"
+            # BOOT-CURRENCY-THROTTLE: write 3-day sentinel so we don't re-fetch every boot.
+            clone_n="$(echo "$probe_result"   | awk '{print $2}')"
+            clone_ref="$(echo "$probe_result" | awk '{print $3}')"
+            echo "📦 ${plugin_name} clone is ${clone_n} commits behind ${clone_ref} — git pull in ${install_root} to update"
             if [[ -n "$TODAY" ]]; then
                 _sentinel_write "$plugin_name" "$TODAY" "$probe_result"
             fi

@@ -120,7 +120,7 @@ collect_branches() {
     branch=$(echo "$line" | sed 's|^[[:space:]]*||; s|^origin/||; s|^remotes/origin/||')
     [[ -z "$branch" ]] && continue
     [[ "$branch" == "HEAD" ]] && continue
-    # only work/* and feature/* branches (case-insensitive — legacy work/STRIKER/... must match)
+    # only work/* and feature/* branches (case-insensitive — legacy work/MACHINE-A/... must match)
     shopt -s nocasematch
     if [[ "$branch" =~ ^(work|feature)/ ]]; then
       seen_branches["$branch"]=1
@@ -325,7 +325,7 @@ if prs:
   elif [[ "$pr_state" != "MERGED" && $ahead -gt 0 ]]; then
     # Use last-commit time (tip_ct, already computed above) for age rather than
     # parsing the branch-name start-date. This prevents false-positive WARNING
-    # noise on legitimate active span branches like work/striker/2026-05-01to07
+    # noise on legitimate active span branches like work/machine-a/2026-05-01to07
     # where the start-date is days old but the branch is still actively committed.
     # (the Staff Engineer R1 F6 — promoted from anti-scope "verify only" to explicit fix.)
     branch_age_days=$(( age_secs / 86400 ))

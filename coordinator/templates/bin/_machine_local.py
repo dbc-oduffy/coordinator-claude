@@ -17,13 +17,31 @@ Resolution order (most-specific first):
   4. registry.toml         — tracked top-level baseline
   5. MACHINE_LOCAL_<KEY>   — env escape hatch (dots → underscores, uppercased)
   6. --default             — caller-supplied fallback
-  7. exit 1                — not found
+  7. exit 1                — key cleanly absent (read path)
+  7a. exit 2               — operational failure (broken reader: version guard,
+                             malformed TOML) — NOT absence (read path)
+
+Read-path exit-code contract (get / has): a consumer MUST be able to tell a
+cleanly-absent key from a reader that could not produce an answer at all — else a
+shell-out that swallows non-zero (`get X || fallback`) silently masks an
+operational failure as absence. That ambiguity is the 2026-06-24 daemon bug
+(cross-repo memo: a stripped-PATH daemon ran the wrapper under system Python 3.9,
+tripping the version guard, and rc=1 was read as "key absent"). Codes:
+  0  — success (value found / has: present)
+  1  — clean absence (get: key not found; has: key not set)
+  2  — operational failure (Python < 3.11 version guard, malformed TOML)
+The write commands (set / array-*) have no "absent" concept; they keep the
+simpler 0 = success / non-zero = refused-or-failed convention.
 
 Negative-spec: env does NOT outrank registry layers (the Director of Engineering F1 inversion).
 Negative-spec: missing .local files are not errors — treated as empty.
 Negative-spec: no regex fallback, no PyYAML, no tomli — stdlib tomllib only.
-Negative-spec: reader is read-only for GET path; SET path writes only registry.local.toml
-              (or registry.toml with --global). SET never touches concern files.
+Negative-spec: reader is read-only for GET path; bare SET writes only registry.local.toml
+              (or registry.toml with --global) and never touches concern files — UNLESS
+              --concern <name> is passed, the explicit concern-file write path
+              (cmd_set_concern: per-key [provenance.<key>], type-AND-table-preserving
+              read-merge-write into <name>.local.toml). The registry path and the concern
+              path are disjoint: bare set still refuses concern-namespace keys.
 
 All consumers — including the ergonomic wrapper ``claude_machine_local.py`` —
 shell out to the ``machine-local`` CLI. Direct in-process import is the
@@ -37,15 +55,23 @@ import argparse
 import re
 import datetime
 
+# Read-path exit-code contract (see module docstring). Operational failure MUST be
+# distinguishable from a cleanly-absent key so a consumer swallowing non-zero does
+# not mask a broken reader as "key not found" (2026-06-24 daemon read-path bug).
+EXIT_OK = 0
+EXIT_NOT_FOUND = 1      # get: key not found | has: key not set — a clean negative
+EXIT_OPERATIONAL = 2    # reader could not answer: version guard, malformed TOML
+
 # Hard requirement: fail loud on Python < 3.11 rather than silently degrade.
 # coordinator requires Python 3.11+ for TOML parsing via stdlib tomllib.
+# Exits OPERATIONAL (not NOT_FOUND): a guard trip is a broken reader, not absence.
 if sys.version_info < (3, 11):
     print(
         "coordinator requires Python 3.11+ for TOML parsing; "
         "upgrade Python or pin tomli backport in coordinator's dev deps.",
         file=sys.stderr,
     )
-    sys.exit(1)
+    sys.exit(EXIT_OPERATIONAL)
 
 import tomllib  # stdlib, 3.11+
 
@@ -81,7 +107,8 @@ def _load_toml(path: str) -> dict:
             "Remediation: fix the TOML syntax in the file above.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        # Operational failure, not absence: the reader could not parse its input.
+        sys.exit(EXIT_OPERATIONAL)
 
 
 def _warn_schema(data: dict, path: str) -> None:
@@ -278,7 +305,12 @@ def _all_keys(layers: list[dict]) -> list[str]:
 
 
 def cmd_get(args: argparse.Namespace) -> int:
-    """Implement: machine-local get <key> [--default <v>]"""
+    """Implement: machine-local get <key> [--default <v>]
+
+    Operational failures (version guard, malformed TOML) exit 2 via sys.exit(EXIT_OPERATIONAL)
+    inside _load_toml / the version guard at module top, BEFORE reaching this return.
+    So a `return EXIT_NOT_FOUND` here is always a clean absence — never a broken reader.
+    """
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
     key = args.key
@@ -301,11 +333,15 @@ def cmd_get(args: argparse.Namespace) -> int:
         return 0
 
     print(f"machine-local: key '{key}' not found in registry", file=sys.stderr)
-    return 1
+    return EXIT_NOT_FOUND
 
 
 def cmd_has(args: argparse.Namespace) -> int:
-    """Implement: machine-local has <key> — exit 0 if set, 1 if not (no output)."""
+    """Implement: machine-local has <key> — exit 0 if set, 1 if not (no output).
+
+    Operational failures (version guard, malformed TOML) exit 2 before reaching
+    this return, so a 1 here is always a clean "not set", never a broken reader.
+    """
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
     key = args.key
@@ -314,7 +350,7 @@ def cmd_has(args: argparse.Namespace) -> int:
     if val is None:
         val = os.environ.get(_env_key(key))
 
-    return 0 if val is not None else 1
+    return EXIT_OK if val is not None else EXIT_NOT_FOUND
 
 
 def cmd_keys(args: argparse.Namespace) -> int:
@@ -1006,17 +1042,329 @@ def _get_raw_list(parsed: dict, key: str) -> object:
     return cursor
 
 
+def _emit_concern_scalar(key: str, value: object) -> str:
+    """Emit one TOML scalar line for a concern file, PRESERVING the value type.
+
+    bool MUST be tested before int (bool subclasses int in Python). This mirrors
+    the addon concern-file serializer's ``_emit_scalar_line`` so a co-writer's
+    non-string scalar round-trips type-intact instead of being coerced to a
+    quoted string. The load-bearing case is the DR-CONTRACT-001 contract-witness
+    integer ``unreal.emit_shape_version = 1`` stamped by project-rag-ue-addon:
+    coercing it to ``'1'`` is a value-shape (type) change DR-CONTRACT-001
+    classifies as a breaking cross-repo ABI change requiring a paired memo, so a
+    --concern read-merge of an addon-seeded file MUST NOT mangle it. Fails loud on
+    a non-scalar (list/datetime) rather than silently corrupting it.
+
+    Known limitation (code-reviewer F5): a non-finite float co-writer value
+    (``nan``/``inf``) emits Python's bare repr, which most but not all TOML readers
+    accept. No current concern writer emits floats (the DR-CONTRACT-001 surface is
+    int-only), so this stays a documented edge rather than a guard.
+    """
+    if isinstance(value, str):
+        # TOML literal string; the caller rejects embedded single quotes.
+        return f"{key} = '{value}'"
+    if isinstance(value, bool):
+        return f"{key} = {str(value).lower()}"
+    if isinstance(value, (int, float)):
+        return f"{key} = {value}"
+    raise ValueError(
+        f"cannot serialize non-scalar concern value for key {key!r}: "
+        f"{value!r} (type {type(value).__name__})"
+    )
+
+
+def _serialize_concern_file(concern_name: str, body: dict, provenance: dict,
+                            schema_val: object = 1) -> str:
+    """Deterministically serialize a concern file (<name>.local.toml).
+
+    Layout: a managed-header comment, a `schema` line, the self-named
+    ``[<concern_name>]`` table holding the user keys (nested dotted bare keys
+    become ``[<concern_name>.<sub>]`` sub-tables), then one
+    ``[provenance.<bare_key>]`` table per recorded key. Writing under the
+    self-named table is required: the reader's `_flatten_concern` elides
+    ``[<concern_name>]`` so ``samples_root`` resolves as
+    ``<concern_name>.samples_root`` — a flat ``"unreal.samples_root"`` key would
+    double-prefix and fail to resolve (see test_doubled_prefix_does_not_resolve).
+
+    Scalar values are emitted type-preserving via ``_emit_concern_scalar`` (str →
+    literal-quote, bool → lowercase, int/float → bare) so a co-writer's non-string
+    scalar (the DR-CONTRACT-001 ``emit_shape_version`` int) round-trips intact; the
+    caller rejects values/keys containing a single quote (literal TOML has no
+    escape). Mirrors the addon ``_write_unreal_concern`` full-reserialize shape
+    rather than surgical edits, because concern files are tool-managed.
+    """
+    def _emit_table(header: str, table: dict) -> str:
+        scalars = {k: v for k, v in table.items() if not isinstance(v, dict)}
+        subtables = {k: v for k, v in table.items() if isinstance(v, dict)}
+        out = [f"[{header}]"]
+        for k in sorted(scalars):
+            out.append(_emit_concern_scalar(k, scalars[k]))
+        chunks = ["\n".join(out)]
+        for k in sorted(subtables):
+            chunks.append(_emit_table(f"{header}.{k}", subtables[k]))
+        return "\n\n".join(chunks)
+
+    lines = [
+        f"# {concern_name}.local.toml  (managed by `machine-local set --concern`)",
+        "#",
+        "# WARNING: Use `machine-local set --concern <name> <key> <value>` to add or",
+        "# change values. Direct hand-edits are fragile: they do not reproduce on",
+        "# reinstall and will not transfer automatically to a new machine.",
+        f"schema = {schema_val}",
+        "",
+        _emit_table(concern_name, body),
+        "",
+    ]
+    for bare in sorted(provenance):
+        p = provenance[bare]
+        lines.append(f"[provenance.{bare}]")
+        for pk in ("written_by", "written_at", "source"):
+            if pk in p:
+                lines.append(f"{pk} = '{p[pk]}'")
+        lines.append("")
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _cmd_set_concern(args: argparse.Namespace) -> int:
+    """Implement: machine-local set --concern <name> <key> <value> [--dry-run]
+
+    The general-purpose writer for namespaced concern keys (`unreal.*`,
+    `hardware.*`, ...) — the namespace that the registry `set` refuses by
+    concern-exclusivity. Resolves the concern file at `<name>.local.toml`,
+    validates the key is under the `<name>.` namespace (no cross-concern
+    pollution), performs an atomic read-merge-write that preserves every other
+    key/table, and stamps provenance under `[provenance.<bare_key>]`.
+
+    Spec backlink: cross-repo memo 2026-06-23-machine-local-concern-set-writer.md
+    (project-rag-ue-addon-em ask; dogfood finding #3). Replaces the workaround of
+    hand-editing the concern TOML, which loses atomicity + provenance.
+    """
+    reg_dir = _registry_dir()
+    raw_concern = args.concern.strip()
+    name = raw_concern.lower()
+    key = args.key
+    value = args.value
+
+    if args.write_global:
+        print(
+            "machine-local: --concern and --global are mutually exclusive — concern "
+            "files are per-machine (<name>.local.toml). Drop --global.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Concern names AND keys are lowercase by contract (the reader's self-named-table
+    # resolution and the addon serializer both use lowercase). Reject mixed-case
+    # fail-loud rather than silently normalizing it — detect-then-fail-loud
+    # (coordinator doctrine) applied UNIFORMLY to both the --concern arg and the key
+    # (code-reviewer F2: silently lowercasing the concern while rejecting the key was
+    # an inconsistent footgun). Avoids a confusing round-trip-None refusal on a write
+    # the operator believes is valid.
+    if raw_concern != name:
+        print(
+            f"machine-local: concern names must be lowercase — got '{raw_concern}'. "
+            f"Retry with '{name}'.",
+            file=sys.stderr,
+        )
+        return 1
+    if key != key.lower():
+        print(
+            f"machine-local: concern keys must be lowercase — got '{key}'. "
+            f"Retry with '{key.lower()}'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Namespace validation: the key's first segment must equal the concern name.
+    first_seg = key.split(".")[0].lower()
+    if first_seg != name:
+        print(
+            f"machine-local: key '{key}' is not under concern namespace '{name}'. "
+            f"A `--concern {name}` write requires a key prefixed '{name}.' "
+            f"(e.g. {name}.some_key). Refusing cross-concern write.",
+            file=sys.stderr,
+        )
+        return 1
+
+    bare = key[len(name) + 1:]
+    if not bare:
+        print(
+            f"machine-local: key '{key}' has no sub-key after the concern prefix "
+            f"'{name}.'. Provide a full key, e.g. {name}.some_key.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if "'" in value:
+        print(
+            f"machine-local: refusing to write value containing single quote: {value!r}. "
+            "Literal-string TOML has no escape for single quote.",
+            file=sys.stderr,
+        )
+        return 1
+    if "'" in bare:
+        print(
+            f"machine-local: refusing to write key containing single quote: {bare!r}.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Soft offer (not a block): if the concern is not registered in `concerns`,
+    # the written value will not resolve via `get` until it is — surface the gap
+    # with the remediation rather than silently writing an unreadable file.
+    registered = set()
+    for p in (os.path.join(reg_dir, "registry.toml"),
+              os.path.join(reg_dir, "registry.local.toml")):
+        if os.path.exists(p):
+            for c in _load_toml(p).get("concerns", []):
+                registered.add(str(c).lower())
+    if registered and name not in registered:
+        print(
+            f"machine-local: note: concern '{name}' is not in the `concerns` array — "
+            f"'{key}' will be written to {name}.local.toml but will NOT resolve via "
+            f"`machine-local get` until '{name}' is registered (add it to `concerns` "
+            "in registry.toml).",
+            file=sys.stderr,
+        )
+
+    target_path = os.path.join(reg_dir, f"{name}.local.toml")
+
+    # Read-merge: parse existing concern file (fail loud on malformed) into a
+    # body dict (the self-named table contents + any top-level scalars folded in)
+    # and a provenance dict.
+    schema_val: object = 1
+    body: dict = {}
+    provenance: dict = {}
+    is_new = not os.path.exists(target_path)
+    if not is_new:
+        with open(target_path, "r", encoding="utf-8") as f:
+            existing_content = f.read()
+        try:
+            existing = tomllib.loads(existing_content)
+        except tomllib.TOMLDecodeError as exc:
+            print(
+                f"machine-local: cannot parse existing {target_path}: {exc}. "
+                "Fix or remove it by hand.",
+                file=sys.stderr,
+            )
+            return 1
+        schema_val = existing.get("schema", 1)
+        named = existing.get(name)
+        if isinstance(named, dict):
+            body = dict(named)
+        # Fold any top-level scalar/table keys (the auto-prefixed form the reader
+        # also accepts) into the canonical self-named table.
+        for k, v in existing.items():
+            if k in ("schema", "provenance", name):
+                continue
+            body[k] = v
+        prov = existing.get("provenance")
+        if isinstance(prov, dict):
+            provenance = dict(prov)
+
+    # Upsert the bare key (dotted bare keys → nested sub-tables).
+    segs = bare.split(".")
+    cursor = body
+    for seg in segs[:-1]:
+        nxt = cursor.get(seg)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cursor[seg] = nxt
+        cursor = nxt
+    cursor[segs[-1]] = value
+
+    date_tag = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    provenance[bare] = {
+        "written_by": "machine-local",
+        "written_at": date_tag,
+        "source": "cli:--concern",
+    }
+
+    try:
+        new_content = _serialize_concern_file(name, body, provenance, schema_val)
+    except ValueError as exc:
+        print(
+            f"machine-local: refusing to write — {exc}. "
+            "A co-writer left a value type this writer does not serialize; "
+            "edit the concern file by hand for that key.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Round-trip sanity: the new content must parse and the key must resolve to
+    # the requested value through the same `_flatten_concern` the reader uses.
+    # `name` and `key` are both lowercase here (the mixed-case guard above rejected
+    # any uppercase), so the literal `key` is the canonical resolution form.
+    try:
+        parsed = tomllib.loads(new_content)
+    except tomllib.TOMLDecodeError as exc:
+        print(
+            f"machine-local: refusing to write — post-build TOML is malformed: {exc}. "
+            "This is a bug in machine-local set --concern, not your input. "
+            "File a report and edit the concern file by hand for now.",
+            file=sys.stderr,
+        )
+        return 1
+    resolved = _flatten_concern(name, parsed).get(key)
+    # str() both sides intentionally (code-reviewer F7): `value` is always a str
+    # from argparse, while `resolved` may come back typed (e.g. an int the reader
+    # parsed). This check validates the key we just WROTE landed; type-fidelity of
+    # PRESERVED co-writer scalars is covered by _emit_concern_scalar, not here.
+    if str(resolved) != str(value):
+        print(
+            f"machine-local: refusing to write — round-trip read of {key!r} returned "
+            f"{resolved!r}, expected {value!r}. File a report and edit by hand for now.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if args.dry_run:
+        print(f"[dry-run] would set {key!r} = {value!r} in {target_path}")
+        return 0
+
+    tmp_path = target_path + f".tmp.{os.getpid()}"
+    try:
+        os.makedirs(os.path.dirname(target_path), exist_ok=True)
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        if not is_new:
+            try:
+                os.chmod(tmp_path, os.stat(target_path).st_mode)
+            except OSError:
+                pass
+        os.replace(tmp_path, target_path)
+    except Exception as exc:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        print(f"machine-local: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"machine-local: set {key!r} = {value!r} in {target_path}")
+    return 0
+
+
 def cmd_set(args: argparse.Namespace) -> int:
     """Implement: machine-local set <key> <value> [--global] [--dry-run]
+                  machine-local set --concern <name> <key> <value> [--dry-run]
 
     Writes a string key=value pair to registry.local.toml (default) or
     registry.toml (--global).  Atomic, idempotent, concern-aware.
+
+    With --concern <name>, routes to the concern-file writer (_cmd_set_concern)
+    which writes the namespaced key into <name>.local.toml — the path the bare
+    registry writer refuses by concern-exclusivity.
 
     Use this instead of editing registry files by hand — direct edits are
     fragile: they do not reproduce on reinstall or transfer to a new machine,
     and may be clobbered by a concurrent session.
     """
     # Review: code-reviewer (F11) — re and datetime moved to module-level imports.
+
+    if getattr(args, "concern", None):
+        return _cmd_set_concern(args)
 
     reg_dir = _registry_dir()
     target_file = "registry.toml" if args.write_global else "registry.local.toml"
@@ -1264,7 +1612,7 @@ def main() -> int:
                        help="Value to print if key is missing (always exits 0)")
 
     # has
-    has_p = subparsers.add_parser("has", help="Exit 0 if key is set, 1 if not")
+    has_p = subparsers.add_parser("has", help="Exit 0 if key is set, 1 if not set, 2 on operational failure (see machine-local-registry.md §4.1)")
     has_p.add_argument("key", help="Dotted key name")
 
     # keys
@@ -1280,6 +1628,14 @@ def main() -> int:
     )
     set_p.add_argument("key", help="Dotted key (e.g. repos.project_rag)")
     set_p.add_argument("value", help="String value to set")
+    set_p.add_argument(
+        "--concern",
+        metavar="NAME",
+        default=None,
+        help="Write the namespaced key into the <NAME>.local.toml concern file "
+             "(e.g. --concern unreal unreal.samples_root /path) instead of the "
+             "registry — the path the bare registry writer refuses by namespace.",
+    )
     set_p.add_argument(
         "--global",
         dest="write_global",

@@ -1,0 +1,18 @@
+schema: prior-art-check
+applies_to: "docs/plans/*.prior-art-check.md"
+kinds: [prior-art-check]
+required:
+  plan: string
+optional:
+  author: string
+  created: iso-date
+  status: string
+  conflicts: number
+  compatible: number
+  silent: number
+  title: string
+
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C1
+# applies_to: single glob covers both <plan>.prior-art-check.md and <plan>.md.prior-art-check.md
+# because globToRegex compiles * → [^/]* which spans embedded dots.
+# Negative-spec: do NOT add status enum — legacy values like "reviewed"/"complete" vary on disk.

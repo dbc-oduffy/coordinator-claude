@@ -1,0 +1,22 @@
+schema: docs-check-sidecar
+applies_to: "docs/plans/*docs-check.md"
+kinds: [docs-check-sidecar, docs-check]
+required:
+  artifact: string
+optional:
+  checker: string
+  claims_checked: number
+  verified: number
+  unverified: number
+  incorrect: number
+  auto_fixed: number
+  verification_source: string
+  created: iso-date
+  status: string
+  title: string
+
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C1
+# required: artifact (the plan/doc this sidecar checks) rather than plan — docs-checker
+# emits `artifact:` not `plan:` per inventory findings.
+# Negative-spec: do NOT add status enum — legacy value "reviewed" is off the plan-schema enum
+# and that off-enum mismatch was the documented fight-the-hook trigger (Substrate Fact #5).

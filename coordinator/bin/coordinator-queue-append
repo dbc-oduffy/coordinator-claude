@@ -12,6 +12,7 @@
 # its path via command substitution, then execs it; under Python the whole line
 # is a no-op string. One `exec`, three-way probe — the canonical pattern.
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 coordinator-queue-append — append a structured YAML entry to a coordinator queue.
 
@@ -72,7 +73,8 @@ Invocation:
       --surface "setup/publish.sh:88-95" \\
       --proposed-target "setup/publish.sh (array)" \\
       --change-kind script-edit \\
-      --status open
+      --status open \\
+      [--queue-scope central|project]  # central → lands in ~/.claude meta-repo; project (default) → cwd-relative
 
 Negative-spec: do NOT parse schema markdown docs at runtime — schemas are
 hardcoded in SCHEMAS dict. No third-party libraries; stdlib only.
@@ -91,6 +93,11 @@ import uuid
 # Sources: docs/wiki/debt-backlog-schema.md, bug-backlog-schema.md,
 #          improvement-queue-schema.md
 # ---------------------------------------------------------------------------
+
+# Valid queue_scope values — mirrors BacklogQueueScope in cockpit-contract.
+# "project" is the default (per-project local entries); "central" is for
+# universal patterns destined for the ~/.claude meta-repo improvement queue.
+_VALID_QUEUE_SCOPES = ("central", "project")
 
 SCHEMAS: dict[str, dict] = {
     "debt-backlog": {
@@ -162,6 +169,7 @@ SCHEMAS: dict[str, dict] = {
             "status",
         ],
         "optional": [
+            "queue_scope",
             "scope_tags",
             "evidence",
             "closed_at",
@@ -351,17 +359,38 @@ def _slug_from_title(title: str) -> str:
     return slug[:_SLUG_MAX_CHARS]
 
 
-def _output_path(schema_name: str, title: str) -> str:
+def _output_path(schema_name: str, title: str, queue_scope: str | None = None) -> str:
     """Compute the output path for a new queue entry.
 
-    CWD-relative: state/<output_dir>/<ISO-date>-<slug>.yaml
-    Respects QUEUE_APPEND_OUTPUT_ROOT env var for test isolation.
+    Precedence:
+      1. QUEUE_APPEND_OUTPUT_ROOT env override wins (test isolation).
+      2. Else if queue_scope == "central" (improvement-queue only):
+         base = _claude_home()/state/improvement-queue/ so a central entry
+         always lands in the meta-repo regardless of the invoking cwd.
+      3. Else (project scope / non-improvement schemas): cwd-relative.
+
+    Invariant (Review: code-reviewer — F6): each schema's output_dir is expected
+    to include 'state/' as its first path component (e.g. 'state/debt-backlog').
+    The central-scope branch joins _claude_home() directly with output_dir, so the
+    resulting path is <claude_home>/state/<schema-dir>/ — correct only when this
+    invariant holds for all supported schemas.
+
+    Spec backlink: docs/plans/2026-06-23-stale-doctrine-central-queue-fix.md § Part 1
     """
     schema = SCHEMAS[schema_name]
     output_dir = schema["output_dir"]
     override_root = os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV)
     if override_root:
         base = os.path.join(override_root, output_dir)
+    elif queue_scope == "central":
+        # Review: code-reviewer — F2: defensive invariant — only improvement-queue supports
+        # central scope. If this assertion fires, a new code path reached central-write
+        # without going through the schema guard in main(). Fail loud rather than silently
+        # writing to the wrong ~/.claude directory.
+        assert schema_name == "improvement-queue", (
+            f"_output_path: central queue_scope only valid for improvement-queue, got '{schema_name}'"
+        )
+        base = os.path.join(_claude_home(), output_dir)
     else:
         base = os.path.join(os.getcwd(), output_dir)
     date_str = _today_iso()
@@ -736,6 +765,19 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
         help="Override the auto-resolved from_repo value (default: resolved from cwd git root).",
     )
 
+    # queue_scope — improvement-queue only.
+    parser.add_argument(
+        "--queue-scope",
+        dest="queue_scope",
+        default=None,
+        metavar="SCOPE",
+        help=(
+            "(improvement-queue) Scope of the entry: 'central' for universal patterns "
+            "destined for the ~/.claude meta-repo, 'project' for per-project entries. "
+            "Defaults to 'project'. Fail-loud on invalid value."
+        ),
+    )
+
     return parser
 
 
@@ -754,6 +796,29 @@ def main() -> None:
         known = ", ".join(sorted(SCHEMAS.keys()))
         print(
             f"error: unknown schema '{schema_name}'. Known: {known}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # Validate and resolve queue_scope (improvement-queue only; fail-loud on invalid).
+    queue_scope = None
+    if args.queue_scope is not None:
+        if args.queue_scope not in _VALID_QUEUE_SCOPES:
+            print(
+                f"error: invalid --queue-scope value: '{args.queue_scope}'. "
+                f"Valid values: {', '.join(_VALID_QUEUE_SCOPES)}.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        queue_scope = args.queue_scope
+
+    # Review: code-reviewer — F1: schema guard for --queue-scope; only improvement-queue supports it.
+    # --queue-scope central on debt-backlog or bug-backlog would silently redirect those entries
+    # into ~/.claude/state/<schema>/ which is semantically wrong and undocumented.
+    if queue_scope is not None and schema_name != "improvement-queue":
+        print(
+            f"error: --queue-scope is only valid for --schema improvement-queue "
+            f"(got '{schema_name}').",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -803,6 +868,7 @@ def main() -> None:
         "surface": args.surface,
         "proposed_target": args.proposed_target,
         "change_kind": args.change_kind,
+        "queue_scope": queue_scope,
         "scope_tags": scope_tags,
         "evidence": args.evidence,
     }
@@ -817,7 +883,7 @@ def main() -> None:
     yaml_content = _build_yaml(schema_name, fields)
 
     # Compute output path and ensure directory exists.
-    out_path = _output_path(schema_name, args.title)
+    out_path = _output_path(schema_name, args.title, queue_scope=queue_scope)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     # Write the file.

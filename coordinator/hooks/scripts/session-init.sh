@@ -242,7 +242,19 @@ case "$INIT_BRANCH" in
     ;;
 esac
 
-QR="${HOME}/.claude/plugins/coordinator/bin/query-records.js"
+# Resolve coordinator content root for query-records.js — use the shared resolver
+# so fleet/cached installs work without ~/.claude/plugins being present.
+# Sourced (no args): sets COORDINATOR_CONTENT_ROOT in this scope (empty if unresolved).
+# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md § C2b
+_RCC_LIB="$(dirname "${BASH_SOURCE[0]}")/../../lib/resolve-coordinator-clone.sh"
+# shellcheck source=/dev/null
+[[ -f "$_RCC_LIB" ]] && source "$_RCC_LIB"
+
+# BASH_SOURCE-relative primary → resolver-based secondary → last-ditch flat fallback
+QR="$(dirname "${BASH_SOURCE[0]}")/../../bin/query-records.js"
+if [[ ! -f "$QR" ]]; then
+  QR="${COORDINATOR_CONTENT_ROOT:-${HOME}/.claude/plugins/coordinator-claude/coordinator}/bin/query-records.js"
+fi
 if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR" ] && command -v node &>/dev/null; then
   # Find all consumed handoffs still in state/handoffs/
   consumed_paths=$(node "$QR" --type handoff --where "status=consumed" --format paths --root "$GIT_ROOT" 2>/dev/null || true)
@@ -269,69 +281,72 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR
 
       # Check if the consuming session is alive.
       #
-      # Sentinel-pulse mitigation (spec backlink:
-      #   docs/plans/2026-05-17-ws2-channel-a-narrow-activation.md § Chunk 7):
+      # Delegates to the canonical liveness predicate _cs_session_live from
+      # lib/coordinator-session.sh (see the lib source block above). That function uses a
+      # 30-minute last_activity window — the documented single source of truth for
+      # session liveness across the claim layer, the reaper, and this sweep.
       #
-      # The PID recorded in meta.json is $$ of the cs_init hook subshell — dead
-      # within seconds of session open. kill -0 therefore always returns non-zero
-      # for any session older than its launch instant; session_alive=true via PID
-      # is structurally unreachable (the Staff Engineer review: lib/coordinator-session.sh:189).
+      # The old inline predicate used ALIVE_WINDOW_MINUTES=10 and fell back to a
+      # kill -0 PID check. Both are now removed:
+      #   - 10m was too short: a live session idle >10 min between tool calls (e.g.
+      #     waiting on a backgrounded task) was falsely marked abandoned and its
+      #     in-flight handoff clobbered (real incident: 2026-06-24, ~13.5 min idle).
+      #   - kill -0 against the recorded pid is structurally useless: meta.json's pid
+      #     is $$ of the cs_init hook subshell, dead within seconds of session open.
       #
-      # Fix: check last_activity recency first. session-heartbeat.sh writes
-      # last_activity on every PreToolUse:Bash (throttled to 60s). If a session
-      # is actively running a Bash command (e.g. a multi-minute extraction), its
-      # last_activity will be recent. Treat any session with last_activity within
-      # the last ALIVE_WINDOW_MINUTES minutes as live — skip archival.
+      # cwd discipline: _cs_session_live calls _cs_session_dir → _cs_sessions_dir →
+      # _cs_git_root (git rev-parse --show-toplevel), which is cwd-relative. A
+      # SessionStart hook's cwd is arbitrary — pin it to $GIT_ROOT via subshell so
+      # the internal resolution always targets the right repo.
       #
-      # ALIVE_WINDOW_MINUTES=10: long enough to cover normal extraction/build runs
-      # (UE source extract passes run 5-8 min); short enough to recover real
-      # crashes promptly (a crash leaves last_activity frozen; after 10 min it
-      # will be swept by the next session-init boot).
-      sid_dir="${GIT_ROOT}/.git/coordinator-sessions/${consumed_sid}"
+      # NEGATIVE-SPEC: last_activity does NOT refresh while a live session merely
+      # WAITS on a backgrounded task or user input — a session idle >30 min between
+      # tool calls can still be falsely swept. The consumed_at recency floor below
+      # and the conservative lib-unavailable fallback narrow this window. The 24h
+      # cs_reap_stale reaper is the ultimate backstop for any residual false-negatives
+      # (false-negatives = keeping a file in state/ too long, not clobbering live work).
       session_alive=false
-      ALIVE_WINDOW_MINUTES=10
-      ALIVE_WINDOW_SECONDS=$(( ALIVE_WINDOW_MINUTES * 60 ))
-      if [ -d "$sid_dir" ]; then
-        # Primary liveness: last_activity recency (sentinel-pulse, Path B).
-        # Read last_activity from meta.json via sed (avoids jq dependency on this path).
-        sid_last_activity=$(sed -n 's/.*"last_activity"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-          "${sid_dir}/meta.json" 2>/dev/null | head -1 || true)
-        if [ -n "$sid_last_activity" ]; then
-          now_epoch=$(date +%s 2>/dev/null || echo 0)
-          # ISO-8601 -> epoch: try GNU date, BSD date, python fallback
-          last_epoch=$(date -u -d "$sid_last_activity" +%s 2>/dev/null) \
-            || last_epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$sid_last_activity" +%s 2>/dev/null) \
-            || last_epoch=0
-          if [ "$last_epoch" -eq 0 ]; then
-            # Python fallback (Windows/portable) — use env-var pattern to avoid
-            # shell-interpolation injection via sid_last_activity value.
-            # Review: code-reviewer — mirrors lib's env-var pattern.
-            if command -v python3 &>/dev/null; then
-              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe python3 -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
-            elif command -v python &>/dev/null; then
-              last_epoch=$(CS_ISO_TS="${sid_last_activity%Z}" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe python -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
-            fi
-          fi
-          inactive_for=$(( now_epoch - last_epoch ))
-          if [ "$inactive_for" -lt "$ALIVE_WINDOW_SECONDS" ]; then
-            session_alive=true  # recent last_activity — session is alive
-          fi
-        fi
-
-        # Secondary liveness: PID check (kept as defense-in-depth for the rare
-        # case where heartbeats did not fire — e.g. a session that only ran
-        # Write/Edit tools and session-heartbeat.sh was not in hooks.json yet).
-        if [ "$session_alive" != "true" ]; then
-          sid_pid=$(sed -n 's/.*"pid"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-            "${sid_dir}/meta.json" 2>/dev/null | head -1 || true)
-          if [ -n "$sid_pid" ] && kill -0 "$sid_pid" 2>/dev/null; then
-            session_alive=true
-          fi
-        fi
+      if command -v _cs_session_live &>/dev/null; then
+        ( cd "$GIT_ROOT" && _cs_session_live "$consumed_sid" ) && session_alive=true || session_alive=false
+      else
+        # lib unavailable → bias to life; never eagerly abandon without the canonical check
+        session_alive=true
       fi
 
       # Sanity: skip if session is still alive
       [ "$session_alive" = "true" ] && continue
+
+      # consumed_at recency floor (belt against false-abandon of just-claimed handoffs).
+      #
+      # A just-consumed handoff's session is almost certainly live and simply hasn't
+      # heartbeated yet. If consumed_at is within the last 30 minutes, skip archival
+      # even if _cs_session_live returned false (the heartbeat may not have fired yet,
+      # or the session dir may not yet exist on this machine). The 24h cs_reap_stale
+      # reaper is the backstop for any handoff this floor shields that is genuinely orphaned.
+      consumed_at_raw=$(awk '/^---$/{n++; next} n==1' "$fpath" 2>/dev/null | grep -m1 '^consumed_at:' | sed 's/consumed_at:[[:space:]]*//' | tr -d '"' | tr -d "'" | xargs || true)
+      if [ -n "$consumed_at_raw" ]; then
+        _cat_now=$(date +%s 2>/dev/null || echo 0)
+        # ISO-8601 → epoch: try GNU date, BSD date (macOS), python fallback via spawn-hidden.sh
+        _cat_epoch=$(date -u -d "$consumed_at_raw" +%s 2>/dev/null) \
+          || _cat_epoch=$(date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$consumed_at_raw" +%s 2>/dev/null) \
+          || _cat_epoch=0
+        if [ "$_cat_epoch" -eq 0 ]; then
+          # Python fallback — env-var pattern avoids shell-interpolation injection (mirrors
+          # the existing last_activity ISO parse above, uses same spawn-hidden.sh wrapper).
+          # popup-safe-env-suppressed
+          _spawn_hidden="$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh"
+          if command -v python3 &>/dev/null && [ -f "$_spawn_hidden" ]; then
+            _cat_epoch=$(CS_ISO_TS="${consumed_at_raw%Z}" bash "$_spawn_hidden" --stdin-mode=safe python3 -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+          elif command -v python &>/dev/null && [ -f "$_spawn_hidden" ]; then
+            _cat_epoch=$(CS_ISO_TS="${consumed_at_raw%Z}" bash "$_spawn_hidden" --stdin-mode=safe python -c "import os,datetime; print(int(datetime.datetime.fromisoformat(os.environ['CS_ISO_TS']).replace(tzinfo=datetime.timezone.utc).timestamp()))" 2>/dev/null || echo 0)
+          fi
+        fi
+        # Treat unparseable/absent epoch as "old" (0) — does NOT block sweeping genuinely old orphans.
+        # Only skip when epoch is fresh (>0 and within 30 min).
+        if [ "$_cat_epoch" -gt 0 ] && [ "$(( _cat_now - _cat_epoch ))" -lt "$(( 30 * 60 ))" ]; then
+          continue  # just consumed — session almost certainly live, heartbeat hasn't fired yet
+        fi
+      fi
 
       # Flip deployment_state: in_flight → abandoned before archival.
       # The consuming session died without /handoff or /workstream-complete, so by
@@ -389,6 +404,58 @@ if [ -z "$INIT_SKIP_SWEEP" ] && [ -d "${GIT_ROOT}/state/handoffs" ] && [ -f "$QR
       # so signing is disabled for this internal housekeeping commit only. block-no-verify
       # guards EM-issued Bash commits, not hook-internal subprocess commits.
       git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "session-init: archived orphaned handoff(s)" -- state/handoffs/ archive/handoffs/ tasks/orphan-sweep-notes.md 2>/dev/null || true
+    fi
+  fi
+fi
+
+# --- Actioned-memo sweep (spec backlink:
+#       state/handoffs/2026-06-22_232810_unified-terminal-artifact-archival-sweep.md) ---
+#
+# Cross-repo memos reach terminal `status: actioned` in place in cross-repo/inbox/
+# (pickup Memo Branch M4) but, unlike handoffs, have no successor-archival moment —
+# nothing moved them out of the inbox, so they leaked forever (43 piled up before the
+# 2026-06-22 manual sweep). This generalizes the consumed-handoff sweep above for the
+# memo class. The enumerate/skip/git-mv logic lives in ONE shared lib function
+# (cs_sweep_actioned_memos) reused here AND by /workstream-complete Step 2.65 — no
+# copy-paste divergence. The function stages the moves and returns the count; the commit
+# is owned here (gpgsign=false, same TTY-less-hook rationale as the handoff-sweep commit).
+#
+# INIT_SKIP_SWEEP (computed in the branch guard above) is honored inside the function too;
+# the redundant guard here keeps the block self-documenting and avoids the function call
+# on the skip path.
+if [ -z "$INIT_SKIP_SWEEP" ] && command -v cs_sweep_actioned_memos &>/dev/null; then
+  memos_swept=$(cs_sweep_actioned_memos "$GIT_ROOT" 2>/dev/null || echo 0)
+  if [ "${memos_swept:-0}" -gt 0 ] 2>/dev/null; then
+    if ! git -C "$GIT_ROOT" diff --cached --quiet 2>/dev/null; then
+      # gpgsign=false: same TTY-less SessionStart-hook rationale as the handoff-sweep
+      # commit above — a passphrase-protected key would hang the hook with no prompt.
+      git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "memo: auto-sweep ${memos_swept} actioned memo(s) inbox→archive (session-init)" -- cross-repo/inbox/ cross-repo/archive/ 2>/dev/null || true
+    fi
+  fi
+fi
+
+# --- Terminal-plan sweep (spec backlink:
+#       state/handoffs/2026-06-22_232810_unified-terminal-artifact-archival-sweep.md) ---
+#
+# Plans that reached a terminal status (implemented, superseded, abandoned) in
+# docs/plans/ but were never archived leak forever. This mirrors the actioned-memo
+# sweep above for the plan class: enumerate → skip → git mv (staged) → commit.
+# The enumerate/skip/git-mv logic lives in ONE shared lib function
+# (cs_sweep_terminal_plans) reused here AND by /workstream-complete Step 2.65 — no
+# copy-paste divergence. The function stages the moves and returns the count; the
+# commit is owned here (gpgsign=false, same TTY-less-hook rationale as the handoff-
+# sweep and memo-sweep commits).
+#
+# INIT_SKIP_SWEEP (computed in the branch guard above) is honored inside the function
+# too; the redundant guard here keeps the block self-documenting and avoids the
+# function call on the skip path.
+if [ -z "$INIT_SKIP_SWEEP" ] && command -v cs_sweep_terminal_plans &>/dev/null; then
+  plans_swept=$(cs_sweep_terminal_plans "$GIT_ROOT" 2>/dev/null || echo 0)
+  if [ "${plans_swept:-0}" -gt 0 ] 2>/dev/null; then
+    if ! git -C "$GIT_ROOT" diff --cached --quiet 2>/dev/null; then
+      # gpgsign=false: same TTY-less SessionStart-hook rationale as the handoff-sweep
+      # commit above — a passphrase-protected key would hang the hook with no prompt.
+      git -c commit.gpgsign=false -C "$GIT_ROOT" commit -m "plan: auto-sweep ${plans_swept} terminal plan(s) docs/plans/→archive/specs/ (session-init)" -- docs/plans/ archive/specs/ 2>/dev/null || true
     fi
   fi
 fi

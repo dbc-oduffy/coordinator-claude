@@ -29,13 +29,15 @@ echo "${CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS:-not_set}"
 
 ## 2. Pipeline Availability
 
-Check which pipelines are available by looking for their command files relative to this plugin:
+Check which pipelines are available. Since v1.3.0, all pipelines are modes of a single `research.md` command — there are no per-mode command files:
 
 ```bash
 PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT}"
-for cmd in web repo structured; do
-  test -f "$PLUGIN_DIR/commands/$cmd.md" && echo "$cmd: available" || echo "$cmd: missing"
-done
+if test -f "$PLUGIN_DIR/commands/research.md"; then
+  echo "research.md: present — modes available: web, repo, structured"
+else
+  echo "research.md: MISSING — /deep-research will not work"
+fi
 ```
 
 Also check for the NotebookLM sub-plugin:
@@ -45,9 +47,9 @@ test -d "$PLUGIN_DIR/notebooklm" && echo "notebooklm: available" || echo "notebo
 ```
 
 Report:
-- **Pipeline A** (Internet Research) — `/deep-research web`
-- **Pipeline B** (Repo Research) — `/deep-research repo`
-- **Pipeline C** (Structured Research) — `/deep-research structured`
+- **Pipeline A** (Internet Research) — `/deep-research --mode=web`
+- **Pipeline B** (Repo Research) — `/deep-research --mode=repo`
+- **Pipeline C** (Structured Research) — `/deep-research --mode=structured`
 - **Pipeline D** (NotebookLM Media Research) — `/notebooklm-research` (requires notebooklm sub-plugin)
 
 ---
@@ -56,20 +58,27 @@ Report:
 
 **Skip this section if the notebooklm sub-plugin is not installed.**
 
-### 3a. MCP server CLI
+### 3a. MCP server runtime
 
-Check if `notebooklm-mcp` is available:
+`notebooklm-mcp-cli` is a **Python** package launched via `uvx` (the Python analog
+of `npx` — auto-fetches and runs without a separate global install). Check the
+launcher resolves:
 
 ```bash
-command -v notebooklm-mcp 2>/dev/null || npx --yes notebooklm-mcp --version 2>/dev/null || echo "not_found"
+# uvx is the configured launch path (.mcp.json), so check it first; the bare-binary
+# arm is a fallback for a `uv tool install` global. uvx may network-fetch on a cold cache.
+if uvx --from notebooklm-mcp-cli notebooklm-mcp --help >/dev/null 2>&1 || command -v notebooklm-mcp >/dev/null 2>&1; then echo "ready"; else echo "not_found"; fi
 ```
 
-- If found: ready.
-- If not found: Pipeline D requires the `notebooklm-mcp-cli` package. Install with:
+- If `ready`: the launcher works (uvx fetches the package on first run, then caches it).
+- If `not_found`: Pipeline D requires `uv` (which provides `uvx`). Install it with:
   ```bash
-  npm install -g notebooklm-mcp-cli
+  # macOS / Linux
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  # or: brew install uv  /  winget install astral-sh.uv
   ```
-  Or see https://github.com/jacob-bd/notebooklm-mcp-cli
+  uvx fetches `notebooklm-mcp-cli` automatically. For a pinned global install use
+  `uv tool install notebooklm-mcp-cli`. See https://github.com/jacob-bd/notebooklm-mcp-cli
 
 ### 3b. Authentication
 
@@ -135,12 +144,12 @@ fi
 
 ### Available commands
 
-- `/deep-research web <topic>` — Internet research with iterative deepening
-- `/deep-research repo <path>` — Repository assessment (add `--compare`, `--deeper`, `--deepest`)
-- `/deep-research structured <spec>` — Schema-conforming batch research
+- `/deep-research --mode=web <topic>` — Internet research with iterative deepening
+- `/deep-research --mode=repo <path>` — Repository assessment (add `--compare`, `--deeper`, `--deepest`)
+- `/deep-research --mode=structured <spec>` — Schema-conforming batch research
 - `/notebooklm-research <topic>` — Media research (YouTube, podcasts, audio)
 ```
 
 If Agent Teams is not set, make this prominent — nothing will work without it.
 
-End with: _"Run `/deep-research web 'test topic'` to verify the setup works."_
+End with: _"Run `/deep-research --mode=web 'test topic'` to verify the setup works."_

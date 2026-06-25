@@ -239,7 +239,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Smoke (lessons): valid + invalid tag entry → deny on bad tag
   // -------------------------------------------------------------------------
   test('Smoke (lessons) — invalid tag entry triggers deny', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -267,7 +267,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Allow: lessons file with only valid tags
   // -------------------------------------------------------------------------
   test('Allow — lessons file with only valid [universal] tags', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -309,7 +309,7 @@ describe('validate-frontmatter-schema hook', () => {
   // edits with a schema error because the strip-noise pass missed it.
   // -------------------------------------------------------------------------
   test('Regression — model-ID in single backticks is not a tag', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -327,7 +327,7 @@ describe('validate-frontmatter-schema hook', () => {
   // register as a tag.
   // -------------------------------------------------------------------------
   test('Regression — array-ish prose in code span is not a tag', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -345,7 +345,7 @@ describe('validate-frontmatter-schema hook', () => {
   // single backtick inside a double-backtick span) must still strip cleanly.
   // -------------------------------------------------------------------------
   test('Regression — mixed nested backticks strip cleanly', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -363,7 +363,7 @@ describe('validate-frontmatter-schema hook', () => {
   // alongside code-span dirt on the same line.
   // -------------------------------------------------------------------------
   test('Regression — legitimate tag still detected alongside code-span dirt', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -544,7 +544,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Non-tag bracket prose on an entry line must not register as a tag.
   // -------------------------------------------------------------------------
   test('Lessons — bracket prose ([[wikilink]], [11§L4], [1], [Smith2020]) is not a tag', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -567,7 +567,7 @@ describe('validate-frontmatter-schema hook', () => {
   // Genuine tag typos are still caught (the validator's actual value).
   // -------------------------------------------------------------------------
   test('Lessons — genuine tag typo [univeral] is still caught', async () => {
-    const filePath = path.join(CLAUDE_ROOT, 'tasks', 'lessons.md');
+    const filePath = path.join(CLAUDE_ROOT, 'state', 'lessons.md');
     const content = [
       '# Lessons',
       '',
@@ -598,8 +598,8 @@ describe('validate-frontmatter-schema hook', () => {
   // -------------------------------------------------------------------------
   test('Lessons — Edit appending clean entry does not re-flag pre-existing drift', async () => {
     const tmp = makeTempDir();
-    fs.mkdirSync(path.join(tmp, 'tasks'), { recursive: true });
-    const filePath = path.join(tmp, 'tasks', 'lessons.md');
+    fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
+    const filePath = path.join(tmp, 'state', 'lessons.md');
     // Pre-existing file already carries a genuinely-bad-tag entry.
     const existing = [
       '# Lessons',
@@ -641,8 +641,8 @@ describe('validate-frontmatter-schema hook', () => {
   // -------------------------------------------------------------------------
   test('Lessons — Edit appending a bad-tag entry is still caught', async () => {
     const tmp = makeTempDir();
-    fs.mkdirSync(path.join(tmp, 'tasks'), { recursive: true });
-    const filePath = path.join(tmp, 'tasks', 'lessons.md');
+    fs.mkdirSync(path.join(tmp, 'state'), { recursive: true });
+    const filePath = path.join(tmp, 'state', 'lessons.md');
     const existing = [
       '# Lessons',
       '',
@@ -1300,7 +1300,15 @@ describe('validate-frontmatter-schema hook', () => {
   test('Unit — stripInlineComment edge cases', () => {
     const { _stripInlineComment: strip } = require('../../bin/lib/schema.js');
     assert.equal(strip(''), '', 'empty input');
-    assert.equal(strip('#bare'), '', 'bare # at column 0 → empty');
+    // `#` at column 0 followed by a non-space is NOT a comment opener (preserves
+    // `#N`-style tokens — see d9532ec6 stripInlineComment #-truncation fix). A bare
+    // `#bare` is a value, not a comment. A genuine column-0 comment requires a space
+    // after the `#` (asserted separately below).
+    // Bug-fix breadcrumb: the old expectation was `strip('#bare') === ''` — stale after
+    // the d9532ec6 #-truncation semantics change. The IMPLEMENTATION is correct; only the
+    // TEST assertion was wrong. Fixed here by asserting '#bare' (preserved, not stripped).
+    assert.equal(strip('#bare'), '#bare', 'bare # at column 0 followed by non-space is preserved');
+    assert.equal(strip('# real comment'), '', 'column-0 # followed by space is a comment → empty');
     assert.equal(strip('foo#bar'), 'foo#bar', '# inside bareword (no preceding space) preserved');
     assert.equal(strip('foo  # comment'), 'foo', 'whitespace-preceded # strips');
     assert.equal(strip('"foo # bar"'), '"foo # bar"', '# inside double-quoted preserved');
@@ -1358,6 +1366,170 @@ describe('validate-frontmatter-schema hook', () => {
     const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT), { strict: true });
     assert.equal(exitCode, 0, 'should exit 0');
     assert.equal(stdout, '', `inline list with trailing # must parse as a list; got: ${stdout}`);
+  });
+
+  // =========================================================================
+  // C3-tests — hook reorder regression net (Wave 1, RED-first)
+  //
+  // Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C3
+  //
+  // These four cases encode the AC5 oracle for the C3-impl hook reorder:
+  //   build prospectiveContent → parseFrontmatter → matchSchema → tracked-ness gate.
+  //
+  // Cases 1-2 are GREEN NOW (regression guards — must stay green after C3-impl).
+  // Cases 3-4 are RED NOW (new capability / fight-the-hook fix — must go green after C3-impl).
+  //
+  // "Verify RED for the right reason": cases 3-4 fail because the CURRENT hook is
+  // glob-only (plan.yaml wins over kind: review-sidecar), NOT because of a test bug.
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // C3-test-1 [GREEN NOW — regression guard]: silent-exit-preserved
+  //
+  // An Edit payload where old_string does NOT appear in the target file, on a path
+  // that matches NO schema glob (docs/notes/random.md). Today the hook exits silent
+  // at the schema-not-found gate (line 700, before building prospectiveContent).
+  // After the C3-impl reorder the hook builds prospectiveContent first, reads the
+  // file, and exits silent at the Edit file-not-found path (same observable outcome).
+  //
+  // This guard confirms the reorder preserves all silent-exit paths: a non-tracked
+  // path with an unmatched old_string must NEVER emit output.
+  // -------------------------------------------------------------------------
+  test('C3-test-1 [GREEN guard] — silent-exit-preserved: Edit on non-tracked path with mismatched old_string stays silent', async () => {
+    // docs/notes/ is not a schema-tracked directory (no schema applies_to covers it).
+    // The file does not exist on disk → file-not-found silent path fires after reorder.
+    // old_string mismatch would also fire silently if the file existed.
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'notes', 'random.md');
+    const payload = editPayload(
+      filePath,
+      'THIS STRING DOES NOT EXIST IN ANY FILE',
+      'replacement',
+      CLAUDE_ROOT
+    );
+
+    const { stdout, exitCode } = await runHook(payload);
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', 'non-tracked path with old_string mismatch must always produce SILENT output');
+  });
+
+  // -------------------------------------------------------------------------
+  // C3-test-2 [GREEN NOW — regression guard]: kindless-plan-unchanged
+  //
+  // A Write payload for docs/plans/2026-01-01-xyz.md with valid plan frontmatter
+  // (title/created/author/status: draft) and NO kind: field. Today the hook resolves
+  // to plan.yaml via path glob and validates clean. After C3-impl the hook parses
+  // frontmatter first, sees no kind:, falls back to glob → still plan.yaml → still
+  // validates clean. Back-compat for ~174 kind-less plans is automatic via fallback.
+  // -------------------------------------------------------------------------
+  test('C3-test-2 [GREEN guard] — kindless-plan-unchanged: Write of valid kindless plan stays silent', async () => {
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'plans', '2026-01-01-xyz.md');
+    const content = [
+      '---',
+      'title: Test Plan',
+      'created: 2026-01-01',
+      'author: test-executor',
+      'status: draft',
+      '---',
+      '# Plan body',
+      '',
+      'No kind: field — resolves to plan.yaml via path glob (back-compat).',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    assert.equal(exitCode, 0, 'should exit 0');
+    assert.equal(stdout, '', `kindless plan with valid plan fields must produce no violation; got: ${stdout}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // C3-test-3 [RED NOW — new capability]: kind-admitted-new-file
+  //
+  // EXPECTED TO FAIL against the CURRENT hook (glob-only routing).
+  //
+  // A Write for docs/plans/2026-06-23-kind-routing-test.md with kind: review-sidecar
+  // and only {plan: "docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md"} in
+  // frontmatter (no title/created/author/status). This path DOES match plan.yaml's
+  // broad "docs/plans/*.md" glob; it does NOT match review-sidecar.yaml's more-specific
+  // "docs/plans/*-review.md" glob. Today the hook first-matches plan.yaml → plan.yaml
+  // requires title/created/author/status → emits a violation (stdout non-empty).
+  //
+  // After C3-impl: kind: review-sidecar is parsed BEFORE glob-matching →
+  // matchSchema() routes to review-sidecar.yaml (kind-first) → review-sidecar only
+  // requires plan: → validates clean → SILENT.
+  //
+  // The test asserts stdout === '' (clean pass). TODAY this FAILS because plan.yaml
+  // wins the first-match race and emits a missing-required-fields violation. This is
+  // the correct RED — the failure is the current hook's glob-only limitation, not a
+  // test bug.
+  // -------------------------------------------------------------------------
+  test('[AC5 kind-admitted-new-file] — Write with kind: review-sidecar at non-review-suffix path validates against review-sidecar schema (no plan-field violation)', async () => {
+    // Path matches plan.yaml glob "docs/plans/*.md" BUT lacks the "-review.md" suffix
+    // so it does NOT match review-sidecar.yaml's "docs/plans/*-review.md" glob.
+    // Content has kind: review-sidecar + only plan: (valid for review-sidecar, invalid for plan.yaml).
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'plans', '2026-06-23-kind-routing-test.md');
+    const content = [
+      '---',
+      'kind: review-sidecar',
+      'plan: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md',
+      '---',
+      '# Kind-routing test',
+      '',
+      'This file has kind: review-sidecar and only plan: — no plan-schema fields.',
+      'After C3-impl, kind routing selects review-sidecar.yaml and this passes clean.',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    assert.equal(exitCode, 0, 'should exit 0 (hook never exits non-zero)');
+
+    // RED NOW: today plan.yaml wins first-match, missing title/created/author/status → violation.
+    // GREEN after C3-impl: kind: review-sidecar routes to review-sidecar.yaml → clean pass.
+    //
+    // This assertion FAILS against the current hook because stdout is non-empty (plan violation).
+    assert.equal(stdout, '', `kind: review-sidecar at non-review-suffix path must validate against review-sidecar.yaml (no plan-field violation); got: ${stdout}`);
+  });
+
+  // -------------------------------------------------------------------------
+  // C3-test-4 [RED NOW — fight-the-hook-fixed]: kind-sidecar-no-plan-fields
+  //
+  // EXPECTED TO FAIL against the CURRENT hook (glob-only routing forces plan.yaml).
+  //
+  // A Write for docs/plans/foo.zoli-review.md with kind: review-sidecar + only
+  // {plan: "docs/plans/foo.md"} (no title/author/status). This path DOES match
+  // review-sidecar.yaml's "docs/plans/*-review.md" glob, but plan.yaml's broader
+  // "docs/plans/*.md" glob appears FIRST in _byGlob (plan.yaml loads before
+  // review-sidecar.yaml alphabetically). So today the hook routes to plan.yaml
+  // and emits a plan-schema violation (missing title/author/status).
+  //
+  // This is the documented fight-the-hook bug: Zolí writing a review sidecar under
+  // docs/plans/ was forced to add fake plan fields (title, author, status) to pass.
+  //
+  // After C3-impl: matchSchema() parses kind: review-sidecar FIRST → routes to
+  // review-sidecar.yaml → only plan: required → validates clean → SILENT.
+  //
+  // The test asserts stdout === '' (no plan-schema violation). TODAY this FAILS
+  // because plan.yaml is matched first-match and emits a violation for missing
+  // required fields. After C3-impl this goes green.
+  // -------------------------------------------------------------------------
+  test('[AC5 fight-the-hook-fixed] — Write for docs/plans/foo.zoli-review.md with kind: review-sidecar emits NO plan-schema violation', async () => {
+    // Path matches BOTH plan.yaml "docs/plans/*.md" AND review-sidecar.yaml "docs/plans/*-review.md".
+    // After C3-impl: kind: review-sidecar wins (kind-first routing) → review-sidecar schema → clean.
+    const filePath = path.join(CLAUDE_ROOT, 'docs', 'plans', 'foo.zoli-review.md');
+    const content = [
+      '---',
+      'kind: review-sidecar',
+      'plan: docs/plans/foo.md',
+      '---',
+      '# Zolí review sidecar',
+      '',
+      'This sidecar has kind: review-sidecar and only plan: — no plan-schema fields.',
+      'Kind routing selects review-sidecar.yaml and this passes clean.',
+    ].join('\n');
+
+    const { stdout, exitCode } = await runHook(writePayload(filePath, content, CLAUDE_ROOT));
+    assert.equal(exitCode, 0, 'should exit 0 (hook never exits non-zero)');
+
+    // Review: code-reviewer (S1-F10) — primary assertion first; diagnostic block is dead when green.
+    // The primary assertion: no stdout when kind routing is correct.
+    assert.equal(stdout, '', `docs/plans/foo.zoli-review.md with kind: review-sidecar must NOT produce a plan-schema violation; got: ${stdout}`);
   });
 
 });

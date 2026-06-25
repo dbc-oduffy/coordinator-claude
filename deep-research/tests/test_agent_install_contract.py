@@ -15,6 +15,7 @@ deep-research-specific adaptations:
       test_functional_probe_shape, test_consumer_install_args_empty
   - DR declares one soft dep: coordinator-claude (no hard deps)
   - Contract version expected: 2
+  - DR manifest ships at v2; reader accepts {1, 2, 3} (widened 2026-06-23 to read coordinator's v3 manifest).
 
 Spec backlink: docs/plans/2026-06-15-deep-research-install-chain-application-phase-b.md §6 AC1 + AC6
 Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md
@@ -58,7 +59,7 @@ _EXPECTED_DEP_SEVERITY = "soft"
 _EXPECTED_DEP_SIBLING_DIR_NAME = "coordinator-claude"
 _EXPECTED_DEP_UPSTREAM_URL = "https://github.com/dbc-oduffy/coordinator-claude"
 _EXPECTED_PROBE_KIND = "file_exists"
-_EXPECTED_PROBE_PATH = "plugins/coordinator/CLAUDE.md"
+_EXPECTED_PROBE_PATH = "coordinator/CLAUDE.md"
 _EXPECTED_CONSUMER_INSTALL_ARGS: list[str] = []
 _EXPECTED_CONTRACT_VERSION = 2
 
@@ -183,7 +184,7 @@ def test_direct_dep_id_and_severity():
 # AC1 (named sub-test 3 of 4): test_functional_probe_shape
 #
 # Asserts functional_probe.kind == "file_exists" AND the path key is
-# present and points at plugins/coordinator/CLAUDE.md.
+# present and points at coordinator/CLAUDE.md (relative to sibling repo root).
 # Spec: plan §6 AC1 "field-by-field — functional_probe"
 # ---------------------------------------------------------------------------
 
@@ -368,6 +369,44 @@ def test_doctor_skill_optional_and_absent():
     assert manifest.get("doctor_skill") is None, (
         f"deep-research declares no doctor_skill (optional field; no health-check flow); "
         f"got {manifest.get('doctor_skill')!r}."
+    )
+
+
+def test_provider_capabilities_declared():
+    """provider_capabilities is declared with the correct role and hoistable_at_step_zero values.
+
+    deep-research-claude is an upstream provider (the only first-class coordinator bundle
+    dependency). All four sub-fields are required when provider_capabilities is present
+    (per contract § provider_capabilities and schema `required` enforcement). Asserts:
+      - provider_capabilities key is present
+      - role == "upstream-provider"
+      - hoistable_at_step_zero is True
+
+    Spec backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § AC12
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § provider_capabilities
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+
+    assert "provider_capabilities" in manifest, (
+        "provider_capabilities key is absent from the deep-research-claude manifest. "
+        "deep-research-claude is an upstream provider and must declare provider_capabilities. "
+        "See plugins/coordinator/docs/wiki/agent-install-contract.md § provider_capabilities."
+    )
+    pc = manifest["provider_capabilities"]
+    assert isinstance(pc, dict), (
+        f"provider_capabilities must be an object; got {type(pc).__name__}."
+    )
+    assert pc.get("role") == "upstream-provider", (
+        f"provider_capabilities.role expected 'upstream-provider'; got {pc.get('role')!r}. "
+        "deep-research-claude is an upstream provider — its role enum value is 'upstream-provider'."
+    )
+    assert pc.get("hoistable_at_step_zero") is True, (
+        f"provider_capabilities.hoistable_at_step_zero expected True; got {pc.get('hoistable_at_step_zero')!r}. "
+        "deep-research-claude's setup may be hoisted to Step Zero by the chain-walker."
     )
 
 

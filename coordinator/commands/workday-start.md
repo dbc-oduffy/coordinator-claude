@@ -64,7 +64,11 @@ After the precedence switch resolves, verify the active branch's name covers tod
 ```bash
 source ~/.claude/plugins/coordinator/lib/coordinator-daily-branch.sh
 CURRENT=$(git branch --show-current)
-TODAY=$(date +%Y-%m-%d)
+# UTC to match Step 0's rename clock (workday-start-step0.sh:41 cuts the span via `date -u`).
+# Bare `date +%Y-%m-%d` (local) here false-fires SPAN_ASSERT_FAIL after ~17:00 in UTC-negative
+# offsets: Step 0 renames forward to the UTC span (…23to24) while a local-date compare still
+# reads today as 06-23, recommending a rename back — a daily flip-flop. Keep both clocks UTC.
+TODAY=$(date -u +%Y-%m-%d)
 SPAN_ASSERT_FAIL=
 SPAN_ASSERT_MSG=
 
@@ -285,6 +289,24 @@ Run `verify-preamble-sync.sh` (relative to the coordinator plugin root, typicall
 
 **Do NOT auto-fix** — investigate which consumer drifted and why; a drift may need to be merged back into the canonical snippet rather than overwritten.
 
+## Step 1.85: Daily-Wrap Coverage Gap Detector
+
+Morning is the T+1 catch point for a skipped `/workday-complete`: a day that ran sessions but never wrapped leaves no `archive/daily-summaries/<day>.md` and no `state/week-changelog/<day>-<machine>.md` block, and nothing in the cadence surfaces it until someone eyeballs the changelog dir (the weekly staleness nudge is too coarse). This step closes that loop — it reuses the **same scanner** that `/workday-complete` Step 3.5 uses to backfill, run here read-only as a nudge.
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/bin/workday-complete-backfill-scan.sh" --lookback 7
+```
+
+- **Empty output:** no gap — skip silently (the healthy common case).
+- **Non-empty:** surface a single non-blocking nudge under **Daily-Wrap Coverage**:
+  > _"Daily-wrap gap: {date list} had commits but no daily summary. Run `/workday-complete` to auto-backfill (its Step 3.5 reconstructs each day from the on-disk dated substrate), or backfill manually."_
+
+**Read-only — never auto-backfill here.** Reconstruction needs the per-day analyst dispatch, which is an EM-driven call inside `/workday-complete`; the detector only flags. **Trivial-only days are an EM judgment call** — a day whose only commits are a session-init auto-sweep or a gitignore chore is not real work; eyeball the list and ignore those (mirror `/workday-complete`'s own skip condition) rather than backfilling an empty summary. `covered` keys on the machine-agnostic daily summary (not the per-machine changelog block) to avoid cross-machine false positives on a shared branch.
+
+**Why 7 here vs 14 in `/workday-complete` Step 3.5:** the morning nudge uses the tighter 7-day window to surface the most-recent gap week and reduce noise; older gaps (8–14d) remain silently handled by `/workday-complete` Step 3.5's 14-day backfill.
+
+> Convergence: project-rag-em independently requested this morning-side detector (cross-repo memo 2026-06-23) as the complement to the workday-complete backfill. Scanner: `bin/workday-complete-backfill-scan.sh` (shared with `/workday-complete` Step 3.5).
+
 ## Step 1.9: Auto-Push Failure Surface
 
 Silent `coordinator-auto-push` failures (Windows case-mismatched branch refs, expired credentials, SSH agent unreachable) accumulate in `.git/push-failures.log` until the next manual push — surfaced here each morning.
@@ -381,7 +403,7 @@ bash ~/.claude/plugins/coordinator/lib/detect-onboarding-offer.sh
 
 The detector respects the dismissal sentinel (`<repo>/.git/coordinator-onboarding-dismissed`) — once dismissed it never fires again for that repo. The offer text tells the PM how to dismiss.
 
-Spec backlink: `docs/plans/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 3`
+Spec backlink: `archive/specs/2026-05/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 3`
 
 ## Step 1.10.5: MCP Tool Registration
 
@@ -453,6 +475,10 @@ Silent when below both thresholds.
 2. Find commits since: `git log --oneline <last-update-docs-commit>..HEAD`
 3. **Commits exist:** Flag: _"Docs are stale — [N] commits since last update-docs. Recommend `/update-docs` before feature work."_ Do NOT dispatch automatically — it commits files and would race with the working tree.
 4. **No commits since:** "Docs are current."
+5. Run the harvest-debt probe and surface its output verbatim if non-empty (flag only — never auto-run `/distill`):
+   ```bash
+   bash ~/.claude/plugins/coordinator/bin/check-harvest-debt.sh
+   ```
 
 ## Step 3: Test Staleness
 
@@ -485,7 +511,9 @@ When present:
    If `project-rag-cli` is not on PATH, fall back to:
 
    ```bash
-   PROJECT_RAG_PROJECT_ROOT="$(pwd)" python -m project_rag.cli staleness-survey --json
+   # python3-first resolver — `python` is absent on modern macOS / many Linux.
+   PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
+   PROJECT_RAG_PROJECT_ROOT="$(pwd)" "$PY" -m project_rag.cli staleness-survey --json
    ```
 
 2. Parse the JSON. If `verdict == "current"`, emit nothing. Otherwise inline the rendered output into the Morning Briefing under a new **Project-RAG** line (template below).

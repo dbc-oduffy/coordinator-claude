@@ -1,7 +1,7 @@
 # Phase 3-Esc: Opus Contradiction Resolution Prompt
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#6b, AC#6c -->
-<!-- spec-backlink: docs/plans/2026-05-28-distill-structured-manifests.md § Chunk 5 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#6b, AC#6c -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-28-distill-structured-manifests.md § Chunk 5 -->
 <!-- ESCALATION PATH ONLY — dispatched by coordinator when 3a reports unresolvable_contradictions > 0 -->
 
 <!-- CALIBRATION: Phase 3-Esc has not fired in observed runs (2026-05-08, 05-19, 05-20); this fidelity
@@ -133,7 +133,7 @@ configurations with no architectural basis for preferring one."]
 
 ## Fidelity Check (Sonnet, disk-first)
 
-<!-- spec-backlink: docs/plans/2026-05-28-distill-structured-manifests.md § Chunk 5 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-28-distill-structured-manifests.md § Chunk 5 -->
 <!-- RUNS AFTER Phase 3-Esc Opus output is written. Write verdict to disk — coordinator reads from disk. -->
 <!-- Review: the Staff Engineer R1 Finding 5 — inline verdict violates disk-first doctrine; a hallucinated inline PASS
      would silently pass a dropped-ID Opus output. Verdict is now written to disk at [VERDICT_PATH]. -->

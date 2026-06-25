@@ -63,10 +63,38 @@ _cs_now_epoch() {
 }
 
 # _cs_pid_alive <pid>: exit 0 if PID is alive, 1 if not
+#   NOTE: NOT a session-liveness signal in-harness — every Bash/hook tool call has
+#   a fresh, short-lived $$ (see _cs_is_session_live header). Retained only for the
+#   legacy pid-only claim-dir fallback and diagnostics; never gate session liveness
+#   on this.
 _cs_pid_alive() {
   local pid="${1:-}"
   [[ -n "$pid" && "$pid" =~ ^[0-9]+$ ]] || return 1
   kill -0 "$pid" 2>/dev/null
+}
+
+# _cs_resolve_session_id
+#   Resolve THIS session's id via the canonical 4-tier chain, mirroring the
+#   in-line resolution in cs_claim_artifact and coordinator-safe-commit's
+#   resolve_session_id:
+#     1. $COORDINATOR_SESSION_ID  (explicit test override)
+#     2. $CLAUDE_SESSION_ID       (explicit override slot)
+#     3. $CLAUDE_CODE_SESSION_ID  (platform-injected, Claude Code ≥ ~2.1.150)
+#     4. .git/coordinator-sessions/.current-session-id sentinel (old Claude Code)
+#   The sentinel is anchored to the running (cwd) session — never a baton repo.
+#   Always returns 0; prints the empty string when no session id is resolvable
+#   (callers gate on empty, including the _cs_git_root-failure path).
+_cs_resolve_session_id() {
+  local sid="${COORDINATOR_SESSION_ID:-}"
+  [[ -z "$sid" ]] && sid="${CLAUDE_SESSION_ID:-}"
+  [[ -z "$sid" ]] && sid="${CLAUDE_CODE_SESSION_ID:-}"
+  if [[ -z "$sid" ]]; then
+    local root sentinel
+    root=$(_cs_git_root) || { echo ""; return 0; }
+    sentinel="${root}/.git/coordinator-sessions/.current-session-id"
+    [[ -f "$sentinel" ]] && sid=$(cat "$sentinel" 2>/dev/null)
+  fi
+  echo "$sid"
 }
 
 # _cs_mtime_epoch <file>: print mtime as epoch seconds, cross-platform
@@ -521,7 +549,12 @@ cs_reap_stale() {
       continue  # still active
     fi
 
-    # Condition 2: no alive PID
+    # Condition 2: no alive PID.
+    # In-harness this is ALWAYS true (meta.json pid is a dead hook $$), so the 24h
+    # inactivity gate above is the real reaper trigger — this check only adds protection
+    # in the rare non-harness case where a long-lived outer shell calls cs_init directly
+    # and keeps that PID. NOT the session-liveness key (that is last_activity recency,
+    # _cs_is_session_live); kept here as a conservative belt-and-braces over the 24h gate.
     local pid
     pid=$(_cs_read_meta_field "$sdir" "pid")
     if _cs_pid_alive "$pid"; then
@@ -544,15 +577,21 @@ cs_reap_stale() {
 #   no-arg session-init call site reaps memo claims with zero edits). An optional <class>
 #   second arg narrows to one subdir (handoff | memo).
 #
-#   Liveness rule: reap iff the holder PID is DEAD. NO age check — a live holder is
-#   NEVER reaped regardless of how long it has held the claim (a /pickup can hold a
-#   workstream open across a workday). This matches cs_claim_artifact's inline takeover
-#   (dead-PID only); the two paths MUST agree on what "stale" means.
+#   Liveness rule: reap iff the holding SESSION is not live by the canonical recency
+#   rule (_cs_session_live: last_activity < 30 min). NO separate age check — a live
+#   holder is NEVER reaped regardless of how long it has held the claim (a /pickup can
+#   hold a workstream open across a workday, AS LONG AS the session keeps touching tools
+#   so its heartbeat stays fresh). This matches cs_claim_artifact's inline takeover; the
+#   two paths share _cs_session_live so they MUST agree on what "stale" means. The held
+#   PID is NOT the key — it is a dead per-Bash-call $$ in-harness (see _cs_is_session_live
+#   header); a pid-only LEGACY claim dir (pre-upgrade, no session_id file) falls back to
+#   the old dead-PID test for that dir only.
 #
-#   TOCTOU: re-read the held PID immediately before rm -rf and skip if it changed or is
-#   now alive — closes the rm-vs-inline-takeover race (reaper reads dead PID-A, a
-#   concurrent pickup takes over writing live PID-B, reaper would otherwise delete the
-#   live claim). Best-effort; never fatal to caller (session-init wraps it || true).
+#   TOCTOU: re-read the held session_id (or pid, legacy) immediately before rm -rf and
+#   skip if it changed or is now live — closes the rm-vs-inline-takeover race (reaper
+#   reads stale holder, a concurrent pickup takes over writing a live sid, reaper would
+#   otherwise delete the live claim). Best-effort; never fatal to caller (session-init
+#   wraps it || true).
 #
 #   <baton_repo_root> (optional): reap a foreign baton repo's claims; defaults to cwd.
 #   FOREIGN-BATON NON-COVERAGE (memo parity with cs_claim_artifact's note): a memo claim
@@ -584,19 +623,23 @@ cs_reap_stale_claims() {
     subdirs="handoff-claims memo-claims"
   fi
 
-  local sub claims_dir claim held_pid recheck_pid
+  local sub claims_dir claim
   for sub in $subdirs; do
     claims_dir="${base}/${sub}"
     [[ -d "$claims_dir" ]] || continue
     for claim in "${claims_dir}"/*/; do
       [[ -d "$claim" ]] || continue
-      held_pid=$(cat "${claim}/pid" 2>/dev/null || echo "")
-      # Only dead-PID claims are reapable.
-      _cs_pid_alive "$held_pid" && continue
-      # TOCTOU re-read: a concurrent inline takeover may have just claimed it with a live PID.
-      recheck_pid=$(cat "${claim}/pid" 2>/dev/null || echo "")
-      [[ "$recheck_pid" != "$held_pid" ]] && continue
-      _cs_pid_alive "$recheck_pid" && continue
+      # Reapable iff the holding SESSION is not live — the SAME key (_cs_claim_holder_live)
+      # as cs_claim_artifact's takeover and cs_sweep_actioned_memos, so all agree on "stale"
+      # (this function's contract demands that agreement). The helper carries the canonical
+      # session_id-recency key + the legacy pid-only fallback.
+      _cs_claim_holder_live "$claim" && continue       # holder live — skip
+      # TOCTOU re-read: if a concurrent pickup took over between the two reads (rm + mkdir +
+      # a live session_id), the second read sees the NEW holder and returns live, so we skip
+      # — the claim is now protected by its new live holder. (The guard is liveness-of-current-
+      # holder, not identity-change detection: a takeover to another stale holder still reaps,
+      # which is correct.)
+      _cs_claim_holder_live "$claim" && continue
       # Review: code-reviewer — && is intentional: echo fires only on successful rm;
       # a failed rm (lost the race to another reaper) is silently skipped, not fatal.
       # Review: code-reviewer — rm -rf on an already-absent dir is idempotent (returns 0
@@ -609,19 +652,119 @@ cs_reap_stale_claims() {
 }
 
 # _cs_is_session_live <pid> <elapsed_sec>
-#   Returns 0 (true) when the session should be considered Live:
-#     - PID is alive (kill -0 check)
-#     - elapsed_sec < 30 minutes
-#   Returns 1 (false) otherwise.
-#   Single-source-of-truth: cs_active_sessions, cs_live_session_ids (fast-path
-#   and fallback), and any future callers must use this helper to stay in sync.
+#   Returns 0 (true) when the session should be considered Live, 1 otherwise.
+#
+#   LIVENESS KEY: last_activity recency ONLY — elapsed_sec < 30 minutes.
+#   The <pid> argument is retained for signature stability and diagnostic
+#   display but is DELIBERATELY NOT part of the liveness decision.
+#
+#   Why pid is not the key (in-harness reality): every Claude Code Bash/hook tool
+#   call runs in a separate OS process with a fresh $$. cs_init writes meta.json's
+#   `pid` as $$ of the hook subshell, which is dead within seconds of session open
+#   (session-init.sh § "session_alive=true via PID is structurally unreachable";
+#   session-heartbeat.sh). A kill -0 liveness gate therefore reports EVERY session
+#   dead, including the one actively running right now. The signal that actually
+#   tracks a live session is last_activity, refreshed on every PreToolUse:Bash by
+#   session-heartbeat.sh (60s throttle). This is the same recency rule the
+#   session-init.sh orphan sweep already trusts (its ALIVE_WINDOW is 10m; the
+#   30m here is the documented session-liveness threshold surfaced by
+#   cs_active_sessions and consumed by the claim layer).
+#
+#   BOUNDED EDGE (the Staff Engineer F0, closed 2026-06-23): the heartbeat was originally
+#   PreToolUse:Bash ONLY, so last_activity was stamped at the START of a Bash call and
+#   frozen for its duration. A genuinely-live session inside a SINGLE Bash command longer
+#   than 30 min (a UE build, a large extraction) crossed this threshold mid-command, making
+#   its claim wrongly takeable/reapable. CLOSED by registering session-heartbeat.sh on
+#   PostToolUse:Bash as well (hooks.json): recency is now stamped at BOTH ends of every Bash
+#   command, so only a session idle >30 min BETWEEN commands ages out. Residual (accepted):
+#   a single command that runs >30 min AND emits no intervening tool calls is bounded by the
+#   command's own duration — at completion the PostToolUse leg re-stamps and the claim is
+#   live again; the wrongful-takeover window is at most the tail of one long command (or the
+#   full 30-min window if the command is KILLED before its PostToolUse leg fires — SIGKILL/OOM
+#   leaves last_activity at the PreToolUse stamp, indistinguishable from a truly-dead session),
+#   not unbounded idle. Spec: state/handoffs/2026-06-23_233740_claim-liveness-hardening-r2.md.
+#
+#   Single-source-of-truth: cs_active_sessions, cs_live_session_ids (fast-path and
+#   fallback), _cs_session_live (claim takeover / release / reaper), and any future
+#   callers route through this helper to stay in sync. Do NOT reintroduce a
+#   _cs_pid_alive gate here — it silently zeroes the live set in-harness, which
+#   removed the concurrent-pickup guard entirely (the 2026-06-23 wrongful-takeover
+#   regression this fix addresses). Spec: state/handoffs/2026-06-23_153742_claim-lock-pid-death-false-positive.md.
 _cs_is_session_live() {
-  local pid="${1:-}" elapsed_sec="${2:-0}"
+  local pid="${1:-}" elapsed_sec="${2:-0}"  # pid: diagnostic only — see header
   local thirty_min=$(( 30 * 60 ))
-  if [[ "$elapsed_sec" -lt "$thirty_min" ]] && _cs_pid_alive "$pid"; then
-    return 0
+  [[ "$elapsed_sec" =~ ^[0-9]+$ ]] || return 1
+  [[ "$elapsed_sec" -lt "$thirty_min" ]]
+}
+
+# _cs_session_live <session_id>
+#   exit 0 iff <session_id> is a LIVE session by the canonical recency rule
+#   (_cs_is_session_live). O(1) single-session lookup: reads that one session's
+#   meta.json directly, rather than scanning every dir (that is cs_live_session_ids'
+#   job). This is THE shared key for the claim layer — claim takeover, release
+#   holder-check, and the reaper all call through here so they provably agree on
+#   what "stale" means (cs_reap_stale_claims' own comment mandates that agreement).
+#   Empty/unknown sid, missing session dir, or missing/unparseable last_activity
+#   → not live.
+_cs_session_live() {
+  local sid="${1:-}"
+  [[ -n "$sid" ]] || return 1
+  local sdir
+  sdir=$(_cs_session_dir "$sid" 2>/dev/null) || return 1
+  [[ -d "$sdir" ]] || return 1
+  local pid last_iso last_epoch now_epoch elapsed
+  pid=$(_cs_read_meta_field "$sdir" "pid")
+  last_iso=$(_cs_read_meta_field "$sdir" "last_activity")
+  last_epoch=$(_cs_iso_to_epoch "$last_iso")
+  now_epoch=$(_cs_now_epoch)
+  elapsed=$(( now_epoch - last_epoch ))
+  (( elapsed < 0 )) && elapsed=0
+  _cs_is_session_live "$pid" "$elapsed"
+}
+
+# _cs_claim_holder_live <claim_dir>
+#   exit 0 iff the session HOLDING this claim is live. THE single liveness decision for
+#   the claim layer's stale/takeable/reapable question — shared by cs_claim_artifact
+#   (takeover), cs_reap_stale_claims, and cs_sweep_actioned_memos so all provably agree.
+#   Canonical key: held session_id recency (_cs_session_live). LEGACY fallback: a pid-only
+#   claim dir (pre-upgrade, no session_id file) uses the dead-PID test for that dir only.
+#   Consolidates the previously hand-copied `[[ -f session_id ]]` discriminator (one rule,
+#   one site — the drift surface that previously let cs_sweep_actioned_memos keep the old
+#   pid key, code-reviewer F2 / the Staff Engineer F3, 2026-06-23).
+_cs_claim_holder_live() {
+  local cdir="${1:?claim_dir required}"
+  if [[ -f "${cdir}/session_id" ]]; then
+    # `|| echo ""`: defensive TOCTOU — the file can be rm'd between the -f test and the cat
+    # (a concurrent takeover/reaper); empty sid → _cs_session_live returns not-live (safe).
+    _cs_session_live "$(cat "${cdir}/session_id" 2>/dev/null || echo "")"
+  else
+    _cs_pid_alive "$(cat "${cdir}/pid" 2>/dev/null || echo "")"
   fi
-  return 1
+}
+
+# _cs_claim_held_by_me <claim_dir> [my_sid]
+#   exit 0 iff THIS session is the holder of this claim — the identity predicate for
+#   cs_release_artifact (distinct from _cs_claim_holder_live's liveness predicate). Keyed
+#   on session_id == my resolved id, NOT $$ (the recorded pid is a dead per-Bash $$
+#   in-harness — lesson a167aa66).
+#   <my_sid> (optional): the caller's PRE-RESOLVED session id. Pass it so a two-call TOCTOU
+#   sequence keys both reads off ONE identity — the second read then varies only on the
+#   claim-dir CONTENT (the actual race), never on a re-resolution of my own id. If omitted,
+#   resolves via _cs_resolve_session_id. Re-reads the dir on each call, so calling it twice
+#   IS the release TOCTOU re-read.
+#   LEGACY pid-only fallback (no session_id file): compares the recorded pid to $$. This is a
+#   PERMANENT no-op in-harness (every Bash call has a fresh $$), so a pre-upgrade pid-only
+#   claim is released only via inline takeover or cs_reap_stale_claims — never via
+#   cs_release_artifact. Preserved as-is; pid-only dirs self-heal to session_id on first takeover.
+_cs_claim_held_by_me() {
+  local cdir="${1:?claim_dir required}"
+  local my="${2:-}"
+  [[ -z "$my" ]] && my=$(_cs_resolve_session_id)
+  if [[ -f "${cdir}/session_id" ]]; then
+    [[ -n "$my" && "$(cat "${cdir}/session_id" 2>/dev/null || echo "")" == "$my" ]]
+  else
+    [[ "$(cat "${cdir}/pid" 2>/dev/null || echo "")" == "$$" ]]
+  fi
 }
 
 # cs_active_sessions
@@ -630,9 +773,12 @@ _cs_is_session_live() {
 #     <session_id>  Live (last activity Nm ago)
 #     <session_id>  Stale (last activity Nh ago, candidate for reap)
 #
-#   Thresholds:
-#     Live: PID alive AND last_activity < 30 minutes ago
-#     Stale: no alive PID OR last_activity >= 30 minutes ago (but < 24h = reap threshold)
+#   Thresholds (PID is NOT part of the liveness key — see _cs_is_session_live header):
+#     Live:  last_activity < 30 minutes ago
+#     Stale: last_activity >= 30 minutes ago
+#   NOTE: "Stale" here (the 30-min liveness boundary) is NOT the reap threshold —
+#   cs_reap_stale (session archival) requires 24h inactivity. A 30m–24h session shows
+#   Stale but is not yet reapable.
 cs_active_sessions() {
   local base
   base=$(_cs_sessions_dir) || return 0
@@ -671,11 +817,11 @@ cs_active_sessions() {
       elapsed_label="$(( elapsed_sec / 86400 ))d ago"
     fi
 
-    # Liveness: Live requires alive PID AND < 30 min since last activity
+    # Liveness: Live iff last_activity < 30 min (PID is diagnostic-only — see _cs_is_session_live)
     if _cs_is_session_live "$pid" "$elapsed_sec"; then
       printf "%-60s  Live (last activity %s)\n" "$sid" "$elapsed_label"
     else
-      printf "%-60s  Stale (last activity %s, candidate for reap)\n" "$sid" "$elapsed_label"
+      printf "%-60s  Stale (last activity %s, reap threshold is 24h)\n" "$sid" "$elapsed_label"
     fi
   done
 
@@ -685,7 +831,9 @@ cs_active_sessions() {
 }
 
 # cs_live_session_ids
-#   Print one live (PID-alive AND <30 min last-activity) session id per line.
+#   Print one live session id per line — liveness keyed on last_activity recency
+#   (<30 min) ONLY, via _cs_is_session_live; PID is diagnostic, not part of the key
+#   (see _cs_is_session_live header for why kill -0 is structurally dead in-harness).
 #   No formatting, no headers. Structured-data sibling of cs_active_sessions.
 #   Consumed by coordinator-safe-commit's agent-id-union candidate-set build
 #   (Issue A, archive/specs/2026-05-05-issue-a-agent-id-linkage.md).
@@ -909,8 +1057,10 @@ cs_atomic_dedup_append() {
 #   basename-only shared): held_pid/held_sid are read from the claim
 #   dir's OWN metadata, so liveness is evaluated against the HOLDER, not the caller.
 #   Do NOT refactor this to use $$/$sid — that reintroduces the per-session bug.
-#     - If the holding session's PID is alive  → exit 1 with held-by message.
-#     - If the holding session's PID is dead   → log warning, rm -rf and recreate.
+#     - If the holding SESSION is live (_cs_session_live: last_activity < 30 min)
+#                                              → exit 1 with held-by message.
+#     - If the holding session is dead/idle    → log warning, rm -rf and recreate.
+#     - LEGACY pid-only claim dir (no session_id file) → fall back to the dead-PID test.
 #
 #   On success, writes pid, session_id, claimed_at inside the claim directory.
 #   IMPORTANT — PID recorded is $$ of the CALLER, which MUST be a long-lived process
@@ -934,24 +1084,11 @@ cs_claim_artifact() {
   local class="${1:?artifact class required}"
   local basename="${2:?basename required}"
   local baton_repo_root="${3:-}"
-  local sid="${COORDINATOR_SESSION_ID:-}"
-  # Explicit test override — mirrors resolve_session_id's Priority 1 slot so
-  # test harnesses can inject a known id without clobbering the real env var.
-  # Review: code-reviewer — asymmetric with cs_self_claim and resolve_session_id.
-  [[ -z "$sid" ]] && sid="${CLAUDE_SESSION_ID:-}"
-  # Platform-injected session id (Claude Code ≥ ~2.1.150). Per-session and
-  # unclobberable by sibling sessions — prefer it over the last-writer-wins
-  # sentinel. Mirrors coordinator-safe-commit resolve_session_id Priority 2.
-  [[ -z "$sid" ]] && sid="${CLAUDE_CODE_SESSION_ID:-}"
-  if [[ -z "$sid" ]]; then
-    # Fall back to sentinel file (last-writer-wins; only reached on old Claude Code).
-    # sid is a property of the running (cwd) session; only the lock location follows
-    # the baton — so the sentinel read stays on cwd _cs_git_root even in baton-repo mode.
-    local root
-    root=$(_cs_git_root) || return 1
-    local sentinel="${root}/.git/coordinator-sessions/.current-session-id"
-    [[ -f "$sentinel" ]] && sid=$(cat "$sentinel" 2>/dev/null)
-  fi
+  # Canonical 4-tier resolution (override → CLAUDE_SESSION_ID → CLAUDE_CODE_SESSION_ID
+  # → cwd sentinel). sid is a property of the running (cwd) session; only the lock
+  # LOCATION follows the baton, so the sentinel read stays anchored to cwd.
+  local sid
+  sid=$(_cs_resolve_session_id)
   [[ -z "$sid" ]] && { echo "cs_claim_${class}: no session_id available" >&2; return 1; }
 
   local base claims_dir claim_dir
@@ -985,18 +1122,23 @@ cs_claim_artifact() {
     return 0
   fi
 
-  # EEXIST — inspect existing claim
+  # EEXIST — inspect existing claim. Liveness is evaluated against the HOLDER (the claim
+  # dir's OWN metadata via _cs_claim_holder_live), never the caller — do NOT refactor to
+  # $$/$sid (that reintroduces the per-session bug). The helper carries the canonical
+  # session_id-recency key + the legacy pid-only fallback (one rule, shared with the reaper
+  # and the memo sweep). held_pid/held_sid are read only for the diagnostic messages.
   local held_pid held_sid
   held_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
-  held_sid=$(cat "${claim_dir}/session_id" 2>/dev/null || echo "unknown")
+  held_sid=$(cat "${claim_dir}/session_id" 2>/dev/null || echo "")
 
-  if _cs_pid_alive "$held_pid"; then
-    echo "cs_claim_${class}: ${basename} held by session ${held_sid} (PID ${held_pid}) — concurrent /pickup detected" >&2
+  if _cs_claim_holder_live "$claim_dir"; then
+    echo "cs_claim_${class}: ${basename} held by session ${held_sid:-?} (PID ${held_pid:-?}) — concurrent /pickup detected" >&2
     return 1
   fi
 
-  # Dead PID — stale claim; take over
-  echo "cs_claim_${class}: stale claim on ${basename} (session ${held_sid}, dead PID ${held_pid:-?}) — taking over" >&2
+  # Holder is dead or >30 min idle — stale claim; take over. (Atomic rm + mkdir below
+  # is itself the race guard: a peer that re-claims between them makes our mkdir fail.)
+  echo "cs_claim_${class}: stale claim on ${basename} (session ${held_sid:-?}, PID ${held_pid:-?} not live) — taking over" >&2
   rm -rf "$claim_dir" 2>/dev/null || true
   if mkdir "$claim_dir" 2>/dev/null; then
     local now
@@ -1052,21 +1194,326 @@ cs_release_artifact() {
   local claim_dir="${base}/${class}-claims/${basename}"
   [[ -d "$claim_dir" ]] || return 0   # already absent — no-op
 
-  # Holder-identity check: only the session that holds the claim may release it.
-  local held_pid
-  held_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
-  [[ "$held_pid" == "$$" ]] || return 0   # not the holder (or reaped/taken-over) — no-op
+  # Holder-identity check: only the session that holds the claim may release it
+  # (_cs_claim_held_by_me — keyed on session_id == my id, NOT $$; the recorded pid is a
+  # dead per-Bash $$ in-harness, so a $$ compare was a permanent no-op — lesson a167aa66).
+  # Resolve my id ONCE and pass it to both TOCTOU reads, so the second read varies only on
+  # the claim-dir content (the actual race), not on a re-resolution of my own id (F1).
+  local my_sid; my_sid=$(_cs_resolve_session_id)
+  _cs_claim_held_by_me "$claim_dir" "$my_sid" || return 0   # not the holder — no-op
 
-  # TOCTOU re-read before rm, mirroring cs_reap_stale_claims' two-read discipline: if an
-  # inline dead-PID takeover (rm + mkdir + new live pid) slipped in after the identity
-  # check, the recheck no longer reads $$ and we skip — never delete a live peer's claim.
-  # (Narrow in practice — the takeover path requires the holder PID to be dead, and the
-  # holder here is $$, alive by definition at call time — but kept symmetric with the reaper.)
-  local recheck_pid
-  recheck_pid=$(cat "${claim_dir}/pid" 2>/dev/null || echo "")
-  [[ "$recheck_pid" != "$$" ]] && return 0
+  # TOCTOU re-read before rm: _cs_claim_held_by_me re-reads the dir, so calling it a second
+  # time IS the two-read discipline. If an inline takeover (rm + mkdir + new session_id)
+  # slipped in after the first check, the recheck no longer matches our id and we skip —
+  # never delete a live peer's claim. The conservative outcome (return 0, never delete)
+  # also covers the upgrade-era dir-vanished-between-checks race.
+  _cs_claim_held_by_me "$claim_dir" "$my_sid" || return 0
 
   rm -rf "$claim_dir" 2>/dev/null || true
+  return 0
+}
+
+# _cs_my_agent_touched <session_id> [mode]
+#   Print (one per line) every repo-relative path touched by a sub-agent whose
+#   .agents/<aid>/em-session-id.txt back-pointer is in the candidate set for
+#   <session_id>.
+#
+#   mode (optional, default: broadened):
+#     broadened — candidate set = {session_id} ∪ {all live session ids via
+#                 cs_live_session_ids}.  Recovers the EM's own fan-out output on
+#                 old Claude Code where executor SessionStart can pollute the
+#                 .current-session-id sentinel (Issue-A, APPROVED_WITH_NOTES v3).
+#                 Safe for the default (do_scoped) path because cs_compute_scope
+#                 re-subtracts other_sessions downstream, so any over-reach is
+#                 self-correcting.
+#     exact     — candidate set = {session_id} only.  Use on the blanket path
+#                 where broadening would scoop a sibling EM's own sub-agent
+#                 back-pointer into "own", causing the blanket to absorb the
+#                 sibling's in-flight files — the exact contamination the
+#                 foreign-subtract is designed to prevent.
+#
+#   Returns 0 always (fail-open: attribution is advisory, never blocks the caller).
+#
+# Spec backlink: docs/plans/2026-06-22-authorized-blanket-orphan-capture-not-sibling-sweep.md § C1a Step 1.
+_cs_my_agent_touched() {
+  local session_id="${1:?session_id required}"
+  local mode="${2:-broadened}"
+  local base
+  base=$(_cs_sessions_dir) || return 0
+  [[ -d "${base}/.agents" ]] || return 0
+
+  # Build the candidate set of EM session ids whose agents count as "mine".
+  # broadened: own sid + all live sibling sids (sentinel-pollution recovery).
+  # exact:     own sid only (blanket path — must not absorb sibling sub-agents).
+  local -a _candidates=("$session_id")
+  if [[ "$mode" == "broadened" ]]; then
+    local _lsid
+    while IFS= read -r _lsid; do
+      [[ -n "$_lsid" ]] && _candidates+=("$_lsid")
+    done < <(cs_live_session_ids 2>/dev/null || true)
+  fi
+
+  # Helper: returns 0 if <em_sid> is in _candidates array, 1 otherwise.
+  # Linear scan — _candidates is typically 1-3 entries.
+  _cmat_in_candidates() {
+    local needle="$1" c
+    for c in "${_candidates[@]}"; do
+      [[ "$c" == "$needle" ]] && return 0
+    done
+    return 1
+  }
+
+  local agent_dir backptr em_sid agent_touched fpath
+  for agent_dir in "${base}/.agents"/*/; do
+    [[ -d "$agent_dir" ]] || continue
+    backptr="${agent_dir}em-session-id.txt"
+    [[ -f "$backptr" ]] || continue
+    em_sid=$(head -1 "$backptr" 2>/dev/null)
+    [[ -z "$em_sid" ]] && continue           # malformed back-pointer; soft-skip
+    _cmat_in_candidates "$em_sid" || continue
+    agent_touched="${agent_dir}touched.txt"
+    [[ -f "$agent_touched" ]] || continue
+    while IFS= read -r fpath; do
+      [[ -n "$fpath" ]] && echo "$fpath"
+    done < "$agent_touched"
+  done
+  return 0
+}
+
+# cs_sweep_actioned_memos <git_root>
+#   Archive terminal (status: actioned) cross-repo memos out of cross-repo/inbox/
+#   into cross-repo/archive/ (flat — memo convention, NOT <YYYY-MM>/ subfolders like
+#   handoffs). Generalizes the consumed-handoff sweep in session-init.sh for the memo
+#   class: memos reach `status: actioned` in place (pickup Memo Branch M4) but, unlike
+#   handoffs, have no successor-archival moment, so they leaked into the inbox forever
+#   (43 piled up before the 2026-06-22 manual sweep).
+#
+#   Contract: enumerate → skip → `git mv` (which STAGES the move) → echo the moved count
+#   to stdout. This function does NOT commit — the caller owns the commit so each context
+#   uses the right shape:
+#     • session-init.sh   — gpgsign=false explicit-path commit (TTY-less hook).
+#     • workstream-complete Step 2.65 — folds the staged moves into its Step 3 commit (signed).
+#
+#   Skips: README.md, any non-actioned status (open/in_progress — in_progress means a live
+#   session holds a claim), live-claimed memos (defensive against a mid-flip race), and any
+#   memo whose destination already exists (idempotent — a second run finds nothing to move).
+#   Silent on the happy path; honors INIT_SKIP_SWEEP (set by the caller's branch guard).
+#   Best-effort: returns 0 always, never blocks the caller.
+#
+#   Spec backlink: state/handoffs/2026-06-22_232810_unified-terminal-artifact-archival-sweep.md
+cs_sweep_actioned_memos() {
+  local git_root="${1:-}"
+  [[ -z "$git_root" ]] && git_root=$(_cs_git_root 2>/dev/null)
+  [[ -z "$git_root" ]] && { echo 0; return 0; }
+  [[ -n "${INIT_SKIP_SWEEP:-}" ]] && { echo 0; return 0; }
+  [[ -d "${git_root}/cross-repo/inbox" ]] || { echo 0; return 0; }
+  command -v node &>/dev/null || { echo 0; return 0; }
+
+  # Resolve query-records.js relative to this lib first (sibling/non-~/.claude installs),
+  # falling back to the canonical ~/.claude path. Same resolution shape as the stamp lib
+  # in session-init's orphan-handoff sweep.
+  local QR
+  QR="$(dirname "${BASH_SOURCE[0]}")/../bin/query-records.js"
+  [[ -f "$QR" ]] || QR="${HOME}/.claude/plugins/coordinator/bin/query-records.js"
+  [[ -f "$QR" ]] || { echo 0; return 0; }
+
+  local actioned_paths
+  actioned_paths=$(node "$QR" --type cross-repo-memo --where "status=actioned" --format paths --root "$git_root" 2>/dev/null || true)
+  [[ -z "$actioned_paths" ]] && { echo 0; return 0; }
+
+  mkdir -p "${git_root}/cross-repo/archive" 2>/dev/null || true
+
+  local moved=0 fpath fname claim_dir
+  while IFS= read -r fpath; do
+    [[ -z "$fpath" ]] && continue
+    fname=$(basename "$fpath")
+    [[ "$fname" == "README.md" ]] && continue
+
+    # Claim safety: skip if a LIVE session holds the memo claim (_cs_claim_holder_live —
+    # the SAME key as the claim takeover and the reaper). An actioned memo is terminal so
+    # this should never collide, but the defensive skip is cheap insurance against a
+    # mid-flip race. Keying on the holder's session-recency (not _cs_pid_alive) is load-
+    # bearing: the recorded pid is a dead per-Bash-call $$ in-harness, so a pid check here
+    # was a permanent no-op that would have archived a memo out from under a live claim
+    # (code-reviewer F2, 2026-06-23). LEGACY fallback (pid-only dir) lives in the helper.
+    claim_dir="${git_root}/.git/coordinator-sessions/memo-claims/${fname}"
+    [[ -d "$claim_dir" ]] && _cs_claim_holder_live "$claim_dir" && continue
+
+    # Idempotency / collision guard: never clobber an existing archived file.
+    [[ -e "${git_root}/cross-repo/archive/${fname}" ]] && continue
+
+    if git -C "$git_root" mv "cross-repo/inbox/${fname}" "cross-repo/archive/${fname}" 2>/dev/null; then
+      moved=$((moved + 1))
+    fi
+  done <<< "$actioned_paths"
+
+  echo "$moved"
+  return 0
+}
+
+# cs_sweep_terminal_plans <git_root>
+#   Archives docs/plans/*.md files whose frontmatter status is one of the
+#   terminal values (implemented, superseded, abandoned) into
+#   archive/specs/YYYY-MM/ keyed off the date in the plan filename.
+#
+#   Mirrors cs_sweep_actioned_memos in structure: guard chain, query-records.js
+#   resolution, git mv staging, echo-count, caller-owns-commit, return-0-always.
+#
+#   Skips:
+#     • Plans whose status is not in {implemented, superseded, abandoned}.
+#     • Plans referenced by an ACTIVE handoff in state/handoffs/*.md (any
+#       handoff whose frontmatter status is NOT consumed or superseded).
+#     • Plans referenced by a LIVE plan in docs/plans/*.md (any plan whose
+#       frontmatter status is NOT in {implemented, superseded, abandoned}).
+#       Review sidecars (<plan-stem>.<tag>.md) are NOT counted as live plans —
+#       they cite their parent's filename, which would otherwise make every
+#       plan with a sidecar hold itself and never archive.
+#     • Plans whose archive destination already exists (idempotent).
+#   Only live handoffs + live plans gate the move; spec_backlink references in
+#   CLAUDE.md / docs/wiki / skills are NOT a skip reason.
+#
+#   Sidecar pattern: every file matching ${basename_without_ext}.*.md in
+#   docs/plans/ is moved alongside the primary plan file.
+#
+#   Consumer-project guard: repos without docs/plans/ return 0 silently.
+#   Silent on the happy path; honors INIT_SKIP_SWEEP.
+#   Best-effort: returns 0 always, never blocks the caller.
+#
+#   Spec backlink: state/handoffs/2026-06-22_232810_unified-terminal-artifact-archival-sweep.md
+cs_sweep_terminal_plans() {
+  local git_root="${1:-}"
+  [[ -z "$git_root" ]] && git_root=$(_cs_git_root 2>/dev/null)
+  [[ -z "$git_root" ]] && { echo 0; return 0; }
+  [[ -n "${INIT_SKIP_SWEEP:-}" ]] && { echo 0; return 0; }
+  [[ -d "${git_root}/docs/plans" ]] || { echo 0; return 0; }
+  command -v node &>/dev/null || { echo 0; return 0; }
+
+  # Resolve query-records.js relative to this lib first (sibling/non-~/.claude installs),
+  # falling back to the canonical ~/.claude path. Same resolution shape as the stamp lib
+  # in session-init's orphan-handoff sweep.
+  local QR
+  QR="$(dirname "${BASH_SOURCE[0]}")/../bin/query-records.js"
+  [[ -f "$QR" ]] || QR="${HOME}/.claude/plugins/coordinator/bin/query-records.js"
+  [[ -f "$QR" ]] || { echo 0; return 0; }
+
+  # Resolve spawn-hidden.sh; fall back to bare node when absent (partial install or
+  # non-Windows path where suppression is a no-op anyway).
+  # Review: reviewer — no fallback guard meant missing spawn-hidden.sh caused all three
+  #   calls to fail silently and cs_sweep_terminal_plans returned 0 with no work done.
+  local _SPAWN_HIDDEN
+  _SPAWN_HIDDEN="$(dirname "${BASH_SOURCE[0]}")/spawn-hidden.sh"
+
+  # query-records --where supports AND only, no OR. Use three separate calls and
+  # union+dedup the resulting paths.
+  local raw_paths all_paths
+  if [[ -f "$_SPAWN_HIDDEN" ]]; then
+    raw_paths=$(
+      {
+        bash "$_SPAWN_HIDDEN" --stdin-mode=safe node "$QR" --type plan --where "status=implemented" --format paths --root "$git_root" 2>/dev/null || true # verify-no-console-flash: allow — routed via spawn-hidden.sh (variable $_SPAWN_HIDDEN; literal text absent but routing is identical)
+        bash "$_SPAWN_HIDDEN" --stdin-mode=safe node "$QR" --type plan --where "status=superseded"  --format paths --root "$git_root" 2>/dev/null || true # verify-no-console-flash: allow — routed via spawn-hidden.sh (variable form)
+        bash "$_SPAWN_HIDDEN" --stdin-mode=safe node "$QR" --type plan --where "status=abandoned"   --format paths --root "$git_root" 2>/dev/null || true # verify-no-console-flash: allow — routed via spawn-hidden.sh (variable form)
+      } | sort -u
+    )
+  else
+    # spawn-hidden absent (partial install); bare node is behavior-equivalent on
+    # non-Windows (no conhost suppression needed) and on Windows (nodew.exe is
+    # unavailable regardless, so windowsHide cannot be achieved at shell level).
+    raw_paths=$(
+      {
+        node "$QR" --type plan --where "status=implemented" --format paths --root "$git_root" 2>/dev/null || true # verify-no-console-flash: allow — fallback when spawn-hidden absent; node has no windowless equiv
+        node "$QR" --type plan --where "status=superseded"  --format paths --root "$git_root" 2>/dev/null || true # verify-no-console-flash: allow — fallback when spawn-hidden absent; node has no windowless equiv
+        node "$QR" --type plan --where "status=abandoned"   --format paths --root "$git_root" 2>/dev/null || true # verify-no-console-flash: allow — fallback when spawn-hidden absent; node has no windowless equiv
+      } | sort -u
+    )
+  fi
+  [[ -z "$raw_paths" ]] && { echo 0; return 0; }
+
+  # Build a set of basenames from ACTIVE handoffs (status not consumed/superseded).
+  # A hit in this set → skip the plan.
+  local active_handoff_refs=""
+  if [[ -d "${git_root}/state/handoffs" ]]; then
+    local hfile hstatus hbody
+    for hfile in "${git_root}/state/handoffs/"*.md; do
+      [[ -f "$hfile" ]] || continue
+      # Extract frontmatter status (first occurrence, between --- delimiters).
+      hstatus=$(awk '/^---/{f++} f==1 && /^status:/{print $2; exit}' "$hfile" 2>/dev/null || true)
+      [[ "$hstatus" == "consumed" || "$hstatus" == "superseded" ]] && continue
+      # This is a live handoff — collect basenames it references.
+      hbody=$(cat "$hfile" 2>/dev/null || true)
+      active_handoff_refs="${active_handoff_refs}
+${hbody}"
+    done
+  fi
+
+  # Build a set of basenames from LIVE plans (status not in terminal set).
+  # Exclude review sidecars (<plan-stem>.<tag>.md): they carry no terminal
+  # status yet their bodies cite the parent plan's filename, so counting them
+  # as live plans would make every plan with a review sidecar hold ITSELF and
+  # never archive. A plan filename is YYYY-MM-DD-slug.md (kebab slug, no dots),
+  # so a name whose stem still contains a '.' after stripping .md is a sidecar.
+  # query-records --type plan applies the same exclusion to the terminal set.
+  # (Both sidecar shapes have a dot-containing stripped stem and are excluded:
+  #  <plan-stem>.<tag>.md and <plan-stem>.md.<tag>.md.)
+  local live_plan_refs=""
+  local lfile lstatus lstem
+  for lfile in "${git_root}/docs/plans/"*.md; do
+    [[ -f "$lfile" ]] || continue
+    lstem=$(basename "$lfile"); lstem="${lstem%.md}"
+    [[ "$lstem" == *.* ]] && continue   # sidecar (<plan-stem>.<tag>), not a plan
+    lstatus=$(awk '/^---/{f++} f==1 && /^status:/{print $2; exit}' "$lfile" 2>/dev/null || true)
+    [[ "$lstatus" == "implemented" || "$lstatus" == "superseded" || "$lstatus" == "abandoned" ]] && continue
+    local lbody
+    lbody=$(cat "$lfile" 2>/dev/null || true)
+    live_plan_refs="${live_plan_refs}
+${lbody}"
+  done
+
+  local moved=0 rel_path fname basename_noext yyyy_mm arch_dir sidecar
+  while IFS= read -r rel_path; do
+    [[ -z "$rel_path" ]] && continue
+    fname=$(basename "$rel_path")
+
+    # Derive YYYY-MM from the leading date in the filename (e.g. 2026-06-23-foo.md → 2026-06).
+    yyyy_mm=$(echo "$fname" | grep -oE '^[0-9]{4}-[0-9]{2}' || true)
+    [[ -z "$yyyy_mm" ]] && continue   # filename has no date prefix — skip
+
+    arch_dir="${git_root}/archive/specs/${yyyy_mm}"
+    basename_noext="${fname%.md}"
+
+    # Idempotency guard.
+    [[ -e "${arch_dir}/${fname}" ]] && continue
+
+    # Skip if referenced by a live handoff.
+    if echo "$active_handoff_refs" | grep -qF "$fname" 2>/dev/null; then
+      continue
+    fi
+
+    # Skip if referenced by a live plan.
+    if echo "$live_plan_refs" | grep -qF "$fname" 2>/dev/null; then
+      continue
+    fi
+
+    mkdir -p "$arch_dir" 2>/dev/null || true
+
+    # Move primary plan file.
+    git -C "$git_root" mv "docs/plans/${fname}" "archive/specs/${yyyy_mm}/${fname}" 2>/dev/null || continue
+    moved=$((moved + 1))
+
+    # Move any sidecar files matching ${basename_noext}.*.md in docs/plans/.
+    # Enumerate via `find` (not a bare for-glob): a bare glob aborts under zsh's
+    # default `nomatch` when a plan has no sidecars. The production caller
+    # (session-init.sh) is bash, but workstream-complete's snippet runs through
+    # whatever shell the EM is in — so keep this shell-agnostic.
+    local scar_fname
+    while IFS= read -r sidecar; do
+      [[ -n "$sidecar" && -f "$sidecar" ]] || continue
+      scar_fname=$(basename "$sidecar")
+      [[ -e "${arch_dir}/${scar_fname}" ]] && continue
+      git -C "$git_root" mv "docs/plans/${scar_fname}" "archive/specs/${yyyy_mm}/${scar_fname}" 2>/dev/null || true
+    done < <(find "${git_root}/docs/plans" -maxdepth 1 -name "${basename_noext}.*.md" 2>/dev/null)
+  done <<< "$raw_paths"
+
+  echo "$moved"
   return 0
 }
 

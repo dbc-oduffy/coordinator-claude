@@ -10,7 +10,7 @@
       "enum": [
         "dbc-oduffy",
         "Delphi-Interactive",
-        "oduffy-work"
+        "workstation"
       ]
     },
     "coordinator_root_path": {

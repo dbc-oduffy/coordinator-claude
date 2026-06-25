@@ -53,8 +53,15 @@ if [[ $RESOLVER_EXIT -eq 2 ]]; then
   # skip-with-notice — emit the diagnostic captured to the per-process tmp file
   [[ -s "$_DIAG_TMP" ]] && cat "$_DIAG_TMP" >&2
   VALIDATION_RESULT="skipped"
+elif [[ $RESOLVER_EXIT -ne 0 ]]; then
+  # Any OTHER resolver non-zero (canonical: exit 127 — bare `python` token but no
+  # python3/python on PATH) is a HARD environment failure, NOT a skip. FAST_CMD is
+  # empty here, so running it would `bash -c ""` → exit 0 and silently pass. Surface
+  # the resolver's diagnostic and mark blocked instead.
+  [[ -s "$_DIAG_TMP" ]] && cat "$_DIAG_TMP" >&2
+  VALIDATION_RESULT="interp-missing"
 else
-  bash -c "$FAST_CMD"
+  "${BASH:-bash}" -c "$FAST_CMD"   # $BASH forwards the current interpreter (DR-148: never bare bash)
   CMD_EXIT=$?
   if [[ $CMD_EXIT -eq 0 ]]; then
     VALIDATION_RESULT="0"
@@ -73,6 +80,7 @@ Run this using the Bash tool from the repo root. Read the full output — every 
 | Condition | `Validation:` value |
 |---|---|
 | Resolver exit 2 (skip-with-notice) | `skipped` |
+| Resolver exit 127 (bare `python` token, no python3/python on PATH) | `interp-missing` (blocking — NOT a skip) |
 | Resolver exit 0, configured command exits 0 | `0` |
 | Resolver exit 0, configured command exits non-zero | `<exit-code>` (the non-zero integer) |
 

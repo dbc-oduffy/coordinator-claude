@@ -1,5 +1,6 @@
 #!/bin/sh
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 cross-repo-memo-c6.test.py — C6 round-trip and fixture-behavioral tests.
 

@@ -5,7 +5,7 @@
 #
 # Purpose: Replace the 7-file manual read chain in /workday-start Step 4 with
 # a single deterministic script. Emits three priority surfaces to stdout:
-#   1. Head of state/coordinator-improvement-queue.md (top 5 entries).
+#   1. Top 5 central entries from state/improvement-queue/*.yaml (queue_scope: central).
 #   2. docs/project-tracker.md rows where status column is Ready or Executing.
 #   3. Open handoffs (filename + line-1 heading), excluding archived/superseded.
 #
@@ -25,26 +25,37 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 }
 
 # ---------------------------------------------------------------------------
-# Section 1: Coordinator improvement queue — top 5 active entries
+# Section 1: Coordinator improvement queue — top 5 central entries
+# Reads structured YAML from ~/.claude/state/improvement-queue/*.yaml,
+# filtering to queue_scope: central rows. Degraded gracefully if no files
+# exist (does not error).
 # ---------------------------------------------------------------------------
-echo "== Improvement queue (top 5) =="
-QUEUE="$HOME/.claude/state/coordinator-improvement-queue.md"
-if [[ -f "$QUEUE" ]]; then
-  # Extract bullet list entries (lines starting with "- "), skip headers/blanks
-  ENTRIES=$(grep '^- ' "$QUEUE" 2>/dev/null || true)
-  if [[ -n "$ENTRIES" ]]; then
-    echo "$ENTRIES" | head -5 | while IFS= read -r line; do
-      printf "  %s\n" "$line"
+echo "== Improvement queue (top 5 central) =="
+QUEUE_DIR="$HOME/.claude/state/improvement-queue"
+if [[ -d "$QUEUE_DIR" ]]; then
+  # Collect central entries: grep for queue_scope: central, emit title from each file
+  _central_entries=()
+  while IFS= read -r _f; do
+    # Only include files tagged queue_scope: central
+    if grep -q '^queue_scope: central' "$_f" 2>/dev/null; then
+      _title=$(grep '^title:' "$_f" 2>/dev/null | head -1 | sed 's/^title:[[:space:]]*//' || echo "(no title)")
+      _central_entries+=("$_title")
+    fi
+  done < <(find "$QUEUE_DIR" -maxdepth 1 -name '*.yaml' -print 2>/dev/null | sort)
+  _total=${#_central_entries[@]}
+  if [[ "$_total" -gt 0 ]]; then
+    _show=$(( _total < 5 ? _total : 5 ))
+    for (( _i=0; _i<_show; _i++ )); do
+      printf "  - %s\n" "${_central_entries[$_i]}"
     done
-    TOTAL=$(echo "$ENTRIES" | wc -l | tr -d ' ')
-    if [[ "$TOTAL" -gt 5 ]]; then
-      printf "  ... and %d more entries\n" $(( TOTAL - 5 ))
+    if [[ "$_total" -gt 5 ]]; then
+      printf "  ... and %d more central entries\n" $(( _total - 5 ))
     fi
   else
-    echo "  (queue is empty)"
+    echo "  (no central improvement entries)"
   fi
 else
-  echo "  (coordinator-improvement-queue.md not found)"
+  echo "  (state/improvement-queue/ not found)"
 fi
 echo ""
 

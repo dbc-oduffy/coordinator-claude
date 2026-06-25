@@ -16,8 +16,14 @@ occurrence. It also catches bare `powershell.exe` and `& python` (PowerShell cal
 operator). The allowlist (PREFIXES + EXACT_FILES + inline marker) lets known-safe
 sites opt out cleanly.
 
-Canonical suppression marker (single, cross-layer): `# popup-intentional-last-resort`
-  Place the marker on the same line as the bare call (shell/python comment form).
+Canonical suppression markers (two env-agnostic forms, honored identically):
+  - `# popup-intentional-last-resort` — the popup occurs and is accepted; the bare
+    call is genuinely intentional and there is no env-var suppression path available.
+  - `# popup-safe-env-suppressed` — the popup is suppressed by env-var means (e.g.
+    FOR_DISABLE_CONSOLE_CTRL_HANDLER or equivalent); the call is safe in the target
+    environment even though no CREATE_NO_WINDOW flag is present.
+
+  Place either marker on the same line as the bare call (shell/python comment form).
   When inside an embedded interpreter string in a .sh file, place the marker OUTSIDE
   the string — on the surrounding shell line — because `#` inside a `python -c "..."`
   argument is parsed by Python at runtime, not by this tripwire or the hook.
@@ -39,7 +45,9 @@ HOW TO ONBOARD IN A CONSUMING REPO:
   2. Adjust REPO_ROOT_DEFAULT to match your repo layout (or rely on the env var).
   3. Populate PREFIXES with subtrees that are known-safe (e.g. vendor/, fixtures/).
   4. Populate EXACT_FILES with individual files that use the pattern intentionally.
-  5. Add `# popup-intentional-last-resort` to any remaining intentional bare calls.
+  5. Add `# popup-intentional-last-resort` (popup accepted) or
+     `# popup-safe-env-suppressed` (env-var suppression in place) to any remaining
+     intentional bare calls.
   6. Run: `pytest tests/test_no_bare_console_subprocess.py` (or `python3 <this file>`).
 
 Negative-spec: this test does NOT execute any process — it scans file contents
@@ -152,8 +160,8 @@ _BARE_SUBPROCESS_RE = re.compile(
 # shell comment. We guard at the line level below.
 _COMMENT_RE = re.compile(r"^\s*#")
 
-# Inline suppression marker (canonical, cross-layer)
-_MARKER = "# popup-intentional-last-resort"
+# Inline suppression markers (canonical, cross-layer) — two env-agnostic forms.
+_MARKERS = ("# popup-intentional-last-resort", "# popup-safe-env-suppressed")
 
 
 # ---------------------------------------------------------------------------
@@ -192,10 +200,11 @@ def _scan_file(path: Path) -> list[str]:
     except OSError:
         return []
 
-    # File-level inline marker: the entire file is suppressed if any line
-    # carries the canonical marker (mirrors the hook's per-command behaviour
-    # for cases where the file is itself a console-subprocess wrapper).
-    if _MARKER in text:
+    # File-level inline marker: the entire file is suppressed if the text
+    # contains the canonical marker anywhere in its text (substring check over
+    # the whole file; mirrors the hook's per-command behaviour for cases where
+    # the file is itself a console-subprocess wrapper).
+    if any(m in text for m in _MARKERS):
         return []
 
     violations: list[str] = []
@@ -241,7 +250,8 @@ def test_no_bare_console_subprocess(sh_file: Path) -> None:
 
     Fix: route through the project's console-safe wrapper (e.g. python-quiet.sh),
     add `creationflags=0x08000000` at the call site, or annotate with
-    `# popup-intentional-last-resort` if the bare call is genuinely intentional.
+    `# popup-safe-env-suppressed` (when suppressed by env-var means) or
+    `# popup-intentional-last-resort` (when the popup is genuinely accepted).
     """
     violations = _scan_file(sh_file)
     assert not violations, (
@@ -249,7 +259,8 @@ def test_no_bare_console_subprocess(sh_file: Path) -> None:
         "console window on Windows under the headless Bash-tool parent process.\n"
         "Fix: route through the project's console-safe wrapper, add "
         "`creationflags=0x08000000` (CREATE_NO_WINDOW), or annotate with "
-        "`# popup-intentional-last-resort` if intentional.\n"
+        "`# popup-safe-env-suppressed` (env-var suppression in place) or "
+        "`# popup-intentional-last-resort` (popup genuinely accepted).\n"
         "Violations:\n  " + "\n  ".join(violations)
     )
 
@@ -280,6 +291,7 @@ _NEGATIVE_CASES: list[tuple[str, str]] = [
     ("pythonw -c",               "pythonw -c 'gui-subsystem safe'"),
     ("commented # python -c",    "# python -c 'this is a comment'"),
     ("marker suppressed",        "python -c 'code'  # popup-intentional-last-resort"),
+    ("safe-env-suppressed marker", "python -c 'code'  # popup-safe-env-suppressed"),
     ("echo python -c quoted",    "echo \"python -c 'not a call'\""),
 ]
 
@@ -296,13 +308,14 @@ def test_regex_positive_fixture(name: str, line: str) -> None:
 @pytest.mark.parametrize("name,line", _NEGATIVE_CASES, ids=[c[0] for c in _NEGATIVE_CASES])
 def test_regex_negative_fixture(name: str, line: str) -> None:
     """Regex MUST NOT fire on safe patterns or suppressed lines."""
-    # The marker case: file-level suppression is tested via _scan_file, but the
-    # inline-on-same-line case needs the line-level check that _scan_file performs.
-    # We replicate the comment-guard + marker check here so the fixture is standalone.
+    # Marker cases verify only that the marker gate fires (returns early); regex
+    # correctness for the bare-call shape is independently asserted by the positive
+    # fixtures. We replicate the comment-guard + marker check here so the fixture
+    # is standalone (file-level suppression via _scan_file is a separate path).
     if _COMMENT_RE.match(line):
         # Whole-line comment — would be excluded by _scan_file regardless of regex
         return
-    if _MARKER in line:
+    if any(m in line for m in _MARKERS):
         # Inline marker — the entire line is suppressed
         return
     assert not _BARE_SUBPROCESS_RE.search(line), (

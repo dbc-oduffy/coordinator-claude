@@ -1,0 +1,22 @@
+{
+  "repo": ".claude-prime",
+  "coordinator_root_path": ".",
+  "path": "docs/plans/2026-06-22-cockpit-contract-ext-2026-06-22-tc-1.md",
+  "title": "Contract 1.0 cutover foundation",
+  "created": "2026-06-22",
+  "author": "roadmap-planning",
+  "status": "executing",
+  "provenance": {
+    "source_kind": "coordinator_artifact",
+    "repo": ".claude-prime",
+    "ref": { "branch": "work/machine-c/2026-06-22", "sha": "711d2bb1" },
+    "path": "docs/plans/2026-06-22-cockpit-contract-ext-2026-06-22-tc-1.md",
+    "observed_at": "2026-06-22T23:00:00Z",
+    "derivation": "parsed"
+  },
+  "scope_mode": null,
+  "reviewer": "the Staff Engineer",
+  "branch": "work/machine-c/2026-06-22",
+  "superseded_by": null,
+  "source": "cockpit-contract-ext-2026-06-22"
+}

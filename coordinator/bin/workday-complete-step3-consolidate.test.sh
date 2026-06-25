@@ -60,14 +60,14 @@ _fail() {
 # _make_repo <dir>
 #   Creates a bare "origin" remote + a working clone pre-configured with
 #   user.name/user.email so commits work in sandboxed env.
-#   Sets COORDINATOR_MACHINE to "striker" to ensure cs_compute_machine
+#   Sets COORDINATOR_MACHINE to "machine-a" to ensure cs_compute_machine
 #   produces a deterministic result regardless of the test machine's hostname.
 #
 # On entry sets:
 #   ORIGIN_DIR  — bare repo (fake remote)
 #   WORK_DIR    — working clone
 #   TODAY       — current UTC date (YYYY-MM-DD)
-#   MACHINE     — "striker" (fixed for tests)
+#   MACHINE     — "machine-a" (fixed for tests)
 # ---------------------------------------------------------------------------
 _make_repo() {
   # Review: code-reviewer (F4) — set -e inside _make_repo so git failures produce
@@ -76,9 +76,9 @@ _make_repo() {
   ORIGIN_DIR="${base}/origin.git"
   WORK_DIR="${base}/work"
   TODAY=$(date -u +%Y-%m-%d)
-  MACHINE="striker"
+  MACHINE="machine-a"
   # SIBLING_BRANCH — a valid span-form sibling that covers today.
-  # Computed as work/striker/<YYYY-MM-(DD-1)>to<DD> (starts yesterday, ends today).
+  # Computed as work/machine-a/<YYYY-MM-(DD-1)>to<DD> (starts yesterday, ends today).
   # cs_parse_branch_span validates this as a span branch covering TODAY.
   local today_dd today_yy today_mm yesterday_dd yesterday_yy yesterday_mm sibling_start
   today_dd="${TODAY##*-}"
@@ -100,7 +100,7 @@ _make_repo() {
     fi
   fi
   sibling_start="${yesterday_yy}-${yesterday_mm}-${yesterday_dd}"
-  SIBLING_BRANCH="work/striker/${sibling_start}to${today_dd}"
+  SIBLING_BRANCH="work/machine-a/${sibling_start}to${today_dd}"
 
   (
     set -e
@@ -137,7 +137,7 @@ _add_commit() {
 }
 
 # _run_step3 [args...]
-#   Invokes the script under test with COORDINATOR_MACHINE=striker and
+#   Invokes the script under test with COORDINATOR_MACHINE=machine-a and
 #   the plugin root pointing at the real plugin (for lib sourcing) but
 #   with a stub sync-main.sh that is a no-op (to avoid real network ops).
 #
@@ -161,7 +161,7 @@ STUB
   # Review: code-reviewer (F8) — || STEP3_RC=$? pattern preserves the real exit code;
   # || true here would absorb failure RC — regression for the || true bug
   # TEST_COORDINATOR_MACHINE allows callers to override the machine name (e.g. test 8).
-  STEP3_OUT=$(COORDINATOR_MACHINE="${TEST_COORDINATOR_MACHINE:-striker}" STEP3_SYNC_MAIN="$stub_path" "$BASH" "$STEP3" "$@" 2>&1) || STEP3_RC=$?
+  STEP3_OUT=$(COORDINATOR_MACHINE="${TEST_COORDINATOR_MACHINE:-machine-a}" STEP3_SYNC_MAIN="$stub_path" "$BASH" "$STEP3" "$@" 2>&1) || STEP3_RC=$?
 
   rm -rf "$stub_bin"
 }
@@ -177,8 +177,8 @@ test_1_no_siblings_ahead() {
   _make_repo "$base"
 
   # Cut workstream branch and add a commit (now ahead of origin/main)
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   _add_commit "ahead-commit"
 
   _run_step3
@@ -211,8 +211,8 @@ test_2_no_siblings_current() {
   _make_repo "$base"
 
   # Workstream branch at same SHA as origin/main (zero ahead)
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   # No extra commits — HEAD is at same place as origin/main
 
   _run_step3
@@ -254,8 +254,8 @@ test_3_sibling_non_conflicting() {
   _make_repo "$base"
 
   # Main workstream branch
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   _add_commit "main-branch-commit" "file-main.txt"
 
   # Sibling branch with non-conflicting commit (different file).
@@ -265,7 +265,7 @@ test_3_sibling_non_conflicting() {
   git push -u origin "$SIBLING_BRANCH" >/dev/null 2>&1
 
   # Return to main workstream branch
-  git checkout "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout "work/machine-a/${TODAY}" >/dev/null 2>&1
 
   _run_step3
   cd "$WORK_DIR"
@@ -306,8 +306,8 @@ test_4_sibling_conflict() {
   _make_repo "$base"
 
   # Main workstream branch with a commit on conflict.txt
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   echo "main version" > conflict.txt
   git add conflict.txt
   git commit -m "main: conflict.txt version A" >/dev/null 2>&1
@@ -321,7 +321,7 @@ test_4_sibling_conflict() {
   git commit -m "sibling: conflict.txt version B" >/dev/null 2>&1
 
   # Return to main workstream branch
-  git checkout "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout "work/machine-a/${TODAY}" >/dev/null 2>&1
 
   # Record HEAD before the merge attempt
   HEAD_BEFORE=$(git rev-parse HEAD)
@@ -353,8 +353,8 @@ test_5_behind_origin_main() {
   _make_repo "$base"
 
   # Workstream branch cut at initial state
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   _add_commit "workstream-commit" "ws.txt"
 
   # Simulate origin/main moving ahead: push a new commit to origin/main
@@ -364,7 +364,7 @@ test_5_behind_origin_main() {
   git push origin main >/dev/null 2>&1
   # Fetch to get the updated origin/main ref
   git fetch origin main >/dev/null 2>&1
-  git checkout "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout "work/machine-a/${TODAY}" >/dev/null 2>&1
 
   # Confirm we are behind
   BEHIND=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo 0)
@@ -403,14 +403,14 @@ test_6_dry_run() {
   _make_repo "$base"
 
   # Workstream branch with a sibling and an ahead commit
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   _add_commit "ahead-commit" "ahead.txt"
 
   # Use SIBLING_BRANCH (span-form, covers today) — valid cs_parse_branch_span input.
   git checkout -b "$SIBLING_BRANCH" >/dev/null 2>&1
   _add_commit "sibling-dry" "sibling-dry.txt"
-  git checkout "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout "work/machine-a/${TODAY}" >/dev/null 2>&1
 
   # Count commits before dry-run
   COMMITS_BEFORE=$(git rev-list --count HEAD)
@@ -457,8 +457,8 @@ test_7_no_push() {
   base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
   _add_commit "local-only-commit" "local.txt"
 
   _run_step3 --no-push
@@ -490,20 +490,20 @@ test_8_machine_lowercase() {
   base=$(mktemp -d "${TMPDIR_ROOT}/test.XXXXXX")
   _make_repo "$base"
 
-  git checkout -b "work/striker/${TODAY}" >/dev/null 2>&1
-  git push -u origin "work/striker/${TODAY}" >/dev/null 2>&1
+  git checkout -b "work/machine-a/${TODAY}" >/dev/null 2>&1
+  git push -u origin "work/machine-a/${TODAY}" >/dev/null 2>&1
 
   # Force the machine name to an uppercase variant to confirm lowercase output
   # Review: code-reviewer (F5) — use _run_step3 wrapper so STEP3_SYNC_MAIN stub applies;
   # direct invocation bypasses the wrapper and may hit real sync-main.sh.
-  TEST_COORDINATOR_MACHINE="STRIKER" _run_step3 --no-push
+  TEST_COORDINATOR_MACHINE="MACHINE-A" _run_step3 --no-push
   cd "$WORK_DIR"
 
-  if ! echo "$STEP3_OUT" | grep -q "machine: striker"; then
-    _fail "test8" "expected lowercase 'machine: striker'. Output: $STEP3_OUT"
+  if ! echo "$STEP3_OUT" | grep -q "machine: machine-a"; then
+    _fail "test8" "expected lowercase 'machine: machine-a'. Output: $STEP3_OUT"
     rm -rf "$base"; return
   fi
-  _pass "test8 (cs_compute_machine: STRIKER → striker)"
+  _pass "test8 (cs_compute_machine: MACHINE-A → machine-a)"
   rm -rf "$base"
 }
 

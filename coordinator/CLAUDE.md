@@ -48,7 +48,7 @@ Conventions decay unless greppable from surfaces agents touch. Enumerate contact
 ## Subagent Dispatch
 
 - **Self-contained prompts, read-only by default.** Investigation dispatches require the verbatim out-of-scope block; write-capable autonomous dispatches carry the destructive-action prohibition. Subagents do NOT expand slash commands — inline the procedure or Read the skill first.
-- **HARD RULE — background by default.** Long (>2 min) Agent dispatches must not block the EM. Where the `Agent` tool exposes `run_in_background`, pass `true`; on builds without it (Claude Code 2.1.176+, where `Agent` is async-by-default and the param is absent) backgrounding is automatic — nothing to pass. The PreToolUse hook denies only a present-and-`false` value (deliberate foreground; escape `COORDINATOR_AGENT_FOREGROUND_OK=1`) and passes when the param is absent (the build can't honor it). → `dispatching-parallel-agents.md`.
+- **HARD RULE — background by default.** Long (>2 min) Agent dispatches must not block the EM. Where the `Agent` tool exposes `run_in_background`, pass `true` explicitly (the param's presence has flip-flopped across builds — absent in the 2.1.176 fork window, re-exposed in 2.1.178 — so don't rely on an implicit default). The PreToolUse hook always denies a present-and-`false` value (deliberate foreground), and denies an absent key **once the session has proven this build exposes the param** (any dispatch carrying `run_in_background` calibrates it, recorded at `.git/coordinator-sessions/<sid>/.harness-bg-capable`); it passes an absent key in an uncalibrated session (or when the session scope can't be resolved — absent session_id or git root), so a param-less build is never bricked. Escape hatch for a legitimate foreground dispatch: `COORDINATOR_AGENT_FOREGROUND_OK=1`. → `dispatching-parallel-agents.md`.
 - **HARD RULE — small-remit-and-many beats large-remit-and-one.** Size each executor ~5-10 min, 15 min hard ceiling, split before dispatch. Prefer parallel; when gates forbid, more small sequential executors — never one agent grinding chunk after chunk. Fan out via `fan-out-dispatch.sh`. → `em-operating-model.md` § HARD RULES; `dispatching-parallel-agents.md`; `runtime-tripwire.md`.
 - **Numbered skill steps are not all gates** — batch/parallelize independent ones. `## Execution Shape` names gates; absent, scan READ/WRITE per step. → `skill-step-parallelization.md`.
 - **1M-context billing:** Haiku bypasses the gates that block Sonnet/Opus subagent dispatch; subagents inherit parent's 1M flag.
@@ -134,7 +134,7 @@ Plans against unchecked substrate find a different reality on disk. Verify at pl
 
 ### Improvement Queue
 
-Two-tier — **Central:** `~/.claude/state/coordinator-improvement-queue.md` (universal patterns); **Per-project:** `state/improvement-queue/` (structured YAML). Pruning, `[recurring: N]` bumps, resolution-by-`git rm` → `backlog-prune-discipline.md`. **Never mark resolved/done inline** — pruner strips; `git log -- <queue-file>` is the audit trail. Surfacing: `/workstream-start` offers; `/workday-complete` depth-nudges (≥5); `/workweek-complete` Step 4 triages.
+Two-tier — **Central:** `~/.claude/state/improvement-queue/` (universal patterns, structured YAML, `queue_scope: central`); **Per-project:** `state/improvement-queue/` (structured YAML). Both use `coordinator-queue-append --schema improvement-queue`. **Never mark resolved/done inline** — closure is `git mv` to `archive/improvement-queue/<YYYY-MM>/`; `git log` is the audit trail. Surfacing: `/workstream-start` offers; `/workday-complete` depth-nudges (≥5); `/workweek-complete` Step 4 triages.
 
 **Queue is not a closure mechanism.** Current-workstream failures don't close by being queued or re-framed as "separate plan." Defer only with (a) architectural reason and (b) in-session PM auth.
 
@@ -142,7 +142,7 @@ Two-tier — **Central:** `~/.claude/state/coordinator-improvement-queue.md` (un
 
 **Routing contract.** (1) Universal + central-wiki → `coordinator-lesson-promote` CLI → `state/lessons-outbox/<topic>.yaml`. (2) Universal + project-local-wiki → `/learn-lessons` local-mode auto-apply. (3) Project-specific structural → `state/improvement-queue/`; `/debt-triage` migrates to `state/debt-backlog/` at triage. (4) Inbound memo `ask` → never queued. → `lessons-outbox-schema.md`.
 
-**Structured queue form.** `state/{debt-backlog,bug-backlog,improvement-queue}/<id>.yaml` (directory of YAML, NOT line-per-row markdown). Capture via `coordinator-queue-append --schema <name>`; closure via `git mv` to `archive/<queue>/<YYYY-MM>/<id>.yaml` with `status: closed`. Schemas: `docs/wiki/<name>-schema.md`. Central markdown queue retains line-deletion.
+**Structured queue form.** `state/{debt-backlog,bug-backlog,improvement-queue}/<id>.yaml` (directory of YAML, NOT line-per-row markdown). Capture via `coordinator-queue-append --schema <name>`; closure via `git mv` to `archive/<queue>/<YYYY-MM>/<id>.yaml` with `status: closed`. Schemas: `docs/wiki/<name>-schema.md`. Central universal entries use `queue_scope: central` in their YAML to distinguish them from project-scoped rows in the same directory.
 
 <!-- Spec: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C14 -->
 
@@ -218,7 +218,7 @@ EM owns implementation; PM owns product. **When in doubt: implementation → EM 
 
 ### Reviewer findings — apply, don't ratify
 
-Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/precedence findings need verification; reserved-word collisions → double-quote runtime identifiers. **Closure-bar fallback feasibility is engineering verification, not a PM question** — read the cited file before asking. → `snippets/reviewer-calibration.md`.
+Tradeoff-free correctness fixes (wrong API name, precedence, factual error, missing import) fold in silently via integrator. Surface to PM only on real tradeoffs (cost/value, scope/polish, architectural direction). Exceptions: single-agent math/precedence findings need verification; reserved-word collisions → double-quote runtime identifiers. **Closure-bar fallback feasibility is engineering verification, not a PM question** — read the cited file before asking. → `snippets/reviewer-calibration.md`. **Generalizes beyond reviewers:** the same fix-vs-ask split governs any break-class fact the EM *itself* surfaces mid-work — correctness/integrity/portability defects are fix-by-default (the EM's call), never passive `Flag to PM:` entries. → global `CLAUDE.md § Flag Severity`; `docs/wiki/flag-severity-triage.md`.
 
 ## Pre-Review Mechanical Verification
 

@@ -79,7 +79,7 @@ COORDINATOR_OWNED_KEYS=(
 # ---------------------------------------------------------------------------
 _read_regeneratability_table() {
     local toml_file="$1"
-    python3 - "$toml_file" <<'PYEOF'
+    python3 - "$toml_file" <<'PYEOF' # verify-no-console-flash: allow — one-shot TOML-parse helper; not on Windows hot-path
 import sys
 import os
 

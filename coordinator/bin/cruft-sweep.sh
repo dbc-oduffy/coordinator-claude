@@ -57,6 +57,20 @@
 set -u
 
 # ---------------------------------------------------------------------------
+# Resolve coordinator content root early (needed by _default_parent_roots).
+# Portable resolver: CLAUDE_PLUGIN_ROOT → COORDINATOR_ROOT → registry clone
+# → versioned cache → flat layout. Defensive: fall back to flat if absent.
+# ---------------------------------------------------------------------------
+_rcc_resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/resolve-coordinator-clone.sh"
+if [[ -f "$_rcc_resolver" ]]; then
+    # shellcheck source=../lib/resolve-coordinator-clone.sh
+    source "$_rcc_resolver" 2>/dev/null || true
+fi
+if [[ -z "${COORDINATOR_CONTENT_ROOT:-}" ]]; then
+    COORDINATOR_CONTENT_ROOT="${HOME}/.claude/plugins/coordinator-claude/coordinator"
+fi
+
+# ---------------------------------------------------------------------------
 # Defaults
 # ---------------------------------------------------------------------------
 DAYS=14
@@ -1035,7 +1049,7 @@ _get_parent_whitelist() {
 # Emits one path per line; empty if machine-local is unavailable (caller's [[ -d ]] guard
 # then no-ops, as it did with the absent hardcoded drives).
 _default_parent_roots() {
-  local _ml="${HOME}/.claude/plugins/coordinator/bin/machine-local"
+  local _ml="${COORDINATOR_CONTENT_ROOT}/bin/machine-local"
   [[ -x "$_ml" ]] || return 0
   local _key _p
   while IFS= read -r _key; do

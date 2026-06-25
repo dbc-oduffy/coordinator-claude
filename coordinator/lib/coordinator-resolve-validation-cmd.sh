@@ -26,6 +26,13 @@
 #   stderr — diagnostic prose (step=env-var | step=local-md | step=skipped on exit 2)
 #   exit 0 — command resolved; caller should execute it and capture its exit code
 #   exit 2 — no command configured; caller should treat validation as skipped
+#   exit 127 — command resolved to a bare `python` token but NEITHER python3 nor
+#              python is on PATH. A HARD environment failure, NOT a skip — callers
+#              MUST surface this as a blocking validation failure (distinguish from
+#              exit 2). This closes the silent-127 swallow (a python3-only machine
+#              previously skipped validation entirely). A leading `python ` token is
+#              normalized python3-first at resolution time, so this fires only when
+#              no Python interpreter exists at all.
 #
 # Trust model: COORDINATOR_FAST_TEST_CMD is an escape hatch for trusted contexts
 # (local shell, CI-managed env). It is not safe to accept from untrusted sources
@@ -97,6 +104,52 @@ _cs_metachar_warn() {
   esac
 }
 
+# _cs_resolve_python_interp — python3-first interpreter resolution.
+# Echoes `python3` when present, else `python`; empty stdout + return 1 when
+# neither is on PATH. Centralizes the `command -v python3 || command -v python`
+# idiom the guarded bin/hooks/setup scripts already use, so the resolver and its
+# regression guard agree on a single source of truth.
+_cs_resolve_python_interp() {
+  if command -v python3 >/dev/null 2>&1; then
+    printf 'python3'
+  elif command -v python >/dev/null 2>&1; then
+    printf 'python'
+  else
+    return 1
+  fi
+}
+
+# _cs_normalize_python_token <cmd> — interpreter-portability normalization.
+# When <cmd>'s first whitespace-delimited token is the BARE interpreter `python`
+# (not python3, not an explicit path, not VAR=x env-prefixed), rewrite it to a
+# python3-first resolved interpreter. This is the load-bearing fix for site 1:
+# coordinator.local.md's `fast_test_cmd: python …` stays interpreter-agnostic and
+# portable across python3-only machines (modern macOS/Linux — `python` absent) and
+# python-only machines (Windows/pyenv — `python3` absent), without hardcoding either.
+# Echoes the (possibly rewritten) command on stdout. Fail-loud (return 127) when the
+# token is bare `python` and NEITHER interpreter exists — this replaces the silent
+# command-not-found 127 the validate gate previously swallowed as a skip.
+# python3, explicit paths (/usr/bin/python), env-prefixed (FOO=1 python …), and
+# non-python commands (pnpm test, pytest, /validate) pass through untouched.
+# Matching contract: matches the bare interpreter `python` with OR without arguments
+# (`python` and `python <args>`); does NOT match `python2`, `python3`, or path forms.
+_cs_normalize_python_token() {
+  local cmd="$1"
+  case "$cmd" in
+    'python '* | 'python')
+      local interp
+      if ! interp=$(_cs_resolve_python_interp); then
+        echo "[cs_resolve] no python3/python on PATH — cannot run '$cmd' (refusing to skip; fail loud)" >&2
+        return 127
+      fi
+      printf '%s%s' "$interp" "${cmd#python}"
+      ;;
+    *)
+      printf '%s' "$cmd"
+      ;;
+  esac
+}
+
 cs_resolve_fast_test_cmd() {
   local repo_root="${1:-$PWD}"
 
@@ -106,7 +159,9 @@ cs_resolve_fast_test_cmd() {
     _diag=$(_cs_redact_for_diag "$COORDINATOR_FAST_TEST_CMD")
     echo "[cs_resolve_fast_test_cmd] step=env-var resolved: $_diag" >&2
     _cs_metachar_warn "$COORDINATOR_FAST_TEST_CMD" "env-var"
-    echo "$COORDINATOR_FAST_TEST_CMD"
+    local _norm
+    _norm=$(_cs_normalize_python_token "$COORDINATOR_FAST_TEST_CMD") || return $?
+    echo "$_norm"
     return 0
   fi
 
@@ -131,7 +186,9 @@ cs_resolve_fast_test_cmd() {
       _diag=$(_cs_redact_for_diag "$fast_test_cmd")
       echo "[cs_resolve_fast_test_cmd] step=local-md resolved: $_diag" >&2
       _cs_metachar_warn "$fast_test_cmd" "local-md"
-      echo "$fast_test_cmd"
+      local _norm
+      _norm=$(_cs_normalize_python_token "$fast_test_cmd") || return $?
+      echo "$_norm"
       return 0
     fi
   fi
@@ -196,7 +253,9 @@ cs_resolve_full_test_cmd() {
     _diag=$(_cs_redact_for_diag "$COORDINATOR_FULL_TEST_CMD")
     echo "[cs_resolve_full_test_cmd] step=env-var resolved: $_diag" >&2
     _cs_metachar_warn "$COORDINATOR_FULL_TEST_CMD" "env-var" "cs_resolve_full_test_cmd"
-    echo "$COORDINATOR_FULL_TEST_CMD"
+    local _norm
+    _norm=$(_cs_normalize_python_token "$COORDINATOR_FULL_TEST_CMD") || return $?
+    echo "$_norm"
     return 0
   fi
 
@@ -208,7 +267,9 @@ cs_resolve_full_test_cmd() {
     _diag=$(_cs_redact_for_diag "$full_test_cmd")
     echo "[cs_resolve_full_test_cmd] step=local-md resolved: $_diag" >&2
     _cs_metachar_warn "$full_test_cmd" "local-md" "cs_resolve_full_test_cmd"
-    echo "$full_test_cmd"
+    local _norm
+    _norm=$(_cs_normalize_python_token "$full_test_cmd") || return $?
+    echo "$_norm"
     return 0
   fi
 
@@ -221,9 +282,17 @@ cs_resolve_full_test_cmd() {
     echo "[cs_resolve_full_test_cmd] step=fast-fallback — no full_test_cmd configured; running the FAST tier. Coverage is fast-tier-only. To run the full suite, set full_test_cmd: in coordinator.local.md or \$COORDINATOR_FULL_TEST_CMD." >&2
     echo "$fast_cmd"
     return 3
+  elif [[ $fast_exit -ne 2 ]]; then
+    # Exit 2 is the fast tier's "unconfigured" signal (handled at Step 4 below).
+    # ANY OTHER non-zero — canonically 127 (bare `python` token, no interpreter) —
+    # is a HARD environment failure; propagate it so the full tier fails loud rather
+    # than masking interp-missing as an unconfigured skip (same swallow class the
+    # fast-tier fix kills).
+    echo "[cs_resolve_full_test_cmd] step=fast-fallback — fast resolver hard-failed (rc=${fast_exit}); propagating (NOT a skip)." >&2
+    return $fast_exit
   fi
 
-  # Step 4 — neither tier configured
+  # Step 4 — neither tier configured (fast_exit == 2)
   echo "[cs_resolve_full_test_cmd] step=skipped — no full or fast test command configured." >&2
   return 2
 }

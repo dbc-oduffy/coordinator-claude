@@ -103,7 +103,7 @@ In addition to the always-on coverage auditor, deep-tier pipelines run a **fidel
 
 D diverges from the unified auditor in two ways, both architectural:
 
-1. **MCP-extended auditor.** On-disk `{letter}-claims.json` are a lossy extraction of the actual notebook content. The D auditor additionally carries notebooklm MCP tools (`notebook_query` at minimum) with a graduated bootstrap (exact names → keyword fallback → graceful-skip-if-unavailable); if MCP tools are absent, the auditor proceeds on `claims.json`-only and notes the degradation explicitly in the sidecar.
+1. **MCP-extended auditor.** On-disk `{letter}-claims.json` are a lossy extraction of the actual notebook content. The D auditor additionally carries notebooklm MCP tools (`notebook_query` and `cross_notebook_query` at minimum) with a graduated bootstrap (exact names → keyword fallback → graceful-skip-if-unavailable); `cross_notebook_query` lets it verify a cross-notebook claim against all spanned notebooks in one aggregated call rather than N single-notebook queries. If MCP tools are absent, the auditor proceeds on `claims.json`-only and notes the degradation explicitly in the sidecar.
 
 2. **Cleanup-deferred ordering.** The D auditor must run before notebook deletion. When `--cleanup` is in effect, notebook deletion at Step 6 is deferred until after the D auditor completes and its sidecar is written. Sequence: run auditor → delete notebooks.
 

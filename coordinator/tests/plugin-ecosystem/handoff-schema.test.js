@@ -43,7 +43,7 @@ function baseHandoffFm(overrides = {}) {
   return {
     title: 'Test handoff',
     created: '2026-05-08',
-    branch: 'work/striker/2026-05-08',
+    branch: 'work/machine-a/2026-05-08',
     status: 'active',
     predecessor: null,
     ...overrides,
@@ -57,7 +57,7 @@ function baseArchivedFm(overrides = {}) {
   return {
     title: 'Test archived handoff',
     created: '2026-05-08',
-    branch: 'work/striker/2026-05-08',
+    branch: 'work/machine-a/2026-05-08',
     status: 'consumed',
     predecessor: null,
     ...overrides,

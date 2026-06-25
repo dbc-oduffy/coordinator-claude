@@ -6,6 +6,7 @@
 #   python  migrate-bug-backlog.py ... # explicit interpreter
 #   bash    migrate-bug-backlog.py ... # re-execs under python
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 migrate-bug-backlog.py — one-shot migration of open bug entries from the
 state/bug-backlog.md markdown table into structured per-entry YAML files via

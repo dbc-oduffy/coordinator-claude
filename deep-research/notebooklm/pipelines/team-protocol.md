@@ -32,8 +32,8 @@ EM: Scope research → Write strategy.md → Create team → Spawn (scout + work
 | Role | Model | Count | Responsibility |
 |------|-------|-------|----------------|
 | **Scout** | Haiku | 1 | Reads strategy.md, finds best YouTube / podcast / article sources via WebSearch, writes sources.md |
-| **Worker** | Sonnet | 1-3 | Creates own notebook, ingests assigned sources, runs queries, extracts structured claims, writes `{letter}-claims.json` + `{letter}-summary.md`, sends DONE to sweep |
-| **Sweep** | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, optionally writes advisory, optionally cleans up notebooks (if `--cleanup`) |
+| **Worker** | Sonnet | 1-3 | Creates own notebook, tags it with the run slug, ingests assigned sources, runs queries, extracts structured claims, writes `{letter}-claims.json` + `{letter}-summary.md`, sends DONE to sweep |
+| **Sweep** | Opus | 1 | Reads all worker claims (JSON), assesses coverage, fills gaps via follow-up queries and WebSearch, writes final polished document, optionally writes advisory, lists preserved notebook IDs for the EM to delete post-audit (sweep does NOT delete) |
 
 ## Team Lifecycle
 
@@ -41,8 +41,8 @@ EM: Scope research → Write strategy.md → Create team → Spawn (scout + work
 EM: Scope research → Write strategy.md → Create team → Spawn (scout + workers + sweep) → FREED
 
 Scout: Read strategy.md → WebSearch / WebFetch → Write sources.md → Mark complete → [idle]
-Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Ingest → Query → Extract claims → Write {letter}-claims.json + {letter}-summary.md → Mark complete → DONE to sweep
-Sweep: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read claims (JSON) → Assess coverage → Fill gaps → Write advisory (if anything beyond scope) → Notebook cleanup (if --cleanup) or list preserved → Mark complete
+Workers: [blocked by scout] → Read strategy.md (own ## Notebook letter) + sources.md → Bootstrap MCP → Create notebook → Tag with run slug → Ingest → Query → Extract claims → Write {letter}-claims.json + {letter}-summary.md → Mark complete → DONE to sweep
+Sweep: [blocked by all workers, waiting for DONE msgs] → Verify all complete → Read claims (JSON) → Assess coverage → Fill gaps → Write advisory (if anything beyond scope) → List preserved notebook IDs for EM (EM deletes post-audit if --cleanup) → Mark complete
 ```
 
 ## Blocking Chain
@@ -237,15 +237,15 @@ Notebook C uses research_start — worker should use NLM discovery, not scout-pr
 
 ## Coverage-Auditor Lifecycle
 
-> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § Pipeline D RESOLVED, § C6, § AC12, § AC15, § AC16
+> **Spec backlink:** `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § Pipeline D RESOLVED, § C6, § AC12, § AC15, § AC16
 
 Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a non-teammate Agent **after** the sweep completes and **before** notebook cleanup. The auditor answers the same two questions as the web/repo auditor: (1) did the synthesis carry each worker claim? (2) what did the synthesis compress, and where can a reader go deeper?
 
-**D-specific divergence — MCP tool grant:** the on-disk `{letter}-claims.json` files are a lossy extraction of the actual NotebookLM notebook content. The D auditor is additionally granted the `notebook_query` MCP tool to verify claims against the actual notebooks. The EM grants this at dispatch time. Notebook IDs are sourced from each `{letter}-summary.md` YAML frontmatter (`notebook_id` field) — do not parse IDs from markdown prose.
+**D-specific divergence — MCP tool grant:** the on-disk `{letter}-claims.json` files are a lossy extraction of the actual NotebookLM notebook content. The D auditor is additionally granted the `notebook_query` and `cross_notebook_query` MCP tools to verify claims against the actual notebooks — `cross_notebook_query` verifies a cross-notebook claim against all spanned notebooks in one aggregated call. The EM grants these at dispatch time. Notebook IDs/names are sourced from each `{letter}-summary.md` YAML frontmatter (`notebook_id` / `notebook_name` fields) — do not parse them from markdown prose.
 
 **Graduated bootstrap for MCP tools (required):**
 
-1. Try exact name: `ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")`
+1. Try exact names: `ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query,mcp__plugin_notebooklm_notebooklm__cross_notebook_query")`
 2. If Step 1 returns nothing, keyword fallback: `ToolSearch("+notebooklm notebook_query", max_results=5)`
 3. If both return nothing — **graceful degrade:** proceed on `{letter}-claims.json` only and include this note in the sidecar header:
 
@@ -256,7 +256,7 @@ Pipeline D uses the **always-on** coverage auditor — dispatched by the EM as a
 
 ## Fidelity Relay: OUT OF SCOPE
 
-> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § Pipeline D RESOLVED, § Per-pipeline applicability matrix (D row)
+> **Spec backlink:** `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § Pipeline D RESOLVED, § Per-pipeline applicability matrix (D row)
 
 The fidelity relay is **not applicable to Pipeline D.** The relay's gating condition is a depth tier (`--deeper` / `--deepest` for repo, gap-report deepening threshold for web). Pipeline D has no depth concept — only `--cleanup`. No deepening gate exists; no depth flags are defined. The gating condition structurally cannot fire.
 

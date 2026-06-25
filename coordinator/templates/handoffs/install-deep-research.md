@@ -1,7 +1,9 @@
 <!-- Seeded into state/handoffs/ by the coordinator install (agent-install.md Step 1f) ONLY when the
      operator opts into deep-research at the pre-restart question. That operator choice IS the spinoff
      authorization (see docs/wiki/spinoff-handoffs.md § Install-leg spinoffs). Layer 0 substitutes
-     {{DATE}} and {{BRANCH}}. It is a `kind: spinoff` baton in the standard handoff folder — the same
+     {{DATE}} (filename-aligned: use the LOCAL date `date +%Y-%m-%d`, NOT UTC — a late-evening UTC
+     stamp dates the baton to tomorrow; UTC is reserved for ISO timestamp fields) and {{BRANCH}}.
+     It is a `kind: spinoff` baton in the standard handoff folder — the same
      place /spinoff writes — so /pickup + /workday-start handle it with no special wiring.
      COORDINATOR-OWNED because deep-research ships bundled (no separate DR repo on disk to seed
      itself); revisit this template when the `/deep-research:install` flow changes. This is install

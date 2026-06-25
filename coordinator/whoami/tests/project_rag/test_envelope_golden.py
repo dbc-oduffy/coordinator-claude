@@ -186,6 +186,66 @@ def test_compose_envelope_binding_and_status_present(patched_env) -> None:
     assert "state" in status, "status must have 'state' key"
 
 
+def test_compose_cli_arch_subkey_structure(patched_env) -> None:
+    """AC4 (golden sub-structure): compose() arch dict must include Apple Silicon enrichment keys.
+
+    New keys added in C2 (Apple Silicon inventory enrichment):
+      performance_cores, efficiency_cores, chip, model.
+    Asserted as PRESENT with null-permissive types — they are None off-Apple-Silicon.
+    The patched_env simulates a non-Apple host (platform.machine returns 'AMD64'),
+    so these keys must be present-and-None here.
+
+    Spec backlink: docs/plans/2026-06-23-macos-whoami-apple-silicon-inventory.md § C2 (AC4)
+    """
+    from coordinator_whoami.project_rag.cli import compose
+
+    profile = compose()
+    arch = profile.get("arch")
+    assert isinstance(arch, dict), "arch must be a dict"
+
+    new_arch_keys = {"performance_cores", "efficiency_cores", "chip", "model"}
+    missing = new_arch_keys - set(arch.keys())
+    assert not missing, (
+        f"arch dict missing Apple Silicon enrichment keys: {sorted(missing)}"
+    )
+    # Null-permissive: on a non-Apple-Silicon host these must be None.
+    for key in new_arch_keys:
+        val = arch[key]
+        assert val is None or isinstance(val, (int, str)), (
+            f"arch[{key!r}] must be int/str or null, got {type(val)}"
+        )
+
+
+def test_compose_cli_gpu_subkey_structure(patched_env) -> None:
+    """AC4 (golden sub-structure): compose() gpu dict must include Apple Silicon GPU keys.
+
+    New keys added in C2 (Apple Silicon inventory enrichment):
+      integrated, unified_memory_bytes, mps_capable.
+    Asserted as PRESENT with null-permissive types — values depend on host architecture.
+    The patched_env simulates a non-Apple host (nvidia-smi raises FileNotFoundError),
+    so gpu.present=False and these keys must be present-and-null-or-False here.
+
+    Spec backlink: docs/plans/2026-06-23-macos-whoami-apple-silicon-inventory.md § C2 (AC4)
+    """
+    from coordinator_whoami.project_rag.cli import compose
+
+    profile = compose()
+    gpu = profile.get("gpu")
+    assert isinstance(gpu, dict), "gpu must be a dict"
+
+    new_gpu_keys = {"integrated", "unified_memory_bytes", "mps_capable"}
+    missing = new_gpu_keys - set(gpu.keys())
+    assert not missing, (
+        f"gpu dict missing Apple Silicon GPU keys: {sorted(missing)}"
+    )
+    # Null-permissive: values may be bool, int, or null depending on host.
+    for key in new_gpu_keys:
+        val = gpu[key]
+        assert val is None or isinstance(val, (bool, int)), (
+            f"gpu[{key!r}] must be bool/int or null, got {type(val)}"
+        )
+
+
 def test_compose_envelope_no_source_kind_key_without_arg(patched_env) -> None:
     """AC4 (envelope_base backward compat): build_envelope called without source_kind
     must NOT emit a source_kind key in the envelope (preserves current project-rag behavior).

@@ -23,7 +23,8 @@
 # Environment (populated by Step 1 and Step 5 of /workday-complete):
 #   RC_VALIDATE      Numeric exit code or "skipped"; populates Validation: validate=…
 #   RC_PLUGIN_SUITE  Numeric exit code; populates plugin-suite=…   Default: "n/a" if unset.
-#   COORDINATOR_ROOT Override for the repo root (used by tests). Default: git toplevel.
+#   COORDINATOR_ROOT TEST-ONLY override for the repo root (must not be set in a live
+#                    ceremony; warns if set to a non-cwd-toplevel path). Default: git toplevel.
 #   COORDINATOR_MACHINE Override machine name (used by tests).
 #
 # Stdout: structured one-line progress messages prefixed [step9].
@@ -65,6 +66,7 @@ source "${LIB_PATH}"
 NO_PUSH=false
 DRY_RUN=false
 SCOPE_ARG=""
+FOR_DATE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -76,6 +78,19 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=true
       NO_PUSH=true
       shift
+      ;;
+    --for-date)
+      # Backfill a specific (past) day. Overrides TODAY so the whole block —
+      # commit window, changelog filename, daily-summary path, header — keys to
+      # that date. Window math is unchanged: YESTERDAY derives from TODAY, so the
+      # existing (YESTERDAY 23:59:59Z, TODAY 23:59:59Z] window captures exactly
+      # FOR_DATE's commits. Used by the skipped-day backfill pass.
+      FOR_DATE="${2:-}"
+      if [[ ! "${FOR_DATE}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        echo "ERROR: --for-date requires a YYYY-MM-DD argument (got '${FOR_DATE}')" >&2
+        exit 1
+      fi
+      shift 2
       ;;
     --)
       shift
@@ -95,27 +110,45 @@ done
 # ---------------------------------------------------------------------------
 # Repo root resolution
 # ---------------------------------------------------------------------------
-if [[ -z "${COORDINATOR_ROOT:-}" ]]; then
-  COORDINATOR_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  if [[ -z "${COORDINATOR_ROOT}" ]]; then
-    echo "ERROR: cwd is not a git repo and COORDINATOR_ROOT is not set" >&2
-    exit 1
+# COORDINATOR_ROOT is a TEST-ONLY repo-root override; a live ceremony leaves it
+# unset so it defaults to the cwd git toplevel. Warn loud if it is set to a path
+# other than the cwd toplevel — catches copy-paste of the test-only override into a
+# live ceremony (the 2026-06-24 mis-root bug). Paths are canonicalized (pwd -P) so a
+# symlinked tmpdir is not a false positive; set COORDINATOR_ROOT_WARN_SUPPRESS=1 to
+# silence (tests pointing at an in-tree fixture). Structure mirrors backfill-scan.sh.
+_top_raw="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+_cwd_top=""
+if [[ -n "${_top_raw}" ]]; then
+  _cwd_top="$(cd "${_top_raw}" 2>/dev/null && pwd -P || true)"
+fi
+if [[ -n "${COORDINATOR_ROOT:-}" && "${COORDINATOR_ROOT_WARN_SUPPRESS:-}" != "1" && -n "${_cwd_top}" ]]; then
+  _cr_real="$(cd "${COORDINATOR_ROOT}" 2>/dev/null && pwd -P || echo "${COORDINATOR_ROOT}")"
+  if [[ "${_cr_real}" != "${_cwd_top}" ]]; then
+    echo "WARNING: COORDINATOR_ROOT='${COORDINATOR_ROOT}' differs from the cwd git toplevel '${_cwd_top}'. COORDINATOR_ROOT is a TEST-ONLY override; continuing with it as the repo root for this run. If this is a live ceremony on a consumer project, unset COORDINATOR_ROOT and re-run (COORDINATOR_ROOT_WARN_SUPPRESS=1 silences this in tests)." >&2
   fi
+fi
+
+COORDINATOR_ROOT="${COORDINATOR_ROOT:-${_cwd_top}}"
+if [[ -z "${COORDINATOR_ROOT}" ]]; then
+  echo "ERROR: cwd is not a git repo and COORDINATOR_ROOT is not set" >&2
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
 # Machine and date
 # ---------------------------------------------------------------------------
 MACHINE="$(cs_compute_machine)"
-TODAY="$(date -u +%Y-%m-%d)"
+TODAY="${FOR_DATE:-$(date -u +%Y-%m-%d)}"
 CHANGELOG_FILE="${COORDINATOR_ROOT}/state/week-changelog/${TODAY}-${MACHINE}.md"
 HEADER_FILE="${COORDINATOR_ROOT}/state/week-changelog/HEADER.md"
 DAILY_SUMMARY="${COORDINATOR_ROOT}/archive/daily-summaries/${TODAY}.md"
 
 # ---------------------------------------------------------------------------
 # Staleness guard: HEADER.md Week starting: must be ≤14 days ago
+# Backfill (--for-date) bypasses the staleness guard: a historical block is keyed to a past
+# day and must be written regardless of current HEADER freshness.
 # ---------------------------------------------------------------------------
-if [[ -f "${HEADER_FILE}" ]]; then
+if [[ -z "${FOR_DATE}" ]] && [[ -f "${HEADER_FILE}" ]]; then
   WEEK_START=""
   while IFS= read -r line; do
     case "$line" in
@@ -605,7 +638,7 @@ PYEOF
     # Replace existing section with new block
     echo "replacing existing section for ${TODAY}" >&2
     if command -v python3 >/dev/null 2>&1; then
-      python3 - "${CHANGELOG_FILE}" "${SECTION_HEADER}" "${NEW_BLOCK}" <<'PYEOF'
+      python3 - "${CHANGELOG_FILE}" "${SECTION_HEADER}" "${NEW_BLOCK}" <<'PYEOF' # verify-no-console-flash: allow — one-shot changelog text-replace; not on Windows hot-path
 import sys, re
 
 fpath = sys.argv[1]

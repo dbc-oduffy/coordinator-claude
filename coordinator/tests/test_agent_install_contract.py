@@ -15,7 +15,7 @@ Adapted from plugins/deep-research/tests/test_agent_install_contract.py
       test_manifest_valid, test_repo_id_and_empty_deps,
       test_override_flags_schema
   - coord declares NO direct deps: direct_deps == [] (coord is DAG root)
-  - Contract version expected: 2
+  - Contract version expected: 3 (v2→v3 cutover 2026-06-23 — system_prerequisites array)
 
 Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §6 AC1 + AC6
 Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md
@@ -50,7 +50,7 @@ SCHEMA_PATH = COORDINATOR_ROOT / "docs" / "install" / "agent-install-manifest.sc
 AGENT_MD_PATH = COORDINATOR_ROOT / "docs" / "install" / "AGENT.md"
 
 # Contract constants — duplicated here so tests are self-contained.
-_EXPECTED_CONTRACT_VERSION = 2
+_EXPECTED_CONTRACT_VERSION = 3
 _EXPECTED_REPO_ID = "coordinator-claude"
 _EXPECTED_DIRECT_DEPS: list = []  # coord is DAG root — no upstream dependencies
 
@@ -231,11 +231,14 @@ def test_override_flags_schema():
 
 
 def test_manifest_contract_version():
-    """agent_install_contract_version is 2 (current contract version for coord).
+    """agent_install_contract_version is 3 (current contract version for coord).
 
     Spec backlink: docs/plans/2026-06-15-coordinator-install-chain-application-phase-b.md §5.2
-    PM disposition 2026-06-15: coord ships at v2 (match DR Phase B; gating §8.3 v1 literal
-    predated v2 promotion).
+    Spec backlink: docs/plans/2026-06-23-coordinator-root-system-prerequisites.md C6/C7
+    PM disposition 2026-06-23: coord flips to v3 in the fleet-wide simultaneous-merge cutover
+    (system_prerequisites array added; all consumer readers widened to {1,2,3} in the same
+    merge wave, so no reader-widen-first round-trip is needed — the synchronized merge closes
+    the deployment-skew window structurally).
     """
     assert MANIFEST_PATH.exists(), (
         f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
@@ -245,7 +248,7 @@ def test_manifest_contract_version():
     version = manifest.get("agent_install_contract_version")
     assert version == _EXPECTED_CONTRACT_VERSION, (
         f"agent_install_contract_version expected {_EXPECTED_CONTRACT_VERSION}; got {version!r}. "
-        "Per plan §5.2 PM disposition: coord ships at v2 (current)."
+        "Per 2026-06-23 cutover: coord ships at v3 (system_prerequisites)."
     )
 
 
@@ -317,6 +320,110 @@ def test_doctor_skill_optional_and_not_native_collision():
         assert doctor != "/coordinator:doctor", (
             "doctor_skill must not be '/coordinator:doctor' — bare /doctor collides with Claude Code's native command."
         )
+
+
+def test_system_prerequisites_present_and_well_formed():
+    """system_prerequisites is present, non-empty, and each entry has required v3 fields.
+
+    v3 defining payload: top-level system_prerequisites array. Each entry must have:
+      - id (string)
+      - tier (string)
+      - probe (dict containing at least 'cmd')
+      - install (dict containing at least 'mode')
+
+    Structural check only — full jsonschema validation is handled by
+    tests/install/test_system_prereq_schema.sh.
+
+    Spec backlink: docs/plans/2026-06-23-coordinator-root-system-prerequisites.md C6/C7
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § SystemPrereq fields
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+
+    assert "system_prerequisites" in manifest, (
+        "system_prerequisites key is absent from the v3 manifest. "
+        "v3 defining payload requires this top-level array (may be empty array but must be present). "
+        "See docs/wiki/agent-install-contract.md § SystemPrereq fields."
+    )
+    prereqs = manifest["system_prerequisites"]
+    assert isinstance(prereqs, list), (
+        f"system_prerequisites must be an array; got {type(prereqs).__name__}."
+    )
+    assert len(prereqs) > 0, (
+        "system_prerequisites must be non-empty for coordinator-claude (declares python, gh, node, git, clone_auth). "
+        "See docs/plans/2026-06-23-coordinator-root-system-prerequisites.md."
+    )
+    for i, entry in enumerate(prereqs):
+        assert isinstance(entry, dict), (
+            f"system_prerequisites[{i}] must be an object; got {type(entry).__name__}."
+        )
+        assert "id" in entry, (
+            f"system_prerequisites[{i}] missing required field 'id'. "
+            "See docs/wiki/agent-install-contract.md § SystemPrereq fields."
+        )
+        assert "tier" in entry, (
+            f"system_prerequisites[{i}] (id={entry.get('id')!r}) missing required field 'tier'."
+        )
+        assert "probe" in entry, (
+            f"system_prerequisites[{i}] (id={entry.get('id')!r}) missing required field 'probe'."
+        )
+        assert isinstance(entry["probe"], dict), (
+            f"system_prerequisites[{i}].probe must be an object; got {type(entry['probe']).__name__}."
+        )
+        assert "cmd" in entry["probe"], (
+            f"system_prerequisites[{i}] (id={entry.get('id')!r}) probe missing required 'cmd' field. "
+            "probe.cmd is the universal portable shell command (e.g. 'command -v git')."
+        )
+        assert "install" in entry, (
+            f"system_prerequisites[{i}] (id={entry.get('id')!r}) missing required field 'install'."
+        )
+        assert isinstance(entry["install"], dict), (
+            f"system_prerequisites[{i}].install must be an object; got {type(entry['install']).__name__}."
+        )
+        assert "mode" in entry["install"], (
+            f"system_prerequisites[{i}] (id={entry.get('id')!r}) install missing required 'mode' field."
+        )
+
+
+def test_provider_capabilities_declared():
+    """provider_capabilities is declared with the correct role and hoistable_at_step_zero values.
+
+    coordinator-claude is the DAG root (upstream-provider). All four sub-fields are
+    required when provider_capabilities is present (per contract § provider_capabilities
+    and schema `required` enforcement). Asserts:
+      - provider_capabilities key is present
+      - role == "upstream-provider"
+      - hoistable_at_step_zero is True
+
+    Spec backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § AC12
+    Spec backlink: plugins/coordinator/docs/wiki/agent-install-contract.md § provider_capabilities
+    """
+    assert MANIFEST_PATH.exists(), (
+        f"agent-install-manifest.json not found at {MANIFEST_PATH}. "
+        "Tests are intentionally RED until Wave 2 lands the manifest."
+    )
+    manifest = _load_manifest()
+
+    assert "provider_capabilities" in manifest, (
+        "provider_capabilities key is absent from the coordinator-claude manifest. "
+        "coordinator-claude is the DAG root and must declare provider_capabilities. "
+        "See docs/wiki/agent-install-contract.md § provider_capabilities."
+    )
+    pc = manifest["provider_capabilities"]
+    assert isinstance(pc, dict), (
+        f"provider_capabilities must be an object; got {type(pc).__name__}."
+    )
+    assert pc.get("role") == "upstream-provider", (
+        f"provider_capabilities.role expected 'upstream-provider'; got {pc.get('role')!r}. "
+        "coordinator-claude is the DAG root — its role enum value is 'upstream-provider'."
+    )
+    assert pc.get("hoistable_at_step_zero") is True, (
+        f"provider_capabilities.hoistable_at_step_zero expected True; got {pc.get('hoistable_at_step_zero')!r}. "
+        "coordinator-claude's setup may be hoisted to Step Zero by the chain-walker."
+    )
 
 
 def test_doctor_skill_when_present_is_pattern_constrained():

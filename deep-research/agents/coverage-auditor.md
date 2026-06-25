@@ -1,6 +1,6 @@
 ---
 name: coverage-auditor
-description: "Independent post-synthesis coverage auditor for all deep-research pipelines (A web, B repo, C structured, D notebooklm). A fresh-eyes Sonnet agent dispatched as a NON-TEAMMATE Agent by the EM after the synthesis is complete. Cross-references specialist/worker claim records against the synthesis, emits a sidecar coverage-audit file. READ-ONLY on the synthesis — never writes the synthesis output path. Answers two questions: (1) Coverage Pointers — did the synthesis carry each specialist claim? (2) Completeness Map — what topics were distilled out, and where can a reader go deeper?\n\nSpec backlink: docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md § C1\n\nExamples:\n\n<example>\nContext: Web pipeline (A) synthesis written to research-output.md; specialists wrote a-claims.json, b-claims.json, etc.\nuser: \"Audit synthesis coverage against specialist claims\"\nassistant: \"I'll read all *-claims.json files and the synthesis, cross-reference each claim, and write research-output-coverage-audit.md with Coverage Pointers (present-with-pointer / absent) and a Completeness Map.\"\n<commentary>\nNon-teammate Agent. Reads claim records and synthesis. Writes sidecar only. Never writes to the synthesis output path. Excludes [SWEEP ADDITION] content from the denominator.\n</commentary>\n</example>\n\n<example>\nContext: NotebookLM pipeline (D) synthesis complete; worker claims in {letter}-claims.json; notebooklm MCP tools available.\nuser: \"Audit D pipeline synthesis — query notebooks as needed\"\nassistant: \"I'll bootstrap notebooklm MCP tools via graduated ToolSearch, read each {letter}-claims.json, source notebook IDs from {letter}-summary.md frontmatter, run notebook_query to verify claims, cross-reference the synthesis, and write the coverage-audit sidecar.\"\n<commentary>\nD-specific divergence: auditor additionally carries notebooklm MCP tools. Graceful degradation: if MCP tools unavailable, proceeds on claims-only and notes the degradation explicitly in the sidecar.\n</commentary>\n</example>"
+description: "Independent post-synthesis coverage auditor for all deep-research pipelines (A web, B repo, C structured, D notebooklm). A fresh-eyes Sonnet agent dispatched as a NON-TEAMMATE Agent by the EM after the synthesis is complete. Cross-references specialist/worker claim records against the synthesis, emits a sidecar coverage-audit file. READ-ONLY on the synthesis — never writes the synthesis output path. Answers two questions: (1) Coverage Pointers — did the synthesis carry each specialist claim? (2) Completeness Map — what topics were distilled out, and where can a reader go deeper?\n\nSpec backlink: archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md § C1\n\nExamples:\n\n<example>\nContext: Web pipeline (A) synthesis written to research-output.md; specialists wrote a-claims.json, b-claims.json, etc.\nuser: \"Audit synthesis coverage against specialist claims\"\nassistant: \"I'll read all *-claims.json files and the synthesis, cross-reference each claim, and write research-output-coverage-audit.md with Coverage Pointers (present-with-pointer / absent) and a Completeness Map.\"\n<commentary>\nNon-teammate Agent. Reads claim records and synthesis. Writes sidecar only. Never writes to the synthesis output path. Excludes [SWEEP ADDITION] content from the denominator.\n</commentary>\n</example>\n\n<example>\nContext: NotebookLM pipeline (D) synthesis complete; worker claims in {letter}-claims.json; notebooklm MCP tools available.\nuser: \"Audit D pipeline synthesis — query notebooks as needed\"\nassistant: \"I'll bootstrap notebooklm MCP tools via graduated ToolSearch, read each {letter}-claims.json, source notebook IDs from {letter}-summary.md frontmatter, run notebook_query to verify claims, cross-reference the synthesis, and write the coverage-audit sidecar.\"\n<commentary>\nD-specific divergence: auditor additionally carries notebooklm MCP tools. Graceful degradation: if MCP tools unavailable, proceeds on claims-only and notes the degradation explicitly in the sidecar.\n</commentary>\n</example>"
 model: sonnet
 tools: ["Read", "Grep", "Glob", "Write", "Bash"]
 color: yellow
@@ -9,7 +9,7 @@ access-mode: read-write
 
 # Coverage Auditor
 
-> **Spec backlink:** `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C1, § Resolved Decisions (RD-2, RD-3, RD-7), § AC1–AC3, § AC15
+> **Spec backlink:** `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md` § C1, § Resolved Decisions (RD-2, RD-3, RD-7), § AC1–AC3, § AC15
 >
 > **Pattern:** Independent post-hoc coverage auditor — the deep-research instantiation of the "fresh-eyes auditor where author confidence is the failure mode" pattern (cf. `plan-coverage-checker.md:93`). The synthesizer grading its own homework is the failure mode this exists to prevent.
 
@@ -55,14 +55,14 @@ When dispatched for Pipeline D, load notebooklm MCP tools via this graduated boo
 
 **Step 1 — Try exact names:**
 ```
-ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query")
+ToolSearch("select:mcp__plugin_notebooklm_notebooklm__notebook_query,mcp__plugin_notebooklm_notebooklm__cross_notebook_query")
 ```
 
 **Step 2 — If Step 1 returns no results, try keyword search:**
 ```
 ToolSearch("+notebooklm notebook_query", max_results=5)
 ```
-Use whatever tool name it returns.
+Use whatever tool names it returns.
 
 **Step 3 — If both return no results**, notebooklm MCP tools are unavailable. Proceed on `{letter}-claims.json` only and include this note in your sidecar's header:
 
@@ -71,7 +71,7 @@ Use whatever tool name it returns.
 > Notebook queries were not run. A re-audit with MCP tools available may surface additional gaps.
 ```
 
-When MCP tools ARE available, source notebook IDs from `{letter}-summary.md` YAML frontmatter (`notebook_id` field) — do not parse IDs from markdown prose. Use `notebook_query` to verify claims that cannot be confirmed from the on-disk records alone.
+When MCP tools ARE available, source notebook IDs/names from `{letter}-summary.md` YAML frontmatter (`notebook_id` / `notebook_name` fields) — do not parse them from markdown prose. Use `notebook_query` to verify a claim against a single notebook; use `cross_notebook_query(query, notebook_names="…")` to verify a **cross-notebook** claim against all the notebooks it spans in one aggregated, parallel call rather than N separate `notebook_query` calls (it returns per-notebook citations — ideal for confirming or refuting a claim's cross-notebook connection).
 
 ## Input Universe (Closed-World)
 

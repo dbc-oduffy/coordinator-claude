@@ -4,7 +4,7 @@
 # Spec backlink: docs/plans/2026-05-07-prune-resolved-state-bloat.md § S5
 #                (lives in consumer-project docs/plans/, not in this plugin tree)
 #
-# Purpose: Strip resolved-state bloat from the three named queue files. Doctrine alone
+# Purpose: Strip resolved-state bloat from the two named queue files. Doctrine alone
 # cannot prevent drift — each EM has a non-deterministic way of marking closure in
 # markdown, so the pruner is the structural backstop.
 #
@@ -23,7 +23,10 @@
 #   Rule 1 — Entry-shape (queue files only): delete any entry block whose resolution:
 #            sub-line starts with "resolved" (or any non-pending/non-in_progress value),
 #            or which carries a "**Closeout:**" sub-line. Applies to
-#            coordinator-improvement-queue.md, improvement-queue.md. NOT bug-backlog.md.
+#            improvement-queue.md. NOT bug-backlog.md.
+#            NOTE: coordinator-improvement-queue.md was a legacy prose queue removed in
+#            2026-06; the central queue is now structured YAML under state/improvement-queue/
+#            and closes via git mv — line-deletion pruning no longer applies to it.
 #   Rule 2 — Section-body: delete any section matching
 #            ^## (Processed|Resolved|History|Closed|Done|Archive|Closeout) and its
 #            entire body up to the next ## heading or EOF. Applies to all three files.
@@ -77,10 +80,10 @@ INPUT="$1"
 # Match by basename to support both absolute and relative paths.
 BASENAME=$(basename "$INPUT")
 case "$BASENAME" in
-  coordinator-improvement-queue.md|improvement-queue.md|bug-backlog.md)
+  improvement-queue.md|bug-backlog.md)
     ;;
   *)
-    echo "ERROR: $0 only operates on coordinator-improvement-queue.md, improvement-queue.md, or bug-backlog.md. Refusing to prune: $INPUT" >&2
+    echo "ERROR: $0 only operates on improvement-queue.md or bug-backlog.md. Refusing to prune: $INPUT" >&2
     exit 1
     ;;
 esac
@@ -93,7 +96,7 @@ fi
 # Determine whether Rule 1 (entry-shape) applies to this file.
 APPLY_RULE1=0
 case "$BASENAME" in
-  coordinator-improvement-queue.md|improvement-queue.md)
+  improvement-queue.md)
     APPLY_RULE1=1
     ;;
 esac

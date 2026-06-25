@@ -188,6 +188,46 @@ function extractPathsFromSelector(prefix, selector) {
 // Known typed prefixes — mirrors validate-ac-grammar.js KNOWN_PREFIXES
 const KNOWN_PREFIXES = new Set(['pytest', 'node', 'cargo', 'grep', 'cited', 'sh', 'bash', 'bats']);
 
+// ---------------------------------------------------------------------------
+// Combinator support — AND/OR multi-operand Test cells
+//
+// Spec backlink: check-acceptance-oracle.sh combinator grammar (shipped 2026-06-22).
+//
+// LOCKSTEP: this helper is mirrored verbatim in validate-ac-grammar.js.
+// Both copies must be kept in sync. Update both files together.
+// ---------------------------------------------------------------------------
+
+const COMBINATOR_AND = ' AND ';
+const COMBINATOR_OR  = ' OR ';
+
+/**
+ * Attempt to split a Test cell as a combinator expression.
+ * Returns { op: 'AND'|'OR', operands: string[] } when the cell is a valid combinator,
+ * or null when the cell is not a combinator (caller falls through to single-token path).
+ *
+ * Recognition: split on ` AND ` first, then ` OR ` if AND yields <2 parts.
+ * If either split yields ≥2 operands AND every operand starts with a known-prefix
+ * token (after an optional leading backtick), this is a combinator cell.
+ *
+ * Does NOT validate that operands pass full S1-S4 grammar — that is the caller's job.
+ */
+function splitCombinator(cell) {
+  // Try AND first, then OR.
+  for (const [op, sep] of [['AND', COMBINATOR_AND], ['OR', COMBINATOR_OR]]) {
+    const parts = cell.split(sep);
+    if (parts.length < 2) continue;
+    // Every part must look like a typed-prefix token: optional leading `, then known prefix + colon.
+    const allLookLikeTokens = parts.every(p => {
+      const stripped = p.trim().replace(/^`/, '');
+      return KNOWN_PREFIXES.has(stripped.split(':')[0]);
+    });
+    if (allLookLikeTokens) {
+      return { op, operands: parts.map(p => p.trim()) };
+    }
+  }
+  return null;
+}
+
 /**
  * Parse a Test cell (raw from the table) into { prefix, selector } or null.
  * Handles S1-S4 shapes by stripping backticks and prefix: via regex.
@@ -299,7 +339,27 @@ function extractAcPaths(content) {
 
     const id = idCol >= 0 && idCol < cells.length ? cells[idCol].trim() : '';
 
-    const parsed = parseTestCell(testCell.trim());
+    // Combinator cell: extract paths from every operand and union them.
+    const trimmedCell = testCell.trim();
+    const combo = splitCombinator(trimmedCell);
+    if (combo) {
+      const allPaths = [];
+      for (const operand of combo.operands) {
+        const parsed = parseTestCell(operand);
+        // Review: code-reviewer F7 — document silent operand skip: grammar errors in
+        // operands (unrecognized prefix, malformed shape) are validate-ac-grammar.js's
+        // responsibility. We skip silently here per division of responsibilities — this
+        // hook only checks path ownership, not grammar correctness.
+        if (!parsed) continue;
+        allPaths.push(...extractPathsFromSelector(parsed.prefix, parsed.selector));
+      }
+      if (allPaths.length === 0) continue;
+      results.push({ id, paths: allPaths });
+      continue;
+    }
+
+    // Single-token cell (unchanged path).
+    const parsed = parseTestCell(trimmedCell);
     if (!parsed) continue;
 
     const paths = extractPathsFromSelector(parsed.prefix, parsed.selector);

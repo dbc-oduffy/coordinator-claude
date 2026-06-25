@@ -1,0 +1,16 @@
+schema: plan-coverage-check
+applies_to: "docs/plans/*coverage-check.md"
+kinds: [plan-coverage-check, coverage-check]
+required:
+  plan: string
+optional:
+  author: string
+  created: iso-date
+  status: string
+  verdict: string
+  title: string
+
+# Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C1
+# applies_to: single glob *coverage-check.md covers both .plan-coverage-check.md and
+# .coverage-check.md alias because globToRegex compiles * → [^/]* spanning the leading dot.
+# Negative-spec: do NOT require verdict — some legacy sidecars omit it.

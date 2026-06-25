@@ -76,6 +76,22 @@
         "physical_cores": {
           "type": ["integer", "null"],
           "description": "Physical CPU core count, best-effort; null = undetermined."
+        },
+        "performance_cores": {
+          "type": ["integer", "null"],
+          "description": "High-performance core count (hw.perflevel0.physicalcpu via sysctl). Apple Silicon only; null on Intel Mac, Linux, Windows."
+        },
+        "efficiency_cores": {
+          "type": ["integer", "null"],
+          "description": "Efficiency core count (hw.perflevel1.physicalcpu via sysctl). Apple Silicon only; null on Intel Mac, Linux, Windows."
+        },
+        "chip": {
+          "type": ["string", "null"],
+          "description": "Apple chip brand string (machdep.cpu.brand_string), e.g. 'Apple M5 Pro'. Null on non-Apple-Silicon hosts."
+        },
+        "model": {
+          "type": ["string", "null"],
+          "description": "Hardware model identifier (hw.model via sysctl), e.g. 'Mac17,9'. Null on non-Apple-Silicon hosts."
         }
       }
     },
@@ -86,11 +102,11 @@
       "properties": {
         "present": {
           "type": "boolean",
-          "description": "True when nvidia-smi returned a result."
+          "description": "True when a GPU is detected — via nvidia-smi (discrete NVIDIA GPU) or platform identification (integrated Apple Silicon GPU on Darwin arm64)."
         },
         "vendor": {
           "type": ["string", "null"],
-          "description": "GPU vendor string (currently only 'nvidia' when detected, else null)."
+          "description": "GPU vendor string: 'nvidia' (discrete, via nvidia-smi) or 'apple' (integrated Metal GPU on Apple Silicon), else null."
         },
         "vram_free_mib": {
           "type": ["integer", "null"],
@@ -119,6 +135,18 @@
         "driver_model": {
           "type": ["string", "null"],
           "description": "GPU driver model, WDDM or TCC (nvidia-smi driver_model.current)."
+        },
+        "integrated": {
+          "type": ["boolean", "null"],
+          "description": "True only for the integrated Apple Silicon GPU (shares memory with the CPU). False on discrete-GPU hosts and GPU-absent hosts."
+        },
+        "unified_memory_bytes": {
+          "type": ["integer", "null"],
+          "description": "Total unified memory in bytes (hw.memsize via sysctl) used as the GPU memory ceiling on Apple Silicon. Null on discrete-GPU or GPU-absent hosts."
+        },
+        "mps_capable": {
+          "type": ["boolean", "null"],
+          "description": "True only when a Metal-capable Apple Silicon GPU is present (Darwin arm64 — machine-scoped static fact, zero torch import). False on discrete-GPU and GPU-absent hosts."
         }
       }
     },

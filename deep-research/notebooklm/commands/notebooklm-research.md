@@ -181,6 +181,7 @@ Spawn all teammates in one operation:
 **Worker prompt(s)** — one per letter (fill template for each):
 - `[NOTEBOOK_LETTER]` = A, B, C as applicable
 - `[NOTEBOOK_NAME]` = `{topic-slug}-{letter}` (e.g., `ai-agents-a`)
+- `[TOPIC_SLUG]` = `{topic-slug}` — the **run slug** every worker tags its notebook with (`tag(action="add", …, tags="{topic-slug}")`), so the run's notebooks are addressable as a set via `cross_notebook_query(tags=…)` / `batch(tags=…)`
 - `[RESEARCH_TOPIC]` = topic
 - `[SCRATCH_DIR]` = scratch dir path
 - `[TASK_ID]` = worker_task.id for this letter

@@ -17,13 +17,13 @@ Extract knowledge from accumulated session artifacts into evergreen wiki documen
 
 `/distill` and `/update-docs` are NOT a substitute for any of those layers — they extract knowledge and index canonical artifacts. → `docs/wiki/cruft-sweep-cadence.md` § Three-layer design.
 
-**Plan files are a high-value distillation source alongside wiki entries and archived handoffs.** Plan documents under `docs/plans/` — especially with `(was: <plan-forecast>)` ALLOWLIST corrections from `/workstream-complete` Step 2.4 (and, on historical plans, `## Deviations` audit tables) — carry the shipped-vs-forecast reality that future prior-art-checkers consume. The four-fate table below routes plan/spec → `archive/specs/` precisely so that body of evidence stays greppable; the table treats plans as one of four equal categories, but plans + divergence corrections are the source future prior-art-checkers will read most often.
+**Plan files are a high-value distillation source alongside wiki entries and archived handoffs.** Terminal plan documents are moved to `archive/specs/` by the session-init sweep; `/distill` reads them from there as harvest debt. Plans — especially those with `(was: <plan-forecast>)` ALLOWLIST corrections from `/workstream-complete` Step 2.4 (and, on historical plans, `## Deviations` audit tables) — carry the shipped-vs-forecast reality that future prior-art-checkers consume. The four-fate table below describes the plan cohort as sourced from `archive/specs/` (already relocated by the sweep); the table treats plans as one of four equal categories, but plans + divergence corrections are the source future prior-art-checkers will read most often.
 
 **Four categories, four fates:**
 
 | Artifact | Fate | Rationale |
 |---|---|---|
-| Canonical plan / spec (`docs/plans/*.md`) — **RIPE only** | **Trim → move to `archive/specs/YYYY-MM/`** | Keep the "how" greppable; strip review-applied wrappers and side-channel meta only after re-homing any constraints they introduced. **Only RIPE (delivered) plans take this fate** — ripeness is classified by the `plan-delivery-audit` Oracle (`skills/plan-delivery-audit/SKILL.md:128-136`): `status: implemented`/`shipped` + ACs-pass-at-HEAD → RIPE. PARTIAL / IN-FLIGHT / ABANDONED plans are SKIP (not harvested, not archived) — see `PIPELINE.md` § Phase 0 ripeness gate. |
+| Canonical plan / spec (`archive/specs/**/*.md`) — **RIPE only** | **Harvest knowledge → record in distill-log** | The session-init sweep already moved terminal plans (`status: implemented`/`superseded`/`abandoned`) from `docs/plans/` to `archive/specs/YYYY-MM/`. `/distill` reads the un-harvested subset (plans in `archive/specs/` minus paths already in `docs/wiki/.distill-log.md` — the "harvest debt") and extracts knowledge into wiki/DR. **Only RIPE (delivered) plans are harvested** — ripeness classified by the `plan-delivery-audit` Oracle (`skills/plan-delivery-audit/SKILL.md:128-136`): `status: implemented`/`shipped` + ACs-pass-at-HEAD → RIPE. PARTIAL and ABANDONED plans are SKIP (un-harvested, retained in `archive/specs/`); IN-FLIGHT plans are not in this cohort (they stay in `docs/plans/`, not yet swept) — see `PIPELINE.md` § Phase 0 ripeness gate. |
 | Enriched stubs, reviewer outputs, integrator triage, docs-checker reports | **Delete** | Pure scaffolding. Recoverable from git via distillation log. |
 | Wiki entries (`docs/wiki/*.md`) | **Write/update** | What-and-why summary. Carries provenance frontmatter. |
 | Archived handoffs (`archive/handoffs/*.md`) — added 2026-05-08 | **Extract → delete (opt-out via `--no-delete`)** | Post-`/pickup` paper trail. Contains decision rationale and reusable patterns; once those are distilled into DRs and wiki entries, the source is recoverable from git. See § Handoff distillation below. |
@@ -46,7 +46,7 @@ Extract knowledge from accumulated session artifacts into evergreen wiki documen
 Run Phases 0-3d only. Preview extraction results and the deletion manifest, but apply nothing to disk. Presents the summary at Phase 4 and stops. Use to verify what would be extracted before committing.
 
 **`--no-delete`**
-Apply wiki updates (Phases 0-5 write steps), but skip scaffolding deletion AND skip moving specs to `archive/specs/` (specs stay in `docs/plans/`). Wiki writes still apply.
+Apply wiki updates (Phases 0-5 write steps), but skip scaffolding deletion AND skip trimming specs in `archive/specs/` (specs already moved there by the session-init sweep remain un-trimmed). Wiki writes still apply.
 
 **`--allow-drop`**
 Bypass the negative-AC halt for this run after EM eyeballs the diff and confirms no semantic loss. Logs the bypass to distillation-log.md Manual Review section for audit.
@@ -98,7 +98,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 | **Phase 3c** | Coordinator (mechanical) | `DIRECTORY_GUIDE.md` assembly — read Phase 2 frontmatter + Phase 0 wiki inventory, write `directory_entries:` YAML manifest + prose preview; no subagent |
 | **Phase 3d** | Sonnet (single) | Deletion manifest — per-file `deletions:` YAML block and (schema v2) grouped `deletion_groups:` sibling key; >50-row self-check switches bulk EPHEMERAL/ALREADY_CAPTURED to grouped form; prose table is derived PM-readable view. Full schema: `agent-prompts/phase-3d.md` |
 | **Phase 4** | Coordinator | PM approval gate — present deletion manifest + DIRECTORY_GUIDE.md preview, wait for explicit approval |
-| **Phase 5** | Coordinator | Apply wiki writes via manifest-driven done-conditions (file-path set-diff vs. `git diff --stat`); **trim + archive the ripe-plan cohort first and bank it (harvest-before-disposal invariant, see § Phase 5 intro)** — including **Decision Rationale extraction** (§ 5a, required); delete scaffolding via YAML `deletions:` manifest; update distillation log; run link-heal pass |
+| **Phase 5** | Coordinator | Apply wiki writes via manifest-driven done-conditions (file-path set-diff vs. `git diff --stat`); **drain harvest debt from `archive/specs/` first and bank it (harvest-debt drain contract, see § Phase 5 intro)** — including **Decision Rationale extraction** (§ 5a, required); delete scaffolding via YAML `deletions:` manifest; update distillation log; run link-heal pass |
 <!-- Review: the Staff Engineer R3 — F1: Phase 5 row omitted Decision Rationale extraction; an executor scanning the overview without reading 5a could miss it -->
 
 **If `--dry-run`:** Phases 4-5 are skipped. The pipeline stops after Phase 3d and presents the summary.
@@ -109,7 +109,7 @@ Phase 0 (Coordinator) → Phase 1 (Haiku ×N, parallel) → Phase 1.5 (Haiku ×N
 
 ## Handoff distillation (added 2026-05-08)
 
-Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
+Spec backlink: `archive/specs/2026-05/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 4.
 
 ### Input enumeration
 
@@ -164,7 +164,7 @@ Add `archive/handoffs/<basename>.md` to the path-rewrite ripgrep set. Healing ta
 
 ## Cross-repo archive distillation (added 2026-05-23)
 
-Spec backlink: `docs/plans/2026-05-23-cross-repo-inbox-archive-restructure.md` § D3 + § Chunk E.
+Spec backlink: `archive/specs/2026-05/2026-05-23-cross-repo-inbox-archive-restructure.md` § D3 + § Chunk E.
 
 ### Input enumeration
 
@@ -245,13 +245,13 @@ Before presenting the deletion manifest at the Phase 4 PM gate, `/distill` runs 
 
 ## Phase 5 — Apply, Trim + Archive, Delete, Heal
 
-**Harvest-before-disposal ordering invariant (the plan-priority rule).** Plan files are the highest-yield distillation source (see § four-fate intro and `PIPELINE.md:49`), and plan trim+archive (§ 5a) is also the heaviest, most-likely-to-be-skipped sub-step — so it runs **first and is banked (committed or staged) before any ephemera deletion**. The order is: (1) apply wiki/DR writes, (2) **trim + archive the ripe-plan cohort (§ 5a) and commit that**, (3) only then delete scaffolding/handoffs/memos. A budget-truncated run must complete the plan harvest before the disposal tier — the cheap mechanical deletion never preempts the expensive plan archival. This directly counters the "apply-agent silently drops the transform when budget tightens" failure noted under § 5a Apply-agent slice rubric.
+**Harvest-debt drain ordering contract (the plan-priority rule).** The session-init sweep has already moved terminal plans to `archive/specs/` — the MOVE is decoupled from `/distill`. What `/distill` Phase 5 does is drain the harvest debt: plans in `archive/specs/` not yet in `docs/wiki/.distill-log.md` are the un-harvested set, and knowledge-harvest (§ 5a) is the heaviest, most-likely-to-be-skipped sub-step — so it runs **first and is banked (committed or staged) before any ephemera deletion**. The order is: (1) apply wiki/DR writes, (2) **harvest the ripe-plan cohort from `archive/specs/` (§ 5a) and commit that**, (3) only then delete scaffolding/handoffs/memos. A budget-truncated run must drain harvest debt before the disposal tier — the cheap mechanical deletion never preempts the expensive knowledge-harvest. This directly counters the "apply-agent silently drops the transform when budget tightens" failure noted under § 5a Apply-agent slice rubric.
 
 Phase 5 has four major sub-steps. They run in order; each depends on the prior.
 
-### 5a. Spec Trim + Archive — Structural Rubric
+### 5a. Spec Knowledge Harvest — Structural Rubric
 
-Canonical specs (`docs/plans/*.md`) are trimmed to remove post-review scaffolding and moved to `archive/specs/YYYY-MM/<name>.md` — **month-foldered by the spec's date prefix** (`<name>` retains its full dated filename, e.g. `archive/specs/2026-04/2026-04-29-port-patterns-implementation.md`). Do not delete — move. The trimmed spec remains greppable by RAG. (Month-foldering keeps `archive/specs/` navigable as it grows past ~100 entries; the `YYYY-MM` segment is derived mechanically from the leading `YYYY-MM-DD` of the spec filename.)
+Canonical specs in the harvest-debt set (`archive/specs/**/*.md` not yet in `docs/wiki/.distill-log.md`) are read for knowledge extraction. The specs are already at their final `archive/specs/YYYY-MM/<name>.md` location — the session-init sweep handled the move. `/distill`'s job here is trimming post-review scaffolding from the archived copy and writing wiki/DR content — **the MOVE is a done fact; this sub-step is purely knowledge-harvest and trim-in-place**. (Month-foldering keeps `archive/specs/` navigable as it grows past ~100 entries; the `YYYY-MM` segment is derived mechanically from the leading `YYYY-MM-DD` of the spec filename.)
 
 **ALLOWLIST sections — survive verbatim:**
 - Goal
@@ -297,7 +297,7 @@ Re-homing handles structural items (constraints, ACs, decisions stated as such).
 3. Extract Decision Rationale from DENYLIST sections (still in place) into `## Decision Rationale` section.
 4. Strip DENYLIST sections — runs only after steps 2 + 3 are complete and EM-approved.
 5. Review MIDDLE sections for EM approval.
-6. Move (not copy) trimmed result to `archive/specs/YYYY-MM/<name>.md` — derive the `YYYY-MM/` subdir from the spec's `YYYY-MM-DD` filename prefix; `mkdir -p` the month dir if absent.
+6. Trim the archived spec in-place at `archive/specs/YYYY-MM/<name>.md` — the session-init sweep already placed it there; no move is required. Derive the `YYYY-MM/` subdir from the spec's `YYYY-MM-DD` filename prefix when verifying the path.
 
 **Apply-agent slice rubric:** When dispatching apply-agents in Phase 5, slice "mv files" steps separately from "transform contents" steps. Bundling them in a single agent brief lets the apply-agent silently drop the transform when its budget tightens (mv work is mechanical and visibly succeeds; content transforms are higher-risk and quietly skipped). One agent per slice — keep mv-only briefs and content-transform briefs in separate dispatches.
 <!-- Review: the Staff Engineer R3 — F0: steps 2+3 both operate on the pre-strip spec; step 3 sources rationale FROM DENYLIST sections, so stripping (step 4) must follow both; preconditions made explicit -->
@@ -377,7 +377,7 @@ After specs are moved and scaffolding is deleted, stale references exist across 
 
 ## tasks/ vs state/ — aggressive sweep boundary
 
-Spec backlink: `docs/plans/2026-06-08-tasks-state-folder-split.md` § C5.
+Spec backlink: `archive/specs/2026-06/2026-06-08-tasks-state-folder-split.md` § C5.
 
 **`state/`** — load-bearing session substrate (queues, trackers, ledgers, handoffs, review-trail, recheck markers, etc.). **Never swept by `/distill`.** Surgical edits only, each named per-surface (e.g. `coordinator:learn-lessons` writes `state/lessons.md`; no archival by this command). If a path begins with `state/`, it is out of scope — full stop.
 
@@ -459,7 +459,7 @@ Before declaring W4 production-ready, the rubric (steps 5a–5d + the negative A
 
 **Two meanings of "archive" — the load-bearing division.** "Archive" names two distinct lifecycles, and the two commands own one each:
 
-- **Knowledge-archival (`/distill` owns it).** Trim a *ripe, delivered* plan to its canonical skeleton and move it to `archive/specs/YYYY-MM/`, *after* extracting its knowledge into wiki/DR. This is extraction-coupled — re-homing constraints (§ 5a) MUST precede the move — so it cannot be hoisted out of `/distill` into a dumber janitor. The trimmed spec is itself a canonical shape (RAG-greppable structure), complementary to the wiki's narrative.
+- **Knowledge-archival (`/distill` owns the harvest; session-init sweep owns the move).** The session-init sweep performs the programmatic relocation — moving terminal plans (`status: implemented`/`superseded`/`abandoned`) from `docs/plans/` to `archive/specs/YYYY-MM/` as a cheap, unconditional mechanical step decoupled from any knowledge-extraction budget. `/distill` then drains harvest debt: for each RIPE plan in `archive/specs/` not yet in the distill-log, it trims the archived copy to its canonical skeleton and extracts knowledge into wiki/DR. Re-homing constraints (§ 5a) MUST precede trimming — this extraction-coupled discipline cannot be automated away. The trimmed spec is itself a canonical shape (RAG-greppable structure), complementary to the wiki's narrative.
 - **Age-archival (`/update-docs` Phase 8b owns it).** Time-thresholded janitorial pruning of aged, non-knowledge-bearing artifacts. No extraction, no trim — just bulk cleanup once material crosses an age line.
 
 The two are complementary, and the lineage is already partially documented: `/distill` extracts knowledge into wiki *before* the source material gets pruned (see § "For bulk pruning…" above), and `docs/wiki/cruft-sweep-cadence.md` frames "filesystem hygiene is a distinct lifecycle from knowledge extraction (`/distill`) and artifact pruning (`/update-docs` Phase 8b)." Run `/distill` when there's wiki-worthy knowledge in the artifacts about to age out; rely on `/update-docs` Phase 8b for routine bulk pruning.

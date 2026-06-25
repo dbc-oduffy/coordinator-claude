@@ -1,5 +1,5 @@
 {
-  "agent_install_contract_version": 2,
+  "agent_install_contract_version": 3,
   "repo_id": "coordinator-claude",
   "setup_skill": "/coordinator:setup",
   "standalone_setup_script": {
@@ -11,5 +11,198 @@
   "override_flags": {
     "skip_dep_check": "--skip-dep-check",
     "accept_hallucination_risk": "--accept-missing-deps-risk"
-  }
+  },
+  "provider_capabilities": {
+    "role": "upstream-provider",
+    "plugin_self_registration": true,
+    "refresh_primitive": "bin/refresh-plugin-live-install.sh",
+    "hoistable_at_step_zero": true
+  },
+  "system_prerequisites": [
+    {
+      "id": "git",
+      "tier": "hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v git",
+        "ref": "_co_probe_git"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install git: winget install Git.Git (Windows) / brew install git (macOS)"
+      },
+      "reference": "docs/install/AGENT.md"
+    },
+    {
+      "id": "claude_code",
+      "tier": "semi-hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v claude || test -x \"$HOME/.local/bin/claude\""
+      },
+      "install": {
+        "mode": "auto-with-confirmation",
+        "posix": "npm install -g @anthropic-ai/claude-code",
+        "windows": "npm install -g @anthropic-ai/claude-code",
+        "remediation": "install the Claude Code CLI — coordinator's canonical, preferred runtime (preferred over the desktop app): npm install -g @anthropic-ai/claude-code. To START a coordinator session: open a terminal, run `cd ~/.claude`, then run `claude` — that launches Claude Code with your coordinator root (~/.claude) as the working directory. Whenever an install step says \"restart your session from ~/.claude\", that is the action: a terminal, `cd ~/.claude`, `claude`."
+      },
+      "reference": "https://docs.claude.com/en/docs/claude-code"
+    },
+    {
+      "id": "python",
+      "tier": "hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v python3 || command -v python",
+        "ref": "_co_probe_python"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "Disable WindowsApps python/python3 App Execution aliases (Settings > Apps > App execution aliases) then install Python 3.11+ from https://www.python.org/downloads/"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "bash",
+      "tier": "hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "bash -c '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) ))'"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install bash >= 4.3 (macOS ships 3.2): brew install bash (macOS) — most Linux/WSL/Git-Bash is already 4.3+; ensure the modern bash precedes /bin/bash in PATH. coordinator-safe-commit uses local -n namerefs (bash 4.3+) and runs on every commit; scripts also use declare -A / mapfile."
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "gh",
+      "tier": "hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v gh",
+        "ref": "_co_probe_gh"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install GitHub CLI: winget install GitHub.cli (Windows) / brew install gh (macOS)"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "node",
+      "tier": "hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v node",
+        "ref": "_co_probe_node"
+      },
+      "install": {
+        "mode": "auto-with-confirmation",
+        "posix": "command -v brew >/dev/null 2>&1 && brew install node || { echo 'Homebrew not found — install Node.js LTS via your platform package manager (apt/dnf) or nvm: https://github.com/nvm-sh/nvm' >&2; exit 1; }",
+        "windows": "winget install -e --id OpenJS.NodeJS.LTS",
+        "remediation": "install Node.js LTS: brew install node (macOS) / apt|dnf install nodejs or nvm (Linux/WSL) / winget install -e --id OpenJS.NodeJS.LTS (Windows)"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "typescript",
+      "tier": "semi-hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v tsc"
+      },
+      "install": {
+        "mode": "auto-with-confirmation",
+        "posix": "npm install -g typescript",
+        "windows": "npm install -g typescript",
+        "remediation": "install TypeScript globally: npm install -g typescript (requires node — coordinator installs both)."
+      },
+      "reference": "coordinator/cockpit-contract/package.json"
+    },
+    {
+      "id": "clone_auth",
+      "tier": "semi-hard",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v gh || command -v glab",
+        "ref": "_co_probe_clone_auth"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "configure git-host auth — recommended: gh auth login (GitHub) or glab auth login (GitLab); or add an SSH key / Git Credential Manager for your host"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "uv",
+      "tier": "advisory",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v uv",
+        "ref": "_co_probe_uv"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install uv: py -m pip install uv (Windows) / brew install uv (macOS) / pipx install uv (pipx)"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "pwsh",
+      "tier": "advisory",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v pwsh",
+        "ref": "_co_probe_pwsh"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install PowerShell 7: winget install Microsoft.PowerShell (Windows) / brew install powershell (macOS)"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "longpaths",
+      "tier": "advisory",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "git config --global --get core.longpaths",
+        "ref": "_co_probe_longpaths"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "git config --global core.longpaths true"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "git_lfs",
+      "tier": "advisory",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "git lfs version",
+        "ref": "_co_probe_git_lfs"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "enable Git LFS so LFS-backed repos (e.g. project-rag-ue-addon) clone real objects: brew install git-lfs (macOS) / winget install GitHub.GitLFS (Windows), then git lfs install"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    },
+    {
+      "id": "ue",
+      "tier": "advisory",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v UnrealEditor",
+        "ref": "_co_probe_ue"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install Unreal Engine via Epic Games Launcher, or set HOLODECK_UE_ROOT to your UE install root"
+      },
+      "reference": "coordinator/scripts/lib/prereq_probe.sh"
+    }
+  ]
 }

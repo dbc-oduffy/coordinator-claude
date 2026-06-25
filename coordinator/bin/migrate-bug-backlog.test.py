@@ -1,5 +1,6 @@
 #!/bin/sh
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 migrate-bug-backlog.test.py — unit tests for migrate-bug-backlog.py
 

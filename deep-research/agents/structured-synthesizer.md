@@ -46,7 +46,7 @@ Follow this sequence exactly — the ordering is crash insurance.
 > Step 6 above already requires this; the auditor closes the loop independently.
 > No fidelity relay applies to Pipeline C (CONTESTED mandatory pre-synthesis pre-empts
 > post-hoc prose distortion; relay is out-of-scope per plan OD-1).
-> Spec backlink: `docs/plans/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
+> Spec backlink: `archive/specs/2026-05/2026-05-30-deep-research-synthesis-fidelity-coverage-audit.md`
 > § OD-1, § C6, § AC9.
 
 ## Merge Rules

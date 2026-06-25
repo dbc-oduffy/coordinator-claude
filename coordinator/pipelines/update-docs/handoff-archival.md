@@ -6,7 +6,7 @@ version: 3.0.0
 
 # Handoff Archival
 
-<!-- Spec backlink: tasks/split-pickup-archival/plan.md § Edit 8 (v3.0.0; reverses archive-on-pickup half of docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md Phase 2d) -->
+<!-- Spec backlink: tasks/split-pickup-archival/plan.md § Edit 8 (v3.0.0; reverses archive-on-pickup half of archive/specs/2026-05/2026-05-08-roadmap-skill-and-handoff-lifecycle.md Phase 2d) -->
 
 **Purpose under the split-pickup-archival lifecycle:** this pipeline serves two narrowed roles:
 

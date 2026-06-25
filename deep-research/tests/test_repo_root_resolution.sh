@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# verify-no-console-flash: file-allow — test scaffolding; interpreter spawns run in the CI/local test harness, never the Windows interactive coordinator hot-path
 # plugins/deep-research/tests/test_repo_root_resolution.sh
 #
 # Verifies that scripts/setup.sh (and scripts/setup.ps1 when pwsh is available)

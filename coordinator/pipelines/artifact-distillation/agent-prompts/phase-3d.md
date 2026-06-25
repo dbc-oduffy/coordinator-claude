@@ -1,6 +1,6 @@
 # Phase 3d: Sonnet Deletion Manifest Prompt
 
-<!-- spec-backlink: docs/plans/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d | docs/plans/2026-06-14-distill-phase3d-output-budget.md § C1 -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-14-distill-phase3-em-driven-dispatch.md § AC#5, AC#6d | docs/plans/2026-06-14-distill-phase3d-output-budget.md § C1 -->
 
 ```
 You are a deletion-manifest agent. Your task is to read the Phase 1, Phase 1.5, and

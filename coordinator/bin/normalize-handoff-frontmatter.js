@@ -41,7 +41,18 @@ const { execSync } = require('child_process');
  * reconstruct the file with byte-identical whitespace outside the changed fields.
  */
 function splitFrontmatter(content) {
-  if (!content.startsWith('---')) return null;
+  // Tolerate an optional leading preamble (blank lines + HTML comment blocks) before the
+  // opening `---`; installer-seeded batons carry a provenance comment. Captured in
+  // `preamble`, reassembled verbatim on write.
+  let preamble = '';
+  if (!content.startsWith('---')) {
+    const pre = /^(?:[ \t]*\r?\n|[ \t]*<!--[\s\S]*?-->[ \t]*\r?\n?)+/.exec(content);
+    if (!pre) return null;
+    const after = content.slice(pre[0].length);
+    if (!after.startsWith('---')) return null;
+    preamble = pre[0];
+    content = after;
+  }
   const afterFirst = content.slice(3);
   const firstNewline = afterFirst.indexOf('\n');
   if (firstNewline === -1) return null;
@@ -53,7 +64,7 @@ function splitFrontmatter(content) {
   const fmText = rest.slice(0, closeMatch.index);
   // Everything after `---` (including the newline that follows it).
   const bodyWithLeadingNewline = rest.slice(closeMatch.index + closeMatch[0].length);
-  return { fmText, bodyWithLeadingNewline };
+  return { preamble, fmText, bodyWithLeadingNewline };
 }
 
 /**
@@ -214,7 +225,7 @@ function normalizeOne(filePath) {
   if (changes.length === 0) return null;
 
   const fmTextNormalized = fmText.endsWith('\n') ? fmText : fmText + '\n';
-  const rebuilt = `---\n${fmTextNormalized}---${split.bodyWithLeadingNewline}`;
+  const rebuilt = `${split.preamble || ''}---\n${fmTextNormalized}---${split.bodyWithLeadingNewline}`;
   return { rebuilt, changes };
 }
 

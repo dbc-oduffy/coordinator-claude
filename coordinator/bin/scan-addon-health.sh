@@ -82,7 +82,7 @@ source "${_SCAN_SCRIPT_DIR}/../lib/resolve-python.sh" || {
   echo "[health] coordinator: resolve-python.sh failed (broken COORDINATOR_PYTHON pin?) — cannot select interpreter" >&2
   exit 1
 }
-PY="${PYTHON_BIN:-}"
+PY="${PYTHON_BIN:-}" # verify-no-console-flash: allow — variable alias assignment, not a spawn; sourced from resolve-python.sh
 if [[ -z "$PY" ]]; then
   # No interpreter — script can't parse sentinels at all. Emit a single
   # diagnostic in red-and-stale mode so the operator knows why health is

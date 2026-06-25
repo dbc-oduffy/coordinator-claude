@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/install/agent-install-manifest.schema.json",
   "title": "Agent Install Manifest",
-  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/agent-install-contract.md (canonical home: plugins/coordinator/docs/wiki/agent-install-contract.md in the working-repo layout).",
+  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/agent-install-contract.md (canonical home: plugins/coordinator-claude/coordinator/docs/wiki/agent-install-contract.md in the working-repo layout).",
   "type": "object",
   "required": [
     "agent_install_contract_version",
@@ -16,8 +16,8 @@
   "additionalProperties": false,
   "properties": {
     "agent_install_contract_version": {
-      "description": "Contract version — enables coordinated schema bumps across repos. Consumers must reject manifests with a version they do not recognise. Readers accept the range {1,2} (reader-widen-first sequencing) so a v1 and a v2 manifest can coexist during a coordinated bump; v2 adds the optional DirectDep.consumer_install_args field.",
-      "enum": [1, 2],
+      "description": "Contract version — enables coordinated schema bumps across repos. Consumers must reject manifests with a version they do not recognise. Readers accept the range {1,2,3} (reader-widen-first sequencing) so manifests at different versions can coexist during a coordinated bump; v2 adds the optional DirectDep.consumer_install_args field; v3 adds the optional system_prerequisites array.",
+      "enum": [1, 2, 3],
       "type": "integer"
     },
     "repo_id": {
@@ -86,9 +86,135 @@
           "pattern": "^--[a-z][a-z0-9-]*$"
         }
       }
+    },
+    "system_prerequisites": {
+      "description": "OPTIONAL. Machine-level system prerequisites probed at Step Zero before any install proceeds. `cmd` is the universal probe every consumer resolves; `ref` is a fast-path valid ONLY for verbatim-vendors of prereq_probe.sh and MUST NOT be relied on by non-vendors. `tier` is the ENV-PREREQ-PROBE taxonomy (hard|semi-hard|advisory mirrored from step-zero-emitter-contract.md § severity Enum); it is ORTHOGONAL to `direct_deps[].severity` (the manifest-dep taxonomy hard|soft|optional in agent-install-contract.md § Severity semantics). Distinct JSON paths; shared `hard`/`semi-hard` spellings are intentional alignment with the emitter, not aliasing. Canonical shape settled by DR-INSTALL-002 (central is the canonical-shape owner; DAG-root contract-minting authority).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/SystemPrereq"
+      }
+    },
+    "provider_capabilities": {
+      "description": "OPTIONAL. Declares the repo's role in the install DAG and its refresh/hoist capabilities. Only the DAG root (coordinator-claude) declares role 'upstream-provider'. Downstream consumers omit this field or declare role 'consumer'. Enables the chain-walker to early-hoist provider setup at Step Zero before processing consumer deps. Spec backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § Upstream-provider early-hoist.",
+      "type": "object",
+      "required": ["role", "plugin_self_registration", "refresh_primitive", "hoistable_at_step_zero"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "description": "DAG role of this repo in the install chain. 'upstream-provider' = DAG root that other repos depend on; 'consumer' = a repo that depends on an upstream provider.",
+          "type": "string",
+          "enum": ["upstream-provider", "consumer"]
+        },
+        "plugin_self_registration": {
+          "description": "When true, this repo registers its own plugin during install (self-contained plugin activation). The chain-walker can skip the registration step for dependencies that set this true.",
+          "type": "boolean"
+        },
+        "refresh_primitive": {
+          "description": "Relative path (from this repo root) to the script that refreshes the live-install copy of this plugin. Empty string when the repo relies on an upstream refresh primitive rather than owning one.",
+          "type": "string"
+        },
+        "hoistable_at_step_zero": {
+          "description": "When true, the chain-walker may hoist this provider's setup to Step Zero (before processing any consumer deps). Enables early-hoist for DAG roots whose setup is a prerequisite for all downstream install steps.",
+          "type": "boolean"
+        }
+      }
     }
   },
   "$defs": {
+    "SystemPrereq": {
+      "type": "object",
+      "description": "A single machine-level system prerequisite — a tool or capability that must exist on the machine before install can proceed.",
+      "required": ["id", "tier", "probe", "install", "reference"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Canonical probe identifier, e.g. 'git', 'python', 'gh'. Matches the probe function suffix in prereq_probe.sh where a ref function exists.",
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "description": "ENV-PREREQ-PROBE severity tier (DR-INSTALL-002 settled enum). hard = block install. semi-hard = warn loudly, offer remediation, continue only with confirmation (this is the 'soft-but-important / escapable-with-flag' case). advisory = warn, never block. The pre-DR `optional` value was retired — it carried no distinct semantic vs `advisory`.",
+          "type": "string",
+          "enum": ["hard", "semi-hard", "advisory"]
+        },
+        "probe": {
+          "description": "Probe definition. Reuses the FunctionalProbe `kind`+`cmd` shape (DR-INSTALL-002). `kind` is required (system-prereq probes are presence checks — `command_succeeds`); auth/liveness is verified by setup scripts + doctor probes, not collapsed into the manifest probe. `ref` is a fast-path to a _co_probe_<id> function in prereq_probe.sh and is valid ONLY for verbatim-vendors of that lib.",
+          "type": "object",
+          "required": ["kind", "cmd"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "description": "Probe kind, reusing the FunctionalProbe enum vocabulary (DR-INSTALL-002 §2c). System prerequisites are presence probes — `command_succeeds` in practice.",
+              "type": "string",
+              "enum": [
+                "sibling_dir_exists",
+                "file_exists",
+                "python_import",
+                "command_succeeds"
+              ]
+            },
+            "cmd": {
+              "description": "Universal shell command to check for the prerequisite. Must be portable (sh-compatible). E.g. 'command -v git'.",
+              "type": "string",
+              "minLength": 1
+            },
+            "shell": {
+              "description": "OPTIONAL (DR-INSTALL-002 §2c, ratified from ue-addon). When true, the probe `cmd` must run through a shell rather than as a bare exec.",
+              "type": "boolean"
+            },
+            "ref": {
+              "description": "OPTIONAL. Names a _co_probe_<id> function in the vendored prereq_probe.sh lib. A vendor-only fast-path — MUST NOT be relied on by non-vendors of prereq_probe.sh.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "install": {
+          "description": "Install instructions for a human or agent when the prerequisite is missing. Shape settled by DR-INSTALL-002 §2d: `mode` is required; `posix`/`windows` carry per-platform install command strings (load-bearing for `auto-with-confirmation`); `remediation` carries the one-line human instruction for `manual`. Both auto and manual entries validate under this additive shape.",
+          "type": "object",
+          "required": ["mode"],
+          "$comment": "DR-INSTALL-002 settled this shape as ADDITIVE — the cross-field dependency (auto-with-confirmation SHOULD carry posix/windows; manual SHOULD carry remediation) is a RUNTIME emitter responsibility, intentionally NOT schema-enforced via allOf. A mode-only entry validates clean. Do not add conditional enforcement without re-ratifying the DR — it would reject already-shipped consumer entries.",
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "description": "Install mode (DR-INSTALL-002). 'auto-with-confirmation' = first-class automated install with a printed confirmation + opt-out (encoded by the literal string); the per-platform `posix`/`windows` command strings supply what runs. 'manual' = the operator installs it themselves; `remediation` carries the instruction, no automated path is provided.",
+              "type": "string",
+              "enum": ["auto-with-confirmation", "manual"]
+            },
+            "posix": {
+              "description": "OPTIONAL. POSIX (sh/bash) install command string, run on confirmation under `mode: auto-with-confirmation`.",
+              "type": "string",
+              "minLength": 1
+            },
+            "windows": {
+              "description": "OPTIONAL. Windows (PowerShell) install command string, run on confirmation under `mode: auto-with-confirmation`.",
+              "type": "string",
+              "minLength": 1
+            },
+            "remediation": {
+              "description": "OPTIONAL (required in spirit for `mode: manual`). One-line human-readable install instruction. May reference per-OS package managers.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "applies_to": {
+          "description": "OPTIONAL (DR-INSTALL-002 §2e, ratified from ue-addon). Which install class(es) this prerequisite applies to. Defaults to [\"consumer\"] when omitted.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "$comment": "`default` is a metadata annotation per JSON Schema 2020-12 — a standard validator does NOT inject it into instance data. Runtime consumers MUST apply the [\"consumer\"] default themselves when the key is absent.",
+          "default": ["consumer"]
+        },
+        "reference": {
+          "description": "REQUIRED (DR-INSTALL-002 §3 required item keys). Doc pointer — path or URL to further documentation about this prerequisite.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "DirectDep": {
       "type": "object",
       "description": "A single direct upstream dependency declaration.",

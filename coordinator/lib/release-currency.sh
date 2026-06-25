@@ -77,6 +77,53 @@ fi
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# _rc_registry_live_path → prints live_path for coordinator-claude from machine-local
+# registry, or returns 0 with empty output when registry absent/unreadable.
+# Used by the contributor-clone guard in release_currency_probe (patrik F3).
+# Mirrors the technique in resolve-coordinator-clone.sh::_rcc_registry_live_path.
+_rc_registry_live_path() {
+    local _home="${CLAUDE_HOME:-${HOME:-${USERPROFILE:-}}}"
+    [[ -z "$_home" ]] && return 0
+    local _reg="${_home}/.claude/machine-local/registry.local.toml"
+    [[ -f "$_reg" ]] || return 0
+
+    local _py=""
+    for _cand in python3 python py; do
+        if command -v "$_cand" >/dev/null 2>&1; then _py="$_cand"; break; fi
+    done
+    [[ -z "$_py" ]] && return 0
+
+    "$_py" - "$_reg" <<'PYEOF' 2>/dev/null
+import sys
+from pathlib import Path
+reg_path = Path(sys.argv[1])
+if not reg_path.exists():
+    sys.exit(0)
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit(0)
+try:
+    data = tomllib.loads(reg_path.read_text(encoding="utf-8"))
+except Exception:
+    sys.exit(0)
+nested = data.get("plugin", {}).get("mirrors", {}).get("coordinator-claude", {})
+if isinstance(nested, dict):
+    live = nested.get("live_path", "")
+    if live:
+        print(live)
+        sys.exit(0)
+key = "plugin.mirrors.coordinator-claude.live_path"
+val = data.get(key, "")
+if val:
+    print(val)
+sys.exit(0)
+PYEOF
+}
+
 # _rc_resolve_version_txt <install-root> → prints 40-hex SHA or returns 1
 _rc_resolve_version_txt() {
     local install_root="${1:?install_root required}"
@@ -111,7 +158,7 @@ _rc_fetch_latest_release_tag() {
 
     local repo_url="https://github.com/${owner_repo}.git"
     local lsremote_out
-    lsremote_out="$(timeout 3 git ls-remote --tags "$repo_url" 'refs/tags/v*' 2>/dev/null)" || lsremote_out=""
+    lsremote_out="$(_rc_timeout_cmd 3 git ls-remote --tags "$repo_url" 'refs/tags/v*' 2>/dev/null)" || lsremote_out=""
     if [[ -z "$lsremote_out" ]]; then
         return 1
     fi
@@ -161,10 +208,10 @@ _rc_resolve_tag_sha() {
     local repo_url="https://github.com/${owner_repo}.git"
     local lsremote_out
     # Annotated tag: `^{}` dereferences to the underlying commit object.
-    lsremote_out="$(timeout 3 git ls-remote "$repo_url" "refs/tags/${tag}^{}" 2>/dev/null)" || lsremote_out=""
+    lsremote_out="$(_rc_timeout_cmd 3 git ls-remote "$repo_url" "refs/tags/${tag}^{}" 2>/dev/null)" || lsremote_out=""
     if [[ -z "$lsremote_out" ]]; then
         # Lightweight tag: no peel object — the bare ref already names the commit.
-        lsremote_out="$(timeout 3 git ls-remote "$repo_url" "refs/tags/${tag}" 2>/dev/null)" || lsremote_out=""
+        lsremote_out="$(_rc_timeout_cmd 3 git ls-remote "$repo_url" "refs/tags/${tag}" 2>/dev/null)" || lsremote_out=""
     fi
     sha="$(printf '%s' "$lsremote_out" | awk '{print $1}' | head -1 | tr -d '[:space:]')"
     if [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
@@ -172,6 +219,80 @@ _rc_resolve_tag_sha() {
         return 0
     fi
     return 1
+}
+
+# _rc_timeout_cmd <secs> <cmd...>
+# Portable timeout wrapper: uses the system `timeout` command when available (Linux / brew
+# coreutils); falls back to running the command without a timeout on stock macOS where
+# `timeout` is absent (GNU coreutils not installed). The caller's `|| return 1` / `||`
+# error-handling logic remains correct in both cases. Advisory-only callers (like the
+# behind-count probe) can tolerate a hung git in the rare case that the remote is
+# unreachable and does not reset the TCP connection — that situation will eventually
+# self-resolve once the OS TCP timeout fires (~75s); real network unreachability typically
+# causes git to fail fast with a connection error rather than hanging.
+#
+# Cross-platform: BSD-portable (DR-148). `timeout` is a GNU coreutils command absent on
+# stock macOS (/bin/bash 3.2, no brew coreutils). Brew installs it at /opt/homebrew/bin/
+# but we cannot assume brew is present. The fallback is safe for advisory-only callers.
+_rc_timeout_cmd() {
+    local _secs="$1"; shift
+    if command -v timeout &>/dev/null; then
+        timeout "$_secs" "$@"
+    else
+        "$@"
+    fi
+}
+
+# _rc_git_clone_behind_count <install-root> → prints "<n> <ref>" or returns 1
+# Called when the install-root has no version.txt but IS a git work-tree.
+# Fetches the tracked remote (quiet, up to 5s) then counts commits in HEAD..<upstream>.
+# Prefers the configured upstream (@{u}); falls back to origin/main when no upstream is set.
+# Returns 1 on any failure (git absent, no remote, fetch failure) — caller treats as offline.
+#
+# BOOT-CURRENCY-THROTTLE: callers must apply the same 3-day throttle / offline handling
+# as the version.txt path. A fetch failure (no network) MUST NOT write the 3-day sentinel.
+# The hook enforces this via the offline branch; this function signals failure by exiting 1.
+_rc_git_clone_behind_count() {
+    local install_root="${1:?install_root required}"
+
+    # Force-offline testing shim (shared with the version.txt path)
+    if [[ "${RELEASE_CURRENCY_FORCE_OFFLINE:-0}" == "1" ]]; then
+        return 1
+    fi
+
+    command -v git &>/dev/null || return 1
+
+    # Must be a git work-tree (not just a directory with a .git file — bare checkouts
+    # and submodules have .git files pointing elsewhere; accept both .git dir and file).
+    if ! _rc_timeout_cmd 2 git -C "$install_root" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Fetch the tracked remote (quiet; tolerate failure → offline)
+    _rc_timeout_cmd 5 git -C "$install_root" fetch -q 2>/dev/null || return 1
+
+    # Try the configured upstream first (@{u}), then fall back to origin/main.
+    local ref=""
+    local count=""
+    if count="$(_rc_timeout_cmd 2 git -C "$install_root" rev-list --count "HEAD..@{u}" 2>/dev/null)"; then
+        # Resolve the symbolic upstream ref name for the display label
+        ref="$(_rc_timeout_cmd 2 git -C "$install_root" rev-parse --abbrev-ref "@{u}" 2>/dev/null)" || ref="@{u}"
+    else
+        # No upstream configured — fall back to origin/main
+        if ! _rc_timeout_cmd 2 git -C "$install_root" rev-parse "origin/main" &>/dev/null 2>&1; then
+            return 1
+        fi
+        count="$(_rc_timeout_cmd 2 git -C "$install_root" rev-list --count "HEAD..origin/main" 2>/dev/null)" || return 1
+        ref="origin/main"
+    fi
+
+    # Validate count is a non-negative integer
+    if ! [[ "$count" =~ ^[0-9]+$ ]]; then
+        return 1
+    fi
+
+    printf '%s %s' "$count" "$ref"
+    return 0
 }
 
 # _rc_check_ancestry <install-root> <local-sha> <tag-sha> → exits 0 if local is ancestor
@@ -187,7 +308,8 @@ _rc_check_ancestry() {
     fi
 
     # git merge-base --is-ancestor <A> <B> exits 0 iff A is an ancestor of B
-    timeout 2 git -C "$install_root" merge-base --is-ancestor "$local_sha" "$tag_sha" 2>/dev/null
+    # Review: patrik F4 — use portable _rc_timeout_cmd wrapper (bare timeout absent on stock macOS)
+    _rc_timeout_cmd 2 git -C "$install_root" merge-base --is-ancestor "$local_sha" "$tag_sha" 2>/dev/null
 }
 
 # _rc_local_describe_tag <install-root> → prints human-readable tag ref or short SHA
@@ -197,13 +319,14 @@ _rc_local_describe_tag() {
 
     if [[ -d "${install_root}/.git" ]]; then
         local desc
-        desc="$(timeout 2 git -C "$install_root" describe --tags --exact-match "$local_sha" 2>/dev/null)" || desc=""
+        # Review: patrik F4 — use portable _rc_timeout_cmd wrapper (bare timeout absent on stock macOS)
+        desc="$(_rc_timeout_cmd 2 git -C "$install_root" describe --tags --exact-match "$local_sha" 2>/dev/null)" || desc=""
         if [[ -n "$desc" ]]; then
             printf '%s' "$desc"
             return 0
         fi
         # Fall back to `git describe --tags` (finds nearest ancestor tag)
-        desc="$(timeout 2 git -C "$install_root" describe --tags "$local_sha" 2>/dev/null)" || desc=""
+        desc="$(_rc_timeout_cmd 2 git -C "$install_root" describe --tags "$local_sha" 2>/dev/null)" || desc=""
         if [[ -n "$desc" ]]; then
             printf '%s' "$desc"
             return 0
@@ -257,7 +380,55 @@ release_currency_probe() {
     # ------------------------------------------------------------------
     local local_sha
     if ! local_sha="$(_rc_resolve_version_txt "$install_root")"; then
-        # No version.txt — not a managed OSS install; treat as source_is_live
+        # No version.txt — check whether the install-root is a git work-tree.
+        # A bare/junctioned git clone (e.g. the dogfood consumer box running a
+        # stale clone at fa494e0) has no version.txt but IS a git work-tree and
+        # MUST NOT be silently exempt — it may be many commits behind origin/main.
+        #
+        # negative-spec: returning source_is_live here was the pre-fix behaviour
+        # that caused the false "prereq_probe.sh not shipped" blocker (dogfood
+        # runner got no "you're behind" warning despite being N commits behind).
+        # Do NOT revert to unconditional source_is_live for the no-version.txt case.
+        #
+        # CONTRIBUTOR-CLONE GUARD (patrik F3): before counting behind-ness, check
+        # whether this clone is registered as propagation_mode=source_is_live in
+        # the machine-local registry. An authoring/contributor box has a git clone
+        # but no version.txt and IS source_is_live — its live_path is the very
+        # content root the resolver returns. On a contributor's feature/work branch
+        # a behind-count would produce a false "N commits behind origin/main" nag
+        # during normal development. source_is_live-registered clones are silent.
+        local _rcc_reg_live
+        _rcc_reg_live="$(_rc_registry_live_path 2>/dev/null)" || _rcc_reg_live=""
+        if [[ -n "$_rcc_reg_live" ]]; then
+            # Canonicalize by stripping trailing slash for comparison
+            local _rcc_norm_live="${_rcc_reg_live%/}"
+            local _rcc_norm_root="${install_root%/}"
+            if [[ "$_rcc_norm_live" == "$_rcc_norm_root" ]]; then
+                printf 'source_is_live'
+                return 0
+            fi
+        fi
+        if git -C "$install_root" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+            # Git work-tree without version.txt: do a git-state behind-count.
+            local _behind_result
+            if _behind_result="$(_rc_git_clone_behind_count "$install_root")"; then
+                local _clone_count _clone_ref
+                _clone_count="$(printf '%s' "$_behind_result" | awk '{print $1}')"
+                _clone_ref="$(printf '%s' "$_behind_result" | awk '{print $2}')"
+                if [[ "$_clone_count" -gt 0 ]]; then
+                    printf 'behind-clone %s %s' "$_clone_count" "$_clone_ref"
+                else
+                    # Clone is current with its remote — silent
+                    printf 'current'
+                fi
+            else
+                # Fetch failed → treat as offline (no 3-day sentinel; retry next boot)
+                printf 'offline'
+            fi
+            return 0
+        fi
+        # Not a git work-tree and no version.txt — genuinely no managed install;
+        # treat as source_is_live (e.g. a standalone deep-research with no install).
         printf 'source_is_live'
         return 0
     fi

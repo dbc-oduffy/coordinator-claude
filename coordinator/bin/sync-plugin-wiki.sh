@@ -30,7 +30,19 @@
 
 set -euo pipefail
 
-PLUGIN_ROOT="${HOME}/.claude/plugins/coordinator-claude/coordinator"
+# Resolve coordinator content root via the portable resolver (CLAUDE_PLUGIN_ROOT →
+# COORDINATOR_ROOT → registry clone → versioned cache → flat layout).
+_rcc_resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/resolve-coordinator-clone.sh"
+if [[ -f "$_rcc_resolver" ]]; then
+    # shellcheck source=../lib/resolve-coordinator-clone.sh
+    source "$_rcc_resolver"
+fi
+# Defensive fallback: if resolver absent or COORDINATOR_CONTENT_ROOT still empty, use flat layout.
+if [[ -z "${COORDINATOR_CONTENT_ROOT:-}" ]]; then
+    COORDINATOR_CONTENT_ROOT="${HOME}/.claude/plugins/coordinator-claude/coordinator"
+fi
+
+PLUGIN_ROOT="$COORDINATOR_CONTENT_ROOT"
 DEV_WIKI="${HOME}/.claude/docs/wiki"
 BUNDLED_WIKI="${PLUGIN_ROOT}/docs/wiki"
 

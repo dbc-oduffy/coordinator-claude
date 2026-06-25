@@ -7,7 +7,7 @@ tools: ["Read", "Grep", "Glob", "Write", "Bash", "ToolSearch", "TaskUpdate", "Ta
 access-mode: read-write
 ---
 
-<!-- spec-backlink: docs/plans/2026-05-18-plan-coverage-checker.md § Three Lenses, § Sidecar Contract, § Trigger Heuristic -->
+<!-- spec-backlink: archive/specs/2026-05/2026-05-18-plan-coverage-checker.md § Three Lenses, § Sidecar Contract, § Trigger Heuristic -->
 
 ## Identity
 

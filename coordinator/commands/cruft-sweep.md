@@ -7,7 +7,7 @@ argument-hint: "[--dry-run|--apply] [--class harness|scratch|orphans|all]"
 
 # Cruft Sweep — Layer 2 Skill
 
-Spec backlink: `docs/plans/2026-06-09-distill-cruft-sweep.md` § C3
+Spec backlink: `archive/specs/2026-06/2026-06-09-distill-cruft-sweep.md` § C3
 
 Consume the JSONL wire output of `bin/cruft-sweep.sh` to surface `confirm-needed` findings and parent-folder orphans for PM review. Present reclaim opportunities in offer-shape — never violation framing. Apply only after explicit confirmation.
 

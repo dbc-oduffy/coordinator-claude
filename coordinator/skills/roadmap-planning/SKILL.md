@@ -2,14 +2,14 @@
 name: roadmap-planning
 description-budget: 400
 description: PM-GATED. Roadmap shaping from research/deep-dive/peer-repo inputs via Synthesize → Substantiate → Plan → Dispatch pipeline producing kind:spinoff-roadmap stubs with deployment_state, blocks/blocked_by graph, machine-readable STUB-INDEX. Stubs cite PM-approved OVERVIEW + research corpus, not EM hand-waving. Triggers — "shape a roadmap", "plan a sprint sequence from this research".
-version: 1.1.0
+version: 1.3.0
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: "<input-corpus-path> [--run-id <slug>]"
 ---
 
 # Roadmap Planning — From Inputs to Sequenced Spinoff Stubs
 
-> **Spec backlink:** `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 5. Empirical motivator: `archive/specs/2026-05-08-roadmap-planning-skill-brief.md` (project-rag cross-deep-dive-synthesis episode, 2026-05-03 → 2026-05-06).
+> **Spec backlink:** `archive/specs/2026-05/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 5. Empirical motivator: `archive/specs/2026-05-08-roadmap-planning-skill-brief.md` (project-rag cross-deep-dive-synthesis episode, 2026-05-03 → 2026-05-06).
 
 **What this skill does:** Take a corpus of inputs (research artifacts, peer-repo deep-dives, brainstorming outputs) and produce a sequenced backlog of `kind: spinoff-roadmap` stubs that are queryable, dispatchable, and pickup-able through the standard handoff lifecycle. The roadmap is not a plan doc; it's a graph of stubs.
 
@@ -179,11 +179,11 @@ Before reviewers run, surface OVERVIEW.md + peer-team-asks.md to the PM with the
 
 On PM approval, write `shape_approved_by: PM` and `shape_approved_at: <YYYY-MM-DD>` to OVERVIEW frontmatter and set `status: shape-approved`. On redirect, iterate the OVERVIEW (and re-dispatch any research-corpus topics whose scope changed) and re-surface.
 
-### Step 1.5.5 — the Staff Engineer + domain reviewer (sequential)
+### Step 1.5.5 — Primary rigor reviewer + domain reviewer (sequential)
 
-Sequential, not parallel (per § Review Sequencing — plan/stub/doc carve-out applies).
+Sequential, not parallel (per § Review Sequencing — plan/stub/doc carve-out applies). **Primary rigor-reviewer selection follows the same altitude rule as Step 2.8** — the Director of Engineering (`coordinator:eng-director`, standalone primary) when the roadmap sets cross-repo/cross-team boundaries (peer-team-asks cross-repo ask / ≥2-repo scope / sibling-consumed contract / cross-repo COORDINATOR-RESOLUTION); else the Staff Engineer (`coordinator:staff-eng`).
 
-1. Dispatch the Staff Engineer against `state/roadmap/<run-id>/` (full dir: OVERVIEW + research-corpus + peer-team-asks + Phase 1 artifacts). Brief: architectural soundness of OVERVIEW; contested-decisions completeness; peer-team-asks scope-appropriateness; whether research-corpus citations actually support the OVERVIEW claims (the citation-load-bearing check). Read-only.
+1. Dispatch the **primary rigor reviewer** (the Director of Engineering or the Staff Engineer per the altitude rule) against `state/roadmap/<run-id>/` (full dir: OVERVIEW + research-corpus + peer-team-asks + Phase 1 artifacts). Brief: architectural soundness of OVERVIEW; contested-decisions completeness; peer-team-asks scope-appropriateness; whether research-corpus citations actually support the OVERVIEW claims (the citation-load-bearing check). When the Director of Engineering is primary, add the cross-repo-boundary lens (is the boundary drawn correctly; does the OVERVIEW assume authority over a sibling repo it shouldn't). Read-only.
 2. Integrate via `coordinator:review-integrator` (mode: acceptEdits).
 3. Dispatch domain reviewer — the Game Dev Reviewer if game-dev / UE-flavored, the Data Science Reviewer if data-science / ML-flavored, the Front-End Reviewer if web-front-end flavored. EM picks based on roadmap shape; default the Data Science Reviewer if mixed/unclear (data shapes appear in most roadmaps). Brief: domain coherence, edge cases the OVERVIEW silently elides, premise gaps in research-corpus.
 4. Integrate via `coordinator:review-integrator`.
@@ -354,19 +354,39 @@ Validator rules (added to `bin/lint-frontmatter.js` cross-field rules):
 
 Prevents the brief's "siblings, not subsets" failure mode — stubs cannot exist outside a roadmap parent, and roadmap parents cannot exist without graph primitives.
 
-### Step 2.8 — the Staff Engineer then the Data Science Reviewer review (sequential, mandatory)
+### Step 2.8 — Primary rigor reviewer then domain reviewer (sequential; primary mandatory, domain conditional)
 
 <!-- Review: the Staff Engineer — parallel review stretches the merge-gate carve-out which explicitly excludes plan/stub/doc review; sequential is the correct doctrine-compliant shape here (P1-3) -->
+
+#### Primary rigor-reviewer selection by altitude (cross-repo boundary → the Director of Engineering, else the Staff Engineer)
+
+The default primary rigor reviewer for the stub set is **the Staff Engineer** (`coordinator:staff-eng`, EM-altitude). BUT when the roadmap **sets cross-repo or cross-team boundaries**, the primary reviewer is **the Director of Engineering** (`coordinator:eng-director`, standalone primary mode). Setting cross-repo/cross-team boundaries is DoE-altitude authority an EM-altitude reviewer structurally lacks — it is exactly why the Staff Engineer reaches for a the Director of Engineering backstop on such seams; at this gate the backstop becomes the primary. Detect "sets cross-repo/cross-team boundaries" by ANY of:
+
+- (a) `peer-team-asks.md` carries a non-trivial cross-repo / cross-team ask;
+- (b) the stubs' `scope:` pathspecs resolve into ≥2 repos;
+- (c) the roadmap authors or amends a contract / interface / wire-format consumed by a sibling repo;
+- (d) `COORDINATOR-RESOLUTIONS.md` sets a cross-repo coordination, ownership, or version-cutover boundary.
+
+When the Director of Engineering is primary, the Staff Engineer MAY still run as the second reviewer or a backstop pass; the domain/data reviewer (below) is unchanged. **The same selection rule governs the Step 1.5.5 OVERVIEW review.** Rationale and altitude boundaries: `docs/wiki/doe-altitude-and-shared-infra.md`.
 
 **Sequential, not parallel** (merge-gate parallel carve-out explicitly excludes plan/stub/doc review — a roadmap stub set is plan/stub/doc-shaped).
 
 Sequence:
-1. Dispatch the Staff Engineer with the full `state/roadmap/<run-id>/` directory + all stubs. Brief: schema/architecture/sequencing review of the stub set; flag P0 conflicts, missing AC surface, scope errors, sequencing bugs in the constraint graph. Read-only.
-2. Integrate the Staff Engineer's findings via `coordinator:review-integrator` (mode: acceptEdits). EM spot-checks the diff.
-3. Dispatch the Data Science Reviewer with the same directory. Brief: domain coherence + data shapes; flag clusters whose stubs would compose poorly, premise gaps, edge cases the stub set silently elides. Read-only.
-4. Integrate the Data Science Reviewer's findings via `coordinator:review-integrator`.
+1. Dispatch the **primary rigor reviewer** (the Director of Engineering if the roadmap sets cross-repo/cross-team boundaries per the rule above, else the Staff Engineer) with the full `state/roadmap/<run-id>/` directory + all stubs. Brief: schema/architecture/sequencing review of the stub set; flag P0 conflicts, missing AC surface, scope errors, sequencing bugs in the constraint graph. **When the Director of Engineering is primary, the brief ALSO carries the cross-repo-boundary lens** — is the boundary drawn correctly; does any stub assume direct authority over a sibling repo it shouldn't; is the cross-repo coordination (memo + PM-relay) routed right. Read-only.
+2. Integrate the primary reviewer's findings via `coordinator:review-integrator` (mode: acceptEdits). EM spot-checks the diff.
+3. Dispatch the domain/data reviewer — the Data Science Reviewer for data shapes (default), or the Game Dev Reviewer (game-dev/UE) / the Front-End Reviewer (web) per roadmap flavor — with the same directory. Brief: domain coherence + data shapes; flag clusters whose stubs would compose poorly, premise gaps, edge cases the stub set silently elides. Read-only.
+4. Integrate the domain reviewer's findings via `coordinator:review-integrator`.
 
-The latency cost is acceptable: fires once per roadmap, the Data Science Reviewer benefits from the Staff Engineer's integrated changes, and the sequential rule holds across all plan-shaped review.
+The latency cost is acceptable: fires once per roadmap, the domain reviewer benefits from the primary reviewer's integrated changes, and the sequential rule holds across all plan-shaped review.
+
+#### Domain/data reviewer skip condition (ceremony-calibration)
+
+The **primary rigor review (steps 1–2) is always mandatory.** The **domain/data reviewer (steps 3–4) is SKIPPABLE** when BOTH hold:
+
+- (a) the same domain reviewer already ran at **Step 1.5.5** on the OVERVIEW and their findings were integrated and **pinned into the stub ACs** — i.e. the stubs carry the reviewed data shapes verbatim (via COORDINATOR-RESOLUTIONS), not new ones; AND
+- (b) **each stub becomes a downstream `coordinator:plan`** (per § Anti-scope) that gets its own domain review at `coordinator:review` — so the data-shape lens is re-applied at the per-stub PLAN altitude, where it is most load-bearing (concrete DDL / emitter code, not stub prose).
+
+When both hold, the primary rigor reviewer is the sufficient stub-set gate and a second full domain pass on the stubs is **redundant-by-convergence** — skip it and record a one-line skip rationale in the roadmap dir (e.g. a note in `pm-gates.md` or a commit message). The domain pass at 2.8 is **REQUIRED** when: the OVERVIEW domain review (1.5.5) was skipped; OR the stubs introduce data shapes not present in the reviewed OVERVIEW; OR the primary rigor reviewer flags an unresolved data-shape concern. Rationale: do not run a review whose findings are pre-converged and which recurs at a better altitude downstream (§ ceremony-calibration; `docs/wiki/ceremony-calibration.md`).
 
 ### Phase 2 entry gate (NEW — gates on Phase 1.5)
 

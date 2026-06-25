@@ -30,7 +30,7 @@ The agent that did your install is well-placed to write this up — it has the e
 2. **Fork the repo** and create a feature branch
 3. **Make your changes** — follow existing conventions (frontmatter format, file naming, directory structure)
 4. **Run validation** locally: `python .github/scripts/run-all-checks.py`
-   - To check specifically that plugin names in docs stay in sync with `setup/install.sh::PLUGIN_REGISTRY`: `python .github/scripts/check-plugin-doc-drift.py`
+   - To check specifically that plugin names in docs stay in sync with the marketplace registry (`.claude-plugin/marketplace.json`): `python .github/scripts/check-plugin-doc-drift.py`
 5. **Submit a PR** with a clear description of what and why
 
 ## Pull Request Policy
@@ -46,17 +46,17 @@ Maintainer self-merges (admin override on the maintainer's own PRs) are allowed 
 ## Conventions
 
 ### Skills
-- One directory per skill under `plugins/coordinator/skills/`
+- One directory per skill under `coordinator/skills/`
 - Must have a `SKILL.md` with YAML frontmatter (`name`, `description`)
-- Follow the existing skill structure — see `plugins/coordinator/skills/writing-skills/SKILL.md` for the meta-skill that guides skill authoring
+- Follow the existing skill structure — see `coordinator/skills/validate/SKILL.md` for a minimal, well-formed example to model yours on
 
 ### Agents
-- One `.md` file per agent under `plugins/{plugin}/agents/`
+- One `.md` file per agent under `{plugin}/agents/`
 - Must have YAML frontmatter with `name`, `description`, `model` (opus/sonnet/haiku)
 - Agent descriptions should define behavioral characteristics, not just capabilities
 
 ### Commands
-- One `.md` file per command under `plugins/coordinator/commands/`
+- One `.md` file per command under `coordinator/commands/`
 - Must be registered in the coordinator README skill count
 
 ### Validation
@@ -72,7 +72,7 @@ Be kind, be constructive, be specific. We're all here to make human-AI collabora
 
 ### How to Add a Command
 
-Commands live at `plugins/coordinator/commands/<name>.md`. Each file needs YAML frontmatter:
+Commands live at `coordinator/commands/<name>.md`. Each file needs YAML frontmatter:
 
 ```yaml
 ---
@@ -81,11 +81,11 @@ description: One-line summary shown in the skill inventory
 ---
 ```
 
-Body: write the command as a numbered checklist the EM follows. Cross-reference skills it calls. After adding, bump the command count in `plugins/coordinator/README.md` (search for "commands" in the inventory table).
+Body: write the command as a numbered checklist the EM follows. Cross-reference skills it calls. After adding, bump the command count in `coordinator/README.md` (search for "commands" in the inventory table).
 
 ### How to Add a Skill
 
-Skills live at `plugins/coordinator/skills/<name>/SKILL.md`. The directory name is the skill's identifier.
+Skills live at `coordinator/skills/<name>/SKILL.md`. The directory name is the skill's identifier.
 
 Frontmatter shape:
 
@@ -96,13 +96,13 @@ description: What the skill does (one sentence)
 ---
 ```
 
-See `plugins/coordinator/skills/validate/SKILL.md` for a minimal working example. The meta-skill that guides skill authoring is `plugins/coordinator/skills/validate/SKILL.md` — read it before writing your first skill.
+See `coordinator/skills/validate/SKILL.md` for a minimal working example — read a couple of existing `SKILL.md` files before writing your first skill.
 
-After adding, update the skill inventory in `plugins/coordinator/README.md`.
+After adding, update the skill inventory in `coordinator/README.md`.
 
 ### How to Add a Reviewer
 
-Reviewer agents live at `plugins/coordinator/agents/<name>.md`. Required frontmatter:
+Reviewer agents live at `coordinator/agents/<name>.md`. Required frontmatter:
 
 ```yaml
 ---
@@ -115,22 +115,33 @@ model: opus  # reviewers use opus; workers use sonnet
 After writing the agent file:
 
 1. Sync the `reviewer-calibration` snippet into your new file:
-   `bash plugins/coordinator/bin/verify-calibration-sync.sh --fix`
-2. If your reviewer fires hooks or references other agents, add a tripwire comment block in `plugins/coordinator/CLAUDE.md` (search "Tripwires" for the pattern).
-3. Register the reviewer in `plugins/coordinator/README.md` under the agents inventory.
+   `bash coordinator/bin/verify-calibration-sync.sh --fix`
+2. If your reviewer fires hooks or references other agents, add a tripwire comment block in `coordinator/CLAUDE.md` (search "Tripwires" for the pattern).
+3. Register the reviewer in `coordinator/README.md` under the agents inventory.
 
-### How to Test Installer Changes
+### How to Test Install Changes
 
-Use a scratch directory so you don't corrupt your live install:
+Install the plugins from your working clone with the native CLI, then run the post-restart wiring.
+Here — unlike the user-facing install — you **do** register the clone directory, because as a
+contributor you want the installed runtime to reflect your uncommitted local edits:
 
 ```bash
-mkdir /tmp/test-install && cd /tmp/test-install
-bash /path/to/coordinator-claude/setup/install.sh --non-interactive
+claude plugin marketplace add /path/to/coordinator-claude   # clone-bound on purpose (dev loop)
+claude plugin install coordinator@coordinator-claude
+# then, in a fresh Claude Code session:
+#   /coordinator:install --check-only      # report what would change, no mutation
 ```
 
-Verify that `~/.claude/plugins/coordinator-claude/` was created with the expected structure and that `~/.claude/settings.json` contains the expected hook entries.
+> A clone-bound (directory-source) marketplace resolves from this path on every load and is **not**
+> copied into `~/.claude` — exactly what you want while iterating, but it means moving or deleting
+> the clone orphans the plugins. That is why the user-facing playbook
+> ([`docs/agent-install.md`](docs/agent-install.md)) registers the public GitHub repo instead. When
+> you are done developing, re-add from GitHub (`claude plugin marketplace add dbc-oduffy/coordinator-claude`)
+> to return to a self-contained install.
 
-On Windows: run the same command in Git Bash. See `setup/install.sh` for the platform detection logic.
+Verify that the plugins resolve under `~/.claude/plugins/cache/coordinator-claude/` and that `/coordinator:install` reports a clean status table (env var, machine-local, hooks). `/coordinator:install --check-only` is the read-only way to inspect the result without mutating state.
+
+On Windows: run the CLI in Git Bash; the platform-specific wiring (path translation, the `python3` App-Execution-Alias shim) lives in `lib/install-substrate.sh`, exercised by `/coordinator:install` Phase 3.
 
 ### Prompt Style Rules
 
@@ -141,7 +152,7 @@ All agent and skill prompts follow the conventions in `docs/wiki/rag-bait-conven
 - Spec backlinks to the plan that introduced the component
 - Vocabulary from `CONTEXT.md` (if present) — no synonyms
 
-The coordinator CLAUDE.md (`plugins/coordinator/CLAUDE.md`) is the authority on behavioral rules; agent prompts reference it by inclusion, not by reinventing it.
+The coordinator CLAUDE.md (`coordinator/CLAUDE.md`) is the authority on behavioral rules; agent prompts reference it by inclusion, not by reinventing it.
 
 ### Compatibility Rules
 
@@ -160,12 +171,12 @@ The current version compatibility row lives in `README.md` (search "tested with 
 
 Before submitting a PR that adds or modifies an agent, skill, or command:
 
-- [ ] Frontmatter is complete and valid (`bash plugins/coordinator/bin/lint-frontmatter.sh`)
+- [ ] Frontmatter is complete and valid (`bash coordinator/bin/lint-frontmatter.sh`)
 - [ ] Reviewer agents: `verify-calibration-sync.sh --fix` run and diff is clean
 - [ ] New component is registered in the README inventory count
 - [ ] Cross-references (file paths, skill names, command names) resolve — `python .github/scripts/run-all-checks.py` passes
 - [ ] No hardcoded local paths; build-for-someone-else's-machine rule followed
-- [ ] If the component fires hooks: tripwire added to `plugins/coordinator/CLAUDE.md`
+- [ ] If the component fires hooks: tripwire added to `coordinator/CLAUDE.md`
 - [ ] If the component is a reviewer: upstream pre-flight wired into the producer skill
 
 ## Questions?

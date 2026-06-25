@@ -4,11 +4,11 @@ Detail companion to `commands/workday-start.md`. Step numbers refer to that comm
 
 ## Step 0 — Branch Setup (full procedure)
 
-Spec backlink: `docs/plans/2026-05-07-daily-branch-doctrine-rethink.md` Phase 3.
+Spec backlink: `archive/specs/2026-05/2026-05-07-daily-branch-doctrine-rethink.md` Phase 3.
 
 The goal is to ensure the active workstream branch reconciles with `origin/main` daily — not to create a new branch every day. The active workstream may be either:
 
-- **Canonical** — `work/{machine}/{date-or-span}` (e.g. `work/striker/2026-05-06to07`). Span form is the normal shape when work runs across midnight.
+- **Canonical** — `work/{machine}/{date-or-span}` (e.g. `work/machine-a/2026-05-06to07`). Span form is the normal shape when work runs across midnight.
 - **Named long-lived workstream** — `migration/...`, `release/...`, `feature/...`, etc., authorized at create-time via the inline `COORDINATOR_OVERRIDE_BRANCH=1`. Once it exists with commits ahead of main, workday-start treats it as a legitimate workstream bus.
 
 The hook polices branch *shape* at create-time, not branch *date* at workday-start. Daily ritual is **reconcile with origin/main**, applicable to both branch types. One active workstream branch per machine, kept current with main, until it's ready to merge.
@@ -75,7 +75,7 @@ If `$CURRENT` is non-main, `cs_parse_branch_span "$CURRENT"` returns non-zero (n
 Condition: `cs_should_prompt_rename "$CURRENT" "$TODAY" "$LAST_EPOCH"` returns 0. This means the current branch is a valid `work/{machine}/...` branch with recent commits that does not yet cover today.
 
 **Rename target depends on `COMMITS_AHEAD` (origin/main..HEAD):**
-- **`COMMITS_AHEAD > 0`** — genuine unmerged work crossing the day boundary → span suffix `work/{machine}/{start}to{today-DD}` (e.g. `work/striker/2026-06-01to02`). The span is honest: it advertises real multi-day WIP.
+- **`COMMITS_AHEAD > 0`** — genuine unmerged work crossing the day boundary → span suffix `work/{machine}/{start}to{today-DD}` (e.g. `work/machine-a/2026-06-01to02`). The span is honest: it advertises real multi-day WIP.
 - **`COMMITS_AHEAD == 0`** — the branch's historical work has all merged to origin/main (or main has moved ahead and we are strictly behind). A span name here would be **misleading**: it claims multi-day WIP that no longer exists. Rename to **today-only** `work/{machine}/{today}` instead; the reconcile leg (Step 0.4.5) then fast-forwards onto origin/main. Doctrine 2026-06-02 — this is *reconciliation with an honest name*, not rotation: 0-ahead means there is no ongoing work to abandon, so "reconcile not rotate" is satisfied, not violated.
 
 Run the rename procedure below silently (no prompt — engineering housekeeping, not a product call). Emit a one-line notice in the Morning Briefing:
@@ -211,7 +211,7 @@ Report:
 
 ## Step 1 — Handoff reconciliation (rationale + procedure)
 
-**Why filter to `ready_to_fire` for the primary actionable list, with `awaiting_gate` always surfaced as its own subsection (doctrine reversal 2026-05-08, revised 2026-05-15):** the prior "surface everything" policy presumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Sub-second queryability for the actionable list requires a clear filter. The original 2026-05-08 revision hid `awaiting_gate` behind a 14-day staleness gate; empirical use (2026-05-15) showed this buried gated work the PM needed for cross-workstream planning — clear-gate, retarget, or pick-up-early decisions never reached the briefing. Revised behavior: `awaiting_gate` items always surface as a "Gated handoffs" subsection (count + list when present), with a >6-day flag for items where the gate may be stuck. Six days ≈ one working week — long enough to filter normal in-flight gates, short enough to catch ossification. **Archive policy unchanged:** handoffs are archived only via `/pickup` (the atomic archival event), supersession (chain-aware pass), or PM direction — never automatically based on age. Spec backlink: `docs/plans/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 3b.
+**Why filter to `ready_to_fire` for the primary actionable list, with `awaiting_gate` always surfaced as its own subsection (doctrine reversal 2026-05-08, revised 2026-05-15):** the prior "surface everything" policy presumed the EM grep-walks every handoff to assess readiness — exactly the agentic-grep `deployment_state` is designed to obviate. Sub-second queryability for the actionable list requires a clear filter. The original 2026-05-08 revision hid `awaiting_gate` behind a 14-day staleness gate; empirical use (2026-05-15) showed this buried gated work the PM needed for cross-workstream planning — clear-gate, retarget, or pick-up-early decisions never reached the briefing. Revised behavior: `awaiting_gate` items always surface as a "Gated handoffs" subsection (count + list when present), with a >6-day flag for items where the gate may be stuck. Six days ≈ one working week — long enough to filter normal in-flight gates, short enough to catch ossification. **Archive policy unchanged:** handoffs are archived only via `/pickup` (the atomic archival event), supersession (chain-aware pass), or PM direction — never automatically based on age. Spec backlink: `archive/specs/2026-05/2026-05-08-roadmap-skill-and-handoff-lifecycle.md` § Phase 3b.
 
 **Why cross-reference completed archive:** handoffs describe *intended* next steps. The completed archive records *outcomes*. A handoff can remain active even after the work it describes has shipped — especially when a different session completed the work without consuming the handoff. The cross-reference catches this, but the PM confirms before archival.
 
@@ -316,7 +316,7 @@ Helper: `bin/workday-start-cross-repo-memo-surface.sh`.
 
 **Exit semantics:** exit 0 always (empty output on zero qualifying memos; silent skip in workday-start command body).
 
-**Spec backlink:** `docs/plans/2026-05-21-cross-repo-memo-discoverability.md § Chunk 3`. Doctrine: `docs/wiki/cross-repo-communication.md § Lifecycle and dirty-file backstop`.
+**Spec backlink:** `archive/specs/2026-05/2026-05-21-cross-repo-memo-discoverability.md § Chunk 3`. Doctrine: `docs/wiki/cross-repo-communication.md § Lifecycle and dirty-file backstop`.
 
 ---
 
@@ -336,4 +336,4 @@ Outbox draft <topic> staged <N>h ago → <to>  :: <title>
 
 **Exit semantics:** exit 0 always (silent on missing `state/memo-outbox/`, empty directory, or all drafts fresh; nudge lines on stale).
 
-**Spec backlink:** `docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C4`. Doctrine: `docs/wiki/cross-repo-communication.md` (updated by C5 to name the draft-lifecycle workflow as the canonical multi-line path).
+**Spec backlink:** `archive/specs/2026-06/2026-06-15-cross-repo-memo-draft-lifecycle.md § C4`. Doctrine: `docs/wiki/cross-repo-communication.md` (updated by C5 to name the draft-lifecycle workflow as the canonical multi-line path).

@@ -68,6 +68,10 @@ export type BacklogType = z.infer<typeof BacklogType>;
 export const BugSeverity = z.enum(["P0", "P1", "P2", "P3"]);
 export type BugSeverity = z.infer<typeof BugSeverity>;
 
+/** Backlog queue scope — discriminates the central universal queue from per-project backlogs (C-F4). */
+export const BacklogQueueScope = z.enum(["central", "project"]);
+export type BacklogQueueScope = z.infer<typeof BacklogQueueScope>;
+
 export const BacklogItemSummary = z.object({
   /** debt | bug | improvement — the type tag discriminating which queue this came from. */
   type: BacklogType,
@@ -75,9 +79,21 @@ export const BacklogItemSummary = z.object({
   created: IsoDate,
   status: z.string(),
   title: z.string(),
-  /** Source repo (YAML `from_repo`). */
+  /**
+   * Connector-injected registry shortname of the repo this item was read from (D4).
+   * Census keying dimension — matches `repo` on HandoffSummary and other summary entities.
+   * DISTINCT from `from_repo`: `repo` = which repo the YAML file lives in (connector-injected);
+   * `from_repo` = YAML-authored authoring-EM identity (the `from_repo:` field in the YAML itself).
+   */
+  repo: z.string(),
+  /** Source repo (YAML `from_repo` authoring-EM identity — NOT the same as `repo`). */
   from_repo: z.string(),
   coordinator_root_path: z.string(),
+  /**
+   * Whether this item came from the central universal queue (`coordinator-improvement-queue.md`)
+   * or a per-project backlog (`state/{debt,bug,improvement}-backlog/`). Non-nullable (C-F4).
+   */
+  queue_scope: BacklogQueueScope,
   /** Present only for bug items; null otherwise. */
   severity: BugSeverity.nullable(),
   /**

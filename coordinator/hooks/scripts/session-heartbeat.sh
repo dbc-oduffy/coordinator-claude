@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
-# PreToolUse hook: Write a last_activity heartbeat to the current session's
-# meta.json so the orphan sweep in session-init.sh can distinguish a live
-# long-running session (e.g. a multi-minute Bash extraction) from a truly
-# dead session that was never cleaned up.
+# Pre+PostToolUse:Bash hook: Write a last_activity heartbeat to the current
+# session's meta.json so the orphan sweep in session-init.sh and the claim layer
+# (_cs_is_session_live) can distinguish a live long-running session (e.g. a
+# multi-minute Bash extraction) from a truly dead session that was never cleaned
+# up.
+#
+# Registered on BOTH PreToolUse:Bash and PostToolUse:Bash (hooks.json). The
+# PreToolUse leg stamps recency at the START of a Bash call; the PostToolUse leg
+# stamps it again at COMPLETION. This closes the F0 staleness hole (the Staff Engineer,
+# 2026-06-23): a single Bash command longer than the 30-min liveness window (a UE
+# build, a large extraction) would otherwise freeze last_activity at its start
+# time and cross the liveness threshold mid-command, making a genuinely-live
+# session's claim wrongly takeable/reapable. With both legs, recency is stamped at
+# both ends of every command, so only a session idle >30 min BETWEEN commands ages
+# out. The two legs are idempotent — same throttle bucket, same write — so the
+# PostToolUse leg is a no-op when the PreToolUse leg already wrote within 60s.
+# Spec: state/handoffs/2026-06-23_233740_claim-liveness-hardening-r2.md (F0 option 1).
 #
 # Problem context (spec backlink: docs/plans/2026-05-17-ws2-channel-a-narrow-activation.md § Chunk 7):
 #   session-init.sh's orphan sweep gates archival on kill -0 <pid> where pid
@@ -21,11 +34,14 @@
 #   heartbeat window (two writes colliding in the same 60s bucket) only extends
 #   staleness by one bucket — well within the 10-minute sweep threshold.
 #
-# Input schema (PreToolUse):
+# Input schema (Pre+PostToolUse both carry session_id; PostToolUse adds
+#   tool_response, which this hook ignores — it only reads session_id):
 #   { "session_id": "<id>", "tool_name": "<name>", ... }
 #
-# Matchers: Bash (in hooks.json — long-running commands are the primary risk
-#   surface; Write/Edit already update last_activity via cs_touch_file).
+# Matchers: Bash on both PreToolUse and PostToolUse (in hooks.json — long-running
+#   commands are the primary risk surface; Write/Edit already update last_activity
+#   via cs_touch_file). The producer is direction-agnostic: it stamps last_activity
+#   from session_id regardless of which leg fired.
 #
 # Always exits 0 — advisory hook, never blocks tool calls.
 

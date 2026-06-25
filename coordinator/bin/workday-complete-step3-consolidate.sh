@@ -139,7 +139,7 @@ fi
 # Two-pass filter: (1) grep for work/$MACHINE/ prefix, (2) cs_parse_branch_span
 # checks that TODAY falls within [start_date, end_date].
 # Review: code-reviewer (F1) — previous grep anchored on TODAY's literal date,
-# breaking span-form branches like work/striker/2026-05-06to07 whose date
+# breaking span-form branches like work/machine-a/2026-05-06to07 whose date
 # component is the start date, not today. Also F15: comment updated to match.
 # ---------------------------------------------------------------------------
 # Helper: returns 0 if TODAY falls within the span of the given branch name

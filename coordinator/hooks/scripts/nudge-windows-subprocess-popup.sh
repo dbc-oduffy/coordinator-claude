@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# verify-no-console-flash: file-allow — this IS the C2 authoring-deny hook; interpreter
+# tokens in REASON/detection strings below are advisory text and patterns, not spawns.
 # PreToolUse(Write|Edit|MultiEdit) hook: denies authoring of bare console-subprocess
 # calls in .sh/.py/.ps1/.psm1 files and offers the popup-safe alternative.
 #
@@ -23,8 +25,13 @@
 # Does NOT Windows-gate: a script authored on macOS runs on Windows. Authoring-time risk
 # is unconditional — the code goes to disk regardless of current platform.
 #
-# Allowlist escape: file content contains `# popup-intentional-last-resort` → allow.
-# This is the canonical cross-layer suppression marker; no other form is accepted.
+# Allowlist escape: TWO canonical, env-agnostic suppression markers are honored identically:
+#   `# popup-intentional-last-resort`  — the console popup occurs and is accepted (pythonw
+#                                         fallback / genuine console need).
+#   `# popup-safe-env-suppressed`      — the popup is suppressed at this site by env-var
+#                                         means (safe; env isolation guarantees no popup).
+# The retired `# noqa: bare-subprocess-windows` form stays retired.
+# Matches project-rag's enforced C5 tripwire vocabulary.
 #
 # Spec backlink: docs/plans/2026-06-19-windows-console-popup-coordinator-doctrine.md § C2
 # Tripwire entry: docs/wiki/coordinator-tripwires.md § NUDGE-WINDOWS-SUBPROCESS-POPUP
@@ -164,9 +171,9 @@ esac
 
 [[ -z "$CONTENT" ]] && exit 0
 
-# --- Allowlist escape (canonical cross-layer marker) ---
+# --- Allowlist escape (canonical cross-layer markers) ---
 case "$CONTENT" in
-  *'# popup-intentional-last-resort'*) exit 0 ;;
+  *'# popup-intentional-last-resort'*|*'# popup-safe-env-suppressed'*) exit 0 ;;
 esac
 
 # --- Detection: file-type-specific patterns ---
@@ -200,7 +207,13 @@ case "$FILE_PATH" in
     if [[ "$SHOULD_DENY" -eq 0 ]]; then
       if printf '%s' "$CONTENT" | grep -qE '(^|[[:space:];&|`])(python3?(\.exe)?[[:space:]]+(-c|-m)|powershell\.exe)'; then
         # Allow if suppression marker or safe variant is already present.
-        if ! printf '%s' "$CONTENT" | grep -qE 'creationflags=|CREATE_NO_WINDOW|no_console_creationflags\(\)|python-quiet\.sh|pythonw'; then
+        # Python suppressors: creationflags / CREATE_NO_WINDOW / wrapper / pythonw.
+        # PowerShell suppressor: `-WindowStyle Hidden` — the canonical fix this
+        # hook's own offer text recommends, already honored by the *.ps1 branch
+        # below and by bin/verify-no-console-flash.sh (its Test 5). Omitting it
+        # here denied legitimately-suppressed powershell.exe calls authored in
+        # .sh files (e.g. install-substrate.sh Windows PATH integration).
+        if ! printf '%s' "$CONTENT" | grep -qiE 'creationflags=|CREATE_NO_WINDOW|no_console_creationflags\(\)|python-quiet\.sh|pythonw|-WindowStyle[[:space:]]+Hidden'; then
           SHOULD_DENY=1
         fi
       fi
@@ -278,9 +291,12 @@ subprocess.CREATE_NO_WINDOW form is NOT safe: it raises ValueError off-Windows.)
 portable form is the zero-dependency safe alternative that justifies authoring-time denial.
 
 Spec backlink: docs/plans/2026-06-19-windows-console-popup-coordinator-doctrine.md § C2
+             ; docs/plans/2026-06-22-popup-suppression-marker-two-vocabulary-reconcile.md § The decision this plan implements
 
-ALLOWLIST ESCAPE: If spawning a console window is genuinely required, add the canonical
-suppression marker on the relevant line:
-  subprocess.run(["powershell.exe", ...])  # popup-intentional-last-resort'
+ALLOWLIST ESCAPE: Add one of the two canonical suppression markers on the relevant line:
+  subprocess.run(["powershell.exe", ...])  # popup-intentional-last-resort
+    Use this when the popup occurs and is genuinely accepted (pythonw fallback, console need).
+  subprocess.run(["powershell.exe", ...])  # popup-safe-env-suppressed
+    Use this when the popup is suppressed at this site by env-var means (safe).'
 
 deny "$REASON"

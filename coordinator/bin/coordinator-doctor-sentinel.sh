@@ -115,7 +115,7 @@ source "${_SCRIPT_DIR}/../lib/resolve-python.sh" || {
   echo "[coordinator-doctor] ERROR: failed to source resolve-python.sh" >&2
   exit 2
 }
-PY="$PYTHON_BIN"
+PY="$PYTHON_BIN" # verify-no-console-flash: allow — variable alias assignment, not a spawn; actual invocations use resolve-python.sh PYTHON_ARGS idiom
 if [[ -z "$PY" ]]; then
   # Without python we cannot run the selector or emit JSON safely.
   echo "[coordinator-doctor] ERROR: no Python interpreter found — cannot run selector or probes" >&2
@@ -467,6 +467,73 @@ if is_active "P-13"; then
     esac
   fi
   # If probe script is missing: silently skip (pre-ship install; not an error).
+fi
+
+# --- P-15: system-prerequisite gate (SSOT: scripts/lib/prereq_probe.sh) --------------
+# spec-backlink: docs/plans/2026-06-23-clone-auth-semi-hard-step-zero.md § C4
+# Reuses _co_prereq_probe_all (the install Step Zero SSOT) — no duplicated probe logic.
+# Only hard-severity failures (git, python, gh, node) drive RED; advisory-tier absences
+# (uv, pwsh, ue, longpaths, git_lfs) are silently skipped (GREEN) per doctor-probe-design.md
+# § "AMBER on Optional Absence Is Bad Form".
+# Sourcing discipline: COORDINATOR_PREREQ_PROBE_LIB_DIR is set explicitly so the lib-dir
+# resolution inside prereq_probe.sh does not depend on BASH_SOURCE (which is unreliable
+# under `bash -c` dispatch). The sentinel's own _SCRIPT_DIR is always resolved above.
+if is_active "P-15"; then
+  # Honor COORDINATOR_PREREQ_PROBE_LIB_DIR as an override (used by tests to inject
+  # a fake prereq_probe.sh without touching the real SSOT lib).
+  if [[ -n "${COORDINATOR_PREREQ_PROBE_LIB_DIR:-}" ]]; then
+    _p15_lib_dir="$COORDINATOR_PREREQ_PROBE_LIB_DIR"
+  else
+    _p15_lib_dir="${_SCRIPT_DIR}/../scripts/lib"
+  fi
+  if [[ -f "$_p15_lib_dir/prereq_probe.sh" ]]; then
+    # Source the SSOT prereq lib. Export COORDINATOR_PREREQ_PROBE_LIB_DIR so its
+    # internal sibling-sources (manifest_reader.sh, step_zero_emit.sh) resolve correctly.
+    # Review: code-reviewer — F5-A: combined split export+assignment into single line
+    #   to ensure the exported value is the resolved absolute path, not the original.
+    export COORDINATOR_PREREQ_PROBE_LIB_DIR="$(cd "$_p15_lib_dir" && pwd)"
+    # shellcheck source=../scripts/lib/prereq_probe.sh
+    if source "$_p15_lib_dir/prereq_probe.sh" 2>/dev/null; then
+      # Capture all 10 NDJSON rows from the aggregator.
+      _p15_ndjson="$(_co_prereq_probe_all 2>/dev/null || true)"
+      if [[ -z "$_p15_ndjson" ]]; then
+        note_red "P-15" "prereq_probe_all emitted no output — check scripts/lib/prereq_probe.sh"
+      else
+        # Parse: only hard-severity rows with status=fail drive RED.
+        # Advisory-tier (warn/inconclusive on advisory/semi-hard) → skip silently.
+        _p15_hard_fails=""
+        while IFS= read -r _p15_row; do
+          [[ -z "$_p15_row" ]] && continue
+          # Extract name, status, severity using portable sed (no grep -P).
+          _p15_name="$(printf '%s' "$_p15_row"   | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' 2>/dev/null || true)"
+          _p15_status="$(printf '%s' "$_p15_row" | sed 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' 2>/dev/null || true)"
+          _p15_sev="$(printf '%s' "$_p15_row"    | sed 's/.*"severity"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' 2>/dev/null || true)"
+          # Review: code-reviewer — F4-A: guard against unextractable/corrupt rows;
+          #   skip rather than mis-counting an empty name/status/severity.
+          [[ -z "$_p15_name" || -z "$_p15_status" || -z "$_p15_sev" ]] && continue
+          # Only hard-severity fail rows count as RED.
+          if [[ "$_p15_status" == "fail" && "$_p15_sev" == "hard" ]]; then
+            if [[ -z "$_p15_hard_fails" ]]; then
+              _p15_hard_fails="$_p15_name"
+            else
+              _p15_hard_fails="$_p15_hard_fails, $_p15_name"
+            fi
+          fi
+          # semi-hard + warn (clone_auth with no-auth) → GREEN at doctor level.
+          # advisory warn (uv, pwsh, ue, longpaths, git_lfs) → GREEN at doctor level.
+          # inconclusive → GREEN at doctor level (cannot determine, do not block).
+        done <<< "$_p15_ndjson"
+        if [[ -n "$_p15_hard_fails" ]]; then
+          note_red "P-15" "hard system-prerequisite(s) absent: $_p15_hard_fails — install via coordinator:install or see remediation"
+        fi
+        # Advisory-only result or all pass → no note; probe contributes GREEN.
+      fi
+    else
+      # prereq_probe.sh failed to source — inconclusive; treat as amber (not red).
+      note_amber "P-15" "could not source prereq_probe.sh from $_p15_lib_dir — inconclusive; re-run /coordinator:install"
+    fi
+  fi
+  # If prereq_probe.sh is absent (pre-ship install), silently skip.
 fi
 
 # --- P-14: bare-name resolution of ~/.claude/bin resolvers (macOS regression net) ---

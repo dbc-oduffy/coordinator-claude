@@ -79,9 +79,9 @@ within a committed version — but cross-version `$ref` reuse is not offered.
 
 ## D11 — `declared_by_machine` is a free string, not a machine enum (deliberate)
 
-The stub illustrated `declared_by_machine` as `"betta-air" | "striker"`. It is
+The stub illustrated `declared_by_machine` as `"machine-c" | "machine-a"`. It is
 implemented as `z.string()` ON PURPOSE: the machine-slug set is NOT stable — on
-2026-06-22 the Mac's daily-branch slug drifted `betta-air` → `macbookair` mid-stream
+2026-06-22 the Mac's daily-branch slug drifted `machine-c` → `machine-b` mid-stream
 (`cs_compute_machine` output changed). An enum would reject the new slug and require
 a contract bump for every machine rename. A free string is the correct shape for an
 unstable, low-cardinality identifier; tc-5 stores it as TEXT.

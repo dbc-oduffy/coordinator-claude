@@ -49,7 +49,7 @@ function applyWrite(filePath) {
 const FIXTURE_ISO_DATE = `---
 title: Headless-extractor phase-3 fan-out
 created: 2026-05-28T11:16:48Z
-branch: work/striker/2026-05-26to28
+branch: work/machine-a/2026-05-26to28
 status: active
 pickup_ready: true
 deployment_state: ready_to_fire
@@ -63,7 +63,7 @@ Body text here.
 const FIXTURE_QUOTED_PICKUP_TRUE = `---
 title: Portability-guard system
 created: 2026-05-20
-branch: work/striker/2026-05-20
+branch: work/machine-a/2026-05-20
 status: active
 pickup_ready: "true"
 deployment_state: awaiting_gate
@@ -78,7 +78,7 @@ Body.
 const FIXTURE_QUOTED_PICKUP_FALSE = `---
 title: Portability-guard system
 created: 2026-05-20
-branch: work/striker/2026-05-20
+branch: work/machine-a/2026-05-20
 status: active
 pickup_ready: "false"
 deployment_state: awaiting_gate
@@ -92,7 +92,7 @@ Body.
 const FIXTURE_MISSING_CATEGORY_SUMMARY = `---
 title: My plain handoff
 created: 2026-05-29
-branch: work/striker/2026-05-29
+branch: work/machine-a/2026-05-29
 status: active
 deployment_state: ready_to_fire
 ---
@@ -106,7 +106,7 @@ Body content.
 const FIXTURE_CLEAN = `---
 title: Already normalised handoff
 created: 2026-05-29
-branch: work/striker/2026-05-29
+branch: work/machine-a/2026-05-29
 status: active
 pickup_ready: true
 deployment_state: ready_to_fire
@@ -123,7 +123,7 @@ Body.
 const FIXTURE_BOTH_DRIFTS = `---
 title: Dual-drift handoff
 created: 2026-05-28T20:22:28Z
-branch: work/striker/2026-05-26to28
+branch: work/machine-a/2026-05-26to28
 status: active
 pickup_ready: "true"
 deployment_state: ready_to_fire

@@ -20,7 +20,26 @@ set -euo pipefail
 
 _check_only="${1:-}"
 _reg="$(claude-home machine-local)/registry.local.toml"
-_coordinator_live="$(claude-home plugins)/coordinator-claude/coordinator"
+
+# CHICKEN-AND-EGG: resolution must not DEPEND on the live_path we are about to write.
+# --for-content MAY read it (via the registry tier), but on first install the registry
+# is absent so resolution falls through to cache/flat; when the registry entry already
+# exists it returns the same content root we would write — correct either way.
+# We avoid SOURCED mode only because it pollutes caller scope with
+# COORDINATOR_CLONE/COORDINATOR_CONTENT_ROOT under set -euo pipefail.
+# Use the --for-content CLI form instead (subprocess, clean env).
+# Review: patrik F6 — prior comment incorrectly claimed the CLI avoids the registry
+# tier; the real invariant is that the registry entry we write does not affect the
+# result (absent → falls through; present → same value → idempotent).
+_rcc_resolver="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/lib/resolve-coordinator-clone.sh"
+_coordinator_live=""
+if [[ -f "$_rcc_resolver" ]]; then
+    _coordinator_live="$("$_rcc_resolver" --for-content 2>/dev/null || true)"
+fi
+# Defensive fallback: if resolver not found or returned empty, fall back to flat layout.
+if [[ -z "$_coordinator_live" ]]; then
+    _coordinator_live="$(claude-home plugins)/coordinator-claude/coordinator"
+fi
 
 # Resolve a Python interpreter. This runs during /coordinator:install Phase 3,
 # before the Python resolver is on PATH, so check the three names directly —

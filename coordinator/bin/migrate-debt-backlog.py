@@ -6,6 +6,7 @@
 #   python  migrate-debt-backlog.py ... # explicit interpreter
 #   bash    migrate-debt-backlog.py ... # re-execs under python
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 migrate-debt-backlog.py — one-shot migration of state/debt-backlog.md table rows
 and bullet-list entries into per-entry YAML files via coordinator-queue-append.

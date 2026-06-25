@@ -3,7 +3,7 @@ name: new-project
 description: "Create + scaffold + onboard a greenfield repo from any cwd in one command. Creates the dir, git-inits, scaffolds a vendored stack template, delegates coordinator onboarding to repo-setup, optional remote. Sibling of repo-setup (create-new vs onboard-existing)."
 description-budget: 220
 version: 1.0.0
-spec_backlink: docs/plans/2026-06-22-new-project-bootstrap-skill.md
+spec_backlink: archive/specs/2026-06/2026-06-22-new-project-bootstrap-skill.md
 ---
 
 # coordinator:new-project

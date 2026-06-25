@@ -24,11 +24,21 @@
     "title": {
       "type": "string"
     },
+    "repo": {
+      "type": "string"
+    },
     "from_repo": {
       "type": "string"
     },
     "coordinator_root_path": {
       "type": "string"
+    },
+    "queue_scope": {
+      "type": "string",
+      "enum": [
+        "central",
+        "project"
+      ]
     },
     "severity": {
       "anyOf": [
@@ -121,8 +131,10 @@
     "created",
     "status",
     "title",
+    "repo",
     "from_repo",
     "coordinator_root_path",
+    "queue_scope",
     "severity",
     "risk",
     "provenance"

@@ -293,7 +293,7 @@ if [[ -z "$PYTHON_BIN" ]]; then
       PYTHON_BIN="python"
     fi
     if [[ -n "$PYTHON_BIN" ]]; then
-      _resolved="$(_resolve_python_absolutize "$PYTHON_BIN" || true)"
+      _resolved="$(_resolve_python_absolutize "$PYTHON_BIN" || true)" # verify-no-console-flash: allow — string literal, not an interpreter spawn; $PYTHON_BIN is an arg to a shell function
       [[ -n "$_resolved" ]] && PYTHON_BIN="$_resolved"
       unset _resolved
     fi
@@ -313,7 +313,7 @@ fi  # end: no-pin fallback block
 # would prepend C:\Windows\System32, which is already present and adds no
 # value. Review: code-reviewer — guard lacks rationale comment; added.
 if [[ -n "$PYTHON_BIN" && "$PYTHON_BIN" != "py" && "$PYTHON_BIN" != "pyw" ]]; then
-  _resolve_python_prepend_path "$PYTHON_BIN"
+  _resolve_python_prepend_path "$PYTHON_BIN" # verify-no-console-flash: allow — string literal, not an interpreter spawn; $PYTHON_BIN is an arg to a shell function
 fi
 # PYTHON_ARGS is intentionally NOT exported — callers must source this lib to
 # get both variables. Using exported PYTHON_BIN alone (without PYTHON_ARGS) is

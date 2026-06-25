@@ -5,8 +5,9 @@
  * Spec backlink: archive/specs/2026-05-01-portable-ideas-from-obsidian-research.md §W1
  *
  * Exports:
- *   loadSchemas(schemasDir)        → { [name]: schema, _byGlob: [{glob, schemaName}] }
- *   matchSchemaForPath(repoRel, schemas) → {schemaName, schema} | null
+ *   loadSchemas(schemasDir)        → { [name]: schema, _byGlob: [{glob, schemaName}], _byKind: {kindValue: schemaName} }
+ *   matchSchema(repoRel, frontmatter, schemas) → {schemaName, schema} | null  (kind-first, glob-fallback)
+ *   matchSchemaForPath(repoRel, schemas) → {schemaName, schema} | null  (delegates to matchSchema with null frontmatter)
  *   parseFrontmatter(content)      → {frontmatter, body}  (body starts after closing ---; leading comment excluded)
  *   validateFrontmatter(fm, schema) → {ok, errors}
  *   validateLessonsFile(content, lessonSchema) → {ok, errors}
@@ -189,8 +190,19 @@ function stripInlineComment(text) {
       inSingle = !inSingle;
     }
     else if (c === '#' && !inSingle && !inDouble) {
+      // A `#` is a YAML comment opener only when preceded by whitespace AND either
+      // at end-of-string or followed by a space character. This preserves `#N` tokens
+      // (issue numbers, hashtags) while still stripping genuine trailing comments of
+      // the form `value  # comment text`.
+      //
+      // Camelia C-F6 / Patrik F5: before this fix, `title: Borrow #4 widgets` was
+      // truncated to `"Borrow"` because the space before `#` fired the old rule.
+      // Fix: also require the character after `#` to be a space (or end of string).
       if (i === 0 || /\s/.test(text[i - 1])) {
-        return text.slice(0, i).trimEnd();
+        // Review: F2 — accept tab as well as space after '#'; text[i+1] === ' ' missed '\t'.
+        if (i + 1 >= text.length || /\s/.test(text[i + 1])) {
+          return text.slice(0, i).trimEnd();
+        }
       }
     }
   }
@@ -285,10 +297,13 @@ function matchGlob(pattern, filePath) {
 
 /**
  * Load all *.yaml schema files from schemasDir.
- * Returns { [schemaName]: parsedSchema, _byGlob: [{glob, schemaName}] }
+ * Returns { [schemaName]: parsedSchema, _byGlob: [{glob, schemaName}], _byKind: {kindValue: schemaName} }
+ *
+ * Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 1
+ * Negative-spec: throws on duplicate kind ownership — detect-then-fail-loud, not detect-then-silently-pick.
  */
 function loadSchemas(schemasDir) {
-  const schemas = { _byGlob: [] };
+  const schemas = { _byGlob: [], _byKind: {} };
   const files = fs.readdirSync(schemasDir).filter(f => f.endsWith('.yaml'));
   for (const file of files) {
     const raw = fs.readFileSync(path.join(schemasDir, file), 'utf8');
@@ -298,16 +313,68 @@ function loadSchemas(schemasDir) {
     if (parsed.applies_to) {
       schemas._byGlob.push({ glob: parsed.applies_to, schemaName: name });
     }
+    // Build _byKind index from kinds: (array) or kind: (string) field.
+    // Fail loud on duplicate kind ownership — a copy-paste duplicate would otherwise
+    // be a silent first-win, mis-routing a whole artifact family.
+    const kindValues = [];
+    if (Array.isArray(parsed.kinds)) {
+      for (const v of parsed.kinds) {
+        // Review: code-reviewer (S1-F11) — String(v) would coerce null/number/bool silently;
+        // filter to non-empty strings only and warn on skipped elements.
+        if (typeof v === 'string' && v.length > 0) {
+          kindValues.push(v);
+        } else {
+          process.stderr.write(`schema "${name}": skipping non-string kinds element: ${JSON.stringify(v)}\n`);
+        }
+      }
+    } else if (typeof parsed.kind === 'string') {
+      kindValues.push(parsed.kind);
+    }
+    // Review: code-reviewer (S1-F2) — within-schema duplicate kind check.
+    // A schema that lists the same kind twice in its own kinds: array is a copy-paste error.
+    if (new Set(kindValues).size !== kindValues.length) {
+      throw new Error(`schema "${name}" declares a duplicate kind in its own kinds: list`);
+    }
+    // Review: code-reviewer (S1-F9) — warn when a schema declares kinds/kind but no applies_to.
+    // It will be kind-validated but invisible to query-records enumeration.
+    if (kindValues.length > 0 && !parsed.applies_to) {
+      process.stderr.write(`schema "${name}": declares kinds/kind but has no applies_to — will be kind-validated but not enumerated by query-records\n`);
+    }
+    for (const kindValue of kindValues) {
+      if (schemas._byKind[kindValue] !== undefined && schemas._byKind[kindValue] !== name) {
+        throw new Error(
+          `duplicate kind "${kindValue}" declared by both ${schemas._byKind[kindValue]} and ${name}`
+        );
+      }
+      schemas._byKind[kindValue] = name;
+    }
   }
   return schemas;
 }
 
 /**
- * Find the schema that matches repoRelPath.
- * repoRelPath should use forward slashes (e.g. "state/handoffs/foo.md").
+ * Resolve schema for a file using kind-first, glob-fallback strategy.
+ *
+ * Resolution order:
+ *   (a) If frontmatter is non-null and frontmatter.kind maps to a schema via _byKind → return it.
+ *   (b) Otherwise fall back to the existing glob logic (_byGlob first-match).
+ *
+ * A file is matched if EITHER its kind maps to a schema OR a glob matches its path.
  * Returns {schemaName, schema} or null.
+ *
+ * Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § Decision 1
  */
-function matchSchemaForPath(repoRelPath, schemas) {
+function matchSchema(repoRelPath, frontmatter, schemas) {
+  // (a) Kind-first: if frontmatter carries a kind: field and _byKind has it, return immediately.
+  // null kind: is not a valid discriminator — falls through to glob-fallback.
+  if (frontmatter !== null && frontmatter !== undefined && frontmatter.kind !== undefined && frontmatter.kind !== null) {
+    const kindValue = String(frontmatter.kind);
+    const schemaName = schemas._byKind[kindValue];
+    if (schemaName !== undefined) {
+      return { schemaName, schema: schemas[schemaName] };
+    }
+  }
+  // (b) Glob-fallback: existing matchSchemaForPath logic.
   const normalised = repoRelPath.replace(/\\/g, '/');
   for (const { glob, schemaName } of schemas._byGlob) {
     if (matchGlob(glob, normalised)) {
@@ -315,6 +382,17 @@ function matchSchemaForPath(repoRelPath, schemas) {
     }
   }
   return null;
+}
+
+/**
+ * Find the schema that matches repoRelPath (path-only, no frontmatter).
+ * repoRelPath should use forward slashes (e.g. "state/handoffs/foo.md").
+ * Returns {schemaName, schema} or null.
+ *
+ * Delegates to matchSchema with null frontmatter — all existing callers continue to work.
+ */
+function matchSchemaForPath(repoRelPath, schemas) {
+  return matchSchema(repoRelPath, null, schemas);
 }
 
 /**
@@ -763,6 +841,50 @@ const CROSS_FIELD_RULES = {
         return null;
       },
     },
+    // status: actioned with decision accepted|partial requires a well-formed realized_by.
+    // The realization-layer claim-of-record (2026-06-23 holodeck B3 incident): the 2026-06-21
+    // claim-lock predecessor stamped picked_up_by only on in_progress, so once a memo went
+    // actioned the claim was released and the archived memo recorded WHO handled it / WHERE the
+    // work landed nowhere — letting a second session realize the same accepted memo concurrently.
+    // realized_by makes the archived memo a claim-of-record. Both 'accepted' and 'partial' realize
+    // work and are gated; decline/consult/fyi realize nothing and are exempt. The value SHAPE is
+    // validated (not merely non-empty) so a typo'd pointer fails loud rather than reading as
+    // authoritative — detect-then-fail-loud per CLAUDE.md Implementation Standards: 'inline'
+    // sentinel, a path (contains '/'), or a hex SHA (7-40 chars). picked_up_by is preserved on the
+    // terminal flip (skills/pickup M3/M4) but deliberately NOT mandated here — a same-session direct
+    // accept that legitimately never claimed must still validate; the picked_up_by mandate stays on
+    // in_progress only. Grandfathered memos (created < 2026-05-22) short-circuit via the __skip__ rule.
+    // Spec backlink: docs/plans/2026-06-23-memo-pickup-realization-claim-visibility.md § C1
+    {
+      check: (fm) => {
+        if (fm.status !== 'actioned') return null;
+        if (fm.decision !== 'accepted' && fm.decision !== 'partial') return null;
+        const v = fm.realized_by == null ? '' : String(fm.realized_by).trim();
+        if (v === '') {
+          return {
+            field: 'realized_by',
+            error: `required when status=actioned and decision=${fm.decision}`,
+            hint: `Set realized_by to where the work landed: a plan path (docs/plans/*.md or tasks/<feature>/todo.md), a commit SHA, or the sentinel "inline". An accepted/partial memo realizes work and must carry a claim-of-record so a peer session does not re-realize it.`
+          };
+        }
+        // Review: code-reviewer (F1) — accept uppercase hex + SHA-256 64-char object names;
+        // regex widened from /^[0-9a-f]{7,40}$/ to /^[0-9a-fA-F]{7,64}$/ (7–64 hex chars).
+        // The '/' check for path shape is kept deliberately permissive — see inline comment below.
+        // The '/' check catches the common path case; a slash-containing prose value is a
+        // pathological input not worth over-fitting against given the field is advisory
+        // (realized_by is attribution for grep/re-pickup, not a machine-dereferenced pointer;
+        // requiring a '.' segment would false-reject extensionless paths like tasks/foo/bar).
+        const wellFormed = v === 'inline' || v.includes('/') || /^[0-9a-fA-F]{7,64}$/.test(v);
+        if (!wellFormed) {
+          return {
+            field: 'realized_by',
+            error: `malformed realized_by "${v}" when status=actioned and decision=${fm.decision}`,
+            hint: `realized_by must be one of: the sentinel "inline", a path containing "/" (e.g. docs/plans/2026-06-23-foo.md, tasks/<feature>/todo.md), or a hex commit SHA (7–64 hex chars). A bare word reads as authoritative but points nowhere.`
+          };
+        }
+        return null;
+      },
+    },
     // status: action_taken requires action_taken_at AND decision.
     {
       check: (fm) => {
@@ -1054,6 +1176,7 @@ function validateLessonsFile(content, lessonSchema) {
 
 module.exports = {
   loadSchemas,
+  matchSchema,
   matchSchemaForPath,
   parseFrontmatter,
   validateFrontmatter,

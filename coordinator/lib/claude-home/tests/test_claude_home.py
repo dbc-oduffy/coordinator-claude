@@ -38,6 +38,7 @@ import _claude_home  # noqa: E402
 from _claude_home import (  # noqa: E402
     claude_config_path,
     claude_home_dir,
+    coordinator_root,
     home_dir,
     machine_local_dir,
     plugins_dir,
@@ -151,6 +152,78 @@ class TestHomeResolution(unittest.TestCase):
             Path, "home", classmethod(lambda cls: fake)
         ):
             self.assertEqual(home_dir(), fake)
+
+
+# ---------------------------------------------------------------------------
+# coordinator_root
+# ---------------------------------------------------------------------------
+
+
+class TestCoordinatorRoot(unittest.TestCase):
+    """Coverage for coordinator_root() — Python-accessible tiers only.
+
+    The full precedence chain (registry live_path, versioned cache glob) lives in
+    resolve-coordinator-clone.sh; this class covers the Python-addressable subset.
+
+    Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md § C2a
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_claude_plugin_root_wins(self):
+        """CLAUDE_PLUGIN_ROOT (harness injection) beats every other tier."""
+        override = str(self.tmp_path / "plugin_root")
+        with _isolated_env(CLAUDE_HOME=str(self.tmp_path)):
+            with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": override}, clear=False):
+                result = coordinator_root()
+                self.assertEqual(result, Path(override))
+
+    def test_coordinator_root_env_wins_over_flat(self):
+        """COORDINATOR_ROOT env var beats the flat-layout tier."""
+        override = str(self.tmp_path / "content_root")
+        with _isolated_env(CLAUDE_HOME=str(self.tmp_path)):
+            # Remove CLAUDE_PLUGIN_ROOT so COORDINATOR_ROOT tier fires.
+            env_overrides = {"COORDINATOR_ROOT": override}
+            # Ensure CLAUDE_PLUGIN_ROOT is absent.
+            with patch.dict(os.environ, env_overrides, clear=False):
+                os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+                result = coordinator_root()
+                self.assertEqual(result, Path(override))
+
+    def test_flat_layout_fallback(self):
+        """Falls back to plugins_dir()/coordinator-claude/coordinator when no env set."""
+        with _isolated_env(CLAUDE_HOME=str(self.tmp_path)):
+            os.environ.pop("CLAUDE_PLUGIN_ROOT", None)
+            os.environ.pop("COORDINATOR_ROOT", None)
+            result = coordinator_root()
+            expected = self.tmp_path / ".claude" / "plugins" / "coordinator-claude" / "coordinator"
+            self.assertEqual(result, expected)
+
+    def test_claude_plugin_root_beats_coordinator_root(self):
+        """CLAUDE_PLUGIN_ROOT (tier 1) beats COORDINATOR_ROOT (tier 2)."""
+        cpr = str(self.tmp_path / "cpr")
+        cr = str(self.tmp_path / "cr")
+        with _isolated_env(CLAUDE_HOME=str(self.tmp_path)):
+            with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": cpr, "COORDINATOR_ROOT": cr}, clear=False):
+                result = coordinator_root()
+                self.assertEqual(result, Path(cpr))
+
+    def test_cli_coordinator_root_subcommand(self):
+        """'claude-home coordinator-root' prints the resolved coordinator root."""
+        buf_out, buf_err = __import__("io").StringIO(), __import__("io").StringIO()
+        cpr = str(self.tmp_path / "cpr_cli")
+        with _isolated_env(CLAUDE_HOME=str(self.tmp_path)):
+            with patch.dict(os.environ, {"CLAUDE_PLUGIN_ROOT": cpr}, clear=False):
+                from contextlib import redirect_stdout, redirect_stderr
+                with redirect_stdout(buf_out), redirect_stderr(buf_err):
+                    rc = _claude_home._main(["claude-home", "coordinator-root"])
+                self.assertEqual(rc, 0, f"exited {rc}; stderr={buf_err.getvalue()!r}")
+                self.assertEqual(buf_out.getvalue().rstrip("\n"), cpr)
 
 
 # ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 #!/bin/sh
 # ── sh/python polyglot trampoline ──────────────────────────────────────────────
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 migrate-debt-backlog.test.py — test suite for migrate-debt-backlog.py.
 

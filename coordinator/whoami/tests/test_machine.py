@@ -12,6 +12,7 @@ return null/none values.  Tests assert on KEY PRESENCE and types (allowing null)
 not on concrete values — the full value contract is verified live at merge-gate.
 
 Spec backlink: archive/specs/2026-05-27-whoami-host-capacity-fields.md § Chunk 2
+Apple Silicon enrichment spec: docs/plans/2026-06-23-macos-whoami-apple-silicon-inventory.md § C1
 """
 from __future__ import annotations
 
@@ -39,6 +40,61 @@ def patched_env(monkeypatch: pytest.MonkeyPatch):
     yield
 
 
+def _make_apple_silicon_subprocess_mock() -> MagicMock:
+    """Build a subprocess.run MagicMock keyed on sysctl argv for Apple Silicon tests.
+
+    nvidia-smi raises FileNotFoundError (absent on Apple Silicon).
+    sysctl calls return synthetic M5 Pro values matching EM-verified live data (2026-06-23).
+    Any other subprocess.run call raises FileNotFoundError to isolate unrelated probes.
+    """
+    _SYSCTL_RESPONSES = {
+        "hw.physicalcpu": "15",
+        "hw.perflevel0.physicalcpu": "5",
+        "hw.perflevel1.physicalcpu": "10",
+        "machdep.cpu.brand_string": "Apple M5 Pro",
+        "hw.model": "Mac17,9",
+        "hw.memsize": "25769803776",
+    }
+
+    def _side_effect(argv, **kwargs):
+        # nvidia-smi: always absent on Apple Silicon.
+        if argv and argv[0] == "nvidia-smi":
+            raise FileNotFoundError("no nvidia-smi on Apple Silicon")
+        # sysctl: argv is ["sysctl", "-n", <key>]
+        if argv and argv[0] == "sysctl" and len(argv) == 3:
+            key = argv[2]
+            if key in _SYSCTL_RESPONSES:
+                mock_result = MagicMock()
+                mock_result.returncode = 0
+                mock_result.stdout = _SYSCTL_RESPONSES[key] + "\n"
+                return mock_result
+            # Unknown key: simulate sysctl returning non-zero (key absent).
+            mock_result = MagicMock()
+            mock_result.returncode = 1
+            mock_result.stdout = ""
+            return mock_result
+        # All other subprocess calls (vm_stat, ioreg, uv, powershell, …) fail.
+        raise FileNotFoundError(f"command not found: {argv[0] if argv else '?'}")
+
+    return MagicMock(side_effect=_side_effect)
+
+
+@pytest.fixture()
+def apple_silicon_env(monkeypatch: pytest.MonkeyPatch):
+    """Patch platform.* + subprocess.run to simulate an Apple Silicon Mac (M5 Pro)."""
+    import platform as _platform
+    import subprocess as _subprocess
+    import sys as _sys
+
+    monkeypatch.setattr(_platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(_platform, "version", lambda: "24.0.0")
+    monkeypatch.setattr(_platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(_platform, "python_version", lambda: "3.13.1")
+    monkeypatch.setattr(_sys, "platform", "darwin")
+    monkeypatch.setattr(_subprocess, "run", _make_apple_silicon_subprocess_mock())
+    yield
+
+
 _EXPECTED_KEYS = {"os", "arch", "gpu", "mem", "disk", "host", "mem_ceiling_mechanism", "python", "uv"}
 
 _MEM_CEILING_VALID = {"cgroup_v2", "cgroup_v1", "rlimit", "win_jobobject", "none", "unknown"}
@@ -61,9 +117,42 @@ def test_compose_machine_has_expected_keys(patched_env) -> None:
     assert "compute_capability" in info["gpu"]
     assert "driver_model" in info["gpu"]
     assert "device_count" in info["gpu"]
-    # arch sub-shape
+    # AC3 — all-branches shape totality: new Apple Silicon GPU keys must be present
+    # on the Windows/absent branch too (present=False path). Values may be None/False.
+    assert "integrated" in info["gpu"], "gpu missing 'integrated' key on non-Apple branch"
+    assert "unified_memory_bytes" in info["gpu"], "gpu missing 'unified_memory_bytes' key on non-Apple branch"
+    assert "mps_capable" in info["gpu"], "gpu missing 'mps_capable' key on non-Apple branch"
+    # On a Windows/absent branch, mps_capable and integrated must be False (not None).
+    assert info["gpu"]["mps_capable"] is False, (
+        f"gpu['mps_capable'] must be False on non-Apple branch, got {info['gpu']['mps_capable']!r}"
+    )
+    assert info["gpu"]["integrated"] is False, (
+        f"gpu['integrated'] must be False on non-Apple branch, got {info['gpu']['integrated']!r}"
+    )
+    assert info["gpu"]["unified_memory_bytes"] is None, (
+        f"gpu['unified_memory_bytes'] must be None on non-Apple branch, got {info['gpu']['unified_memory_bytes']!r}"
+    )
+    # arch sub-shape (existing keys)
     assert "logical_cores" in info["arch"]
     assert "physical_cores" in info["arch"]
+    # AC3 — new arch keys must be present (None on non-Apple-Silicon)
+    assert "performance_cores" in info["arch"], "arch missing 'performance_cores' key"
+    assert "efficiency_cores" in info["arch"], "arch missing 'efficiency_cores' key"
+    assert "chip" in info["arch"], "arch missing 'chip' key"
+    assert "model" in info["arch"], "arch missing 'model' key"
+    assert info["arch"]["performance_cores"] is None, (
+        f"arch['performance_cores'] must be None on non-Apple-Silicon, got {info['arch']['performance_cores']!r}"
+    )
+    assert info["arch"]["efficiency_cores"] is None, (
+        f"arch['efficiency_cores'] must be None on non-Apple-Silicon, got {info['arch']['efficiency_cores']!r}"
+    )
+    # Review: code-reviewer — nit (F13): chip/model only had key-presence asserts; add None value asserts.
+    assert info["arch"]["chip"] is None, (
+        f"arch['chip'] must be None on non-Apple-Silicon, got {info['arch']['chip']!r}"
+    )
+    assert info["arch"]["model"] is None, (
+        f"arch['model'] must be None on non-Apple-Silicon, got {info['arch']['model']!r}"
+    )
     # Python sub-shape
     assert "invoking_version" in info["python"]
 
@@ -173,6 +262,133 @@ def test_main_disk_path_arg(tmp_path: Path, capsys: pytest.CaptureFixture) -> No
             requested in p or p in requested
             for p in returned_paths
         ), f"no disk entry matched requested path {requested!r}; got {returned_paths}"
+
+
+# ---------------------------------------------------------------------------
+# AC1 — Apple Silicon _probe_gpu() assertions
+# ---------------------------------------------------------------------------
+
+def test_probe_gpu_apple_silicon(apple_silicon_env) -> None:
+    """AC1: _probe_gpu() returns the Apple Silicon shape on Darwin arm64 without nvidia-smi."""
+    from coordinator_whoami.host_probes import _probe_gpu
+
+    gpu = _probe_gpu()
+
+    assert gpu["present"] is True, f"gpu['present'] must be True, got {gpu['present']!r}"
+    assert gpu["vendor"] == "apple", f"gpu['vendor'] must be 'apple', got {gpu['vendor']!r}"
+    assert gpu["integrated"] is True, f"gpu['integrated'] must be True, got {gpu['integrated']!r}"
+    assert gpu["mps_capable"] is True, f"gpu['mps_capable'] must be True, got {gpu['mps_capable']!r}"
+    assert isinstance(gpu["name"], str) and gpu["name"], (
+        f"gpu['name'] must be a non-empty string, got {gpu['name']!r}"
+    )
+    assert isinstance(gpu["unified_memory_bytes"], int) and gpu["unified_memory_bytes"] == 25769803776, (
+        f"gpu['unified_memory_bytes'] must be 25769803776, got {gpu['unified_memory_bytes']!r}"
+    )
+    # NVIDIA-only keys must be None on the Apple Silicon branch.
+    for nvidia_key in ("cuda_driver", "compute_capability", "driver_model", "vram_total_mib", "vram_free_mib"):
+        assert gpu[nvidia_key] is None, (
+            f"gpu[{nvidia_key!r}] must be None on Apple Silicon branch, got {gpu[nvidia_key]!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC2 — Apple Silicon _probe_arch() assertions
+# ---------------------------------------------------------------------------
+
+def test_probe_arch_apple_silicon(apple_silicon_env) -> None:
+    """AC2: _probe_arch() returns performance_cores/efficiency_cores/chip/model on Darwin arm64."""
+    from coordinator_whoami.host_probes import _probe_arch
+
+    arch = _probe_arch()
+
+    assert arch["performance_cores"] == 5, (
+        f"arch['performance_cores'] must be 5 (hw.perflevel0), got {arch['performance_cores']!r}"
+    )
+    assert arch["efficiency_cores"] == 10, (
+        f"arch['efficiency_cores'] must be 10 (hw.perflevel1), got {arch['efficiency_cores']!r}"
+    )
+    assert arch["chip"] == "Apple M5 Pro", (
+        f"arch['chip'] must be 'Apple M5 Pro', got {arch['chip']!r}"
+    )
+    assert arch["model"] == "Mac17,9", (
+        f"arch['model'] must be 'Mac17,9', got {arch['model']!r}"
+    )
+    # Existing fields must still be populated.
+    assert arch["apple_silicon"] is True
+    assert arch["machine"] == "arm64"
+    assert isinstance(arch["physical_cores"], int) and arch["physical_cores"] == 15
+
+
+# ---------------------------------------------------------------------------
+# AC3 — all-branches totality via _probe_gpu() direct call on Windows/absent branch
+# ---------------------------------------------------------------------------
+
+def test_probe_gpu_absent_branch_has_all_keys(patched_env) -> None:
+    """AC3: _probe_gpu() present=False branch includes integrated/unified_memory_bytes/mps_capable."""
+    from coordinator_whoami.host_probes import _probe_gpu
+
+    gpu = _probe_gpu()
+
+    assert gpu["present"] is False
+    # All three Apple Silicon keys must be PRESENT (all-branches-shape totality).
+    assert "integrated" in gpu, "gpu missing 'integrated' key on absent branch"
+    assert "unified_memory_bytes" in gpu, "gpu missing 'unified_memory_bytes' key on absent branch"
+    assert "mps_capable" in gpu, "gpu missing 'mps_capable' key on absent branch"
+    # Convention: False (bool, not None) for integrated and mps_capable on non-Apple branches.
+    assert gpu["integrated"] is False
+    assert gpu["mps_capable"] is False
+    assert gpu["unified_memory_bytes"] is None
+
+
+# ---------------------------------------------------------------------------
+# F2 — NVIDIA-SUCCESS branch of _probe_gpu() (previously untested)
+# Review: code-reviewer — P2: NVIDIA branch was not exercised by any test;
+# only the absent/FileNotFoundError branch was covered.
+# ---------------------------------------------------------------------------
+
+def test_probe_gpu_nvidia_success_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F2: _probe_gpu() NVIDIA-SUCCESS branch: present=True, vendor='nvidia', integrated=False, mps_capable=False."""
+    import platform as _platform
+    import subprocess as _subprocess
+
+    # Force non-Darwin so the Apple Silicon branch cannot fire.
+    monkeypatch.setattr(_platform, "system", lambda: "Linux")
+    monkeypatch.setattr(_platform, "machine", lambda: "x86_64")
+
+    # nvidia-smi CSV matching the probe's query column order:
+    # count, name, memory.total(MiB), memory.free(MiB), driver_version, compute_cap, driver_model.current
+    nvidia_smi_line = "1, NVIDIA GeForce RTX 4090, 24000, 20000, 535.0, 8.9, WDDM"
+
+    def _side_effect(argv, **kwargs):
+        if argv and argv[0] == "nvidia-smi":
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = nvidia_smi_line + "\n"
+            return mock_result
+        # All other subprocess calls (uv, sysctl, …) fail.
+        raise FileNotFoundError(f"command not found: {argv[0] if argv else '?'}")
+
+    monkeypatch.setattr(_subprocess, "run", MagicMock(side_effect=_side_effect))
+
+    from coordinator_whoami.host_probes import _probe_gpu
+
+    gpu = _probe_gpu()
+
+    assert gpu["present"] is True, f"gpu['present'] must be True on NVIDIA branch, got {gpu['present']!r}"
+    assert gpu["vendor"] == "nvidia", f"gpu['vendor'] must be 'nvidia', got {gpu['vendor']!r}"
+    # Apple Silicon keys must be present and False/None on NVIDIA branch (all-branches-shape totality).
+    assert "integrated" in gpu, "gpu missing 'integrated' key on NVIDIA branch"
+    assert "unified_memory_bytes" in gpu, "gpu missing 'unified_memory_bytes' key on NVIDIA branch"
+    assert "mps_capable" in gpu, "gpu missing 'mps_capable' key on NVIDIA branch"
+    assert gpu["integrated"] is False, (
+        f"gpu['integrated'] must be False on NVIDIA branch, got {gpu['integrated']!r}"
+    )
+    assert gpu["unified_memory_bytes"] is None, (
+        f"gpu['unified_memory_bytes'] must be None on NVIDIA branch, got {gpu['unified_memory_bytes']!r}"
+    )
+    assert gpu["mps_capable"] is False, (
+        f"gpu['mps_capable'] must be False on NVIDIA branch, got {gpu['mps_capable']!r}"
+    )
 
 
 @pytest.mark.parametrize(

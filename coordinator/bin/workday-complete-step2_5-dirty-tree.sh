@@ -233,13 +233,6 @@ while IFS= read -r status_line; do
   commit_match=0
   commit_root=""
 
-  # Exact-file match first
-  case "$path" in
-    state/coordinator-improvement-queue.md)
-      commit_match=1; commit_root="state/coordinator-improvement-queue.md"
-      ;;
-  esac
-
   # Prefix matches
   if [[ "$commit_match" -eq 0 ]]; then
     case "$path" in
@@ -359,7 +352,6 @@ while IFS= read -r status_line; do
       # AUTO-COMMIT check for source
       src_commit=0
       case "$src" in
-        state/coordinator-improvement-queue.md|\
         cross-repo/inbox/*|cross-repo/archive/*|\
         state/review-trail/*|state/memos/*|\
         state/lessons-outbox/*|state/improvement-queue/*|\

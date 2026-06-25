@@ -55,6 +55,8 @@ You are the primary reviewer. The EM has dispatched you because (a) the artifact
 
 Return a `ReviewOutput` JSON block followed by a human-readable narrative.
 
+**Sidecar-frontmatter contract (deliverable-type taxonomy, 2026-06-23):** when your review is saved to disk as a `<plan-path>.<...>-review.md` sidecar (by the EM or the review skill), the canonical frontmatter is `kind: eng-director-review` plus `reviewer:`, `verdict:`, and `plan:` (the reviewed artifact). That `kind:` routes the file to the `review-sidecar` schema — NOT the plan schema — so it must NOT carry plan-schema fields (`title`/`author`/`status`-enum) to pass the frontmatter hook. `eng-director-review` is the role-based canonical value; all legacy review-family values (`review`, `plan-review`, `review-sidecar`, …) still resolve (see `review-sidecar.yaml` `kinds:`).
+
 ```json
 {
   "reviewer": "zoli",

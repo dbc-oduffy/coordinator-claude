@@ -245,7 +245,7 @@ run_case "Rule 7: BS row with FIXED only in narrative survives" "bug-backlog.md"
 # ---------------------------------------------------------------------------
 # Rule 1 — Entry-shape strip (queue files only)
 # ---------------------------------------------------------------------------
-run_case "Rule 1: resolution: resolved drops entry (queue file)" "coordinator-improvement-queue.md" \
+run_case "Rule 1: resolution: resolved drops entry (queue file)" "improvement-queue.md" \
 "# Queue
 
 - 2026-05-15 | self | foo.md:10 | done thing | proposed target: wiki
@@ -268,7 +268,7 @@ run_case "Rule 1: **Closeout:** sub-line drops entry (queue file)" "improvement-
 # ---------------------------------------------------------------------------
 # Rule 3 — Trivial ceremony lines stripped (queue files only)
 # ---------------------------------------------------------------------------
-run_case "Rule 3: recurring:0 / resolution:pending stripped, entry kept" "coordinator-improvement-queue.md" \
+run_case "Rule 3: recurring:0 / resolution:pending stripped, entry kept" "improvement-queue.md" \
 "- 2026-05-15 | self | foo.md:10 | thing | proposed target: wiki
   recurring: 0
   resolution: pending
@@ -313,7 +313,7 @@ Body of the still-open entry.
 "
 
 # F3: Rule 8 — closure line mid-entry-collection drops the orphaned entry + sublines
-run_case "F3: Rule 8 — closure line mid-entry drops whole entry + orphaned sublines" "coordinator-improvement-queue.md" \
+run_case "F3: Rule 8 — closure line mid-entry drops whole entry + orphaned sublines" "improvement-queue.md" \
 "- 2026-05-15 | self | foo.md:10 | thing | proposed target: wiki
 | ~~BS-Y~~ | ~~P2~~ CLOSED | ~~text~~ — **FIXED:** stuff |
   resolution: pending

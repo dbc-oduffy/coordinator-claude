@@ -13,6 +13,7 @@
 # is a no-op string. One `exec`, three-way probe — the canonical pattern. The
 # sibling `bin/install-sentinel-write` carries the same shape; keep them aligned.
 ''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
 """
 cross-repo-memo — dispatch a cross-repo memo to a receiver-EM's working tree.
 
@@ -98,12 +99,13 @@ convention covers those — so it stays tiny. Identity space is still global
 doctrine; path space is still per-machine — the registry resolves the path.
 """
 
-# NOTE (slice-A F7, declined): `from __future__ import annotations` would let the
-# `str | None` annotations parse on Python 3.7-3.9, but it CANNOT be added here —
-# the bash/python polyglot trampoline above is a string statement Python sees
-# before the module docstring, so __future__ is no longer "at the beginning of the
-# file" and SyntaxErrors. The `str | None` usage is pre-existing (this file already
-# effectively targets 3.10+); the new functions match that existing baseline.
+# NOTE (slice-A F7, originally declined): `from __future__ import annotations` has now
+# been added above (between the trampoline and this docstring block). The earlier
+# decline was incorrect — the trampoline line `''''exec...#'''` IS the module docstring
+# (Python's first string literal), so `from __future__` placed immediately after it is
+# at the beginning of the module as required. This docstring block is a second string
+# expression, not the module docstring. The fix makes `str | None` annotations safe on
+# Python 3.7+ and closes the cryptic-crash-on-import risk on macOS stock Python 3.9.
 
 import argparse
 import datetime

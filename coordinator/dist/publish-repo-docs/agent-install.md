@@ -210,21 +210,43 @@ The plugins are installed. Now the human needs a fresh Claude Code session.
 
 Tell the human exactly this:
 
-> **Start a fresh Claude Code session and paste:**
+> **Start a fresh Claude Code session from your coordinator root, then paste one command.**
+>
+> Coordinator's canonical runtime is the **Claude Code CLI** (preferred over the desktop app). To
+> start the fresh session:
+>
+> 1. Open a terminal.
+> 2. `cd ~/.claude`
+> 3. `claude`
+>
+> Then, in that session, paste:
 >
 > ```
 > /coordinator:install
 > ```
 >
-> Why a fresh session? Two things take effect only at startup: (1) the coordinator's hooks and
-> slash-commands load when Claude Code reads the newly-installed plugin, and (2) the Agent Teams
-> capability (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) that the deep-research pipeline depends on is
-> an environment variable Claude Code reads at startup. (`/coordinator:install` writes that env var;
-> it takes effect on the *next* restart after that — the command tells you when.)
+> **Switch to auto mode first.** Coordinator is an agentic system — the EM edits files, runs setup
+> scripts, and dispatches subagents on your behalf. Press **Shift+Tab** to cycle the permission mode
+> to **auto-accept ("auto") mode** so the install (and your everyday coordinator work) runs without a
+> prompt on every action. This is the recommended way to run coordinator; you stay in control via the
+> branch-as-review-buffer and commit history rather than per-action approvals.
+>
+> (If `claude` isn't found, install the CLI first: `npm install -g @anthropic-ai/claude-code`. If
+> you've been using the desktop app, switch to the CLI for coordinator work — open a *new* CLI
+> session with `~/.claude` as the working directory rather than reopening the desktop window.)
+>
+> Why a fresh session, and why from `~/.claude`? Two things take effect only at startup: (1) the
+> coordinator's hooks and slash-commands load when Claude Code reads the newly-installed plugin, and
+> (2) the Agent Teams capability (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) that the deep-research
+> pipeline depends on is an environment variable Claude Code reads at startup. (`/coordinator:install`
+> writes that env var; it takes effect on the *next* restart after that — the command tells you when.)
+> Launching from `~/.claude` makes that directory the working root, so coordinator's doctrine and
+> state load correctly from the first message.
 
 Do NOT describe the fresh session as "just restarting" — the human is handing off to a new session
-that runs `/coordinator:install` to finish the environment wiring. Make sure they write the command
-down or can copy it.
+that runs `/coordinator:install` to finish the environment wiring. Whenever any step says "restart
+your session from `~/.claude`", the concrete action is exactly the three lines above: a terminal,
+`cd ~/.claude`, `claude`. Make sure they write the command down or can copy it.
 
 ---
 
@@ -269,15 +291,33 @@ The rule: **edit your `~/.claude`, not this clone.** Methodology refinements, pe
 
 Before installing, verify:
 
-- **Claude Code CLI** on PATH: `claude --version`. If missing, link the human to
-  https://docs.anthropic.com/en/docs/claude-code and stop.
+- **Claude Code CLI** — present **by definition** if an agent is reading this playbook inside a
+  Claude Code session; you are the proof. Skip the `claude --version` PATH check in that case: it
+  false-negatives on the common native install (`claude` lives in `~/.local/bin`, often not on
+  `PATH`), and reporting "Claude Code missing" to a human while a Claude Code agent runs the check
+  is incoherent. Only when a *human* is bootstrapping with no session yet: if `claude --version`
+  fails, probe `~/.local/bin/claude` (and the platform native-install dirs) before concluding it's
+  absent; if truly missing, link to https://docs.anthropic.com/en/docs/claude-code and stop.
+  - **Desktop-app installers — `claude` missing in the terminal.** A very common snag: the operator
+    installs the plugins inside the Claude Code **desktop app**, then opens a terminal to follow the
+    CLI steps and hits *"`claude`: command not found"* — the native CLI lives at `~/.local/bin`,
+    which their login shell never put on PATH. The post-restart `/coordinator:install` (Step 3e) fixes
+    this automatically (idempotent: a sentinel-guarded rc block on macOS/Linux, the user PATH on
+    Windows). To run `claude` in a terminal *before* that, prepend the dir yourself:
+    `export PATH="$HOME/.local/bin:$PATH"` (macOS/Linux) or add `%USERPROFILE%\.local\bin` to your
+    user PATH (Windows).
 - **bash 4.3+** on PATH (`bash --version`). The coordinator's scripts use associative arrays
   (bash 4.0+) and `coordinator-safe-commit` — invoked on essentially every commit — uses `local -n`
   namerefs (bash **4.3+**). **macOS ships bash 3.2 as `/bin/bash`**: install [Homebrew](https://brew.sh),
   `brew install bash`, and put it first on PATH (`export PATH="$(brew --prefix)/bin:$PATH"` in
   `~/.zshrc`/`~/.bashrc`). Coordinator scripts use `#!/usr/bin/env bash`, so PATH order — not
   `/bin/bash` — decides. `/coordinator:install` fails fast with this guidance if it runs under < 4.3.
-  Linux, WSL, and Git Bash for Windows ship bash 4.3+ already.
+  Linux, WSL, and Git Bash for Windows ship bash 4.3+ already — **but on Windows, `bash` is not
+  invokable by name after a fresh Git-for-Windows install.** Git deliberately keeps `bash.exe` off
+  `PATH` (to avoid shadowing); it lives at `C:\Program Files\Git\bin\bash.exe`. Either launch the
+  "Git Bash" terminal (which puts it on `PATH` for that shell) or invoke it by full path. The native
+  `claude plugin` install flow above needs no bash at all — bash is a prerequisite for coordinator's
+  *scripts and hooks at runtime*, not for installing the plugins.
 - **git** on PATH (`git --version`). Branch management, commits, handoffs, and the auto-push safety
   net all require it. If missing, link to https://git-scm.com and stop.
 - **Python 3** on PATH — a **real** `python3`, not a stub (see the Windows note). The hooks and
@@ -290,6 +330,11 @@ Before installing, verify:
     `python3` (copy `python.exe` → `python3.exe`, or use the shim `/coordinator:install` lays down).
     `/coordinator:install` Phase 3 also detects orphan AppX stubs and installs a `python3.cmd` shim,
     but the pre-restart steps in *this* playbook need a working `python3` first.
+  - **Windows gotcha — `winget` PATH changes don't reach the running shell.** `winget install …`
+    prints *"Path environment variable modified; restart your shell."* — the change lands in the
+    registry but not in the current process. An agent that installs a prerequisite and then tries to
+    use it in the **same** session will see it as still-missing. After any `winget install`, start a
+    fresh shell (or refresh `PATH` from the Machine + User registry hives) before continuing.
 - **jq** on PATH (`jq --version`). Hooks use it. If missing, install it
   (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`).
 - **Node 18+** — only if the human wants the NotebookLM add-on. Otherwise irrelevant.

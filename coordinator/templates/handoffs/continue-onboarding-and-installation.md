@@ -1,4 +1,7 @@
-<!-- Layer 0 of agent-install.md substitutes {{DATE}} and {{BRANCH}} when copying this to state/handoffs/ -->
+<!-- Layer 0 of agent-install.md substitutes {{DATE}} and {{BRANCH}} when copying this to state/handoffs/.
+     {{DATE}} is a filename-aligned date: substitute with the LOCAL date (`date +%Y-%m-%d`), NOT UTC —
+     a UTC stamp late in the local evening dates the baton to tomorrow (off-by-one). UTC is reserved
+     for ISO timestamp fields (e.g. consumed_at), never for these YYYY-MM-DD date fields. -->
 ---
 title: "Continue coordinator onboarding and installation"
 created: {{DATE}}
@@ -93,19 +96,86 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
    is no lineage to reconcile; you are stitching a set of authorized forks. (Because they carry
    `kind: spinoff`, `/workday-start` already surfaces them as "spinoffs awaiting pickup" and
    `/pickup` classifies them correctly — no special handling needed.)
+
+2a. **Discover orient legs (second, additive sweep).** A repo may seed its post-install orientation
+   as a **separate** `kind: spinoff` baton that **deliberately omits `install_chain_order:`** (orientation
+   is post-install onboarding, not an install-chain leg). The install-leg sweep above cannot see those —
+   so run a second sweep. An orient leg is **`kind: spinoff` AND no `install_chain_order:` AND
+   (filename matches `orient-*.md` OR `summary:`/`title:` carries a word-boundary "orientation")**.
+   The `kind: spinoff` gate and the **word-boundary** match (not a bare substring) are load-bearing:
+   they keep a recovery handoff or plan baton that merely *mentions* "orientation" (e.g. "lost
+   orientation after crash") out of the operator's install walk. This is agnostic — it operates on
+   baton shape and names no repo:
+
+   ```bash
+   # Orient-leg discovery — kind:spinoff gate + (orient-*.md filename OR word-boundary "orientation"
+   # in summary:/title:). Agnostic over baton shape; names no repo. Portable -w word boundary.
+   HANDOFFS="${CLAUDE_HOME:-$HOME/.claude}/state/handoffs"
+   for f in "$HANDOFFS"/*.md; do
+     [ -e "$f" ] || continue
+     grep -qE '^kind:[[:space:]]*spinoff[[:space:]]*(#.*)?$' "$f" || continue  # kind: spinoff EXACTLY (not spinoff-roadmap)
+     grep -q '^install_chain_order:' "$f" && continue            # install legs excluded (they carry it)
+     base=$(basename "$f")
+     if [ "${base#orient-}" != "$base" ] || \
+        grep -iE '^(summary|title):' "$f" | grep -iqw orientation; then
+       echo "$f"                                                 # a discovered orient leg
+     fi
+   done
+   ```
+
+   **Pair each orient leg to an install leg by longest-prefix stem.** Match the orient baton's stem
+   (filename minus the `orient-` prefix and `.md`, or the `repo:` it names) against the discovered
+   install legs' `repo:` ids; the **longest** matching prefix wins (so `orient-<repo>-<addon>-…` binds
+   to the `<repo>-<addon>` install leg, not the `<repo>` host leg). Pure string match, no repo awareness.
+   - **No match → unpaired orient leg:** order it after all install legs (treated as
+     `orient_after: "leaf"`) and surface it in the spine as unpaired — visible, never silently dropped.
+   - **Equal-longest tie (≥2 install legs tie as longest prefix) → treat as UNPAIRED and surface as
+     ambiguous** (`"ambiguous pairing — N candidate install legs"`). **Never silently auto-pick one
+     of the tied legs** — a silent mis-pair re-introduces the exact silent-misorder this sweep exists
+     to prevent (detect-then-fail-loud per CLAUDE.md § Implementation Standards).
+
 3. **Write a lightweight install-chain spine to disk** — start from the pre-made template at
    `${CLAUDE_HOME:-$HOME/.claude}/plugins/coordinator/templates/plans/install-chain-tracking.md`,
    copy it to `tasks/<feature>/install-chain.md`, and edit it to list each install spinoff you found
    (coordinator onboarding — this handoff — first; the spinoffs in whatever order each declares via
-   `install_chain_order:`, else discovered order). Fill the spine's per-leg **install / provision /
-   orient** status as you go, so a leg that is installed-but-still-provisioning (a background index,
-   say) or installed-but-not-yet-oriented is visibly distinct from a finished one. The spine exists
+   `install_chain_order:`, else discovered order), **interleaving each install leg's paired orient
+   leg (from step 2a) immediately after it.** Interleave rules:
+   - A `deployment_state: ready_to_fire` orient leg with no `orient_after:` is emitted **right after
+     its paired install leg ONLY when that install leg is the leaf** (the highest `install_chain_order:`
+     present — so "after its install" coincides with the absolute tail and is safe by construction).
+     **If its paired install is NOT the leaf, defer the orient leg to the absolute tail**
+     (batch-equivalent, known-safe) and surface `"ready_to_fire orient leg paired to non-leaf install
+     <repo-id> — deferred to tail; seed orient_after: to interleave mid-chain"`. Rationale: a non-leaf
+     orient leg may carry an **unstated dependency on a later install** (the canonical case: an addon's
+     knowledge-orientation that reads a surface a later-installed repo provides); the spine cannot know
+     mid-chain firing is safe, so it falls back to the known-safe batch position rather than silently
+     firing early (detect-then-fail-loud per CLAUDE.md § Implementation Standards). **Mid-chain
+     interleave of a non-leaf orient leg is opt-in via an explicit `orient_after:` anchor (next
+     bullet), never the silent default.**
+   - A `deployment_state: awaiting_gate` orient leg **defers to after the last install leg in the
+     chain (absolute tail position)** — not merely later than its own paired install leg.
+   - **`orient_after:` is an ANCHOR, not a blanket tail signal** — `orient_after: <repo-id>` orders the
+     orient leg **immediately after the named install leg** (which may be mid-chain, NOT the tail);
+     `orient_after: "leaf"` orders it after the highest-order install leg present (which is the tail).
+     Edge handling: a named `<repo-id>` ABSENT from the chain → unsatisfiable this session; fall back to
+     absolute-tail ordering AND surface `"orient_after: <repo-id> unmet — named leg not in chain"`. A
+     named `<repo-id>` PRESENT but `awaiting_gate` → the orient leg inherits the deferral.
+   - **Composition when one orient leg carries BOTH `orient_after:` AND its own `awaiting_gate`:**
+     resolve the `orient_after:` anchor position **first**, then apply the `awaiting_gate` tail-deferral
+     relative to that anchor. Both push tail-ward and do not conflict; pinning the order keeps the walk
+     deterministic.
+   Fill the spine's per-leg **install / provision / orient** status as you go. A leg that is
+   installed-but-still-provisioning (a background index) or installed-but-not-yet-oriented is visibly
+   distinct from a finished one. The spine exists
    for one reason: **guarantee every queued install spinoff is followed to conclusion before the
    workstream is completed**, so nothing the operator asked for is silently dropped when context
    turns over. This is the same spine-plus-spinoffs shape `coordinator:roadmap-planning` produces;
    lay out the whole chain ahead of you even if it is just this one item.
 
-4. **Resolve any supersession relationships in the spine.** Some spinoffs carry a `supersedes:`
+4. **Resolve any supersession relationships in the spine — AFTER orient discovery (step 2a).** Run
+   this pass only once the orient-leg set from step 2a is populated: a `supersedes:` assertion can
+   only drop an orientation the spine has actually discovered, so supersedes resolution **must follow**
+   the orient sweep, not the install-leg sweep alone. Some spinoffs carry a `supersedes:`
    field that conditionally replaces an earlier orientation or install-leg baton. The mechanism is
    the shipped one — `supersedes:` on a `kind: spinoff` baton — documented in full at
    `docs/wiki/agent-install-contract.md § Orientation-supersession`. Do **not** re-derive it here;

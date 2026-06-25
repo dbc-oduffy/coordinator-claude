@@ -6,8 +6,8 @@ argument-hint: "[--force] [--gate-mode strict|advisory]"
 version: 2.0.0
 ---
 
-<!-- Spec backlink: docs/plans/2026-05-06-parallel-code-review-weekly-gate.md Phase 3 -->
-<!-- Spec backlink: docs/plans/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md § Strand 1 -->
+<!-- Spec backlink: archive/specs/2026-05/2026-05-06-parallel-code-review-weekly-gate.md Phase 3 -->
+<!-- Spec backlink: archive/specs/2026-05/2026-05-23-weekly-gate-restructure-and-arch-survey-audit-rename.md § Strand 1 -->
 
 # Parallel Code Review
 

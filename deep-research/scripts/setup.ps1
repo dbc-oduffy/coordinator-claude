@@ -246,10 +246,61 @@ if ($RunChainPreinstall) {
 
 # ---------------------------------------------------------------------------
 # Python resolver — required for manifest read and dep probing.
+#
+# Functional probe: each candidate is actually EXECUTED to confirm it is a
+# working Python >= 3.11. This catches the Windows 11 WindowsApps Store stub
+# (python3.exe / python.exe App Execution alias) which passes Get-Command but
+# exits non-zero with "Python was not found" when run — a Get-Command-only
+# probe would select the stub and fail at every subsequent Python call.
+#
+# Candidate order: python3 → python → py launcher (Windows only).
+# The py launcher can dispatch a real CPython installation even when the
+# WindowsApps aliases shadow python3/python on PATH.
+#
+# Returns: a string command name (or invocation) that functionally works as
+# Python 3.11+. Returns $null when no working interpreter is found.
+#
+# Parity with: coordinator scripts/lib/manifest_reader.sh _co_find_python
+# PS parity landed 2026-06-23.
 # ---------------------------------------------------------------------------
 function Find-Python {
-    if (Get-Command python3 -ErrorAction SilentlyContinue) { return 'python3' }
-    if (Get-Command python  -ErrorAction SilentlyContinue) { return 'python' }
+    $versionCheck = 'import sys; sys.exit(0 if sys.version_info[:2] >= (3,11) else 1)'
+
+    # Helper: return $true if $candidate is a working Python >= 3.11.
+    function Test-PythonCandidate([string]$Candidate) {
+        if (-not (Get-Command $Candidate -ErrorAction SilentlyContinue)) { return $false }
+        try {
+            & $Candidate -c $versionCheck 2>$null
+            return ($LASTEXITCODE -eq 0)
+        } catch {
+            return $false
+        }
+    }
+
+    if (Test-PythonCandidate 'python3') { return 'python3' }
+    if (Test-PythonCandidate 'python')  { return 'python'  }
+
+    # Windows py launcher — resolves the Store-stub problem by dispatching
+    # through the Python Launcher for Windows (py.exe), which bypasses the
+    # WindowsApps aliases entirely.
+    if (Get-Command 'py' -ErrorAction SilentlyContinue) {
+        foreach ($pyVer in @('-3.12', '-3.11', '-3', '')) {
+            try {
+                $pyArgs = if ($pyVer -ne '') { @($pyVer, '-c', $versionCheck) } else { @('-c', $versionCheck) }
+                & py @pyArgs 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    # Resolve to a concrete executable path so callers get a
+                    # single token they can invoke with `& $PythonBin -c "..."`.
+                    $resolveArgs = if ($pyVer -ne '') { @($pyVer, '-c', 'import sys;print(sys.executable)') } else { @('-c', 'import sys;print(sys.executable)') }
+                    $resolved = (& py @resolveArgs 2>$null | Out-String).Trim()
+                    if ($resolved -and (Test-Path $resolved)) { return $resolved }
+                    # Fallback: return the py invocation as a string (caller must expand).
+                    if ($pyVer -ne '') { return "py $pyVer" } else { return 'py' }
+                }
+            } catch {}
+        }
+    }
+
     return $null
 }
 
@@ -275,8 +326,13 @@ if ($Check) {
 
     $PythonBin = Find-Python
     if (-not $PythonBin) {
-        [Console]::Error.WriteLine("ERROR: no Python interpreter found on PATH (tried python3, python).")
+        [Console]::Error.WriteLine("ERROR: no functional Python 3.11+ interpreter found on PATH (tried python3, python, py launcher).")
         [Console]::Error.WriteLine("  Python 3.11+ is required to read the install manifest.")
+        [Console]::Error.WriteLine("  On Windows: if python3/python exist but are non-functional, disable the")
+        [Console]::Error.WriteLine("    WindowsApps python/python3 App Execution aliases in:")
+        [Console]::Error.WriteLine("    Settings > Apps > App execution aliases")
+        [Console]::Error.WriteLine("    then install real Python 3.11+ from https://www.python.org/downloads/")
+        [Console]::Error.WriteLine("  Alternatively, install the Python Launcher (py.exe) from https://www.python.org/downloads/")
         exit 1
     }
 
@@ -289,13 +345,13 @@ if ($Check) {
         exit 0
     }
 
-    # Read deps via manifest reader script (scripts\lib\manifest_reader.ps1 — parity with _dr_manifest_read_ndjson in .sh).
+    # Read deps via manifest reader script (scripts\lib\manifest_reader.ps1 — parity with _co_manifest_read_ndjson in scripts/lib/coordinator_prereq/manifest_reader.sh).
     $NdjsonLines = $null
     try {
         if (Test-Path $ManifestReadPs1) {
             $NdjsonLines = & $ManifestReadPs1 -ManifestPath $ManifestPath
         } else {
-            # Fallback: read manifest with Python directly (mirrors sh _dr_manifest_read_ndjson body).
+            # Fallback: read manifest with Python directly (mirrors sh _co_manifest_read_ndjson body).
             $NdjsonLines = & $PythonBin -c @"
 import json, sys, os
 manifest_path = sys.argv[1]
@@ -424,7 +480,13 @@ Write-Host ""
 # Python pre-flight (required for manifest read).
 $PythonBin = Find-Python
 if (-not $PythonBin) {
-    [Console]::Error.WriteLine("ERROR: no Python interpreter found on PATH (tried python3, python).")
+    [Console]::Error.WriteLine("ERROR: no functional Python 3.11+ interpreter found on PATH (tried python3, python, py launcher).")
+    [Console]::Error.WriteLine("  Python 3.11+ is required to read the install manifest.")
+    [Console]::Error.WriteLine("  On Windows: if python3/python exist but are non-functional, disable the")
+    [Console]::Error.WriteLine("    WindowsApps python/python3 App Execution aliases in:")
+    [Console]::Error.WriteLine("    Settings > Apps > App execution aliases")
+    [Console]::Error.WriteLine("    then install real Python 3.11+ from https://www.python.org/downloads/")
+    [Console]::Error.WriteLine("  Alternatively, install the Python Launcher (py.exe) from https://www.python.org/downloads/")
     exit 1
 }
 

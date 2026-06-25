@@ -1,6 +1,6 @@
 # Machine-local registry
 
-> Spec backlink: `docs/plans/2026-05-19-machine-local-registry.md` §4.4 (Discoverability) and §4 (Design).
+> Spec backlink: `archive/specs/2026-05/2026-05-19-machine-local-registry.md` §4.4 (Discoverability) and §4 (Design).
 
 This directory is the canonical home for per-machine paths and environment values — Unreal Engine install root, CUDA toolkit path, sibling-repo locations, vendor SDK roots, and any other path that is stable on one machine but differs from machine to machine.
 
