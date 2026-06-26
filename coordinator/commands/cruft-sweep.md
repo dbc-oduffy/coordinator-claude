@@ -85,7 +85,7 @@ For candidates where `class == "orphans"` and `disposition == "skip"` (name matc
 
 **Resolve the dev roots for THIS machine first** — they are not the same on every box, and hardcoding Windows drive letters breaks the scan on macOS/Linux:
 
-- On Windows (e.g. Striker): `X:\` and `E:\dev\` per CLAUDE.local.md § Sibling repos.
+- On Windows (e.g. Machine-A): `X:\` and `E:\dev\` per CLAUDE.local.md § Sibling repos.
 - On macOS/Linux: the distinct parent directories of the non-empty `repos.*` entries in `~/.claude/machine-local/registry.local.toml` (e.g. `/Users/<user>/Code_Projects/`). This is registry-derived, not speculative discovery — anti-scope #5 still forbids hunting for arbitrary roots.
 - Test each candidate root with `[[ -d "$root" ]]`. **If no dev root exists on this machine, skip Class 3 entirely** and log one line — `Class 3 parent-orphan scan skipped — no dev roots present on this machine.` — then proceed to Step 3. Enumerate only roots that exist.
 

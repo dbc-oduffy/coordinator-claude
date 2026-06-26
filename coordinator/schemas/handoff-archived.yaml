@@ -12,6 +12,11 @@ required:
   status:
     type: enum
     values: [active, consumed, superseded]
+    # 'superseded' is a RETIRED handoff status (retired 2026-06-26) — retained here for legacy/external record tolerance.
+    # The writer-validator schemas/handoff.yaml is narrowed to [active, consumed]; this archived-reader schema
+    # MUST stay permissive (query-records --type handoff-archived runs upstream of the emitter's coerce-at-ingest).
+    # See Key design decision in docs/plans/2026-06-26-retire-superseded-handoff-status.md.
+    # Review: code-reviewer — F1: spec-mandated retired-but-tolerated annotation per plan Substrate Map + Anti-scope
   predecessor:
     type: string-or-null
 optional:

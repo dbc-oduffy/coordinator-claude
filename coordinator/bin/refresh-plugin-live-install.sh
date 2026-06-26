@@ -514,7 +514,7 @@ EOF
     SNAPSHOT_PATH="$SNAPSHOTS_DIR/${PLUGIN}-${ISO_TS}"
     mkdir -p "$SNAPSHOTS_DIR"
     echo "refresh-plugin-live-install.sh: [copy_install] snapshotting $LIVE_PATH -> $SNAPSHOT_PATH"
-    cp -r "$LIVE_PATH" "$SNAPSHOT_PATH" || {
+    cp -rf "$LIVE_PATH" "$SNAPSHOT_PATH" || {
         echo "refresh-plugin-live-install.sh: snapshot failed — aborting for safety." >&2
         exit 1
     }
@@ -530,7 +530,7 @@ EOF
             # REPLACE semantics (not overlay): stage-then-swap so LIVE_PATH stays intact
             # until the copy succeeds — prevents data loss if cp is interrupted mid-transfer.
             _restore_staging="${LIVE_PATH}.restore.$$"
-            cp -r "$SNAPSHOT_PATH" "$_restore_staging" || {
+            cp -rf "$SNAPSHOT_PATH" "$_restore_staging" || {
                 echo "refresh-plugin-live-install.sh: restore staging failed — $LIVE_PATH is intact. Manual: copy from $SNAPSHOT_PATH" >&2
                 rm -rf "$_restore_staging" 2>/dev/null || true
                 exit 1
@@ -566,7 +566,7 @@ EOF
             # Review: post-flight rollback — stage-then-swap so LIVE_PATH stays intact
             # until the copy succeeds (symmetric fix to primary rollback at L398-408).
             _postflight_staging="${LIVE_PATH}.postflight.$$"
-            cp -r "$SNAPSHOT_PATH" "$_postflight_staging" || {
+            cp -rf "$SNAPSHOT_PATH" "$_postflight_staging" || {
                 echo "refresh-plugin-live-install.sh: post-flight restore staging failed — $LIVE_PATH is intact. Manual: copy from $SNAPSHOT_PATH" >&2
                 rm -rf "$_postflight_staging" 2>/dev/null || true
                 exit 1
@@ -646,13 +646,18 @@ except Exception:
 
 url = direct_url.get("url", "")
 if url.startswith("file:///"):
-    pinned_path_str = url[8:]
-    # NOTE 2026-05-28 (harness-uncovered fix): use os.sep (with explicit `import os`)
-    # not pathlib.os.sep — Python 3.13 removed the `os` submodule attribute from
-    # pathlib, so the prior form silently AttributeErrors and the script falls
-    # through to "venv state stale", re-installing on every refresh. Matches the
-    # pattern check-plugin-drift.sh already uses (lines 263-266).
-    pinned_path = pathlib.Path(pinned_path_str.replace('/', os.sep))
+    import os, urllib.parse
+    # BSD/macOS portability: the old `url[8:]` slice consumed the path-initial '/'
+    # (file:// + /abs-path), yielding a relative path on POSIX so .resolve() resolved
+    # against cwd and the pin-equality check always failed — forcing a re-install on
+    # every refresh. urlparse().path is absolute on POSIX ('/abs') and drive-letter
+    # correct on Windows ('/C:/abs' -> 'C:/abs'); unquote decodes %-escapes. pathlib
+    # normalises '/' separators on every platform. Matches the pattern now used in
+    # check-plugin-drift.sh.
+    pinned_str = urllib.parse.unquote(urllib.parse.urlparse(url).path)
+    if os.name == 'nt' and len(pinned_str) > 2 and pinned_str[0] == '/' and pinned_str[2] == ':':
+        pinned_str = pinned_str[1:]   # strip leading '/' before the Windows drive letter
+    pinned_path = pathlib.Path(pinned_str)
 else:
     pinned_path = pathlib.Path(url)
 
@@ -1167,7 +1172,7 @@ SNAPSHOT_PATH="$SNAPSHOTS_DIR/${PLUGIN}-${ISO_TS}"
 
 mkdir -p "$SNAPSHOTS_DIR"
 echo "refresh-plugin-live-install.sh: snapshotting $LIVE_PATH -> $SNAPSHOT_PATH"
-cp -r "$LIVE_PATH" "$SNAPSHOT_PATH" || {
+cp -rf "$LIVE_PATH" "$SNAPSHOT_PATH" || {
     echo "refresh-plugin-live-install.sh: snapshot failed — aborting for safety." >&2
     exit 1
 }
@@ -1384,11 +1389,16 @@ if [[ $POST_FLIGHT_CLEAN -eq 0 ]]; then
             echo "  Manual recovery: restore from $SNAPSHOT_PATH" >&2
             exit 1
         fi
-        # Use cp -r (overlay) for git-checkout-managed restore. The destructive rm-rf+mv
-        # pattern left LIVE_PATH absent if mv failed; cp -r keeps LIVE_PATH intact throughout.
-        # copy_install uses REPLACE semantics (rm-rf then cp-r) in its own branch above,
+        # Use cp -rf (overlay) for git-checkout-managed restore. The destructive rm-rf+mv
+        # pattern left LIVE_PATH absent if mv failed; cp -rf keeps LIVE_PATH intact throughout.
+        # -f force-removes read-only dest files (git packs loose objects 0444) so the overlay
+        # does not fail on BSD/macOS cp, which honours dest mode (GNU cp overwrites regardless).
+        # copy_install uses REPLACE semantics (rm-rf then cp-rf) in its own branch above,
         # because a failed copy install may have left orphaned files.
-        cp -r "$SNAPSHOT_PATH/." "$LIVE_PATH/"
+        cp -rf "$SNAPSHOT_PATH/." "$LIVE_PATH/" || {
+            echo "refresh-plugin-live-install.sh: overlay restore failed — $LIVE_PATH may be partially restored. Manual: copy from $SNAPSHOT_PATH" >&2
+            exit 1
+        }
         echo "refresh-plugin-live-install.sh: restored from snapshot. Investigate and retry." >&2
     else
         echo "refresh-plugin-live-install.sh: snapshot not found at $SNAPSHOT_PATH — manual recovery required." >&2

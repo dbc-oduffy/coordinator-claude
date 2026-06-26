@@ -131,9 +131,35 @@ fi
 # claude-home family comes from lib/claude-home/ (load-bearing module, not template).
 _install_one() {
     local src="$1" dst="$2" exec_bit="$3" warn_prefix="$4"
+    # Overwrite policy — code files vs config files.
+    # Code files (*.py, *.sh): force-overwrite when content differs. Stale code
+    # silently breaks callers — issue #6: stale _machine_local.py kept by
+    # preserve-on-diff means the old parser stays, so the new caller
+    # (detect-hardware.sh --concern) hits "unrecognized arguments: --concern".
+    # Skip cp when content is already identical to avoid mtime churn.
+    # Config files (*.toml and all others): preserve-on-diff — protect operator
+    # customizations (e.g. registry.toml concern edits, unreal.toml overrides).
+    # Spec backlink: docs/plans/2026-06-26-coordinator-install-update-friction-fix-slate.md C-R3b
+    local _force_overwrite=no
+    case "$src" in
+        *.py|*.sh) _force_overwrite=yes ;;
+        # Review: reviewer (C-F1) — extension-less code wrappers and .cmd files fall into
+        # preserve-on-diff under the *.py|*.sh arm alone; stale machine-local/claude-home
+        # binaries break callers the same way a stale _machine_local.py does (issue #6).
+        */machine-local|*/resolve-coordinator-clone|*/claude-home|*.cmd) _force_overwrite=yes ;;
+    esac
+
     if [[ ! -f "$dst" ]]; then
         cp "$src" "$dst"
         if [[ "$exec_bit" == "yes" ]]; then chmod +x "$dst"; fi
+    elif [[ "$_force_overwrite" == "yes" ]]; then
+        if ! diff -q "$src" "$dst" >/dev/null 2>&1; then
+            echo "[${warn_prefix}] updated $(basename "$dst") (code file; re-install overwrites)"
+            cp "$src" "$dst"
+            # Review: reviewer (C-F8) — chmod only after cp (content change); avoids ctime
+            # churn when content is already identical and no cp occurred.
+            if [[ "$exec_bit" == "yes" ]]; then chmod +x "$dst"; fi
+        fi
     elif diff -q "$src" "$dst" >/dev/null 2>&1; then
         if [[ "$exec_bit" == "yes" ]]; then chmod +x "$dst"; fi
     else
@@ -382,14 +408,13 @@ if tomllib is not None:
         new_concerns = parsed.get('concerns', [])
         if 'hardware' not in new_concerns:
             sys.exit(1)
-        # Review: reviewer — verify pre-existing entries survived (not just hardware present).
-        if tomllib is not None:
-            orig_concerns = tomllib.loads(content).get('concerns', [])
-            for c in orig_concerns:
-                if c not in new_concerns:
-                    print(f'[setup] ERROR: concern "{c}" was lost during migration — aborting write',
-                          file=sys.stderr)
-                    sys.exit(1)
+        # Verify pre-existing entries survived the migration (not just that hardware is present).
+        orig_concerns = tomllib.loads(content).get('concerns', [])
+        for c in orig_concerns:
+            if c not in new_concerns:
+                print(f'[setup] ERROR: concern "{c}" was lost during migration — aborting write',
+                      file=sys.stderr)
+                sys.exit(1)
     except Exception:
         sys.exit(1)
 
@@ -441,23 +466,27 @@ fi
 if command -v fnm >/dev/null 2>&1; then
     echo "[setup] fnm already installed at $(command -v fnm) — skipping binary install"
 else
+    # fnm is an OPTIONAL per-repo Node convenience — a failure here must NOT abort
+    # the install after the core substrate already succeeded. All paths WARN and
+    # continue (never `exit 1`). The curl installer is invoked with `--skip-shell`
+    # to dodge its "Could not infer shell type" failure in non-interactive Git Bash.
+    _fnm_manual="install fnm manually if you need per-repo Node pinning: https://github.com/Schniz/fnm#installation"
     if command -v brew >/dev/null 2>&1; then
         echo "[setup] installing fnm via brew..."
-        brew install fnm \
-            && echo "[setup] fnm installed via brew" \
-            || { echo "[setup] ERROR: brew install fnm failed — install fnm manually: https://github.com/Schniz/fnm#installation" >&2; exit 1; }
+        if brew install fnm; then
+            echo "[setup] fnm installed via brew"
+        else
+            echo "[setup] WARNING: brew install fnm failed — optional, core substrate unaffected; ${_fnm_manual}" >&2
+        fi
     elif command -v curl >/dev/null 2>&1; then
         echo "[setup] installing fnm via official curl installer..."
-        curl -fsSL https://fnm.vercel.app/install | bash \
-            && echo "[setup] fnm installed via curl installer" \
-            || { echo "[setup] ERROR: curl installer for fnm failed — install fnm manually: https://github.com/Schniz/fnm#installation" >&2; exit 1; }
+        if curl -fsSL https://fnm.vercel.app/install | bash -s -- --skip-shell; then
+            echo "[setup] fnm installed via curl installer"
+        else
+            echo "[setup] WARNING: curl installer for fnm failed — optional, core substrate unaffected; ${_fnm_manual}" >&2
+        fi
     else
-        echo "[setup] ERROR: cannot install fnm — neither brew nor curl is available." >&2
-        echo "[setup]   Remediation:" >&2
-        echo "[setup]     (a) Install Homebrew: https://brew.sh/ then re-run install" >&2
-        echo "[setup]     (b) Install curl (e.g. apt install curl / choco install curl) then re-run install" >&2
-        echo "[setup]     (c) Install fnm directly: https://github.com/Schniz/fnm#installation" >&2
-        exit 1
+        echo "[setup] WARNING: cannot install fnm — neither brew nor curl available; optional, core substrate unaffected; ${_fnm_manual}" >&2
     fi
 fi
 

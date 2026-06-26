@@ -9,7 +9,7 @@
 # Review: code-reviewer F9 — added AC7 (node + gh probe tests added in C4/C5).
 #
 # Test cases:
-#   1. probe-all emits exactly 10 valid NDJSON lines with required keys/enum values.
+#   1. probe-all emits exactly 11 valid NDJSON lines with required keys/enum values.
 #   2. AC1 — python probe rejects a broken Store-stub (exits 49) and reports remediation.
 #   3. AC5 — probes are FUNCTIONAL, not existence-only: broken-uv stub yields non-"pass".
 #   4. pass path — on macOS, python probe returns "pass"; longpaths returns "pass"
@@ -24,8 +24,16 @@
 #  10. git_lfs probe: present git-lfs but not configured yields status=warn + advisory.
 #  11. git_lfs probe: present and configured yields status=pass + advisory.
 #  12. AC10 — advisory git_lfs warn does not change aggregator exit code (NEVER fails the suite).
+#  13. shell_login_env probe: orphaned bash login shell => fail (PATH lacks ~/.local/bin).
+#  14. shell_login_env probe: zsh login shell => pass (orphan predicate is bash-only).
+#  15. shell_login_env probe: bash login shell with intact PATH + claude => pass.
+#  16. shell_login_env probe: unprobeable login shell (dscl empty + SHELL unset) => inconclusive.
+#  17. shell_login_env probe: non-macOS (Linux mock) => pass (macOS hard-short-circuit fires first).
+#  18. shell_login_env probe: login shell -lc exits non-zero => inconclusive (|| true + empty PATH).
 #
-# Spec backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md
+# Spec backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md (predecessor)
+#   docs/plans/2026-06-25-phase-zero-macos-bash-login-shell-provisioning.md (AC1/AC2 for tests 13-18)
+# Review: code-reviewer F8 — added 2026-06-25 plan as the spec backlink for tests 13-18 (AC1/AC2).
 #
 # Cross-platform portability (DR-148, cross-platform-shell-portability.md):
 #   - Requires bash >= 4.
@@ -168,17 +176,17 @@ _json_valid() {
 #   - have severity in {hard, advisory}.
 # ---------------------------------------------------------------------------
 echo ""
-echo "=== Test 1: probe-all emits 10 valid NDJSON lines with required keys/enum values ==="
+echo "=== Test 1: probe-all emits 11 valid NDJSON lines with required keys/enum values ==="
 
 _t1_output="$(_co_prereq_probe_all 2>/dev/null)"
 # Review: code-reviewer F4 — guard grep -c . on empty input (exits 1 under set -euo pipefail)
 _t1_line_count=0
 [[ -n "$_t1_output" ]] && _t1_line_count="$(printf '%s\n' "$_t1_output" | grep -c . || echo 0)"
 
-if [[ "$_t1_line_count" -ne 10 ]]; then
-    _fail "test 1a: expected 10 lines from _co_prereq_probe_all, got $_t1_line_count"
+if [[ "$_t1_line_count" -ne 11 ]]; then
+    _fail "test 1a: expected 11 lines from _co_prereq_probe_all, got $_t1_line_count"
 else
-    _pass "test 1a: probe-all emits exactly 10 lines"
+    _pass "test 1a: probe-all emits exactly 11 lines"
 fi
 
 _t1_bad=0
@@ -226,7 +234,7 @@ while IFS= read -r _line; do
 done <<< "$_t1_output"
 
 if [[ "$_t1_bad" -eq 0 ]]; then
-    _pass "test 1b/c: all 10 lines are valid JSON with correct keys and enum values"
+    _pass "test 1b/c: all 11 lines are valid JSON with correct keys and enum values"
 fi
 
 # ---------------------------------------------------------------------------
@@ -325,7 +333,7 @@ fi
 #         returns "pass" with detail "n/a (non-Windows)".
 #
 # These tests run against the real host PATH.
-# The macOS machine running this suite is BettaAir (Darwin); we guard all
+# The macOS machine running this suite is Machine-C (Darwin); we guard all
 # assertions with a platform check so the test remains valid on other machines.
 # ---------------------------------------------------------------------------
 echo ""
@@ -334,7 +342,7 @@ echo "=== Test 4: pass path — macOS python pass; longpaths pass with non-Windo
 _t4_os="$(uname -s 2>/dev/null)"
 
 if [[ "$_t4_os" == "Darwin" ]]; then
-    # Python probe — real Python >= 3.11 should be present on BettaAir.
+    # Python probe — real Python >= 3.11 should be present on Machine-C.
     _t4_py_output="$(_co_probe_python 2>/dev/null)"
     _t4_py_status="$(_json_field "$_t4_py_output" "status")"
     if [[ "$_t4_py_status" == "pass" ]]; then
@@ -773,6 +781,291 @@ if [[ -n "$_REAL_GIT" ]]; then
 else
     echo "SKIP: test 12 — real git not found on host"
     _pass "test 12: skipped (no real git binary)"
+fi
+
+# ---------------------------------------------------------------------------
+# Tests 13-18: _co_probe_shell_login_env — macOS login-shell orphan probe.
+#
+# Mocking strategy:
+#   - A fake `uname` stub on PATH controls the macOS guard (Darwin or Linux).
+#   - A fake `dscl` stub on PATH returns "UserShell: <path>" so awk extracts
+#     the absolute path to the fake login-shell binary.
+#   - Fake bash/zsh binaries on PATH respond to -lc invocations; their
+#     basename (bash / zsh) drives the orphan-predicate branch.
+#   - SHELL env var is managed for the no-login-shell (inconclusive) case.
+#
+# Spec backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Test 13: shell_login_env: orphaned bash login shell => fail.
+#
+# uname returns Darwin; dscl identifies a fake bash; fake bash reports a
+# fresh PATH that lacks $HOME/.local/bin and does not resolve claude.
+# The orphan predicate fires => status must be "fail".
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test 13: shell_login_env: orphaned bash login shell => fail ==="
+
+_t13_dir="$_SCRATCH_DIR/t13_orphaned_bash"
+mkdir -p "$_t13_dir"
+
+# uname stub: returns "Darwin" so the macOS guard does not short-circuit.
+_make_stub "$_t13_dir" "uname" "0" "Darwin"
+
+# dscl stub: prints "UserShell: <dir>/bash" so awk extracts the fake bash path.
+printf '#!/bin/sh\nprintf "UserShell: %s/bash\\n"\n' "$_t13_dir" > "$_t13_dir/dscl"
+chmod +x "$_t13_dir/dscl"
+
+# Fake bash login shell: PATH lacks $HOME/.local/bin; claude not found.
+# Named "bash" so _login_basename == "bash" → orphan predicate runs.
+cat > "$_t13_dir/bash" << 'STUB_EOF'
+#!/bin/sh
+# Fake bash: minimal PATH without ~/.local/bin; claude absent.
+if [ "$1" = "-lc" ]; then
+    case "$2" in
+        *printf*) printf '%s' "/usr/bin:/bin" ;;
+        # claude check: fall through → prints nothing (unresolvable)
+    esac
+fi
+exit 0
+STUB_EOF
+chmod +x "$_t13_dir/bash"
+
+PATH="$_t13_dir:$_ORIG_PATH"
+_t13_output="$(_co_probe_shell_login_env 2>/dev/null)"
+PATH="$_ORIG_PATH"
+
+_t13_status="$(_json_field "$_t13_output" "status")"
+_t13_remediation="$(_json_field "$_t13_output" "remediation")"
+if [[ "$_t13_status" == "fail" ]]; then
+    _pass "test 13a: orphaned bash login shell (PATH lacks \$HOME/.local/bin) => status is 'fail'"
+else
+    _fail "test 13a: orphaned bash login shell => expected status='fail' but got '$_t13_status' (output: $_t13_output)"
+fi
+# Review: code-reviewer F6 — added remediation assertion (sibling tests 2/6/7/8/9 assert all fields).
+if [[ -n "$_t13_remediation" ]]; then
+    _pass "test 13b: orphaned bash login shell => remediation is non-empty: $_t13_remediation"
+else
+    _fail "test 13b: orphaned bash login shell => remediation is empty — should contain repair guidance"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 14: shell_login_env: zsh login shell => pass.
+#
+# Non-bash login shell: orphan predicate is bash-only; probe must return
+# "pass" without checking PATH or claude resolubility.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test 14: shell_login_env: zsh login shell => pass ==="
+
+_t14_dir="$_SCRATCH_DIR/t14_zsh_login"
+mkdir -p "$_t14_dir"
+
+_make_stub "$_t14_dir" "uname" "0" "Darwin"
+
+printf '#!/bin/sh\nprintf "UserShell: %s/zsh\\n"\n' "$_t14_dir" > "$_t14_dir/dscl"
+chmod +x "$_t14_dir/dscl"
+
+# Fake zsh: named "zsh" so _login_basename != "bash" → probe short-circuits to pass.
+# Returns a valid (non-empty) PATH for the -lc 'printf %s "$PATH"' capture step.
+cat > "$_t14_dir/zsh" << 'STUB_EOF'
+#!/bin/sh
+# Fake zsh: returns a valid PATH so the empty-PATH inconclusive guard does not fire.
+if [ "$1" = "-lc" ]; then
+    case "$2" in
+        *printf*) printf '%s' "/usr/bin:/bin" ;;
+    esac
+fi
+exit 0
+STUB_EOF
+chmod +x "$_t14_dir/zsh"
+
+PATH="$_t14_dir:$_ORIG_PATH"
+_t14_output="$(_co_probe_shell_login_env 2>/dev/null)"
+PATH="$_ORIG_PATH"
+
+_t14_status="$(_json_field "$_t14_output" "status")"
+_t14_detail="$(_json_field "$_t14_output" "detail")"
+if [[ "$_t14_status" == "pass" ]]; then
+    _pass "test 14a: zsh login shell => status is 'pass' (orphan predicate is bash-only)"
+else
+    _fail "test 14a: zsh login shell => expected status='pass' but got '$_t14_status' (output: $_t14_output)"
+fi
+# Review: code-reviewer F6 — added detail assertion (sibling tests assert all fields).
+if [[ -n "$_t14_detail" ]]; then
+    _pass "test 14b: zsh login shell => detail is non-empty: $_t14_detail"
+else
+    _fail "test 14b: zsh login shell => detail is empty — probe should always populate detail"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 15: shell_login_env: bash login shell with intact ~/.local/bin + claude => pass.
+#
+# Fake bash reports $HOME/.local/bin in the fresh PATH AND resolves claude.
+# Both orphan-predicate conditions are satisfied => status must be "pass".
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test 15: shell_login_env: bash login shell with intact PATH + claude => pass ==="
+
+_t15_dir="$_SCRATCH_DIR/t15_bash_intact"
+mkdir -p "$_t15_dir"
+
+_make_stub "$_t15_dir" "uname" "0" "Darwin"
+
+printf '#!/bin/sh\nprintf "UserShell: %s/bash\\n"\n' "$_t15_dir" > "$_t15_dir/dscl"
+chmod +x "$_t15_dir/dscl"
+
+# Fake bash: PATH includes $HOME/.local/bin; claude resolves.
+# $HOME is expanded at runtime by /bin/sh (the stub interpreter), matching the
+# probe's own $HOME expansion in the case-pattern match.
+cat > "$_t15_dir/bash" << 'STUB_EOF'
+#!/bin/sh
+# Fake bash login shell: intact PATH; claude resolves in ~/.local/bin.
+if [ "$1" = "-lc" ]; then
+    case "$2" in
+        *printf*)
+            printf '%s' "$HOME/.local/bin:/usr/bin:/bin"
+            ;;
+        *claude*)
+            printf '%s\n' "$HOME/.local/bin/claude"
+            ;;
+    esac
+fi
+exit 0
+STUB_EOF
+chmod +x "$_t15_dir/bash"
+
+PATH="$_t15_dir:$_ORIG_PATH"
+_t15_output="$(_co_probe_shell_login_env 2>/dev/null)"
+PATH="$_ORIG_PATH"
+
+_t15_status="$(_json_field "$_t15_output" "status")"
+_t15_detail="$(_json_field "$_t15_output" "detail")"
+if [[ "$_t15_status" == "pass" ]]; then
+    _pass "test 15a: bash login shell with intact \$HOME/.local/bin and claude => status is 'pass'"
+else
+    _fail "test 15a: bash login shell intact => expected status='pass' but got '$_t15_status' (output: $_t15_output)"
+fi
+# Review: code-reviewer F6 — added detail assertion (sibling tests assert all fields).
+if [[ -n "$_t15_detail" ]]; then
+    _pass "test 15b: bash login shell intact => detail is non-empty: $_t15_detail"
+else
+    _fail "test 15b: bash login shell intact => detail is empty — probe should always populate detail"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 16: shell_login_env: unprobeable login shell => inconclusive.
+#
+# dscl prints nothing (empty awk field $2) AND $SHELL is unset/empty.
+# The probe cannot detect ANY login shell => must emit "inconclusive".
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test 16: shell_login_env: unprobeable login shell => inconclusive ==="
+
+_t16_dir="$_SCRATCH_DIR/t16_no_shell"
+mkdir -p "$_t16_dir"
+
+_make_stub "$_t16_dir" "uname" "0" "Darwin"
+
+# dscl stub: prints nothing → awk field $2 is empty → _login_shell is empty.
+_make_stub "$_t16_dir" "dscl" "0"
+
+# Temporarily clear SHELL so the ${SHELL:-} fallback also yields empty.
+_t16_saved_shell="${SHELL:-}"
+SHELL=""
+
+PATH="$_t16_dir:$_ORIG_PATH"
+_t16_output="$(_co_probe_shell_login_env 2>/dev/null)"
+PATH="$_ORIG_PATH"
+
+SHELL="$_t16_saved_shell"
+
+_t16_status="$(_json_field "$_t16_output" "status")"
+_t16_severity="$(_json_field "$_t16_output" "severity")"
+if [[ "$_t16_status" == "inconclusive" ]]; then
+    _pass "test 16a: unprobeable login shell (dscl empty + SHELL unset) => status is 'inconclusive'"
+else
+    _fail "test 16a: unprobeable login shell => expected status='inconclusive' but got '$_t16_status' (output: $_t16_output)"
+fi
+# Review: code-reviewer F6 — added severity assertion (sibling tests assert all fields).
+if [[ -n "$_t16_severity" ]]; then
+    _pass "test 16b: unprobeable login shell => severity is set: $_t16_severity"
+else
+    _fail "test 16b: unprobeable login shell => severity is empty — probe must always set severity"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 17: shell_login_env: non-macOS (Linux mock) => pass.
+#
+# Mock uname to return "Linux". The macOS HARD short-circuit fires BEFORE
+# the orphan predicate. Status MUST be "pass"; the probe must NEVER return
+# "fail" for a non-Darwin system regardless of PATH or shell configuration.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test 17: shell_login_env: non-macOS (Linux mock) => pass (macOS guard fires first) ==="
+
+_t17_dir="$_SCRATCH_DIR/t17_linux"
+mkdir -p "$_t17_dir"
+
+# uname stub: returns "Linux" → macOS guard short-circuits the entire probe.
+_make_stub "$_t17_dir" "uname" "0" "Linux"
+
+PATH="$_t17_dir:$_ORIG_PATH"
+_t17_output="$(_co_probe_shell_login_env 2>/dev/null)"
+PATH="$_ORIG_PATH"
+
+_t17_status="$(_json_field "$_t17_output" "status")"
+if [[ "$_t17_status" == "pass" ]]; then
+    _pass "test 17a: non-macOS (Linux mock) => macOS guard fires => status is 'pass' (orphan predicate never runs)"
+else
+    _fail "test 17a: non-macOS => expected status='pass' but got '$_t17_status' (output: $_t17_output)"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 18: shell_login_env: login shell -lc exits non-zero => inconclusive.
+#
+# Exercises the "|| true" guard + empty-fresh-PATH inconclusive path:
+#   1. The fake bash exits 1 immediately (simulating an rc file failure).
+#   2. The || true in the probe catches the non-zero exit under set -euo pipefail.
+#   3. _fresh_path is empty (nothing printed before exit) => inconclusive.
+#
+# Critical invariant: the probe must NOT crash and must NOT emit "fail" —
+# an unprobeable shell is inconclusive, not a confirmed orphan.
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test 18: shell_login_env: login shell -lc exits non-zero => inconclusive ==="
+
+_t18_dir="$_SCRATCH_DIR/t18_lc_fail"
+mkdir -p "$_t18_dir"
+
+_make_stub "$_t18_dir" "uname" "0" "Darwin"
+
+# dscl stub points at the fake bash so the login shell IS detected
+# (distinguishes this case from test 16's "no shell detected" inconclusive path).
+printf '#!/bin/sh\nprintf "UserShell: %s/bash\\n"\n' "$_t18_dir" > "$_t18_dir/dscl"
+chmod +x "$_t18_dir/dscl"
+
+# Fake bash: exits 1 immediately, prints nothing.
+# The || true in the probe absorbs the error; _fresh_path becomes empty => inconclusive.
+_make_stub "$_t18_dir" "bash" "1"
+
+PATH="$_t18_dir:$_ORIG_PATH"
+_t18_output="$(_co_probe_shell_login_env 2>/dev/null)"
+PATH="$_ORIG_PATH"
+
+_t18_status="$(_json_field "$_t18_output" "status")"
+_t18_severity="$(_json_field "$_t18_output" "severity")"
+if [[ "$_t18_status" == "inconclusive" ]]; then
+    _pass "test 18a: login shell -lc exits non-zero => || true guard absorbed, empty PATH => status is 'inconclusive' (not crash, not fail)"
+else
+    _fail "test 18a: login shell -lc exits non-zero => expected status='inconclusive' but got '$_t18_status' (output: $_t18_output)"
+fi
+# Review: code-reviewer F6 — added severity assertion (sibling tests assert all fields).
+if [[ -n "$_t18_severity" ]]; then
+    _pass "test 18b: login shell -lc exits non-zero => severity is set: $_t18_severity"
+else
+    _fail "test 18b: login shell -lc exits non-zero => severity is empty — probe must always set severity"
 fi
 
 # ---------------------------------------------------------------------------

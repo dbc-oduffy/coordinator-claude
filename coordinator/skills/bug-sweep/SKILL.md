@@ -283,19 +283,18 @@ Without the flag, this phase is a no-op (no skill invocation, no log line). With
    For each genuinely blocked finding, capture it via:
    ```bash
    coordinator-queue-append --schema bug-backlog \
-     --id BS-<date>-<N> \
-     --system <subsystem> \
+     --surface <subsystem> \
      --severity P1 \
      --status open \
      --title "<title>" \
      --body "<description>" \
      [--why-blocked "<reason>"] \
-     [--cross-ref <ref>]
+     [--evidence <ref>]
    ```
 
-   This creates `state/bug-backlog/BS-<date>-<N>.yaml`. Do NOT run this CLI as a smoke test inline during skill execution — the CLI surface integration tests live in `coordinator-queue-append.test.py` (C17).
+   This creates `state/bug-backlog/<date>-<slug>.yaml` (the filename is the canonical handle — the `id` field was dropped in qffs-tc-2 D2). Do NOT run this CLI as a smoke test inline during skill execution — the CLI surface integration tests live in `coordinator-queue-append.test.py` (C17).
 
-   **ID format:** `BS-{date}-{N}`. **Cross-reference with `state/debt-backlog/`** if overlap exists — the `cross_ref:` field is structured as a YAML list (e.g. `cross_ref: ["DSR-2026-06-15-3"]`) and is passed via `--cross-ref` to the CLI.
+   **Cross-reference with `state/debt-backlog/`** if overlap exists — pass related handles via `--evidence` (the unified provenance field, qffs-tc-2 D1; e.g. `--evidence "DSR-2026-06-15-3"`). The legacy `--id BS-…` / `--system` / `--cross-ref` flags were renamed/removed in tc-2 (`--surface`, `--evidence`; id dropped).
 
    **Update queue metadata** — write/update `state/bug-backlog/.meta.yaml` with `last_sweep_commit: <short-hash>` and `last_sweep_at: <YYYY-MM-DD>` after appending new entries. If no blocked items, still update `.meta.yaml` (last sweep commit + zero counts).
 

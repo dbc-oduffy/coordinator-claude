@@ -261,9 +261,9 @@ done
 For each registered peer repo path:
 
 1. **Verify on-disk.** If the peer path does not resolve on this machine, emit a warning and skip:
-   `"outbox-drain: peer <shortname> not on disk — skipping (DoE drain runs from Striker)"`.
+   `"outbox-drain: peer <shortname> not on disk — skipping (DoE drain runs from Machine-A)"`.
    Do NOT error-exit on absent peers; the drain is designed to run from a machine with all repos
-   checked out (typically Striker) but must degrade gracefully elsewhere.
+   checked out (typically Machine-A) but must degrade gracefully elsewhere.
 
 2. **Fetch and pull** to ensure the outbox is current:
 

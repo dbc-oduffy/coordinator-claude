@@ -15,7 +15,43 @@ import { ProvenanceEnvelope } from "../provenance.js";
 
 // ── Handoff summary (from state/handoffs/*.md frontmatter) ───────────────────
 
-export const HandoffStatus = z.enum(["active", "consumed", "superseded"]);
+/**
+ * Handoff lifecycle stage — the two-value enumeration governing the current
+ * actionability of a handoff: `active` (in play, awaiting pickup) or `consumed`
+ * (picked up and acted on).
+ *
+ * **`superseded` was retired as a handoff status on 2026-06-26 (handoff-only).**
+ * Supersession of a handoff is now expressed via `deployment_state: abandoned`
+ * combined with the existing `predecessor`/`supersedes:` lineage fields — not a
+ * distinct status value. The retirement sequence: doctrine writers (CLAUDE.md,
+ * spinoff-handoffs.md, skills/handoff/SKILL.md, schemas/handoff.yaml) and live
+ * data were migrated first; the contract was narrowed after (contract follows
+ * doctrine, not vice-versa).
+ *
+ * **Legacy/external tolerance — coerce-at-ingest:** readers tolerate a legacy or
+ * external handoff carrying `status: superseded`. The cockpit emitter
+ * (`bin/emit-cockpit-snapshot.sh`) coerces `superseded` → `consumed` at ingest,
+ * before the strict Zod validator sees the record. `schemas/handoff-archived.yaml`
+ * also stays tolerant of `superseded` upstream so `query-records --type handoff-archived`
+ * (which runs before the jq coerce) does not reject historical archived records.
+ * Any other string-but-unrecognized handoff status that passes the per-record jq
+ * `select` (which excludes only missing/null fields) but is NOT coerced triggers a
+ * **whole-emit abort** at `validate_main_record` — not a per-record exclusion. Only
+ * the one retired `superseded` token is coerced; any other unexpected status string
+ * still hard-aborts the emit.
+ *
+ * **Stage vs. `deployment_state` — orthogonal axes, not redundant:**
+ * `status` answers "is this handoff still in play?" — a two-stage gate.
+ * `deployment_state` answers "where is the associated workstream in its delivery
+ * lifecycle?" — a richer progression (`awaiting_gate | ready_to_fire | in_flight |
+ * shipped | abandoned`). These are INDEPENDENT dimensions: a `consumed` handoff can
+ * carry `deployment_state: in_flight` (picked up but not yet shipped); an `active`
+ * handoff can carry `deployment_state: ready_to_fire` (staged, awaiting pickup).
+ * Consumers keying on one axis must not substitute the other.
+ *
+ * Spec backlink: `docs/plans/2026-06-26-retire-superseded-handoff-status.md` § C4.
+ */
+export const HandoffStatus = z.enum(["active", "consumed"]);
 export type HandoffStatus = z.infer<typeof HandoffStatus>;
 
 /**
@@ -32,6 +68,11 @@ export const HandoffKind = z.enum([
 ]);
 export type HandoffKind = z.infer<typeof HandoffKind>;
 
+/**
+ * Delivery lifecycle progression for the workstream associated with a handoff.
+ * Orthogonal to `HandoffStatus` — see the `HandoffStatus` docstring for the
+ * stage↔`deployment_state` partition explanation.
+ */
 export const DeploymentState = z.enum([
   "awaiting_gate",
   "ready_to_fire",
@@ -55,6 +96,34 @@ export const HandoffSummary = z.object({
   predecessor: z.string(),
   /** Affected file paths (frontmatter `scope:` list) — stored as JSON array in tc-5. */
   scope: z.array(z.string()),
+  /**
+   * Session id that consumed this handoff (frontmatter `consumed_by:` field).
+   * D9: nullable, never optional — key MUST be present, null when unset.
+   */
+  consumed_by: z.string().nullable(),
+  /**
+   * ISO-8601 UTC timestamp when the handoff was picked up.
+   * D9: nullable, never optional — key MUST be present, null when unset.
+   */
+  consumed_at: IsoDateTime.nullable(),
+  /**
+   * Resolved commit sha + date when the workstream shipped.
+   * Opticon wants the date for timeline rendering.
+   * D9: nullable, never optional — key MUST be present, null when unset.
+   */
+  shipped_in: z.object({ sha: z.string(), date: IsoDate }).nullable(),
+  /**
+   * Session id that picked up the handoff.
+   * D9: nullable, never optional — key MUST be present, null when unset.
+   */
+  picked_up_by: z.string().nullable(),
+  /**
+   * Metadata-only progress ratio: done/total acceptance-criterion count.
+   * NO raw criterion text — privacy hard constraint for the all-staff web tier;
+   * the full typed per-item array is the structured-handoff spinoff's deliverable.
+   * D9: nullable, never optional — key MUST be present, null when unset.
+   */
+  acceptance_criteria: z.object({ done: z.number().int(), total: z.number().int() }).nullable(),
   provenance: ProvenanceEnvelope,
 });
 export type HandoffSummary = z.infer<typeof HandoffSummary>;
@@ -107,6 +176,12 @@ export const BacklogItemSummary = z.object({
 export type BacklogItemSummary = z.infer<typeof BacklogItemSummary>;
 
 // ── Review-trail record (from state/review-trail/*.json) ──────────────────────
+//
+// NOTE — intentionally dropped on-disk fields: the on-disk review-trail JSON also
+// carries `scope` (chain|session), `scope_kind` (diff|plan|integration), and
+// `session_id` (the authoring session). These fields are consumed by
+// workweek-trail-scope.sh for scope accounting but are NOT emitted to this cockpit
+// entity. Do not add them to the Zod schema without a tc-3/tc-4/tc-5 migration plan.
 
 export const ReviewVerdict = z.enum(["ok", "warn", "blocked", "waived"]);
 export type ReviewVerdict = z.infer<typeof ReviewVerdict>;
@@ -128,6 +203,12 @@ export const ReviewTrail = z.object({
    * provenance.observed_at is the OBSERVATION time, not the review date.
    */
   reviewed_at: IsoDateTime,
+  /**
+   * Join key back to the handoff's `workstream` slug.
+   * D9: nullable, never optional — archived review-trail records predate this field;
+   * tolerant-reader rule: present-as-null for records that lack it.
+   */
+  workstream: z.string().nullable(),
   provenance: ProvenanceEnvelope,
 });
 export type ReviewTrail = z.infer<typeof ReviewTrail>;

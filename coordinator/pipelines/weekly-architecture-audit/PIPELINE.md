@@ -87,6 +87,29 @@ Check the system's **live file count** at dispatch time — do not use the atlas
 
 **Note:** Templates for Haiku and Sonnet agents are in `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/agent-prompts.md`. Do not duplicate them here — reference that file directly when dispatching.
 
+### Step 3.6: Scaffold the Canonical Audit Record
+
+Run the scaffolder to emit the conformant skeleton at the canonical path:
+
+```bash
+coordinator-doc-new --type audit-record --system <target>
+# → docs/architecture/audit-records/<YYYY-MM-DD>-<target>.md
+```
+
+The scaffolded skeleton is the **authoritative shape** — it carries the required YAML frontmatter (D1 field set: `run_id`, `system`, `grade`, `health_status`, `reviewer`, `created`; optional `mode`), the canonical body sections, and the addressable `### Diagram (ASCII)` fenced section. The canonical body-section list is the SSOT of the C2 scaffolder skeleton; the reviewer fills sections within it and does NOT choose its own shape.
+
+**Dispatch the domain Opus reviewer with `mode: acceptEdits` and the scaffolded file path** so it edits the file in-place. The reviewer prompt MUST instruct the reviewer to:
+
+1. **Populate frontmatter:** fill `grade` (A–F enum), `health_status` (HEALTHY|WATCH|ACTION|CRITICAL enum), `run_id` (format: `YYYY-MM-DD-HHhMM`), `reviewer`, and optionally `mode` (RESEARCH_ONLY|FULL|REMEDIATION).
+2. **Write the `### Diagram (ASCII)` fenced flow diagram** — format and ≤100-char rule per `canonical-artifact-shapes.md § Diagram (ASCII) Rule` (the SSOT — cite it; do NOT copy rule text from `pipelines/deep-architecture-survey/agent-prompts.md`).
+3. **Fill all named prose sections without flattening grade-rationale or ambition-check prose.** These sections carry human judgment — the guardrail is that no prose section is ever dropped to make room.
+
+The reviewer prompt references the scaffolded skeleton file, not an independent restatement of the section list. Parallel restatement of the canonical section list is the drift path the shared contract prevents.
+
+> **Negative-spec (hard):**
+> - The reviewer MUST NOT flatten or drop any prose section (grade-rationale, ambition-check, or others) to make room for any other content.
+> - The three historical audit records (`2026-05-28-coordinator-runtime.md` et al.) are frozen point-in-time records — they are NOT retrofitted to the canonical schema (plan D4). The new shape governs only records authored after this step lands.
+
 ### Step 4: Package Findings as Spinoff Candidates (the audit NEVER edits code)
 
 The audit pass **never edits code** — it reads, scores, and hands findings to the EM. There is no inline-fix step. The EM routes each finding down a disposition ladder (people over process):
@@ -118,12 +141,14 @@ If `docs/architecture/systems/{target-system}.md` does not exist, skip this step
 
 **Branch A (refresh inline):** if reviewer findings warrant changes:
 1. Edit the atlas page body — add/remove functions mentioned in findings, update boundary entries if cross-system connections changed.
-2. Bump `last_mapped` to the audit date in the YAML frontmatter.
+2. Bump BOTH `last_mapped` AND `last_attested` to the audit date in the YAML frontmatter. (Branch A bumps both because a content rotation IS the strongest form of attestation — narrow-attestation would let a just-rotated atlas read STALE under the 30d threshold.)
+<!-- Review: code-reviewer slice-B F2 — Branch A must bump BOTH clocks; bumping only last_mapped would leave last_attested stale and check-atlas-watch-drift.sh would emit STALE on a freshly-rotated page. Mirrored from SKILL.md Branch A item 2. -->
 3. Add/update `grade: [A-F]` and `health_status: [HEALTHY|WATCH|ACTION|CRITICAL]` fields in the YAML frontmatter, after the `dependencies` field.
 4. Stage the atlas page alongside the health-ledger update from Step 6.
 
 **Branch B (assert current):** if the atlas is already accurate and no body changes are warranted:
-1. Bump `last_mapped` to the audit date only (no body diff).
+1. Bump `last_attested` (NOT `last_mapped`) to the audit date. Zero body diff. Branch B records a currency assertion without a content rotation.
+<!-- Review: code-reviewer slice-B F1 — Branch B must bump last_attested, NOT last_mapped. last_mapped is the survey-exclusive clock; bumping it on a targeted audit falsely suppresses the full-survey nudge. Mirrored from SKILL.md Branch B item 1. -->
 2. Stage the atlas page alongside the health-ledger update.
 3. Prepare a close-out commit message containing the literal token `atlas-current-as-of: <YYYY-MM-DD>` (the audit date).
 
@@ -151,7 +176,11 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 
 ### Step 7: Report
 
-**Precondition:** `bin/verify-arch-audit-atlas-refresh.sh` returned `PASS branch=A` or `PASS branch=B` on the last attempt. If it returned `FAIL`, do NOT proceed to Step 7 — fix per Branch A or Branch B in Step 6.5 and re-attempt. The verbatim failure message is the iron-law signal:
+**Precondition (on-disk audit record):** The canonical audit record at `docs/architecture/audit-records/<date>-<system>.md` (scaffolded in Step 3.6 and filled by the reviewer in-place via `mode: acceptEdits`) MUST exist and carry populated frontmatter and a `### Diagram (ASCII)` section before proceeding. Stage and commit this file alongside the atlas + ledger close-out commit from Step 6.5.
+
+**The chat report below is DISTINCT from the on-disk audit record.** The chat report is a session-close summary for the PM; the on-disk record at `docs/architecture/audit-records/<date>-<system>.md` is the durable machine-addressable artifact carrying frontmatter (`grade`, `health_status`, `run_id`) and the addressable `### Diagram (ASCII)` section. The chat report does not substitute for the disk record, and the disk record does not replace the chat report.
+
+**Precondition (atlas gate):** `bin/verify-arch-audit-atlas-refresh.sh` returned `PASS branch=A` or `PASS branch=B` on the last attempt. If it returned `FAIL`, do NOT proceed to Step 7 — fix per Branch A or Branch B in Step 6.5 and re-attempt. The verbatim failure message is the iron-law signal:
 
 ```
 FAIL: /architecture-audit Step 6.5 atlas-refresh gate not satisfied for <TARGET_SYSTEM>.

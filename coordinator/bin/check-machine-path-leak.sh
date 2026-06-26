@@ -18,7 +18,7 @@
 #   - Does NOT grep raw file text — structural JSON/YAML parsing only. Text-grep
 #     false-positives on fixtures, commit-message args, and comment blocks.
 #   - Does NOT flag X:\, E:\, or /Users/<other>/ paths in working-repos.yaml — those
-#     are the documented Striker catalog and must stay in the file.
+#     are the documented Machine-A catalog and must stay in the file.
 #   - Only flags paths rooted at the CURRENT machine's $HOME in working-repos.yaml.
 #   - settings.json is always a hard block regardless of path origin.
 #
@@ -146,14 +146,14 @@ fi
 #   (b) the TAB channel that corrupted IFS-split when JSON values contained tabs
 #
 # SETTINGS.JSON ONLY — must NEVER be used for working-repos.yaml, where
-# X:\, E:\, and /Users/<other>/ are intentional Striker catalog content.
+# X:\, E:\, and /Users/<other>/ are intentional Machine-A catalog content.
 #
 # Patterns (kept in sync with the working-repos check which has its own logic):
 #   ^/Users/<name>/    macOS home
 #   ^/home/<name>/     Linux home
 #   ^C:[/\]Users[/\]   Windows C:\Users\
-#   ^X:[/\]            Striker X:\ catalog drive
-#   ^E:[/\]            Striker E:\ dev drive
+#   ^X:[/\]            Machine-A X:\ catalog drive
+#   ^E:[/\]            Machine-A E:\ dev drive
 # ---------------------------------------------------------------------------
 
 SCAN_SETTINGS_JSON_PY='
@@ -268,7 +268,7 @@ done
 # a YAML string value, making it a safe separator.
 #
 # NOTE: working-repos.yaml soft-warn only flags paths rooted at the CURRENT
-# machine's $HOME. X:\, E:\, and /Users/<other>/ are intentional Striker
+# machine's $HOME. X:\, E:\, and /Users/<other>/ are intentional Machine-A
 # catalog content and must NOT be flagged here. This snippet receives
 # CURRENT_HOME as its first argument.
 # ---------------------------------------------------------------------------
@@ -347,7 +347,7 @@ _check_working_repos_yaml() {
     else
         # Fallback: conservative line-scan.
         # Only flag lines where the VALUE portion starts with $CURRENT_HOME.
-        # Foreign-machine paths (X:\, /Users/other/) are skipped — intentional Striker catalog.
+        # Foreign-machine paths (X:\, /Users/other/) are skipped — intentional Machine-A catalog.
         # WARN: PyYAML absent — working-repos.yaml leak check is best-effort.
         # Limitation: multiline/next-line YAML values will be missed by this scan.
         if [[ -z "$CURRENT_HOME" ]]; then

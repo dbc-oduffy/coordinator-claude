@@ -117,117 +117,40 @@ Generate a filename: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_{session-id}.md` wher
 
 **Primary source: your conversation context.** You know what you worked on, what files you modified, what decisions were made. Use that — don't rely on git log to reconstruct your session.
 
-Write the file with this structure:
+Create the file using `coordinator-doc-new` — the GENERATE altitude that derives conformant frontmatter from the registry and writes a canonical section skeleton to disk:
 
-```markdown
----
-title: "<one-line title>"           # REQUIRED. Concise workstream name.
-created: <YYYY-MM-DD>               # REQUIRED. Date this handoff was authored.
-branch: <branch-name>               # REQUIRED. Active branch (git symbolic-ref HEAD).
-status: active                      # REQUIRED. Enum: active | consumed | superseded.
-predecessor: <filename-or-null>     # REQUIRED. Predecessor handoff filename, or null.
-                                    # null = no predecessor (fresh workstream).
-category: <roadmap|infra|bug|docs|research|refactor>
-                                    # category ∈ {roadmap|infra|bug|docs|research|refactor};
-                                    # summary ≤120 chars, one-line tl;dr
-summary: "<one-line tl;dr>"        # ≤120 chars. Required on handoffs created ≥ 2026-05-29.
-workstream: <workstream-slug>      # short slug, e.g., scoped-safety-commits
-scope:                              # git pathspec syntax — files this workstream owns
-  - path/to/file.md
-  - dir/with/files/**
-deployment_state: ready_to_fire     # REQUIRED. Default to ready_to_fire when:
-                                    #   - Recommended next steps are concrete AND
-                                    #   - No PM-gate is named in ## Blockers or Issues.
-                                    # Use awaiting_gate when the work cannot proceed
-                                    # without an external condition clearing — pair
-                                    # with gate_dependency. Use in_flight when this
-                                    # handoff is a status report for work the next
-                                    # session resumes immediately.
-gate_dependency: <one-line>         # REQUIRED iff deployment_state=awaiting_gate.
-                                    # Subsystem-named, not file-pathed. Same durability
-                                    # rule as Recommended Next Steps prose: name the
-                                    # condition or subsystem, not the source paths.
-pickup_ready: true                  # DEFAULT ON for all handoffs authored by this skill.
-                                    # Positive signal: this handoff is explicitly
-                                    # authorized for pickup. Absence triggers a
-                                    # non-blocking warning at /pickup time (not a
-                                    # block). Do NOT remove — stays as authorial-intent
-                                    # record on consumed handoffs.
-reviewed_at_workstream_complete: <sha-range> <reviewer> <YYYY-MM-DD>
-                                    # OPTIONAL. Written by /workstream-complete (Step 2.8) or
-                                    # /handoff (Step 2.X) after running coordinator:review-code
-                                    # on this session's diff. Format: "<sha-range> <reviewer>
-                                    # <YYYY-MM-DD>" — e.g. "abc123..def456 code-reviewer 2026-05-18".
-                                    # reviewer is one of: code-reviewer | patrik | code-reviewer+patrik | waived.
-                                    # Omit on spinoffs (kind: spinoff / spinoff-roadmap) — the
-                                    # field applies to continuation handoffs only.
----
-
-# Session Handoff — [DATE]
-
-## What Was Accomplished
-
-_Continuing from [previous handoff filename]: [what the prior session had completed and where it left off]. This session picked up at [entry point]._
-
-- [Bullet list of completed work with file paths]
-
-## Current State
-- **Build status:** [compiles / unknown / broken + error]
-- **Tests:** [all passing / N failing / not run]
-- **Branch:** [branch name] — workstream-start uses this to find resumable branches
-- **Remote synced:** [yes/no — check `git log origin/{branch}..HEAD`]
-- **Uncommitted changes:** [yes/no — what]
-
-## In-Progress Work
-<!-- Durability: describe what is happening, not how to continue it. Path references here are OK — you're describing state, not prescribing steps. -->
-- [What was being worked on when the session ended]
-- [Current step in the plan, if following a plan doc]
-- [Plan doc path if applicable]
-
-## Key Decisions Made
-
-> Capture 2-5 decisions per session where the *reasoning* would save future context reconstruction. Not every decision — only those where knowing "why" matters more than knowing "what".
-
-### Decision: [Short title]
-- **Observed:** [What prompted this — the situation or constraint you saw]
-- **Considered:** [Alternatives weighed — include rejected approaches briefly]
-- **Chose:** [What was decided and the core reasoning]
-
-[Repeat for each key decision]
-
-## Blockers or Issues
-<!-- Classify by severity before listing. A break-class defect (broken / would-break / fails / leaks / silently-bypasses) is fix-by-default — fix it (or dispatch / propose a plan) before handing off; do NOT park a correctness defect here as a passive "want me to fix?" flag. Only genuine PM-input/external-system blockers belong. → global CLAUDE.md § Flag Severity; docs/wiki/flag-severity-triage.md -->
-- [Anything that's stuck or needs human intervention]
-
-## Recommended Next Steps
-<!-- Durability: name subsystems and concepts, not file paths or line numbers. Each step = behavioral outcome (what to accomplish), not procedure (how to do it). Include an "Out of scope" line to prevent gold-plating. -->
-1. [First thing the next session should do — behavioral outcome, verifiable]
-2. [Second thing]
-3. [Third thing]
-
-**Out of scope for next session:** [explicitly name what the next session should NOT do or expand into]
-
-## Carried Forward
-<!-- Items from the predecessor handoff that this session did NOT resolve. These cascade
-     down the chain until completed or explicitly dismissed by the PM. If none, omit this section. -->
-- [ ] [Unresolved item from predecessor] _(carried from [predecessor filename])_
-- [ ] [Another unresolved item] _(carried from [predecessor filename])_
-
-## Files Modified This Session
-- [file path] — [one-line description of change]
-
-## Session Ledger
-
-| Field | Value |
-|-------|-------|
-| agent_dispatches | <!-- from coordinator-session-loe.sh --> |
-| opus_dispatches | <!-- from coordinator-session-loe.sh --> |
-| em_tokens | <!-- from coordinator-session-loe.sh --> |
-| tshirt | <!-- from coordinator-session-loe.sh --> |
-| commits | <!-- git log --oneline since session start --> |
-| session_id | <!-- $CLAUDE_CODE_SESSION_ID, sentinel fallback --> |
-| created | <!-- ISO-8601 timestamp at handoff-write time --> |
+```bash
+# Date+time+session-id filename convention (unique-per-session rule):
+HANDOFF_FILE="state/handoffs/$(date +%Y-%m-%d)_$(date +%H%M%S)_${CLAUDE_CODE_SESSION_ID:-manual}.md"
+coordinator-doc-new --type handoff \
+    --title "<one-line title>" \
+    --out "$HANDOFF_FILE"
 ```
+
+The scaffolder writes `title:`, `created:`, `branch:` (auto-detected), `status: active`, `predecessor: none`, `kind: session-handoff`, `deployment_state: ready_to_fire`, `category: infra`, a placeholder `summary:`, and `pickup_ready: true` — plus the canonical body skeleton (`## What Was Accomplished`, `## Current State`, `## Next Steps`, `## Session Ledger`). Open the scaffolded file via Edit and:
+
+1. **Set frontmatter fields** (replace/add):
+   - `predecessor:` — predecessor handoff filename, or `none` for a fresh workstream
+   - `workstream:` — add: short slug, e.g. `scoped-safety-commits`
+   - `scope:` — add: git pathspec block (files this workstream owns; required for Step 3's scoped commit)
+   - `category:` — update from scaffold default (`infra`) unless it is correct
+   - `summary:` — replace placeholder with a one-line tl;dr (≤120 chars; required ≥ 2026-05-29)
+   - `deployment_state:` — `ready_to_fire` (default), `awaiting_gate` + `gate_dependency: <one-line>` (gated; subsystem-named, not file-pathed), or `in_flight`
+   - `reviewed_at_workstream_complete:` — omit on initial write; Step 2.10 fills this after code review; format `<sha-range> <reviewer> <YYYY-MM-DD>`; reviewer is one of `code-reviewer | patrik | code-reviewer+patrik | waived`; omit on `kind: spinoff / spinoff-roadmap`
+   - **`pickup_ready: true`** — emitted by the scaffolder; **do NOT remove** (absence triggers a non-blocking warning at `/pickup`)
+
+2. **Fill and extend the body** (Edit into the scaffolded sections; add sections the scaffold does not emit):
+   - `## What Was Accomplished` — `_Continuing from [predecessor]: …_` preamble + bullets of completed work
+   - `## Current State` — build status, tests, branch, remote sync, uncommitted changes
+   - `## In-Progress Work` — *(add)* what was being worked on when the session ended; describe state, not procedure
+   - `## Key Decisions Made` — *(add)* 2-5 decisions with Observed/Considered/Chose, where knowing "why" matters
+   - `## Blockers or Issues` — *(add)* genuine PM-input/external-system blockers only; break-class defects fix in-session, not here (→ global CLAUDE.md § Flag Severity; docs/wiki/flag-severity-triage.md)
+   - `## Recommended Next Steps` — *(scaffold emits "Next Steps"; rename + expand)* behavioral outcomes with explicit out-of-scope line
+   - `## Carried Forward` — *(add, only when there IS a predecessor)* unresolved items from predecessor with origin annotation
+   - `## Files Modified This Session` — *(add)* path and one-line description per file
+   - `## Session Ledger` — populate per the ledger instructions below
+
+**Recovery flavor:** scaffold with `coordinator-doc-new --type handoff`, then Edit to set `kind: recovery`. Point `predecessor:` at the crashed handoff filename or its last commit SHA (null permitted when no recoverable predecessor exists).
 
 **Populate the Session Ledger immediately after writing the handoff body** (still in Step 1, before Step 2). This is the per-session contribution slice that the chain-terminal aggregator (Chunk 5) will sum across the predecessor chain.
 
@@ -294,17 +217,18 @@ These four rules apply specifically to `## Recommended Next Steps` and `## In-Pr
 1. **Relocate out of the active queue — relocation is the load-bearing guard.** Before moving, stamp `shipped_in:` into the handoff frontmatter — the SHA must be captured while the file is still in `state/handoffs/` and the workstream's commit context is fresh:
 
    ```bash
-   source ~/.claude/plugins/coordinator/lib/coordinator-archive-stamp.sh
+   source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-archive-stamp.sh"
    stamp_shipped_in "state/handoffs/<superseded-file>" --allow-branch-tip-fallback
    ```
 
    The `--allow-branch-tip-fallback` flag is correct here: this is a ceremony-complete path where the workstream actually finished, so the branch tip is a plausible signal for the completed workstream. If stamping finds no SHA, it exits 0 and skips silently — the move still proceeds.
 
-   Then move into the handoff's **month-subfolder** (matching `archive/specs/YYYY-MM/`): `bn="$(basename "<superseded-file>")"; ym="${bn:0:7}"; mkdir -p "archive/handoffs/$ym" && git mv "state/handoffs/$bn" "archive/handoffs/$ym/$bn"` (fall back to flat `archive/handoffs/$bn` if the filename has no `YYYY-MM` date prefix). Set frontmatter `status: superseded` (a legal enum value per CLAUDE.md § Handoff Lineage and `schemas/handoff.yaml`) AND `deployment_state: abandoned` — superseded work is not `ready_to_fire` and was not its own ship, so `abandoned` keeps it out of every primary list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of which `status` value a given reader honors. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: superseded` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field and `bin/lib/schema.js CROSS_FIELD_RULES.handoff` enforces no `status: superseded requires superseded_by` rule (that rule exists only for `cross-repo-memo`). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
+   Then move into the handoff's **month-subfolder** (matching `archive/specs/YYYY-MM/`): `bn="$(basename "<superseded-file>")"; ym="${bn:0:7}"; mkdir -p "archive/handoffs/$ym" && git mv "state/handoffs/$bn" "archive/handoffs/$ym/$bn"` (fall back to flat `archive/handoffs/$bn` if the filename has no `YYYY-MM` date prefix). Set frontmatter `status: consumed` AND `deployment_state: abandoned` — `deployment_state: abandoned` already keeps the parked handoff out of every active list (`/workday-start`, `bin/query-records`, the `session-init` orphan sweep) regardless of `status`, so `consumed + abandoned` is the faithful replacement for the retired `superseded` value. The relocation to `archive/handoffs/` is the load-bearing guarantee that the active-queue filters never see it; `status: consumed` is secondary metadata. Do this for the shipped-but-superseded case too — `deployment_state: abandoned` applies whenever the workstream's ownership moved elsewhere, shipped or not. **Do NOT set a `superseded_by:` frontmatter field** — the handoff schema (`schemas/handoff.yaml`) declares no such field (the `supersedes`/`superseded_by` cross-field rule in `bin/lib/schema.js CROSS_FIELD_RULES` exists only for `cross-repo-memo`, never for handoffs). Provenance lives in the body links (step 2), which are schema-free and correct. If symmetry with `plan.yaml`/`decision.yaml` is wanted, a `superseded_by:` handoff field is a SEPARATE schema change (handoff.yaml optional block + a schema.js cross-field rule) and must not be smuggled in via this plan — it is an improvement-queue candidate.
 2. **Bidirectional canonical link (schema-free body prose).** In the superseded handoff body, add a one-line `**Superseded by:** <successor-path-or-roadmap-stub-id>`. In the successor (handoff, plan, or stub body), add `**Supersedes:** <superseded-handoff-path>`. The pair makes the provenance trail navigable from either end. This body-prose link pair — NOT any frontmatter field — is the canonical supersession-provenance mechanism for handoffs.
 3. **README / index provenance.** If the repo carries a handoff index or `docs/README.md` row referencing the superseded workstream, repoint it at the successor (per CLAUDE.md "Stale doc references: repoint when covered").
 
-This is distinct from chain-archival (above): chain-archival moves the *explicit predecessor of a continuation*; park-with-links handles a *superseded* workstream that has no continuation in this session but whose ownership moved elsewhere. Supersession is a PM-or-roadmap event, not an EM unilateral call on adjacent handoffs — do not park another session's handoff as "superseded" without the explicit successor link (per CLAUDE.md "Don't archive other handoffs as 'superseded' unilaterally").
+This is distinct from chain-archival (above): chain-archival moves the *explicit predecessor of a continuation*; park-with-links handles a *superseded* workstream that has no continuation in this session but whose ownership moved elsewhere. Supersession is a PM-or-roadmap event, not an EM unilateral call on adjacent handoffs — do not park another session's handoff as `status: consumed` + `deployment_state: abandoned` (the replacement for the retired `superseded` value) without the explicit successor link (steps 2–3 above).
+<!-- Review: code-reviewer Slice-B — (F1) reframed "park as superseded" to the new write-form after status:superseded retirement; (F2) removed phantom CLAUDE.md citation, restated rule self-contained with reference to steps 2–3 -->
 
 #### Step 1.5: Refresh Handoff Tracker
 
@@ -437,7 +361,7 @@ Now that the final commit has landed and pushed, archive this session's claim di
 Run:
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null)}" && \
-  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-session.sh" 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 

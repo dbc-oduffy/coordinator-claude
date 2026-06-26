@@ -220,6 +220,58 @@ if ! REPO_ROOT_FOR_WRITE=$(git rev-parse --show-toplevel 2>/dev/null); then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# Workstream resolution (tolerant/nullable — D9: present-as-null discipline)
+#
+# Resolution order:
+#   1. COORDINATOR_REVIEW_WORKSTREAM env var (explicit caller override)
+#   2. Scan state/handoffs/*.md for the first active handoff's `workstream:` field
+#      (active = status not consumed or superseded)
+#   3. Null — no active workstream resolvable
+#
+# Negative-spec: do NOT invent a new resolution mechanism. Do NOT emit an empty
+# string — JSON null is the D9-compliant form for "not resolvable".
+# ---------------------------------------------------------------------------
+
+WORKSTREAM_SLUG=""
+WORKSTREAM_JSON="null"
+
+if [[ -n "${COORDINATOR_REVIEW_WORKSTREAM:-}" ]]; then
+  WORKSTREAM_SLUG="$COORDINATOR_REVIEW_WORKSTREAM"
+else
+  # Scan state/handoffs/ in the repo for the first active handoff's workstream field.
+  # "Active" means status is not consumed or superseded (matches the pattern used
+  # in assert-no-terminal-plans-in-live.sh and whats-next.sh).
+  _HANDOFFS_DIR="${REPO_ROOT_FOR_WRITE}/state/handoffs"
+  if [[ -d "$_HANDOFFS_DIR" ]]; then
+    while IFS= read -r _hfile; do
+      [[ -f "$_hfile" ]] || continue
+      _hstatus=$(awk '/^---/{f++} f==1 && /^status:/{print $2; exit}' "$_hfile" 2>/dev/null || true)
+      [[ "$_hstatus" == "consumed" || "$_hstatus" == "superseded" ]] && continue
+      # Extract workstream: field from the frontmatter block
+      _ws=$(awk '/^---/{f++} f==1 && /^workstream:/{print $2; exit}' "$_hfile" 2>/dev/null || true)
+      if [[ -n "$_ws" ]]; then
+        WORKSTREAM_SLUG="$_ws"
+        break
+      fi
+    done < <(find "$_HANDOFFS_DIR" -maxdepth 1 -name '*.md' -print 2>/dev/null | sort || true)
+  fi
+fi
+
+# Validate WORKSTREAM_SLUG: only [A-Za-z0-9_-] permitted.
+# Slugs are kebab-case by construction; any other character indicates an injection
+# risk or malformed source (e.g. a slug with '"' or '\' would corrupt the JSON record).
+# Reject-to-null is the D9 tolerant-null path — cleaner than escaping, consistent
+# with the null-fallback discipline used throughout this helper.
+if [[ -n "$WORKSTREAM_SLUG" ]] && [[ "$WORKSTREAM_SLUG" =~ [^A-Za-z0-9_-] ]]; then
+  echo "WARN: workstream slug contains invalid characters (only [A-Za-z0-9_-] permitted); emitting null" >&2
+  WORKSTREAM_SLUG=""
+fi
+
+if [[ -n "$WORKSTREAM_SLUG" ]]; then
+  WORKSTREAM_JSON="\"${WORKSTREAM_SLUG}\""
+fi
+
 # Review: the Staff Engineer — two reviews within the same second from the same session would
 # collide and cause exit 2. Use nanosecond precision where the platform supports it
 # (%N is a glibc/Linux extension; macOS date and Windows git-bash return literal %N).
@@ -250,7 +302,7 @@ mkdir -p "$TRAIL_DIR"
 # do NOT "fix" the recorded format to be endpoint-inclusive — per-commit consumption handles
 # the A..B boundary correctly, and changing the format breaks workweek-trail-scope.sh +
 # cockpit-tc-3 ReviewTrail reader. See docs/wiki/workstream-complete-review.md § A..B footgun.
-JSON_RECORD="{\"sha_range\":\"${SHA_RANGE}\",\"reviewer\":\"${REVIEWER}\",\"scope\":\"${SCOPE}\",\"scope_kind\":\"${SCOPE_KIND}\",\"verdict\":\"${VERDICT}\",\"diff_loc\":${DIFF_LOC},\"session_id\":\"${SESSION_ID}\"}"
+JSON_RECORD="{\"sha_range\":\"${SHA_RANGE}\",\"reviewer\":\"${REVIEWER}\",\"scope\":\"${SCOPE}\",\"scope_kind\":\"${SCOPE_KIND}\",\"verdict\":\"${VERDICT}\",\"diff_loc\":${DIFF_LOC},\"session_id\":\"${SESSION_ID}\",\"workstream\":${WORKSTREAM_JSON}}"
 
 # ---------------------------------------------------------------------------
 # Idempotency check and write

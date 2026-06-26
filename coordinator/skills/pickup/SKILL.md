@@ -221,7 +221,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    2. **`consumed_by:` idempotency check.** If frontmatter shows `consumed_by:` non-empty after fetch, exit non-zero: _"Concurrent /pickup detected on `<file>` — already claimed by `<consumed_by>`. Inspect their session before proceeding."_
    3. **`cs_claim_handoff <basename> <baton-repo-root>`.** Atomic mkdir gate per the concurrent-pickup spike. Pass `$BATON_REPO` so the claim lock lives in the baton's repo — two concurrent pickups of the same baton from different cwds then contest the same lock. Exit non-zero on live concurrent claim. Call:
       ```bash
-      source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
+      source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-session.sh"
       cs_claim_handoff "$(basename "$ABS_BATON")" "$BATON_REPO"
       ```
    4. **`pickup_ready` absent → non-blocking warning.** If the handoff frontmatter does NOT contain `pickup_ready: true`, print once to the PM-facing channel:
@@ -239,7 +239,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    <!-- VERBATIM -->
    ```bash
-   source ~/.claude/plugins/coordinator/lib/coordinator-archive-stamp.sh && cs_consume_handoff "$ABS_BATON" || { echo "cs_consume_handoff failed — aborting pickup"; exit 1; }
+   source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-archive-stamp.sh" && cs_consume_handoff "$ABS_BATON" || { echo "cs_consume_handoff failed — aborting pickup"; exit 1; }
    ```
 
    Because this is a Bash-driven node write (not an `Edit` tool call), it is structurally invisible
@@ -277,7 +277,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
    ```bash
    # Review: code-reviewer — F3: resolve via CLAUDE_PLUGIN_ROOT to support OSS install layouts;
    # F13: add error handling on parse failure.
-   _PARSER="${CLAUDE_PLUGIN_ROOT:-${HOME}/.claude/plugins/coordinator-claude/coordinator}/bin/parse-completeness-item.sh"
+   _PARSER="${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/bin/parse-completeness-item.sh"
    if [ ! -x "$_PARSER" ]; then
      echo "ERROR: parse-completeness-item.sh not found or not executable at $_PARSER — reinstall coordinator plugin" >&2
      exit 1
@@ -327,7 +327,7 @@ The handoff is the work order. Do NOT present a menu. Do NOT ask "want me to pro
 
    Probe runs are **advisory** — a failing `live` probe that classifies as `restart-gated-expected` (no restart yet) is not a session-blocking error. Report pass/fail with classification for each `live` item. Items without a probe are accepted on the operator's assertion; TaskUpdate them to completed only when the operator confirms.
 
-6. **Begin executing the first item in "Recommended Next Steps."** If the handoff lists multiple next steps, execute them in order unless the PM redirects. If there's an "In-Progress Work" section describing something partially complete, resume that first — it takes priority over the recommended next steps list. The picking-up session's eventual `/handoff` or `/workstream-complete` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it.
+6. **Route the execution queue — dispatch the first item.** After the reconcile pass, the EM routes each queued item (in order; resume "In-Progress Work" first — it takes priority over the recommended next steps list): plan-worthy (T3 or handoff prescribes a plan) → `coordinator:plan` (see Notes § T3 detection); below the plan threshold (the common case) → **dispatch an executor** by default; EM-inline only when the `agent-dispatch-economics.md` § When to EM-Inline conjunctive checklist holds in full, re-decided at dispatch. In the `~/.claude` meta-repo the `coordinator/em-operating-model.md § Escalation tiers` tier-3 carve-out (1–2 line infra edits) still applies — name it when used. The picking-up session's eventual `/handoff` or `/workstream-complete` flips `deployment_state: in_flight` to `shipped` (with `shipped_in: <sha>`) or back to `ready_to_fire` if the work paused mid-stream and another session should resume it. See Notes § Dispatch routing default.
 
 ---
 
@@ -388,7 +388,7 @@ BATON_RELPATH="${ABS_BATON#"${BATON_REPO}"/}"
 2. **`picked_up_by` idempotency check.** If frontmatter shows `picked_up_by:` non-empty after fetch (and `status: in_progress`), exit non-zero: _"Concurrent memo-pickup detected on `<file>` — already claimed by `<picked_up_by>`. Inspect their session before proceeding."_
 3. **`cs_claim_memo "$(basename "$ABS_BATON")" "$BATON_REPO"`** — atomic mkdir gate (sibling of `cs_claim_handoff`). Exit non-zero on a live concurrent claim. Call:
    ```bash
-   source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
+   source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-session.sh"
    cs_claim_memo "$(basename "$ABS_BATON")" "$BATON_REPO"
    ```
 
@@ -430,7 +430,7 @@ The sender is requesting action. Per `docs/wiki/cross-repo-communication.md` § 
 
 **Accept** — the ask is sound and actionable. **Before performing the work, calibrate ceremony — this is the receiver's call, not the sender's.** An ask's magnitude is not knowable from its register: a sender writes every `ask` plainly and in the imperative (§ Authoring an ask, comm wiki) — that governs sender *plainness*, NOT how big a deal it is for *your* repo. You judge magnitude here, at pickup. Ceremony and channel are orthogonal: this calibration is about how much process an *accepted* ask earns, independent of whether a memo channel was the right vehicle at all (that is the §208 channel question — see comm wiki § Picking up a memo).
 
-- **Default: mechanical-direct.** Most accepted asks are surgical follow-ups, not novel decisions. Perform the work now, commit it (on both sides where you hold authority over the offering repo — see step 3), and action the memo. **No plan, no round-trip, no back-and-forth.** Moving a document, adopting a named doctrine, applying an agreed rename are direct-dispatch work — treat them as such.
+- **Default: mechanical-direct.** Most accepted asks are surgical follow-ups, not novel decisions. **No plan, no round-trip, no back-and-forth.** "Perform the work now" routes through the same dispatch-by-default gate: **dispatch an executor** unless the `agent-dispatch-economics.md` § When to EM-Inline conjunctive checklist holds in full (re-decided at dispatch). Moving a document, adopting a named doctrine, applying an agreed rename are `direct-dispatch` work — `direct-dispatch` means **dispatch directly to an executor, skipping plan ceremony; it does not license the EM to type the change**. Commit on both sides where you hold authority over the offering repo (see step 3), then action the memo. See Notes § Dispatch routing default.
 - **A "land before X happens" ask is do-now.** When the ask is *"land your fix on `origin/main` before <our coupled release>,"* Accept means **do it this session** — `realized_by` is a real SHA/plan, never an agreement to do-it-before-a-gate. *"Sure, we'll land it before the release"* with no commit is deferral in Accept's clothes. Discriminator: landing on `main` is the **work-gate** (do-now — a commit isn't a release); the coupled go-live is the **release-gate**, which is **PM-owned** — not your reason to hold a landable fix. Do your half now; flag synchronized go-live to the PM in one line if needed. After landing: sender hasn't landed theirs → `kind: ask` return memo (new info, not ack-of-ack); they have (`git branch --contains <their-SHA>`) → stamp inbound in place, no reply. → comm wiki § Do-now applies to memos.
 - **Escalate to a plan ONLY on a NAMED weighty signal.** Inherit the `ceremony-calibration.md` § TL;DR decider — escalate when the ask is a *novel decision* (not a surgical follow-up to one already made), *instance #1* of a pattern with downstream occupancy, or *vague enough* in framing to need shaping first. Absent a named signal, the default stands; do not manufacture ceremony to feel thorough.
 
@@ -567,6 +567,10 @@ Done. No return memo sent.
 **Cross-repo MOVE of a roadmap stub requires a source-side residual audit before archiving the original.** Scan source scope vs destination need; if any scope is not transported (e.g., framework-agnostic detector when destination only needs UE overlay), file a successor stub for the residual on the source side BEFORE archiving the original. Update downstream `blocked_by:` lists to reference the successor. **Tracker entry naming a non-existent plan file is a closure signal, not a missing-file bug.** Verify on-disk; if the workstream shipped without leaving a plan, write a closing DR and resolve the tracker row. Do not re-author the plan from scratch.
 
 ## Notes
+
+### Dispatch routing default
+
+> Dispatch IS running — dispatch is the fast path below the plan threshold, not a checkpoint. Dispatch an executor by default; EM-inline is the narrow carve-out gated by `agent-dispatch-economics.md` § When to EM-Inline (all criteria, re-decided at dispatch). See coordinator `CLAUDE.md` "You are the dispatcher, not the typist" and `coordinator/em-operating-model.md § The EM Does Not Type Code`. Routing — plan | dispatch | inline — adds no PM round-trip and no plan for sub-T3 work. This IS "skip the menu, skip the ceremony" (pickup/workstream-start SKILL header): the reframe decouples "no ceremony" from "EM types it."
 
 - **T3 handoff detection.** If ANY of the following fire, surface the recommendation below before executing:
   - The handoff frontmatter shows `cost: T3`.

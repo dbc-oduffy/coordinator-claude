@@ -177,7 +177,10 @@ is_active() {
 # ---------------------------------------------------------------------------
 
 # Honor CLAUDE_HOME for test sandboxes / CI; mirror claude-home resolver shape.
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+# Review: code-reviewer — B-F1: capture original before reassign so P-18 subprocess
+# sees the HOME-substitute value, not the .claude-suffixed one we set below.
+_ORIGINAL_CLAUDE_HOME="${CLAUDE_HOME:-}"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 PLUGINS_ROOT="${COORDINATOR_PLUGINS_ROOT:-$CLAUDE_HOME/plugins}"
 SENTINEL_DIR="$PLUGINS_ROOT/coordinator-claude/data"
 SENTINEL_PATH="$SENTINEL_DIR/doctor-last-run.json"
@@ -536,6 +539,52 @@ if is_active "P-15"; then
   # If prereq_probe.sh is absent (pre-ship install), silently skip.
 fi
 
+# --- P-17: macOS bash login-shell orphan check (SSOT: scripts/lib/prereq_probe.sh) ---
+# spec-backlink: coordinator-doctor.md § P-17
+# Delegates to _co_probe_shell_login_env from prereq_probe.sh — same SSOT the install
+# Step Zero gate uses. Non-macOS machines and non-bash login shells pass immediately.
+# fail   → RED (error): bash login shell has orphaned ~/.local/bin; claude won't resolve.
+# inconclusive → skip: cannot probe the login shell (advisory; do not block).
+# pass   → no action (GREEN).
+# Sourcing discipline: COORDINATOR_PREREQ_PROBE_LIB_DIR is honored so tests can inject
+# a fake prereq_probe.sh. The idempotency guard in prereq_probe.sh makes re-sourcing
+# cheap when P-15 already ran in the same sentinel invocation.
+if is_active "P-17"; then
+  if [[ -n "${COORDINATOR_PREREQ_PROBE_LIB_DIR:-}" ]]; then
+    _p17_lib_dir="$COORDINATOR_PREREQ_PROBE_LIB_DIR"
+  else
+    _p17_lib_dir="${_SCRIPT_DIR}/../scripts/lib"
+  fi
+  if [[ -f "$_p17_lib_dir/prereq_probe.sh" ]]; then
+    export COORDINATOR_PREREQ_PROBE_LIB_DIR="$(cd "$_p17_lib_dir" && pwd)"
+    # shellcheck source=../scripts/lib/prereq_probe.sh
+    if source "$_p17_lib_dir/prereq_probe.sh" 2>/dev/null; then
+      _p17_row="$(_co_probe_shell_login_env 2>/dev/null || true)"
+      if [[ -z "$_p17_row" ]]; then
+        note_amber "P-17" "shell_login_env probe emitted no output — check scripts/lib/prereq_probe.sh"
+      else
+        _p17_status="$(printf '%s' "$_p17_row" | sed 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' 2>/dev/null || true)"
+        _p17_detail="$(printf '%s' "$_p17_row" | sed 's/.*"detail"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/' 2>/dev/null || true)"
+        case "$_p17_status" in
+          fail)
+            note_red "P-17" "bash login-shell orphan: ${_p17_detail:-orphaned ~/.local/bin or claude not found}"
+            ;;
+          inconclusive)
+            : # Cannot probe the login shell — advisory skip; do not block.
+            ;;
+          pass|*)
+            : # pass, non-applicable (non-macOS/non-bash), or unextractable status — conservative GREEN
+            ;;
+        esac
+      fi
+    else
+      # prereq_probe.sh failed to source — inconclusive; treat as amber.
+      note_amber "P-17" "could not source prereq_probe.sh from $_p17_lib_dir — inconclusive; re-run /coordinator:install"
+    fi
+  fi
+  # prereq_probe.sh absent (pre-ship install) → silently skip.
+fi
+
 # --- P-14: bare-name resolution of ~/.claude/bin resolvers (macOS regression net) ---
 # spec-backlink: docs/plans/2026-06-18-machine-local-bare-invocation-macos.md § C3
 # P-4/P-10 resolve ml_cmd/ch_cmd ABSOLUTE-path-first, so they pass even when bare-name
@@ -549,6 +598,24 @@ if is_active "P-14"; then
   command -v claude-home  >/dev/null 2>&1 || _bare_missing="${_bare_missing:+$_bare_missing, }claude-home"
   if [[ -n "$_bare_missing" ]]; then
     note_red "P-14" "bare-name resolver(s) not on PATH: $_bare_missing — coordinator/bin forwarder missing; re-run /coordinator:install (Phase 3)"
+  fi
+fi
+
+# P-18 — install singularity: exactly one coordinator install tree at ~/.claude,
+# consistent marketplace registration, no doubled .claude/.claude venv pin. A split
+# install silently loads a stale coordinator copy (the 2026-06-26 three-tree failure).
+# The check exempts a single explicit COORDINATOR_CLONE/ROOT dev-loop override.
+if is_active "P-18"; then
+  _p18_check="${_SCRIPT_DIR}/../lib/check-install-singularity.sh"
+  if [[ -x "$_p18_check" ]]; then
+    # Review: code-reviewer — B-F1: pass _ORIGINAL_CLAUDE_HOME (HOME-substitute) so
+    # check-install-singularity.sh applies its own §4a convention, not our .claude-suffixed local.
+    # Review: code-reviewer — B-F3: amber on absent script so corruption doesn't silently GREEN.
+    if ! _p18_out="$(CLAUDE_HOME="${_ORIGINAL_CLAUDE_HOME}" "$_p18_check" 2>&1)"; then
+      note_red "P-18" "install singularity check failed: ${_p18_out%%$'\n'*} — reconcile to a single ~/.claude install; re-run /coordinator:install"
+    fi
+  else
+    note_amber "P-18" "singularity check script absent/not-executable at $_p18_check — plugin may be corrupted; reinstall coordinator"
   fi
 fi
 

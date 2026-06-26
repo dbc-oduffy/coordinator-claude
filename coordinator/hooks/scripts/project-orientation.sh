@@ -28,6 +28,23 @@ CACHE="${REPO_ROOT:-.}/state/orientation_cache.md"
 if [ -n "${COORDINATOR_REPOMAP_STATUS_OFF:-}" ]; then
     echo "[coordinator] repomap staleness banner: disabled via COORDINATOR_REPOMAP_STATUS_OFF" >&2
 else
+    # Resolve the generator binary before checking staleness — suppress the banner when
+    # the generator is absent (unactionable nag on installs without the tool; memo S2).
+    # Mirrors "missing repomap: silent" precedent at bottom of this block.
+    # Priority: (1) coordinator-tree sibling, (2) PATH, (3) REPO_ROOT/bin.
+    # Review: code-reviewer — empty RM_SELF_DIR makes the fallback-1 -f check fail naturally (graceful no-op)
+    RM_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+    RM_GEN=""
+    if [ -f "${RM_SELF_DIR}/../../bin/generate-repomap.sh" ]; then
+        RM_GEN="${RM_SELF_DIR}/../../bin/generate-repomap.sh"
+    elif command -v generate-repomap.sh &>/dev/null; then
+        RM_GEN="$(command -v generate-repomap.sh)"
+    # Review: code-reviewer — guard non-empty: empty REPO_ROOT (non-git dir) would make
+    # [ -f "${REPO_ROOT}/bin/generate-repomap.sh" ] → [ -f "/bin/generate-repomap.sh" ] (F1)
+    elif [ -n "$REPO_ROOT" ] && [ -f "${REPO_ROOT}/bin/generate-repomap.sh" ]; then
+        RM_GEN="${REPO_ROOT}/bin/generate-repomap.sh"
+    fi
+
     RM_REPOMAP="${REPO_ROOT:-.}/.claude/repomap.md"
     if [ -f "$RM_REPOMAP" ]; then
         if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -37,13 +54,15 @@ else
         fi
         if [ -n "$rm_epoch" ]; then
             rm_age_hours=$(( ( $(date +%s) - rm_epoch ) / 3600 ))
-            if [ "$rm_age_hours" -ge 168 ]; then
-                echo ""
-                echo "── ⚠ Repo map VERY STALE: ${rm_age_hours}h old — regenerate: bin/generate-repomap.sh (or /update-docs) ──"
-            elif [ "$rm_age_hours" -ge 24 ]; then
-                echo "── Repo map stale: ${rm_age_hours}h old — refresh via /update-docs or bin/generate-repomap.sh ──"
+            if [ -n "$RM_GEN" ]; then
+                if [ "$rm_age_hours" -ge 168 ]; then
+                    echo ""
+                    echo "── ⚠ Repo map VERY STALE: ${rm_age_hours}h old — regenerate: bin/generate-repomap.sh (or /update-docs) ──"
+                elif [ "$rm_age_hours" -ge 24 ]; then
+                    echo "── Repo map stale: ${rm_age_hours}h old — refresh via /update-docs or bin/generate-repomap.sh ──"
+                fi
             fi
-            # <24h: fresh — silent by design
+            # <24h: fresh — silent by design; generator absent: silent (memo S2)
         fi
     fi
     # missing repomap: silent here; the cache-absent pointers section reports availability

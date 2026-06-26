@@ -813,7 +813,7 @@ class TestOrphansLegitDirs:
         parent = tmp_path / "parent"
         parent.mkdir()
         # Create several legit-named dirs (neither name-matched nor fingerprint-relevant)
-        legit_names = ["my-sibling-repo", "another-real-thing", "geneva-mvp", "DroneSim"]
+        legit_names = ["my-sibling-repo", "another-real-thing", "example-repo", "DroneSim"]
         for name in legit_names:
             d = parent / name
             d.mkdir()

@@ -51,7 +51,7 @@ _plugin_root="${COORDINATOR_CURRENCY_PLUGIN_ROOT:-$(dirname "$_SCRIPT_DIR")}"
 
 # repo_root: the project repo whose onboarding stamp we are checking.
 # Defaults to CLAUDE_HOME (same as the sentinel passes).
-_repo_root="${CLAUDE_HOME:-$HOME/.claude}"
+_repo_root="${CLAUDE_HOME:-$HOME}/.claude"
 
 # ---------------------------------------------------------------------------
 # Source the authoritative currency library (W1-A)

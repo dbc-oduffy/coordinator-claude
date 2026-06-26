@@ -80,3 +80,25 @@ teams/
 
 # --- Session plans (ephemeral). Anchored to root so it does NOT shadow docs/plans/. ---
 /plans/
+
+# --- Installer-created machine artifacts (regenerable; never commit) ---
+# The coordinator venv the installer builds (16M+, 1000+ files) — pinned via the
+# machine-local key coordinator.python; a naive `git add` would commit the whole tree.
+.coordinator-venv/
+# Per-process GPU tenant scratch + install/runtime logs + the on-disk cache — pure
+# runtime churn.
+gpu-tenants/
+logs/
+/.cache/
+# Holodeck installer per-machine state (only when the holodeck stack is present).
+holodeck-setup-state.yaml
+# NOTE: `setup/` is intentionally NOT ignored — it is tracked doctrine (install
+# scripts, publish targets), not machine state.
+
+# --- Embedded plugin repos (separate git checkouts at the ~/.claude root) ---
+# A plugin that is its own git clone (e.g. a holodeck/ or project-rag checkout)
+# triggers git's "adding embedded git repository" warning and would be committed
+# as a gitlink. Ignore the nested .git so the working tree is tracked as plain
+# files without absorbing a foreign repo. Add the specific plugin dir here if you
+# keep it as a live clone rather than vendored content.
+holodeck/.git/

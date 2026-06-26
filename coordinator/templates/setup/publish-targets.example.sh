@@ -12,7 +12,7 @@
 # ~/.claude/machine-local/registry.toml.example for the publish.targets key).
 # When `publish.targets` is present in the registry, publish.sh reads it and
 # this file is ignored. This file remains as a back-compat fallback for
-# machines that have not yet migrated; removal is gated on a later Striker
+# machines that have not yet migrated; removal is gated on a later Machine-A
 # session once all registered targets are confirmed in the registry.
 #
 # ---------------------------------------------------------------------------

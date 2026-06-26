@@ -4,7 +4,7 @@ description: "EM-PM conversation to review and prioritize the technical debt bac
 version: 1.0.0
 ---
 
-<!-- Updated 2026-06-15 by structured-queue-medium-rollout C10: state/debt-backlog.md → state/debt-backlog/*.yaml; closure via git mv to archive/<YYYY-MM>/ -->
+<!-- Schema: state/debt-backlog/*.yaml (YAML per entry); closure via git mv to archive/debt-backlog/<YYYY-MM>/. The pre-C10 markdown table format is retired (swept by tc-2/C7). -->
 
 # Debt Triage — Backlog Review and Prioritization
 
@@ -37,13 +37,16 @@ The maintainer can:
 
 ### Step 1: Read Current State
 
-1. Read `state/debt-backlog/` entries via `bin/query-records.sh --type debt` (each entry is an individual YAML file with `id`, `severity`, `status`, and related frontmatter fields per `docs/wiki/debt-backlog-schema.md`)
+1. Read `state/debt-backlog/` entries via `bin/query-records.js --type debt` (each entry is an individual YAML file with `severity`, `status`, and related frontmatter fields per `docs/wiki/debt-backlog-schema.md` — identity key is the filename `<date>-<slug>.yaml` — no `id:` field)
+<!-- Review: code-reviewer slice-C F3/F7 — D2 dropped the id field (filename is the handle); fixed query-records extension .sh→.js -->
 2. Summarize: total open items, breakdown by severity (P0/P1/P2), breakdown by system
 3. Identify the oldest open items (stalest debt)
 
 ### Step 1b: Cross-reference bug backlog
 
-Also read `state/bug-backlog/*.yaml` via `bin/query-records.sh --type bug` (each entry is a YAML file with `id`, `severity`, `status`, etc. as frontmatter). Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `cross_ref:` field on both entries (e.g., `cross_ref: ["BS-2026-03-18-1"]` on the debt YAML, `cross_ref: ["WAA-2026-03-19-1"]` on the bug YAML). Present overlaps to PM for deduplication decision.
+Also read `state/bug-backlog/*.yaml` via `bin/query-records.js --type bug` (each entry is a YAML file with `severity`, `status`, etc. as frontmatter — identity key is the filename `<date>-<slug>.yaml` — no `id:` field).
+<!-- Review: code-reviewer slice-C F3/F7 — D2 dropped the id field; fixed query-records extension .sh→.js --> Flag any BS-* entries that overlap with open DCH-*/WAA-* items by file path or description similarity. When overlap is found, populate the `evidence:` field on both entries (e.g., `evidence: ["BS-2026-03-18-1"]` on the debt YAML, `evidence: ["WAA-2026-03-19-1"]` on the bug YAML). Present overlaps to PM for deduplication decision.
+<!-- Review: code-reviewer slice-C F2 — cross_ref: was tombstoned in D1 (renamed to evidence:); fixed instruction and both illustrative examples; BS-/WAA- handle values survive as prose strings in the evidence value per D2 -->
 
 ### Pre-Dispatch: Verify Backlog Against Current Code (geneva T1.1, single landing across 3 files)
 
@@ -67,7 +70,8 @@ These probes apply when evaluating YAGNI calls, scope-change proposals, and deep
 
 ### Step 1d: Read Improvement Queue
 
-Also read `state/improvement-queue/` entries via `bin/query-records.sh --type improvement` (if the directory exists — skip silently if absent). For each entry, classify scope:
+Also read `state/improvement-queue/` entries via `bin/query-records.js --type improvement`
+<!-- Review: code-reviewer slice-C F7 — fixed query-records extension .sh→.js --> (if the directory exists — skip silently if absent). For each entry, classify scope:
 
 - **Universal** — would apply if a different project type used the coordinator pipeline? → routing note: _"should be in lessons-outbox — surface to next `/learn-lessons` local run."_ Do NOT pull these into the debt triage path; flag them for the EM to route at the end of this session.
 - **Project-specific** — structural or implementation debt scoped to this repo → flow into the standard triage path alongside `state/debt-backlog/` entries. These are candidates for migration to `state/debt-backlog/` at Step 6b.

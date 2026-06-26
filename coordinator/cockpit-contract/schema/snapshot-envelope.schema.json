@@ -14,297 +14,301 @@
     "emitted_by_machine": {
       "type": "string"
     },
-    "coordinator_root": {
-      "anyOf": [
-        {
-          "type": "object",
-          "properties": {
-            "repo": {
-              "type": "string"
-            },
-            "owner": {
-              "type": "string",
-              "enum": [
-                "dbc-oduffy",
-                "Delphi-Interactive",
-                "workstation"
-              ]
-            },
-            "coordinator_root_path": {
-              "type": "string"
-            },
-            "visibility": {
-              "type": "string",
-              "enum": [
-                "PRIVATE",
-                "PUBLIC",
-                "INTERNAL"
-              ]
-            },
-            "archived": {
-              "type": "boolean"
-            },
-            "is_fork": {
-              "type": "boolean"
-            },
-            "default_branch": {
-              "type": "string"
-            },
-            "last_activity_at": {
-              "type": "string",
-              "format": "date-time",
-              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-            },
-            "open_pr_count": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": -9007199254740991,
-                  "maximum": 9007199254740991
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "provenance": {
-              "type": "object",
-              "properties": {
-                "source_kind": {
-                  "type": "string",
-                  "enum": [
-                    "github_graphql",
-                    "github_rest",
-                    "local_fs",
-                    "coordinator_artifact"
-                  ]
-                },
-                "repo": {
-                  "type": "string"
-                },
-                "ref": {
-                  "type": "object",
-                  "properties": {
-                    "branch": {
-                      "type": "string"
-                    },
-                    "sha": {
-                      "type": "string"
-                    }
+    "coordinator_roots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "dbc-oduffy",
+              "Example-Interactive",
+              "workstation"
+            ]
+          },
+          "coordinator_root_path": {
+            "type": "string"
+          },
+          "machine": {
+            "type": "string",
+            "minLength": 1
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "PRIVATE",
+              "PUBLIC",
+              "INTERNAL"
+            ]
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "is_fork": {
+            "type": "boolean"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "last_activity_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "open_pr_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "source_kind": {
+                "type": "string",
+                "enum": [
+                  "github_graphql",
+                  "github_rest",
+                  "local_fs",
+                  "coordinator_artifact"
+                ]
+              },
+              "repo": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "object",
+                "properties": {
+                  "branch": {
+                    "type": "string"
                   },
-                  "required": [
-                    "branch",
-                    "sha"
-                  ],
-                  "additionalProperties": false
+                  "sha": {
+                    "type": "string"
+                  }
                 },
-                "path": {
-                  "type": "string"
-                },
-                "observed_at": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                },
-                "derivation": {
-                  "type": "string",
-                  "enum": [
-                    "raw",
-                    "parsed",
-                    "rolled_up"
-                  ]
-                }
+                "required": [
+                  "branch",
+                  "sha"
+                ],
+                "additionalProperties": false
               },
-              "required": [
-                "source_kind",
-                "repo",
-                "ref",
-                "path",
-                "observed_at",
-                "derivation"
-              ],
-              "additionalProperties": false
-            }
-          },
-          "required": [
-            "repo",
-            "owner",
-            "coordinator_root_path",
-            "visibility",
-            "archived",
-            "is_fork",
-            "default_branch",
-            "last_activity_at",
-            "open_pr_count",
-            "provenance"
-          ],
-          "additionalProperties": false
+              "path": {
+                "type": "string"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "derivation": {
+                "type": "string",
+                "enum": [
+                  "raw",
+                  "parsed",
+                  "rolled_up"
+                ]
+              }
+            },
+            "required": [
+              "source_kind",
+              "repo",
+              "ref",
+              "path",
+              "observed_at",
+              "derivation"
+            ],
+            "additionalProperties": false
+          }
         },
-        {
-          "type": "null"
-        }
-      ]
+        "required": [
+          "repo",
+          "owner",
+          "coordinator_root_path",
+          "machine",
+          "visibility",
+          "archived",
+          "is_fork",
+          "default_branch",
+          "last_activity_at",
+          "open_pr_count",
+          "provenance"
+        ],
+        "additionalProperties": false
+      }
     },
-    "branch": {
-      "type": "object",
-      "properties": {
-        "repo": {
-          "type": "string"
-        },
-        "owner": {
-          "type": "string",
-          "enum": [
-            "dbc-oduffy",
-            "Delphi-Interactive",
-            "workstation"
-          ]
-        },
-        "coordinator_root_path": {
-          "type": "string"
-        },
-        "name": {
-          "type": "string"
-        },
-        "tip_sha": {
-          "type": "string"
-        },
-        "merge_base_sha": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "ahead_by": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "behind_by": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "last_commit_at": {
-          "type": "string",
-          "format": "date-time",
-          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-        },
-        "last_commit_message": {
-          "type": "string"
-        },
-        "machine_hint": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "date_hint": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "provenance": {
-          "type": "object",
-          "properties": {
-            "source_kind": {
-              "type": "string",
-              "enum": [
-                "github_graphql",
-                "github_rest",
-                "local_fs",
-                "coordinator_artifact"
-              ]
-            },
-            "repo": {
-              "type": "string"
-            },
-            "ref": {
-              "type": "object",
-              "properties": {
-                "branch": {
-                  "type": "string"
-                },
-                "sha": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "branch",
-                "sha"
-              ],
-              "additionalProperties": false
-            },
-            "path": {
-              "type": "string"
-            },
-            "observed_at": {
-              "type": "string",
-              "format": "date-time",
-              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-            },
-            "derivation": {
-              "type": "string",
-              "enum": [
-                "raw",
-                "parsed",
-                "rolled_up"
-              ]
-            }
+    "branches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
           },
-          "required": [
-            "source_kind",
-            "repo",
-            "ref",
-            "path",
-            "observed_at",
-            "derivation"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "required": [
-        "repo",
-        "owner",
-        "coordinator_root_path",
-        "name",
-        "tip_sha",
-        "merge_base_sha",
-        "ahead_by",
-        "behind_by",
-        "last_commit_at",
-        "last_commit_message",
-        "machine_hint",
-        "date_hint",
-        "provenance"
-      ],
-      "additionalProperties": false
+          "owner": {
+            "type": "string",
+            "enum": [
+              "dbc-oduffy",
+              "Example-Interactive",
+              "workstation"
+            ]
+          },
+          "coordinator_root_path": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tip_sha": {
+            "type": "string"
+          },
+          "merge_base_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ahead_by": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "behind_by": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_commit_at": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "last_commit_message": {
+            "type": "string"
+          },
+          "machine_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "date_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "source_kind": {
+                "type": "string",
+                "enum": [
+                  "github_graphql",
+                  "github_rest",
+                  "local_fs",
+                  "coordinator_artifact"
+                ]
+              },
+              "repo": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "object",
+                "properties": {
+                  "branch": {
+                    "type": "string"
+                  },
+                  "sha": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "branch",
+                  "sha"
+                ],
+                "additionalProperties": false
+              },
+              "path": {
+                "type": "string"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "derivation": {
+                "type": "string",
+                "enum": [
+                  "raw",
+                  "parsed",
+                  "rolled_up"
+                ]
+              }
+            },
+            "required": [
+              "source_kind",
+              "repo",
+              "ref",
+              "path",
+              "observed_at",
+              "derivation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "repo",
+          "owner",
+          "coordinator_root_path",
+          "name",
+          "tip_sha",
+          "merge_base_sha",
+          "ahead_by",
+          "behind_by",
+          "last_commit_at",
+          "last_commit_message",
+          "machine_hint",
+          "date_hint",
+          "provenance"
+        ],
+        "additionalProperties": false
+      }
     },
     "handoffs": {
       "type": "array",
@@ -329,8 +333,7 @@
             "type": "string",
             "enum": [
               "active",
-              "consumed",
-              "superseded"
+              "consumed"
             ]
           },
           "kind": {
@@ -363,6 +366,90 @@
             "items": {
               "type": "string"
             }
+          },
+          "consumed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "consumed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "shipped_in": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+                  }
+                },
+                "required": [
+                  "sha",
+                  "date"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "picked_up_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acceptance_criteria": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "done": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "total": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "done",
+                  "total"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "provenance": {
             "type": "object",
@@ -434,475 +521,472 @@
           "workstream",
           "predecessor",
           "scope",
+          "consumed_by",
+          "consumed_at",
+          "shipped_in",
+          "picked_up_by",
+          "acceptance_criteria",
           "provenance"
         ],
         "additionalProperties": false
       }
     },
-    "completion_rollup": {
+    "completion_rollups": {
       "type": "object",
       "properties": {
-        "week": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "grain": {
-                  "type": "string",
-                  "const": "week"
-                },
-                "period": {
-                  "type": "string"
-                },
-                "repo": {
-                  "type": "string"
-                },
-                "coordinator_root_path": {
-                  "type": "string"
-                },
-                "deterministic_facts": {
-                  "type": "object",
-                  "properties": {
-                    "chains_completed": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "tshirt_counts": {
-                      "type": "object",
-                      "propertyNames": {
-                        "type": "string"
-                      },
-                      "additionalProperties": {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      }
-                    },
-                    "opus_dispatches": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "commits": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "reviews_conducted": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "verdicts": {
-                      "type": "object",
-                      "propertyNames": {
-                        "type": "string"
-                      },
-                      "additionalProperties": {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
-                      }
-                    }
-                  },
-                  "required": [
-                    "chains_completed",
-                    "tshirt_counts",
-                    "opus_dispatches",
-                    "commits",
-                    "reviews_conducted",
-                    "verdicts"
-                  ],
-                  "additionalProperties": false
-                },
-                "narrative": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "text": {
-                          "type": "string"
-                        },
-                        "generated_by": {
-                          "type": "string"
-                        },
-                        "generated_at": {
-                          "type": "string",
-                          "format": "date-time",
-                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                        },
-                        "input_watermark": {
-                          "type": "object",
-                          "properties": {
-                            "max_observed_at": {
-                              "type": "string",
-                              "format": "date-time",
-                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                            },
-                            "max_commit_sha": {
-                              "type": "string"
-                            },
-                            "source_count": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            }
-                          },
-                          "required": [
-                            "max_observed_at",
-                            "max_commit_sha",
-                            "source_count"
-                          ],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "text",
-                        "generated_by",
-                        "generated_at",
-                        "input_watermark"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "input_watermark": {
-                  "type": "object",
-                  "properties": {
-                    "max_observed_at": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                    },
-                    "max_commit_sha": {
-                      "type": "string"
-                    },
-                    "source_count": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    }
-                  },
-                  "required": [
-                    "max_observed_at",
-                    "max_commit_sha",
-                    "source_count"
-                  ],
-                  "additionalProperties": false
-                },
-                "freshness": {
-                  "type": "string",
-                  "enum": [
-                    "current",
-                    "stale"
-                  ]
-                },
-                "provenance": {
-                  "type": "object",
-                  "properties": {
-                    "source_kind": {
-                      "type": "string",
-                      "enum": [
-                        "github_graphql",
-                        "github_rest",
-                        "local_fs",
-                        "coordinator_artifact"
-                      ]
-                    },
-                    "repo": {
-                      "type": "string"
-                    },
-                    "ref": {
-                      "type": "object",
-                      "properties": {
-                        "branch": {
-                          "type": "string"
-                        },
-                        "sha": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "branch",
-                        "sha"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "path": {
-                      "type": "string"
-                    },
-                    "observed_at": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                    },
-                    "derivation": {
-                      "type": "string",
-                      "enum": [
-                        "raw",
-                        "parsed",
-                        "rolled_up"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "source_kind",
-                    "repo",
-                    "ref",
-                    "path",
-                    "observed_at",
-                    "derivation"
-                  ],
-                  "additionalProperties": false
-                }
-              },
-              "required": [
-                "grain",
-                "period",
-                "repo",
-                "coordinator_root_path",
-                "deterministic_facts",
-                "narrative",
-                "input_watermark",
-                "freshness",
-                "provenance"
-              ],
-              "additionalProperties": false
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "day": {
-          "anyOf": [
-            {
-              "type": "object",
-              "properties": {
-                "grain": {
-                  "type": "string",
-                  "enum": [
-                    "chain",
-                    "day"
-                  ]
-                },
-                "period": {
-                  "type": "string"
-                },
-                "repo": {
-                  "type": "string"
-                },
-                "coordinator_root_path": {
-                  "type": "string"
-                },
-                "deterministic_facts": {
-                  "type": "object",
-                  "properties": {
-                    "chains_completed": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "grain": {
+                "type": "string",
+                "enum": [
+                  "chain",
+                  "day"
+                ]
+              },
+              "period": {
+                "type": "string"
+              },
+              "repo": {
+                "type": "string"
+              },
+              "coordinator_root_path": {
+                "type": "string"
+              },
+              "deterministic_facts": {
+                "type": "object",
+                "properties": {
+                  "chains_completed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "tshirt_counts": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
                       "type": "integer",
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991
-                    },
-                    "tshirt_counts": {
-                      "type": "object",
-                      "propertyNames": {
+                    }
+                  },
+                  "opus_dispatches": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "commits": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "chains_completed",
+                  "tshirt_counts",
+                  "opus_dispatches",
+                  "commits"
+                ],
+                "additionalProperties": false
+              },
+              "narrative": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "text": {
                         "type": "string"
                       },
-                      "additionalProperties": {
-                        "type": "integer",
-                        "minimum": -9007199254740991,
-                        "maximum": 9007199254740991
+                      "generated_by": {
+                        "type": "string"
+                      },
+                      "generated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "input_watermark": {
+                        "type": "object",
+                        "properties": {
+                          "max_observed_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "max_commit_sha": {
+                            "type": "string"
+                          },
+                          "source_count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "max_observed_at",
+                          "max_commit_sha",
+                          "source_count"
+                        ],
+                        "additionalProperties": false
                       }
                     },
-                    "opus_dispatches": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "commits": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    }
+                    "required": [
+                      "text",
+                      "generated_by",
+                      "generated_at",
+                      "input_watermark"
+                    ],
+                    "additionalProperties": false
                   },
-                  "required": [
-                    "chains_completed",
-                    "tshirt_counts",
-                    "opus_dispatches",
-                    "commits"
-                  ],
-                  "additionalProperties": false
-                },
-                "narrative": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "text": {
-                          "type": "string"
-                        },
-                        "generated_by": {
-                          "type": "string"
-                        },
-                        "generated_at": {
-                          "type": "string",
-                          "format": "date-time",
-                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                        },
-                        "input_watermark": {
-                          "type": "object",
-                          "properties": {
-                            "max_observed_at": {
-                              "type": "string",
-                              "format": "date-time",
-                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                            },
-                            "max_commit_sha": {
-                              "type": "string"
-                            },
-                            "source_count": {
-                              "type": "integer",
-                              "minimum": -9007199254740991,
-                              "maximum": 9007199254740991
-                            }
-                          },
-                          "required": [
-                            "max_observed_at",
-                            "max_commit_sha",
-                            "source_count"
-                          ],
-                          "additionalProperties": false
-                        }
-                      },
-                      "required": [
-                        "text",
-                        "generated_by",
-                        "generated_at",
-                        "input_watermark"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "input_watermark": {
-                  "type": "object",
-                  "properties": {
-                    "max_observed_at": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                    },
-                    "max_commit_sha": {
-                      "type": "string"
-                    },
-                    "source_count": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    }
-                  },
-                  "required": [
-                    "max_observed_at",
-                    "max_commit_sha",
-                    "source_count"
-                  ],
-                  "additionalProperties": false
-                },
-                "freshness": {
-                  "type": "string",
-                  "enum": [
-                    "current",
-                    "stale"
-                  ]
-                },
-                "provenance": {
-                  "type": "object",
-                  "properties": {
-                    "source_kind": {
-                      "type": "string",
-                      "enum": [
-                        "github_graphql",
-                        "github_rest",
-                        "local_fs",
-                        "coordinator_artifact"
-                      ]
-                    },
-                    "repo": {
-                      "type": "string"
-                    },
-                    "ref": {
-                      "type": "object",
-                      "properties": {
-                        "branch": {
-                          "type": "string"
-                        },
-                        "sha": {
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "branch",
-                        "sha"
-                      ],
-                      "additionalProperties": false
-                    },
-                    "path": {
-                      "type": "string"
-                    },
-                    "observed_at": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                    },
-                    "derivation": {
-                      "type": "string",
-                      "enum": [
-                        "raw",
-                        "parsed",
-                        "rolled_up"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "source_kind",
-                    "repo",
-                    "ref",
-                    "path",
-                    "observed_at",
-                    "derivation"
-                  ],
-                  "additionalProperties": false
-                }
+                  {
+                    "type": "null"
+                  }
+                ]
               },
-              "required": [
-                "grain",
-                "period",
-                "repo",
-                "coordinator_root_path",
-                "deterministic_facts",
-                "narrative",
-                "input_watermark",
-                "freshness",
-                "provenance"
-              ],
-              "additionalProperties": false
+              "input_watermark": {
+                "type": "object",
+                "properties": {
+                  "max_observed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "max_commit_sha": {
+                    "type": "string"
+                  },
+                  "source_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "max_observed_at",
+                  "max_commit_sha",
+                  "source_count"
+                ],
+                "additionalProperties": false
+              },
+              "freshness": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "stale"
+                ]
+              },
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "source_kind": {
+                    "type": "string",
+                    "enum": [
+                      "github_graphql",
+                      "github_rest",
+                      "local_fs",
+                      "coordinator_artifact"
+                    ]
+                  },
+                  "repo": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "branch": {
+                        "type": "string"
+                      },
+                      "sha": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "branch",
+                      "sha"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "derivation": {
+                    "type": "string",
+                    "enum": [
+                      "raw",
+                      "parsed",
+                      "rolled_up"
+                    ]
+                  }
+                },
+                "required": [
+                  "source_kind",
+                  "repo",
+                  "ref",
+                  "path",
+                  "observed_at",
+                  "derivation"
+                ],
+                "additionalProperties": false
+              }
             },
-            {
-              "type": "null"
-            }
-          ]
+            "required": [
+              "grain",
+              "period",
+              "repo",
+              "coordinator_root_path",
+              "deterministic_facts",
+              "narrative",
+              "input_watermark",
+              "freshness",
+              "provenance"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "week": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "grain": {
+                "type": "string",
+                "const": "week"
+              },
+              "period": {
+                "type": "string"
+              },
+              "repo": {
+                "type": "string"
+              },
+              "coordinator_root_path": {
+                "type": "string"
+              },
+              "deterministic_facts": {
+                "type": "object",
+                "properties": {
+                  "chains_completed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "tshirt_counts": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "opus_dispatches": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "commits": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "reviews_conducted": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "verdicts": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  }
+                },
+                "required": [
+                  "chains_completed",
+                  "tshirt_counts",
+                  "opus_dispatches",
+                  "commits",
+                  "reviews_conducted",
+                  "verdicts"
+                ],
+                "additionalProperties": false
+              },
+              "narrative": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      },
+                      "generated_by": {
+                        "type": "string"
+                      },
+                      "generated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      },
+                      "input_watermark": {
+                        "type": "object",
+                        "properties": {
+                          "max_observed_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "max_commit_sha": {
+                            "type": "string"
+                          },
+                          "source_count": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "max_observed_at",
+                          "max_commit_sha",
+                          "source_count"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "generated_by",
+                      "generated_at",
+                      "input_watermark"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "input_watermark": {
+                "type": "object",
+                "properties": {
+                  "max_observed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "max_commit_sha": {
+                    "type": "string"
+                  },
+                  "source_count": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "max_observed_at",
+                  "max_commit_sha",
+                  "source_count"
+                ],
+                "additionalProperties": false
+              },
+              "freshness": {
+                "type": "string",
+                "enum": [
+                  "current",
+                  "stale"
+                ]
+              },
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "source_kind": {
+                    "type": "string",
+                    "enum": [
+                      "github_graphql",
+                      "github_rest",
+                      "local_fs",
+                      "coordinator_artifact"
+                    ]
+                  },
+                  "repo": {
+                    "type": "string"
+                  },
+                  "ref": {
+                    "type": "object",
+                    "properties": {
+                      "branch": {
+                        "type": "string"
+                      },
+                      "sha": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "branch",
+                      "sha"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  },
+                  "derivation": {
+                    "type": "string",
+                    "enum": [
+                      "raw",
+                      "parsed",
+                      "rolled_up"
+                    ]
+                  }
+                },
+                "required": [
+                  "source_kind",
+                  "repo",
+                  "ref",
+                  "path",
+                  "observed_at",
+                  "derivation"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "grain",
+              "period",
+              "repo",
+              "coordinator_root_path",
+              "deterministic_facts",
+              "narrative",
+              "input_watermark",
+              "freshness",
+              "provenance"
+            ],
+            "additionalProperties": false
+          }
         }
       },
       "required": [
-        "week",
-        "day"
+        "day",
+        "week"
       ],
       "additionalProperties": false
     },
@@ -1388,6 +1472,16 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
           },
+          "workstream": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "provenance": {
             "type": "object",
             "properties": {
@@ -1455,6 +1549,7 @@
           "verdict",
           "diff_loc",
           "reviewed_at",
+          "workstream",
           "provenance"
         ],
         "additionalProperties": false
@@ -2054,6 +2149,127 @@
         "additionalProperties": false
       }
     },
+    "cross_repo_memos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "repo": {
+            "type": "string"
+          },
+          "coordinator_root_path": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "in_progress",
+              "actioned"
+            ]
+          },
+          "created": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "ask",
+              "consult",
+              "fyi"
+            ]
+          },
+          "related": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "source_kind": {
+                "type": "string",
+                "enum": [
+                  "github_graphql",
+                  "github_rest",
+                  "local_fs",
+                  "coordinator_artifact"
+                ]
+              },
+              "repo": {
+                "type": "string"
+              },
+              "ref": {
+                "type": "object",
+                "properties": {
+                  "branch": {
+                    "type": "string"
+                  },
+                  "sha": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "branch",
+                  "sha"
+                ],
+                "additionalProperties": false
+              },
+              "path": {
+                "type": "string"
+              },
+              "observed_at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "derivation": {
+                "type": "string",
+                "enum": [
+                  "raw",
+                  "parsed",
+                  "rolled_up"
+                ]
+              }
+            },
+            "required": [
+              "source_kind",
+              "repo",
+              "ref",
+              "path",
+              "observed_at",
+              "derivation"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "repo",
+          "coordinator_root_path",
+          "title",
+          "from",
+          "to",
+          "status",
+          "created",
+          "kind",
+          "related",
+          "provenance"
+        ],
+        "additionalProperties": false
+      }
+    },
     "narrative_views": {
       "anyOf": [
         {},
@@ -2095,7 +2311,7 @@
             "additionalProperties": {}
           }
         },
-        "coordinator_root": {
+        "coordinator_roots": {
           "type": "array",
           "items": {
             "type": "object",
@@ -2124,15 +2340,26 @@
             },
             "additionalProperties": {}
           }
+        },
+        "cross_repo_memos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
         }
       },
       "required": [
         "handoffs",
         "backlogs",
         "review_trail",
-        "coordinator_root",
+        "coordinator_roots",
         "plans",
-        "lessons"
+        "lessons",
+        "cross_repo_memos"
       ],
       "additionalProperties": false
     }
@@ -2141,16 +2368,17 @@
     "schema_version",
     "emitted_at",
     "emitted_by_machine",
-    "coordinator_root",
-    "branch",
+    "coordinator_roots",
+    "branches",
     "handoffs",
-    "completion_rollup",
+    "completion_rollups",
     "backlogs",
     "review_trail",
     "routine_signals",
     "goals_current",
     "plans",
     "lessons",
+    "cross_repo_memos",
     "narrative_views",
     "malformed_records"
   ],

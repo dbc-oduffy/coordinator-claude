@@ -1,0 +1,140 @@
+# cross-platform-matrix.snippet.yml
+#
+# FRAGMENT — copy and adapt into your own ci.yml (GitHub Actions shape).
+# This is NOT a standalone installable workflow. It is a commented, copyable
+# reference that you paste into your existing CI job.
+#
+# Principle: docs/wiki/cross-platform-ci-discipline.md
+# This is a WORKED PYTEST EXAMPLE of the language-agnostic principle described
+# in that wiki. Adapt the matrix and honest-measurement marker conventions to
+# your own CI system and test runner.
+#
+# Adapt-points are marked with: # <!-- TEMPLATE: adapt -->
+# Replace every <PLACEHOLDER> with your project's actual values before use.
+
+# =========================================================================
+# SECTION 1 — 3-OS MATRIX BLOCK
+# Paste into your job's `strategy:` section.
+# =========================================================================
+
+strategy:
+  fail-fast: false
+  matrix:
+    os: [ubuntu-latest, windows-latest, macos-latest]
+    # <!-- TEMPLATE: adapt --> Add or remove OS targets to match your declared
+    # support matrix. The 3-OS set above is the coordinator minimum for repos
+    # that declare cross-platform support. See: docs/wiki/cross-platform-ci-discipline.md
+    # § The three primitives — macOS lane.
+
+    # <!-- TEMPLATE: adapt --> Add a language-version axis if applicable, e.g.:
+    # python-version: ['3.11', '3.12']
+    # node-version: ['20', '22']
+
+# =========================================================================
+# SECTION 2 — SHELL:BASH MARKER-COMPUTATION STEP
+# Paste as a step inside your job's `steps:` list, immediately before your
+# test-run step. The marker set is exported via GITHUB_ENV so the test-run
+# step picks it up as $PYTEST_MARKERS (or equivalent).
+#
+# shell: bash is explicit so the conditional runs IDENTICALLY on all three OSes.
+# git-bash is present on the Windows runner, giving bash availability on
+# ubuntu-latest, windows-latest, AND macos-latest — no PowerShell divergence.
+# =========================================================================
+
+# =========================================================================
+# SECTION 2 — PASTE TARGET: your job's `steps:` key.
+# Review: code-reviewer slice B — this section was indented 4 spaces, causing
+# a YAML parser to read `steps:` as a key under `matrix:` if the whole file
+# was copied. Reset to column 0.
+#
+# WARNING: Section 2 is NOT a continuation of the strategy: block above.
+# `steps:` is a job-level key — paste it at the same indentation level as
+# your `strategy:` entry, NOT nested under `matrix:`.
+# =========================================================================
+steps:
+  # ... your checkout / setup steps above this point ...
+
+  - name: Compute test markers  # <!-- TEMPLATE: adapt --> rename as suits your project
+    # shell: bash so the OS-conditional runs identically on all three runners
+    # (git-bash is present on the Windows runner). On Linux/Windows the
+    # result equals your default marker set — no behavior change from this step.
+    shell: bash
+    run: |
+      # Base markers — always exclude slow/network tests from CI.
+      # <!-- TEMPLATE: adapt --> Replace with your project's standard CI exclusions.
+      MARKERS="not network and not slow"
+
+      if [ "$RUNNER_OS" = "macOS" ]; then
+        # ---------------------------------------------------------------
+        # cross_repo_fix_locus: deselect tests whose fix-locus lives in a
+        # sibling repo, not this repo.
+        #
+        # This is the COORDINATOR-STANDARD marker — keep this name verbatim
+        # across all repos that adopt this discipline.
+        #
+        # CLOSURE GUARD — all three requirements must be met, or this
+        # becomes the silent-absence escape hatch the marker exists to prevent:
+        #
+        # (a) SELF-DOCUMENTING REASON STRING
+        #     Each @pytest.mark.cross_repo_fix_locus decoration MUST carry a
+        #     reason= argument naming the sibling repo AND the tracking memo:
+        #       reason="fix lives in <sibling-repo>; tracked in cross-repo/inbox/<memo-slug>.md"
+        #     A reason string that does not name a specific memo is untrackable
+        #     and therefore non-compliant.
+        #
+        # (b) RE-COLLECTION TRIGGER (deselect is TEMPORARY and MEMO-BOUND)
+        #     When the sibling repo lands its fix and the change propagates to
+        #     this repo, REMOVE this deselect and confirm the test goes green.
+        #     A deselect that outlives its tracking memo is a silently-absent
+        #     decorative test — worse than xfail because it has no xpass tripwire.
+        #
+        # (c) DISCRIMINATOR AGAINST PREREQUISITE-ABSENT MISUSE
+        #     cross_repo_fix_locus applies ONLY when NO lane in THIS repo can
+        #     make the test pass regardless of CI configuration. If any lane
+        #     in this repo could install the missing prerequisite, the test
+        #     belongs under the prerequisite-absent rule in
+        #     cross-repo-contract-test-discipline.md — and skipping is red,
+        #     NOT a valid deselect under cross_repo_fix_locus.
+        # ---------------------------------------------------------------
+        MARKERS="$MARKERS and not cross_repo_fix_locus"
+
+        # ---------------------------------------------------------------
+        # Hardware-gated markers: tests that require hardware unavailable
+        # on standard CI runners (GPU, live subprocess sidecar, etc.).
+        #
+        # THESE ARE EXAMPLES OF THE CLASS — replace with YOUR OWN hardware-
+        # gate marker names. Each project defines its own. Do not adopt the
+        # names below verbatim; they are project-specific illustrations.
+        # The coordinator-standard marker is cross_repo_fix_locus above.
+        #
+        # Coverage-equivalence rationale: hardware-gated tests SKIP on
+        # no-GPU Linux/Windows runners (no effective coverage there either).
+        # On a capable macOS/Metal runner those same tests can RUN and hang
+        # the CI lane during the hardware health poll. Excluding them on
+        # macOS yields coverage-equivalence with the other OSes while
+        # avoiding the hang. This is a coverage-PARITY argument, not a
+        # silent XFAIL — always use named markers with a clear reason=
+        # string (skip-with-explanation), never silent deselection.
+        # See: docs/wiki/cross-platform-ci-discipline.md § The three primitives
+        #      — effective coverage-equivalence for hardware-gated markers.
+        #
+        # <!-- TEMPLATE: adapt --> Uncomment and replace the marker name(s):
+        # MARKERS="$MARKERS and not <your-hardware-gate-marker>"
+        #
+        # Reference: one project uses `real_spawn` for tests that require a
+        # live GPU embed-sidecar subprocess; another uses `requires_real_sidecar`.
+        # Your project may use different names for the same hardware-gate class.
+        # ---------------------------------------------------------------
+      fi
+
+      # Export the computed marker set for the test-run step.
+      echo "PYTEST_MARKERS=$MARKERS" >> "$GITHUB_ENV"
+
+  - name: Run tests
+    # shell: bash for consistency; ensures -m "$PYTEST_MARKERS" expands correctly
+    # on all three OSes (no PowerShell quoting divergence).
+    shell: bash
+    run: |
+      # <!-- TEMPLATE: adapt --> Replace with your test command and flags.
+      # The -m flag consumes $PYTEST_MARKERS exported by the step above.
+      pytest tests/ -v --tb=short -m "$PYTEST_MARKERS"

@@ -52,7 +52,7 @@ Dotted-namespace keys group related values. The namespace prefix (`repos`, `unre
 | File | Tracked? | Purpose |
 |---|---|---|
 | `registry.toml` | Yes | Shared baseline: key declarations, schema version, `concerns` list, values stable across all your machines |
-| `registry.local.toml` | No (gitignored) | Per-machine path values — different on Striker vs. Mac, never committed |
+| `registry.local.toml` | No (gitignored) | Per-machine path values — different on Machine-A vs. Mac, never committed |
 | `registry.toml.example` | Yes | Operator-facing template showing every expected key with comments |
 | `registry.local.toml.example` | Yes | Template showing per-machine override shape |
 | `<concern>.toml` | Yes | Optional concern-file baseline (only for large surfaces like `unreal`, `cuda`) |
@@ -74,9 +74,9 @@ Per-machine overrides. The `.local` convention matches `~/.claude/`'s existing p
 
 ---
 
-## Tracked-vs-local split — worked example (Striker + Mac)
+## Tracked-vs-local split — worked example (Machine-A + Mac)
 
-The PM operates from Striker (Windows, repos under `X:/...`) and a Mac (`~/work/...`). One git-tracked `~/.claude` repo is cloned to both machines.
+The PM operates from Machine-A (Windows, repos under `X:/...`) and a Mac (`~/work/...`). One git-tracked `~/.claude` repo is cloned to both machines.
 
 **`registry.toml`** (identical on both machines, committed):
 ```toml
@@ -86,7 +86,7 @@ schema = 1
 "repos.project_rag"        = ""
 ```
 
-**`registry.local.toml` on Striker** (gitignored, never committed):
+**`registry.local.toml` on Machine-A** (gitignored, never committed):
 ```toml
 schema = 1
 

@@ -49,7 +49,7 @@ set -uo pipefail
 PY=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)
 
 # --- Safe stdin read (timeout guard prevents hang on Windows/Git Bash) ---
-# Review: code-reviewer — &>/dev/null is bash 4+ syntax; must use >/dev/null 2>&1 so the script parses on bash 3.2 (CLAUDE.md § Cross-platform shell)
+# Use `>/dev/null 2>&1` (not `&>/dev/null`) for redirect style consistency across the hook set.
 if command -v timeout >/dev/null 2>&1; then
   INPUT=$(timeout 2 cat 2>/dev/null || true)
 else
@@ -141,6 +141,23 @@ while IFS= read -r SEG; do
 
   # Extract everything after `git add` (the args portion).
   AFTER=$(echo "$SEG" | sed -E 's/.*\bgit[[:space:]]+add[[:space:]]*//')
+
+  # Dry-run exemption: if --dry-run or a standalone -n token is present (before any --),
+  # skip this segment. A dry-run git add stages nothing — blocking it produces false positives
+  # on preview commands.
+  # Note: -n bundled inside a flag group (e.g. -An) is NOT exempt; only a standalone -n token
+  # before `--` qualifies. After `--` all tokens are literal paths — a path literally named
+  # `-n` must NOT trip the exemption (Review: code-reviewer D-F1 — mirror `--` tracking from
+  # the main eval loop so `git add -A -- -n` is correctly DENIED, not exempted).
+  DRYRUN_EXEMPT=0; _past_dd=0
+  for _drtok in $AFTER; do
+    [[ "$_drtok" == "--" ]] && _past_dd=1 && continue
+    [[ "$_past_dd" == "1" ]] && continue
+    if [[ "$_drtok" == "--dry-run" || "$_drtok" == "-n" ]]; then DRYRUN_EXEMPT=1; break; fi
+  done
+  if [[ "$DRYRUN_EXEMPT" == "1" ]]; then
+    continue
+  fi
 
   # Track whether we've passed a `--` end-of-options marker.
   # `-A`, `-u`, etc. before `--` still denote blanket adds even if paths follow.

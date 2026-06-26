@@ -96,7 +96,7 @@ class _Namespace:
             )
         if result.returncode == 0 and not value:
             # Key exists but value is empty string (declared-but-unconfigured,
-            # e.g. the AC14 case for repos.dronesim before Striker population).
+            # e.g. the AC14 case for repos.dronesim before Machine-A population).
             raise AttributeError(
                 f"Registry key '{key}' is declared but has no value. "
                 f"Fix: set \"{key}\" = \"<path>\" in "

@@ -1,5 +1,5 @@
 /**
- * RoutineSignal — staleness as a typed derived-signal, NOT a scalar (Camelia P1-D3).
+ * RoutineSignal — staleness as a typed derived-signal, NOT a scalar (the Data Science Reviewer P1-D3).
  *
  * Staleness is at least six distinct derived quantities, each with different
  * inputs, thresholds, and units; they must not collapse to one boolean or string.

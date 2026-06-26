@@ -116,6 +116,28 @@ import sys
 import textwrap
 import time as _time
 
+# ---------------------------------------------------------------------------
+# Shared memo composer — extracted to bin/lib/memo_compose.py (qffs tc-0 C4)
+#
+# Spec backlink: docs/plans/2026-06-25-qffs-tc-0-canonical-baton-shape.md § C4
+#
+# _compose_frontmatter and _compose_memo are thin wrappers below that delegate
+# to the shared lib, passing from_id=_sender_em_id() at call time. Their public
+# signatures are unchanged so existing call sites and tests are unaffected.
+# ---------------------------------------------------------------------------
+_MC_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _MC_LIB_DIR not in sys.path:
+    sys.path.insert(0, _MC_LIB_DIR)
+from memo_compose import (  # noqa: E402 (late import after sys.path manipulation)
+    _yaml_quote,
+    _today,
+    _now_iso,
+    _SUMMARY_MAX_CHARS,
+    _derive_summary,
+    compose_frontmatter as _mc_compose_frontmatter,
+    compose_memo as _mc_compose_memo,
+)
+
 # --topic must be filesystem-safe to prevent path traversal out of cross-repo/.
 # Allows: lowercase alphanum + dashes, must start with alphanum. No '..', '/', '\'.
 _TOPIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
@@ -586,34 +608,8 @@ def _sender_em_id() -> str:
 # Frontmatter composition
 # ---------------------------------------------------------------------------
 
-def _today() -> str:
-    return datetime.date.today().isoformat()
-
-
-def _now_iso() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
-
-
-# Maximum summary length — mirrors the ≤120-char rule in bin/lib/schema.js
-# CROSS_FIELD_RULES.cross_repo_memo summary validation. If schema.js bumps the
-# cap, update this constant too. Both sides must stay in sync.
-_SUMMARY_MAX_CHARS = 120
-
-
-def _derive_summary(body: str) -> str:
-    """Derive a summary from the first non-empty line of the memo body.
-
-    Truncates to _SUMMARY_MAX_CHARS with a '…' suffix so the composed memo
-    never violates the schema.js ≤120-char cross-field rule.
-    """
-    for line in body.splitlines():
-        stripped = line.strip()
-        if stripped:
-            if len(stripped) <= _SUMMARY_MAX_CHARS:
-                return stripped
-            # Truncate preserving full words where possible.
-            return stripped[: _SUMMARY_MAX_CHARS - 1] + "…"
-    return ""
+# _today, _now_iso, _SUMMARY_MAX_CHARS, _derive_summary — imported from memo_compose above.
+# (qffs tc-0 C4: extracted to shared lib so coordinator-doc-new and cross-repo-memo share them.)
 
 
 def _compose_frontmatter(
@@ -630,82 +626,30 @@ def _compose_frontmatter(
 ) -> str:
     """Compose the YAML frontmatter block for a memo.
 
+    Thin wrapper — delegates to memo_compose.compose_frontmatter, passing
+    from_id=_sender_em_id() (resolved from the sender's repo at call time).
+    Public signature unchanged so existing call sites and tests work without
+    modification.
+
     Schema: docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
-    Single-delivery-copy model: status is always 'open' (receiver flips to 'actioned'
-    in place via Edit + commit in their repo). --self-receipt writes the terminal
-    'actioned' state directly for the dispatcher-is-receiver pattern. delivery_mode
-    is always 'receiver-repo' —
-    the single-surface model has no central-only delivery; the schema retains
-    'central-only' only as a grandfathered value for pre-2026-05-23 memos.
-
-    'from' is resolved dynamically from the sender's repo (_sender_em_id) — the
-    repo the CLI runs in, not a hardcoded identity and not an EM self-identify.
-
-    'summary' is a ≤120-char one-line tl;dr. If not supplied, derived from the
-    first non-empty body line. Truncated at _SUMMARY_MAX_CHARS so the produced
-    memo never violates the schema.js ≤120-char cross-field rule.
-    Spec backlink: docs/plans/2026-05-29-handoff-schema-category-summary.md § Chunk 1
-
-    'kind' is optional (ask | consult | fyi). When None, NO kind: line is emitted —
-    absence is meaningful (readers apply an 'ask' default for unlabelled memos).
-    Spec backlink: docs/plans/2026-05-30-pickup-cross-repo-memo-fork.md § C2
+    Spec backlink: docs/plans/2026-06-25-qffs-tc-0-canonical-baton-shape.md § C4
+    See memo_compose.compose_frontmatter for full docstring and semantics.
     """
-    # code-review F17: guard against decision=None slipping through when self_receipt=True.
-    # _compose_frontmatter would emit 'decision: "None"' (the string "None") if called
-    # without a decision. The argparse layer already blocks this via --self-receipt
-    # requires --decision, but _compose_frontmatter is a public helper — fail loudly
-    # if called incorrectly rather than silently writing a malformed frontmatter field.
-    if self_receipt and decision is None:
-        raise ValueError(
-            "_compose_frontmatter: decision is required when self_receipt=True. "
-            "Pass a decision value (accepted|declined|partial|superseded)."
-        )
-
-    # Resolve and enforce summary length. Derive from body when not provided.
-    resolved_summary = summary if summary is not None else _derive_summary(body)
-    if len(resolved_summary) > _SUMMARY_MAX_CHARS:
-        # Truncate — never emit a summary that would fail the schema.js ≤120 rule.
-        resolved_summary = resolved_summary[: _SUMMARY_MAX_CHARS - 1] + "…"
-
-    today = _today()
-    # Canonical terminal status is 'actioned' (open → actioned). 'action_taken'
-    # is a grandfathered pre-2026-05-21 value — do not stamp it on new memos.
-    status = "actioned" if self_receipt else "open"
-    # All string values are quoted so '#', leading '[', and trailing-space-before-':'
-    # in titles don't truncate via the YAML parser. 'topic' is intentionally absent
-    # from frontmatter — it lives in the filename, not the schema.
-    lines = [
-        "---",
-        f"title: {_yaml_quote(title)}",
-        f"from: {_yaml_quote(_sender_em_id())}",
-        f"to: {_yaml_quote(to)}",
-        f"created: {today}",
-        f"status: {status}",
-        f"delivery_mode: receiver-repo",
-        f"summary: {_yaml_quote(resolved_summary)}",
-    ]
-    if kind is not None:
-        lines.append(f"kind: {_yaml_quote(kind)}")
-    if supersedes:
-        lines.append(f"supersedes: {_yaml_quote(supersedes)}")
-    if self_receipt:
-        lines.append(f"action_taken_at: {_now_iso()}")
-        lines.append(f"decision: {_yaml_quote(decision)}")
-    lines.append("---")
-    return "\n".join(lines) + "\n"
-
-
-def _yaml_quote(value: str) -> str:
-    """Double-quote a string for YAML, escaping backslashes, double-quotes, and
-    newlines/tabs so an embedded newline in --title can't break frontmatter."""
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
+    return _mc_compose_frontmatter(
+        from_id=_sender_em_id(),
+        title=title,
+        to=to,
+        topic=topic,
+        body=body,
+        self_receipt=self_receipt,
+        decision=decision,
+        supersedes=supersedes,
+        summary=summary,
+        kind=kind,
     )
-    return f'"{escaped}"'
+
+
+# _yaml_quote — imported from memo_compose above (qffs tc-0 C4).
 
 
 def _compose_memo(
@@ -720,8 +664,16 @@ def _compose_memo(
     summary: str | None = None,
     kind: str | None = None,
 ) -> str:
-    """Compose the full memo document (frontmatter + body)."""
-    frontmatter = _compose_frontmatter(
+    """Compose the full memo document (frontmatter + body).
+
+    Thin wrapper — delegates to memo_compose.compose_memo, passing
+    from_id=_sender_em_id() (resolved from the sender's repo at call time).
+    Public signature unchanged so existing call sites work without modification.
+
+    Spec backlink: docs/plans/2026-06-25-qffs-tc-0-canonical-baton-shape.md § C4
+    """
+    return _mc_compose_memo(
+        from_id=_sender_em_id(),
         title=title,
         to=to,
         topic=topic,
@@ -732,7 +684,6 @@ def _compose_memo(
         summary=summary,
         kind=kind,
     )
-    return frontmatter + "\n" + body.rstrip("\n") + "\n"
 
 
 # ---------------------------------------------------------------------------

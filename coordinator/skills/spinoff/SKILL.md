@@ -43,36 +43,30 @@ The PM gives you `$ARGUMENTS` of shape `<slug> [optional title]`. The slug becom
 
 Path: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_{slug}.md`
 
-Frontmatter (all fields literal — do not paraphrase keys):
+Create the file using `coordinator-doc-new` — the GENERATE altitude that derives conformant frontmatter from the registry:
 
-```yaml
----
-title: <one-line title>
-created: <YYYY-MM-DD>
-branch: <current branch — git symbolic-ref>
-status: active
-kind: spinoff                       # or spinoff-roadmap (Phase 5 roadmap stubs only;
-                                    # see skills/roadmap-planning for that path)
-predecessor: none
-authoring_session: <one-line description of the session that wrote this>
-workstream: <slug>
-category: <roadmap|infra|bug|docs|research|refactor>
-                                    # category ∈ {roadmap|infra|bug|docs|research|refactor};
-                                    # summary ≤120 chars, one-line tl;dr
-summary: "<one-line tl;dr>"        # ≤120 chars. Required on handoffs created ≥ 2026-05-29.
-deployment_state: ready_to_fire     # default — spinoffs are authored to be picked up cold.
-                                    # Override to awaiting_gate ONLY if the spinoff depends
-                                    # on another spinoff/handoff shipping first; in that
-                                    # case set gate_dependency: <other-handoff-filename>.
-pickup_ready: true                  # DEFAULT ON for spinoffs — positive pickup-authorized
-                                    # signal. Absence triggers a non-blocking warning at
-                                    # /pickup time. Spinoffs are orphan-promotions by design
-                                    # and are always explicitly authorized for pickup.
-scope:
-  - <pathspec 1>
-  - <pathspec 2>
----
+```bash
+# Replace ${slug} with the slug from $ARGUMENTS:
+SPINOFF_FILE="state/handoffs/$(date +%Y-%m-%d)_$(date +%H%M%S)_${slug}.md"
+coordinator-doc-new --type spinoff \
+    --title "<one-line title>" \
+    --out "$SPINOFF_FILE"
 ```
+
+<!-- Review: code-reviewer S4-F2 — bridge note added to close gap between scaffolder skeleton and body-section guidance list. -->
+The scaffolder emits the canonical spinoff section skeleton; fill each section's body via Edit — the body is the value (do not leave placeholder stubs).
+
+The scaffolder writes `title:`, `created:`, `branch:` (auto-detected), `status: active`, `kind: spinoff`, `predecessor: none`, `deployment_state: ready_to_fire`, `category: infra`, a placeholder `summary:`, `pickup_ready: true`, and placeholder `authoring_session:`/`workstream:` fields. Open the file via Edit and set:
+
+- **`workstream:`** — the slug from `$ARGUMENTS`
+- **`authoring_session:`** — one-line description of the current session
+- **`category:`** — correct category (not scaffold default `infra` unless appropriate)
+- **`summary:`** — one-line tl;dr (≤120 chars; required ≥ 2026-05-29)
+- **`scope:`** — add: git pathspec block for files the picking-up EM will own
+- **`kind:`** — scaffold emits `spinoff`; Edit to `spinoff-roadmap` for Phase 5 roadmap stubs only (see `skills/roadmap-planning`)
+- **`predecessor: none`** — emitted by scaffolder; **do NOT change** (spinoffs have no continuity ancestor)
+- **`pickup_ready: true`** — emitted by scaffolder; **do NOT remove** (positive pickup-authorization signal)
+- **`deployment_state: ready_to_fire`** — keep unless this spinoff depends on another spinoff/handoff shipping first; then set `awaiting_gate` and add `gate_dependency: <other-handoff-filename>`
 
 `status: active` (ready for pickup). `pickup_ready: true` always — positive pickup-authorized signal; absence triggers a non-blocking warning at `/pickup`. `predecessor: none` always — spinoffs have no continuity ancestor. `authoring_session` replaces the predecessor link as the audit trail back to origin. `workstream` lets `/workday-start` and `/pickup` group related forks. `deployment_state: ready_to_fire` makes the spinoff visible to query-driven `/workstream-start` and `/workday-start` surfaces.
 

@@ -26,7 +26,9 @@
 set -euo pipefail
 trap 'echo "[platform-localize] FAILED (exit $?)" >&2' ERR
 
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+# Review: code-reviewer — B-F7: fixed Convention-A form (do NOT use the wrong grouping with
+# .claude inside the default); CLAUDE_HOME is a $HOME-substitute, suffix goes OUTSIDE expansion.
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 SETTINGS_LOCAL="$CLAUDE_HOME/settings.local.json"
 KNOWN_MARKETPLACES="$CLAUDE_HOME/plugins/known_marketplaces.json"
 PLUGINS_DIR="$CLAUDE_HOME/plugins"

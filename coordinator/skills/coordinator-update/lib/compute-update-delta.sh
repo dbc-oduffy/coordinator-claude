@@ -25,11 +25,15 @@
 # Negative-spec:
 #   - NEVER reports update_status "current" if the network was unreachable —
 #     that would be a false "you're up to date".
-#   - --source passed to the classifier is <clone>/plugins/ (the subdir), NOT the
-#     clone root. This makes ls-files emit relpaths like coordinator/... that align
-#     with --live's layout. Verified against check-install-divergence.py:124-184.
-#   - marketplace.json is installer-rewritten (install.sh:869-898) and always
-#     diverges from source — excluded from consumer_modified advisory set.
+#   - --source passed to the classifier is the publish-repo clone ROOT, NOT a
+#     plugins/ subdir. The publish repo mirrors coordinator/ directly at its root
+#     (publish-targets.portable dest_subdir = empty = repo root), so git ls-files
+#     already emits coordinator/... relpaths that align with --live's layout. The
+#     former hardcoded-plugins-subdir assumption matched the meta-repo's internal
+#     nesting but does not exist in the OSS publish repo — it caused exit 4 on
+#     every real install. Verified against check-install-divergence.py:124-184.
+#   - marketplace.json is installer-rewritten and always diverges from source —
+#     excluded from consumer_modified advisory set.
 
 set -euo pipefail
 
@@ -41,17 +45,36 @@ set -euo pipefail
 # lib/oss-repo-constants.sh. That file must be sourced before use.
 
 _COMPUTE_DELTA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_OSS_CONSTANTS="${_COMPUTE_DELTA_DIR}/../../../../lib/oss-repo-constants.sh"
-if [[ ! -f "$_OSS_CONSTANTS" ]]; then
-    echo "ERROR: lib/oss-repo-constants.sh not found at ${_OSS_CONSTANTS}" >&2
-    exit 4
+
+# Marker-based walk: ascend from this script's directory until we find a parent
+# that contains coordinator/lib/oss-repo-constants.sh. This resolves correctly
+# in BOTH the dist-source layout
+#   (coordinator/dist/oss-only-skills/coordinator-update/lib/)
+# AND the post-install layout
+#   (coordinator/skills/coordinator-update/lib/)
+# which is two path segments shallower. A hardcoded four-../ count resolved
+# only in the dist tree and broke on every real install (exit 4, constants not
+# found). The marker is layout-agnostic: whatever dir sits above coordinator/
+# will contain coordinator/lib/oss-repo-constants.sh.
+_OSS_CONSTANTS=""
+_walk="${_COMPUTE_DELTA_DIR}"
+while [[ -n "$_walk" && "$_walk" != "/" ]]; do
+  if [[ -f "${_walk}/coordinator/lib/oss-repo-constants.sh" ]]; then
+    _OSS_CONSTANTS="${_walk}/coordinator/lib/oss-repo-constants.sh"
+    break
+  fi
+  _walk="$(dirname "$_walk")"
+done
+if [[ -z "$_OSS_CONSTANTS" ]]; then
+  echo "ERROR: lib/oss-repo-constants.sh not found above ${_COMPUTE_DELTA_DIR}" >&2
+  exit 4
 fi
 # shellcheck source=../../../../lib/oss-repo-constants.sh
 source "$_OSS_CONSTANTS"
 
 CANONICAL_PUBLISH_URL="${COORDINATOR_PUBLISH_URL}"
 
-# The marketplace.json path (relative, POSIX) that install.sh always rewrites.
+# The marketplace.json path (relative, POSIX) that the coordinator installer always rewrites.
 MARKETPLACE_JSON_PATH="coordinator/.claude-plugin/marketplace.json"
 
 # ---------------------------------------------------------------------------
@@ -120,7 +143,10 @@ _emit_offline() {
   # URL with a quote character cannot break the Python string literal.
   # Build a minimal payload — counts and lists are empty since we couldn't reach source.
   # verify-no-console-flash: allow — OSS install bootstrap, runs once (annotation on the spawn line below)
-  bash "$(dirname "${BASH_SOURCE[0]}")/../../../../lib/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" -c "
+  # Review: code-reviewer (A-F2) — derive spawn-hidden.sh from _OSS_CONSTANTS anchor; the
+  # four-../ relative path overshoots in the installed layout (coordinator/skills/…/lib/ is
+  # shallower than dist/oss-only-skills/…/lib/). _OSS_CONSTANTS is in scope here.
+  bash "$(dirname "$_OSS_CONSTANTS")/spawn-hidden.sh" --stdin-mode=safe "$PYTHON" -c "
 import json, sys
 payload = {
     'update_status': 'offline',
@@ -223,16 +249,19 @@ fi
 
 # ---------------------------------------------------------------------------
 # Step 5: Run the classifier
-# The --source MUST be the clone's plugins/ subdir so git ls-files emits
-# relpaths like coordinator/... that align with --live's layout.
+# --source is the publish-repo clone ROOT (REPO_DIR itself), NOT a plugins/
+# subdir. The OSS publish repo mirrors coordinator/ directly at its top level
+# (publish-targets.portable dest_subdir is empty = repo root), so no plugins/
+# directory exists. Passing REPO_DIR directly makes git ls-files emit
+# coordinator/... relpaths that already align with --live's layout.
+#
+# The former hardcoded plugins-subdir assumption mirrored the meta-repo's
+# internal nesting (coordinator lives under plugins/coordinator-claude/coordinator/
+# in the meta-repo) but that directory does not exist in the publish repo.
+# The result was exit 4 on every real install — plugins/ was never there.
 # ---------------------------------------------------------------------------
 
-SOURCE_DIR="${REPO_DIR}/plugins"
-
-if [[ ! -d "$SOURCE_DIR" ]]; then
-  echo "ERROR: expected plugins/ subdir not found in clone at: ${SOURCE_DIR}" >&2
-  exit 4
-fi
+SOURCE_DIR="${REPO_DIR}"
 
 CLASSIFIER_JSON=""
 CLASSIFIER_EXIT=0
@@ -283,7 +312,7 @@ except (json.JSONDecodeError, OSError) as e:
     sys.exit(4)
 
 # --- marketplace.json exclusion -------------------------------------------
-# install.sh always rewrites this file (lines 869-898), so it always shows up
+# the coordinator installer always rewrites this file, so it always shows up
 # as consumer_modified — it is NOT a user customisation.
 original_modified = data.get("consumer_modified", [])
 filtered_modified = [entry for entry in original_modified if entry.get("path") != marketplace_path]

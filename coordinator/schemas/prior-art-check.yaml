@@ -13,6 +13,13 @@ optional:
   title: string
 
 # Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C1
-# applies_to: single glob covers both <plan>.prior-art-check.md and <plan>.md.prior-art-check.md
-# because globToRegex compiles * → [^/]* which spans embedded dots.
+# applies_to (tc-1 C3): *.prior-art-check.md is the canonical single-.md suffix form (already
+# pinned). globToRegex compiles * → [^/]* which spans embedded dots, so the glob covers both
+# <plan-stem>.prior-art-check.md (canonical) and <plan-stem>.md.prior-art-check.md (legacy
+# double-.md form, ported to canonical by tc-1 C9 broadsword).
 # Negative-spec: do NOT add status enum — legacy values like "reviewed"/"complete" vary on disk.
+#
+# Sidecar-family section grammar (shared core, tc-1 C3 — applies to all four sidecar types):
+# every sidecar carries: ## Summary (or a top-level verdict line) + ## Findings.
+# Cross-ref: plugins/coordinator-claude/coordinator/docs/wiki/canonical-artifact-shapes.md
+# § tc-1 — Record-family doctrine (D5).

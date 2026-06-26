@@ -24,7 +24,8 @@ above is a separate concern: it probes `python3 || python || py` so
 `bash coordinator-queue-append …` works on macOS, Linux, AND Windows.
 Do not flatten the trampoline back to a single name.
 
-Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
+Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § C1
+Prior spec: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
 
 Purpose: Write ONE YAML entry to state/<output_dir>/<ISO-date>-<slug>.yaml
 relative to cwd. The file is left uncommitted (dirty) so it surfaces in
@@ -43,9 +44,23 @@ coordinator-lesson-promote):
   Never uses `git remote get-url origin` — that yields a URL, not a shortname.
 
 Schemas supported (hardcoded — do NOT parse the markdown docs at runtime):
-  debt-backlog     → state/debt-backlog/<date>-<slug>.yaml
-  bug-backlog      → state/bug-backlog/<date>-<slug>.yaml
+  debt-backlog      → state/debt-backlog/<date>-<slug>.yaml
+  bug-backlog       → state/bug-backlog/<date>-<slug>.yaml
   improvement-queue → state/improvement-queue/<date>-<slug>.yaml
+
+All three schemas share a unified base field-set (D1, tc-2):
+  Required base: created, title, body, status
+  Optional base: from_repo, surface, proposed_action, closed_at, closed_by, tags, evidence
+  Base status enum: {open, closed, deferred}
+
+Domain extensions layer on top:
+  debt-backlog      — also requires: source, risk, proposed_action; optional: severity
+  bug-backlog       — also requires: surface, severity; optional: repro_steps, environment, why_blocked; status += wontfix
+  improvement-queue — also requires: surface, proposed_action, from_repo, change_kind; optional: queue_scope
+
+Negative-spec (tc-2 D2): NO id field is generated or accepted. The filename
+<date>-<slug>.yaml is the canonical entry handle. Do NOT restore id generation,
+--id flag, or id_prefix_pattern validation — those are intentionally dropped.
 
 Invocation:
   coordinator-queue-append \\
@@ -55,14 +70,14 @@ Invocation:
       --source "daily-review/2026-06-15" \\
       --status open \\
       --risk "Risk text" \\
-      --suggested-action "Action text" \\
-      [--severity P2] [--cross-ref "BS-2026-06-14-1"]
+      --proposed-action "Action text" \\
+      [--severity P2] [--evidence "BS-2026-06-14-1"]
 
   coordinator-queue-append \\
       --schema bug-backlog \\
       --title "Bug title" \\
       --body "Bug description" \\
-      --system "coordinator/auto-push" \\
+      --surface "coordinator/auto-push" \\
       --severity P1 \\
       --status open
 
@@ -71,7 +86,7 @@ Invocation:
       --title "Improvement title" \\
       --body "Improvement description" \\
       --surface "setup/publish.sh:88-95" \\
-      --proposed-target "setup/publish.sh (array)" \\
+      --proposed-action "setup/publish.sh (REVIEW_PATTERNS array)" \\
       --change-kind script-edit \\
       --status open \\
       [--queue-scope central|project]  # central → lands in ~/.claude meta-repo; project (default) → cwd-relative
@@ -86,13 +101,34 @@ import os
 import re
 import subprocess
 import sys
-import uuid
 
 # ---------------------------------------------------------------------------
-# Hardcoded schemas — Patrik F0: runtime MUST NOT parse the markdown docs.
+# Hardcoded schemas — composed from a shared base + per-domain extensions.
+# Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § D1
+# Negative-spec: do NOT parse the markdown docs at runtime.
 # Sources: docs/wiki/debt-backlog-schema.md, bug-backlog-schema.md,
 #          improvement-queue-schema.md
 # ---------------------------------------------------------------------------
+
+# Shared base field-set — additive-only discipline (tc-0 negative-spec):
+# The required set is the SMALL intersection every queue already satisfies.
+# Do NOT add surface/proposed_action/from_repo to _BASE_QUEUE_REQUIRED — those
+# are base-OPTIONAL, required only in the domain extension that already carries them.
+_BASE_QUEUE_REQUIRED: list[str] = ["created", "title", "body", "status"]
+
+# Canonical optional fields shared across all queue schemas (unified names per D1).
+_BASE_QUEUE_OPTIONAL: list[str] = [
+    "from_repo",
+    "surface",
+    "proposed_action",
+    "closed_at",
+    "closed_by",
+    "tags",
+    "evidence",
+]
+
+# Base status lifecycle enum — maps to tc-0 liveness: open→LIVE, deferred→BLOCKED, closed→DONE.
+_BASE_STATUS_ENUM: list[str] = ["open", "closed", "deferred"]
 
 # Valid queue_scope values — mirrors BacklogQueueScope in cockpit-contract.
 # "project" is the default (per-project local entries); "central" is for
@@ -101,80 +137,44 @@ _VALID_QUEUE_SCOPES = ("central", "project")
 
 SCHEMAS: dict[str, dict] = {
     "debt-backlog": {
-        "required": [
-            "id",
-            "created",
-            "source",
-            "status",
-            "title",
-            "body",
-            "risk",
-            "suggested_action",
-        ],
-        "optional": [
-            "cross_ref",
-            "severity",
-            "resolved_at",
-            "resolution_note",
-            "from_repo",
-        ],
+        # Base required + debt domain required.
+        # source: required debt field — originating-review audit trail; NOT folded into
+        # generic optional evidence per prior-art-checker Claim #12 (provenance discipline).
+        "required": _BASE_QUEUE_REQUIRED + ["source", "risk", "proposed_action"],
+        # Base optional minus proposed_action (promoted to required) + debt-specific severity.
+        "optional": [f for f in _BASE_QUEUE_OPTIONAL if f != "proposed_action"] + ["severity"],
         "enums": {
-            "status": [
-                "open",
-                "resolved",
-                "open for-weekly-arch-review",
-                "deferred",
-            ],
+            "status": _BASE_STATUS_ENUM,
             "severity": ["P0", "P1", "P2", "P3"],
         },
         "output_dir": "state/debt-backlog",
-        "id_prefix_pattern": r"^(DSR|CDX)-\d{4}-\d{2}-\d{2}-\d+$",
     },
     "bug-backlog": {
-        "required": [
-            "id",
-            "created",
-            "system",
-            "severity",
-            "status",
-            "title",
-            "body",
-        ],
-        "optional": [
-            "why_blocked",
-            "cross_ref",
+        # Base required + bug domain required.
+        # surface replaces the legacy 'system' field name.
+        "required": _BASE_QUEUE_REQUIRED + ["surface", "severity"],
+        # Base optional minus surface (promoted to required) + bug-specific fields.
+        "optional": [f for f in _BASE_QUEUE_OPTIONAL if f != "surface"] + [
             "repro_steps",
             "environment",
-            "closed_at",
-            "closed_by",
-            "from_repo",
+            "why_blocked",
         ],
         "enums": {
             "severity": ["P0", "P1", "P2", "P3"],
-            "status": ["open", "closed", "wontfix", "deferred"],
+            # wontfix is the only retained domain-extension status value:
+            # conscious rejection, DONE-mapped in tc-0 liveness.
+            "status": _BASE_STATUS_ENUM + ["wontfix"],
         },
         "output_dir": "state/bug-backlog",
-        "id_prefix_pattern": r"^BS-\d{4}-\d{2}-\d{2}-\d+$",
     },
     "improvement-queue": {
-        "required": [
-            "id",
-            "created",
-            "from_repo",
-            "title",
-            "body",
-            "surface",
-            "proposed_target",
-            "change_kind",
-            "status",
-        ],
+        # Base required + improvement domain required.
+        "required": _BASE_QUEUE_REQUIRED + ["surface", "proposed_action", "from_repo", "change_kind"],
+        # Base optional minus fields promoted to required + queue_scope.
         "optional": [
-            "queue_scope",
-            "scope_tags",
-            "evidence",
-            "closed_at",
-            "closed_by",
-        ],
+            f for f in _BASE_QUEUE_OPTIONAL
+            if f not in ("surface", "proposed_action", "from_repo")
+        ] + ["queue_scope"],
         "enums": {
             "change_kind": [
                 "script-edit",
@@ -184,11 +184,9 @@ SCHEMAS: dict[str, dict] = {
                 "hook-edit",
                 "agent-prompt-edit",
             ],
-            "status": ["open", "closed", "deferred"],
+            "status": _BASE_STATUS_ENUM,
         },
         "output_dir": "state/improvement-queue",
-        # improvement-queue uses uuid4 — no prefix pattern constraint.
-        "id_prefix_pattern": None,
     },
 }
 
@@ -356,7 +354,10 @@ def _slug_from_title(title: str) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
-    return slug[:_SLUG_MAX_CHARS]
+    # Review: code-reviewer — F3: strip("-") before truncation, but truncation can
+    # leave a trailing hyphen (e.g. "foo-bar-" at char 40). rstrip("-") after
+    # truncation, matching migrate-queues-to-base.py:292.
+    return slug[:_SLUG_MAX_CHARS].rstrip("-")
 
 
 def _output_path(schema_name: str, title: str, queue_scope: str | None = None) -> str:
@@ -408,14 +409,22 @@ def _yaml_quote_string(value: str) -> str:
     """Wrap a string in double-quotes if it contains special YAML characters.
 
     Quoted when the string contains: colon+space, leading/trailing whitespace,
-    special start chars (#, |, >, !, &, *, {, }, [, ]), or is empty.
+    special start chars (|, >, !, &, *, {, }, [, ]), a whitespace-preceded
+    comment-introducer (<space># or <tab>#) anywhere in the line, or is empty.
+
+    Negative-spec: a whitespace-preceded `#` introduces an inline YAML comment at
+    ANY column, not only column 0 — a start-position-only check silently truncates
+    titles/bodies like "PR #123" on re-parse. The `(^|\\s)#` scan is the SOLE `#`
+    gate: its `^` branch already covers a leading `#` and `\\s` covers space- and
+    tab-preceded ones, so `#` is intentionally absent from the start-chars set.
     """
     if not value:
         return '""'
     needs_quoting = (
         ": " in value
         or value != value.strip()
-        or value[0] in '#|>!&*{}[]'
+        or value[0] in '|>!&*{}[]'
+        or re.search(r"(^|\s)#", value) is not None
         or value.startswith("- ")
         or "\n" in value
     )
@@ -426,10 +435,14 @@ def _yaml_quote_string(value: str) -> str:
 
 
 def _yaml_block_scalar(value: str) -> str:
-    """Format a multi-line string as a YAML literal block scalar (body: |)."""
+    """Format a multi-line string as a YAML literal block scalar (body: |-)."""
     lines = value.splitlines()
     indented = "\n".join("  " + line if line else "" for line in lines)
-    return "|\n" + indented
+    # Review: code-reviewer — F2: clip chomping (|) adds a trailing newline on
+    # round-trip, so 'line1\nline2' parses back as 'line1\nline2\n'. Use strip
+    # chomping (|-) to match migrate-queues-to-base.py:317 and preserve exact
+    # byte-fidelity for the tc-4 contract.
+    return "|-\n" + indented
 
 
 def _emit_yaml_field(key: str, value) -> str:
@@ -455,8 +468,10 @@ def _emit_yaml_field(key: str, value) -> str:
 def _build_yaml(schema_name: str, fields: dict) -> str:
     """Construct the YAML document string for a queue entry.
 
-    Field order follows the schema's required list first, then optional fields
-    present in the data. from_repo is injected after id/created for all schemas.
+    Field order: base required fields first (created, title, body, status),
+    then domain-required extensions, then optional fields present in the data.
+    from_repo is emitted after created when present (base optional for
+    debt/bug; domain required for improvement).
     """
     schema = SCHEMAS[schema_name]
     required = schema["required"]
@@ -490,8 +505,9 @@ def _build_yaml(schema_name: str, fields: dict) -> str:
 def _validate(schema_name: str, fields: dict) -> None:
     """Fail-loud validation of field values against the schema.
 
-    Checks: unknown schema, missing required fields, invalid enum values,
-    id_prefix_pattern mismatch (when id is explicitly provided).
+    Checks: unknown schema, missing required fields, invalid enum values.
+    Negative-spec (tc-2 D2): no id field or id_prefix_pattern check —
+    the filename is the canonical handle; id generation and validation are dropped.
     """
     if schema_name not in SCHEMAS:
         known = ", ".join(sorted(SCHEMAS.keys()))
@@ -503,7 +519,7 @@ def _validate(schema_name: str, fields: dict) -> None:
 
     schema = SCHEMAS[schema_name]
 
-    # Required field check — id is special (auto-generated) but still must end up present.
+    # Required field check.
     for field in schema["required"]:
         if fields.get(field) is None or fields.get(field) == "":
             print(f"error: missing required field: --{field.replace('_', '-')}", file=sys.stderr)
@@ -516,18 +532,6 @@ def _validate(schema_name: str, fields: dict) -> None:
             print(
                 f"error: invalid value for --{field.replace('_', '-')}: '{value}'. "
                 f"Valid values: {', '.join(valid_values)}.",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    # id_prefix_pattern check (only when id was explicitly supplied).
-    pattern = schema.get("id_prefix_pattern")
-    if pattern and fields.get("_id_was_explicit"):
-        id_val = fields.get("id", "")
-        if not re.match(pattern, id_val):
-            print(
-                f"error: --id '{id_val}' does not match required pattern for "
-                f"'{schema_name}'. Pattern: {pattern}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -553,22 +557,20 @@ Examples:
   # Debt backlog entry:
   coordinator-queue-append \\
       --schema debt-backlog \\
-      --id DSR-2026-06-15-1 \\
       --title "Fan-out overlap pass verifies interface presence, not correctness" \\
       --body "The overlap pass verifies a pinned interface file exists..." \\
       --source "daily-review/patrik/2026-06-15" \\
       --status open \\
       --risk "Wrong pin causes divergent executor outputs." \\
-      --suggested-action "Add interface-pin verification gate." \\
+      --proposed-action "Add interface-pin verification gate." \\
       --severity P2
 
   # Bug backlog entry:
   coordinator-queue-append \\
       --schema bug-backlog \\
-      --id BS-2026-06-15-1 \\
       --title "publish.sh Phase 4 audit skips unchanged files" \\
       --body "AUDIT_FILES only covers newly-synced files..." \\
-      --system "setup/publish" \\
+      --surface "setup/publish" \\
       --severity P1 \\
       --status open
 
@@ -578,11 +580,11 @@ Examples:
       --title "Promote persona-name patterns into REVIEW_PATTERNS" \\
       --body "setup/publish.sh:88-95 should promote the 7 persona-name patterns..." \\
       --surface "setup/publish.sh:88-95" \\
-      --proposed-target "setup/publish.sh (REVIEW_PATTERNS array)" \\
+      --proposed-action "setup/publish.sh (REVIEW_PATTERNS array)" \\
       --change-kind script-edit \\
       --status open
 
-Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
+Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § C1
 """,
     )
 
@@ -592,16 +594,6 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
         required=True,
         metavar="NAME",
         help="Queue schema to use: debt-backlog, bug-backlog, or improvement-queue.",
-    )
-    parser.add_argument(
-        "--id",
-        default=None,
-        metavar="ID",
-        help=(
-            "Explicit entry ID. For debt-backlog: DSR-/CDX- prefix required. "
-            "For bug-backlog: BS- prefix required. "
-            "Defaults to uuid4 for improvement-queue; auto-generated from schema pattern otherwise."
-        ),
     )
     parser.add_argument(
         "--title",
@@ -619,7 +611,7 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
         "--status",
         required=True,
         metavar="VALUE",
-        help="Lifecycle state. Valid values depend on the schema (e.g. open, resolved, deferred).",
+        help="Lifecycle state. Valid base values: open, closed, deferred. bug-backlog also accepts wontfix.",
     )
     parser.add_argument(
         "--created",
@@ -628,12 +620,68 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
         help="Entry creation date. Defaults to today.",
     )
 
+    # Unified cross-schema fields.
+    parser.add_argument(
+        "--surface",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "The file/subsystem/script concerned. "
+            "Required for bug-backlog (canonical name replacing legacy 'system') "
+            "and improvement-queue. Optional for debt-backlog."
+        ),
+    )
+    parser.add_argument(
+        "--proposed-action",
+        dest="proposed_action",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "What to do about this entry — the remediation or fix target. "
+            "Required for debt-backlog and improvement-queue; optional for bug-backlog."
+        ),
+    )
+    parser.add_argument(
+        "--tags",
+        default=None,
+        metavar="TAGS",
+        help="Comma-separated filter tags (optional for all schemas).",
+    )
+    parser.add_argument(
+        "--evidence",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "Provenance: commit SHA, plan path, or related entry reference (optional, all schemas)."
+        ),
+    )
+
+    # Closure fields (shared across debt/bug/improvement).
+    parser.add_argument(
+        "--closed-at",
+        dest="closed_at",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="Date the entry was closed/resolved (optional, all schemas).",
+    )
+    parser.add_argument(
+        "--closed-by",
+        dest="closed_by",
+        default=None,
+        metavar="SHA",
+        help="Git commit SHA (or prose note) that closed the entry (optional, all schemas).",
+    )
+
     # debt-backlog fields.
     parser.add_argument(
         "--source",
         default=None,
         metavar="TEXT",
-        help="(debt-backlog) Originating review or observation (required for debt-backlog).",
+        help=(
+            "(debt-backlog) Originating review or observation — required for debt-backlog. "
+            "Kept as a distinct required debt field, NOT folded into generic evidence, "
+            "to preserve provenance audit trail discipline."
+        ),
     )
     parser.add_argument(
         "--risk",
@@ -642,47 +690,13 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
         help="(debt-backlog) Why this debt matters — consequence of leaving it unaddressed (required for debt-backlog).",
     )
     parser.add_argument(
-        "--suggested-action",
-        dest="suggested_action",
-        default=None,
-        metavar="TEXT",
-        help="(debt-backlog) Remediation action description (required for debt-backlog).",
-    )
-    parser.add_argument(
-        "--cross-ref",
-        dest="cross_ref",
-        default=None,
-        metavar="TEXT",
-        help="(debt-backlog, bug-backlog) Cross-reference to related backlog entries.",
-    )
-    parser.add_argument(
         "--severity",
         default=None,
         metavar="LEVEL",
-        help="(debt-backlog, bug-backlog) Priority classification: P0, P1, P2, P3.",
-    )
-    parser.add_argument(
-        "--resolved-at",
-        dest="resolved_at",
-        default=None,
-        metavar="YYYY-MM-DD",
-        help="(debt-backlog) Date the debt was resolved. Required when status is resolved.",
-    )
-    parser.add_argument(
-        "--resolution-note",
-        dest="resolution_note",
-        default=None,
-        metavar="TEXT",
-        help="(debt-backlog) Brief explanation of how the debt was resolved.",
+        help="(debt-backlog, bug-backlog) Priority classification: P0, P1, P2, P3. Required for bug-backlog; optional (default P2) for debt-backlog.",
     )
 
     # bug-backlog fields.
-    parser.add_argument(
-        "--system",
-        default=None,
-        metavar="TEXT",
-        help="(bug-backlog) Subsystem the bug lives in, path-like (required for bug-backlog).",
-    )
     parser.add_argument(
         "--why-blocked",
         dest="why_blocked",
@@ -703,35 +717,8 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
         metavar="TEXT",
         help="(bug-backlog) Platform/session constraint where the bug manifests.",
     )
-    parser.add_argument(
-        "--closed-at",
-        dest="closed_at",
-        default=None,
-        metavar="YYYY-MM-DD",
-        help="(bug-backlog, improvement-queue) Date the entry was resolved.",
-    )
-    parser.add_argument(
-        "--closed-by",
-        dest="closed_by",
-        default=None,
-        metavar="SHA",
-        help="(bug-backlog, improvement-queue) Git commit SHA that resolved the entry.",
-    )
 
     # improvement-queue fields.
-    parser.add_argument(
-        "--surface",
-        default=None,
-        metavar="TEXT",
-        help="(improvement-queue) Specific file/skill/script the entry proposes changing (required).",
-    )
-    parser.add_argument(
-        "--proposed-target",
-        dest="proposed_target",
-        default=None,
-        metavar="TEXT",
-        help="(improvement-queue) The fix target — where the change should land (required).",
-    )
     parser.add_argument(
         "--change-kind",
         dest="change_kind",
@@ -741,19 +728,6 @@ Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C4
             "(improvement-queue) Classification of the target change. "
             "Valid: script-edit, skill-edit, wiki-append, wiki-new, hook-edit, agent-prompt-edit."
         ),
-    )
-    parser.add_argument(
-        "--scope-tags",
-        dest="scope_tags",
-        default=None,
-        metavar="TAGS",
-        help="(improvement-queue) Comma-separated tags for filtering and triage.",
-    )
-    parser.add_argument(
-        "--evidence",
-        default=None,
-        metavar="TEXT",
-        help="(improvement-queue) Commit SHA, plan path, or other provenance.",
     )
 
     # from_repo override (normally auto-resolved).
@@ -826,58 +800,43 @@ def main() -> None:
     # Resolve from_repo (auto-detect or override).
     from_repo = args.from_repo if args.from_repo else _resolve_from_repo()
 
-    # Resolve id — uuid4 default, explicit override allowed.
-    id_was_explicit = args.id is not None
-    entry_id = args.id if id_was_explicit else str(uuid.uuid4())
-
     # Resolve created date.
     created = args.created if args.created else _today_iso()
 
-    # Build the fields dict from all parsed arguments.
-    # scope_tags: comma-separated string → list.
-    scope_tags = None
-    if args.scope_tags:
-        scope_tags = [t.strip() for t in args.scope_tags.split(",") if t.strip()]
+    # Parse tags: comma-separated string → list.
+    tags = None
+    if args.tags:
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()]
 
     fields: dict = {
-        # Internal sentinel (not emitted to YAML).
-        "_id_was_explicit": id_was_explicit,
-        # Universal fields.
-        "id": entry_id,
+        # Universal base fields.
         "created": created,
-        "from_repo": from_repo,
         "title": args.title,
         "body": args.body.replace("\\n", "\n"),
         "status": args.status,
-        # debt-backlog fields.
+        # Base optional fields (canonical unified names).
+        "from_repo": from_repo,
+        "surface": args.surface,
+        "proposed_action": args.proposed_action,
+        "closed_at": args.closed_at,
+        "closed_by": args.closed_by,
+        "tags": tags,
+        "evidence": args.evidence,
+        # debt-backlog domain fields.
         "source": args.source,
         "risk": args.risk,
-        "suggested_action": args.suggested_action,
-        "cross_ref": args.cross_ref,
         "severity": args.severity,
-        "resolved_at": args.resolved_at,
-        "resolution_note": args.resolution_note,
-        # bug-backlog fields.
-        "system": args.system,
+        # bug-backlog domain fields.
         "why_blocked": args.why_blocked,
         "repro_steps": args.repro_steps,
         "environment": args.environment,
-        "closed_at": args.closed_at,
-        "closed_by": args.closed_by,
-        # improvement-queue fields.
-        "surface": args.surface,
-        "proposed_target": args.proposed_target,
+        # improvement-queue domain fields.
         "change_kind": args.change_kind,
         "queue_scope": queue_scope,
-        "scope_tags": scope_tags,
-        "evidence": args.evidence,
     }
 
     # Validate before writing.
     _validate(schema_name, fields)
-
-    # Remove sentinel before YAML emission.
-    fields.pop("_id_was_explicit", None)
 
     # Build YAML content.
     yaml_content = _build_yaml(schema_name, fields)

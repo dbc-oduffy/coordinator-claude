@@ -1044,7 +1044,7 @@ _get_parent_whitelist() {
 }
 
 # Portable default parent roots: the unique parent directories of registered
-# machine-local [repos]. Replaces the former hardcoded ("X:/" "E:/dev/") Striker-only
+# machine-local [repos]. Replaces the former hardcoded ("X:/" "E:/dev/") Machine-A-only
 # default that resolved to nothing on every other machine (2026-06-19 portability sweep).
 # Emits one path per line; empty if machine-local is unavailable (caller's [[ -d ]] guard
 # then no-ops, as it did with the absent hardcoded drives).
@@ -1071,7 +1071,7 @@ _sweep_orphans() {
     _roots_arr=("${PARENT_ROOTS[@]}")
   else
     # Portable default: parent dirs of registered machine-local [repos] (was hardcoded
-    # Striker drives "X:/" "E:/dev/"). --parent-root still overrides.
+    # Machine-A drives "X:/" "E:/dev/"). --parent-root still overrides.
     local _r
     while IFS= read -r _r; do
       [[ -n "$_r" ]] && _roots_arr+=("$_r")

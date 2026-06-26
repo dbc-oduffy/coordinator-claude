@@ -1,6 +1,6 @@
 /**
  * DayRollup and WeekRollup — deterministic aggregation is the SSOT; narrative is
- * a regenerable VIEW over the deterministic numbers (Camelia P1-D4).
+ * a regenerable VIEW over the deterministic numbers (the Data Science Reviewer P1-D4).
  *
  * Rule: deterministic aggregation (GROUP-BY over the completion-log `chain` key)
  * is reproducible and authoritative. The narrative is regenerable and MUST cite

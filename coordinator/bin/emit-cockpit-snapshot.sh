@@ -179,12 +179,24 @@ HANDOFFS_ARRAY="$(echo "$ALL_HANDOFFS_JSON" | jq -c --arg repo "$REPO_NAME" --ar
       coordinator_root_path: ".",
       title: $fm.title,
       created: $fm.created,
-      status: $fm.status,
+      # superseded: retired handoff status — coerced to consumed at ingest so the strict 2.0 schema never sees it (handoff-archived.yaml stays tolerant upstream; see plan Key design decision)
+      status: (if $fm.status == "superseded" then "consumed" else $fm.status end),
       kind: $kind,
       deployment_state: $fm.deployment_state,
       workstream: $workstream,
       predecessor: $predecessor,
       scope: $scope,
+      consumed_by: ($fm.consumed_by // null),
+      # consumed_at: tolerant datetime guard — bare ISO dates (no T) become null;
+      # some legacy handoffs stored only a date here (pre-datetime convention).
+      consumed_at: (if (($fm.consumed_at | type) == "string") and ($fm.consumed_at | contains("T")) then $fm.consumed_at else null end),
+      picked_up_by: ($fm.picked_up_by // null),
+      # shipped_in and acceptance_criteria are null here; enriched per-record below.
+      shipped_in: null,
+      acceptance_criteria: null,
+      # _shipped_in_sha is a temp field (removed before validation); carries the raw
+      # frontmatter SHA string for git-resolution in the enrichment loop below.
+      _shipped_in_sha: ($fm.shipped_in // null),
       provenance: {
         source_kind: "local_fs",
         repo: $repo,
@@ -216,15 +228,57 @@ MALFORMED_HANDOFFS="$(echo "$ALL_HANDOFFS_JSON" | jq -c --arg repo "$REPO_NAME" 
   ]
 ')"
 
-# Validate all handoff records
-echo "[emit] validating handoffs..." >&2
+# Enrich (shipped_in + acceptance_criteria) and validate all handoff records.
+# shipped_in: resolve _shipped_in_sha (temp field) → {sha, date} via git log.
+# acceptance_criteria: parse body checklist from file; emit ratio {done, total} or null.
+# D9 nullability: all five new keys must always be present (null when uncomputed).
+echo "[emit] enriching and validating handoffs..." >&2
 HANDOFF_COUNT="$(echo "$HANDOFFS_ARRAY" | jq 'length')"
+ENRICHED_HANDOFFS="[]"
 if [[ "$HANDOFF_COUNT" -gt 0 ]]; then
-for i in $(seq 0 $((HANDOFF_COUNT - 1))); do
-  rec="$(echo "$HANDOFFS_ARRAY" | jq -c ".[$i]")"
-  validate_main_record "handoff-summary" "$rec" "index $i"
-done
+  # Review: F5 — accumulate into a temp file and assemble once after the loop to avoid
+  # O(n²) jq re-parse of the growing ENRICHED_HANDOFFS array on each iteration.
+  ENRICHED_TMP="$(mktemp "${TMPDIR:-/tmp}/cockpit-handoffs-enriched.XXXXXX")"
+  for i in $(seq 0 $((HANDOFF_COUNT - 1))); do
+    rec="$(echo "$HANDOFFS_ARRAY" | jq -c ".[$i]")"
+
+    # Resolve shipped_in: git log lookup for {sha, date}; null if SHA absent or unresolvable
+    _si_sha="$(echo "$rec" | jq -r '._shipped_in_sha // empty')"
+    _shipped_in_json="null"
+    if [[ -n "$_si_sha" ]]; then
+      _si_date="$(git -C "$ROOT" log -1 --format="%ad" --date=format:%Y-%m-%d "$_si_sha" 2>/dev/null || echo "")"
+      if [[ -n "$_si_date" ]]; then
+        _shipped_in_json="$(jq -cn --arg sha "$_si_sha" --arg date "$_si_date" '{sha: $sha, date: $date}')"
+      fi
+    fi
+
+    # Parse acceptance_criteria from handoff body — ratio only, no prose (privacy constraint)
+    # Count: done = "- [x]" / "- [X]" lines; not_done = "- [ ]" lines
+    _rec_path="$(echo "$rec" | jq -r '.provenance.path')"
+    _ac_json="null"
+    if [[ -n "$_rec_path" && -f "$ROOT/$_rec_path" ]]; then
+      _ac_body="$(cat "$ROOT/$_rec_path")"
+      _ac_done="$(printf '%s' "$_ac_body" | awk '/^[[:space:]]*- \[[xX]\]/{n++} END{print n+0}')"
+      _ac_not_done="$(printf '%s' "$_ac_body" | awk '/^[[:space:]]*- \[ \]/{n++} END{print n+0}')"
+      _ac_total=$(( _ac_done + _ac_not_done ))
+      if [[ "$_ac_total" -gt 0 ]]; then
+        _ac_json="$(jq -cn --argjson done "$_ac_done" --argjson total "$_ac_total" '{done: $done, total: $total}')"
+      fi
+    fi
+
+    # Remove temp field; inject resolved lifecycle fields
+    rec="$(echo "$rec" | jq -c \
+      --argjson shipped_in "$_shipped_in_json" \
+      --argjson acceptance_criteria "$_ac_json" \
+      'del(._shipped_in_sha) | .shipped_in = $shipped_in | .acceptance_criteria = $acceptance_criteria')"
+
+    validate_main_record "handoff-summary" "$rec" "index $i"
+    printf '%s\n' "$rec" >> "$ENRICHED_TMP"
+  done
+  ENRICHED_HANDOFFS="$(jq -s '.' "$ENRICHED_TMP")"
+  rm -f "$ENRICHED_TMP"
 fi
+HANDOFFS_ARRAY="$ENRICHED_HANDOFFS"
 
 # ===========================================================================
 # SECTION 2 — BacklogItemSummary records
@@ -466,6 +520,7 @@ for filepath in paths:
         "verdict": verdict,
         "diff_loc": diff_loc_int,
         "reviewed_at": reviewed_at,
+        "workstream": body.get("workstream", None),
         "provenance": {
             "source_kind": "local_fs",
             "repo": repo,
@@ -953,25 +1008,32 @@ done
 fi
 
 # ===========================================================================
-# SECTION 7 — CoordinatorRoot
+# SECTION 7 — CoordinatorRoots (fleet array, element [0] = local meta-repo)
 # Source: gh repo view for metadata; git log for last_activity_at
+# Review: B-F7 — derivation: "parsed" (not "raw"): gh repo view --json returns processed
+# CLI JSON, not raw GraphQL wire; source_kind "github_graphql" remains accurate.
 # ===========================================================================
-echo "[emit] collecting coordinator root..." >&2
+echo "[emit] collecting coordinator roots..." >&2
 
-GH_REPO_JSON="$(gh repo view "dbc-oduffy/.claude-prime" --json "visibility,isArchived,isFork,defaultBranchRef" 2>/dev/null || echo "")"
+# Accumulated malformed items (JSON array) — grows if gh fails per-repo
+CR_MALFORMED_ITEMS="[]"
+
+# ---------------------------------------------------------------------------
+# Element [0]: local meta-repo (dbc-oduffy/.claude-prime) — MANDATORY
+# Always present even if gh is unavailable; machine field required by schema.
+# ---------------------------------------------------------------------------
+GH_REPO_JSON="$(gh repo view "dbc-oduffy/.claude-prime" --json "visibility,isArchived,isFork,defaultBranchRef,pushedAt" 2>/dev/null || echo "")"
+CR_LAST_ACTIVITY="$(git -C "$ROOT" log -1 --format="%cI" HEAD 2>/dev/null || echo "$OBSERVED_AT")"
 
 if [[ -n "$GH_REPO_JSON" ]]; then
   CR_VISIBILITY="$(echo "$GH_REPO_JSON" | jq -r '.visibility')"
   CR_ARCHIVED="$(echo "$GH_REPO_JSON" | jq '.isArchived')"
   CR_IS_FORK="$(echo "$GH_REPO_JSON" | jq '.isFork')"
   CR_DEFAULT_BRANCH="$(echo "$GH_REPO_JSON" | jq -r '.defaultBranchRef.name')"
-  # last_activity_at = branch-tip committedDate (not pushedAt)
-  CR_LAST_ACTIVITY="$(git -C "$ROOT" log -1 --format="%cI" HEAD 2>/dev/null || echo "$OBSERVED_AT")"
 
-  # Review: B-F7 — derivation: "parsed" (not "raw"): gh repo view --json returns processed
-  # CLI JSON, not raw GraphQL wire; source_kind "github_graphql" remains accurate.
-  COORDINATOR_ROOT_RECORD="$(jq -cn \
+  LOCAL_ROOT_RECORD="$(jq -cn \
     --arg repo "$REPO_NAME" \
+    --arg machine "$HOSTNAME_VAL" \
     --arg visibility "$CR_VISIBILITY" \
     --argjson archived "$CR_ARCHIVED" \
     --argjson is_fork "$CR_IS_FORK" \
@@ -982,8 +1044,10 @@ if [[ -n "$GH_REPO_JSON" ]]; then
     --arg observed_at "$OBSERVED_AT" \
     '{
       repo: $repo,
-      owner: "dbc-oduffy",
+      # Review: F6 — derive owner from slug split rather than hardcoding "dbc-oduffy".
+      owner: ($repo | split("/")[0]),
       coordinator_root_path: ".",
+      machine: $machine,
       visibility: $visibility,
       archived: $archived,
       is_fork: $is_fork,
@@ -999,12 +1063,110 @@ if [[ -n "$GH_REPO_JSON" ]]; then
         derivation: "parsed"
       }
     }')"
-  CR_MALFORMED=""
-  validate_main_record "coordinator-root" "$COORDINATOR_ROOT_RECORD" "coordinator root"
 else
-  echo "[emit] gh unavailable — CoordinatorRoot emitted to malformed_records" >&2
-  CR_MALFORMED='{"reason":"gh repo view failed or gh unavailable","path":"dbc-oduffy/.claude-prime"}'
-  COORDINATOR_ROOT_RECORD="null"
+  echo "[emit] gh unavailable for .claude-prime — building fallback local root (git-only)" >&2
+  CR_MALFORMED_ITEMS="$(echo "$CR_MALFORMED_ITEMS" | jq -c '. + [{"reason":"gh repo view failed or gh unavailable","path":"dbc-oduffy/.claude-prime"}]')"
+  LOCAL_ROOT_RECORD="$(jq -cn \
+    --arg repo "$REPO_NAME" \
+    --arg machine "$HOSTNAME_VAL" \
+    --arg last_activity_at "$CR_LAST_ACTIVITY" \
+    --arg branch "$GIT_BRANCH" \
+    --arg sha "$GIT_SHA" \
+    --arg observed_at "$OBSERVED_AT" \
+    '{
+      repo: $repo,
+      # Review: F6 — derive owner from slug split rather than hardcoding "dbc-oduffy".
+      owner: ($repo | split("/")[0]),
+      coordinator_root_path: ".",
+      machine: $machine,
+      visibility: "PRIVATE",
+      archived: false,
+      is_fork: false,
+      default_branch: "main",
+      last_activity_at: $last_activity_at,
+      open_pr_count: null,
+      provenance: {
+        source_kind: "local_fs",
+        repo: $repo,
+        ref: { branch: $branch, sha: $sha },
+        path: "",
+        observed_at: $observed_at,
+        derivation: "parsed"
+      }
+    }')"
+fi
+validate_main_record "coordinator-root" "$LOCAL_ROOT_RECORD" "index 0 (local meta-repo)"
+COORDINATOR_ROOTS_ARRAY="$(jq -cn --argjson local_root "$LOCAL_ROOT_RECORD" '[$local_root]')"
+
+# ---------------------------------------------------------------------------
+# Fleet iteration: working-repos.yaml (render ALL — no visibility filter)
+# PM decision 2026-06-26: visibility is a DISPLAY field, not a filter.
+# gh repo view works for repos not on disk — queries GitHub directly.
+# ---------------------------------------------------------------------------
+WORKING_REPOS_YAML="$ROOT/working-repos.yaml"
+if [[ -f "$WORKING_REPOS_YAML" ]]; then
+  echo "[emit] iterating fleet repos from working-repos.yaml..." >&2
+  FLEET_IDX=1
+  while IFS= read -r FLEET_SLUG; do
+    [[ -z "$FLEET_SLUG" ]] && continue
+    echo "[emit]   fleet repo[$FLEET_IDX]: $FLEET_SLUG" >&2
+    FLEET_GH_JSON="$(gh repo view "$FLEET_SLUG" --json "visibility,isArchived,isFork,defaultBranchRef,pushedAt" 2>/dev/null || echo "")"
+    if [[ -n "$FLEET_GH_JSON" ]]; then
+      F_VISIBILITY="$(echo "$FLEET_GH_JSON" | jq -r '.visibility')"
+      F_ARCHIVED="$(echo "$FLEET_GH_JSON" | jq '.isArchived')"
+      F_IS_FORK="$(echo "$FLEET_GH_JSON" | jq '.isFork')"
+      F_DEFAULT_BRANCH="$(echo "$FLEET_GH_JSON" | jq -r '.defaultBranchRef.name // "main"')"
+      # last_activity_at: pushedAt → OBSERVED_AT
+      # Review: F1 — defaultBranchRef.target (committedDate) is not a subobject returned by
+      # the gh json fields requested above; F_COMMITTED_DATE was always empty. Use pushedAt directly.
+      F_PUSHED_AT="$(echo "$FLEET_GH_JSON" | jq -r '(.pushedAt // "") | select(. != "")' 2>/dev/null || echo "")"
+      if [[ -n "$F_PUSHED_AT" ]]; then
+        F_LAST_ACTIVITY="$F_PUSHED_AT"
+      else
+        F_LAST_ACTIVITY="$OBSERVED_AT"
+      fi
+      FLEET_RECORD="$(jq -cn \
+        --arg repo "$FLEET_SLUG" \
+        --arg machine "$HOSTNAME_VAL" \
+        --arg visibility "$F_VISIBILITY" \
+        --argjson archived "$F_ARCHIVED" \
+        --argjson is_fork "$F_IS_FORK" \
+        --arg default_branch "$F_DEFAULT_BRANCH" \
+        --arg last_activity_at "$F_LAST_ACTIVITY" \
+        --arg branch "$GIT_BRANCH" \
+        --arg sha "$GIT_SHA" \
+        --arg observed_at "$OBSERVED_AT" \
+        '{
+          repo: $repo,
+          # Review: F6 — derive owner from slug split rather than hardcoding "dbc-oduffy".
+          owner: ($repo | split("/")[0]),
+          coordinator_root_path: ".",
+          machine: $machine,
+          visibility: $visibility,
+          archived: $archived,
+          is_fork: $is_fork,
+          default_branch: $default_branch,
+          last_activity_at: $last_activity_at,
+          open_pr_count: null,
+          provenance: {
+            source_kind: "github_graphql",
+            repo: $repo,
+            ref: { branch: $branch, sha: $sha },
+            path: "",
+            observed_at: $observed_at,
+            derivation: "parsed"
+          }
+        }')"
+      validate_main_record "coordinator-root" "$FLEET_RECORD" "index $FLEET_IDX ($FLEET_SLUG)"
+      COORDINATOR_ROOTS_ARRAY="$(echo "$COORDINATOR_ROOTS_ARRAY" | jq -c --argjson rec "$FLEET_RECORD" '. + [$rec]')"
+      FLEET_IDX=$((FLEET_IDX + 1))
+    else
+      echo "[emit]   gh unavailable for $FLEET_SLUG — skipping to malformed" >&2
+      CR_MALFORMED_ITEMS="$(echo "$CR_MALFORMED_ITEMS" | jq -c --arg slug "$FLEET_SLUG" '. + [{"reason":"gh repo view failed or gh unavailable","path":$slug}]')"
+    fi
+  done < <(awk '/^repos:/{found=1; next} /^out_of_tree:/{found=0} found && /github:/{gsub(/^[[:space:]]*github:[[:space:]]*/, ""); gsub(/#.*$/, ""); gsub(/[[:space:]]*$/, ""); print}' "$WORKING_REPOS_YAML")
+else
+  echo "[emit] working-repos.yaml not found at $WORKING_REPOS_YAML — fleet iteration skipped" >&2
 fi
 
 # ===========================================================================
@@ -1017,11 +1179,14 @@ GIT_LAST_COMMIT_AT="$(git -C "$ROOT" log -1 --format="%cI" HEAD 2>/dev/null || e
 GIT_LAST_COMMIT_MSG="$(git -C "$ROOT" log -1 --format="%s" HEAD 2>/dev/null || echo "")"
 
 # Parse machine_hint and date_hint from branch name work/<machine>/<date>
-BRANCH_MACHINE_HINT="null"
-BRANCH_DATE_HINT="null"
+# Review: F3 — store raw captures and pass via --arg; use null-conditional in jq to preserve
+# null-emission semantics on no-match. Manual quote-wrapping ("\"...\"" + --argjson) breaks
+# if the branch name contains " or \ (malformed JSON aborts under set -euo pipefail).
+BRANCH_MACHINE_HINT=""
+BRANCH_DATE_HINT=""
 if [[ "$GIT_BRANCH" =~ ^work/([^/]+)/(.+)$ ]]; then
-  BRANCH_MACHINE_HINT="\"${BASH_REMATCH[1]}\""
-  BRANCH_DATE_HINT="\"${BASH_REMATCH[2]}\""
+  BRANCH_MACHINE_HINT="${BASH_REMATCH[1]}"
+  BRANCH_DATE_HINT="${BASH_REMATCH[2]}"
 fi
 
 BRANCH_RECORD="$(jq -cn \
@@ -1030,8 +1195,8 @@ BRANCH_RECORD="$(jq -cn \
   --arg tip_sha "$GIT_SHA" \
   --arg last_commit_at "$GIT_LAST_COMMIT_AT" \
   --arg last_commit_message "$GIT_LAST_COMMIT_MSG" \
-  --argjson machine_hint "$BRANCH_MACHINE_HINT" \
-  --argjson date_hint "$BRANCH_DATE_HINT" \
+  --arg machine_hint "$BRANCH_MACHINE_HINT" \
+  --arg date_hint "$BRANCH_DATE_HINT" \
   --arg branch "$GIT_BRANCH" \
   --arg sha "$GIT_SHA" \
   --arg observed_at "$OBSERVED_AT" \
@@ -1046,8 +1211,8 @@ BRANCH_RECORD="$(jq -cn \
     behind_by: null,
     last_commit_at: $last_commit_at,
     last_commit_message: $last_commit_message,
-    machine_hint: $machine_hint,
-    date_hint: $date_hint,
+    machine_hint: (if $machine_hint == "" then null else $machine_hint end),
+    date_hint: (if $date_hint == "" then null else $date_hint end),
     provenance: {
       source_kind: "local_fs",
       repo: $repo,
@@ -1172,6 +1337,96 @@ done
 fi
 
 # ===========================================================================
+# SECTION 8.7 — CrossRepoMemoSummary records
+# Sources: query-records.js --type cross-repo-memo (reads cross-repo/inbox/*.md).
+# Actionable inbox set only — archived memos are not emitted.
+# Required fields (all 10): repo, coordinator_root_path, title, from, to,
+#   status, created, kind, related, provenance.
+# status enum: open | in_progress | actioned (cross-repo-memo-summary.schema.json).
+# kind enum:   ask | consult | fyi  (default: "ask" per memo doctrine).
+# related:     empty array when frontmatter key is absent (schema requires array).
+# HARD CONSTRAINT: metadata only — NO body text, no summary/decision_note fields.
+# Spec backlink: docs/plans/2026-06-23-cockpit-contract-ext-wave2-emit-and-queue-migration.md § C9b
+# ===========================================================================
+echo "[emit] collecting cross-repo memos..." >&2
+
+CROSS_REPO_MEMOS_JSON="$(node "$COORDINATOR_ROOT/bin/query-records.js" --type cross-repo-memo --limit 0 --format json 2>/dev/null || echo "[]")"
+
+CROSS_REPO_MEMOS_ARRAY="$(echo "$CROSS_REPO_MEMOS_JSON" | jq -c \
+  --arg repo "$REPO_NAME" \
+  --arg observed_at "$OBSERVED_AT" \
+  --arg branch "$GIT_BRANCH" \
+  --arg sha "$GIT_SHA" '
+  [
+    .[] | . as $rec |
+    ($rec.frontmatter) as $fm |
+    ($rec.path) as $p |
+    # Require all 10 fields the schema marks required; status and kind must be within enum
+    select(
+      ($fm.title | type) == "string" and
+      ($fm.from  | type) == "string" and
+      ($fm.to    | type) == "string" and
+      ($fm.status | type) == "string" and
+      ($fm.status | . == "open" or . == "in_progress" or . == "actioned") and
+      ($fm.created | type) == "string" and
+      (($fm.kind // "ask") | . == "ask" or . == "consult" or . == "fyi")
+    ) |
+    {
+      repo: $repo,
+      coordinator_root_path: ".",
+      title: $fm.title,
+      from: $fm.from,
+      to: $fm.to,
+      status: $fm.status,
+      created: ($fm.created | .[0:10]),
+      kind: ($fm.kind // "ask"),
+      related: ($fm.related // []),
+      provenance: {
+        source_kind: "local_fs",
+        repo: $repo,
+        ref: { branch: $branch, sha: $sha },
+        path: $p,
+        observed_at: $observed_at,
+        derivation: "parsed"
+      }
+    }
+  ]
+' || echo "[]")"
+
+# Review: F2 — build malformed quarantine for memos mirroring the MALFORMED_HANDOFFS pattern.
+# Records that fail the validity select() above are captured here with a {path, reason} shape.
+MALFORMED_CROSS_REPO_MEMOS="$(echo "$CROSS_REPO_MEMOS_JSON" | jq -c \
+  --arg repo "$REPO_NAME" '
+  [
+    .[] | . as $rec |
+    ($rec.frontmatter) as $fm |
+    select(
+      (($fm.title | type) != "string") or
+      (($fm.from  | type) != "string") or
+      (($fm.to    | type) != "string") or
+      (($fm.status | type) != "string") or
+      (($fm.status | . != "open" and . != "in_progress" and . != "actioned")) or
+      (($fm.created | type) != "string") or
+      ((($fm.kind // "ask") | . != "ask" and . != "consult" and . != "fyi"))
+    ) |
+    {
+      path: $rec.path,
+      reason: "missing required field or invalid status/kind enum"
+    }
+  ]
+' || echo "[]")"
+
+# Validate each memo record against cross-repo-memo-summary schema
+echo "[emit] validating cross-repo memos..." >&2
+MEMO_COUNT="$(echo "$CROSS_REPO_MEMOS_ARRAY" | jq 'length')"
+if [[ "$MEMO_COUNT" -gt 0 ]]; then
+  for i in $(seq 0 $((MEMO_COUNT - 1))); do
+    rec="$(echo "$CROSS_REPO_MEMOS_ARRAY" | jq -c ".[$i]")"
+    validate_main_record "cross-repo-memo-summary" "$rec" "index $i"
+  done
+fi
+
+# ===========================================================================
 # SECTION 9 — Compose final envelope
 # ===========================================================================
 echo "[emit] composing envelope..." >&2
@@ -1198,14 +1453,39 @@ if [[ -z "$SCHEMA_VERSION" ]]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# C11(a) producer-half migration gate — fail loud on contract-bundle desync.
+# Source of truth for the version is CONTRACT_VERSION in src/index.ts; the
+# emitted schema bundle is generated FROM it via `pnpm run emit`. If the two
+# disagree, the bundle is stale (someone bumped CONTRACT_VERSION but did not
+# re-emit) and we would publish a schema_version that does not match the
+# entity shapes — the exact silent-break DSR-2026-06-23-4 names. Abort rather
+# than emit a mismatched snapshot. Spec: docs/plans/2026-06-24-opticon-cockpit-contract-reshape.md § C11(a).
+# ---------------------------------------------------------------------------
+CONTRACT_SRC_INDEX="$COORDINATOR_ROOT/cockpit-contract/src/index.ts"
+if [[ -f "$CONTRACT_SRC_INDEX" ]]; then
+  # Review: F4 — widen grep to tolerate type annotations (e.g. `CONTRACT_VERSION: string = "2.0"`);
+  # split condition so an empty extraction emits a non-fatal WARN rather than silently skipping
+  # the DSR-2026-06-23-4 desync guard entirely.
+  SRC_CONTRACT_VERSION="$(grep -oE 'CONTRACT_VERSION[^=]*= "[^"]+"' "$CONTRACT_SRC_INDEX" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+  if [[ -z "$SRC_CONTRACT_VERSION" ]]; then
+    echo "WARN: could not extract CONTRACT_VERSION from $CONTRACT_SRC_INDEX — desync guard skipped" >&2
+  elif [[ "$SRC_CONTRACT_VERSION" != "$SCHEMA_VERSION" ]]; then
+    echo "ERROR: cockpit-contract version desync — src/index.ts CONTRACT_VERSION=$SRC_CONTRACT_VERSION but emitted schema bundle .version=$SCHEMA_VERSION." >&2
+    echo "The schema bundle is stale. Run: cd $COORDINATOR_ROOT/cockpit-contract && pnpm run emit" >&2
+    echo "Refusing to emit a snapshot whose schema_version does not match the contract source (DSR-2026-06-23-4 silent-break guard)." >&2
+    exit 1
+  fi
+fi
+
 # Build malformed_records
-MALFORMED_CR_ARRAY="$([ -n "${CR_MALFORMED:-}" ] && echo "[$CR_MALFORMED]" || echo "[]")"
+MALFORMED_CR_ARRAY="$CR_MALFORMED_ITEMS"
 
 FINAL_JSON="$(jq -cn \
   --arg schema_version "$SCHEMA_VERSION" \
   --arg emitted_at "$EMITTED_AT" \
   --arg emitted_by_machine "$HOSTNAME_VAL" \
-  --argjson coordinator_root "$([ "$COORDINATOR_ROOT_RECORD" != "null" ] && echo "$COORDINATOR_ROOT_RECORD" || echo "null")" \
+  --argjson coordinator_roots "$COORDINATOR_ROOTS_ARRAY" \
   --argjson handoffs "$HANDOFFS_ARRAY" \
   --argjson week_rollup "$WEEK_ROLLUP" \
   --argjson day_rollup "$DAY_ROLLUP" \
@@ -1223,16 +1503,19 @@ FINAL_JSON="$(jq -cn \
   --argjson lessons "$LESSONS_ARRAY" \
   --argjson plans "$PLANS_ARRAY" \
   --argjson malformed_plans "$MALFORMED_PLANS" \
+  --argjson malformed_lessons "[]" \
+  --argjson malformed_cross_repo_memos "$MALFORMED_CROSS_REPO_MEMOS" \
+  --argjson cross_repo_memos "$CROSS_REPO_MEMOS_ARRAY" \
   '{
     schema_version: $schema_version,
     emitted_at: $emitted_at,
     emitted_by_machine: $emitted_by_machine,
-    coordinator_root: $coordinator_root,
-    branch: $branch,
+    coordinator_roots: $coordinator_roots,
+    branches: (if $branch == null then [] else [$branch] end),
     handoffs: $handoffs,
-    completion_rollup: {
-      week: $week_rollup,
-      day: $day_rollup
+    completion_rollups: {
+      day: (if $day_rollup == null then [] else [$day_rollup] end),
+      week: (if $week_rollup == null then [] else [$week_rollup] end)
     },
     backlogs: {
       bug: $backlogs_bug,
@@ -1244,13 +1527,16 @@ FINAL_JSON="$(jq -cn \
     goals_current: $goals_current,
     lessons: $lessons,
     plans: $plans,
+    cross_repo_memos: $cross_repo_memos,
     narrative_views: null,
     malformed_records: {
       handoffs: $malformed_handoffs,
       backlogs: $malformed_backlogs,
       review_trail: $malformed_review_trail,
-      coordinator_root: $malformed_coordinator_root,
-      plans: $malformed_plans
+      coordinator_roots: $malformed_coordinator_root,
+      plans: $malformed_plans,
+      lessons: $malformed_lessons,
+      cross_repo_memos: $malformed_cross_repo_memos
     }
   }')"
 
@@ -1262,8 +1548,9 @@ echo "[emit] wrote $OUT_FILE" >&2
 # Review: code-reviewer — include .malformed_records.plans so quarantined plans are counted in the total (F11)
 MALFORMED_TOTAL="$(echo "$FINAL_JSON" | jq '
   .malformed_records.handoffs + .malformed_records.backlogs +
-  .malformed_records.review_trail + .malformed_records.coordinator_root +
-  .malformed_records.plans |
+  .malformed_records.review_trail + .malformed_records.coordinator_roots +
+  .malformed_records.plans + .malformed_records.lessons +
+  .malformed_records.cross_repo_memos |
   length
 ')"
 
@@ -1277,6 +1564,10 @@ echo "routine_signals: $(echo "$FINAL_JSON" | jq '.routine_signals | length')" >
 echo "goals_current:   $(echo "$FINAL_JSON" | jq '.goals_current | length')" >&2
 echo "lessons:         $(echo "$FINAL_JSON" | jq '.lessons | length')" >&2
 echo "plans:           $(echo "$FINAL_JSON" | jq '.plans | length')" >&2
+# Review: F7 — add coordinator_roots, cross_repo_memos, branches to emission summary.
+echo "coord_roots:     $(echo "$FINAL_JSON" | jq '.coordinator_roots | length')" >&2
+echo "cross_repo_memos: $(echo "$FINAL_JSON" | jq '.cross_repo_memos | length')" >&2
+echo "branches:        $(echo "$FINAL_JSON" | jq '.branches | length')" >&2
 echo "malformed_total: $MALFORMED_TOTAL" >&2
 echo "schema_version:  $(echo "$FINAL_JSON" | jq -r '.schema_version')" >&2
 echo "========================" >&2

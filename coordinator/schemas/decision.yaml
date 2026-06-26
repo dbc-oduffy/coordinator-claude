@@ -12,3 +12,41 @@ optional:
   superseded_by: string
   context: string
   driver: string
+  # ---------------------------------------------------------------------------
+  # id — CANONICAL identity key (tc-1 consolidation, D3)
+  #
+  # Dominant spelling: `id` (present in ~150 existing DR files).
+  # Legacy spelling: `decision_id` (~51 files, newer DR-195/200/201 convention)
+  # is RESOLVED to `id`. The tc-1 port renames `decision_id:` → `id:` in all
+  # affected docs/decisions/*.md files (chunk C7). Do NOT use `decision_id` in
+  # new records — `id` is the sole canonical key going forward.
+  #
+  # Not in `required:` because ~3 date-prefixed non-DR decisions legitimately
+  # lack a DR number. Additive-only constraint (tc-0 doctrine C2) forbids
+  # tightening `required:`.
+  #
+  # id: canonical DR number string, e.g. "DR-042"
+  id: string
+  #
+  # ---------------------------------------------------------------------------
+  # date — NOT present in this schema (tc-1 consolidation, D4)
+  #
+  # ~199 existing files carry a `date:` key that duplicates `created:` with
+  # an identical value. `created` is the canonical temporal key; the redundant
+  # `date:` is DROPPED in the tc-1 port. Do NOT add `date` here and do NOT
+  # add `date:` to new records — use `created:` exclusively.
+  #
+  # ---------------------------------------------------------------------------
+  # deciders — recommended value grammar (uncontrolled today; warn-not-block)
+  #
+  # The current corpus is uncontrolled: human names ("Alice"), machine labels
+  # ("coordinator-claude"), agent names ("Patrik"), and collective tokens
+  # ("[Team]") all appear. No enum is added here — the value space stays free
+  # to avoid breaking existing records. Recommended shape for new records:
+  #   - Individual human: first name or full name ("Dónal")
+  #   - Collective: "[Team]" or a named team slug
+  #   - Agent/persona: the canonical agent name ("Patrik", "coordinator-claude")
+  # Keep the list short; omit stakeholders who did not make the decision.
+  #
+  # Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § D3, § D4
+  # ---------------------------------------------------------------------------

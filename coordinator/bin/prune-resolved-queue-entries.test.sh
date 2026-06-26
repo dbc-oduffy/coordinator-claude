@@ -226,9 +226,9 @@ Another line: ~~deprecated module~~ is the predecessor.
 "
 
 # ---------------------------------------------------------------------------
-# Rule 7 — Table-row resolution strip (geneva-mvp pattern)
+# Rule 7 — Table-row resolution strip (example-repo pattern)
 # ---------------------------------------------------------------------------
-run_case "Rule 7: geneva-mvp '| BS-... | FIXED ...' row dropped" "bug-backlog.md" \
+run_case "Rule 7: example-repo '| BS-... | FIXED ...' row dropped" "bug-backlog.md" \
 "| BS-2026-03-19-1 | FIXED (run 2) — webhook lock failure now deletes lock, allowing Stripe retry              |
 | BS-2026-03-19-2 | FIXED (run 2) — session-orchestrator terminates AWS session on finalization failure       |
 | BS-2026-05-18-OPEN | OPEN — needs work |

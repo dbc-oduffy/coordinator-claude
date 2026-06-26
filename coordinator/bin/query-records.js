@@ -48,8 +48,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
-const { loadSchemas, parseFrontmatter, _parseYaml } = require('./lib/schema.js');
+const { execSync, execFileSync } = require('child_process');
+const { loadSchemas, parseFrontmatter, _parseYaml, validateFrontmatter } = require('./lib/schema.js');
 const { TERMINAL_STATUS, TERMINAL_DEPLOYMENT, CONSUMED_MARKER_RE } = require('./lib/consumed-marker.js');
 // Review: Patrik F3 — import shared constants/regex so read-time and write-time
 // paths (normalize-consumed-frontmatter.js) stay greppably aligned.
@@ -110,67 +110,44 @@ const _GLOB_OVERRIDES = {
 };
 
 /**
- * Build the sidecar exclusion data for --type plan queries.
+ * Build the sidecar exclusion regexes for --type plan queries.
  *
  * Purpose: `plan` schema applies_to (docs/plans/*.md) over-matches sidecar files
- * (*.prior-art-check.md, *.plan-coverage-check.md, *-review.md, *docs-check.md).
+ * (*.review.md, *.prior-art-check.md, *.plan-coverage-check.md, *.docs-check.md).
  * These have their own schema types and must NOT appear in --type plan results.
  *
- * Two-layer exclusion (both are needed):
- *   Layer 1 — filename regex: catches well-formed sidecar filenames whose suffix
- *     matches a schema applies_to pattern (e.g. *.prior-art-check.md). Derived from
- *     every docs/plans/* schema except the plan schema itself.
- *   Layer 2 — kind denylist: catches irregular sidecar filename forms (*.review-2.md,
- *     *.patrik-r1.md, *.plan-coverage-check.TIMESTAMP.md) that don't match the schema
- *     glob but DO carry a kind: field mapping to a sidecar schema. Derived from
- *     _byKind for every non-plan docs/plans/* schema.
+ * Single positive layer — filename regex derived from the canonical sidecar suffix
+ * set pinned in the four sidecar schema applies_to globs (tc-1 C3). After the C9
+ * broadsword port all sidecar files are in canonical form, so the regex layer is
+ * sufficient and exhaustive. An anomaly detector in queryRecords() handles any
+ * future non-conforming file via warn + exclude (see the --type plan filter block).
  *
- * Conservative-exclude heuristic (warn-not-fail by design): a file that passes BOTH
- * layers but contains an embedded plan extension (.md. in the basename) is treated as
- * an UNREGISTERED sidecar — a stderr warning is emitted and the file is excluded
- * conservatively. The tool does NOT exit on this condition; it excludes and warns.
- * Review: code-reviewer — F3: framing changed from "Fail-loud guarantee" to
- * "conservative-exclude heuristic (warn-not-fail by design)" to match actual behavior.
+ * Retired (tc-1 C4):
+ *   Layer 2 kind-fallback denylist — dead code after C9 broadsword (all irregular
+ *   filename forms folded to canonical suffix). Derived from _byKind; not needed.
+ *   Conservative-exclude .md. heuristic — also dead after broadsword.
  *
+ * Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § C4
  * Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C4
  * (sidecar exclusion at the producer layer so all consumers see real plans only)
  *
- * @param {object} schemas  Result of loadSchemas() — has ._byGlob and ._byKind.
- * @returns {{ regexes: RegExp[], kinds: Set<string> }}
+ * @param {object} schemas  Result of loadSchemas() — has ._byGlob.
+ * @returns {{ regexes: RegExp[] }}
  */
 function _buildPlanSidecarRegexes(schemas) {
   const regexes = [];
   const PLAN_DIR_PREFIX = 'docs/plans/';
 
-  // Collect sidecar schema names (every docs/plans/* schema except 'plan').
-  const sidecarSchemaNames = new Set();
+  // Single positive layer: collect filename regexes for every docs/plans/* sidecar schema.
   for (const { glob, schemaName } of schemas._byGlob) {
     if (schemaName === 'plan') continue;  // the plan schema itself — not a sidecar
     if (!glob.startsWith(PLAN_DIR_PREFIX)) continue;  // only care about docs/plans/
-    sidecarSchemaNames.add(schemaName);
     // Extract the filename pattern portion (after docs/plans/) and compile to regex.
     const filenamePart = glob.slice(PLAN_DIR_PREFIX.length);
     regexes.push(filePatternToRegex(filenamePart));
   }
 
-  // Layer 2: build a set of kind values that belong to sidecar schemas.
-  // This catches irregular sidecar filename forms (*.review-2.md, *.patrik-r1.md,
-  // *.plan-coverage-check.TIMESTAMP.md) that don't match the glob but do carry kind:.
-  //
-  // Review: code-reviewer — F4: coupling constraint documented below.
-  // Layer 2 only catches sidecar kinds from schemas that ALSO have an applies_to
-  // under docs/plans/ — a sidecar schema whose applies_to points elsewhere (e.g. a
-  // hypothetical state/ sidecar schema) would NOT contribute to this denylist, because
-  // the loop above skips non-plans-dir globs. A future schema with sidecar-kind values
-  // but a non-plans glob needs explicit handling here or a separate Layer-2 mechanism.
-  const kinds = new Set();
-  for (const [kindValue, schemaName] of Object.entries(schemas._byKind)) {
-    if (sidecarSchemaNames.has(schemaName)) {
-      kinds.add(kindValue);
-    }
-  }
-
-  return { regexes, kinds };
+  return { regexes };
 }
 
 // _PLAN_SIDECAR_DATA is declared via destructuring from _buildTypeToGlob() below.
@@ -181,16 +158,17 @@ function _buildPlanSidecarRegexes(schemas) {
  * Build TYPE_TO_GLOB from the schema registry plus explicit supplements, and
  * derive the plan-sidecar exclusion regexes in the same pass (schemas loaded once).
  *
- * Returns { typeToGlob, planSidecarRegexes } so callers can destructure both
+ * Returns { typeToGlob, planSidecarData } so callers can destructure both
  * without a second loadSchemas() call.
  *
  * typeToGlob: replaces the prior hand-maintained TYPE_TO_GLOB literal with a
  *   derivation so adding schemas/*.yaml automatically makes --type available.
  *
- * planSidecarRegexes: filename-only regexes for every docs/plans/* sidecar schema.
- *   Used by queryRecords() to exclude sidecar files from --type plan results.
- *   Derived from every docs/plans/* schema OTHER than the plan schema itself.
- *   Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C4
+ * planSidecarData: { regexes } — single positive layer for sidecar exclusion (tc-1 C4).
+ *   Filename-only regexes for every docs/plans/* sidecar schema except 'plan' itself.
+ *   Used by queryRecords() alongside the anomaly detector (warn + exclude) for defense
+ *   in depth against future non-conforming files.
+ *   Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § C4
  */
 function _buildTypeToGlob(schemasDir) {
   let schemas;
@@ -248,7 +226,7 @@ function _buildTypeToGlob(schemasDir) {
 
   // --- Part 3: derive plan-sidecar exclusion data ---
   // Build the sidecar exclusion data in the same pass so schemas are loaded only once.
-  // Returns { regexes: RegExp[], kinds: Set<string> }.
+  // Returns { regexes: RegExp[] } — single positive layer (tc-1 C4).
   const planSidecarData = _buildPlanSidecarRegexes(schemas);
 
   return { typeToGlob: map, planSidecarData };
@@ -283,6 +261,176 @@ const TYPE_DISPLAY = {
 };
 
 // ---------------------------------------------------------------------------
+// Fleet aggregator — three-rung registry resolution
+// ---------------------------------------------------------------------------
+/**
+ * Resolve a repo root via the three-rung chain defined in machine-local-registry.md § 5:
+ *   Rung 1: machine-local get repos.<name>  (primary)
+ *   Rung 2: sibling-relative ../<sibling>/  (fallback when rung 1 is cleanly absent)
+ *   Rung 3: null                            (neither resolves → caller skips gracefully)
+ *
+ * Spec backlink: archive/specs/2026-06/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A1
+ * Spec backlink: plugins/coordinator-claude/coordinator/docs/wiki/machine-local-registry.md § 5
+ *
+ * @param {string} repoName     Bare key after "repos." prefix (e.g. "coordinator_claude").
+ * @param {string} currentRoot  Absolute path of the invoking repo root (for rung-2 sibling calc).
+ * @returns {{ root: string, rung: number }|null}  null when neither rung resolves.
+ */
+function resolveRepoRoot(repoName, currentRoot) {
+  // Rung 1: machine-local get repos.<name>
+  // Review: code-reviewer ROBUSTNESS — use execFileSync (no shell) to eliminate
+  //   shell-injection shape on repoName; warn on non-rc1 exits so operational
+  //   failures (Python crash, malformed TOML) surface instead of silently falling
+  //   through to rung-2 and potentially resolving the wrong path.
+  try {
+    const result = execFileSync(
+      'machine-local', ['get', `repos.${repoName}`],
+      { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    const resolved = result.trim();
+    if (resolved) {
+      return { root: path.resolve(resolved), rung: 1 };
+    }
+  } catch (e) {
+    // rc=1 → cleanly absent key; fall through to rung 2.
+    if (e && e.status !== 1) {
+      // rc≠1 → operational failure (Python crash, malformed TOML, missing binary);
+      // warn so the caller can detect infra issues rather than silently resolving
+      // against the wrong path via rung-2 sibling fallback.
+      process.stderr.write(
+        `query-records: resolveRepoRoot: machine-local exited ${e.status} for repos.${repoName} — operational failure, falling through to sibling-relative rung\n`
+      );
+    }
+    // All errors: fall through to rung 2 as best-effort.
+  }
+
+  // Rung 2: sibling-relative fallback.
+  // Derive sibling dir name: key underscores → hyphens (the documented convention:
+  // machine-local-registry.md § Ergonomic helpers — "Hyphens in keys are normalized
+  // to underscores", so the reverse is underscores → hyphens for sibling lookup).
+  const siblingName = repoName.replace(/_/g, '-');
+  const siblingPath = path.resolve(currentRoot, '..', siblingName);
+  if (fs.existsSync(siblingPath)) {
+    return { root: siblingPath, rung: 2 };
+  }
+
+  // Rung 3: neither resolves.
+  return null;
+}
+
+/**
+ * Enumerate the repos.* namespace from the machine-local registry.
+ * Returns an array of bare key names (e.g. ["coordinator_claude", "project_rag", ...]).
+ *
+ * Test-isolation hook: if env QUERY_RECORDS_FLEET_REPOS is set (comma-separated list of
+ * repo names), that list is used directly and machine-local keys is not called. This allows
+ * tests to fixture specific repo names without touching the real registry.
+ *
+ * @returns {string[]}  Bare repo key names (part after "repos.").
+ */
+function enumerateRegistryRepos() {
+  // Test-isolation: QUERY_RECORDS_FLEET_REPOS=name1,name2 overrides registry enumeration.
+  const envOverride = process.env.QUERY_RECORDS_FLEET_REPOS;
+  if (envOverride) {
+    return envOverride.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  try {
+    const output = execSync('machine-local keys', {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return output
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.startsWith('repos.'))
+      .map(l => l.slice('repos.'.length));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fleet aggregator — queries every repo in the machine-local repos registry and
+ * unions the per-repo results into a single annotated fleet view (JSON).
+ *
+ * Registry-resolution is three-rung per machine-local-registry.md § 5.
+ * Absent per-repo queue dirs are tolerated (walkGlob returns [] for missing dirs).
+ * Absent/unresolvable repo roots are skipped gracefully with a note in `skipped`.
+ *
+ * Output shape:
+ *   {
+ *     repos: [{ repo, root, rung, records: [{ repo, path, frontmatter }] }],
+ *     skipped: [{ repo, reason }]
+ *   }
+ *
+ * Spec backlink: archive/specs/2026-06/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A1 / AC1
+ *
+ * @param {object} opts         Parsed CLI options (--type required; --root ignored in fleet mode).
+ * @param {string} currentRoot  Absolute path of the invoking repo (used for rung-2 sibling calc).
+ * @returns {{ repos: object[], skipped: object[] }}
+ */
+function queryFleet(opts, currentRoot) {
+  const repoNames = enumerateRegistryRepos();
+
+  const repos = [];
+  const skipped = [];
+
+  for (const repoName of repoNames) {
+    const resolution = resolveRepoRoot(repoName, currentRoot);
+
+    if (!resolution) {
+      // Rung 3: neither machine-local nor sibling-relative resolved.
+      const remediationKey = `repos.${repoName}`;
+      const remediationDir = repoName.replace(/_/g, '-');
+      const reason =
+        `root not resolvable via machine-local (repos.${repoName}) or ` +
+        `sibling-relative (../${remediationDir}/); ` +
+        `set: machine-local set ${remediationKey} /path/to/${remediationDir}`;
+      skipped.push({ repo: repoName, reason });
+      process.stderr.write(
+        `query-records --fleet: skipping repo "${repoName}" — ${reason}\n`
+      );
+      continue;
+    }
+
+    const { root: repoRoot, rung } = resolution;
+
+    // Guard: resolved root must exist on disk (handles stale rung-1 registry entries).
+    if (!fs.existsSync(repoRoot)) {
+      const reason = `resolved root does not exist on disk: ${repoRoot} (rung ${rung})`;
+      skipped.push({ repo: repoName, reason });
+      process.stderr.write(
+        `query-records --fleet: skipping repo "${repoName}" — ${reason}\n`
+      );
+      continue;
+    }
+
+    // Run the per-repo query. queryRecords already handles absent queue dirs gracefully
+    // (walkGlob returns [] when the target directory does not exist) — this satisfies the
+    // "absent per-repo queue dir → tolerate, skip, continue — never crash" requirement.
+    let records;
+    try {
+      records = queryRecords(opts, repoRoot);
+    } catch (e) {
+      // Unexpected error querying this repo — skip gracefully, note it.
+      const reason = `query error: ${e.message}`;
+      skipped.push({ repo: repoName, reason });
+      process.stderr.write(
+        `query-records --fleet: skipping repo "${repoName}" — ${reason}\n`
+      );
+      continue;
+    }
+
+    // Annotate each record with the repo name and include in the fleet view.
+    const annotated = records.map(r => ({ repo: repoName, ...r }));
+    repos.push({ repo: repoName, root: repoRoot, rung, records: annotated });
+  }
+
+  return { repos, skipped };
+}
+
+// ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
 function parseArgs(argv) {
@@ -297,6 +445,8 @@ function parseArgs(argv) {
     root: null,
     format: 'markdown-list',
     includeUnparseable: false,
+    fleet: false,
+    validateAll: false,
   };
 
   // Review: patrik R2 finding 4 — normalize --key=value form to --key value before dispatch.
@@ -323,17 +473,21 @@ function parseArgs(argv) {
     else if (a === '--root')   { opts.root   = normalizedArgs[++i]; }
     else if (a === '--format') { opts.format = normalizedArgs[++i]; }
     else if (a === '--include-unparseable') { opts.includeUnparseable = true; }
+    else if (a === '--fleet' || a === '--all-repos') { opts.fleet = true; }
+    else if (a === '--validate-all') { opts.validateAll = true; }
     else {
       process.stderr.write(`Unknown argument: ${a}\n`);
       process.exit(1);
     }
   }
 
-  if (!opts.type) {
+  // --type is required for normal query and fleet mode; optional for --validate-all
+  // (when absent in --validate-all mode, all types are validated).
+  if (!opts.validateAll && !opts.type) {
     process.stderr.write('--type is required\n');
     process.exit(1);
   }
-  if (!TYPE_TO_GLOB[opts.type]) {
+  if (opts.type && !TYPE_TO_GLOB[opts.type]) {
     process.stderr.write(`Unknown type: ${opts.type}. Valid: ${Object.keys(TYPE_TO_GLOB).join(', ')}\n`);
     process.exit(1);
   }
@@ -558,6 +712,136 @@ function filePatternToRegex(pattern) {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-type liveness predicate
+// ---------------------------------------------------------------------------
+// Purpose: compute a single LIVE / BLOCKED / DONE derived state from the
+// per-type enums already on disk.  The predicate is purely a read-time
+// computation — no frontmatter field is added to artifacts (D2 rationale).
+//
+// Spec backlink: docs/wiki/canonical-artifact-shapes.md § The Cross-Type
+//   Liveness Predicate (KEYSTONE); docs/plans/2026-06-25-qffs-tc-0-canonical-
+//   baton-shape.md § Chunk C3.
+//
+// HARD CONSTRAINT: TERMINAL_STATUS ({consumed,superseded}) and TERMINAL_DEPLOYMENT
+//   ({shipped,abandoned}) are imported from lib/consumed-marker.js — the single
+//   source of truth.  Do NOT re-literal these sets here.
+
+// Memo-specific terminal statuses (back-compat aliases included).
+// These are separate from TERMINAL_STATUS because the memo enum is independent
+// of the handoff lifecycle.  The authoritative enum lives in schemas/cross-repo-memo.yaml.
+const _MEMO_TERMINAL_STATUS = new Set([
+  'actioned',
+  'reviewed',       // back-compat
+  'action_taken',   // back-compat
+  'closed',         // back-compat
+  'superseded',     // back-compat
+]);
+
+// Review: code-reviewer S2-F1 — _MEMO_LIVE_STATUS was declared but never referenced;
+// the open-posture comment in the liveness() cross-repo-memo branch already documents
+// that unknown values default LIVE. Dead code with a false allowlist-contract implication.
+/**
+ * Compute the canonical liveness derived state for a frontmatter record.
+ *
+ * @param {object} fm   Frontmatter object (already mutated by applyConsumedMarker
+ *                      when called from the record loop).
+ * @param {string} type Query --type string (e.g. 'handoff', 'cross-repo-memo').
+ * @returns {'LIVE'|'BLOCKED'|'DONE'}
+ *
+ * Implemented: handoff, handoff-archived, cross-repo-memo, plan, decision,
+ *   debt, bug, improvement, lesson.
+ * Other types resolve via a graceful default using TERMINAL_STATUS so the
+ * field is always populated and --where liveness= always works.
+ * Review: code-reviewer slice-B F1 — extended to include tc-2 types (debt, bug, improvement, lesson).
+ */
+function liveness(fm, type) {
+  const status = fm.status ? String(fm.status) : '';
+  const deploymentState = fm.deployment_state ? String(fm.deployment_state) : '';
+
+  // --- Handoff two-axis combination rule ---
+  // DONE if status ∈ TERMINAL_STATUS OR deployment_state ∈ TERMINAL_DEPLOYMENT;
+  // else BLOCKED if deployment_state == 'awaiting_gate';
+  // else LIVE.
+  // (handoff-archived uses the same schema — identical rule.)
+  if (type === 'handoff' || type === 'handoff-archived') {
+    if (TERMINAL_STATUS.has(status) || TERMINAL_DEPLOYMENT.has(deploymentState)) {
+      return 'DONE';
+    }
+    if (deploymentState === 'awaiting_gate') {
+      return 'BLOCKED';
+    }
+    return 'LIVE';
+  }
+
+  // --- Memo single-axis rule ---
+  // open / in_progress → LIVE; actioned + back-compat aliases → DONE.
+  if (type === 'cross-repo-memo') {
+    if (_MEMO_TERMINAL_STATUS.has(status)) return 'DONE';
+    // open / in_progress → LIVE; unknown values default LIVE (open posture)
+    return 'LIVE';
+  }
+
+  // --- Plan single-axis rule (tc-1 C4) ---
+  // PURE single-axis: deployment_state is IGNORED for plan (plans have no deployment_state).
+  // Frozen mapping (transcribed verbatim from tc-0 doctrine table):
+  //   draft|reviewed|approved|executing → LIVE
+  //   deferred                          → BLOCKED
+  //   implemented|abandoned|superseded  → DONE
+  // Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § Inherited doctrine
+  if (type === 'plan') {
+    if (status === 'deferred') return 'BLOCKED';
+    if (status === 'implemented' || status === 'abandoned' || status === 'superseded') return 'DONE';
+    // draft|reviewed|approved|executing → LIVE; unknown values → LIVE (open posture)
+    return 'LIVE';
+  }
+
+  // --- Decision single-axis rule (tc-1 C4) ---
+  // PURE single-axis: deployment_state is IGNORED for decision (decisions have no deployment_state).
+  // Frozen mapping (transcribed verbatim from tc-0 doctrine table):
+  //   proposed                   → LIVE
+  //   accepted|deprecated|superseded → DONE
+  // Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § Inherited doctrine
+  if (type === 'decision') {
+    if (status === 'accepted' || status === 'deprecated' || status === 'superseded') return 'DONE';
+    // proposed → LIVE; unknown values → LIVE (open posture)
+    return 'LIVE';
+  }
+
+  // --- Queue types: debt / bug / improvement (tc-2) ---
+  // Liveness table (canonical-artifact-shapes.md § tc-2, implemented this session):
+  //   open      → LIVE
+  //   deferred  → BLOCKED
+  //   closed    → DONE
+  //   wontfix   → DONE  (wontfix is formally bug-only but mapped here for all queue types)
+  // Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § C4.
+  if (type === 'debt' || type === 'bug' || type === 'improvement') {
+    if (status === 'closed' || status === 'wontfix') return 'DONE';
+    if (status === 'deferred') return 'BLOCKED';
+    // open (or unknown) → LIVE (open posture)
+    return 'LIVE';
+  }
+
+  // --- Lesson liveness (tc-2) ---
+  // Derived status is set by parseLessonsFile (D3) from prose conventions:
+  //   'resolved' (set when body carries Resolved / SUPERSEDES / → RESOLVED) → DONE
+  //   'open' (default when no resolution marker found)                       → LIVE
+  // Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § D3 / C4.
+  if (type === 'lesson') {
+    if (status === 'resolved') return 'DONE';
+    // open / unprocessed / unknown → LIVE
+    return 'LIVE';
+  }
+
+  // --- Graceful default for remaining types (tc-3 will wire their enums) ---
+  // Uses TERMINAL_STATUS so any type carrying 'consumed' or 'superseded' resolves
+  // DONE.  Types without a status (e.g. handoff-ledger) resolve LIVE.  This is
+  // intentionally permissive — the design-complete mapping in the doctrine wiki
+  // is the authoritative spec; tc-3 will wire their enums explicitly.
+  if (TERMINAL_STATUS.has(status)) return 'DONE';
+  return 'LIVE';
+}
+
+// ---------------------------------------------------------------------------
 // Inline consumed-marker normalization
 // ---------------------------------------------------------------------------
 // Meets EMs where they are: many shipped handoffs carry `<!-- consumed: YYYY-MM-DD
@@ -598,8 +882,18 @@ function parseLessonsFile(filePath) {
   const lines = content.split('\n');
   const records = [];
 
-  const entryRe = /^\s*[-*]?\s*\*\*([^*]+)\*\*/;
-  const tagRe = /\[([^\]]+)\]/g;
+  // Fixed: allow single * inside title (e.g. *italic* or plugins/*/) by matching
+  // a * not followed by * as a permissible title character — stops only at **.
+  // Prior regex /^\s*[-*]?\s*\*\*([^*]+)\*\*/ dropped 7/97 entries whose titles
+  // contained an inner * (glob paths like plugins/*/, italic spans like *pattern*).
+  // Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § D3 / C4.
+  const entryRe = /^\s*[-*]?\s*\*\*((?:[^*]|\*(?!\*))+)\*\*/;
+  // Review: code-reviewer slice-B F5 — stateless matchAll replaces fragile g-flagged tagRe + lastIndex reset.
+  // D3 field extractors (applied to the full lesson line)
+  const createdRe   = /\((\d{4}-\d{2}-\d{2})\)/;
+  const evidenceRe  = /Fixed [`]?([a-f0-9]{7,40})[`]?|\(([a-f0-9]{7,40})\)/;
+  const targetWikiRe = /Belongs in (?:.*?)([\w-]+)\.md/;
+  const resolvedRe  = /Resolved|SUPERSEDES|→ RESOLVED/;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -608,16 +902,28 @@ function parseLessonsFile(filePath) {
 
     const rawTitle = m[1].trim();
 
-    // Extract tier tag from the line
-    const tags = [];
-    let tm;
-    tagRe.lastIndex = 0;
-    while ((tm = tagRe.exec(line)) !== null) {
-      tags.push(tm[1]);
-    }
-    // Remove tags from title
+    // Extract tier tag from the full line (preserved from prior logic)
+    const tags = [...line.matchAll(/\[([^\]]+)\]/g)].map(m => m[1]);
     const title = rawTitle;
     const tier = tags.length > 0 ? tags[0] : null;
+
+    // D3: scope — 'universal' | 'project' | null (normalised from tier token)
+    const scope = (tier === 'universal' || tier === 'project') ? tier : null;
+
+    // D3: created — from (YYYY-MM-DD) token anywhere in the line
+    const cm = createdRe.exec(line);
+    const created = cm ? cm[1] : null;
+
+    // D3: evidence — from "Fixed `sha`" or bare "(sha)" pattern
+    const em = evidenceRe.exec(line);
+    const evidence = em ? (em[1] || em[2]) : null;
+
+    // D3: target_wiki — from "Belongs in <name>.md" (leaf filename of first .md reference)
+    const wm = targetWikiRe.exec(line);
+    const target_wiki = wm ? (wm[1] + '.md') : null;
+
+    // D3: status — DONE if line carries Resolved / SUPERSEDES / → RESOLVED
+    const status = resolvedRe.test(line) ? 'resolved' : 'open';
 
     // Slug for fragment links
     const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -626,7 +932,7 @@ function parseLessonsFile(filePath) {
       title,
       tier,
       path: filePath + '#' + slug,
-      frontmatter: { title, tier: tier || 'untagged', created: null },
+      frontmatter: { title, tier: tier || 'untagged', scope, created, evidence, target_wiki, status },
     });
   }
 
@@ -778,46 +1084,49 @@ function queryRecords(opts, root) {
     if (opts.type === 'completion') {
       files = files.filter(f => !f.replace(/\\/g, '/').includes('/archive/completed/legacy/'));
     }
-    // Sidecar exclusion for --type plan — two layers.
-    // The plan schema applies_to (docs/plans/*.md) over-matches sidecar files that live
-    // alongside plans (*.prior-art-check.md, *.plan-coverage-check.md, *-review.md,
-    // *docs-check.md). These have their own schema types and must NOT appear in plan
-    // results. _PLAN_SIDECAR_DATA is derived from the schema registry at startup so
-    // it stays in sync automatically as new sidecar schemas are added.
+    // Sidecar exclusion for --type plan — single positive suffix layer + anomaly detector.
     //
-    // Layer 1 (file walk): exclude files whose basename matches a sidecar schema glob.
-    // Layer 2 (record loop): exclude records whose frontmatter kind: belongs to a sidecar
-    //   schema — catches irregular filename forms (*.review-2.md, *.patrik-r1.md,
-    //   *.plan-coverage-check.TIMESTAMP.md) that don't match the schema globs.
+    // After the tc-1 C9 broadsword port ALL sidecar files are in canonical suffix form
+    // (*.review.md, *.prior-art-check.md, *.plan-coverage-check.md, *.docs-check.md),
+    // so a single filename-regex layer derived from the sidecar schema applies_to globs
+    // is sufficient and exhaustive. The former Layer-2 kind-fallback denylist and the
+    // .md.-embedding heuristic are retired (dead code after C9).
     //
-    // Conservative-exclude heuristic (warn-not-fail by design): a file that passes
-    // Layer 1 AND has an embedded '.md.' in its basename (which no real plan ever has)
-    // is an UNREGISTERED sidecar shape — stderr warning emitted, file excluded. The
-    // tool does NOT exit; it warns and excludes. See _buildPlanSidecarRegexes JSDoc.
-    // Review: code-reviewer — F3: label changed from "Fail-loud guarantee" to match behavior.
+    // Anomaly detector (Patrik F2 / detect-then-fail-loud doctrine): any docs/plans/*.md
+    // matching NEITHER a canonical sidecar suffix NOR the canonical plan filename pattern
+    // (YYYY-MM-DD-<slug>.md) is excluded with a stderr warning — warn-not-block posture,
+    // never silently include on uncertainty. Provides defense-in-depth for future
+    // non-conforming files without requiring a new denylist entry.
     //
-    // Spec backlink: docs/plans/2026-06-23-deliverable-type-schema-taxonomy.md § C4
-    if (opts.type === 'plan' && _PLAN_SIDECAR_DATA) {
-      const { regexes: sidecarRegexes, kinds: sidecarKinds } = _PLAN_SIDECAR_DATA;
-      if (sidecarRegexes.length > 0) {
-        files = files.filter(f => {
-          const basename = path.basename(f);
-          // Layer 1a: check against every registered sidecar filename regex.
-          if (sidecarRegexes.some(re => re.test(basename))) return false;
-
-          // Layer 1b: heuristic for unregistered sidecar shapes — basenames that contain
-          // '.md.' embed the plan filename (e.g. '2026-05-27-plan.md.new-sidecar.md').
-          // A real plan filename never contains an embedded '.md.' sequence.
-          if (basename.includes('.md.')) {
-            process.stderr.write(
-              `[query-records] WARNING: unregistered plan sidecar excluded: ${basename}\n` +
-              `  Add a schema to schemas/ with applies_to: "docs/plans/*<suffix>.md" to silence this.\n`
-            );
-            return false; // exclude conservatively
-          }
-          return true; // passes filename check — kind check happens in record loop
-        });
-      }
+    // Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § C4
+    // Review: code-reviewer slice-B F6 — _PLAN_SIDECAR_DATA is always truthy (object); dead guard removed.
+    if (opts.type === 'plan') {
+      const { regexes: sidecarRegexes } = _PLAN_SIDECAR_DATA;
+      // Canonical plan filename: YYYY-MM-DD-<slug>.md where slug is lowercase alpha/digits/hyphens.
+      const CANONICAL_PLAN_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md$/;
+      // Recognized REVIEW sidecar iteration form: <stem>.review-N.md (N = one or more digits).
+      // Second/Nth distinct-reviewer sidecars carry the reviewer in frontmatter; the numeric suffix
+      // disambiguates the file on disk (e.g. <stem>.review-2.md for the second reviewer).
+      // Excluded silently — same treatment as *.review.md from the sidecar regex layer — NOT
+      // routed through the anomaly-warn path.
+      // Spec backlink: docs/plans/2026-06-25-qffs-tc-1-records-consolidation.md § C9b
+      const REVIEW_ITERATION_RE = /\.review-\d+\.md$/;
+      files = files.filter(f => {
+        const basename = path.basename(f);
+        // Single positive layer: exclude files whose basename matches a canonical sidecar suffix.
+        if (sidecarRegexes.some(re => re.test(basename))) return false;
+        // Recognized REVIEW sidecar iteration (.review-N.md): exclude silently, no anomaly warn.
+        if (REVIEW_ITERATION_RE.test(basename)) return false;
+        // Anomaly detector: exclude anything that is neither sidecar nor canonical plan.
+        if (!CANONICAL_PLAN_RE.test(basename)) {
+          process.stderr.write(
+            `query-records: unclassified docs/plans file ${basename} — excluded from --type plan; ` +
+            `conform to canonical plan or sidecar shape\n`
+          );
+          return false;
+        }
+        return true;
+      });
     }
     records = [];
     for (const file of files) {
@@ -854,33 +1163,23 @@ function queryRecords(opts, root) {
       if (opts.type === 'cross-repo-memo') {
         if (!frontmatter.from || !frontmatter.to) continue;
       }
-      // Plan sidecar exclusion Layer 2: kind-based and structural filters.
-      // Catches irregular sidecar filename forms that passed Layer 1 (filename regex).
-      //
-      // Layer 2a — kind denylist: if frontmatter kind: maps to a sidecar schema (e.g.
-      //   *.review-2.md with kind: code-review, *.plan-coverage-check.TIMESTAMP.md with
-      //   kind: plan-coverage-check), exclude it. Records with no kind: fall through.
-      //
-      // Layer 2b — structural review-sidecar guard: legacy review files authored before
-      //   the kind: taxonomy (e.g. *.patrik-r1.md from 2026-05) carry reviewer: + plan:
-      //   but no kind:. A real plan never references another plan in its own plan: field.
-      //   Analogous to the cross-repo-memo from/to structural guard.
-      if (opts.type === 'plan' && _PLAN_SIDECAR_DATA) {
-        const kindVal = frontmatter.kind;
-        if (kindVal && _PLAN_SIDECAR_DATA.kinds.has(String(kindVal))) continue;
-        // Layer 2b: legacy review sidecar structural guard.
-        // A real plan could theoretically carry both reviewer: and plan: fields (e.g. a
-        // plan authored by a reviewer that cross-references another plan). To avoid
-        // false-excluding such a plan, we additionally require a verdict: field —
-        // review sidecars always carry verdict: (APPROVED / APPROVED_WITH_NOTES / REJECTED)
-        // while real plans never do. The triple conjunction is tighter than reviewer+plan alone.
-        // Review: code-reviewer — F5: strengthened from (reviewer && plan) to
-        // (reviewer && plan && verdict) to avoid false-positive exclusion of a real plan
-        // that legitimately carries both reviewer: and plan: without a verdict:.
-        if (frontmatter.reviewer && frontmatter.plan && frontmatter.verdict) continue;
-      }
       applyConsumedMarker(frontmatter, body);
+      // Inject synthetic liveness field so --where liveness= and --format json
+      // both work without modifying matchesClause or formatRecords.
+      // Spec backlink: docs/wiki/canonical-artifact-shapes.md § C3
+      frontmatter.liveness = liveness(frontmatter, opts.type);
       records.push({ path: relPath, frontmatter });
+    }
+  }
+
+  // Review: code-reviewer S2-F2 — lesson and handoff-ledger branches did not inject
+  // frontmatter.liveness; the else branch injects per-record inside its loop. Add a
+  // shared post-processing step so --where liveness= and --format json work for ALL
+  // three paths. The graceful default in liveness() means handoff-ledger records
+  // (no status) resolve LIVE, matching the documented graceful default.
+  if (opts.type === 'lesson' || opts.type === 'handoff-ledger') {
+    for (const r of records) {
+      if (r.frontmatter) r.frontmatter.liveness = liveness(r.frontmatter, opts.type);
     }
   }
 
@@ -950,20 +1249,183 @@ function formatRecords(records, opts) {
 }
 
 // ---------------------------------------------------------------------------
+// Conformance signal — batch validate-all mode
+// ---------------------------------------------------------------------------
+/**
+ * Build a reverse map from query-type name → schema name using the same logic
+ * as _buildTypeToGlob Part 1 (but producing the schema name, not the glob).
+ *
+ * Types without a schema (lesson, handoff-ledger, debt, bug, improvement) will
+ * be absent from the returned map; the caller skips them via `if (!schemaName)`.
+ *
+ * Spec backlink: archive/specs/2026-06/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A2
+ *
+ * @param {object} schemas  Result of loadSchemas() — has ._byGlob.
+ * @returns {object}  { [queryType]: schemaName }
+ */
+function _buildTypeToSchemaNameMap(schemas) {
+  const map = {};
+  for (const { schemaName } of schemas._byGlob) {
+    // Use the same name-mapping as _buildTypeToGlob Part 1:
+    // 'lesson-entry' → null (skip); 'completion-entry' → 'completion'; others → identity.
+    const queryType = _SCHEMA_NAME_TO_QUERY_TYPE.hasOwnProperty(schemaName)
+      ? _SCHEMA_NAME_TO_QUERY_TYPE[schemaName]
+      : schemaName;
+    if (queryType === null) continue; // lesson-entry: skip (special inline-tag type)
+    map[queryType] = schemaName;
+  }
+  return map;
+}
+
+/**
+ * Batch conformance validator — walks every record of every registry type (or just
+ * the scoped type when opts.type is set) and runs each through validateFrontmatter
+ * (which internally calls applyCrossFieldRules). Emits a per-record drift ledger.
+ *
+ * Persistent counterpart to the ephemeral per-write warn-hook (A2 design).
+ *
+ * Interface contract (pinned — A3b authors validate-handoff.js wrapper against this):
+ *   CLI: --validate-all [--type <type>] [--root <path>]
+ *   Exit code: nonzero when ANY record has verdict='drift'.
+ *   Output: JSON array of { type, path, verdict: 'ok'|'drift', errors: [...] } to stdout.
+ *
+ * Spec backlink: archive/specs/2026-06/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A2 / AC2
+ * Design decision: D4 — general --validate-all is the single corpus validation source of truth;
+ *   validate-handoff.js (A3b) wraps this, not a parallel implementation.
+ * Design decision: D5 — reuses schema.js validateFrontmatter + applyCrossFieldRules;
+ *   no forked schema loader.
+ *
+ * Negative-spec: does NOT change existing query / fleet behavior.
+ *
+ * @param {object} opts  Parsed CLI options (validateAll:true; type optional).
+ * @param {string} root  Repo root to validate against (absolute path).
+ * @returns {{ ledger: object[], hasDrift: boolean }}
+ */
+function validateAllRecords(opts, root) {
+  // Load schemas fresh (single source of truth — schema loader is not forked).
+  const schemas = loadSchemas(_SCHEMAS_DIR);
+  const typeToSchemaName = _buildTypeToSchemaNameMap(schemas);
+
+  // Types to validate: all known query types when --type is absent; single type when present.
+  const typesToValidate = opts.type ? [opts.type] : Object.keys(TYPE_TO_GLOB);
+
+  const ledger = [];
+  let hasDrift = false;
+
+  for (const qtype of typesToValidate) {
+    // Skip synthetic / non-frontmatter types (no schema → no validation surface).
+    const schemaName = typeToSchemaName[qtype];
+    if (!schemaName) continue;
+
+    const schema = schemas[schemaName];
+    if (!schema) continue;
+
+    const glob = TYPE_TO_GLOB[qtype];
+    if (!glob) continue;
+
+    // lesson and handoff-ledger are special synthetic types without per-record frontmatter;
+    // lesson-entry schema validates the whole file via validateLessonsFile, not per-record.
+    if (qtype === 'lesson' || qtype === 'handoff-ledger') continue;
+
+    const files = walkGlob(root, glob);
+
+    for (const file of files) {
+      const relPath = path.relative(root, file).replace(/\\/g, '/');
+      let content;
+      try { content = fs.readFileSync(file, 'utf8'); } catch { continue; }
+
+      // Parse frontmatter — .yaml files are whole-file YAML; .md files use --- delimiters.
+      let frontmatter;
+      if (path.extname(file) === '.yaml') {
+        try { frontmatter = _parseYaml(content); } catch { frontmatter = null; }
+      } else {
+        ({ frontmatter } = parseFrontmatter(content));
+      }
+
+      if (!frontmatter) {
+        // No parseable frontmatter — skip silently (same posture as queryRecords).
+        continue;
+      }
+
+      // cross-repo-memo: apply the same memo-shape guard as queryRecords (from+to required).
+      if (qtype === 'cross-repo-memo' && (!frontmatter.from || !frontmatter.to)) continue;
+
+      // plan type: exclude sidecar files (reuse _PLAN_SIDECAR_DATA) and legacy non-plan files.
+      if (qtype === 'plan') {
+        const basename = path.basename(file);
+        const { regexes: sidecarRegexes } = _PLAN_SIDECAR_DATA;
+        const CANONICAL_PLAN_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9-]+\.md$/;
+        const REVIEW_ITERATION_RE = /\.review-\d+\.md$/;
+        if (sidecarRegexes.some(re => re.test(basename))) continue;
+        if (REVIEW_ITERATION_RE.test(basename)) continue;
+        if (!CANONICAL_PLAN_RE.test(basename)) continue;
+      }
+
+      // completion type: skip the legacy/ monolith bucket (same as queryRecords).
+      if (qtype === 'completion') {
+        if (file.replace(/\\/g, '/').includes('/archive/completed/legacy/')) continue;
+      }
+
+      // Run through validateFrontmatter — which internally calls applyCrossFieldRules.
+      const result = validateFrontmatter(frontmatter, schema);
+      const verdict = result.ok ? 'ok' : 'drift';
+      if (!result.ok) hasDrift = true;
+
+      ledger.push({
+        type: qtype,
+        path: relPath,
+        verdict,
+        errors: result.errors || [],
+      });
+    }
+  }
+
+  return { ledger, hasDrift };
+}
+
+// ---------------------------------------------------------------------------
 // CLI entry point
 // ---------------------------------------------------------------------------
 if (require.main === module) {
   const opts = parseArgs(process.argv);
-  const root = detectRoot(opts.root);
 
-  const records = queryRecords(opts, root);
-  const output = formatRecords(records, opts);
-
-  if (output) {
-    process.stdout.write(output + '\n');
+  if (opts.fleet) {
+    // Fleet mode: union per-repo query results across the machine-local repos registry.
+    // --root is ignored (fleet mode resolves roots via the registry).
+    // Output is always JSON (fleet view is a machine-readable contract surface).
+    //
+    // Test-isolation hook: QUERY_RECORDS_FLEET_CURRENT_ROOT overrides the git-root
+    // discovery used as the rung-2 sibling-relative base. Allows tests to create
+    // fixture repos as siblings of a temp dir without touching the real registry.
+    const currentRoot = process.env.QUERY_RECORDS_FLEET_CURRENT_ROOT
+      ? path.resolve(process.env.QUERY_RECORDS_FLEET_CURRENT_ROOT)
+      : detectRoot(null);
+    const fleetResult = queryFleet(opts, currentRoot);
+    process.stdout.write(JSON.stringify(fleetResult, null, 2) + '\n');
+  } else if (opts.validateAll) {
+    // Batch conformance mode — walk every record of every type (or the scoped type)
+    // and emit a machine-readable drift ledger. Exit nonzero on any drift.
+    // Output: JSON array of { type, path, verdict, errors[] } to stdout.
+    //
+    // Interface contract (A3b pins this):
+    //   --validate-all [--type <type>] [--root <path>]
+    //   exit 0: no drift; exit 1: at least one drift record.
+    //
+    // Spec backlink: archive/specs/2026-06/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A2
+    const root = detectRoot(opts.root);
+    const { ledger, hasDrift } = validateAllRecords(opts, root);
+    process.stdout.write(JSON.stringify(ledger, null, 2) + '\n');
+    if (hasDrift) process.exit(1);
+  } else {
+    const root = detectRoot(opts.root);
+    const records = queryRecords(opts, root);
+    const output = formatRecords(records, opts);
+    if (output) {
+      process.stdout.write(output + '\n');
+    }
   }
 }
 
 // Review: F7 — export TYPE_TO_GLOB so the drift-enforcement test can require it
 // directly instead of parsing the 'Valid: ...' stderr of a deliberate invalid-type run.
-module.exports = { queryRecords, formatRecords, parseSince, parseWhereExpr, TYPE_TO_GLOB };
+module.exports = { queryRecords, formatRecords, parseSince, parseWhereExpr, TYPE_TO_GLOB, liveness, validateAllRecords };

@@ -7,19 +7,27 @@ from __future__ import annotations
 coordinator-queue-append.test.py — integration tests for coordinator-queue-append CLI.
 
 Spec backlink: docs/plans/2026-06-15-structured-queue-medium-rollout.md § C5
+Spec backlink: docs/plans/2026-06-25-qffs-tc-2-queues-lessons-consolidation.md § C9
 
 Tests:
   1. --help exits 0 with non-empty stdout. Smoke test.
   2. Unknown --schema exits non-zero; stderr names known schemas.
-  3. Missing required field (debt-backlog: source, risk, suggested_action absent)
+  3. Missing required field (debt-backlog: source, risk, proposed_action absent)
      exits non-zero; stderr names a missing field.
   4. Invalid enum value for --status exits non-zero; stderr names valid values.
   5. Valid debt-backlog write: exits 0, file exists at expected path, non-empty,
-     YAML structure includes required fields.
-  6. Roundtrip: emitted YAML is well-formed and all passed field values survive.
+     YAML structure includes required fields (proposed_action, no id:).
+  6. Roundtrip: emitted YAML is well-formed and all passed field values survive
+     (proposed_action roundtrips; no id: field emitted).
+  6b. Mid-string ' #' survives the emit-parse roundtrip.
   7. Schema-doc-not-runtime-parsed (the Staff Engineer F0 guard): deleting the wiki file from
      a tmpdir does not break a valid write invocation.
-  8. Explicit --id with invalid pattern format exits non-zero; stderr names pattern.
+  8. --id flag rejected (id field dropped in D2 — filename is the handle).
+  9a. --queue-scope central writes to CLAUDE_HOME, not cwd.
+  9b. Project scope (default) still writes cwd-relative.
+  10. --queue-scope central rejected for non-improvement-queue schemas.
+  11. Unified shape: --status closed accepted; --status resolved rejected for debt.
+  12. Unified shape: entry has proposed_action: and no id: field.
 
 Run with: python coordinator-queue-append.test.py
 """
@@ -122,7 +130,13 @@ def _minimal_yaml_parse(content: str) -> dict:
                 inner = value[1:]
                 if inner.endswith('"'):
                     inner = inner[:-1]
-                result[key] = inner.replace('\\"', '"').replace("\\\\", "\\")
+                # Protect literal backslashes before resolving \" so adjacent
+                # escapes (e.g. \\") don't mis-combine under sequential replaces.
+                result[key] = (
+                    inner.replace("\\\\", "\x00")
+                    .replace('\\"', '"')
+                    .replace("\x00", "\\")
+                )
             else:
                 result[key] = value
         i += 1
@@ -157,9 +171,9 @@ def _parse_yaml_file(path: str) -> dict:
 def _debt_backlog_required_args() -> list[str]:
     """Return the minimal valid CLI args for a debt-backlog entry.
 
-    All required fields for debt-backlog:
-      id (auto-generated), created (auto), title, body, status, source, risk,
-      suggested_action.
+    All required fields for debt-backlog (unified shape, tc-2 D1):
+      created (auto), title, body, status, source, risk, proposed_action.
+    Note: id field is DROPPED in D2 — filename is the canonical handle.
     Explicit --from-repo to bypass machine-local resolution in test environments.
     """
     return [
@@ -169,7 +183,7 @@ def _debt_backlog_required_args() -> list[str]:
         "--status", "open",
         "--source", "daily-review/test/2026-06-15",
         "--risk", "Test risk description.",
-        "--suggested-action", "Take the suggested action.",
+        "--proposed-action", "Take the proposed action.",
         "--from-repo", "test-repo-em",
     ]
 
@@ -228,8 +242,8 @@ def test_unknown_schema_exits_nonzero() -> None:
 
 def test_missing_required_field_exits_nonzero() -> None:
     name = "Test 3 — missing required field exits non-zero, stderr names the field"
-    # debt-backlog requires: source, risk, suggested_action (beyond universal fields).
-    # Omit all three; the CLI should reject with one named.
+    # debt-backlog requires (unified shape, tc-2 D1): source, risk, proposed_action
+    # beyond universal fields. Omit all three; the CLI should reject with one named.
     with tempfile.TemporaryDirectory() as tmpdir:
         result = _run_cli(
             [
@@ -238,7 +252,7 @@ def test_missing_required_field_exits_nonzero() -> None:
                 "--body", "B",
                 "--status", "open",
                 "--from-repo", "test-repo-em",
-                # Missing: --source, --risk, --suggested-action
+                # Missing: --source, --risk, --proposed-action
             ],
             env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
             cwd=tmpdir,
@@ -248,7 +262,7 @@ def test_missing_required_field_exits_nonzero() -> None:
         return
     combined = result.stdout + result.stderr
     # At least one of the missing field names should appear in the output.
-    missing_field_names = ("source", "risk", "suggested-action", "suggested_action")
+    missing_field_names = ("source", "risk", "proposed-action", "proposed_action")
     if not any(f in combined.lower() for f in missing_field_names):
         fail_test(
             name,
@@ -275,7 +289,7 @@ def test_invalid_enum_value_exits_nonzero() -> None:
                 "--status", "not-a-valid-status",
                 "--source", "daily-review/test",
                 "--risk", "Some risk.",
-                "--suggested-action", "Some action.",
+                "--proposed-action", "Some action.",
                 "--from-repo", "test-repo-em",
             ],
             env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
@@ -300,14 +314,15 @@ def test_invalid_enum_value_exits_nonzero() -> None:
 # ---------------------------------------------------------------------------
 
 _DEBT_BACKLOG_REQUIRED_YAML_FIELDS = (
-    "id",
+    # Note: 'id' is NOT in this list — id field was dropped in D2 (tc-2).
+    # The filename is the canonical handle; no id: is generated or emitted.
     "created",
     "source",
     "status",
     "title",
     "body",
     "risk",
-    "suggested_action",
+    "proposed_action",
 )
 
 
@@ -358,6 +373,11 @@ def test_valid_write_creates_yaml_file() -> None:
             fail_test(name, f"YAML missing required fields: {missing}. Parsed: {parsed}")
             return
 
+        # D2 (tc-2): id field must NOT be present — filename is the canonical handle.
+        if "id" in parsed:
+            fail_test(name, f"YAML must NOT contain 'id:' field (D2 drop); got id={parsed['id']!r}")
+            return
+
         pass_test(name)
 
 
@@ -371,7 +391,7 @@ def test_roundtrip_yaml_parseable() -> None:
     body = "This is the roundtrip body. It verifies field preservation."
     source = "daily-review/roundtrip/2026-06-15"
     risk = "Missing roundtrip would break YAML fidelity guarantee."
-    suggested_action = "Confirm all fields survive the emit-parse cycle."
+    proposed_action = "Confirm all fields survive the emit-parse cycle."
     status = "open"
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -383,7 +403,7 @@ def test_roundtrip_yaml_parseable() -> None:
                 "--status", status,
                 "--source", source,
                 "--risk", risk,
-                "--suggested-action", suggested_action,
+                "--proposed-action", proposed_action,
                 "--from-repo", "test-repo-em",
             ],
             env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
@@ -407,13 +427,14 @@ def test_roundtrip_yaml_parseable() -> None:
             return
 
         # Verify scalar field values round-trip exactly.
+        # proposed_action replaces the old suggested_action (D1 canonical rename).
         checks = [
             ("title", title),
             ("body", body),
             ("status", status),
             ("source", source),
             ("risk", risk),
-            ("suggested_action", suggested_action),
+            ("proposed_action", proposed_action),
         ]
         for field, expected in checks:
             got = parsed.get(field)
@@ -421,10 +442,9 @@ def test_roundtrip_yaml_parseable() -> None:
                 fail_test(name, f"field {field!r}: expected {expected!r}, got {got!r}")
                 return
 
-        # id must be a non-empty string (uuid4 auto-generated).
-        entry_id = parsed.get("id", "")
-        if not entry_id:
-            fail_test(name, f"id field is empty or absent: {entry_id!r}")
+        # D2 (tc-2): id field must NOT be present — filename is the canonical handle.
+        if "id" in parsed:
+            fail_test(name, f"YAML must NOT contain 'id:' field (D2 drop); got id={parsed['id']!r}")
             return
 
         # created must be a non-empty date string.
@@ -432,6 +452,63 @@ def test_roundtrip_yaml_parseable() -> None:
         if not created:
             fail_test(name, f"created field is empty or absent: {created!r}")
             return
+
+        pass_test(name)
+
+
+# ---------------------------------------------------------------------------
+# Test 6b — mid-string ` #` survives the emit-parse roundtrip (data-loss guard)
+# ---------------------------------------------------------------------------
+
+def test_mid_string_hash_roundtrips() -> None:
+    name = "Test 6b — mid-string ' #' title/body survives roundtrip (no silent truncation)"
+    # Each value embeds a whitespace-preceded '#' that YAML reads as an inline
+    # comment introducer unless the emitter quotes the scalar. Regression for the
+    # _yaml_quote_string start-position-only check (project-opticon memo 2026-06-24).
+    title = "fix the bug #urgent in parser"
+    body = "see PR #123 and issue #4 for context"
+    risk = "has # hash mid and a\t#tab-preceded hash"  # both ' #' and '\t#'
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--title", title,
+                "--body", body,
+                "--status", "open",
+                "--source", "daily-review/hash/2026-06-24",
+                "--risk", risk,
+                "--proposed-action", "Quote scalars containing ' #'.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"CLI exited {result.returncode}: {result.stderr!r}")
+            return
+
+        expected_dir = os.path.join(tmpdir, "state", "debt-backlog")
+        yaml_files = [f for f in os.listdir(expected_dir) if f.endswith(".yaml")]
+        if len(yaml_files) != 1:
+            fail_test(name, f"expected 1 YAML file; got {len(yaml_files)}")
+            return
+
+        yaml_path = os.path.join(expected_dir, yaml_files[0])
+        try:
+            parsed = _parse_yaml_file(yaml_path)
+        except RuntimeError as exc:
+            fail_test(name, f"YAML parse error: {exc}")
+            return
+
+        for field, expected in [("title", title), ("body", body), ("risk", risk)]:
+            got = parsed.get(field)
+            if got != expected:
+                fail_test(
+                    name,
+                    f"field {field!r} truncated at ' #': expected {expected!r}, got {got!r}",
+                )
+                return
 
         pass_test(name)
 
@@ -480,36 +557,41 @@ def test_schema_doc_not_runtime_parsed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test 8 — Explicit --id with invalid prefix pattern exits non-zero
+# Test 8 — --id flag rejected as unknown (D2 drop: id field removed from schema)
 # ---------------------------------------------------------------------------
 
-def test_id_prefix_pattern_enforced_on_explicit_id() -> None:
-    name = "Test 8 — invalid explicit --id format exits non-zero, stderr names pattern"
+def test_id_flag_rejected_as_unknown() -> None:
+    """D2 (tc-2): the --id flag was dropped from coordinator-queue-append.
+
+    Passing --id must fail non-zero since argparse no longer knows it.
+    Regression guard: if someone accidentally restores --id, this test will catch it.
+    """
+    name = "Test 8 — --id flag rejected as unknown argument (D2: id field dropped)"
     with tempfile.TemporaryDirectory() as tmpdir:
         result = _run_cli(
             [
                 "--schema", "debt-backlog",
-                "--id", "invalid-format",   # Does not match ^(DSR|CDX|BS)-YYYY-MM-DD-N$
+                "--id", "DSR-2026-06-25-1",   # --id no longer exists (D2 drop)
                 "--title", "T",
                 "--body", "B",
                 "--status", "open",
                 "--source", "daily-review/test",
                 "--risk", "Some risk.",
-                "--suggested-action", "Some action.",
+                "--proposed-action", "Some action.",
                 "--from-repo", "test-repo-em",
             ],
             env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
             cwd=tmpdir,
         )
     if result.returncode == 0:
-        fail_test(name, "expected non-zero exit for invalid --id format; got 0")
+        fail_test(name, "expected non-zero exit for --id (dropped flag); got 0")
         return
     combined = result.stdout + result.stderr
-    # stderr should reference the pattern constraint.
-    if "pattern" not in combined.lower() and "id_prefix_pattern" not in combined.lower():
+    # argparse should mention "unrecognized arguments" or "--id" in the error.
+    if "--id" not in combined and "unrecognized" not in combined.lower():
         fail_test(
             name,
-            f"stderr does not name the id_prefix_pattern constraint. stderr: {result.stderr!r}",
+            f"stderr does not mention --id or 'unrecognized'. stderr: {result.stderr!r}",
         )
         return
     pass_test(name)
@@ -520,13 +602,16 @@ def test_id_prefix_pattern_enforced_on_explicit_id() -> None:
 # ---------------------------------------------------------------------------
 
 def _improvement_queue_required_args(extra: list[str] | None = None) -> list[str]:
-    """Return the minimal valid CLI args for an improvement-queue entry."""
+    """Return the minimal valid CLI args for an improvement-queue entry.
+
+    Unified shape (tc-2 D1): --proposed-target renamed to --proposed-action.
+    """
     args = [
         "--schema", "improvement-queue",
         "--title", "Test central improvement entry",
         "--body", "Body describing the improvement.",
         "--surface", "state/lessons.md:42",
-        "--proposed-target", "plugins/coordinator/skills/workstream-complete/SKILL.md",
+        "--proposed-action", "plugins/coordinator/skills/workstream-complete/SKILL.md",
         "--change-kind", "skill-edit",
         "--status", "open",
         "--from-repo", "test-repo-em",
@@ -680,7 +765,7 @@ def test_queue_scope_central_rejected_for_non_improvement_schemas() -> None:
                 "--status", "open",
                 "--source", "daily-review/test",
                 "--risk", "Some risk.",
-                "--suggested-action", "Some action.",
+                "--proposed-action", "Some action.",
                 "--from-repo", "test-repo-em",
             ],
             env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
@@ -700,6 +785,277 @@ def test_queue_scope_central_rejected_for_non_improvement_schemas() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Test 11 — Base status enum: closed accepted; resolved rejected for debt
+# ---------------------------------------------------------------------------
+
+def test_base_status_enum_closed_accepted_resolved_rejected() -> None:
+    """Unified base status enum: closed is valid; resolved was dropped in D-status (tc-2).
+
+    debt-backlog status enum = {open, closed, deferred} — NOT {open, resolved, ...}.
+    Passing --status closed must succeed; passing --status resolved must fail.
+    """
+    name = "Test 11 — --status closed accepted; --status resolved rejected for debt"
+
+    # Part A: --status closed must succeed (base enum includes 'closed').
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--title", "Closed entry",
+                "--body", "Closed body.",
+                "--status", "closed",
+                "--source", "daily-review/test",
+                "--risk", "Test risk.",
+                "--proposed-action", "Already done.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"--status closed must be accepted but got exit {result.returncode}: {result.stderr!r}")
+            return
+
+    # Part B: --status resolved must fail (resolved was the old debt-specific status,
+    # dropped in D-status reconciliation — debt now uses 'closed' for DONE).
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--title", "Resolved entry",
+                "--body", "Resolved body.",
+                "--status", "resolved",
+                "--source", "daily-review/test",
+                "--risk", "Test risk.",
+                "--proposed-action", "Some action.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode == 0:
+            fail_test(name, "--status resolved must be REJECTED for debt (dropped in D-status); got 0")
+            return
+        combined = result.stdout + result.stderr
+        if "open" not in combined and "closed" not in combined:
+            fail_test(name, f"error output should name valid status values. stderr: {result.stderr!r}")
+            return
+
+    pass_test(name)
+
+
+# ---------------------------------------------------------------------------
+# Test 12 — Unified shape: written entry has proposed_action:, no id: field
+# ---------------------------------------------------------------------------
+
+def test_unified_shape_proposed_action_no_id() -> None:
+    """Verify the unified field shape on the written YAML:
+    - proposed_action: present (canonical name replacing suggested_action/proposed_target)
+    - id: absent (D2 drop — filename is the canonical handle)
+    - surface: present for bug-backlog (canonical name replacing 'system')
+    """
+    name = "Test 12 — unified shape: proposed_action: present, id: absent, surface: present"
+
+    # debt-backlog: check proposed_action present, id absent
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--title", "Shape validation entry",
+                "--body", "Body for shape test.",
+                "--status", "open",
+                "--source", "daily-review/shape/2026-06-25",
+                "--risk", "Shape risk.",
+                "--proposed-action", "Shape action target.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"CLI exited {result.returncode}: {result.stderr!r}")
+            return
+
+        expected_dir = os.path.join(tmpdir, "state", "debt-backlog")
+        yaml_files = [f for f in os.listdir(expected_dir) if f.endswith(".yaml")]
+        if not yaml_files:
+            fail_test(name, "no YAML file produced for debt-backlog")
+            return
+        yaml_path = os.path.join(expected_dir, yaml_files[0])
+        parsed = _parse_yaml_file(yaml_path)
+
+        if "proposed_action" not in parsed:
+            fail_test(name, f"expected proposed_action: in debt YAML; got keys: {list(parsed.keys())}")
+            return
+        if "id" in parsed:
+            fail_test(name, f"expected NO id: in debt YAML (D2 drop); got id={parsed['id']!r}")
+            return
+
+    # bug-backlog: check surface present (was 'system'), proposed_action absent (not required for bug)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "bug-backlog",
+                "--title", "Bug shape entry",
+                "--body", "Bug body.",
+                "--status", "open",
+                "--surface", "coordinator/auto-push",
+                "--severity", "P2",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"bug-backlog write failed: exit {result.returncode}: {result.stderr!r}")
+            return
+
+        expected_dir = os.path.join(tmpdir, "state", "bug-backlog")
+        yaml_files = [f for f in os.listdir(expected_dir) if f.endswith(".yaml")]
+        if not yaml_files:
+            fail_test(name, "no YAML file produced for bug-backlog")
+            return
+        yaml_path = os.path.join(expected_dir, yaml_files[0])
+        parsed = _parse_yaml_file(yaml_path)
+
+        if "surface" not in parsed:
+            fail_test(name, f"expected surface: in bug YAML (was 'system'); got keys: {list(parsed.keys())}")
+            return
+        if "id" in parsed:
+            fail_test(name, f"expected NO id: in bug YAML (D2 drop); got id={parsed['id']!r}")
+            return
+
+    pass_test(name)
+
+
+# ---------------------------------------------------------------------------
+# Test F6 — wontfix status: accepted for bug-backlog, rejected for debt-backlog
+# ---------------------------------------------------------------------------
+
+def test_wontfix_status_acceptance() -> None:
+    """Review: code-reviewer — F6: wontfix is a valid bug-backlog status but NOT
+    valid for debt-backlog. Verify both sides of the enum gate.
+    """
+    name = "Test F6 — --status wontfix accepted for bug-backlog, rejected for debt-backlog"
+
+    # Part A: bug-backlog --status wontfix must succeed (wontfix is in the bug enum).
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "bug-backlog",
+                "--title", "Wontfix bug entry",
+                "--body", "This is a known issue we will not fix.",
+                "--status", "wontfix",
+                "--surface", "coordinator/auto-push",
+                "--severity", "P3",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"--schema bug-backlog --status wontfix must be accepted; got exit {result.returncode}: {result.stderr!r}")
+            return
+
+    # Part B: debt-backlog --status wontfix must fail (wontfix not in debt enum).
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--title", "Wontfix debt entry",
+                "--body", "Debt we will not address.",
+                "--status", "wontfix",
+                "--source", "daily-review/test",
+                "--risk", "Some risk.",
+                "--proposed-action", "Some action.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode == 0:
+            fail_test(name, "--schema debt-backlog --status wontfix must be REJECTED; got exit 0")
+            return
+        combined = result.stdout + result.stderr
+        if "open" not in combined and "wontfix" not in combined:
+            fail_test(name, f"error output should mention valid status values. stderr: {result.stderr!r}")
+            return
+
+    pass_test(name)
+
+
+# ---------------------------------------------------------------------------
+# Test F7 — multi-line body roundtrip: |- header, no trailing newline
+# ---------------------------------------------------------------------------
+
+def test_multiline_body_roundtrip() -> None:
+    """Review: code-reviewer — F7: multi-line body must roundtrip without trailing
+    newline. Uses |- (strip chomping) so 'First line.\\nSecond line.' parses back
+    as exactly that string with NO trailing newline.
+
+    This test FAILS before F2's fix (| clip chomping adds a trailing newline)
+    and PASSES after (|- strip chomping preserves exact bytes).
+    """
+    name = "Test F7 — multi-line body roundtrip: |- header, no trailing newline"
+    body_input = "First line.\nSecond line."
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = _run_cli(
+            [
+                "--schema", "debt-backlog",
+                "--title", "Multiline body test entry",
+                "--body", body_input,
+                "--status", "open",
+                "--source", "daily-review/multiline/2026-06-26",
+                "--risk", "Multi-line bodies with trailing newline break YAML fidelity.",
+                "--proposed-action", "Use strip chomping (|-) in block scalar emitter.",
+                "--from-repo", "test-repo-em",
+            ],
+            env={"QUEUE_APPEND_OUTPUT_ROOT": tmpdir},
+            cwd=tmpdir,
+        )
+        if result.returncode != 0:
+            fail_test(name, f"CLI exited {result.returncode}: {result.stderr!r}")
+            return
+
+        expected_dir = os.path.join(tmpdir, "state", "debt-backlog")
+        yaml_files = [f for f in os.listdir(expected_dir) if f.endswith(".yaml")]
+        if len(yaml_files) != 1:
+            fail_test(name, f"expected 1 YAML file; found {len(yaml_files)}: {yaml_files}")
+            return
+
+        yaml_path = os.path.join(expected_dir, yaml_files[0])
+
+        # Check the raw YAML contains the |- header (strip chomping, not clip).
+        with open(yaml_path, encoding="utf-8") as fh:
+            raw = fh.read()
+        if "body: |-" not in raw:
+            fail_test(name, f"expected 'body: |-' (strip chomping) in raw YAML; got: {raw!r}")
+            return
+
+        # Parse and verify no trailing newline (byte-fidelity guarantee).
+        try:
+            parsed = _parse_yaml_file(yaml_path)
+        except RuntimeError as exc:
+            fail_test(name, f"YAML parse error: {exc}")
+            return
+
+        got_body = parsed.get("body", None)
+        if got_body is None:
+            fail_test(name, "body field missing from parsed YAML")
+            return
+        if got_body != body_input:
+            fail_test(
+                name,
+                f"body roundtrip mismatch: expected {body_input!r}, got {got_body!r}. "
+                f"(trailing newline indicates | clip chomping instead of |- strip chomping)",
+            )
+            return
+
+        pass_test(name)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -713,11 +1069,16 @@ def main() -> int:
     test_invalid_enum_value_exits_nonzero()
     test_valid_write_creates_yaml_file()
     test_roundtrip_yaml_parseable()
+    test_mid_string_hash_roundtrips()
     test_schema_doc_not_runtime_parsed()
-    test_id_prefix_pattern_enforced_on_explicit_id()
+    test_id_flag_rejected_as_unknown()
     test_central_scope_writes_to_claude_home()
     test_project_scope_still_writes_cwd_relative()
     test_queue_scope_central_rejected_for_non_improvement_schemas()
+    test_base_status_enum_closed_accepted_resolved_rejected()
+    test_unified_shape_proposed_action_no_id()
+    test_wontfix_status_acceptance()
+    test_multiline_body_roundtrip()
 
     print()
     print(f"Results: {TESTS_PASSED} passed, {TESTS_FAILED} failed")

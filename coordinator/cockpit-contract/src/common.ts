@@ -7,6 +7,7 @@
  * validation later (e.g. enforcing a trailing `Z`).
  */
 import { z } from "zod";
+import { ownerEnum, resolveOwnerNamespaces } from "./owner-namespaces.js";
 
 /**
  * ISO-8601 UTC datetime, e.g. "2026-06-22T03:06:15Z". Emits `format: date-time`.
@@ -20,16 +21,25 @@ export const IsoDateTime = z.iso.datetime({ offset: true });
 export const IsoDate = z.iso.date();
 
 /**
- * The three GitHub owner namespaces where work lives (R5). Not an exhaustive
- * GitHub-wide enum — the connector (tc-4) is configured against exactly these.
+ * The GitHub owner namespaces where work lives (R5). Not an exhaustive GitHub-wide
+ * enum, and NOT hard-baked — the members are seam-generated from configuration
+ * (`resolveOwnerNamespaces()`: env `COCKPIT_OWNER_NAMESPACES` → private default) so a
+ * private generation carries real orgs and an OSS/example generation carries synthetic
+ * ones, while the enum stays CLOSED (validation rejects an unconfigured owner). See
+ * `owner-namespaces.ts` for the seam.
  */
-export const OwnerNamespace = z.enum([
-  "dbc-oduffy",
-  "Delphi-Interactive",
-  "workstation",
-]);
+export const OwnerNamespace = ownerEnum(resolveOwnerNamespaces());
 export type OwnerNamespace = z.infer<typeof OwnerNamespace>;
 
 /** GitHub repository visibility as reported by the census (tc-4). */
 export const Visibility = z.enum(["PRIVATE", "PUBLIC", "INTERNAL"]);
 export type Visibility = z.infer<typeof Visibility>;
+
+/**
+ * Hostname slug identifying a machine in the fleet — the `@machine` component
+ * of `owner/repo@machine` fleet identity. D11 (string-not-enum): the machine-slug
+ * set is unstable; an enum would reproduce the exact bug D11 documents.
+ */
+// Review: code-reviewer — empty string passes parse → degenerate owner/repo@ fleet identity; D11 forbids enum but not min(1).
+export const MachineSlug = z.string().min(1);
+export type MachineSlug = z.infer<typeof MachineSlug>;

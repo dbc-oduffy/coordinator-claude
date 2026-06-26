@@ -21,7 +21,7 @@
 #                    vocabulary table below. Make a backup at PATH.bak first.
 #
 # PATH may be a single file or a directory (recursively walked for *.md, *.sh,
-# *.py, *.json — same surface as the publish-repo check). Excluded: `archive/`,
+# *.py, *.json, *.ts — same surface as the publish-repo check). Excluded: `archive/`,
 # `tasks/`, `experiments/`, `evals/`, `docs/{plans,research,decisions,specs}/`.
 #
 # Vocabulary (matching docs/customization.md "Reviewer Roles" table):
@@ -103,7 +103,7 @@ Usage: publish-time-transform.sh --check PATH
   --keep-bak  Preserve .bak files for manual recovery (default: clean up after
               rewrite). Use when running outside the publish hook flow.
 
-Surface: tracked-or-not *.md, *.sh, *.py, *.json files. Excluded subtree prefixes:
+Surface: tracked-or-not *.md, *.sh, *.py, *.json, *.ts files. Excluded subtree prefixes:
   archive/, tasks/, experiments/, evals/, docs/{plans,research,decisions,specs}/.
 
 Path-mapping table (static floor — always applied):
@@ -364,7 +364,7 @@ else
     rel="${f#"$TARGET"/}"
     if is_excluded "$rel"; then continue; fi
     FILES+=("$f")
-  done < <(find "$TARGET" -type f \( -name '*.md' -o -name '*.sh' -o -name '*.py' -o -name '*.json' \) -print0)
+  done < <(find "$TARGET" -type f \( -name '*.md' -o -name '*.sh' -o -name '*.py' -o -name '*.json' -o -name '*.ts' \) -print0)
 fi
 
 # ---------------------------------------------------------------------------

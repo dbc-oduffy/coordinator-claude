@@ -33,6 +33,64 @@ applies_to: "cross-repo/inbox/[0-9]*.md"
 # The validator MUST NOT impose SHA-requirement logic on these timestamp fields —
 # this is a different pattern from handoff's shipped_in: <SHA>.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Canonical grammar & liveness doctrine backlink
+# Spec backlink: docs/wiki/canonical-artifact-shapes.md
+#   — canonical home for the baton blob frontmatter grammar, cross-type
+#     liveness predicate, and addressable-section convention.
+#   — Liveness mapping for this type (by REFERENCE — do not duplicate the
+#     table here): status ∈ {open, in_progress} → LIVE;
+#     status ∈ {actioned, reviewed, action_taken, closed, superseded} → DONE.
+#     Full mapping in canonical-artifact-shapes.md § Design-Complete Mapping Table.
+#     Implemented in bin/query-records.js liveness(fm, type) (tc-0 C3).
+#
+# Author/lineage inventory — baton-local findings (C2 schema convergence):
+#   Author concept:
+#     This schema has NO explicit author key. Authorship is encoded in `from:`
+#     (sender repo/identity). `from` is RECEIVER-ROUTING-CRITICAL (see below) —
+#     the CLI uses it to determine delivery target. The sender identity being
+#     embedded in a routing key is load-bearing, not an accidental omission.
+#     Evidence of alignment: canonical-artifact-shapes.md § Author and Lineage
+#     Concepts § "Memo author/lineage (canonical)" records `from` as the author
+#     analog with the explicit routing caveat — no consolidation target.
+#
+#   Lineage / supersession chain:
+#     supersedes:     (optional) set on a new memo when re-issuing a pre-lifecycle
+#                     memo — points FROM new TO old.
+#     superseded_by:  (optional) set by receiver when a newer memo supersedes this
+#                     one — points FROM old TO new.
+#     These are BIDIRECTIONAL, unlike handoff `predecessor` (one-way ancestry).
+#     Architectural reason: the receiver may re-issue under a different memo ID;
+#     the chain must be traceable in BOTH directions. This divergence from handoff
+#     `predecessor` is DELIBERATE-KEEP-WITH-ARCHITECTURAL-REASON.
+#     Evidence: canonical-artifact-shapes.md § Author and Lineage Concepts
+#               ¶ "Load-bearing divergences — deliberately kept".
+#
+#   Load-bearing divergences — explicitly kept per canonical grammar doctrine:
+#     `from`: RECEIVER-ROUTING-CRITICAL — bin/cross-repo-memo uses `from:` to
+#             determine which inbox directory to write the memo to. Do NOT
+#             consolidate or rename to a generic `machine:` or `author:` key.
+#     `to`:   RECEIVER-ROUTING-CRITICAL — same constraint as `from:`. Used for
+#             both routing and self-receipt detection (a memo addressed to the
+#             current repo is an error, surfaced by the own-inbox guard).
+#     Both are DELIBERATE-KEEP-WITH-ARCHITECTURAL-REASON: the single-surface
+#     delivery mechanism in bin/cross-repo-memo depends on these exact key names.
+#     Renaming them to match handoff's `machine:`/`authoring_session:` would break
+#     delivery routing with no benefit — these are NOT the same concept as the
+#     handoff host-name and session-context keys.
+#
+#   Fleet-wide claim reconciliation (OVERVIEW "author×4 / lineage×4"):
+#     Count was FLEET-WIDE — memo contributes `from`/`to` (routing-embedded
+#     authorship) and `supersedes`/`superseded_by` (lineage). Baton-local totals:
+#       author  = 2 keys on handoff (machine+authoring_session);
+#                 0 explicit on memo (implicit in `from`).
+#       lineage = 1 on handoff (predecessor);
+#                 2 on memo (supersedes+superseded_by).
+#     No accidental baton-level spellings remain; all divergences are documented
+#     as deliberate above or in canonical-artifact-shapes.md.
+#     Evidence: state/scratch/query-friendly-fleet-substrate/inventory-records.md
+#               § "Cross-type observations".
+# ---------------------------------------------------------------------------
 required:
   title: string
   from: string

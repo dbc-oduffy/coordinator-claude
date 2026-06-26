@@ -94,27 +94,20 @@ If no findings: skip to Step 6.
 
 ## Step 5: Update Debt Backlog
 
-For any findings not fixed inline:
+For any findings not fixed inline, record each as a debt-backlog YAML entry using `coordinator-queue-append --schema debt-backlog`. This writes `state/debt-backlog/<date>-<slug>.yaml` (one file per finding; no markdown table).
 
-1. Check for `state/debt-backlog.md`. If it doesn't exist, create it from this template:
+Required fields per entry:
+- **`title`** — one-line noun-phrase summary of the finding
+- **`body`** — multi-line prose: what was observed, the structural gap, context (`body: |` block scalar)
+- **`source`** — provenance: `daily-health/code-reviewer/{date}`
+- **`risk`** — consequence of leaving the debt unaddressed
+- **`proposed_action`** — what the EM or a future executor should do
+- **`status`** — `open`
+- **`created`** — today's date (YYYY-MM-DD)
 
-   ```markdown
-   # Technical Debt Backlog
+Stage each resulting YAML file: `git add state/debt-backlog/<date>-<slug>.yaml`
 
-   > Last triaged: YYYY-MM-DD | Open: 0 items (P0: 0, P1: 0, P2: 0)
-
-   | ID | System | Severity | Source | Description | Effort | Status |
-   |----|--------|----------|--------|-------------|--------|--------|
-   ```
-
-2. Add one row per deferred finding:
-   - **ID:** `DCH-{date}-{N}` (e.g., `DCH-2026-03-18-1`)
-   - **Source:** `daily-health/code-reviewer/{date}`
-   - **Status:** `open`
-
-3. Update the header summary counts.
-
-**Concurrency note:** `debt-backlog.md` may be written by overlapping sessions (e.g., `/architecture-audit` running concurrently). Always append new rows at the bottom of the table — never rewrite or reorganize existing rows. When updating an entry's status, match by ID column only. Update the `> Last triaged:` header line to today's date; do not remove or reorder any other header fields.
+See `docs/wiki/debt-backlog-schema.md` for the full field reference and an example entry.
 
 ---
 
@@ -199,7 +192,7 @@ Write results to `state/health-summary.md` — this is what workstream-start rea
 ## Step 8: Commit and Update Timestamp
 
 ```bash
-git add state/health-ledger.md state/health-summary.md state/debt-backlog.md
+git add state/health-ledger.md state/health-summary.md
 git commit -m "daily-code-health: review of surfaces from completion entries [date]"
 ```
 

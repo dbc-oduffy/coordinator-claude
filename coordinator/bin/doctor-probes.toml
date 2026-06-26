@@ -285,6 +285,22 @@ triage = false
 severity_if_fail = "degraded"
 remediation = "hardware.cores / hardware.ram_gb absent from machine-local. Remediation depends on your install path: (1) coordinator:install users — re-run coordinator:install Phase 3 (the hardware-audit step seeds these values via lib/detect-hardware.sh); (2) OSS setup/install.sh users — re-run setup/install.sh (the --setup-only path seeds hardware.* via the same detector). After re-running, verify with: machine-local get hardware.cores"
 
+[[probe]]
+id = "P-17"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["shell", "login-shell", "bash-profile", "local-bin", "path", "orphan", "shell-env"]
+# triage=false: this probe spawns a login shell that sources arbitrary user rc files
+# (nvm/pyenv/conda-init), which have latency and side effects unsuitable for the
+# always-on cheap triage pass. Surfaces under --full / --symptom shell-env /
+# --cluster machine-local. The triage=true => weight in {cheap,standard} invariant
+# does not apply here because triage is false.
+triage = false
+severity_if_fail = "error"
+remediation = "bash login shell orphaned ~/.local/bin — run coordinator:install or normalize-env.sh"
+
 # ---------------------------------------------------------------------------
 # Cluster: ue-overrides — UE override path verifier (OPTIONAL — silent skip if absent)
 # ---------------------------------------------------------------------------
@@ -299,3 +315,22 @@ symptom_keywords = ["ue override drift", "verify-ue-overrides", "claude_unreal_h
 triage = false
 severity_if_fail = "degraded"
 remediation = "Follow the verify-ue-overrides.sh remediation hint (typically set repos.claude_unreal_holodeck)"
+
+# ---------------------------------------------------------------------------
+# Cluster: structure — install singularity (canonical-locus integrity)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-18"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["install singularity", "split install", "multiple clones", "doubled venv pin", "claude-home", "marketplace divergence", "symlink install"]
+# triage=true: install-integrity is load-bearing — a split/divergent install silently
+# loads a stale coordinator copy, so the cheap first-pass run must catch it. The check
+# is file reads + git rev-parse + settings parse (weight=standard, no model/VRAM) —
+# satisfies the triage=true => weight in {cheap,standard} invariant.
+triage = true
+severity_if_fail = "error"
+remediation = "Multiple coordinator install trees or divergent registration detected — reconcile to a single ~/.claude install (remove stray clones/symlinks; align settings.json / settings.local.json / known_marketplaces.json; fix a doubled .claude/.claude venv pin via bin/ensure-coordinator-venv.sh). Re-run /coordinator:install."

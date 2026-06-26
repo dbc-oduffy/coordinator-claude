@@ -1,12 +1,56 @@
 schema: handoff
 applies_to: "state/handoffs/*.md"
+# ---------------------------------------------------------------------------
+# Canonical grammar & liveness doctrine backlink
+# Spec backlink: docs/wiki/canonical-artifact-shapes.md
+#   — canonical home for the baton blob frontmatter grammar, cross-type
+#     liveness predicate, and addressable-section convention.
+#   — Liveness mapping for this type (by REFERENCE — do not duplicate the
+#     table here): status + deployment_state resolve to LIVE/BLOCKED/DONE
+#     via the two-axis combination rule documented in
+#     canonical-artifact-shapes.md § The Cross-Type Liveness Predicate
+#     § Handoff Two-Axis Combination Rule.
+#     Implemented in bin/query-records.js liveness(fm, type) (tc-0 C3).
+#
+# Author/lineage inventory — baton-local findings (C2 schema convergence):
+#   Author concept within batons:
+#     This type: machine (host name) + authoring_session (session/context).
+#     Two distinct keys encoding DISTINCT semantics — not accidental spellings:
+#       machine         = which host authored the handoff.
+#       authoring_session = which session / audit-trail back to origin (spinoffs).
+#     Evidence of alignment: canonical-artifact-shapes.md § Author and Lineage
+#     Concepts § "Handoff author/lineage (canonical)" confirms both keys, no
+#     consolidation target within this type.
+#     memo has NO explicit author key (authorship is implicit in `from:` —
+#     receiver-routing-critical; see cross-repo-memo.yaml).
+#
+#   Lineage concept within batons:
+#     This type: predecessor (one lineage key — the handoff this one continues,
+#     or literal `none` on spinoffs). ALIGNED with canonical grammar.
+#     memo: supersedes + superseded_by (bidirectional supersession chain —
+#     deliberate architectural divergence; see cross-repo-memo.yaml for reason).
+#
+#   Fleet-wide claim reconciliation (OVERVIEW "author×4 / lineage×4"):
+#     That count was FLEET-WIDE (plan `author` + handoff `machine`/`authoring_session`
+#     + decision `deciders`/`authors` + memo's implicit-in-`from`). It was NOT
+#     baton-local — the plan/decision contributions are tc-1's scope.
+#     Baton-local totals:
+#       author  = 2 keys (both on handoff only; memo author is implicit in `from`).
+#       lineage = 3 keys (handoff `predecessor`; memo `supersedes`+`superseded_by`).
+#     Within batons the spellings are either aligned or load-bearing divergences;
+#     there are no accidental baton-level consolidation targets.
+#     Evidence: state/scratch/query-friendly-fleet-substrate/inventory-records.md
+#               § "Cross-type observations".
+# ---------------------------------------------------------------------------
 required:
   title: string
   created: iso-date
   branch: string
   status:
     type: enum
-    values: [active, consumed, superseded]
+    values: [active, consumed]
+    # Note: `superseded` was a valid handoff status until 2026-06-26; it is retired.
+    # The archived reader-validator schemas/handoff-archived.yaml retains it for legacy tolerance.
   predecessor:
     type: string-or-null
 optional:

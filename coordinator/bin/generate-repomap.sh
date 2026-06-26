@@ -18,7 +18,7 @@
 #
 # Exit codes:
 #   0 — generator ran successfully
-#   1 — generator script not found at either known location
+#   1 — generator script not found at any of the three searched locations
 #   N — generator's own exit code on failure
 #
 # Negative spec: this script does NOT gate on RAG state. Call check-rag-state.sh
@@ -27,16 +27,23 @@
 set -euo pipefail
 
 # ── Locate the generator ─────────────────────────────────────────────────────
-# Prefer global install; fall back to project-local legacy path.
-GENERATOR="$HOME/.claude/.github/scripts/generate-repomap.py"
+# 3-tier resolution: (1) plugin-relative canonical path (coordinator/bin/repomap/);
+# (2) legacy meta-repo global install (~/.claude/.github/scripts/); (3) repo-local
+# fallback for un-migrated boxes. Tiers 2-3 are intentional legacy bridges.
+_plugin_root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+GENERATOR="${_plugin_root}/bin/repomap/generate-repomap.py"
+if [ ! -f "$GENERATOR" ]; then
+    GENERATOR="$HOME/.claude/.github/scripts/generate-repomap.py"
+fi
 if [ ! -f "$GENERATOR" ]; then
     GENERATOR=".github/scripts/generate-repomap.py"
 fi
 
 if [ ! -f "$GENERATOR" ]; then
     echo "ERROR: generate-repomap.py not found." >&2
-    echo "  Expected: $HOME/.claude/.github/scripts/generate-repomap.py" >&2
-    echo "  Fallback: .github/scripts/generate-repomap.py" >&2
+    echo "  Expected (tier 1): ${_plugin_root}/bin/repomap/generate-repomap.py" >&2
+    echo "  Fallback (tier 2, legacy): $HOME/.claude/.github/scripts/generate-repomap.py" >&2
+    echo "  Fallback  (tier 3): .github/scripts/generate-repomap.py" >&2
     echo "  Install the coordinator-claude plugin or run the setup script." >&2
     exit 1
 fi
@@ -56,11 +63,17 @@ if [ -z "$PYTHON" ]; then
     fi
 fi
 
+# Build interpreter array at resolution time so word-splitting of the "py -3"
+# two-token case is intentional here, and exec later expands safely via
+# "${PYTHON_CMD[@]}" without re-splitting (safe for space-containing paths).
+# Review: code-reviewer — unquoted $PYTHON in exec breaks space-containing paths
+PYTHON_CMD=($PYTHON)
+
 # ── Run the generator ────────────────────────────────────────────────────────
 if [ $# -eq 0 ]; then
     # Default invocation
-    exec $PYTHON "$GENERATOR" --project-root "${PROJECT_ROOT:-.}" --budget 4000 --profile balanced # verify-no-console-flash: allow — on-demand repomap generator, not session-hot-path
+    exec "${PYTHON_CMD[@]}" "$GENERATOR" --project-root "${PROJECT_ROOT:-.}" --budget 4000 --profile balanced # verify-no-console-flash: allow — on-demand repomap generator, not session-hot-path
 else
     # User arguments take full precedence — pass through verbatim
-    exec $PYTHON "$GENERATOR" "$@" # verify-no-console-flash: allow — on-demand repomap generator, not session-hot-path
+    exec "${PYTHON_CMD[@]}" "$GENERATOR" "$@" # verify-no-console-flash: allow — on-demand repomap generator, not session-hot-path
 fi

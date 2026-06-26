@@ -86,33 +86,51 @@ IFS= read -r -d '' rendered < "$template_path" || true
 # ---------------------------------------------------------------------------
 # Apply substitutions
 # ---------------------------------------------------------------------------
-# Each KEY=VALUE pair replaces every occurrence of {{KEY}} literally.
-# sed's delimiter is | to avoid conflicts with typical path values.
-# The pattern {{KEY}} requires exactly no whitespace inside the braces —
-# so {{ KEY }} is left untouched, and will trip the unsubstituted-key check.
+# Uses Python str.replace — a true literal string replace with no regex,
+# no & back-reference, and no newline restriction. Key and value are passed
+# through env vars to avoid quoting or injection hazards in the invocation.
+# Trailing newlines are preserved via temp-file round-trip (command substitution
+# would strip them, so the result never crosses a $(...) boundary).
+#
+# Negative-spec: do NOT use sed s/// here — a multi-line value is structurally
+# incompatible with a one-line sed command regardless of delimiter choice. Bash
+# ${var//pat/rep} is also ineligible: its replacement treats & as a matched-text
+# back-reference (same hazard as sed) and \ as an escape character, requiring
+# the same bespoke escaping sed needed.
+# (Spec backlink: docs/plans/2026-06-26-coordinator-install-update-friction-fix-slate.md § C-R3a)
+
+_py="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+if [[ -z "$_py" ]]; then
+    echo "render-template: python3 not found; Python 3 is required for template rendering" >&2
+    exit 1
+fi
+
+# Review: reviewer (C-F3, C-F6) — per-iteration mktemp + rm leaked temp files when Python
+# exited non-zero under set -euo pipefail (the rm was skipped). One temp file created
+# before the loop, covered by an EXIT trap, overwrites each iteration safely.
+# Renamed from _tmp_rt to _subst_tmp for clarity (C-F6).
+_subst_tmp="$(mktemp)"
+trap 'rm -f "$_subst_tmp"' EXIT
 
 for pair in "${kv_pairs[@]}"; do
     key="${pair%%=*}"
     value="${pair#*=}"
-    # Validate key is a bare identifier — guards against sed metacharacter injection
+    # Validate key is a bare identifier.
     if ! [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
         echo "render-template: invalid key: $key (must be a bare identifier)" >&2
         exit 1
     fi
-    # Escape sed replacement string: \ and & (POSIX BRE safe); also escape the
-    # SOH control-char delimiter (\001) used below so a literal \001 in the value
-    # cannot corrupt the substitution command.
-    escaped_value="$(printf '%s\n' "$value" | sed 's/\\/\\\\/g; s/&/\\&/g; s/\x01/\\\x01/g')"
-    # Apply substitution via temp file to preserve trailing newlines.
-    # Delimiter is SOH (\001) — a control char that never appears in template keys or
-    # typical values, making the substitution immune to | characters in the value.
-    D=$'\001'
-    tmp_sed="$(mktemp)"
-    printf '%s' "$rendered" > "$tmp_sed"
-    sed "s${D}{{${key}}}${D}${escaped_value}${D}g" "$tmp_sed" > "${tmp_sed}.new" && mv "${tmp_sed}.new" "$tmp_sed"
-    IFS= read -r -d '' rendered < "$tmp_sed" || true
-    rm -f "$tmp_sed"
+    # Literal replace: RENDER_KEY={{KEY}} and RENDER_VALUE are env vars read by
+    # Python; str.replace has no metacharacter processing for either argument.
+    # Temp file round-trip preserves trailing newlines in the rendered content.
+    printf '%s' "$rendered" \
+        | RENDER_KEY="{{${key}}}" RENDER_VALUE="$value" "$_py" -c \
+            'import os,sys; sys.stdout.write(sys.stdin.read().replace(os.environ["RENDER_KEY"],os.environ["RENDER_VALUE"]))' \
+        > "$_subst_tmp"
+    IFS= read -r -d '' rendered < "$_subst_tmp" || true
 done
+rm -f "$_subst_tmp"
+trap - EXIT  # substitution temp cleaned up; disarm before output-section trap takes over
 
 # ---------------------------------------------------------------------------
 # Unsubstituted key detection

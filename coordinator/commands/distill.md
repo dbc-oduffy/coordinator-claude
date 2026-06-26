@@ -129,6 +129,8 @@ NOT a raw `find archive/handoffs/ -name '*.md'`. Using `query-records` preserves
 | Reusable cross-cutting patterns / lessons | Wiki entry in `docs/wiki/` | New `archived_handoff:` provenance key — see schema below |
 | Neither (only mechanical sections like `## Files Modified`) | No extraction | Eligible for delete under Phase 5 safety guards |
 
+**Scaffolding new DRs:** use `coordinator-doc-new --type decision --title "<title>" --out docs/decisions/DR-<NNN>-<slug>.md` to generate conformant frontmatter (`id`, `title`, `created`, `status`, `deciders`) from `schemas/decision.yaml`. The canonical identity key is `id`; the canonical temporal key is `created` (not `date`).
+
 ### Provenance frontmatter — new `archived_handoff:` key
 
 Per DR-053, `archived_handoff:` is a **new top-level key**, NOT a sub-key under `provenance:` (that key is taken by Phase 5b's archived-spec schema as a list-of-objects with `path` + `last_verbose_sha`; collision would break schema-based dispatch).
@@ -179,6 +181,8 @@ Do NOT enumerate `cross-repo/inbox/*.md` — active memos in the inbox are never
 | Cross-repo decisions with lasting architectural significance | DR in `docs/decisions/` | E.g. "project-rag confirmed co-located archive over top-level archive/cross-repo/" — rare |
 | Cross-cutting patterns surfaced in a memo thread | Wiki entry in `docs/wiki/` | E.g. a sequence of memos that converged on a new installation discipline |
 | Neither (routine actioned memos with no evergreen content) | No extraction | Eligible for delete under Phase 5 safety guards |
+
+**Scaffolding new DRs:** same as handoff distillation — `coordinator-doc-new --type decision --title "<title>" --out docs/decisions/DR-<NNN>-<slug>.md`; canonical keys are `id` and `created`.
 
 **Extraction is rare.** Most cross-repo memos are coordination records — they do not contain architectural decisions worth promoting. The overwhelming majority are `→ DELETE` (routine coordination extracted to `[EPHEMERAL]`). The distill agent must resist the impulse to force-promote; only genuinely evergreen cross-repo decisions earn wiki or DR entries.
 

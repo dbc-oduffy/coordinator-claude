@@ -10,13 +10,15 @@
  * Uses Zod v4's native `z.toJSONSchema()` (no `zod-to-json-schema` dependency).
  */
 import { writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { ENTITY_SCHEMAS, CONTRACT_VERSION } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const schemaDir = join(here, "..", "schema");
+const schemaDir = process.env.COCKPIT_SCHEMA_OUT_DIR
+  ? resolve(process.env.COCKPIT_SCHEMA_OUT_DIR)
+  : join(here, "..", "schema");
 mkdirSync(schemaDir, { recursive: true });
 
 const entries = Object.entries(ENTITY_SCHEMAS);

@@ -169,7 +169,7 @@ Wait for the analyst before Step 4c.
 
 Dispatch an **unnamed Sonnet worker** (`general-purpose`, `model: "sonnet"`) — NOT a named persona. Personas (the Staff Engineer / the Game Dev Reviewer / the Data Science Reviewer / the Front-End Reviewer) are Opus-only and reserved for `/workweek-complete` Step 7.5, the merge gate, and explicit architectural decisions.
 
-The observer leaves a paper trail for future-the Staff Engineer — alignment notes, debt candidates, architectural-risk flags. It renders **no final architectural verdict**; weekly Opus the Staff Engineer adjudicates. Appends `## Strategic Review (Sonnet daily observer)` to the daily summary; writes flagged items as `state/debt-backlog.md` rows (DSR-{date}-{N}), tagging architectural flags `for-weekly-arch-review`.
+The observer leaves a paper trail for future-the Staff Engineer — alignment notes, debt candidates, architectural-risk flags. It renders **no final architectural verdict**; weekly Opus the Staff Engineer adjudicates. Appends `## Strategic Review (Sonnet daily observer)` to the daily summary; writes flagged items as debt-backlog YAML entries via `coordinator-queue-append --schema debt-backlog` (producing `state/debt-backlog/<date>-<slug>.yaml`), using `tags: [weekly-arch-review]` for architectural risk candidates.
 
 Full prompt template: `docs/wiki/daily-summary-procedure.md` § Daily Strategic Observer Prompt Template.
 
@@ -249,9 +249,15 @@ RC_PLUGIN_SUITE=$?
 
 ## Step 8: Improvement-Queue Depth Nudge (read-only)
 
-Read `~/.claude/state/coordinator-improvement-queue.md`. Count `- ` lines in `## Active queue`.
+Count open YAML entries in `~/.claude/state/improvement-queue/`:
 
-- **≥ 5 entries:** emit in final summary: _"Coordinator-improvement queue: K entries (oldest: YYYY-MM-DD) — consider `/workweek-complete` to triage."_
+```bash
+_IQ_COUNT=$(ls ~/.claude/state/improvement-queue/*.yaml 2>/dev/null | wc -l | tr -d ' ')
+```
+
+<!-- Review: code-reviewer slice-C F4 — the old single-file markdown queue was swept by tc-2; replaced with count against the YAML dir -->
+
+- **≥ 5 entries:** emit in final summary: _"Coordinator-improvement queue: K entries — consider `/workweek-complete` to triage."_
 - **Otherwise:** skip silently.
 
 No triage at daily cadence — triage is weekly.
@@ -273,6 +279,11 @@ The script:
 - Extracts `Decisions:` and `Blockers:` from handoff bodies (does not re-author).
 - Auto-fills `Validation:` from the env vars above.
 - Emits one `**Reviewed:**` line per record; falls back to `**Reviewed:** none — flag for /workweek-complete Step 7` only when today had non-trivial commits and no records exist; omits the field entirely when all today's commits are trivial.
+
+The bold-label set emitted by this step is the **canonical week-changelog daily label set** — see
+`docs/wiki/canonical-artifact-shapes.md § week-changelog daily — canonical label set` for the
+authoritative per-label definitions, including the `Scope:` expressiveness guardrail and the
+`Validation:` enum reference.
 - Idempotent: re-running on the same day with unchanged inputs is a no-op (no new commit, no push).
 - Commits `$CHANGELOG_FILE` + `archive/daily-summaries/$TODAY.md` together and pushes.
 

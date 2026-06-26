@@ -46,6 +46,7 @@ docs/architecture/
 ├── file-index.md             # File-to-system mapping (one line per file)
 ├── cross-system-map.md       # ASCII dependency diagram
 ├── connectivity-matrix.md    # System-to-system connection matrix
+├── audit-records/            # Canonical per-audit records (YYYY-MM-DD-<system>.md)
 └── systems/                  # Per-system detail pages
     └── {system-name}.md      # Function inventory, flows, boundaries
 ```
@@ -98,7 +99,7 @@ Note: These weights are initial estimates — adjust after 4 weeks based on whet
 
 ## Step 2: Review Existing Debt
 
-Post-D5, `state/debt-backlog.md` is no longer the audit's output sink — it holds only items the EM/PM explicitly chose to **defer with a reason** (architectural OOS). Reading it here is still valid: pre-existing deferred items for the target system should be surfaced before auditing for new issues. Read `state/debt-backlog.md` for the target system. If open items exist:
+Post-D5, the debt backlog is no longer the audit's output sink — it holds only items the EM/PM explicitly chose to **defer with a reason** (architectural OOS). Reading it here is still valid: pre-existing deferred items for the target system should be surfaced before auditing for new issues. Read `state/debt-backlog/*.yaml` (or run `bin/query-records --type debt --status open`) to find open items for the target system. If open items exist:
 
 1. Present them to PM for prioritization — before auditing for new issues
 2. Prioritized debt items go through the full pipeline: plan → review → execute
@@ -170,6 +171,31 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 
 ---
 
+## Step 3.6: Scaffold the Canonical Audit Record
+
+Run the scaffolder to emit the conformant skeleton at the canonical path:
+
+```bash
+coordinator-doc-new --type audit-record --system <target>
+# → docs/architecture/audit-records/<YYYY-MM-DD>-<target>.md
+```
+
+The scaffolded skeleton is the **authoritative shape** — it carries the required YAML frontmatter (D1 field set: `run_id`, `system`, `grade`, `health_status`, `reviewer`, `created`; optional `mode`), the canonical body sections, and the addressable `### Diagram (ASCII)` fenced section. The canonical body-section list is the SSOT of the C2 scaffolder skeleton; the reviewer fills sections within it and does NOT choose its own shape.
+
+**Dispatch the domain Opus reviewer with `mode: acceptEdits` and the scaffolded file path** so it edits the file in-place. The reviewer prompt MUST instruct the reviewer to:
+
+1. **Populate frontmatter:** fill `grade` (A–F enum), `health_status` (HEALTHY|WATCH|ACTION|CRITICAL enum), `run_id` (format: `YYYY-MM-DD-HHhMM`), `reviewer`, and optionally `mode` (RESEARCH_ONLY|FULL|REMEDIATION).
+2. **Write the `### Diagram (ASCII)` fenced flow diagram** — format and ≤100-char rule per `canonical-artifact-shapes.md § Diagram (ASCII) Rule` (the SSOT — cite it; do NOT copy rule text from `pipelines/deep-architecture-survey/agent-prompts.md`).
+3. **Fill all named prose sections without flattening grade-rationale or ambition-check prose.** These sections carry human judgment — the guardrail is that no prose section is ever dropped to make room.
+
+The reviewer prompt references the scaffolded skeleton file, not an independent restatement of the section list. Parallel restatement of the canonical section list is the drift path the shared contract prevents.
+
+> **Negative-spec (hard):**
+> - The reviewer MUST NOT flatten or drop any prose section (grade-rationale, ambition-check, or others) to make room for any other content.
+> - The three historical audit records (`2026-05-28-coordinator-runtime.md` et al.) are frozen point-in-time records — they are NOT retrofitted to the canonical schema (plan D4). The new shape governs only records authored after this step lands.
+
+---
+
 ## Step 4: Package Findings as Spinoff Candidates (the audit NEVER edits code)
 
 **Principle (PM-confirmed, D4):** the audit pass itself **never edits code** — it reads, scores, and hands findings to the EM. The audit has no inline-fix step. Disposition is **EM judgment**, routed down a ladder (people over process — not a rigid everything-becomes-a-PM-gated-spinoff pipeline):
@@ -177,7 +203,7 @@ Check the system's **live file count** at dispatch time. Do not use the atlas fi
 - **Trivial / tradeoff-free AND non-structural** (one-liners, mechanical corrections, no judgment) → the EM **dispatches an executor immediately** in a follow-up, saving spinoff ceremony. This is ordinary EM remit (acting on review findings) — NOT a PM-gated spinoff, no authorization needed.
   - **Guardrail (hard):** the immediate-executor path requires findings that are BOTH tradeoff-free AND non-structural. **Any finding touching a module boundary, interface, or cross-system surface is ineligible regardless of line count** — it routes to a bundled/standalone spinoff candidate (PM-gated + recorded). This guardrail is what makes retiring the auto-debt-backlog write (Step 5) safe: structural findings keep a visible record as spinoff-candidate artifacts.
 - **Mid-size cluster** ("these 17 changes are too big for mechanical line-edits but too small for an individual plan") → the EM **groups them into ONE bundled spinoff candidate** rather than minting 17 separate ones or one bloated plan.
-- **Large / genuinely structural** → standalone spinoff candidate, or escalate to `/plan`.
+- **Large / genuinely structural** → standalone spinoff candidate, or escalate to `/plan`. When the finding constitutes an architectural decision that warrants a permanent record, scaffold the DR before surfacing the spinoff candidate: `coordinator-doc-new --type decision --title "<title>" --out docs/decisions/DR-<NNN>-<slug>.md` (emits conformant frontmatter from `schemas/decision.yaml`; canonical identity key `id`, temporal key `created`).
 
 **Spinoff PM-gate applies to the spinoff path only.** For grouped/standalone candidates the EM surfaces `Candidate spinoff: <slug> — <topic>. Authorize?` and blocks — the audit **never auto-authors spinoff files** (`/spinoff` Step 0). The immediate-executor path is ordinary EM disposition and bypasses the gate by design.
 
@@ -189,7 +215,7 @@ The audit produces a **candidate list** as its output artifact; the EM routes ea
 
 **D5 (PM 2026-05-24): the audit no longer writes debt-backlog entries.** The disposition ladder (Step 4) + spinoff-candidate pattern is the dedicated home for audit findings — a finding either gets fixed now (executor), bundled (spinoff candidate), or escalated (plan). There is no separate "structural finding → debt-backlog entry" step.
 
-`state/debt-backlog.md` remains for items the EM/PM **explicitly choose to defer with a reason** (architectural OOS) — not as the default sink for audit findings. PM rationale: "dedicated pattern for that — don't bundle everything into one ceremony." The Step 4 guardrail (structural findings always become recorded spinoff candidates) is what keeps anything from going dark now that the auto-write is gone.
+The debt-backlog store (`state/debt-backlog/*.yaml`) remains for items the EM/PM **explicitly choose to defer with a reason** (architectural OOS) — not as the default sink for audit findings. PM rationale: "dedicated pattern for that — don't bundle everything into one ceremony." The Step 4 guardrail (structural findings always become recorded spinoff candidates) is what keeps anything from going dark now that the auto-write is gone.
 
 ---
 
@@ -249,7 +275,11 @@ rm -rf tasks/scratch/weekly-architecture-audit/{run-id}/
 
 ## Step 7: Report
 
-**Precondition:** `bin/verify-arch-audit-atlas-refresh.sh` returned `PASS branch=A` or `PASS branch=B` on the last attempt. If it returned `FAIL`, do NOT proceed to Step 7 — fix per Branch A or Branch B in Step 6.5 and re-attempt. The verbatim failure message is the iron-law signal:
+**Precondition (on-disk audit record):** The canonical audit record at `docs/architecture/audit-records/<date>-<system>.md` (scaffolded in Step 3.6 and filled by the reviewer in-place via `mode: acceptEdits`) MUST exist and carry populated frontmatter and a `### Diagram (ASCII)` section before proceeding. Stage and commit this file alongside the atlas + ledger close-out commit from Step 6.5.
+
+**The chat report below is DISTINCT from the on-disk audit record.** The chat report is a session-close summary for the PM; the on-disk record at `docs/architecture/audit-records/<date>-<system>.md` is the durable machine-addressable artifact carrying frontmatter (`grade`, `health_status`, `run_id`) and the addressable `### Diagram (ASCII)` section. The chat report does not substitute for the disk record, and the disk record does not replace the chat report.
+
+**Precondition (atlas gate):** `bin/verify-arch-audit-atlas-refresh.sh` returned `PASS branch=A` or `PASS branch=B` on the last attempt. If it returned `FAIL`, do NOT proceed to Step 7 — fix per Branch A or Branch B in Step 6.5 and re-attempt. The verbatim failure message is the iron-law signal:
 
 ```
 FAIL: /architecture-audit Step 6.5 atlas-refresh gate not satisfied for <TARGET_SYSTEM>.

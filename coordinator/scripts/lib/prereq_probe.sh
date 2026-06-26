@@ -45,7 +45,9 @@
 #   _co_probe_clone_auth   — Git clone authentication check (semi-hard on no-auth; advisory on inconclusive)
 #   _co_probe_longpaths    — Windows core.longpaths check (advisory, n/a on non-Windows)
 #   _co_probe_git_lfs      — Git LFS presence and configuration check (advisory)
-#   _co_prereq_probe_all   — aggregator: calls all ten, emits one NDJSON line per probe
+#   _co_probe_shell_login_env          — macOS bash login-shell orphan check (advisory, n/a on non-macOS)
+#   _co_shell_login_env_reconstruction_source — intact zsh login PATH helper for bash profile repair (not a probe)
+#   _co_prereq_probe_all   — aggregator: calls all eleven, emits one NDJSON line per probe
 #
 # JSON output shape per probe (single compact line, no trailing newline):
 #   {"name":"<probe>","status":"<pass|fail|warn|inconclusive>","severity":"<hard|semi-hard|advisory>","detail":"<short>","remediation":"<one-line or empty>"}
@@ -59,7 +61,7 @@
 #
 # Usage (sourced by setup.sh --preflight or normalize-env.sh):
 #   source scripts/lib/prereq_probe.sh
-#   _co_prereq_probe_all   # emits 10 NDJSON lines to stdout
+#   _co_prereq_probe_all   # emits 11 NDJSON lines to stdout
 
 # ---------------------------------------------------------------------------
 # Bash version guard -- must be syntactically parseable on bash 3.2.
@@ -832,14 +834,139 @@ _co_probe_git_lfs() {
 }
 
 # ---------------------------------------------------------------------------
+# _co_probe_shell_login_env
+#
+# Purpose: detect whether the macOS bash login shell has orphaned ~/.local/bin,
+# which breaks the coordinator PATH contract on machines where bash is the
+# login shell (common on macOS Ventura+ with bash set via chsh -s).
+#
+# Doctrine: FB-2 functional-probe rule (docs/wiki/install-surface-completeness.md § FB-2) —
+#   this probe spawns the actual login shell and inspects its PATH rather than
+#   checking file presence alone.
+# Doctrine: inconclusive is first-class (docs/wiki/doctor-probe-design.md) —
+#   a login shell that cannot be probed returns inconclusive, never a false fail.
+#
+# Check order:
+#   1. macOS guard — if uname -s != Darwin, emit pass ("N/A") and return immediately.
+#      The orphan predicate MUST NOT run on Linux (dscl absent; pathology doesn't apply).
+#   2. Login-shell detection via dscl (macOS-native), falling back to $SHELL.
+#   3. Capture fresh login-shell PATH via `$_login_shell -lc 'printf %s "$PATH"'`.
+#      Empty → inconclusive (could not probe).
+#   4. Orphan predicate: fires only when the login shell is bash AND
+#      ($HOME/.local/bin is absent from PATH OR claude does not resolve).
+#
+# Severity: advisory (new gates are advisory per post-consumer-gate doctrine).
+# Status:
+#   pass        — non-macOS, non-bash login shell, or bash with intact PATH + claude.
+#   fail        — bash login shell with orphaned ~/.local/bin or unresolvable claude.
+#   inconclusive — login shell could not be probed.
+# ---------------------------------------------------------------------------
+_co_probe_shell_login_env() {
+  local _login_shell _fresh_path _login_basename _claude_in_shell
+
+  # Step 1: macOS HARD short-circuit. This pathology is Darwin-only;
+  # dscl is absent on Linux and the orphan predicate must never fire there.
+  if [ "$(uname -s)" != "Darwin" ]; then
+    _co_pp_emit "shell_login_env" "pass" "advisory" \
+      "non-macOS: login-shell orphan check N/A" ""
+    return 0
+  fi
+
+  # Step 2: detect the login shell. dscl is macOS-native and BSD-portable.
+  # Fall back to $SHELL if dscl returns empty (e.g. non-standard directory service).
+  # Review: code-reviewer — awk '{print $2}' truncates shell paths containing spaces;
+  # sub strips the "key: " prefix to capture everything after it.
+  _login_shell="$(dscl . -read "$HOME" UserShell 2>/dev/null | awk '{sub(/^[^:]+:[[:space:]]*/,""); print}')"
+  if [[ -z "$_login_shell" ]]; then
+    _login_shell="${SHELL:-}"
+  fi
+
+  if [[ -z "$_login_shell" ]]; then
+    _co_pp_emit "shell_login_env" "inconclusive" "advisory" \
+      "could not determine login shell (dscl returned empty and SHELL is unset)" ""
+    return 0
+  fi
+
+  # Step 3: capture fresh login-shell PATH and claude resolution in ONE spawn.
+  # Combining avoids doubling startup-script side effects (nvm/conda/pyenv) and latency.
+  # || true is REQUIRED: an rc file whose last command exits non-zero must not abort
+  # this capture under set -euo pipefail.
+  # Review: code-reviewer — two separate -lc spawns merged into one to halve side-effect exposure.
+  _combined="$("$_login_shell" -lc 'printf "%s\n" "$PATH"; command -v claude 2>/dev/null' 2>/dev/null || true)"
+  _fresh_path="${_combined%%$'\n'*}"
+  _claude_in_shell="${_combined#*$'\n'}"
+
+  if [[ -z "$_fresh_path" ]]; then
+    _co_pp_emit "shell_login_env" "inconclusive" "advisory" \
+      "could not probe login shell PATH (shell: ${_login_shell}; -lc returned empty)" ""
+    return 0
+  fi
+
+  # Step 4: orphan predicate — only applies to bash login shells.
+  _login_basename="${_login_shell##*/}"
+  if [[ "$_login_basename" != "bash" ]]; then
+    _co_pp_emit "shell_login_env" "pass" "advisory" \
+      "login shell is ${_login_shell} (not bash); orphan check N/A" ""
+    return 0
+  fi
+
+  # Check (a): is $HOME/.local/bin present in the fresh bash login-shell PATH?
+  # Use case-pattern with sentinel colons to match exact PATH components (no substring false-positives).
+  local _local_bin_present=false
+  case ":${_fresh_path}:" in
+    *":$HOME/.local/bin:"*) _local_bin_present=true ;;
+  esac
+
+  # Check (b): claude resolution captured above in the combined spawn.
+
+  if [[ "$_local_bin_present" == "false" ]] || [[ -z "$_claude_in_shell" ]]; then
+    local _fail_detail
+    if [[ "$_local_bin_present" == "false" ]]; then
+      _fail_detail="bash login shell: \$HOME/.local/bin absent from login PATH"
+    else
+      _fail_detail="bash login shell: \$HOME/.local/bin present in PATH but claude not found"
+    fi
+    _co_pp_emit "shell_login_env" "fail" "advisory" \
+      "$_fail_detail" \
+      "bash login shell orphaned ~/.local/bin — run coordinator:install or normalize-env.sh to reconstruct ~/.bash_profile"
+    return 0
+  fi
+
+  _co_pp_emit "shell_login_env" "pass" "advisory" \
+    "bash login shell: ~/.local/bin present in PATH and claude resolves at ${_claude_in_shell}" ""
+}
+
+# ---------------------------------------------------------------------------
+# _co_shell_login_env_reconstruction_source
+#
+# Purpose: print the INTACT macOS-default zsh effective PATH to stdout.
+# This is the reconstruction SOURCE consumed by the normalize-env.sh repair path
+# when rebuilding ~/.bash_profile to restore the coordinator PATH contract.
+#
+# WHY zsh and NOT the (already-broken) bash login shell: the bash login shell
+# whose PATH is orphaned is the very shell being repaired — spawning it returns
+# the corrupted value and yields a circular reference. The zsh login shell config
+# (~/.zprofile, /etc/zprofile, /etc/paths) is still on disk and untouched on
+# macOS Ventura+, and it reflects the system default PATH including /usr/local/bin
+# and /opt/homebrew/bin — giving a correct anchor for reconstruction.
+#
+# Prints empty string if zsh is absent or unprobeable (|| true; never exits non-zero).
+# NOT a probe — does not emit NDJSON; no _co_pp_emit call.
+# ---------------------------------------------------------------------------
+_co_shell_login_env_reconstruction_source() {
+  zsh -lc 'printf %s "$PATH"' 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
 # _co_prereq_probe_all
 #
-# Purpose: aggregator -- calls all ten probes in order and emits one NDJSON
+# Purpose: aggregator -- calls all eleven probes in order and emits one NDJSON
 # line per probe to stdout. This is what setup.sh --preflight and the Step
 # Zero gate consume.
 #
-# Output: 10 NDJSON lines (one per probe), in this order:
-#   git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs
+# Output: 11 NDJSON lines (one per probe), in this order:
+#   git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs,
+#   shell_login_env
 # ---------------------------------------------------------------------------
 _co_prereq_probe_all() {
   _co_probe_git
@@ -852,6 +979,7 @@ _co_prereq_probe_all() {
   _co_probe_clone_auth
   _co_probe_longpaths
   _co_probe_git_lfs
+  _co_probe_shell_login_env
 }
 
 # ---------------------------------------------------------------------------

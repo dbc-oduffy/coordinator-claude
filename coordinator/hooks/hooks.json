@@ -380,6 +380,17 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "_comment": "NUDGE-EM-CODE-DISPATCH — offer-shaped nudge when the EM (main-agent) writes a non-doc/data file inline; subagent writes are silently allowed",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-em-code-dispatch.js",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [

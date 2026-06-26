@@ -767,6 +767,28 @@ def run(
     # 1. Resolve baseline.
     baseline_sha, baseline_status = _resolve_baseline(live, baseline_sha_cli)
 
+    # 1a. Verify baseline SHA is reachable in the SOURCE clone (not in live).
+    #     The SHA lives only in the source git history — querying live would
+    #     silently degrade every install to two-way (the Director of Engineering R2a corrected shape).
+    #     git cat-file -e <sha>^{commit} exits 0 if reachable, non-zero if not.
+    #     On non-zero: flip baseline_sha to None so the two-way fallback fires (exit 2).
+    #     Spec backlink:
+    #       docs/plans/2026-06-26-coordinator-install-update-friction-fix-slate.md § C-R2a
+    if baseline_sha is not None:
+        _cat_file_result = subprocess.run(
+            ["git", "-C", str(source), "cat-file", "-e",
+             f"{baseline_sha}^{{commit}}"],
+            capture_output=True,
+            **_NO_CONSOLE_WINDOW,
+        )
+        if _cat_file_result.returncode != 0:
+            baseline_status = (
+                f"baseline SHA {baseline_sha} unreachable in source clone "
+                f"(git cat-file -e exit {_cat_file_result.returncode}); "
+                "falling back to two-way comparison"
+            )
+            baseline_sha = None
+
     # 2. Build the union file set.
     tracked = _git_ls_files(source)                # side (a) — source-tracked
     tracked_set = set(tracked)

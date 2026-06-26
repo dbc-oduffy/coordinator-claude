@@ -26,6 +26,7 @@ import {
 } from "./entities/summaries.js";
 import { LessonSummary } from "./entities/lesson-summary.js";
 import { PlanSummary } from "./entities/plan-summary.js";
+import { CrossRepoMemoSummary } from "./entities/cross-repo-memo-summary.js";
 import { SnapshotEnvelope } from "./entities/snapshot-envelope.js";
 
 export * from "./common.js";
@@ -38,10 +39,11 @@ export * from "./entities/rollup.js";
 export * from "./entities/summaries.js";
 export * from "./entities/lesson-summary.js";
 export * from "./entities/plan-summary.js";
+export * from "./entities/cross-repo-memo-summary.js";
 export * from "./entities/snapshot-envelope.js";
 
 /** Contract version — bump on any breaking field change to the emitted schema. */
-export const CONTRACT_VERSION = "1.0.0";
+export const CONTRACT_VERSION = "2.0.0";
 
 /**
  * Every emittable entity, keyed by stable kebab-case name (used as the JSON
@@ -61,5 +63,6 @@ export const ENTITY_SCHEMAS: Record<string, ZodType> = {
   "review-trail": ReviewTrail,
   "lesson-summary": LessonSummary,
   "plan-summary": PlanSummary,
+  "cross-repo-memo-summary": CrossRepoMemoSummary,
   "snapshot-envelope": SnapshotEnvelope,
 };

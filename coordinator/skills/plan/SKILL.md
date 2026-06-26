@@ -160,6 +160,15 @@ _Condition: substrate verified; ready to draft body. The four PM doctrinal lense
 
 _Condition: plan body drafted, saved to `docs/plans/YYYY-MM-DD-<slug>.md`, ready for review._
 
+<!-- Review: slice-C integrator — temporally incompatible with Exit (body already drafted); reworded from action-language to enforcement check per slice-C F1 -->
+**Enforcement check: the plan file MUST have been scaffolded via `coordinator-doc-new --type plan` before body authoring.** Frontmatter is schema-derived, not hand-authored — the generator is the source of truth for which keys are required and their default values. If the frontmatter was hand-authored, conform it now:
+
+```
+coordinator-doc-new --type plan --title "<title>" --out docs/plans/YYYY-MM-DD-<slug>.md
+```
+
+The scaffolder derives its output from `schemas/plan.yaml` (tc-0 GENERATE-altitude doctrine — kills required-key drift and section-ordering skew at the source). Do not hand-author the frontmatter block.
+
 **Commit the plan at write-time, before invoking review.** A plan saved to `docs/plans/YYYY-MM-DD-<slug>.md` but left untracked nearly escapes the audit trail — lazy commit at `/workstream-complete` is the failure mode this rule prevents (2026-05-20: an untracked plan was almost lost at workstream-complete). Stage and commit the plan doc with an explicit-path commit (`git add -- docs/plans/<slug>.md && git commit -m "plan(<slug>): draft" -- docs/plans/<slug>.md`) the moment the body is drafted and saved, *then* proceed to review. The plan is now in git history before any reviewer or executor touches it; review findings integrate as follow-up commits. The explicit-path form follows the scoped-commit baseline — see `scoped-safety-commits.md` (and CLAUDE.md § Concurrent-EM Git Operations: *"Scoped commits default to plain `git add -- <paths> && git commit -m "<subject>" -- <paths>`. Never `git add -A` / `git add .`"*); this is that established practice applied at write-time rather than workstream-complete, NOT a license for a sweep commit — the explicit-path scoping to the single plan doc is the point. (This is the plan-author's own commit of the plan doc — distinct from, and not to be confused with, the review-integrator's commit-after-integrate discipline, which governs integrated review findings.)
 
 → **Invoke `coordinator:review` immediately. Do not ask the PM whether to proceed to review — plan→review is the pipeline, not a checkpoint.** If the plan was worth formally writing, it is worth formally reviewing; the gating on review-or-not happens inside `coordinator:review` Branch A (Branch A.2 carries the auto-skip terminals for genuinely-trivial / PM-waived). Pausing to ask "want me to invoke review now?" is a doctrine violation — the answer is always yes, and the auto-skip path lives downstream.

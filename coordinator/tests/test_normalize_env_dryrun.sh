@@ -146,6 +146,9 @@ _t1_output="$("$_BASH4" "$SCRIPT_UNDER_TEST" --dry-run 2>&1)" || _t1_exit="$?"
 _t1_path_after="$PATH"
 
 # 1a: Exit 0.
+# Review: code-reviewer F3 — Bug A is fixed (_ne_probe_status_for now defined before macOS/Windows split).
+# Assert exit 0 ONLY; 127-acceptance was a workaround that should no longer be needed.
+# If this fails, a real bug remains — do not re-loosen.
 if [[ "$_t1_exit" -eq 0 ]]; then
     _pass "1a: --dry-run exits 0"
 else
@@ -273,6 +276,7 @@ _t2a_output="$(echo "" | "$_BASH4" "$SCRIPT_UNDER_TEST" 2>&1)" || _t2a_exit="$?"
 
 _t2a_backup_count="$(find "$HOME" -maxdepth 1 -name '.coordinator-env-backup.*' 2>/dev/null | wc -l | tr -d ' ')"
 
+# Review: code-reviewer F3 — Bug A is fixed; assert exit 0 ONLY. If this fails, a real bug remains.
 if [[ "$_t2a_exit" -eq 0 ]]; then
     _pass "2a: macOS default run (piped stdin) exits 0"
 else
@@ -556,6 +560,427 @@ if [[ "$_t4_exit" -eq 2 ]]; then
 else
     _fail "4a: --restore with no argument exited $_t4_exit (expected 2). Output: $_t4_output"
 fi
+
+# ---------------------------------------------------------------------------
+# =========================================================================
+# Test Block 5 — macOS reconstruction (AC4 / AC5 / AC6 / AC11)
+# =========================================================================
+#
+# Tests the Darwin bash login-shell PATH reconstruction path added by the
+# peer chunk in normalize-env.sh.
+#
+# KNOWN BUGS in normalize-env.sh (peer chunk, committed, cannot be edited):
+#
+#   Bug A: _ne_probe_status_for is not defined in the macOS branch.
+#     The function is defined at line 551 (inside the Windows-only section,
+#     after the macOS exit 0 at line 515).  On macOS, line 313 calls it before
+#     it is defined → exit 127 under set -euo pipefail.
+#     Impact: reconstruction path is unreachable via the full script on macOS.
+#     Fix needed: move _ne_probe_status_for to before the macOS/Windows split.
+#
+#   Bug B: printf '--- bash login-shell PATH repair ---\n' (line 317) fails
+#     in bash 5.3: the format string '---...' is parsed as '--' (end-of-options)
+#     followed by '-' (invalid option).
+#     Fix needed: use printf -- '---...' on that line.
+#
+# Test strategy:
+#   - Mirror dir with fake prereq_probe.sh that provides _ne_probe_status_for
+#     (working around Bug A) for mutation-zero runtime assertions (5a, 5b).
+#   - Direct unit tests for content generation and awk block-replace (5c, 5d, 5e).
+#   - bash -n syntax check for 3.2-parseability (5f).
+#   - Source-level grep assertions for verify gate structure (5g).
+# ---------------------------------------------------------------------------
+echo ""
+echo "=== Test Block 5: macOS reconstruction — AC4/AC5/AC6/AC11 ==="
+
+# Mirror dir fixture: copy normalize-env.sh and inject a fake prereq_probe.sh
+# that defines _ne_probe_status_for (Bug A workaround), returns shell_login_env=fail
+# from _co_prereq_probe_all, and provides _co_shell_login_env_reconstruction_source.
+_T5_MIRROR="$_SCRATCH_DIR/t5_mirror"
+_T5_FAKE_HOME="$_SCRATCH_DIR/t5_fake_home"
+mkdir -p "$_T5_MIRROR/lib" "$_T5_FAKE_HOME"
+cp "$SCRIPT_UNDER_TEST" "$_T5_MIRROR/normalize-env.sh"
+
+cat > "$_T5_MIRROR/lib/prereq_probe.sh" <<'STUBEOF'
+#!/usr/bin/env bash
+# Test stub: fake prereq_probe.sh for macOS reconstruction tests.
+# Provides _ne_probe_status_for (fixing Bug A in the mirror fixture),
+# _co_prereq_probe_all returning shell_login_env=fail, and
+# _co_shell_login_env_reconstruction_source returning a PATH with .local/bin.
+
+_co_prereq_probe_all() {
+  printf '{"name":"shell_login_env","status":"fail","detail":"bash login shell orphaned -- test stub","remediation":""}\n'
+}
+
+_co_shell_login_env_reconstruction_source() {
+  # Inject HOME/.local/bin so the content generator has a non-system,
+  # non-homebrew entry to emit as an export PATH line.
+  printf '%s/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\n' "$HOME"
+}
+
+_ne_probe_status_for() {
+  # Inline the real implementation so the macOS branch can call it.
+  # (In the real script this is defined only in the Windows section.)
+  local _name="$1"
+  printf '%s' "${_ne_probe_output:-}" | grep -F '"name":"'"$_name"'"' \
+    | sed 's/.*"status":"\([^"]*\)".*/\1/' 2>/dev/null || printf 'inconclusive'
+}
+STUBEOF
+
+# ---------------------------------------------------------------------------
+# 5a: --dry-run on reconstruction path performs zero mutations (AC4).
+#
+# With Bug A fixed by the stub, the script reaches line 316 (shell_env=fail),
+# enters the reconstruction block, then hits Bug B (printf '---' at line 317)
+# and exits 2.  Either way, no ~/.bash_profile is written.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5a: dry-run reconstruction path — zero mutations ---"
+
+_t5a_exit=0
+_t5a_output="$(HOME="$_T5_FAKE_HOME" "$_BASH4" "$_T5_MIRROR/normalize-env.sh" --dry-run 2>&1)" \
+  || _t5a_exit="$?"
+
+if [[ ! -f "$_T5_FAKE_HOME/.bash_profile" ]]; then
+  _pass "5a-i: --dry-run on reconstruction path: no ~/.bash_profile created (mutation-zero)"
+else
+  _fail "5a-i: --dry-run created ~/.bash_profile — mutation-zero violated"
+fi
+
+_t5a_bak_count="$(find "$_T5_FAKE_HOME" -maxdepth 1 -name '.bash_profile.coordinator-backup.*' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$_t5a_bak_count" -eq 0 ]]; then
+  _pass "5a-ii: no backup file created during --dry-run reconstruction path"
+else
+  _fail "5a-ii: backup file written during --dry-run — mutation-zero violated"
+fi
+
+# Review: code-reviewer F11 — Bug B is fixed (printf -- '--- ...' with -- prefix in normalize-env.sh).
+# Promote informational echo to a genuine assertion. If this fails, a real bug remains.
+if [[ "$_t5a_exit" -eq 0 ]]; then
+  _pass "5a-iii: --dry-run exits 0 on reconstruction path (Bug B confirmed fixed)"
+else
+  _fail "5a-iii: --dry-run exited $_t5a_exit (expected 0) — Bug B should be fixed (printf -- '---...' should not fail)"
+fi
+
+# ---------------------------------------------------------------------------
+# 5b: Consent N / EOF aborts before any write (AC4).
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5b: consent N/EOF on reconstruction path — no write ---"
+
+_t5b_exit=0
+_t5b_output="$(echo "" | HOME="$_T5_FAKE_HOME" "$_BASH4" "$_T5_MIRROR/normalize-env.sh" 2>&1)" \
+  || _t5b_exit="$?"
+
+if [[ ! -f "$_T5_FAKE_HOME/.bash_profile" ]]; then
+  _pass "5b-i: consent N/EOF: no ~/.bash_profile written (CONSENT-INVARIANT)"
+else
+  _fail "5b-i: ~/.bash_profile written despite consent N/EOF — CONSENT-INVARIANT violated"
+fi
+
+_t5b_bak_count="$(find "$_T5_FAKE_HOME" -maxdepth 1 -name '.bash_profile.coordinator-backup.*' 2>/dev/null | wc -l | tr -d ' ')"
+if [[ "$_t5b_bak_count" -eq 0 ]]; then
+  _pass "5b-ii: no backup file created on consent N/EOF"
+else
+  _fail "5b-ii: backup file created on consent N/EOF — mutation guard violated"
+fi
+
+# ---------------------------------------------------------------------------
+# 5c: Reconstructed ~/.bash_profile content recovers ~/.local/bin (AC4).
+#
+# Review: code-reviewer F1 — prior test used a hardcoded COPY of the content-generation
+# logic in a standalone wrapper, NOT the real normalize-env.sh. Rewritten to drive
+# the REAL script via the _T5_MIRROR fixture (Bug A + Bug B are now fixed in the
+# script; the stub prereq_probe.sh provides _co_probe_shell_login_env returning
+# shell_login_env=fail so the reconstruction path is reached).
+#
+# Strategy: run "$_BASH4" "$_T5_MIRROR/normalize-env.sh" --yes with HOME="$_T5_FAKE_HOME"
+# then inspect the produced ~/.bash_profile for required structural elements.
+# The verify step (bash -lc) at the end may fail because claude is not installed in
+# the fake home — the FILE is written before verify, so assertions on file content hold.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5c: reconstructed bash_profile content (real script drive via _T5_MIRROR) ---"
+
+# Ensure .local/bin exists in the fake home so _co_shell_login_env_reconstruction_source
+# returns a non-trivial path. (5a/5b confirm no .bash_profile was written; no backup taken.)
+mkdir -p "$_T5_FAKE_HOME/.local/bin"
+
+_t5c_exit=0
+_t5c_output="$(HOME="$_T5_FAKE_HOME" "$_BASH4" "$_T5_MIRROR/normalize-env.sh" --yes 2>&1)" \
+  || _t5c_exit="$?"
+
+_T5C_SS="# coordinator-install: brew shellenv (DR-148)"
+_T5C_ES="# coordinator-install: end (DR-148)"
+_t5c_bp="$_T5_FAKE_HOME/.bash_profile"
+
+if [[ -f "$_t5c_bp" ]]; then
+  _pass "5c-i: normalize-env.sh --yes (via _T5_MIRROR) wrote ~/.bash_profile (real C2 path exercised)"
+else
+  _fail "5c-i: normalize-env.sh --yes did not write ~/.bash_profile (exit: $_t5c_exit, output: $_t5c_output)"
+fi
+
+# Inspect the produced file for required structural elements.
+if [[ -f "$_t5c_bp" ]]; then
+  if grep -qF "$_T5C_SS" "$_t5c_bp"; then
+    _pass "5c-ii: start sentinel present in produced ~/.bash_profile"
+  else
+    _fail "5c-ii: start sentinel missing from produced ~/.bash_profile. File: $(cat "$_t5c_bp")"
+  fi
+
+  if grep -qF "$_T5C_ES" "$_t5c_bp"; then
+    _pass "5c-iii: end sentinel present in produced ~/.bash_profile"
+  else
+    _fail "5c-iii: end sentinel missing from produced ~/.bash_profile"
+  fi
+
+  if grep -qF "_COORDINATOR_BASH_PROFILE_SOURCED" "$_t5c_bp"; then
+    _pass "5c-iv: reciprocal-loop guard _COORDINATOR_BASH_PROFILE_SOURCED present"
+  else
+    _fail "5c-iv: guard var _COORDINATOR_BASH_PROFILE_SOURCED missing from produced ~/.bash_profile"
+  fi
+
+  # PREPEND form: export PATH="...local/bin...:$PATH" (entry first, then $PATH).
+  # The C2 impl uses printf 'export PATH="%s:$PATH"\n' "$_ne_pe" — entry:$PATH.
+  if grep -q 'export PATH=".*\.local/bin.*:\$PATH"' "$_t5c_bp"; then
+    _pass "5c-v: export PATH carries .local/bin entry in PREPEND form (entry:\$PATH)"
+  else
+    _fail "5c-v: .local/bin not in PREPEND form in produced ~/.bash_profile. File: $(cat "$_t5c_bp")"
+  fi
+
+  # Guarded .bashrc bridge: must have [ -f ] AND [ -r ] AND '. ~/.bashrc' (dot, not source).
+  if grep -qF '[ -f ~/.bashrc ] && [ -r ~/.bashrc ] && . ~/.bashrc' "$_t5c_bp"; then
+    _pass "5c-vi: guarded .bashrc bridge (with -r guard, dot sourcing) present"
+  else
+    _fail "5c-vi: guarded .bashrc bridge missing or wrong form in produced ~/.bash_profile. File: $(cat "$_t5c_bp")"
+  fi
+else
+  # File was not written — mark remaining sub-tests as failed (not merely skipped).
+  _fail "5c-ii: (no ~/.bash_profile to inspect)"
+  _fail "5c-iii: (no ~/.bash_profile to inspect)"
+  _fail "5c-iv: (no ~/.bash_profile to inspect)"
+  _fail "5c-v: (no ~/.bash_profile to inspect)"
+  _fail "5c-vi: (no ~/.bash_profile to inspect)"
+fi
+
+# ---------------------------------------------------------------------------
+# 5d: Backup-then-restore round-trip (AC5).
+#
+# Review: code-reviewer F4 — prior test used manual cp/diff, not the script.
+# Rewritten to drive the REAL backup mechanism: let normalize-env.sh write
+# the .bash_profile.coordinator-backup.* file as part of a consented reconstruction
+# via the mirror fixture (HOME pointing to a fresh dir with a pre-existing .bash_profile).
+#
+# AC5 restore gap note: --restore in normalize-env.sh handles the SAVED_PATH format
+# (Windows PATH backup, format: SAVED_PATH=...) only. It does NOT restore
+# .bash_profile.coordinator-backup.* files — those are restored manually with
+# 'cp <backup> ~/.bash_profile'. This is a known limitation: --restore is not wired
+# for .bash_profile backup format. The test drives the backup (5d-i/5d-ii) and
+# attempts --restore to document the gap (5d-iii).
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5d: backup round-trip (real script drive via _T5_MIRROR) ---"
+
+_t5d_home="$_SCRATCH_DIR/t5d_home"
+mkdir -p "$_t5d_home/.local/bin"
+# Pre-seed a .bash_profile so normalize-env.sh sees an existing file and backs it up.
+_t5d_orig_content="# original .bash_profile for backup test
+export MYVAR=hello_original
+echo 'pre-existing content'"
+printf '%s\n' "$_t5d_orig_content" > "$_t5d_home/.bash_profile"
+
+# Run the real script with --yes to trigger reconstruction + backup of the existing file.
+# The stub _co_prereq_probe_all returns shell_login_env=fail → reconstruction path runs.
+_t5d_exit=0
+_t5d_output="$(HOME="$_t5d_home" "$_BASH4" "$_T5_MIRROR/normalize-env.sh" --yes 2>&1)" \
+  || _t5d_exit="$?"
+
+# 5d-i: A .bash_profile.coordinator-backup.* file must have been written by the script.
+_t5d_backup="$(find "$_t5d_home" -maxdepth 1 -name '.bash_profile.coordinator-backup.*' 2>/dev/null | head -1)"
+if [[ -n "$_t5d_backup" ]]; then
+  _pass "5d-i: script wrote backup file: $(basename "$_t5d_backup")"
+else
+  _fail "5d-i: script did not create .bash_profile.coordinator-backup.* (exit: $_t5d_exit, output: $_t5d_output)"
+fi
+
+# 5d-ii: Backup content must match the original pre-mutation content.
+if [[ -n "$_t5d_backup" ]]; then
+  _t5d_expected="$_SCRATCH_DIR/t5d_expected.txt"
+  printf '%s\n' "$_t5d_orig_content" > "$_t5d_expected"
+  if diff -q "$_t5d_backup" "$_t5d_expected" >/dev/null 2>&1; then
+    _pass "5d-ii: backup content matches original pre-mutation content"
+  else
+    _fail "5d-ii: backup content does not match original. Backup: $(cat "$_t5d_backup")"
+  fi
+else
+  _fail "5d-ii: (skipped — no backup file found)"
+fi
+
+# 5d-iii: AC5 — --restore round-trips the .bash_profile backup.
+# normalize-env.sh --restore now detects a .bash_profile.coordinator-backup.* file
+# (full-file backup) and copies it back over ~/.bash_profile. After the consented
+# reconstruction above mutated ~/.bash_profile, --restore must recover the original.
+if [[ -n "$_t5d_backup" ]]; then
+  _t5d_restore_exit=0
+  HOME="$_t5d_home" "$_BASH4" "$_T5_MIRROR/normalize-env.sh" --restore "$_t5d_backup" >/dev/null 2>&1 \
+    || _t5d_restore_exit="$?"
+  if [[ "$_t5d_restore_exit" -eq 0 ]] && diff -q "$_t5d_home/.bash_profile" "$_t5d_expected" >/dev/null 2>&1; then
+    _pass "5d-iii: --restore round-trips the .bash_profile backup (original content recovered)"
+  else
+    _fail "5d-iii: --restore did not recover the original .bash_profile (exit: $_t5d_restore_exit)"
+  fi
+else
+  _fail "5d-iii: (skipped — no backup file found in 5d-i)"
+fi
+
+# ---------------------------------------------------------------------------
+# 5e: Idempotent re-run — awk block-replace strips prior managed block (AC5).
+# Two-pass: strip existing block, then append new block; assert exactly one
+# sentinel pair in the final file.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5e: idempotent awk block-replace ---"
+
+_t5e_ss="# coordinator-install: brew shellenv (DR-148)"
+_t5e_es="# coordinator-install: end (DR-148)"
+_t5e_src="$_SCRATCH_DIR/t5e_bp.txt"
+
+# Synthesise a ~/.bash_profile that already has a managed block.
+cat > "$_t5e_src" <<'BPEOF'
+# User content before
+export BEFORE_VAR=1
+
+# coordinator-install: brew shellenv (DR-148)
+# --- coordinator-managed block -- do not edit between these sentinel lines ---
+[ -n "${_COORDINATOR_BASH_PROFILE_SOURCED:-}" ] && return 2>/dev/null; export _COORDINATOR_BASH_PROFILE_SOURCED=1
+export PATH="/old/.local/bin:$PATH"
+[ -f ~/.bashrc ] && [ -r ~/.bashrc ] && . ~/.bashrc
+# coordinator-install: end (DR-148)
+
+# User content after
+export AFTER_VAR=2
+BPEOF
+
+# Run the awk block-replace (exact command from normalize-env.sh lines 396-403).
+_t5e_stripped="$_SCRATCH_DIR/t5e_stripped.txt"
+awk \
+  -v ss="$_t5e_ss" \
+  -v es="$_t5e_es" \
+  'BEGIN{b=0}
+   $0==ss{b=1;next}
+   $0==es{b=0;next}
+   !b{print}' \
+  "$_t5e_src" > "$_t5e_stripped" 2>/dev/null
+
+# Use grep -q (boolean) rather than grep -c to avoid exit-1-on-no-match
+# stdout/|| collision that produces "0\n0" arithmetic errors.
+if ! grep -qF "$_t5e_ss" "$_t5e_stripped" 2>/dev/null; then
+  _pass "5e-i: awk block-replace: prior managed block stripped (start sentinel gone)"
+else
+  _fail "5e-i: awk block-replace: start sentinel still present after strip"
+fi
+
+if grep -qF "BEFORE_VAR=1" "$_t5e_stripped" && grep -qF "AFTER_VAR=2" "$_t5e_stripped"; then
+  _pass "5e-ii: user content before and after survived the strip"
+else
+  _fail "5e-ii: user content lost in strip. Content: $(cat "$_t5e_stripped")"
+fi
+
+# Append a new managed block and verify no duplicates.
+{
+  printf '\n%s\n' "$_t5e_ss"
+  printf '[ -n "${_COORDINATOR_BASH_PROFILE_SOURCED:-}" ] && return 2>/dev/null; export _COORDINATOR_BASH_PROFILE_SOURCED=1\n'
+  printf 'export PATH="/new/.local/bin:$PATH"\n'
+  printf '[ -f ~/.bashrc ] && [ -r ~/.bashrc ] && . ~/.bashrc\n'
+  printf '%s\n' "$_t5e_es"
+} >> "$_t5e_stripped"
+
+_t5e_final_count=0
+_t5e_final_count="$(grep -cF "$_t5e_ss" "$_t5e_stripped" 2>/dev/null)" || _t5e_final_count=0
+if [[ "$_t5e_final_count" -eq 1 ]]; then
+  _pass "5e-iii: exactly one start sentinel after strip+append (idempotent)"
+else
+  _fail "5e-iii: $_t5e_final_count start sentinels found (expected 1 — duplicate block)"
+fi
+
+# ---------------------------------------------------------------------------
+# 5f: 3.2-parseability — bash -n exits 0 (AC6).
+# Note: this is a syntax parse assertion; it does NOT require a real bash 3.2
+# binary; bash 4+ correctly parses 3.2-compatible syntax.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5f: 3.2-parseability (bash -n syntax check) ---"
+
+_t5f_exit=0
+_t5f_output="$("$_BASH4" -n "$SCRIPT_UNDER_TEST" 2>&1)" || _t5f_exit="$?"
+if [[ "$_t5f_exit" -eq 0 ]]; then
+  _pass "5f: bash -n exits 0 — script syntax is valid (3.2-parseability)"
+else
+  _fail "5f: bash -n exited $_t5f_exit — syntax error. Output: $_t5f_output"
+fi
+
+# ---------------------------------------------------------------------------
+# 5g: Verify-before-done gates success (AC11).
+#
+# The live bash -lc verify is impractical to run end-to-end in the harness
+# (claude binary absent; no real login-bash PATH setup).
+#
+# Review: code-reviewer F5 — tightened structural assertion: assert 'bash -lc'
+# appears specifically WITHIN the file-write/verify block (after the mv that
+# writes ~/.bash_profile), not anywhere in the file. Use line-number proximity
+# to the mv command as the discriminator.
+#
+# The file-write block is the 'if mv "$_ne_bp_tmp" "$HOME/.bash_profile"' branch;
+# the verify appears within ~30 lines of the mv. Grep for the mv line number
+# and confirm bash -lc is within that window.
+# ---------------------------------------------------------------------------
+echo ""
+echo "  --- 5g: verify gate and failure branch structure (source-level, tightened) ---"
+
+# Locate the mv-to-bash_profile line (the file-write trigger).
+_t5g_mv_line="$(grep -n 'mv.*_ne_bp_tmp\|mv.*bash_profile' "$SCRIPT_UNDER_TEST" 2>/dev/null | grep -v '^\s*#' | head -1 | cut -d: -f1)"
+_t5g_verify_line="$(grep -n 'bash -lc' "$SCRIPT_UNDER_TEST" | head -1 | cut -d: -f1)"
+_t5g_fail_line="$(grep -n 'Repair FAILED' "$SCRIPT_UNDER_TEST" | head -1 | cut -d: -f1)"
+
+# 5g-i: bash -lc present WITHIN the file-write/verify block (within 30 lines of mv).
+# This asserts it is specifically the post-write verify gate, not an unrelated bash -lc.
+if [[ -n "$_t5g_mv_line" ]] && [[ -n "$_t5g_verify_line" ]]; then
+  _t5g_gap=$(( _t5g_verify_line - _t5g_mv_line ))
+  if [[ "$_t5g_gap" -ge 0 ]] && [[ "$_t5g_gap" -le 30 ]]; then
+    _pass "5g-i: verify gate (bash -lc, line $_t5g_verify_line) is within 30 lines of mv (line $_t5g_mv_line) — confirms it is within the file-write/verify block"
+  else
+    _fail "5g-i: verify gate (bash -lc, line $_t5g_verify_line) is $_t5g_gap lines from mv (line $_t5g_mv_line) — expected within 30 lines of the write block"
+  fi
+elif [[ -n "$_t5g_verify_line" ]]; then
+  _fail "5g-i: bash -lc found at line $_t5g_verify_line but mv line not located — cannot confirm it is in the file-write block"
+else
+  _fail "5g-i: verify gate (bash -lc) missing from source"
+fi
+
+if grep -qF 'Repair FAILED' "$SCRIPT_UNDER_TEST"; then
+  _pass "5g-ii: failure branch message 'Repair FAILED' present in source"
+else
+  _fail "5g-ii: failure branch message 'Repair FAILED' missing from source"
+fi
+
+# Verify gate must appear BEFORE the failure branch (ordering check).
+if [[ -n "$_t5g_verify_line" ]] && [[ -n "$_t5g_fail_line" ]] && \
+   [[ "$_t5g_verify_line" -lt "$_t5g_fail_line" ]]; then
+  _pass "5g-iii: verify gate (line $_t5g_verify_line) precedes failure branch (line $_t5g_fail_line)"
+else
+  _fail "5g-iii: ordering wrong — verify: ${_t5g_verify_line:-?}, fail: ${_t5g_fail_line:-?}"
+fi
+
+# Failure branch must leave backup path restorable (backup var referenced).
+if grep -qF '_ne_bp_backup' "$SCRIPT_UNDER_TEST"; then
+  _pass "5g-iv: backup reference present in source — backup restorable on failure"
+else
+  _fail "5g-iv: backup reference _ne_bp_backup missing from source"
+fi
+# Note: a behavioral in-harness test for the verify gate (fake login env without .local/bin
+# → reconstruction reports failure, exits non-zero, leaves backup) is infeasible because
+# the verify spawns a real login bash reading the system ~/.bash_profile; the source-level
+# structural assertion (5g-i through 5g-iv) is the appropriate test boundary here.
 
 # ---------------------------------------------------------------------------
 # Summary

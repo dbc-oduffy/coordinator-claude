@@ -8,7 +8,7 @@ Spec backlink: docs/plans/2026-05-30-oss-coordinator-update-skill.md § Chunk 2
 Test strategy: build fixture git repos in temp dirs to exercise the shell
 script end-to-end (it wraps check-install-divergence.py which requires a real
 git repo as source). Each test:
-  1. Creates a minimal "publish clone" (source) with a plugins/ subdir.
+  1. Creates a minimal "publish clone" (source) with coordinator/ at the clone root.
   2. Creates a "live" install dir with the appropriate state.
   3. Invokes compute-update-delta.sh via subprocess, capturing JSON + exit code.
   4. Asserts on the output fields.
@@ -130,7 +130,7 @@ def baseline_scenario(tmp_path: pytest.TempPathFactory):
       make(source_files, live_files, planted_version_txt=True)
 
     *source_files* and *live_files* are dicts {relpath: content} relative to
-    the plugins/ subdir of the source clone.
+    the source clone ROOT (e.g. "coordinator/CLAUDE.md") — no plugins/ subdir.
     """
 
     def _make(
@@ -142,22 +142,23 @@ def baseline_scenario(tmp_path: pytest.TempPathFactory):
         Returns (clone_dir, install_root, baseline_sha).
 
         install_root = the "live" dir representing ~/.claude/plugins/coordinator-claude/
-        clone_dir    = a git repo whose plugins/ subdir is the source.
+        clone_dir    = a git repo whose ROOT is the source (coordinator/ at top level).
         """
         import shutil
 
         clone = tmp_path / "clone"
         _init_git_repo(clone)
 
-        # Populate plugins/ subdir in clone with the test's source files.
+        # Write source files at the clone root (no plugins/ subdir — matches the OSS publish repo layout).
+        # Review: code-reviewer (A-F4) — corrected from "plugins/ subdir"; SOURCE_DIR is clone root.
         for relpath, content in source_files.items():
-            _write(clone / "plugins" / relpath, content)
+            _write(clone / relpath, content)
 
         # Also track the classifier itself in the source clone so the live walk
         # sees it as "unchanged" rather than "consumer_added" — the script
         # requires the classifier at <install_root>/coordinator/bin/, so we must
         # place it there, and it needs to be in source too to avoid a false delta.
-        classifier_in_source = clone / "plugins" / "coordinator" / "bin" / "check-install-divergence.py"
+        classifier_in_source = clone / "coordinator" / "bin" / "check-install-divergence.py"
         classifier_in_source.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(_CLASSIFIER), str(classifier_in_source))
 
@@ -203,7 +204,7 @@ def test_forward_safe_only_gives_overwrite(baseline_scenario, tmp_path):
     )
 
     # Now add a new file to the clone (forward-safe: live never had it → ABSENT_LIVE + ABSENT_BASELINE would be forward-ADD, but with baseline it's forward_safe).
-    _write(clone / "plugins" / "coordinator" / "new-feature.md", "# new feature\n")
+    _write(clone / "coordinator" / "new-feature.md", "# new feature\n")
     _git_commit_all(clone, "add new feature")
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
@@ -239,8 +240,8 @@ def test_consumer_modified_file_appears_in_output(baseline_scenario, tmp_path):
     )
 
     # Advance source: change the reviewer AND add a new clean file.
-    _write(clone / "plugins" / "coordinator" / "agents" / "my-reviewer.md", "# upstream revised\n")
-    _write(clone / "plugins" / "coordinator" / "new-clean.md", "# new clean file\n")
+    _write(clone / "coordinator" / "agents" / "my-reviewer.md", "# upstream revised\n")
+    _write(clone / "coordinator" / "new-clean.md", "# new clean file\n")
     _git_commit_all(clone, "upstream revision + new clean file")
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
@@ -269,7 +270,7 @@ def test_consumer_modified_only_gives_plan_to_ingest(baseline_scenario, tmp_path
     )
 
     # Advance source: only change the colliding file — no new clean files.
-    _write(clone / "plugins" / "coordinator" / "agents" / "persona.md", "# upstream change\n")
+    _write(clone / "coordinator" / "agents" / "persona.md", "# upstream change\n")
     _git_commit_all(clone, "upstream change to colliding file only")
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
@@ -306,7 +307,7 @@ def test_marketplace_json_excluded_from_consumer_modified(baseline_scenario, tmp
     )
 
     # Advance source so it's "behind" — the marketplace.json change is the only diff.
-    _write(clone / "plugins" / "coordinator" / "CLAUDE.md", "# updated upstream\n")
+    _write(clone / "coordinator" / "CLAUDE.md", "# updated upstream\n")
     _git_commit_all(clone, "upstream update + marketplace stays as original")
 
     exit_code, data = _run_script(tmp_path, clone, install_root)
@@ -335,7 +336,11 @@ def test_marketplace_json_excluded_from_consumer_modified(baseline_scenario, tmp
 # The original test passed a non-git dir which trips the exit-4 pre-flight guard BEFORE
 # _emit_offline runs, so the offline JSON path (AC4) was never exercised — the
 # `if "update_status" in data` assertion vacuously passed. This test is retained to cover
-# the pre-flight guard specifically; a separate test below exercises the real _emit_offline path.
+# the pre-flight guard specifically; the _emit_offline git-failure JSON path is covered
+# indirectly by test_invalid_clone_preflight_guard (non-git dir hits the guard that calls
+# _emit_offline) and is NOT separately unit-tested.
+# Review: code-reviewer (A-F3) — removed stale promise of "a separate test below"; the
+# clone-root regression test (test_clone_root_no_plugins_subdir_is_valid_not_offline) replaced it.
 def test_invalid_clone_preflight_guard(tmp_path):
     """Pre-flight guard: providing a non-git dir as --clone triggers the 'not a valid
     git repo' exit-4 guard BEFORE _emit_offline. Verifies non-zero exit and that
@@ -370,56 +375,48 @@ def test_invalid_clone_preflight_guard(tmp_path):
         )
 
 
-# Review: code-reviewer — new test that reaches the real _emit_offline path (AC4).
-# The pre-flight guard test above never exercises _emit_offline because a non-git dir
-# trips exit-4 before reaching that path. This test uses a valid git repo that has no
-# reachable plugins/ subdir (the structure check that calls _emit_offline), and asserts
-# on the contract: update_status=="offline", manual_url populated, nonzero exit (not 3).
-def test_offline_path_emits_offline_json(tmp_path):
-    """AC4: a valid git repo with no plugins/ subdir triggers _emit_offline.
-    Asserts update_status='offline', manual_url populated, and exit != 0 and != 3."""
+# C-R2b(2026-06-26): the OLD "no plugins/ subdir → offline" structure check was
+# REMOVED — it was the bug (#1b). SOURCE_DIR is now the clone ROOT (the OSS publish
+# repo mirrors coordinator/ at its top level, no plugins/ subdir). So a valid git repo
+# with coordinator/ at its root must be read CORRECTLY, not falsely flagged offline.
+# This test locks the new clone-root contract (the inverse of the removed behavior).
+# Genuine offline (network/git failure) is covered by test_invalid_clone_preflight_guard
+# and _emit_offline's git-failure call sites (clone/fetch/checkout failed).
+def test_clone_root_no_plugins_subdir_is_valid_not_offline(tmp_path):
+    """C-R2b regression net: a valid git repo with coordinator/ at the clone ROOT
+    (and NO plugins/ subdir) is read from the root and classified normally — it must
+    NOT be treated as offline (the old plugins/-required bug). Identical source/live
+    content → exit 0, update_status=current."""
     import shutil
 
-    # Build a minimal git repo with NO plugins/ subdir — this should trigger _emit_offline
-    # because compute-update-delta.sh requires plugins/ to exist in the clone.
-    no_plugins_clone = tmp_path / "clone-no-plugins"
-    _init_git_repo(no_plugins_clone)
-    # Add a file but NO plugins/ subdir
-    _write(no_plugins_clone / "README.md", "# no plugins here\n")
-    subprocess.run(
-        ["git", "-C", str(no_plugins_clone), "add", "--", "README.md"],
-        check=True,
-        capture_output=True,
-    )
-    subprocess.run(
-        ["git", "-C", str(no_plugins_clone), "commit", "-m", "init no-plugins"],
-        check=True,
-        capture_output=True,
-    )
+    clone_root = tmp_path / "clone-root"
+    _init_git_repo(clone_root)
+    # coordinator/ lives at the clone ROOT — NO plugins/ subdir (the publish-repo shape).
+    _write(clone_root / "coordinator" / "CLAUDE.md", "# content\n")
+    classifier_in_source = clone_root / "coordinator" / "bin" / "check-install-divergence.py"
+    classifier_in_source.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(_CLASSIFIER), str(classifier_in_source))
+    baseline_sha = _git_commit_all(clone_root, "init coordinator at clone root")
 
     install_root = tmp_path / "live"
-    install_root.mkdir(parents=True, exist_ok=True)
+    _write(install_root / "coordinator" / "CLAUDE.md", "# content\n")
     classifier_dest = install_root / "coordinator" / "bin" / "check-install-divergence.py"
     classifier_dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(_CLASSIFIER), str(classifier_dest))
+    (install_root / "version.txt").write_text(baseline_sha + "\n", encoding="utf-8")
 
-    exit_code, data = _run_script(tmp_path, no_plugins_clone, install_root)
+    exit_code, data = _run_script(tmp_path, clone_root, install_root)
 
-    # Contract: nonzero exit that is NOT 3 (3 is "behind"), plus offline JSON fields.
-    assert exit_code != 0, (
-        f"offline path must NOT return exit 0 (false 'current'). data={data}"
+    # Clone-root with coordinator/ present is VALID — not offline, not exit 4.
+    assert exit_code == 0, (
+        f"clone-root repo with coordinator/ must classify (not offline/exit-4). got {exit_code}, data={data}"
     )
-    assert exit_code != 3, (
-        f"offline path must NOT return exit 3 (that is the 'behind' signal). data={data}"
+    assert data.get("update_status") == "current", (
+        f"identical source/live at clone root → current; got {data.get('update_status')!r}"
     )
-    # JSON contract assertions — if the script emits JSON, both fields must be present.
-    if "update_status" in data:
-        assert data["update_status"] == "offline", (
-            f"expected update_status='offline', got {data['update_status']!r}"
-        )
-        assert data.get("manual_url"), (
-            f"offline JSON must populate manual_url; got: {data.get('manual_url')!r}"
-        )
+    assert data.get("update_status") != "offline", (
+        "a valid clone-root repo must never be falsely flagged offline (the removed plugins/ bug)"
+    )
 
 
 def test_current_when_no_incoming_delta(baseline_scenario, tmp_path):

@@ -14,7 +14,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
-import { ENTITY_SCHEMAS, Branch, IsoDateTime } from "../src/index.js";
+import { ENTITY_SCHEMAS, Branch, CoordinatorRoot, IsoDateTime, MachineSlug, HandoffStatus } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, "..", "fixtures");
@@ -92,5 +92,41 @@ describe("IsoDateTime accepts both Z and numeric offset", () => {
   });
   it("no offset is rejected", () => {
     expect(IsoDateTime.safeParse("2026-06-22T03:06:15").success).toBe(false);
+  });
+});
+
+// Review: code-reviewer — C7 adds required `machine` on CoordinatorRoot; no test existed asserting omission or null is rejected.
+describe("CoordinatorRoot.machine — required field is present-and-required", () => {
+  const rootFixture = () =>
+    JSON.parse(readFileSync(join(fixturesDir, "coordinator-root.json"), "utf8"));
+  it("machine omitted is REJECTED", () => {
+    const v = rootFixture();
+    delete v.machine;
+    expect(CoordinatorRoot.safeParse(v).success).toBe(false);
+  });
+  it("machine: null is REJECTED (string, not nullable)", () => {
+    const v = rootFixture();
+    v.machine = null;
+    expect(CoordinatorRoot.safeParse(v).success).toBe(false);
+  });
+});
+
+// Review: code-reviewer — MachineSlug accepted "" → degenerate owner/repo@ fleet identity; min(1) now rejects it.
+describe("MachineSlug — empty string is rejected", () => {
+  it("empty string is REJECTED", () => {
+    expect(MachineSlug.safeParse("").success).toBe(false);
+  });
+});
+
+// Regression: C5 — HandoffStatus narrowed to ["active","consumed"]; "superseded" retired 2026-06-26.
+describe("HandoffStatus — superseded value is retired", () => {
+  it('"superseded" is REJECTED (retired value)', () => {
+    expect(HandoffStatus.safeParse("superseded").success).toBe(false);
+  });
+  it('"active" is accepted', () => {
+    expect(HandoffStatus.safeParse("active").success).toBe(true);
+  });
+  it('"consumed" is accepted', () => {
+    expect(HandoffStatus.safeParse("consumed").success).toBe(true);
   });
 });

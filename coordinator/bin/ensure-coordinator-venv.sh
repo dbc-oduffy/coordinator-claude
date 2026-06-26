@@ -61,6 +61,22 @@ for _arg in "$@"; do
 done
 
 # ---------------------------------------------------------------------------
+# Guard: CLAUDE_HOME must NOT be a .claude-suffixed path (#3 doubling precondition)
+# ---------------------------------------------------------------------------
+# CLAUDE_HOME is a $HOME-substitute (machine-local-registry.md §4a), so the install
+# lives at $CLAUDE_HOME/.claude. A CLAUDE_HOME that already ends in /.claude yields a
+# doubled .claude/.claude venv path and pin (the exact 2026-06-26 Windows failure).
+# Fail loud with remediation rather than silently building at the doubled path.
+if [[ -n "${CLAUDE_HOME:-}" && "${CLAUDE_HOME%/}" == */.claude ]]; then
+  echo "[ensure-coordinator-venv] FATAL: CLAUDE_HOME='${CLAUDE_HOME}' ends in '/.claude'." >&2
+  echo "  CLAUDE_HOME is a \$HOME substitute, NOT the .claude directory itself — the install" >&2
+  echo "  lives at \$CLAUDE_HOME/.claude, so a .claude-suffixed value produces a doubled" >&2
+  echo "  '.claude/.claude' path. Remediation: set CLAUDE_HOME to the PARENT of .claude" >&2
+  echo "  (e.g. CLAUDE_HOME=\$HOME) or unset it to default to \$HOME." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 # CLAUDE_HOME is a $HOME-substitute, NOT a .claude/ substitute (machine-local-registry.md §4a):
@@ -118,6 +134,11 @@ _set_pin() {
   if [[ "${current}" == "${venv_py}" ]]; then
     return 0  # already pinned correctly, idempotent
   fi
+  # Self-heal: announce when correcting a doubled '.claude/.claude' pin (#3) — a
+  # prior buggy install left the pin at a doubled path; overwrite it loudly.
+  if [[ "${current}" == *"/.claude/.claude/"* ]]; then
+    echo "[ensure-coordinator-venv] self-healing doubled venv pin: '${current}' → '${venv_py}'" >&2
+  fi
   "${ml_cli}" set coordinator.python "${venv_py}"
 }
 
@@ -141,9 +162,9 @@ if [[ "${CHECK_MODE}" -eq 1 ]]; then
       fi
     fi
     echo "ready"
-  elif [[ -d "${VENV}" ]]; then
-    echo "would-rebuild"
   else
+    # venv absent OR present-but-unhealthy — either way --check would rebuild.
+    # (No caller distinguishes absent-vs-broken; one signal is correct here.)
     echo "would-rebuild"
   fi
   exit 0
