@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "repo": {
+      "type": "string"
+    },
+    "coordinator_root_path": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "from": {
+      "type": "string"
+    },
+    "to": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "in_progress",
+        "actioned"
+      ]
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "ask",
+        "consult",
+        "fyi"
+      ]
+    },
+    "related": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "source_kind": {
+          "type": "string",
+          "enum": [
+            "github_graphql",
+            "github_rest",
+            "local_fs",
+            "coordinator_artifact"
+          ]
+        },
+        "repo": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "object",
+          "properties": {
+            "branch": {
+              "type": "string"
+            },
+            "sha": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "branch",
+            "sha"
+          ],
+          "additionalProperties": false
+        },
+        "path": {
+          "type": "string"
+        },
+        "observed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+        },
+        "derivation": {
+          "type": "string",
+          "enum": [
+            "raw",
+            "parsed",
+            "rolled_up"
+          ]
+        }
+      },
+      "required": [
+        "source_kind",
+        "repo",
+        "ref",
+        "path",
+        "observed_at",
+        "derivation"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "repo",
+    "coordinator_root_path",
+    "title",
+    "from",
+    "to",
+    "status",
+    "created",
+    "kind",
+    "related",
+    "provenance"
+  ],
+  "additionalProperties": false
+}

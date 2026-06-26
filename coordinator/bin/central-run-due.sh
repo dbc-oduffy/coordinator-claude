@@ -17,7 +17,7 @@
 # never terminate /workday-start on an internal error (pipefail still guards pipes).
 set -uo pipefail
 
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 CONFIG="$CLAUDE_HOME/state/learn-lessons-config.md"
 
 # Resolve coordinator content root via the portable resolver (CLAUDE_PLUGIN_ROOT →

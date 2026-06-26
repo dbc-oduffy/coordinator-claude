@@ -2,47 +2,52 @@
   "schema_version": "1.0.0",
   "emitted_at": "2026-06-22T23:00:00Z",
   "emitted_by_machine": "machine-c",
-  "coordinator_root": {
-    "repo": "claude-unreal-holodeck",
-    "owner": "dbc-oduffy",
-    "coordinator_root_path": ".",
-    "visibility": "PRIVATE",
-    "archived": false,
-    "is_fork": false,
-    "default_branch": "main",
-    "last_activity_at": "2026-06-22T02:09:17Z",
-    "open_pr_count": 0,
-    "provenance": {
-      "source_kind": "github_graphql",
+  "coordinator_roots": [
+    {
       "repo": "claude-unreal-holodeck",
-      "ref": { "branch": "main", "sha": "22dc6eed" },
-      "path": "",
-      "observed_at": "2026-06-22T03:00:00Z",
-      "derivation": "parsed"
+      "owner": "dbc-oduffy",
+      "coordinator_root_path": ".",
+      "machine": "machine-d",
+      "visibility": "PRIVATE",
+      "archived": false,
+      "is_fork": false,
+      "default_branch": "main",
+      "last_activity_at": "2026-06-22T02:09:17Z",
+      "open_pr_count": 0,
+      "provenance": {
+        "source_kind": "github_graphql",
+        "repo": "claude-unreal-holodeck",
+        "ref": { "branch": "main", "sha": "22dc6eed" },
+        "path": "",
+        "observed_at": "2026-06-22T03:00:00Z",
+        "derivation": "parsed"
+      }
     }
-  },
-  "branch": {
-    "repo": ".claude-prime",
-    "owner": "dbc-oduffy",
-    "coordinator_root_path": ".",
-    "name": "work/machine-c/2026-06-22",
-    "tip_sha": "711d2bb1c0d4e6a8b9f0123456789abcdef0123",
-    "merge_base_sha": "22dc6eed1c0d4e6a8b9f0123456789abcdef4567",
-    "ahead_by": 5,
-    "behind_by": 0,
-    "last_commit_at": "2026-06-22T23:00:00Z",
-    "last_commit_message": "C4(authorized-blanket): closeout — universal lesson + AC7 observation-watch row",
-    "machine_hint": "machine-c",
-    "date_hint": "2026-06-22",
-    "provenance": {
-      "source_kind": "github_rest",
+  ],
+  "branches": [
+    {
       "repo": ".claude-prime",
-      "ref": { "branch": "work/machine-c/2026-06-22", "sha": "711d2bb1" },
-      "path": "/repos/dbc-oduffy/.claude-prime/compare/main...work/machine-c/2026-06-22",
-      "observed_at": "2026-06-22T23:00:00Z",
-      "derivation": "raw"
+      "owner": "dbc-oduffy",
+      "coordinator_root_path": ".",
+      "name": "work/machine-c/2026-06-22",
+      "tip_sha": "711d2bb1c0d4e6a8b9f0123456789abcdef0123",
+      "merge_base_sha": "22dc6eed1c0d4e6a8b9f0123456789abcdef4567",
+      "ahead_by": 5,
+      "behind_by": 0,
+      "last_commit_at": "2026-06-22T23:00:00Z",
+      "last_commit_message": "C4(authorized-blanket): closeout — universal lesson + AC7 observation-watch row",
+      "machine_hint": "machine-c",
+      "date_hint": "2026-06-22",
+      "provenance": {
+        "source_kind": "github_rest",
+        "repo": ".claude-prime",
+        "ref": { "branch": "work/machine-c/2026-06-22", "sha": "711d2bb1" },
+        "path": "/repos/dbc-oduffy/.claude-prime/compare/main...work/machine-c/2026-06-22",
+        "observed_at": "2026-06-22T23:00:00Z",
+        "derivation": "raw"
+      }
     }
-  },
+  ],
   "handoffs": [
     {
       "repo": ".claude-prime",
@@ -55,6 +60,11 @@
       "workstream": "opticon-surface",
       "predecessor": "none",
       "scope": ["plugins/coordinator/cockpit-contract/"],
+      "consumed_by": null,
+      "consumed_at": null,
+      "shipped_in": null,
+      "picked_up_by": null,
+      "acceptance_criteria": null,
       "provenance": {
         "source_kind": "coordinator_artifact",
         "repo": ".claude-prime",
@@ -65,72 +75,76 @@
       }
     }
   ],
-  "completion_rollup": {
-    "week": {
-      "grain": "week",
-      "period": "2026-W25",
-      "repo": "",
-      "coordinator_root_path": ".",
-      "deterministic_facts": {
-        "chains_completed": 11,
-        "tshirt_counts": { "XS": 3, "S": 4, "M": 3, "L": 1 },
-        "opus_dispatches": 5,
-        "commits": 84,
-        "reviews_conducted": 6,
-        "verdicts": { "ok": 3, "warn": 2, "blocked": 1 }
-      },
-      "narrative": null,
-      "input_watermark": {
-        "max_observed_at": "2026-06-22T17:59:00Z",
-        "max_commit_sha": "647732fa",
-        "source_count": 42
-      },
-      "freshness": "current",
-      "provenance": {
-        "source_kind": "coordinator_artifact",
-        "repo": ".claude-prime",
-        "ref": { "branch": "work/machine-b/2026-06-17to22", "sha": "647732fa" },
-        "path": "state/week-changelog/HEADER.md",
-        "observed_at": "2026-06-22T18:00:02Z",
-        "derivation": "rolled_up"
+  "completion_rollups": {
+    "week": [
+      {
+        "grain": "week",
+        "period": "2026-W25",
+        "repo": "",
+        "coordinator_root_path": ".",
+        "deterministic_facts": {
+          "chains_completed": 11,
+          "tshirt_counts": { "XS": 3, "S": 4, "M": 3, "L": 1 },
+          "opus_dispatches": 5,
+          "commits": 84,
+          "reviews_conducted": 6,
+          "verdicts": { "ok": 3, "warn": 2, "blocked": 1 }
+        },
+        "narrative": null,
+        "input_watermark": {
+          "max_observed_at": "2026-06-22T17:59:00Z",
+          "max_commit_sha": "647732fa",
+          "source_count": 42
+        },
+        "freshness": "current",
+        "provenance": {
+          "source_kind": "coordinator_artifact",
+          "repo": ".claude-prime",
+          "ref": { "branch": "work/machine-b/2026-06-17to22", "sha": "647732fa" },
+          "path": "state/week-changelog/HEADER.md",
+          "observed_at": "2026-06-22T18:00:02Z",
+          "derivation": "rolled_up"
+        }
       }
-    },
-    "day": {
-      "grain": "day",
-      "period": "2026-06-22",
-      "repo": "",
-      "coordinator_root_path": ".",
-      "deterministic_facts": {
-        "chains_completed": 2,
-        "tshirt_counts": { "XS": 1, "M": 1 },
-        "opus_dispatches": 0,
-        "commits": 7
-      },
-      "narrative": {
-        "text": "Picked up and shipped the tc-2 work-state contract; memo-pickup claim-lock landed.",
-        "generated_by": "claude-opus-4-8",
-        "generated_at": "2026-06-22T18:00:00Z",
+    ],
+    "day": [
+      {
+        "grain": "day",
+        "period": "2026-06-22",
+        "repo": "",
+        "coordinator_root_path": ".",
+        "deterministic_facts": {
+          "chains_completed": 2,
+          "tshirt_counts": { "XS": 1, "M": 1 },
+          "opus_dispatches": 0,
+          "commits": 7
+        },
+        "narrative": {
+          "text": "Picked up and shipped the tc-2 work-state contract; memo-pickup claim-lock landed.",
+          "generated_by": "claude-opus-4-8",
+          "generated_at": "2026-06-22T18:00:00Z",
+          "input_watermark": {
+            "max_observed_at": "2026-06-22T17:59:00Z",
+            "max_commit_sha": "647732fa",
+            "source_count": 9
+          }
+        },
         "input_watermark": {
           "max_observed_at": "2026-06-22T17:59:00Z",
           "max_commit_sha": "647732fa",
           "source_count": 9
+        },
+        "freshness": "current",
+        "provenance": {
+          "source_kind": "coordinator_artifact",
+          "repo": ".claude-prime",
+          "ref": { "branch": "work/machine-b/2026-06-17to22", "sha": "647732fa" },
+          "path": "archive/daily-summaries/2026-06-22.md",
+          "observed_at": "2026-06-22T18:00:01Z",
+          "derivation": "rolled_up"
         }
-      },
-      "input_watermark": {
-        "max_observed_at": "2026-06-22T17:59:00Z",
-        "max_commit_sha": "647732fa",
-        "source_count": 9
-      },
-      "freshness": "current",
-      "provenance": {
-        "source_kind": "coordinator_artifact",
-        "repo": ".claude-prime",
-        "ref": { "branch": "work/machine-b/2026-06-17to22", "sha": "647732fa" },
-        "path": "archive/daily-summaries/2026-06-22.md",
-        "observed_at": "2026-06-22T18:00:01Z",
-        "derivation": "rolled_up"
       }
-    }
+    ]
   },
   "backlogs": {
     "bug": [
@@ -168,6 +182,7 @@
       "verdict": "warn",
       "diff_loc": 214,
       "reviewed_at": "2026-06-14T12:23:57Z",
+      "workstream": null,
       "provenance": {
         "source_kind": "coordinator_artifact",
         "repo": ".claude-prime",
@@ -269,13 +284,37 @@
       "created": "2026-06-15T12:00:00Z"
     }
   ],
+  "cross_repo_memos": [
+    {
+      "repo": ".claude-prime",
+      "coordinator_root_path": ".",
+      "title": "Ask: opticon cockpit should surface cross-repo memo queue depth",
+      "from": ".claude-prime",
+      "to": "example-repo",
+      "status": "open",
+      "created": "2026-06-24",
+      "kind": "ask",
+      "related": [
+        "plugins/coordinator/cockpit-contract/src/entities/cross-repo-memo-summary.ts"
+      ],
+      "provenance": {
+        "source_kind": "coordinator_artifact",
+        "repo": ".claude-prime",
+        "ref": { "branch": "work/machine-d/2026-06-23to24", "sha": "81aba448" },
+        "path": "state/memos/2026-06-24-ask-opticon-memo-queue.md",
+        "observed_at": "2026-06-24T10:00:00Z",
+        "derivation": "parsed"
+      }
+    }
+  ],
   "narrative_views": null,
   "malformed_records": {
     "handoffs": [],
     "backlogs": [],
     "review_trail": [],
-    "coordinator_root": [],
+    "coordinator_roots": [],
     "plans": [],
-    "lessons": []
+    "lessons": [],
+    "cross_repo_memos": []
   }
 }

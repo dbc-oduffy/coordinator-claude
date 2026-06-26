@@ -20,6 +20,7 @@ const {
   validateFrontmatter,
   validateLessonsFile,
   _parseYaml,
+  parseYamlBlock,
   _matchGlob,
   matchSchema,
 } = require('./schema.js');
@@ -1246,6 +1247,21 @@ describe('_matchGlob', () => {
 // _parseYaml — basic sanity on internal parser
 // ---------------------------------------------------------------------------
 
+// parseYamlBlock — PUBLIC export contract. handoff-transition.js depends on this
+// name being a callable export; a reviewer edit once swapped the call site to
+// `parseYamlBlock` before it was exported, crashing every cs_consume_handoff
+// fleet-wide (cross-repo memo 2026-06-26). This guards the export contract.
+describe('parseYamlBlock (public export)', () => {
+  it('is exported as a callable function', () => {
+    assert.equal(typeof parseYamlBlock, 'function');
+  });
+
+  it('parses a frontmatter block the same as the internal parser', () => {
+    const block = 'status: consumed\ndeployment_state: in_flight\n';
+    assert.deepEqual(parseYamlBlock(block), _parseYaml(block));
+  });
+});
+
 describe('_parseYaml', () => {
   it('parses simple key-value pairs', () => {
     const result = _parseYaml('schema: handoff\napplies_to: "state/handoffs/*.md"\n');
@@ -1655,6 +1671,107 @@ describe('matchSchema — legacy-kinds-resolve (AC for F1)', () => {
     assert.ok(result !== null, 'eng-director-review should match');
     assert.equal(result.schemaName, 'review-sidecar',
       `eng-director-review must resolve to review-sidecar, got ${result && result.schemaName}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseList — list-of-maps
+//
+// Spec backlink: bin/lib/schema.js parseList() / skipPast() fix for
+// YAML list items that are mappings (e.g. provenance: - original_path: ...).
+//
+// Bug: parseList pushed only the scalar text of the '- ' line for mapping
+// items, then broke on the continuation indented keys. skipPast also broke
+// at the same nested line. After the last line of the nested block, the outer
+// parseYamlLines resumed AT the continuation key and read it as a top-level key
+// (last-wins clobber). This caused 'status: implemented' inside a provenance
+// list to silently overwrite the real top-level 'status: proposed'.
+// ---------------------------------------------------------------------------
+
+describe('parseList — list-of-maps', () => {
+  // Test 1: The reported bug. Top-level status must not be clobbered by a
+  // status key nested inside a provenance list-of-maps block.
+  it('(1) reported bug: provenance list-of-maps does not clobber top-level status', () => {
+    const yaml = [
+      'status: proposed',
+      'provenance:',
+      '  - original_path: docs/plans/foo.md',
+      '    status: implemented',
+    ].join('\n');
+    const result = _parseYaml(yaml);
+    assert.equal(result.status, 'proposed',
+      `top-level status must be "proposed", not clobbered by nested "implemented"; got "${result.status}"`);
+    assert.ok(Array.isArray(result.provenance), 'provenance must be an array');
+    assert.equal(result.provenance.length, 1, 'provenance must have one item');
+    assert.equal(result.provenance[0].original_path, 'docs/plans/foo.md',
+      `provenance[0].original_path must be "docs/plans/foo.md", got "${result.provenance[0] && result.provenance[0].original_path}"`);
+    assert.equal(result.provenance[0].status, 'implemented',
+      `provenance[0].status must be "implemented", got "${result.provenance[0] && result.provenance[0].status}"`);
+  });
+
+  // Test 2: Multi-key mapping items: a list item with 3 keys parses all 3 into one object.
+  it('(2) multi-key mapping item: 3 keys all parsed into one object', () => {
+    const yaml = [
+      'items:',
+      '  - name: alpha',
+      '    value: 1',
+      '    label: first',
+    ].join('\n');
+    const result = _parseYaml(yaml);
+    assert.ok(Array.isArray(result.items), 'items must be an array');
+    assert.equal(result.items.length, 1);
+    assert.equal(result.items[0].name, 'alpha');
+    assert.equal(result.items[0].value, 1);
+    assert.equal(result.items[0].label, 'first');
+  });
+
+  // Test 3: Multiple mapping items in one list.
+  it('(3) multiple mapping items: two items each with 2 keys', () => {
+    const yaml = [
+      'entries:',
+      '  - a: 1',
+      '    b: 2',
+      '  - a: 3',
+      '    b: 4',
+    ].join('\n');
+    const result = _parseYaml(yaml);
+    assert.ok(Array.isArray(result.entries), 'entries must be an array');
+    assert.equal(result.entries.length, 2);
+    assert.equal(result.entries[0].a, 1);
+    assert.equal(result.entries[0].b, 2);
+    assert.equal(result.entries[1].a, 3);
+    assert.equal(result.entries[1].b, 4);
+  });
+
+  // Test 4: Scalar lists still work (regression guard).
+  it('(4) scalar lists are unaffected — [x, y] parses to ["x", "y"]', () => {
+    const yaml = 'tags:\n  - x\n  - y\n';
+    const result = _parseYaml(yaml);
+    assert.deepEqual(result.tags, ['x', 'y'], 'scalar list must still parse correctly');
+  });
+
+  it('(4b) bare "-" list item parses to null element', () => {
+    const yaml = 'items:\n  -\n  - foo\n';
+    const result = _parseYaml(yaml);
+    assert.ok(Array.isArray(result.items), 'items must be an array');
+    assert.equal(result.items[0], null, 'bare "-" must parse to null');
+    assert.equal(result.items[1], 'foo');
+  });
+
+  // Test 5: A scalar whose value contains a colon (e.g. a URL) must NOT be
+  // parsed as a mapping item. The discriminator checks for a key: shape, not
+  // a bare presence of ':'.
+  it('(5) URL-valued scalar list item is not misparsed as a mapping', () => {
+    const yaml = [
+      'links:',
+      '  - http://example.com/path',
+      '  - https://other.org/foo',
+    ].join('\n');
+    const result = _parseYaml(yaml);
+    assert.ok(Array.isArray(result.links), 'links must be an array');
+    assert.equal(result.links[0], 'http://example.com/path',
+      'URL scalar must not be treated as a mapping item');
+    assert.equal(result.links[1], 'https://other.org/foo');
   });
 });
 

@@ -9,12 +9,16 @@
       "type": "string",
       "enum": [
         "dbc-oduffy",
-        "Delphi-Interactive",
+        "Example-Interactive",
         "workstation"
       ]
     },
     "coordinator_root_path": {
       "type": "string"
+    },
+    "machine": {
+      "type": "string",
+      "minLength": 1
     },
     "visibility": {
       "type": "string",
@@ -113,6 +117,7 @@
     "repo",
     "owner",
     "coordinator_root_path",
+    "machine",
     "visibility",
     "archived",
     "is_fork",

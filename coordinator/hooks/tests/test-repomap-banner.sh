@@ -72,6 +72,9 @@ expect "fresh repomap: no stale banner" no "$(has "$OUT" 'Repo map stale')"
 expect "fresh repomap: no very-stale banner" no "$(has "$OUT" 'VERY STALE')"
 
 # --- Scenario 3: stale (25h) -> one stale line -------------------------------
+# Review: code-reviewer (F6) — Scenarios 3-4 and 6-7 depend on the hook running from its
+# canonical coordinator-tree location so BASH_SOURCE[0]-relative ../../bin/ finds the real
+# generate-repomap.sh. These scenarios break if the hook is copied to an arbitrary temp path.
 R=$(mkroot 25)
 OUT=$(run_stdout "$R")
 expect "25h: stale line on stdout" yes "$(has "$OUT" 'Repo map stale:')"
@@ -112,6 +115,41 @@ R=$(mkroot 25)
 OUT=$( cd "$R" && bash "$HOOK" 2>/dev/null || true )
 expect "full-startup: banner fires" yes "$(has "$OUT" 'Repo map stale:')"
 expect "full-startup: read-pointer appears" yes "$(has "$OUT" 'Repo Map: .claude/repomap.md')"
+
+# --- Scenario 8: stale repomap + generator NOT resolvable -> banner suppressed (memo S2) ---
+# Review: code-reviewer (F2+F5) — all three fallback absences are provable by construction:
+#
+#   Fallback 1 (BASH_SOURCE[0]-relative ../../bin/): hook copy is placed at
+#     $GEN_ABSENT_TMPDIR/hooks/scripts/project-orientation.sh (mirroring the real two-level
+#     deep structure: hooks/scripts → ../../bin). $GEN_ABSENT_TMPDIR/bin/ is created but
+#     WITHOUT generate-repomap.sh — so the -f check fails by construction, not convention.
+#
+#   Fallback 2 (PATH): PATH restricted to /usr/bin:/bin; generate-repomap.sh is not there.
+#
+#   Fallback 3 (REPO_ROOT/bin): the hook hard-derives REPO_ROOT from `git rev-parse` (line ~18)
+#     and ignores any env var. Running from a non-git temp dir makes REPO_ROOT empty. With F1
+#     applied, the [ -n "$REPO_ROOT" ] guard makes this branch a guarded no-op — provably absent.
+#
+# All three resolution paths fail → RM_GEN stays empty → banner must be silent.
+R=$(mkroot 25)
+GEN_ABSENT_TMPDIR=$(mktemp -d)
+CLEANUP_DIRS+=("$GEN_ABSENT_TMPDIR")
+# Place hook at two levels deep so ../../bin resolves inside $GEN_ABSENT_TMPDIR (not outside it)
+mkdir -p "$GEN_ABSENT_TMPDIR/hooks/scripts"
+mkdir -p "$GEN_ABSENT_TMPDIR/bin"  # bin dir exists but has no generator — absence by construction
+cp "$HOOK" "$GEN_ABSENT_TMPDIR/hooks/scripts/project-orientation.sh"
+# Run from a non-git temp dir so REPO_ROOT is empty (git rev-parse returns nothing)
+NONGIT_RUN_DIR=$(mktemp -d)
+CLEANUP_DIRS+=("$NONGIT_RUN_DIR")
+# Copy the fixture repomap into the non-git run dir (so the repomap is found as stale)
+mkdir -p "$NONGIT_RUN_DIR/.claude"
+cp "$R/.claude/repomap.md" "$NONGIT_RUN_DIR/.claude/repomap.md"
+python3 -c "import os,sys; t=int(sys.argv[2]); os.utime(sys.argv[1],(t,t))" \
+  "$NONGIT_RUN_DIR/.claude/repomap.md" "$(( $(date +%s) - 25 * 3600 ))" # popup-safe-env-suppressed
+OUT=$( cd "$NONGIT_RUN_DIR" && env PATH="/usr/bin:/bin" \
+  bash "$GEN_ABSENT_TMPDIR/hooks/scripts/project-orientation.sh" --lightweight 2>/dev/null || true )
+expect "absent-generator + 25h stale: no stale banner" no "$(has "$OUT" 'Repo map stale')"
+expect "absent-generator + 25h stale: no very-stale banner" no "$(has "$OUT" 'VERY STALE')"
 
 echo "----"
 echo "PASS=$PASS FAIL=$FAIL"

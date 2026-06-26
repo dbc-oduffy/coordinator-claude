@@ -332,7 +332,7 @@ When to invoke backstop:
 
 ## Project Detection
 
-When operating in geneva-mvp, load the project-local the Front-End Reviewer persona for enriched context including Figma-specific review, Tailwind reference tables, design decision logs, and token file inventory. Reference: `docs/personae/pali/README.md` in geneva-mvp.
+When operating in example-repo, load the project-local the Front-End Reviewer persona for enriched context including Figma-specific review, Tailwind reference tables, design decision logs, and token file inventory. Reference: `docs/personae/pali/README.md` in example-repo.
 
 For all other projects, apply the general principles above with whatever design system and token structure the project uses.
 

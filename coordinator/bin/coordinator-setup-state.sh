@@ -56,7 +56,7 @@ EOF
     exit 2
 }
 
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 STATE_FILE="$CLAUDE_HOME/coordinator-setup-state.yaml"
 
 CMD="${1:-}"

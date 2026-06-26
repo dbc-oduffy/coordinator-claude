@@ -159,6 +159,139 @@ its own TS/Zod from `schema/*.json`. The compiled `dist/` exists for same-repo /
 workspace-linked JS consumers who want the runtime Zod validators directly; `dist/`
 is gitignored and rebuilt on install.
 
+## D12 — Owner enum is seam-generated (closed enum, env override) for OSS portability (2026-06-25)
+
+The `owner` field on `CoordinatorRoot` and `Branch` uses a **closed Zod enum**, not
+`z.string()`. `z.string()` was explicitly rejected: it downgrades parse-time validation
+and eliminates the boundary guarantee that unknown owners (misrouted data, typos, wrong
+repo) are caught at the contract parse boundary rather than silently stored and only
+discovered in tc-5 queries. The closed enum is the entire point.
+
+The set of allowed values is operator / deployment configuration. Hard-baking real org
+identities (`dbc-oduffy`, `Example-Interactive`) into the Zod literal made the emitted
+JSON Schema unsuitable for OSS distribution without leaking real GitHub org identity.
+
+**Resolution:** `OwnerNamespace` is now built at runtime by `resolveOwnerNamespaces()`
+in `src/owner-namespaces.ts`, reading the env var `COCKPIT_OWNER_NAMESPACES` (comma-
+separated) with a fail-loud guard on a present-but-all-blank value. Two operational
+modes:
+
+- **Private emit (default, env unset):** real orgs (`dbc-oduffy`, `Example-Interactive`,
+  `workstation`). `pnpm run emit` writes to committed `schema/`.
+- **Example emit (env set):** synthetic orgs (e.g. `example-org`, `example-team`).
+  `pnpm run emit:example` writes to `schema-example/` (not committed). Intended for
+  OSS distribution and consumer onboarding documentation.
+
+**Also rejected:** a swap-at-publish approach (shipping one committed schema and
+post-processing it during publish). Rejected because it would require a separate
+publish pipeline step that could drift from the source of truth, and because the closed
+enum must be correct in the emitted output — patching it after emit is fragile and
+bypasses the Zod source-of-truth discipline (D2). The env-seam approach keeps a single
+emit path; the only variable is which enum members it emits.
+
+The `COCKPIT_SCHEMA_OUT_DIR` env var parallels the namespace seam: it redirects the
+emit output directory so example / OSS emits never touch committed `schema/`. Default
+(env unset) is byte-identical to the previous hardcoded `join(here, "..", "schema")`.
+
+## Ask 6 — handoff enum partition (C4, 2026-06-26 — superseded RETIRED)
+
+Three decisions shipped together as a single coherent enum + documentation edit.
+
+**`recovery` kept in `HandoffKind`** — the structured-handoff spinoff verdict landed
+**`recovery == kind`** (not flavor), confirmed at `schemas/handoff.yaml:81` and
+unblocked by commit `96d877a4`. The parent plan (D3 row) originally recommended
+moving `recovery` to a `flavor` field; the landed spinoff verdict diverged to `kind`,
+so `recovery` stays in the `HandoffKind` enum. Do not re-litigate this: the verdict
+was a deliberate domain decision, not an oversight. The `kind:` absent → `session-handoff`
+normalization contract (NORMALISATION CONTRACT in `HandoffKind`'s docstring) is
+unchanged.
+
+**`superseded` RETIRED from `HandoffStatus` (handoff-only) — 2026-06-26.** The Ask-6
+removal was originally dropped because the stated premise ("never observed, no doctrine
+dependency") proved false. The retirement was then executed in the correct sequence:
+doctrine writers (CLAUDE.md, spinoff-handoffs.md, skills/handoff/SKILL.md,
+schemas/handoff.yaml) and the one live archived `superseded` handoff record were
+migrated FIRST; the contract was narrowed after. `HandoffStatus` is now
+`["active", "consumed"]`. Supersession of a handoff is expressed via
+`deployment_state: abandoned` + the existing `predecessor`/`supersedes:` lineage fields.
+
+**Legacy/external tolerance — coerce-at-ingest.** Readers tolerate a legacy or external
+handoff carrying `status: superseded`. The cockpit emitter coerces `superseded` →
+`consumed` at ingest, before the strict Zod validator sees the record. Any other
+string-but-unrecognized handoff status that passes the per-record jq `select` (which
+excludes only missing/null fields) but is NOT coerced triggers a **whole-emit abort**
+at `validate_main_record` — not a per-record exclusion. Only the one retired
+`superseded` token is coerced; everything else still hard-aborts the emit.
+
+Ref plan: `docs/plans/2026-06-26-retire-superseded-handoff-status.md` § C4.
+
+**stage↔`deployment_state` partition** — `status` (`active | consumed`) and
+`deployment_state` (`awaiting_gate | ready_to_fire | in_flight | shipped | abandoned`)
+are **orthogonal axes**, not redundant. `status` is a two-stage gate: "is this
+handoff still in play?" `deployment_state` is the delivery lifecycle progression of
+the associated workstream. A `consumed` handoff can carry `deployment_state: in_flight`
+(picked up, not yet shipped); an `active` handoff can carry `deployment_state:
+ready_to_fire` (staged, awaiting pickup). Consumers MUST NOT substitute one axis for
+the other when keying queries. This partition is documented in the `HandoffStatus`
+JSDoc in `src/entities/summaries.ts` and referenced from `DeploymentState`.
+
+## D13 — 1.0→2.0 breaking bump shipped with bilateral consumer-migration gate (C11)
+
+The 1.0→2.0 bump is **intentionally breaking** (strict-mode `additionalProperties:false` +
+all additive fields land in `required` with `anyOf:[T,null]` per D9 — making any additive
+field-add a contract break; `1.1.0-first` is not available under this contract). The prior
+1.0 bump shipped without a consumer signal gate (DSR-2026-06-23-4, status: open). This bump
+MUST close that debt entry.
+
+The gate is **bilateral**:
+
+- **Producer side (this repo):** emitter fails loud on semver mismatch; `sync-cockpit-contract.sh`
+  wired as a mandatory consumer-staleness signal (not merely invocable).
+- **Consumer side — by consumer:**
+  - **project-opticon:** already ships `assertSchemaVersion` (`ingest.ts:71-93`, major-aware
+    `compareSemver` at lines 43-52) — a host 2.0 flip before opticon re-vendors causes a
+    **TOTAL COCKPIT-OUTAGE** (every ingest aborts). Gate is therefore outage-gating, not advisory.
+    Sequence: opticon widens reader to accept 2.0 shapes AND re-vendors FIRST; then host flips
+    `CONTRACT_VERSION = "2.0.0"`. The 2026-06-26 bilateral confirmation: opticon landed a
+    dual-read reader/store (`assertSchemaVersion` auto-flipped 1.0.0→2.0.0 on re-vendor;
+    still-1.0 host emission warns-proceeds with no quarantine) — AC11 outage window closed.
+  - **example-repo:** `assertSchemaVersion` unverified at review time; consumer memo must ask
+    geneva to verify and add if absent.
+- **Sequencing rule:** widen-reader-first is mandatory for opticon. Do NOT flip the host
+  `CONTRACT_VERSION` before the consumer memo is dispatched and PM-relayed.
+
+DSR-2026-06-23-4 is `git mv`'d to `archive/debt-backlog/` with `status: closed` only after
+the C11 consumer memo is dispatched.
+
+## D14 — Fleet board-scope: PRIVATE repos excluded from `coordinator_roots[]` (2026-06-26)
+
+`CoordinatorRoot.visibility ∈ {PRIVATE, INTERNAL, PUBLIC}` is already on the schema.
+Whether private repos appear on the all-staff board is a direction-class PM call (the Director of Engineering P1 §
+"consumer-leak — fleet visibility"). **PM decision 2026-06-26 (re-confirmed):**
+
+- **PUBLIC** and **INTERNAL** roots are board-eligible.
+- **PRIVATE** roots are **excluded** from `coordinator_roots[]` in every emitted fleet snapshot.
+- C9c bakes the visibility filter; acceptance asserts PRIVATE exclusion.
+
+This is not a schema-level filter (the entity carries `visibility`) — it is an **emitter-level
+gate**: C9c's fleet-discovery loop skips any root with `visibility == "PRIVATE"` when building
+the array. Rationale: the all-staff cockpit is the rendering target; emitting private repo
+names to that surface leaks org structure.
+
+## D15 — `CrossRepoMemoSummary.title` is board-public (authors warned)
+
+`CrossRepoMemoSummary` is metadata-only: no memo bodies, no AC prose. The `title` field is
+free prose and ships verbatim to the all-staff board with no redaction. Real memo titles can
+encode sensitive coordination details (embargos, unannounced moves). PM decision: **accept
+title as board-public with a documented author norm** — authors are warned at write time that
+memo titles are observable by the full fleet board audience.
+
+The entity docstring in `src/entities/cross-repo-memo-summary.ts` MUST carry this norm
+verbatim: "metadata only — no AC prose, no memo bodies, AND memo titles are board-public
+(authors warned)." No length cap or sensitivity-flag seam was added in 2.0; a future revision
+may introduce a `sensitive: bool` field without a schema bump if the author-norm proves
+insufficient.
+
 ## Out of scope (enforced — see stub § Anti-scope)
 
 No emission (tc-3), connector (tc-4), store DDL (tc-5), dashboard (tc-6), or

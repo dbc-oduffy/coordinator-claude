@@ -2,7 +2,7 @@
  * PlanSummary — summary view over docs/plans/*.md lifecycle and status.
  *
  * Spec backlink: state/roadmap/cockpit-contract-ext-2026-06-22/COORDINATOR-RESOLUTIONS.md
- * § R3 + C-ext-4 + Camelia C-F6.
+ * § R3 + C-ext-4 + the Data Science Reviewer C-F6.
  *
  * Composite primary key: (repo, coordinator_root_path, path). `author` is emitted
  * verbatim from plan frontmatter — no git-blame inference (C-F6).

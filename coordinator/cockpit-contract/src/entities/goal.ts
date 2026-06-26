@@ -1,9 +1,9 @@
 /**
  * Goal — the one net-new WRITABLE entity in the cockpit, modelled as an
- * append-only event record (Camelia P1-D6, R3).
+ * append-only event record (the Data Science Reviewer P1-D6, R3).
  *
  * Goals are mutable, low-frequency, single-author-per-edit but MULTI-MACHINE
- * (BettaAir + Striker) — the worst shape for "just put it in a file and
+ * (Machine-C + Machine-A) — the worst shape for "just put it in a file and
  * git-merge it." Append-only per-machine event records sidestep the
  * last-write-wins / merge-conflict hazard entirely and give goal history for
  * free. A goal is never mutated in place; it is superseded by a newer record.

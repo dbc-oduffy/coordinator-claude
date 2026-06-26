@@ -2,6 +2,7 @@
   "repo": "claude-unreal-holodeck",
   "owner": "dbc-oduffy",
   "coordinator_root_path": ".",
+  "machine": "machine-d",
   "visibility": "PRIVATE",
   "archived": false,
   "is_fork": false,

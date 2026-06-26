@@ -429,11 +429,15 @@ def _build_base_memo_fm(
 
 
 def test_c6b_actioned_ask_validates_green() -> None:
-    """C6b-1 (AC7): status=actioned + decision=accepted + decision_note validates schema-GREEN.
+    """C6b-1 (AC7): status=actioned + decision=accepted + decision_note + realized_by validates schema-GREEN.
 
     This is the 'ask' terminal state after /pickup adjudicate-and-own.
+    realized_by is REQUIRED when status=actioned and decision=accepted (claim-of-record rule,
+    2026-06-23 holodeck B3 incident — prevents a second session from re-realizing the same memo).
+    Valid shapes: sentinel "inline", a plan/task path (contains "/"), or a hex commit SHA.
+    Spec backlink: bin/lib/schema.js cross-field rule ~line 844.
     """
-    name = "C6b-1 (AC7) — actioned+decision+decision_note memo validates schema-GREEN"
+    name = "C6b-1 (AC7) — actioned+decision+decision_note+realized_by (claim-of-record) memo validates schema-GREEN"
     today = _today()
 
     fm = _build_base_memo_fm(
@@ -442,6 +446,7 @@ def test_c6b_actioned_ask_validates_green() -> None:
         extra_fields={
             "decision": "accepted",
             "decision_note": '"Applied the requested change."',
+            "realized_by": '"inline"',
         },
     )
 

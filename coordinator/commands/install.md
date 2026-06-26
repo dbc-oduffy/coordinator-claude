@@ -71,7 +71,7 @@ bash scripts/normalize-env.sh --dry-run
 bash scripts/normalize-env.sh --yes
 ```
 
-`normalize-env.sh` is idempotent and consent-gated: it enumerates each proposed mutation and requires explicit acceptance per mutation. Blast-radius-last ordering applies (higher-impact mutations are offered last). On Windows, every mutation creates a backup and `--restore` reverts to the pre-run state. On macOS/Linux, the script is offers-only (no Windows-specific mutations run).
+`normalize-env.sh` is idempotent and consent-gated: it enumerates each proposed mutation and requires explicit acceptance per mutation. Blast-radius-last ordering applies (higher-impact mutations are offered last). On Windows, every mutation creates a backup and `--restore` reverts to the pre-run state. On macOS the script is offers-only EXCEPT for the single consent-gated bash-login-shell reconstruction (see § Login-shell orphan detection below); on Linux it is offers-only (no Windows-specific mutations run).
 
 Proceed to Phase 1 after Step Zero. Any hard failure from `--preflight` must be resolved before continuing.
 
@@ -212,22 +212,24 @@ if [[ "$OSTYPE" == darwin* ]]; then
           OFFER_B_SUCCESS=1
         else
           STATUS: brew_bash_installed: failed (brew install bash error: <stderr tail>)
-          # Original remediation (decline/error fallback):
+          # Remediation (decline/error fallback):
           echo ""
           echo "ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>."
           echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:"
           echo "      brew install bash"
-          echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zprofile (zsh, macOS default) or ~/.bash_profile (bash)"
+          echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to your login shell rc (~/.zprofile if your login shell is zsh, the macOS default)"
+          echo "  You do NOT need to change your login shell to bash — coordinator runs scripts via PATH, not via your login shell."
           OFFER_B_SUCCESS=0
         fi
       else
         STATUS: brew_bash_installed: failed (declined)
-        # Original remediation (decline/error fallback):
+        # Remediation (decline/error fallback):
         echo ""
         echo "ERROR: coordinator requires bash 4.3 or later. Detected: bash <version> at <path>."
         echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it FIRST on PATH:"
         echo "      brew install bash"
-        echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to ~/.zprofile (zsh, macOS default) or ~/.bash_profile (bash)"
+        echo "      export PATH=\"\$(brew --prefix)/bin:\$PATH\"   # add to your login shell rc (~/.zprofile if your login shell is zsh, the macOS default)"
+        echo "  You do NOT need to change your login shell to bash — coordinator runs scripts via PATH, not via your login shell."
         OFFER_B_SUCCESS=0
       fi
     fi
@@ -293,6 +295,7 @@ fi"
                   echo ""
                   echo "Open a new shell or \`source $RC\` for the change to take effect — this Claude Code session inherits the stale PATH."
                   echo "  (macOS: a new terminal tab is often a non-login shell and will not source $RC automatically. Restart the terminal app to ensure the value is inherited.)"
+                  echo "  brew bash is now first on PATH; you do NOT need to make bash your login shell — coordinator runs scripts via PATH, not via your login shell."
                 else
                   STATUS: shellenv_block: failed (append succeeded but sentinel absent — inspect $RC)
                 fi
@@ -311,6 +314,16 @@ fi
 ```
 
 Status: `bash_version: failed (<version> — bash ≥ 4.3 required)`. Under `--check-only`, report the failed row without halting setup; otherwise a hard blocker for script-dependent phases.
+
+#### Login-shell orphan detection and repair (macOS — post-offer step)
+
+After the bash-version offers complete, if the `_co_probe_shell_login_env` probe (in `scripts/lib/prereq_probe.sh`) reports an orphaned bash login shell — meaning the user's login shell is `bash` but their `~/.bash_profile` does not carry `~/.local/bin` (where `claude` lives) — the install agent explains the situation in plain terms and offers repair:
+
+> **claude will vanish in a fresh terminal** because your bash login shell's `~/.bash_profile` does not include `~/.local/bin`. This does NOT mean you need to change your login shell back to zsh — the existing `~/.bash_profile` is simply missing the PATH entry. Run `normalize-env.sh` to reconstruct it.
+
+Offer to run `bash scripts/normalize-env.sh --yes` to reconstruct `~/.bash_profile`. **No `chsh` is offered, implied, or executed** — this step repairs an already-bash login shell; it does not create one and does not prompt the user to change their login shell in either direction.
+
+**Sentinel audit note.** Offer C's `case` statement and `normalize-env.sh`'s reconstruction share the single sentinel `# coordinator-install: brew shellenv (DR-148)`. A re-run where the login shell is already `bash` detects the reconstructed `~/.bash_profile` via the existing `grep -qF "$SENTINEL"` guard and stands down rather than appending a duplicate block.
 
 ### 1a. Git repository
 
@@ -410,8 +423,11 @@ Hooks and config helpers call `python3`. On **Windows**, `python3` resolves by d
 PY3="$(command -v python3 2>/dev/null || true)"
 if [ -z "$PY3" ]; then
   echo "python3: not_found"
-elif python3 -c 'import sys; print(sys.version.split()[0])' >/dev/null 2>&1; then
-  echo "python3: ready ($(python3 -c 'import sys; print(sys.version.split()[0])') at $PY3)"
+elif python3 --version >/dev/null 2>&1; then
+  # `--version` (not `python3 -c …`) avoids tripping the Windows console-popup
+  # advisory hook during the install ceremony; it also exits non-zero on the
+  # App-Execution-Alias stub, so it doubles as the stub detector.
+  echo "python3: ready ($(python3 --version 2>&1 | cut -d' ' -f2) at $PY3)"
 else
   # Resolves but does not execute → the Windows App-Execution-Alias stub
   echo "python3: App-Execution-Alias stub detected ($PY3) — Phase 3 install-substrate.sh installs a python3.cmd shim and offers to delete the orphan stub"
@@ -457,7 +473,7 @@ PWSH_MAJOR="${PWSH_VER%%.*}"
 
   - **macOS (`$OSTYPE` = `darwin*`):** `brew install powershell` — **formula, not cask.** The legacy `--cask powershell` was removed from homebrew-cask; PowerShell now ships as a homebrew-core formula (depends on `dotnet`). Requires brew (Offer A above). On success: `powershell: installed ($(pwsh --version | awk '{print $2}'))`.
   - **Linux (`$OSTYPE` = `linux*`):** if `command -v snap` → `sudo snap install powershell --classic`; else doc pointer — `powershell: not_found (install: https://learn.microsoft.com/powershell/scripting/install/install-on-linux)`. Distro package repos vary; a clean one-liner isn't portable.
-  - **Windows (`$OSTYPE` = `msys`/`cygwin`):** if `command -v winget.exe` → `winget.exe install --id Microsoft.PowerShell --source winget --accept-package-agreements --accept-source-agreements`; else doc pointer `https://learn.microsoft.com/powershell/scripting/install/install-on-windows`.
+  - **Windows (`$OSTYPE` = `msys`/`cygwin`):** if `command -v winget.exe` → `winget.exe install --id Microsoft.PowerShell --source winget --accept-package-agreements --accept-source-agreements`; else doc pointer `https://learn.microsoft.com/powershell/scripting/install/install-on-windows`. **New-shell caveat:** a winget install lands `pwsh` under `…\WindowsApps` (or the WinGet `Links` shim dir) which is NOT on the *current* shell's PATH — report `powershell: installed (open a NEW shell for it to appear on PATH)`, not a bare `ready`, so the operator doesn't expect `command -v pwsh` to resolve in-session.
 
 ### 1c.3 Windows Terminal (`wt`) — default-on, Windows only
 
@@ -475,7 +491,7 @@ fi
 ```
 
 - **Present:** `windows_terminal: ready`.
-- **Absent, interactive:** offer Y/n (default Y) → `winget.exe install --id Microsoft.WindowsTerminal --source winget --accept-package-agreements --accept-source-agreements`. On success `windows_terminal: installed`; on decline `windows_terminal: declined`; no winget → `windows_terminal: not_found (install via Microsoft Store or https://aka.ms/terminal)`.
+- **Absent, interactive:** offer Y/n (default Y) → `winget.exe install --id Microsoft.WindowsTerminal --source winget --accept-package-agreements --accept-source-agreements`. On success `windows_terminal: installed (open a NEW shell / Terminal for it to appear on PATH)` — like `pwsh`, the winget shim is not on the current shell's PATH until a new shell starts, so don't report a bare `ready`; on decline `windows_terminal: declined`; no winget → `windows_terminal: not_found (install via Microsoft Store or https://aka.ms/terminal)`.
 - **`--check-only`:** `windows_terminal: not_found (would offer)`. **`--non-interactive`:** skip — `windows_terminal: not_found (install offer suppressed — non-interactive)`.
 
 ### 1d. Deep research plugin
@@ -683,7 +699,7 @@ Add row to Phase 7 table.
 Scaffold (eager entries from `canonical-structure.yaml`) into `~/.claude`, landing `cross-repo/` with its README. Skip mutations under `--check-only` (emit `canonical_structure: would scaffold`).
 
 ```bash
-_scaffold_root="${CLAUDE_HOME:-$HOME/.claude}"
+_scaffold_root="${CLAUDE_HOME:-$HOME}/.claude"
 _scaffold_script="${CLAUDE_PLUGIN_ROOT}/bin/scaffold-canonical-structure.sh"
 bash "$_scaffold_script" --root "$_scaffold_root"
 ```
@@ -691,6 +707,21 @@ bash "$_scaffold_script" --root "$_scaffold_root"
 Idempotent — skips existing dirs/READMEs, never clobbers. On success: `canonical_structure: ready`. On non-zero: `canonical_structure: failed` (log stderr; do NOT halt — advisory, not hard infrastructure).
 
 Add a `Canonical structure` row to the Phase 7 status table.
+
+---
+
+### Step 7.5 — Install singularity gate (canonical-locus integrity)
+
+Verify the coordinator setup resolves to a single canonical `~/.claude` install — the invariant *the coordinator setup lives at `~/.claude`, period*. Catches the split-install failure mode where multiple coordinator trees (a stray `~/coordinator-claude`, a `~/Documents/GitHub` clone, plus the `~/.claude/plugins` symlink) register divergently across `settings.json` / `settings.local.json` / `known_marketplaces.json` and the loaded skill silently resolves to a stale copy (the 2026-06-26 three-tree failure). Also catches a doubled `.claude/.claude` venv pin and a `.claude`-suffixed `CLAUDE_HOME`.
+
+```bash
+_singularity_check="${CLAUDE_PLUGIN_ROOT}/lib/check-install-singularity.sh"
+bash "$_singularity_check"
+```
+
+A single explicitly-exported `COORDINATOR_CLONE` / `COORDINATOR_ROOT` dev-loop override (`.git`-backed clone) is exempt — exits 0 with an INFO line. A non-zero exit means an **accidental** split: print the remediation, add a `Install singularity` row to the Phase 7 status table marked `failed`, and surface to the operator (reconcile to one `~/.claude` install before relying on the setup). This is the install-time twin of doctor probe **P-18** (`coordinator-doctor.md` §3), which re-checks the same invariant on cadence.
+
+Add an `Install singularity` row to the Phase 7 status table.
 
 ---
 

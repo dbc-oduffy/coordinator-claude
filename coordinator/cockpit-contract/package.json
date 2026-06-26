@@ -14,6 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "emit": "tsx scripts/emit-schema.ts",
+    "emit:example": "COCKPIT_OWNER_NAMESPACES='example-org,example-team' COCKPIT_SCHEMA_OUT_DIR=./schema-example tsx scripts/emit-schema.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepare": "pnpm run build"

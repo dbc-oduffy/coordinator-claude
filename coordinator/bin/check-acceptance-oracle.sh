@@ -826,6 +826,21 @@ run_one_test() {
                 _one_reason="bats: test file not found: ${_bats_file} (path is resolved relative to the plan's repo root)"
                 return 0
             fi
+            # Detect real-bats syntax before running. The bats: cell contract (Fix-7,
+            # 2026-06-09) requires a plain-bash harness with #!/usr/bin/env bash and
+            # no @test / run constructs. A file using real-bats syntax will produce a
+            # cryptic "run: command not found" / "syntax error near `}'" when run under
+            # bash — emit an actionable red instead of the raw bash error.
+            # Review: code-reviewer CORRECTNESS — narrowed to @test-only gate; the bare
+            # `run ` alternative was a false-positive against plain-bash harnesses that
+            # define their own `run` helper (the qffs-tc4 harnesses all do this).
+            # A file using real bats syntax will always have @test blocks; `run` alone is
+            # not a reliable discriminator. Require @test as the sole gate.
+            if LC_ALL=C grep -qE '^[[:space:]]*@test[[:space:]]' "$_bats_file" 2>/dev/null; then
+                _one_ok=0
+                _one_reason="bats: cell runs under plain bash (Fix-7 portability contract) but ${_bats_file} uses bats @test syntax — rewrite as a plain-bash harness (#!/usr/bin/env bash, no @test). The oracle does not invoke the bats binary by design."
+                return 0
+            fi
             local _bats_out_file
             _bats_out_file="$(mktemp 2>/dev/null)" || _bats_out_file=""
             if [ -n "$_bats_out_file" ]; then

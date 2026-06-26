@@ -9,7 +9,7 @@
       "type": "string",
       "enum": [
         "dbc-oduffy",
-        "Delphi-Interactive",
+        "Example-Interactive",
         "workstation"
       ]
     },

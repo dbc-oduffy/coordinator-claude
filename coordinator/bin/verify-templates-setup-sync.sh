@@ -29,7 +29,7 @@ else
     PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 fi
 
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 TEMPLATES_SETUP="$PLUGIN_ROOT/templates/setup"
 LIVE_SETUP="$CLAUDE_HOME/setup"
 

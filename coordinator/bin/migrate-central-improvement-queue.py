@@ -14,7 +14,7 @@ Each produced record:
   - change_kind inferred from proposed_target path
 
 Spec backlink: docs/plans/2026-06-23-cockpit-contract-ext-wave2-emit-and-queue-migration.md § C2a  # Review: code-reviewer (F6) — corrected from stale 2026-06-22 plan path
-Research: state/roadmap/cockpit-contract-ext-2026-06-22/research-corpus/central-queue-restructure.md
+Research: archive/specs/2026-06/cockpit-contract-ext-research-corpus/central-queue-restructure.md
 
 Negative-spec:
   - Do NOT auto-resolve from_repo from cwd — the prose field names the originating repo.

@@ -19,7 +19,7 @@
 # set -uo pipefail — NOT set -e. A failed machine-local lookup must not abort the emit.
 set -uo pipefail
 
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 MACHINE_LOCAL="${CLAUDE_HOME}/bin/machine-local"
 
 # ---------------------------------------------------------------------------

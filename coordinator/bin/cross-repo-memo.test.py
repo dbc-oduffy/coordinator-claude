@@ -1269,7 +1269,7 @@ def test_canonical_receivers_not_rejected_by_publish_target_check() -> None:
         "central-em",
         "central",
         "dronesim-em",
-        "geneva-mvp-em",
+        "example-repo-em",
     ]
     for receiver in canonical_receivers:
         if mod._is_publish_target_em(receiver):

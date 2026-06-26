@@ -115,7 +115,7 @@ Report what exists and what needs to be created before proceeding.
 test -f coordinator.local.md && echo "exists" || echo "missing"
 ```
 
-If it exists, read it and capture `project_type` and `project_subtypes` (if present). Emit a one-line confirmation:
+If it exists, read it and capture `project_type`, `project_subtypes`, and `cross_platform` (all optional). Record `_CROSS_PLATFORM_DECLARED=true` when `cross_platform: true` is present. Emit a one-line confirmation:
 
 > Project type: {type}{ +subtypes: [{subtypes}] if any}. From coordinator.local.md — skipping Phase 2 question 2.
 
@@ -126,6 +126,19 @@ If `coordinator.local.md`'s `project_type` differs from the `detected_type` deri
 If `coordinator.local.md` is missing, proceed to Phase 2 question 2 (cold-ask) as normal.
 
 Also check for legacy values in the file: if `project_type` is `unreal`, `meta`, or bare `web`, emit a one-line warning with the migration hint (e.g. `unreal` → `project_type: game-dev` + `project_subtypes: [unreal]`). Do not auto-rewrite.
+
+**`cross_platform` inference (when absent from `coordinator.local.md` or when `coordinator.local.md` does not exist):** Run the cross-platform inference signal check and store results for the "Optional Tripwire Installs" offer later in this run. Two signals, either is sufficient:
+
+- **(a)** A `.github/workflows/*.yml` file carries an `os:` matrix with multiple entries (more than one OS value present — e.g. `ubuntu-latest` plus `macos-latest` and/or `windows-latest`).
+- **(b)** `*.sh` files exist in `bin/` AND a Windows-operator marker is present in `coordinator.local.md` (e.g. `project_type` or a custom field that implies Windows as a primary development environment).
+
+If either fires, set `_CROSS_PLATFORM_INFERRED=true` and record `_CROSS_PLATFORM_SIGNAL` as a human-readable description of which signal fired (e.g. `"detected: OS matrix with 3 entries in .github/workflows/ci.yml"`). **Do NOT auto-write `cross_platform: true`** — the correct shape is detect-then-ask; the offer prompt fires in "Optional Tripwire Installs." Detect-then-silently-pick is a footgun: an incorrect auto-enable installs a pytest CI snippet into a TypeScript repo.
+
+**Negative check — suppress duplicate install offer (Review: code-reviewer slice B):** Before setting `_CROSS_PLATFORM_INFERRED=true`, check whether `templates/ci/cross-platform-matrix.snippet.yml` already exists in the repo (or a consumer copy at an equivalent path). If signal (a) fires AND the snippet file is already present, the repo has already adopted the CI discipline — suppress the install offer and emit a one-line note instead:
+
+> _CI reference already installed (`templates/ci/cross-platform-matrix.snippet.yml` present) — skipping cross-platform install offer._
+
+Set `_CROSS_PLATFORM_INFERRED=false` (or leave unset) in this case. The signal correctly fired; the action it normally triggers is already done. This prevents the offer from self-firing on the meta-repo itself (which dogfoods the matrix as of C6) and on any consumer repo that has already copied the snippet.
 
 **Runtime marker scan:** Run `bash "$HOME/.claude/plugins/coordinator/bin/detect-project-runtime.sh"` and capture the output. Show to PM in Phase 2 above question 2 as `_(detected stack: <one-line summary>)_`. PM's answer is authoritative; detection is sanity-check only. Output is advisory stdout — no skill/agent/hook reads it programmatically (adding a consumer requires a separate plan per `archive/specs/2026-05-06-detect-project-runtime.md`).
 
@@ -555,6 +568,8 @@ Two things worth flagging before you dive in:
 
 1. **Fill in CLAUDE.md** *(only if Phase 3a rendered the template this session — skip if CLAUDE.md was authored bespoke)* — the `<!-- Fill in -->` sections need project-specific details. Skip silently if `_PHASE_3A_RENDERED_CLAUDE_MD=true` was not set.
 
+2. **Cross-platform CI reference available** — if this repo targets multiple OSes, a 3-OS matrix snippet and honest-measurement marker conventions are available at `templates/ci/cross-platform-matrix.snippet.yml`; the principle lives at `docs/wiki/cross-platform-ci-discipline.md`. Declare `cross_platform: true` in `coordinator.local.md` and re-run `/repo-setup` to trigger the language-aware install offer.
+
 To verify the install: `python3 -m coordinator_whoami.project_rag`.
 
 To start your first workstream now, just describe what you want to do — the EM has full context from the setup conversation.
@@ -656,6 +671,49 @@ pytest tests/test_no_bare_console_subprocess.py
 Offer the install when the PM has not already done so (check for the file in the
 consuming repo's test tree). If the PM declines, note it in the Phase 4 REPORT under
 `### Needs Attention` with a one-line pointer to the template path.
+
+### Cross-platform CI reference (offer when `cross_platform` is declared or inferred-and-confirmed)
+
+Offer this CI reference when `_CROSS_PLATFORM_DECLARED=true` (from Phase 1 `coordinator.local.md` capture) OR when `_CROSS_PLATFORM_INFERRED=true` and the PM confirms the inference prompt.
+
+**Inference prompt (when `_CROSS_PLATFORM_INFERRED=true` and `_CROSS_PLATFORM_DECLARED` is unset):**
+
+> This repo looks cross-platform (detected: {_CROSS_PLATFORM_SIGNAL}). Declare `cross_platform: true` in `coordinator.local.md` and install the CI reference? [yes / no / not now]
+
+On "yes": write `cross_platform: true` as a flat top-level entry into `coordinator.local.md` (same shape as `fast_test_cmd`) and set `_CROSS_PLATFORM_DECLARED=true`, then proceed to the offer below. On "no" or "not now": skip the CI reference offer and note the decline in `### Needs Attention`. **Never auto-write without asking — detect-then-ask, not detect-then-silently-pick.**
+
+**Why this uses an explicit declared field rather than pure signal-detect:** repo-setup's existing tripwire offers key on detected code signals (e.g. `*.sh` presence), but `cross_platform: true` is a deliberate departure from that pattern. Cross-platform-ness is a cross-cutting property that applies equally to TS, Python, C++, and Rust repos; it is most honestly declared by an operator who has thought it through. Silent inference risks a false positive — e.g. inferring cross-platform from `*.sh` in `bin/` and auto-installing a pytest CI snippet into a TypeScript repo. The explicit optional field preserves operator judgment while keeping the detect-then-ask path for convenience.
+
+**Offer text (once cross-platform is declared or inferred-and-confirmed):**
+
+> This repo declares cross-platform support. Install the cross-platform CI reference (3-OS matrix + honest-measurement markers)?
+>
+> Principle wiki: `docs/wiki/cross-platform-ci-discipline.md`
+> Reference snippet: `~/.claude/plugins/coordinator/templates/ci/cross-platform-matrix.snippet.yml`
+
+**Language-aware install — IMPORTANT: do not hand a pytest snippet to a non-Python repo.**
+
+- **Python repos** (`detected_type == data-science` OR `pyproject.toml` / `requirements.txt` / `pytest.ini` detected in Phase 1): auto-copy `templates/ci/cross-platform-matrix.snippet.yml` into the consuming repo, then link the principle wiki and add a `### Needs Attention` reminder to adapt the marker names and deselect logic for the project's hardware-gated tests:
+
+  ```bash
+  # 1. Copy the snippet into the consuming repo
+  mkdir -p templates/ci
+  cp "$HOME/.claude/plugins/coordinator/templates/ci/cross-platform-matrix.snippet.yml" \
+     templates/ci/cross-platform-matrix.snippet.yml
+
+  # 2. Review inline comments — adapt marker names (cross_repo_fix_locus is coordinator-standard;
+  #    hardware-gate markers like real_spawn are project-rag-specific examples, replace with your own)
+
+  # 3. Wire the matrix block into your CI workflow (GitHub Actions, GitLab CI, etc.)
+  ```
+
+- **Non-Python repos (TS, Rust, UE-C++, general):** do NOT copy the pytest snippet. Instead, surface the wiki + snippet as a worked example:
+
+  > The cross-platform CI reference (`cross-platform-matrix.snippet`) is a worked **pytest** example of the language-agnostic principle. Adapt the matrix and honest-measurement marker conventions to your CI system and test runner. See `docs/wiki/cross-platform-ci-discipline.md` for the principle.
+
+**Template path:** `~/.claude/plugins/coordinator/templates/ci/cross-platform-matrix.snippet.yml`
+
+Offer the install when the PM has not already done so (check for the snippet in the consuming repo's tree). If the PM declines, note it in the Phase 4 REPORT under `### Needs Attention` with a one-line pointer to the template path and wiki.
 
 ## Coordinator Conventions — Discovery Summary
 

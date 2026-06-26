@@ -1,0 +1,1074 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/artifact-shape-contract.schema.json",
+  "title": "Coordinator artifact shape contract",
+  "description": "Versioned JSON Schema contract for all coordinator tracked artifact types (tc-4 B1). Single registry-wide version 1.0.0. Consumers vendor this file for a pinned shape; project-rag/opticon are consumers, not part of the producer surface.",
+  "version": "1.0.0",
+  "schema_count": 16,
+  "$defs": {
+    "archived-memo": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "archived-memo",
+      "description": "Coordinator artifact schema: archived-memo. Source: schemas/archived-memo.yaml.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "related_plan": {
+          "type": "string"
+        },
+        "related_review": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "status"
+      ],
+      "x-coordinator-applies_to": "cross-repo/archive/*.md"
+    },
+    "audit-record": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "audit-record",
+      "description": "Coordinator artifact schema: audit-record. Source: schemas/audit-record.yaml.",
+      "type": "object",
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "system": {
+          "type": "string"
+        },
+        "grade": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F"
+          ]
+        },
+        "health_status": {
+          "enum": [
+            "HEALTHY",
+            "WATCH",
+            "ACTION",
+            "CRITICAL"
+          ]
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "mode": {
+          "enum": [
+            "RESEARCH_ONLY",
+            "FULL",
+            "REMEDIATION"
+          ]
+        }
+      },
+      "required": [
+        "run_id",
+        "system",
+        "grade",
+        "health_status",
+        "reviewer",
+        "created"
+      ],
+      "x-coordinator-applies_to": "docs/architecture/audit-records/*.md"
+    },
+    "completion-entry": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "completion-entry",
+      "description": "Coordinator artifact schema: completion-entry. Source: schemas/completion-entry.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "nature": {
+          "enum": [
+            "roadmap",
+            "bugfix",
+            "tech-debt",
+            "infra"
+          ]
+        },
+        "chain": {
+          "type": "string"
+        },
+        "commits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "enum": [
+            "pending-release",
+            "released"
+          ]
+        },
+        "released_in": {
+          "type": "string"
+        },
+        "released_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "released_sha": {
+          "type": "string"
+        },
+        "chain_terminal": {
+          "description": "[emit-note] unrecognised field type \"bool\" for field \"chain_terminal\""
+        },
+        "loe": {
+          "description": "[emit-note] unrecognised descriptor for field \"loe\": {\"type\":\"object\",\"fields\":{\"agent_dispatches\":{\"type\":\"number-or-null\"},\"opus_dispatches\":{\"type\":\"number-or-null\"},\"em_tokens\":{\"type\":\"number-or-null\"},\"tshirt\":{\"type\":\"enum\",\"values\":[\"XS\",\"S\",\"M\",\"L\",\"XL\"]}}}"
+        },
+        "chain_loe": {
+          "description": "[emit-note] unrecognised descriptor for field \"chain_loe\": {\"type\":\"object\",\"fields\":{\"sessions\":{\"type\":\"number-or-null\"},\"agent_dispatches\":{\"type\":\"number-or-null\"},\"opus_dispatches\":{\"type\":\"number-or-null\"},\"em_tokens\":{\"type\":\"number-or-null\"},\"tshirt\":{\"type\":\"enum\",\"values\":[\"XS\",\"S\",\"M\",\"L\",\"XL\"]}}}"
+        },
+        "chain_sessions_with_ledger": {
+          "type": "string"
+        },
+        "chain_span_days": {
+          "type": "number"
+        },
+        "chain_starting_handoff": {
+          "type": "string"
+        },
+        "chain_walk_terminated_early": {
+          "type": "string"
+        },
+        "narrative": {
+          "type": "string"
+        },
+        "narrative_in": {
+          "type": "string"
+        },
+        "nature_inferred": {
+          "description": "[emit-note] unrecognised field type \"bool\" for field \"nature_inferred\""
+        },
+        "authored_by": {
+          "type": "string"
+        },
+        "workstream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "created",
+        "nature"
+      ],
+      "x-coordinator-applies_to": "archive/completed/*/*.md"
+    },
+    "cross-repo-memo": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "cross-repo-memo",
+      "description": "Coordinator artifact schema: cross-repo-memo. Source: schemas/cross-repo-memo.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "in_progress",
+            "actioned",
+            "reviewed",
+            "action_taken",
+            "closed",
+            "superseded"
+          ]
+        },
+        "delivery_mode": {
+          "enum": [
+            "receiver-repo",
+            "central-only"
+          ]
+        },
+        "related": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supersedes": {
+          "type": "string"
+        },
+        "superseded_by": {
+          "type": "string"
+        },
+        "picked_up_by": {
+          "type": "string"
+        },
+        "picked_up_at": {
+          "type": "string"
+        },
+        "received_at": {
+          "type": "string"
+        },
+        "received_by": {
+          "type": "string"
+        },
+        "reviewed_at": {
+          "type": "string"
+        },
+        "action_taken_at": {
+          "type": "string"
+        },
+        "closed_at": {
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "accepted",
+            "declined",
+            "partial",
+            "superseded"
+          ]
+        },
+        "decision_note": {
+          "type": "string"
+        },
+        "actioned_note": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "from",
+        "to",
+        "created",
+        "status",
+        "delivery_mode"
+      ],
+      "x-coordinator-applies_to": "cross-repo/inbox/[0-9]*.md"
+    },
+    "decision": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "decision",
+      "description": "Coordinator artifact schema: decision. Source: schemas/decision.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "enum": [
+            "proposed",
+            "accepted",
+            "deprecated",
+            "superseded"
+          ]
+        },
+        "deciders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "superseded_by": {
+          "type": "string"
+        },
+        "context": {
+          "type": "string"
+        },
+        "driver": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "created",
+        "status",
+        "deciders"
+      ],
+      "x-coordinator-applies_to": "docs/decisions/*.md"
+    },
+    "docs-check-sidecar": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "docs-check-sidecar",
+      "description": "Coordinator artifact schema: docs-check-sidecar. Source: schemas/docs-check-sidecar.yaml.",
+      "type": "object",
+      "properties": {
+        "artifact": {
+          "type": "string"
+        },
+        "checker": {
+          "type": "string"
+        },
+        "claims_checked": {
+          "type": "number"
+        },
+        "verified": {
+          "type": "number"
+        },
+        "unverified": {
+          "type": "number"
+        },
+        "incorrect": {
+          "type": "number"
+        },
+        "auto_fixed": {
+          "type": "number"
+        },
+        "verification_source": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact"
+      ],
+      "x-coordinator-applies_to": "docs/plans/*.docs-check.md"
+    },
+    "handoff": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "handoff",
+      "description": "Coordinator artifact schema: handoff. Source: schemas/handoff.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "consumed",
+            "superseded"
+          ]
+        },
+        "predecessor": {
+          "description": "[emit-note] unrecognised descriptor for field \"predecessor\": {\"type\":\"string-or-null\"}"
+        },
+        "consumed_by": {
+          "type": "string"
+        },
+        "consumed_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "session_goal": {
+          "type": "string"
+        },
+        "machine": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "session-handoff",
+            "spinoff",
+            "spinoff-roadmap",
+            "recovery"
+          ]
+        },
+        "authoring_session": {
+          "type": "string"
+        },
+        "workstream": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "install_chain_order": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pickup_ready": {
+          "type": "boolean"
+        },
+        "deployment_state": {
+          "enum": [
+            "awaiting_gate",
+            "ready_to_fire",
+            "in_flight",
+            "shipped",
+            "abandoned"
+          ]
+        },
+        "gate_dependency": {
+          "type": "string"
+        },
+        "shipped_in": {
+          "type": "string"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roadmap_id": {
+          "type": "string"
+        },
+        "tc_id": {
+          "type": "string"
+        },
+        "sprint": {
+          "type": "number"
+        },
+        "wave": {
+          "type": "number"
+        },
+        "cost": {
+          "type": "string"
+        },
+        "category": {
+          "enum": [
+            "roadmap",
+            "infra",
+            "bug",
+            "docs",
+            "research",
+            "refactor",
+            "uncategorized"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "reviewed_at_workstream_complete": {
+          "type": "string"
+        },
+        "completeness_checklist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "created",
+        "branch",
+        "status",
+        "predecessor"
+      ],
+      "x-coordinator-applies_to": "state/handoffs/*.md"
+    },
+    "handoff-archived": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "handoff-archived",
+      "description": "Coordinator artifact schema: handoff-archived. Source: schemas/handoff-archived.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "consumed",
+            "superseded"
+          ]
+        },
+        "predecessor": {
+          "description": "[emit-note] unrecognised descriptor for field \"predecessor\": {\"type\":\"string-or-null\"}"
+        },
+        "consumed_by": {
+          "type": "string"
+        },
+        "consumed_at": {
+          "type": "string",
+          "format": "date"
+        },
+        "shipped_in": {
+          "type": "string"
+        },
+        "session_goal": {
+          "type": "string"
+        },
+        "machine": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "session-handoff",
+            "spinoff",
+            "spinoff-roadmap",
+            "recovery"
+          ]
+        },
+        "authoring_session": {
+          "type": "string"
+        },
+        "workstream": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pickup_ready": {
+          "type": "boolean"
+        },
+        "deployment_state": {
+          "enum": [
+            "awaiting_gate",
+            "ready_to_fire",
+            "in_flight",
+            "shipped",
+            "abandoned"
+          ]
+        },
+        "gate_dependency": {
+          "type": "string"
+        },
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roadmap_id": {
+          "type": "string"
+        },
+        "reviewed_at_workstream_complete": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "created",
+        "branch",
+        "status",
+        "predecessor"
+      ],
+      "x-coordinator-applies_to": "archive/handoffs/*.md"
+    },
+    "integration-summary": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "integration-summary",
+      "description": "Coordinator artifact schema: integration-summary. Source: schemas/integration-summary.yaml.",
+      "type": "object",
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "integrator": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "x-coordinator-applies_to": "docs/plans/*.integration-summary.md"
+    },
+    "lesson-entry": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "lesson-entry",
+      "description": "Coordinator artifact schema: lesson-entry. Source: schemas/lesson-entry.yaml.",
+      "type": "object",
+      "properties": {},
+      "x-coordinator-applies_to": "state/lessons.md"
+    },
+    "plan": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "plan",
+      "description": "Coordinator artifact schema: plan. Source: schemas/plan.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "author": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "reviewed",
+            "approved",
+            "executing",
+            "implemented",
+            "deferred",
+            "abandoned",
+            "superseded"
+          ]
+        },
+        "branch": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "superseded_by": {
+          "type": "string"
+        },
+        "scope_mode": {
+          "type": "string"
+        },
+        "problem_set": {
+          "type": "string"
+        },
+        "predecessor_handoff": {
+          "type": "string"
+        },
+        "prerequisite_of": {
+          "type": "string"
+        },
+        "source_memo": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "created",
+        "author",
+        "status"
+      ],
+      "x-coordinator-applies_to": "docs/plans/*.md"
+    },
+    "plan-coverage-check": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "plan-coverage-check",
+      "description": "Coordinator artifact schema: plan-coverage-check. Source: schemas/plan-coverage-check.yaml.",
+      "type": "object",
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "x-coordinator-applies_to": "docs/plans/*.plan-coverage-check.md"
+    },
+    "prior-art-check": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "prior-art-check",
+      "description": "Coordinator artifact schema: prior-art-check. Source: schemas/prior-art-check.yaml.",
+      "type": "object",
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "type": "string"
+        },
+        "conflicts": {
+          "type": "number"
+        },
+        "compatible": {
+          "type": "number"
+        },
+        "silent": {
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "x-coordinator-applies_to": "docs/plans/*.prior-art-check.md"
+    },
+    "problem-set": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "problem-set",
+      "description": "Coordinator artifact schema: problem-set. Source: schemas/problem-set.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "ratified_by": {
+          "type": "string"
+        },
+        "ratified_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "title",
+        "status"
+      ],
+      "x-coordinator-applies_to": "docs/problems/*.md"
+    },
+    "review": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "review",
+      "description": "Coordinator artifact schema: review. Source: schemas/review.yaml.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "reviewer": {
+          "enum": [
+            "patrik",
+            "sid",
+            "camelia",
+            "pali",
+            "fru",
+            "zoli",
+            "code-reviewer"
+          ]
+        },
+        "target": {
+          "type": "string"
+        },
+        "findings_count": {
+          "description": "[emit-note] unrecognised descriptor for field \"findings_count\": {\"type\":\"number\"}"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "disposition": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "created",
+        "reviewer",
+        "target",
+        "findings_count"
+      ],
+      "x-coordinator-applies_to": "state/reviews/*.md"
+    },
+    "review-sidecar": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "review-sidecar",
+      "description": "Coordinator artifact schema: review-sidecar. Source: schemas/review-sidecar.yaml.",
+      "type": "object",
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "created": {
+          "type": "string",
+          "format": "date"
+        },
+        "author": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "findings_count": {
+          "type": "number"
+        },
+        "diff_sha": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "predecessor_review": {
+          "type": "string"
+        },
+        "prior_art_check": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "x-coordinator-applies_to": "docs/plans/*.review.md"
+    }
+  },
+  "liveness_mapping": {
+    "version": "1.0.0",
+    "spec_backlink": "docs/wiki/canonical-artifact-shapes.md § The Cross-Type Liveness Predicate",
+    "implementation_ref": "bin/query-records.js liveness(fm, type)",
+    "note": "Rules evaluated in order; first match wins. Unknown values resolve LIVE (open posture).",
+    "types": {
+      "handoff": {
+        "combination_rule": "two-axis",
+        "note": "status and deployment_state combine; see axes.",
+        "axes": {
+          "status": {
+            "consumed": "DONE",
+            "superseded": "DONE"
+          },
+          "deployment_state": {
+            "awaiting_gate": "BLOCKED",
+            "ready_to_fire": "LIVE",
+            "in_flight": "LIVE",
+            "shipped": "DONE",
+            "abandoned": "DONE"
+          }
+        },
+        "combination_logic": [
+          {
+            "condition": "status ∈ {consumed,superseded} OR deployment_state ∈ {shipped,abandoned}",
+            "result": "DONE"
+          },
+          {
+            "condition": "deployment_state == awaiting_gate",
+            "result": "BLOCKED"
+          },
+          {
+            "condition": "otherwise",
+            "result": "LIVE"
+          }
+        ]
+      },
+      "handoff-archived": {
+        "note": "Same schema and combination rule as handoff.",
+        "combination_rule": "two-axis",
+        "ref": "handoff"
+      },
+      "cross-repo-memo": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "mapping": {
+          "open": "LIVE",
+          "in_progress": "LIVE",
+          "actioned": "DONE",
+          "reviewed": "DONE",
+          "action_taken": "DONE",
+          "closed": "DONE",
+          "superseded": "DONE"
+        },
+        "default": "LIVE"
+      },
+      "plan": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "note": "deployment_state is IGNORED for plan (plans have no deployment_state).",
+        "mapping": {
+          "draft": "LIVE",
+          "reviewed": "LIVE",
+          "approved": "LIVE",
+          "executing": "LIVE",
+          "implemented": "DONE",
+          "deferred": "BLOCKED",
+          "abandoned": "DONE",
+          "superseded": "DONE"
+        },
+        "default": "LIVE"
+      },
+      "decision": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "note": "An accepted decision record is terminal — no further lifecycle transitions expected.",
+        "mapping": {
+          "proposed": "LIVE",
+          "accepted": "DONE",
+          "deprecated": "DONE",
+          "superseded": "DONE"
+        },
+        "default": "LIVE"
+      },
+      "improvement-queue": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "query_type": "improvement",
+        "mapping": {
+          "open": "LIVE",
+          "closed": "DONE",
+          "deferred": "BLOCKED"
+        },
+        "default": "LIVE"
+      },
+      "bug-backlog": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "query_type": "bug",
+        "mapping": {
+          "open": "LIVE",
+          "closed": "DONE",
+          "wontfix": "DONE",
+          "deferred": "BLOCKED"
+        },
+        "default": "LIVE",
+        "notes": {
+          "wontfix": "Terminal — conscious rejection, not deferred work."
+        }
+      },
+      "debt-backlog": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "query_type": "debt",
+        "mapping": {
+          "open": "LIVE",
+          "closed": "DONE",
+          "deferred": "BLOCKED"
+        },
+        "default": "LIVE"
+      },
+      "lesson": {
+        "combination_rule": "single-axis",
+        "axis": "status",
+        "note": "Status is derived at query time by parseLessonsFile from prose conventions; not a stored frontmatter field.",
+        "mapping": {
+          "resolved": "DONE",
+          "open": "LIVE"
+        },
+        "default": "LIVE"
+      }
+    }
+  }
+}

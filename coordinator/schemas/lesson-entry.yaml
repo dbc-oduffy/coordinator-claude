@@ -1,7 +1,108 @@
 schema: lesson-entry
 applies_to: "state/lessons.md"
+# ---------------------------------------------------------------------------
+# Capture model: INLINE MARKDOWN BOLD-TITLE APPEND — UNCHANGED (Zolí P2-4)
+#
+# state/lessons.md is an append-only flat markdown file. Each lesson is
+# written as a plain markdown Edit-append — NO CLI, NO arg-construction:
+#
+#   **Bold title [universal]** prose body … (YYYY-MM-DD) … Belongs in <wiki>.md
+#
+# This capture path is FROZEN by the capture-friction guardrail (Zolí P2-4):
+# any structured capture for lessons MUST NOT regress capture-friction vs a
+# plain markdown Edit-append (the metric is agent-authoring arg-construction
+# overhead, not wall-clock). Stored per-entry frontmatter (per-entry YAML via
+# CLI, or a frontmatter block the author must hand-type) is STRICTLY more
+# arg-construction than an inline append → guardrail failure. Therefore:
+#
+#   THE MACHINE LAYER IS DERIVED AT QUERY TIME, NOT STORED AS PER-ENTRY
+#   FRONTMATTER — in this file or anywhere else.
+#
+# query-records.js parseLessonsFile extracts the structured fields from the
+# already-documented prose conventions (see derived_fields: below). The
+# expressive body (UPDATE addenda, SECOND-INSTANCE threads) remains free-text.
+#
+# Spec backlink:
+#   docs/wiki/canonical-artifact-shapes.md § tc-2 — Queue + lessons doctrine
+#   docs/wiki/canonical-artifact-shapes.md § Why DERIVED, Not Stored
+#
+# NEVER add required per-entry frontmatter to state/lessons.md — that is the
+# exact capture-friction regression the guardrail exists to prevent. This
+# schema documents the DERIVED contract, not a stored-frontmatter grammar.
+# ---------------------------------------------------------------------------
 match_mode: inline-tag-per-entry
-entry_pattern: "^\\*\\*[^*]+\\*\\*"
+# entry_pattern: conceptual pattern for the leading bold-title run of a lesson
+# entry. DOCUMENTATION ONLY — query-records.js parseLessonsFile is the live
+# parser; this pattern is not enforced at write-time.
+#
+# Repaired from the minimal ^\\*\\*[^*]+\\*\\* (which silently dropped ~7/97
+# entries whose titles contain an inner '*' — italics tokens like *pattern*,
+# glob paths like work/*) to the non-greedy lookahead form per C4 fix intent:
+# the (?:[^*]|\\*(?!\\*))+ alternation matches any char that is not '*', or a
+# '*' that is NOT followed by another '*' (i.e. an inner single-'*' token).
+# The leading \\s*[-*]?\\s* supports an optional bullet prefix on list entries.
+entry_pattern: "^\\s*[-*]?\\s*\\*\\*((?:[^*]|\\*(?!\\*))+)\\*\\*"
 tag_enum:
   values: [universal, project]
   untagged_allowed: true
+
+# ---------------------------------------------------------------------------
+# DERIVED machine-layer fields
+#
+# These are the structured fields query-records.js parseLessonsFile extracts
+# from the prose conventions in state/lessons.md at query time. NONE are
+# stored as per-entry frontmatter (see capture-model comment above).
+#
+# Coverage figures are empirically measured against the 97-entry back-catalog
+# as of tc-2 (2026-06-25). Back-catalog sparsity on date/evidence tokens is an
+# inherent cost of DERIVED-not-stored for pre-convention entries — a stored
+# field could NOT retroactively populate them either.
+# ---------------------------------------------------------------------------
+derived_fields:
+  title:
+    source: "the leading **bold** run of each entry (text between the outermost ** delimiters)"
+    coverage: "97/97 — every entry has a bold title; the append format requires it"
+  scope:
+    source: "the [universal] or [project] inline token immediately after the bold-title run"
+    default: "untagged (treated as project-scoped by convention)"
+    coverage: "~96/97 — one legacy entry predates the scope-tagging convention"
+  created:
+    source: "inline (YYYY-MM-DD) token present anywhere in the entry body"
+    coverage: "SPARSE — ~2/97 back-catalog entries carry a date token; the prose convention postdates most entries"
+    note: "DERIVED-not-stored cannot retroactively populate back-catalog entries. tc-5 temporal queries MUST NOT rely on per-lesson created for pre-convention entries; scope (~96/97) and target_wiki (~69/97) are the reliable fleet-query axes."
+  evidence:
+    source: "inline Fixed <sha> or (<sha>) token if present in the entry body"
+    coverage: "SPARSE — ~6/97 entries carry a SHA token"
+  target_wiki:
+    source: "trailing 'Belongs in <wiki>.md' clause at the end of the entry body"
+    coverage: "~69/97 — the routing axis alongside scope for fleet queries"
+  status:
+    source: "DONE if the body carries 'Resolved', 'SUPERSEDES', or '→ RESOLVED'; else open (LIVE)"
+    coverage: "100% derivable — every entry is either an open live pattern or carries a resolution marker"
+
+# ---------------------------------------------------------------------------
+# Capture convention — SHOULD-level nudge for NEW entries only
+#
+# New lessons SHOULD carry the (YYYY-MM-DD) date token and the
+# 'Belongs in <wiki>.md' clause so the DERIVED fields are richer for entries
+# written after the tc-2 convention is established. Example:
+#
+#   **Title [universal]** Body prose. (2026-06-25) Belongs in lesson-triage.md
+#
+# This is a SHOULD nudge, NEVER a required field, NEVER enforced by any hook
+# or validator. Absence of either token is tolerated — the entry still parses
+# and scope/status derive normally from the prose. Pre-convention back-catalog
+# entries are NOT retrofitted; the sparse coverage is the honest cost of
+# DERIVED-not-stored.
+# ---------------------------------------------------------------------------
+capture_convention:
+  date_token:
+    form: "(YYYY-MM-DD)"
+    level: SHOULD
+    note: "Enables the derived 'created' field; absent → created: null in query output"
+  wiki_clause:
+    form: "Belongs in <wiki>.md"
+    level: SHOULD
+    note: "Enables the derived 'target_wiki' field; absent → target_wiki: null in query output"
+  required: false
+  hook_enforced: false

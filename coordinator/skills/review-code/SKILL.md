@@ -115,7 +115,8 @@ Walk each finding against the triage table — it lands in exactly one row:
 
 - _Tradeoff-free correctness fix?_ (wrong API name, broken citation, missing import, wrong precedence, factual error, internally inconsistent identifier, off-by-one in clear path)
   → Dispatch `coordinator:review-integrator` with `mode: "acceptEdits"` and the findings. EM spot-checks the diff.
-  _See CLAUDE.md § Reviewer findings — apply, don't ratify._
+  **Never hand-author the fix yourself, however small it looks.** The integrator is not a cheaper typist — it is a *fresh agent that independently re-checks each finding against current disk before applying it*. That second check catches findings that were wrong, stale, or mis-scoped (a concurrent executor moved the schema; the rename collides with a constraint that landed after the review) — exactly what self-authoring discards by applying the reviewer's claim at face value. "One line / obvious" is the rationalization this rule defeats, not an exception to it.
+  _See CLAUDE.md § Reviewer findings — apply, don't ratify; `review-integration-doctrine.md` § The integrator is a second checker._
   - _(i) Math / algebra / precedence / symbolic-reasoning finding from a single agent?_ → Verify against source before applying. _See CLAUDE.md ¶ Exception — math, algebra, precedence._
 
 - _Code-shape tradeoff?_ (architectural direction, scope question, file-organization call, abstraction boundary)

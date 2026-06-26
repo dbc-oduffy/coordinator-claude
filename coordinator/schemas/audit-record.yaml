@@ -1,0 +1,94 @@
+# ---------------------------------------------------------------------------
+# audit-record schema — VALIDATE altitude
+#
+# Spec backlink: docs/plans/2026-06-25-qffs-tc-3-expressive-audit-canonical-shape.md § D1
+#
+# PURPOSE
+# Validates YAML frontmatter on architecture audit records produced by
+# `coordinator-doc-new --type audit-record` (GENERATE altitude). Auto-registered
+# by `loadSchemas` dir-scan in `bin/lib/schema.js`; matched to records at
+# `docs/architecture/audit-records/*.md` via the `applies_to` glob below.
+# See `docs/wiki/canonical-artifact-shapes.md § Schema Registry as Published Contract`
+# (:403) for the GENERATE/VALIDATE/QUERY altitude model that governs this shape.
+#
+# REQUIRED-SET RECONCILIATION
+# (canonical-artifact-shapes.md:449 — no-tighten-required-set hard constraint;
+#  state/lessons.md:78 — required: set must equal the intersection of conformant records)
+#
+# This is a NEW schema — no conformant legacy records exist on disk. The full
+# `required:` set declared below is therefore valid under the no-tighten rule:
+#
+#   (a) NEW SCHEMA: no pre-existing conformant records exist; the constraint
+#       "required = intersection of conformant records" is vacuously satisfied
+#       for an empty conformant-records set, and is then established afresh by
+#       the first scaffold-produced records.
+#
+#   (b) FROZEN HISTORICAL RECORDS: the three historical audit records
+#       (`docs/architecture/audit-records/2026-05-28-coordinator-runtime.md`
+#       et al.) are frozen point-in-time artifacts per tc-3 D4 and carry NO
+#       frontmatter — they predated both this schema and the scaffolder. They
+#       do NOT count as "conformant records" for intersection purposes and are
+#       NOT retrofitted.
+#
+#   (c) WARN-BY-DEFAULT VALIDATOR: `validate-frontmatter-schema.js` is
+#       warn-by-default and edit-triggered (PreToolUse hook on Write/Edit).
+#       Frozen records that carry no frontmatter are never opened for editing
+#       and therefore are never blocked by validation.
+#
+#   (d) SCAFFOLDER-PRODUCED RECORDS: all new audit records are emitted by
+#       `coordinator-doc-new --type audit-record` (C2 scaffolder), which
+#       carries every required field. The intersection of new-record fields
+#       IS the full required-set — the six fields below are exactly what the
+#       scaffolder emits, no tightening occurs.
+#
+# TEMPORAL KEY
+# `created` (not `date`) — per tc-1 D4, `created` is the canonical temporal
+# key for record-family artifacts. See `canonical-artifact-shapes.md § D4` (:539).
+# Do NOT use `date:` in new audit records.
+#
+# OPTIONAL INDEX AXIS
+# `mode` is OPTIONAL — it is a frontmatter index axis enabling dashboard
+# queries filtered by audit mode (RESEARCH_ONLY | FULL | REMEDIATION) without
+# parsing prose. Prose elaboration of the mode in the body remains optional
+# alongside the enum and does not replace it. Records where mode is
+# unspecified are not blocked.
+#
+# NO `kind:` / `kinds:` KEY
+# Audit records are path-matched (via `applies_to` glob), not kind-matched.
+# Adding a `kind:` key here would risk the fail-loud dup-kind path in
+# `loadSchemas` (`bin/lib/schema.js:344`) if any other schema ever claims the
+# same kind string. Path-matching is sufficient and correct for this family.
+#
+# CANONICAL BODY-SECTION VOCABULARY (RAG-bait)
+# The following named sections constitute the canonical body grammar for
+# architecture audit records. Section-grammar ENFORCEMENT lives in the C2
+# scaffolder (`coordinator-doc-new --type audit-record`), not in this schema
+# file — the schema validates frontmatter only.
+#
+#   ## 1. System Health Grade
+#   ## 2. Convergent Findings
+#   ### Diagram (ASCII)        ← addressable diagram section; format/≤100-char
+#                                  rule per canonical-artifact-shapes.md § Diagram (ASCII) Rule (:301)
+#   ## Verified Findings Slate
+#   ## Grade Rationale
+#   ## Suggested Spinoff Groupings
+#   ## Ambition Check
+#
+# ---------------------------------------------------------------------------
+schema: audit-record
+applies_to: "docs/architecture/audit-records/*.md"
+required:
+  run_id: string
+  system: string
+  grade:
+    type: enum
+    values: [A, B, C, D, E, F]
+  health_status:
+    type: enum
+    values: [HEALTHY, WATCH, ACTION, CRITICAL]
+  reviewer: string
+  created: iso-date
+optional:
+  mode:
+    type: enum
+    values: [RESEARCH_ONLY, FULL, REMEDIATION]

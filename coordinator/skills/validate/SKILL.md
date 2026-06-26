@@ -35,7 +35,7 @@ There is no conventional fallback to `.github/scripts/run-all-checks.py`. The me
 Source the resolver lib, call `cs_resolve_fast_test_cmd`, then execute the resolved command:
 
 ```bash
-_LIB="$HOME/.claude/plugins/coordinator/lib/coordinator-resolve-validation-cmd.sh"
+_LIB="${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-resolve-validation-cmd.sh"
 _DIAG_TMP=$(mktemp)
 trap 'rm -f "$_DIAG_TMP"' EXIT
 

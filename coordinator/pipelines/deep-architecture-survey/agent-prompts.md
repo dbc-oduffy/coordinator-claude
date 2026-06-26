@@ -549,10 +549,19 @@ it calls System B, but System B's report doesn't list that entry point).
 
 **Artifact 1: systems-index.md**
 
-```markdown
-# Architecture Atlas — Systems Index
+<!-- C4 (qffs-tc-3): top-level atlas files now use YAML frontmatter, not >-quoted headers.
+     Future survey re-runs MUST emit the frontmatter format shown below. -->
 
-> Last full mapping: [YYYY-MM-DD]
+```markdown
+---
+last_mapped: [YYYY-MM-DD]
+mode: "[mode-string]"
+# last_attested: intentionally omitted — top-level atlas files carry only last_mapped: (survey clock)
+# and do not participate in the targeted-audit two-clock split
+# (atlas-watch-script-convention.md § Within-atlas clock split)
+---
+
+# Architecture Atlas — Systems Index
 
 | System | File Count | Entry Points | Cross-System Connections | Dependencies | Last Mapped |
 |--------|-----------|-------------|------------------------|-------------|------------|
@@ -564,14 +573,48 @@ are reviewed.
 
 **Artifact 2: cross-system-map.md**
 
+<!-- C4 (qffs-tc-3): emit YAML frontmatter at the top of cross-system-map.md, then the
+     # title, then any >-quoted human descriptor lines, then the ASCII diagram code block.
+     Do NOT use the old >-quoted "Last full mapping: … | Mode: …" header format. -->
+
+```markdown
+---
+last_mapped: [YYYY-MM-DD]
+mode: "[mode-string]"
+# last_attested: intentionally omitted — top-level atlas files carry only last_mapped: (survey clock)
+# and do not participate in the targeted-audit two-clock split
+# (atlas-watch-script-convention.md § Within-atlas clock split)
+---
+
+# Cross-System Map
+
+> ASCII diagram showing all [N] systems and their connections. Max width 120 chars.
+
+```[ascii diagram code block]```
+```
+
 A unified ASCII diagram showing ALL systems and their connections. Use box-drawing
 characters. Show data flow directions. Group tightly-coupled systems together.
 Maximum width: 120 characters (this is the unified map, wider than per-system diagrams).
 
 **Artifact 3: connectivity-matrix.md**
 
+<!-- C4 (qffs-tc-3): emit YAML frontmatter; keep >-quoted descriptor lines (Cell=, Abbreviations:)
+     as human-context below the title. Do NOT use the old >-quoted "Last full mapping: | Mode:" line. -->
+
 ```markdown
+---
+last_mapped: [YYYY-MM-DD]
+mode: "[mode-string]"
+# last_attested: intentionally omitted — top-level atlas files carry only last_mapped: (survey clock)
+# and do not participate in the targeted-audit two-clock split
+# (atlas-watch-script-convention.md § Within-atlas clock split)
+---
+
 # Connectivity Matrix
+
+> Cell = number of cross-system connections from ROW -> COLUMN, derived from the 8 boundary catalogs.
+> Abbreviations: A=[system-A] B=[system-B] ...
 
 |          | System A | System B | System C | ... |
 |----------|----------|----------|----------|-----|
@@ -583,10 +626,22 @@ Each cell = number of cross-system function calls between the two systems.
 
 **Artifact 4: file-index.md**
 
+<!-- C4 (qffs-tc-3): emit YAML frontmatter; move date to last_mapped:; keep file count and
+     exclusion notes as >-quoted descriptor lines. Do NOT use the old "> Generated: [date] |" format. -->
+
 ```markdown
+---
+last_mapped: [YYYY-MM-DD]
+# mode: omit if not applicable (file-index original header had no Mode field)
+# last_attested: intentionally omitted — top-level atlas files carry only last_mapped: (survey clock)
+# and do not participate in the targeted-audit two-clock split
+# (atlas-watch-script-convention.md § Within-atlas clock split)
+---
+
 # File Index
 
-> Generated: [YYYY-MM-DD] | [N] files tracked across [M] systems
+> [N] authored files tracked across [M] systems
+> [exclusion notes if applicable]
 
 [file path] -> [system-name]
 [file path] -> [system-name]
@@ -604,11 +659,13 @@ For each system, produce a file with YAML frontmatter and the full Phase 2 analy
 ---
 system: [system-name-kebab-case]
 last_mapped: [YYYY-MM-DD]
+last_attested: [YYYY-MM-DD]
 entry_points: [count]
 cross_system_connections: [count]
 dependencies: [list of other system names]
 ---
 ```
+<!-- Review: code-reviewer slice-B F6 (sibling sweep) — Phase 3 full Artifact 5 had the same last_attested omission as Phase 3R; the Rules section requires it and check-atlas-watch-drift.sh emits MISSING without it. -->
 
 Followed by the Phase 2 content: System Narrative, Information Flow Diagram,
 Boundary Catalog, Key Architectural Observations, and Summary.
@@ -666,25 +723,34 @@ to produce a complete, current view of the repository's architecture.
 
 ### 2. Regenerate Cross-System Artifacts
 
+<!-- C4 (qffs-tc-3): ALL top-level atlas files now use YAML frontmatter (last_mapped:, mode:).
+     Do NOT use the old >-quoted "Last full mapping: … | Mode: …" or "> Generated: [date]" headers.
+     See Phase 3 Artifact 1–4 templates above for the required frontmatter format. -->
+
 **Artifact 1: systems-index.md**
+- Emit YAML frontmatter: last_mapped: [today], mode: "[mode-string]" (see Phase 3 Artifact 1 template)
 - Carry forward rows for stable systems unchanged
 - Update rows for churned systems with new data from Phase 2R reports
 - Do NOT add or change any Grade or Status columns — those are weekly-audit domain
 
 **Artifact 2: cross-system-map.md**
-Regenerate the unified ASCII diagram from the union of all systems (stable + churned).
-This MUST be regenerated even if only some systems changed — connections may have
-shifted. Maximum width: 120 characters.
+- Emit YAML frontmatter: last_mapped: [today], mode: "[mode-string]" (see Phase 3 Artifact 2 template)
+- Regenerate the unified ASCII diagram from the union of all systems (stable + churned).
+  This MUST be regenerated even if only some systems changed — connections may have
+  shifted. Maximum width: 120 characters.
 
 **Artifact 3: connectivity-matrix.md**
-Regenerate from the union of all boundary catalogs.
+- Emit YAML frontmatter: last_mapped: [today], mode: "[mode-string]" (see Phase 3 Artifact 3 template)
+- Regenerate from the union of all boundary catalogs.
 
 **Artifact 4: file-index.md**
-Update the file index to reflect:
-- New files added in churned systems
-- Files removed from churned systems
-- Any file reassignments if system boundaries were adjusted
-Stable system files: carry forward verbatim.
+- Emit YAML frontmatter: last_mapped: [today] (mode: omitted — file-index has no Mode field) (see Phase 3 Artifact 4 template)
+- Update the file index to reflect:
+  - New files added in churned systems
+  - Files removed from churned systems
+  - Any file reassignments if system boundaries were adjusted
+- Stable system files: carry forward verbatim.
+<!-- Review: code-reviewer slice-B F3 — C4 introduced frontmatter bullet but left action prose un-bulleted; agent reads continuation as part of the frontmatter bullet, not as distinct actions. Prefixed all action lines with - to match Artifact 1 pattern. -->
 
 ### 3. Update Per-System Files
 
@@ -697,11 +763,13 @@ Updated YAML frontmatter for churned systems:
 ---
 system: [system-name]
 last_mapped: [YYYY-MM-DD]
+last_attested: [YYYY-MM-DD]
 entry_points: [count]
 cross_system_connections: [count]
 dependencies: [list]
 ---
 ```
+<!-- Review: code-reviewer slice-B F6 — last_attested was missing from this template; the Rules section (below) requires it and check-atlas-watch-drift.sh emits MISSING without it. Added to match the Rules-required field set. -->
 
 Do NOT add or change grade or status fields.
 

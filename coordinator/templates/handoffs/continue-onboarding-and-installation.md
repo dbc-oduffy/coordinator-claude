@@ -86,7 +86,7 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
    `install_chain_order:`; that tag is what distinguishes them from this onboarding handoff:
 
    ```bash
-   grep -l 'install_chain_order:' "${CLAUDE_HOME:-$HOME/.claude}/state/handoffs/"*.md 2>/dev/null
+   grep -l 'install_chain_order:' "${CLAUDE_HOME:-$HOME}/.claude/state/handoffs/"*.md 2>/dev/null
    ```
 
    There may be **zero, one, or several**. Read what is actually there — do **not** assume a fixed
@@ -110,7 +110,7 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
    ```bash
    # Orient-leg discovery — kind:spinoff gate + (orient-*.md filename OR word-boundary "orientation"
    # in summary:/title:). Agnostic over baton shape; names no repo. Portable -w word boundary.
-   HANDOFFS="${CLAUDE_HOME:-$HOME/.claude}/state/handoffs"
+   HANDOFFS="${CLAUDE_HOME:-$HOME}/.claude/state/handoffs"
    for f in "$HANDOFFS"/*.md; do
      [ -e "$f" ] || continue
      grep -qE '^kind:[[:space:]]*spinoff[[:space:]]*(#.*)?$' "$f" || continue  # kind: spinoff EXACTLY (not spinoff-roadmap)
@@ -135,7 +135,7 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
      to prevent (detect-then-fail-loud per CLAUDE.md § Implementation Standards).
 
 3. **Write a lightweight install-chain spine to disk** — start from the pre-made template at
-   `${CLAUDE_HOME:-$HOME/.claude}/plugins/coordinator/templates/plans/install-chain-tracking.md`,
+   `${CLAUDE_HOME:-$HOME}/.claude/plugins/coordinator/templates/plans/install-chain-tracking.md`,
    copy it to `tasks/<feature>/install-chain.md`, and edit it to list each install spinoff you found
    (coordinator onboarding — this handoff — first; the spinoffs in whatever order each declares via
    `install_chain_order:`, else discovered order), **interleaving each install leg's paired orient
@@ -185,7 +185,7 @@ not-yet-oriented leg are both legible at a glance and neither is silently droppe
 
    ```bash
    # Generic over supersedes:<any-id>; names no specific repo/orientation/order.
-   grep -l 'supersedes:' "${CLAUDE_HOME:-$HOME/.claude}/state/handoffs/"*.md 2>/dev/null
+   grep -l 'supersedes:' "${CLAUDE_HOME:-$HOME}/.claude/state/handoffs/"*.md 2>/dev/null
    ```
 
    Read each match to identify which orientation or leg baton it supersedes, then update the
@@ -267,7 +267,7 @@ Do NOT edit the `coordinator-claude` source repo or any clone of it.**
 During install, some legs may have been deferred or shown as soft-missing. Check:
 
 ```bash
-bash "${CLAUDE_HOME:-$HOME/.claude}/plugins/coordinator/bin/coordinator-setup-state.sh" status
+bash "${CLAUDE_HOME:-$HOME}/.claude/plugins/coordinator/bin/coordinator-setup-state.sh" status
 ```
 
 If any install phase is flagged incomplete or deferred, work through those now. Common

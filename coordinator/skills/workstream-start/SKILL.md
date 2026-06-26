@@ -392,7 +392,7 @@ Choose work and load task-specific context.
 
 > **The handoff IS the work order.** Do NOT present a menu. Do NOT ask "what should this agent work on?" Do NOT list the handoff's action items and wait for the user to pick one. Do NOT ask "want me to proceed?"
 >
-> Instead: read any files the handoff references that aren't yet in context, then **immediately begin executing the first action item.** You're the next relay runner — the baton has been passed. Pick it up and run.
+> Instead: read any files the handoff references that aren't yet in context, then **dispatch the first action item — dispatch IS running.** You're the next relay runner — the baton has been passed. Pick it up and run. "Run" = dispatch an executor by default (below the plan threshold, the common case); EM-inline only when `agent-dispatch-economics.md` § When to EM-Inline holds in full (in the `~/.claude` meta-repo, `coordinator/em-operating-model.md § Escalation tiers` tier-3 carve-out applies for 1-2 line infra edits). No PM round-trip, no plan ceremony for sub-T3 work — see also `skills/pickup/SKILL.md` § Dispatch routing default for the shared anchor.
 >
 > If the handoff lists multiple next steps, execute them in order unless the PM redirects.
 
@@ -454,7 +454,7 @@ If `$ARGUMENTS` is provided, use it to identify the task directly and skip the m
 
 ### Load task context
 
-**If continuing from a handoff:** Read any files the handoff references that aren't yet in context, then begin the first action item.
+**If continuing from a handoff:** Read any files the handoff references that aren't yet in context, then dispatch the first action item — dispatch is the fast path below the plan threshold; EM-inline only per the `agent-dispatch-economics.md` § When to EM-Inline checklist.
 
 **If from the menu:** Based on the user's choice:
 

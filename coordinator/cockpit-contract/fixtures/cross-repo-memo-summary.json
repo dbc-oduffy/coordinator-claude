@@ -1,0 +1,21 @@
+{
+  "repo": ".claude-prime",
+  "coordinator_root_path": ".",
+  "title": "Ask: opticon cockpit should surface cross-repo memo queue depth",
+  "from": ".claude-prime",
+  "to": "example-repo",
+  "status": "open",
+  "created": "2026-06-24",
+  "kind": "ask",
+  "related": [
+    "plugins/coordinator/cockpit-contract/src/entities/cross-repo-memo-summary.ts"
+  ],
+  "provenance": {
+    "source_kind": "coordinator_artifact",
+    "repo": ".claude-prime",
+    "ref": { "branch": "work/machine-d/2026-06-23to24", "sha": "81aba448" },
+    "path": "state/memos/2026-06-24-ask-opticon-memo-queue.md",
+    "observed_at": "2026-06-24T10:00:00Z",
+    "derivation": "parsed"
+  }
+}

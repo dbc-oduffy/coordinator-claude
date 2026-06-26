@@ -109,6 +109,11 @@ function parseYamlLines(lines, start, baseIndent) {
   return { value: result, nextLine: i };
 }
 
+// Mapping-item discriminator: the slice after '- ' is a mapping key when it
+// matches 'key:' or 'key: value'. A bare ':' in a URL (e.g. 'http://x') must
+// NOT trigger the mapping path — guard with the key-shape regex, not bare includes(':').
+const LIST_ITEM_MAPPING_RE = /^[A-Za-z0-9_-]+:(\s|$)/;
+
 function parseList(lines, start, baseIndent) {
   const list = [];
   let i = start;
@@ -119,13 +124,52 @@ function parseList(lines, start, baseIndent) {
     const indent = raw.length - raw.trimStart().length;
     if (indent < baseIndent) break;
     if (trimmed.startsWith('- ')) {
-      list.push(parseScalar(trimmed.slice(2).trim()));
+      const itemContent = trimmed.slice(2).trim();
+      if (LIST_ITEM_MAPPING_RE.test(itemContent)) {
+        // Mapping list item: parse the inline key and any continuation lines
+        // that are indented deeper than the '- ' marker.
+        // The continuation block starts at the column of the key (dashIndent + 2).
+        const dashIndent = indent;
+        const continuationIndent = dashIndent + 2;
+        // Seed the object with the inline key from the '- key: value' line.
+        // Reuse parseYamlLines by fabricating a one-line block for the inline pair.
+        const inlineObj = parseYamlLines([itemContent], 0, 0).value;
+        // Collect continuation lines indented deeper than the dash.
+        const j = i + 1;
+        const contLines = [];
+        let k = j;
+        while (k < lines.length) {
+          const contRaw = lines[k];
+          const contTrimmed = contRaw.trimEnd();
+          if (contTrimmed === '' || contTrimmed.trimStart().startsWith('#')) { k++; continue; }
+          const contIndent = contRaw.length - contRaw.trimStart().length;
+          if (contIndent >= continuationIndent) {
+            contLines.push(contRaw);
+            k++;
+          } else {
+            break;
+          }
+        }
+        let obj = inlineObj;
+        if (contLines.length > 0) {
+          // Parse the continuation block. Normalise indentation so the first
+          // continuation key aligns at column 0 for parseYamlLines.
+          const strippedContLines = contLines.map(l => l.slice(continuationIndent));
+          const contObj = parseYamlLines(strippedContLines, 0, 0).value;
+          obj = Object.assign({}, inlineObj, contObj);
+        }
+        list.push(obj);
+        i = k;
+      } else {
+        list.push(parseScalar(itemContent));
+        i++;
+      }
     } else if (trimmed === '-') {
       list.push(null);
+      i++;
     } else {
       break;
     }
-    i++;
   }
   return list;
 }
@@ -133,6 +177,9 @@ function parseList(lines, start, baseIndent) {
 function skipPast(lines, start, baseIndent) {
   // Review: code-reviewer — align trimming with parseList: both now use raw.trimEnd().trimStart()
   // so indented comments and list items are handled identically in both functions.
+  // Also advances past mapping-item continuation lines (lines indented deeper
+  // than the '- ' marker) so the outer parser resumes at the correct position
+  // after a list-of-maps block.
   let i = start;
   while (i < lines.length) {
     const raw = lines[i];
@@ -141,7 +188,21 @@ function skipPast(lines, start, baseIndent) {
     const indent = raw.length - raw.trimStart().length;
     if (indent < baseIndent) break;
     if (trimmed.startsWith('- ') || trimmed === '-') {
+      // Consume the dash line itself, then also consume any continuation lines
+      // that are indented deeper than this dash (mapping-item sub-keys).
+      const dashIndent = indent;
       i++;
+      while (i < lines.length) {
+        const contRaw = lines[i];
+        const contTrimmed = contRaw.trimEnd();
+        if (contTrimmed === '' || contTrimmed.trimStart().startsWith('#')) { i++; continue; }
+        const contIndent = contRaw.length - contRaw.trimStart().length;
+        if (contIndent > dashIndent) {
+          i++;
+        } else {
+          break;
+        }
+      }
     } else {
       break;
     }
@@ -781,6 +842,88 @@ const CROSS_FIELD_RULES = {
         return null;
       },
     },
+    // ---------------------------------------------------------------------------
+    // qffs tc-4 A3a — three additive cross-field rules (Ask-2 fold).
+    // ADDITIVE-ONLY: no new required: fields; rules are cross-field guards on
+    // existing optional fields with per-rule guards so legacy and manual-consume
+    // corpus variants are never false-redded.
+    //
+    // Spec backlink: docs/plans/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A3a
+    // Design decisions: D5 (reuse schema.js, no parallel logic); additive-only per
+    //   docs/wiki/canonical-artifact-shapes.md § C2.
+    // ---------------------------------------------------------------------------
+
+    // Rule A3a-1: status:consumed ⇒ consumed_by non-empty.
+    // PRESENCE-GUARDED on consumed_at: fires ONLY when consumed_at is present.
+    // consumed_by is a TRANSITION-TIME invariant enforced by cs_consume_handoff;
+    // it is NOT a corpus invariant — legitimate handoffs that were consumed
+    // manually (before the tool existed) have status:consumed with neither
+    // consumed_at nor consumed_by. A date-cutoff guard is provably insufficient:
+    // the 2026-06-22 roadmap-stub handoffs are post-cutoff and consumed without
+    // either field. The consumed_at presence guard correctly skips all of them.
+    // Negative-spec: do NOT add consumed_by to required: — that tightens the
+    // schema against existing corpus artifacts (canonical-artifact-shapes.md C2).
+    {
+      check: (fm) => {
+        if (fm.status !== 'consumed') return null;
+        // Guard: only enforce when consumed_at is present (evidencing tool-driven consume).
+        if (!fm.consumed_at) return null;
+        if (!fm.consumed_by || String(fm.consumed_by).trim() === '') {
+          return {
+            field: 'consumed_by',
+            error: 'required when status=consumed and consumed_at is present',
+            hint: 'consumed_by identifies the consuming session (from --session-id). It is written by cs_consume_handoff; absent here indicates a partial or hand-edited consume. Set consumed_by to the session id.'
+          };
+        }
+        return null;
+      },
+    },
+
+    // Rule A3a-2: deployment_state:shipped ⇒ shipped_in non-empty.
+    // DATE-GUARDED: fires only when created >= 2026-05-29. Pre-cutoff corpus
+    // contains legitimate shipped handoffs that predate the shipped_in convention.
+    // Guard fires on the field `created` (required on handoffs); if created is
+    // absent (legacy) the guard is undefined → falsy → skipped (safe default).
+    {
+      check: (fm) => {
+        if (fm.deployment_state !== 'shipped') return null;
+        // Date guard: skip for pre-cutoff handoffs (legacy, pre-shipped_in convention).
+        if (!fm.created || String(fm.created) < '2026-05-29') return null;
+        if (!fm.shipped_in || String(fm.shipped_in).trim() === '') {
+          return {
+            field: 'shipped_in',
+            error: 'required when deployment_state=shipped (for handoffs created on or after 2026-05-29)',
+            hint: 'Set shipped_in to the commit SHA or plan path where this work landed. Written by /workstream-complete or /handoff on transition to shipped.'
+          };
+        }
+        return null;
+      },
+    },
+
+    // Rule A3a-3: kind:spinoff ⇒ predecessor === 'none' (or null).
+    // Spinoffs are forks authored mid-session by the current EM; they have no
+    // predecessor handoff to continue. predecessor: null is also accepted (same
+    // semantic — no predecessor). Non-none string predecessors indicate a
+    // mis-authored spinoff that should be a session-handoff continuation instead.
+    // No date guard needed: the spinoff kind itself is the sufficient condition.
+    // Negative-spec: predecessor: undefined (missing) is caught by the required-
+    // field check in validateFrontmatter; this rule skips undefined to avoid a
+    // redundant error alongside the required-field error.
+    {
+      check: (fm) => {
+        if (fm.kind !== 'spinoff') return null;
+        const pred = fm.predecessor;
+        // undefined (missing field): required-field validator catches it; skip here.
+        // null: explicitly "no predecessor" — valid for spinoffs.
+        // 'none': canonical sentinel for spinoffs.
+        if (pred === undefined || pred === null || pred === 'none') return null;
+        return {
+          field: 'predecessor',
+          error: `must be "none" or null for kind=spinoff (got "${pred}")`,
+          hint: 'Spinoffs fork from the current session and have no predecessor baton to continue. Set predecessor: none (or null). If this is a continuation, use kind: session-handoff instead.'
+        };
+      },
+    },
   ],
 
   // ---------------------------------------------------------------------------
@@ -1181,6 +1324,10 @@ module.exports = {
   parseFrontmatter,
   validateFrontmatter,
   validateLessonsFile,
+  // Public YAML-block parser: parses a frontmatter body (no --- delimiters) into an object.
+  // Consumed by handoff-transition.js validateHandoffFrontmatter; the `_parseYaml` alias below
+  // is the same function retained for existing test imports.
+  parseYamlBlock: parseYaml,
   // Exported for testing
   _parseYaml: parseYaml,
   _matchGlob: matchGlob,

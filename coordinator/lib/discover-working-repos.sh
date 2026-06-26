@@ -15,6 +15,60 @@
 
 set -euo pipefail
 
+# Gate: returns 0 (true) iff posix_dir is the root of a real git repo.
+# Idiom per [universal] lesson: git -C rev-parse --show-toplevel vs cd && pwd -P.
+# Not realpath — DR-148 (BSD portability).
+# Worktree-safe: git rev-parse succeeds on both .git-dir repos and .git-file worktrees.
+# Subdirectory-safe: if posix_dir is a subdir of a repo, toplevel != canon → returns 1.
+_is_git_root() {
+    local posix_dir="$1"
+    local canon toplevel
+    canon=$(cd "$posix_dir" 2>/dev/null && pwd -P 2>/dev/null) || return 1
+    toplevel=$(git -C "$posix_dir" rev-parse --show-toplevel 2>/dev/null) || return 1
+    [[ "$toplevel" == "$canon" ]]
+}
+
+# Normalize a path (native "X:\a\b", "X:/a/b", or POSIX "/x/a/b") to a POSIX
+# dedup KEY with no trailing slash. The key is the existence-test path AND the
+# cross-tier dedup identity — it collapses the native/POSIX form mismatch that
+# otherwise survives `sort -u` when the same repo surfaces in two tiers (e.g.
+# Tier A native + Tier A.5 registry form). Only the DRIVE LETTER is lowercased
+# (X: and x: are the same drive) — the rest of the path keeps its case so this
+# does not corrupt case-sensitive POSIX paths. BSD-portable (no \L, no global tr).
+_to_posix_key() {
+    local p="$1" drive rest
+    if [[ "$p" =~ ^([A-Za-z]):[\\/](.*)$ ]]; then
+        drive="$(printf '%s' "${BASH_REMATCH[1]}" | tr '[:upper:]' '[:lower:]')"
+        rest="${BASH_REMATCH[2]//\\//}"
+        p="/$drive/$rest"
+    else
+        p="${p//\\//}"
+    fi
+    while [[ "$p" == */ && "$p" != "/" ]]; do p="${p%/}"; done
+    printf '%s' "$p"
+}
+
+# Filter stdin to real git roots, deduped by normalized POSIX key, preserving
+# each repo's first-seen ORIGINAL emitted form (Tier A's native-Windows output
+# contract is preserved). Two fixes in one pass (#12):
+#   (1) `.git` gate — drops bare parent dirs / scratch paths that pass a plain
+#       `-d` test but are not repos (the Tier-A leak).
+#   (2) cross-tier form dedup — collapses native vs POSIX duplicates of one repo.
+# Bash-3.2-safe: string-membership seen-set (no associative array).
+_gate_and_dedup() {
+    local line key seen="|"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        key="$(_to_posix_key "$line")"
+        _is_git_root "$key" || continue
+        case "$seen" in
+            *"|${key}|"*) continue ;;
+        esac
+        seen="${seen}${key}|"
+        printf '%s\n' "$line"
+    done
+}
+
 # Tier A — Claude Code's own activity record.
 # Path encoding: `:` `\` `/` `.` → `-`. Drive root "X:\Foo" → "X--Foo".
 #
@@ -172,13 +226,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     _a_out=$(_tier_a || true)
     _a5_out=$(_tier_a5 || true)
     if [[ -n "$_a_out" ]]; then
-        { echo "$_a_out"; [[ -n "$_a5_out" ]] && echo "$_a5_out"; } | sort -u
+        { echo "$_a_out"; [[ -n "$_a5_out" ]] && echo "$_a5_out"; } | _gate_and_dedup | sort
         exit 0
     fi
 
     _b_out=$(_tier_b || true)
     if [[ -n "$_b_out" || -n "$_a5_out" ]]; then
-        { [[ -n "$_b_out" ]] && echo "$_b_out"; [[ -n "$_a5_out" ]] && echo "$_a5_out"; } | sort -u
+        { [[ -n "$_b_out" ]] && echo "$_b_out"; [[ -n "$_a5_out" ]] && echo "$_a5_out"; } | _gate_and_dedup | sort
         exit 0
     fi
 

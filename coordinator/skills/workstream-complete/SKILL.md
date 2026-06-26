@@ -68,7 +68,7 @@ For each new lesson, ask: **"Would this apply to any project type using the coor
     --title "<summary>" \
     --body "<the rule / context; cite evidence: state/lessons.md:<line> and proposed target: <coordinator file>" \
     --surface "state/lessons.md:<line>" \
-    --proposed-target "<coordinator file>" \
+    --proposed-action "<coordinator file>" \
     --change-kind <skill-edit|hook-edit|wiki-append|wiki-new|agent-prompt-edit> \
     --status open
   # Review: code-reviewer — F2: pick the most accurate --change-kind for the lesson.
@@ -268,7 +268,7 @@ When the session's work resolves a cross-repo memo in **this repo's** `cross-rep
 4. **For each named memo:** Edit the file in place — set `status: actioned` and append `decision: <PM-supplied line>` to the frontmatter. The flip (judgment: which memos this session resolved) is non-automatable and stays here.
 5. **Sweep the inbox via the shared function** — do NOT hand-roll per-memo `git mv`. After the flips, run the same sweep session-init uses so the just-flipped memos (and any actioned stragglers) move to `cross-repo/archive/` (flat) with the skip/idempotency/claim-safety guards in one place:
    ```bash
-   source ~/.claude/plugins/coordinator/lib/coordinator-session.sh
+   source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-session.sh"
    cs_sweep_actioned_memos "$(git rev-parse --show-toplevel)" >/dev/null
    cs_sweep_terminal_plans "$(git rev-parse --show-toplevel)" >/dev/null
    ```
@@ -340,7 +340,7 @@ When this session was opened with `/pickup`, the consumed handoff still lives in
 **Action:** Before moving, stamp `shipped_in:` into the handoff frontmatter — the SHA must be captured while the file is still in `state/handoffs/` and the workstream's commit context is fresh:
 
 ```bash
-source ~/.claude/plugins/coordinator/lib/coordinator-archive-stamp.sh
+source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-archive-stamp.sh"
 stamp_shipped_in "state/handoffs/<file>" --allow-branch-tip-fallback
 ```
 
@@ -729,7 +729,7 @@ Archive this session's claim directory — required at both `/workstream-complet
 Run:
 ```bash
 sid="${CLAUDE_CODE_SESSION_ID:-$(cat "$(git rev-parse --show-toplevel)/.git/coordinator-sessions/.current-session-id" 2>/dev/null)}" && \
-  source ~/.claude/plugins/coordinator/lib/coordinator-session.sh 2>/dev/null && \
+  source "${CLAUDE_PLUGIN_ROOT:-${CLAUDE_HOME:-${HOME}}/.claude/plugins/coordinator-claude/coordinator}/lib/coordinator-session.sh" 2>/dev/null && \
   cs_archive "$sid" 2>/dev/null || true
 ```
 

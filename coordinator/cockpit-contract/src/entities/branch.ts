@@ -1,7 +1,7 @@
 /**
  * Branch — a single ref observation, keyed on `(repo, branch_name, tip_sha)`.
  *
- * Branch-fact data-quality defenses (Camelia P1-D5, github-connector corpus):
+ * Branch-fact data-quality defenses (the Data Science Reviewer P1-D5, github-connector corpus):
  *  - `tip_sha` is the observation key: a tip-SHA change is a NEW observation, not
  *    name-continuity. Daily-branch renames appear as delete+create to a naive
  *    differ; SHA-keying makes that detectable.

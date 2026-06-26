@@ -46,6 +46,30 @@ Nullable fields are **present-as-null, never absent** — see DECISIONS § D9.
 round-trip test — add an entity there and both pick it up; the test fails if an
 entity lacks a fixture or a fixture has no entity.
 
+## Owner-Namespace Seam
+
+The `owner` field on `CoordinatorRoot` and `Branch` is a **closed enum**, not a free
+string — unknown owners are rejected at parse time. Which orgs appear in that enum is
+operator configuration, not a contract constant.
+
+Two env vars control schema emission:
+
+| Env var | Purpose | Default |
+| --- | --- | --- |
+| `COCKPIT_OWNER_NAMESPACES` | Comma-separated list of GitHub org/owner namespaces to include in the closed enum. | `dbc-oduffy,Example-Interactive,workstation` (real orgs — private working tree) |
+| `COCKPIT_SCHEMA_OUT_DIR` | Directory to write the emitted `*.schema.json` files into. | `schema/` (committed, canonical) |
+
+**Private emit (default):** `pnpm run emit` — uses real orgs, writes to committed
+`schema/`. Run this when the owner set changes or any Zod schema changes.
+
+**Example / OSS emit:** `pnpm run emit:example` — synthetic orgs (`example-org`,
+`example-team`), writes to `schema-example/` (not committed). Use this to generate
+a sanitised schema for documentation, OSS distribution, or consumer onboarding without
+leaking real org identity.
+
+**Verification:** `bash test/owner-emit-example.sh` asserts that the example emit
+produces synthetic-only owners and leaves committed `schema/` byte-identical.
+
 ## Versioning
 
 `CONTRACT_VERSION` in `src/index.ts`. Bump on any breaking field change to the

@@ -1437,6 +1437,7 @@ cs_sweep_terminal_plans() {
       [[ -f "$hfile" ]] || continue
       # Extract frontmatter status (first occurrence, between --- delimiters).
       hstatus=$(awk '/^---/{f++} f==1 && /^status:/{print $2; exit}' "$hfile" 2>/dev/null || true)
+      # superseded: retired handoff status (2026-06-26) — tolerated for legacy/external records, never written anew
       [[ "$hstatus" == "consumed" || "$hstatus" == "superseded" ]] && continue
       # This is a live handoff — collect basenames it references.
       hbody=$(cat "$hfile" 2>/dev/null || true)

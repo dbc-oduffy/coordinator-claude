@@ -1,12 +1,12 @@
 /**
  * ProvenanceEnvelope — the mandatory source-grounding record on every cockpit fact.
  *
- * Provenance is a real schema, not a label (Camelia P1-D2): "source-grounded" is
+ * Provenance is a real schema, not a label (the Data Science Reviewer P1-D2): "source-grounded" is
  * unfalsifiable without enumerated fields. `observed_at` and `derivation` are
  * load-bearing — without them a dashboard number has no trustworthiness or
  * staleness signal, so both are required and non-nullable.
  *
- * `ref` is a structured object (Camelia P2), NOT a flat "work/...@sha" string:
+ * `ref` is a structured object (the Data Science Reviewer P2), NOT a flat "work/...@sha" string:
  * the relational store (tc-5) splits it into `ref_branch` + `ref_sha` columns so
  * `WHERE ref_sha = ...` provenance queries are possible; a lossy flat string
  * defeats that.

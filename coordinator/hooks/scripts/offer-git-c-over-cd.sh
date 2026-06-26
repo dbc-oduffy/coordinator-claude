@@ -297,7 +297,7 @@ fi
 if [[ -n "$FOLLOWERS" ]]; then
   offer "Use 'git -C <path>' instead of a 'cd <path> && git ...' prefix.
 
-A leading 'cd' makes this a compound command, which trips a permission prompt that renders as a non-returning 'Waiting...' — the stall that gets misread as a flaky channel and drives the probe-spray loop (docs/wiki/tool-output-flakiness-protocol.md § Not this protocol — blocked / no-return). 'git -C' is the exact, prompt-free equivalent.
+A leading 'cd' makes this a compound command, which trips a permission prompt that renders as a non-returning 'Waiting...' — the stall that gets misread as a flaky channel and drives the probe-spray loop (docs/wiki/tool-output-flakiness-protocol.md § Not this protocol — blocked / no-return). 'git -C' is the exact, prompt-free equivalent. (This fires on the 'cd … && git' SHAPE — it does not check whether the cd is redundant, so you may see it even when your cwd is already the target dir; 'git -C' is still the equivalent there.)
 
 Did you mean:
   ${SUGGESTION}
@@ -306,7 +306,7 @@ Note: the follower commands after the first ';' / '&&' / newline no longer run w
 else
   offer "Use 'git -C <path>' instead of a 'cd <path> && git ...' prefix.
 
-A leading 'cd' makes this a compound command, which trips a permission prompt that renders as a non-returning 'Waiting...' — the stall that gets misread as a flaky channel and drives the probe-spray loop (docs/wiki/tool-output-flakiness-protocol.md § Not this protocol — blocked / no-return). 'git -C' is the exact, prompt-free equivalent.
+A leading 'cd' makes this a compound command, which trips a permission prompt that renders as a non-returning 'Waiting...' — the stall that gets misread as a flaky channel and drives the probe-spray loop (docs/wiki/tool-output-flakiness-protocol.md § Not this protocol — blocked / no-return). 'git -C' is the exact, prompt-free equivalent. (This fires on the 'cd … && git' SHAPE — it does not check whether the cd is redundant, so you may see it even when your cwd is already the target dir; 'git -C' is still the equivalent there.)
 
 Did you mean:
   ${SUGGESTION}

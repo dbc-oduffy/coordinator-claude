@@ -95,7 +95,8 @@ After the scout returns, the EM reads `tasks/mise-inventory-<timestamp>.md` once
 
 Before sequencing or dispatching any executors, verify that backlog items gathered in Phase 1 are still applicable to the current codebase.
 
-For each item sourced from a backlog file (`state/bug-backlog.md`, `state/debt-backlog.md`, or a plan stub marked pending), dispatch a Haiku agent to confirm the issue still exists in HEAD:
+For each item sourced from a backlog file (`state/bug-backlog/*.yaml`, a debt-backlog entry in `state/debt-backlog/*.yaml`, or a plan stub marked pending), dispatch a Haiku agent to confirm the issue still exists in HEAD:
+<!-- Review: code-reviewer slice-C F5 — bug-backlog is now a YAML directory per tc-2; reference updated to wildcard path -->
 
 1. Read the cited file:line — does the bug/debt pattern still exist?
 2. Check `git log --oneline -5 {file}` — did a recent commit address it?

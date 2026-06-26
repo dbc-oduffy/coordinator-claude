@@ -57,7 +57,7 @@
   {
     "source_line": 12,
     "classification": "project-specific",
-    "entry_text": "- 2026-06-12 | geneva-mvp | state/lessons.md:5 | GameLift Streams session token expiry is 15 minutes \u2014 the frontend must refresh the stream URL before the token window closes, not just at initial load. Geneva-specific, not a cross-project pattern.",
+    "entry_text": "- 2026-06-12 | example-repo | state/lessons.md:5 | GameLift Streams session token expiry is 15 minutes \u2014 the frontend must refresh the stream URL before the token window closes, not just at initial load. Geneva-specific, not a cross-project pattern.",
     "proposed_outbox_id": null,
     "reason": "No [universal] tag; project-specific entry LEFT IN PLACE."
   },

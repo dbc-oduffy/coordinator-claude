@@ -149,6 +149,21 @@ if [[ -n "$_ne_restore_file" ]]; then
   printf '=== normalize-env.sh --restore ===\n'
   printf 'Reading backup: %s\n' "$_ne_restore_file"
 
+  # Full-file ~/.bash_profile backup (written by the macOS bash-login-shell
+  # reconstruction path, named ~/.bash_profile.coordinator-backup.<ts>) — restore
+  # by copying it back. This is a real round-trip (the file IS the prior content),
+  # distinct from the Windows KEY=VALUE PATH/shim backup parsed below.
+  case "$(basename "$_ne_restore_file")" in
+    .bash_profile.coordinator-backup.*)
+      if cp "$_ne_restore_file" "$HOME/.bash_profile" 2>/dev/null; then
+        printf '  ~/.bash_profile restored from %s\n' "$_ne_restore_file"
+        exit 0
+      fi
+      printf 'ERROR: failed to copy %s onto ~/.bash_profile\n' "$_ne_restore_file" >&2
+      exit 2
+      ;;
+  esac
+
   # Parse backup fields: lines of the form KEY=VALUE.
   # BSD-portable: no grep -P; use case/sed.
   local_path_val=""
@@ -187,7 +202,98 @@ if [[ -n "$_ne_restore_file" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# macOS/Linux: print offers, do NOT mutate, exit 0.
+# Consent prompt and partial-failure trackers.
+# Defined here (before the macOS/Windows split) so both the Darwin
+# bash-profile reconstruction path and the Windows fix path can call them.
+# ---------------------------------------------------------------------------
+_ne_steps_succeeded=""
+_ne_steps_failed=""
+
+_ne_record_success() {
+  # $1 = step description
+  if [[ -z "$_ne_steps_succeeded" ]]; then
+    _ne_steps_succeeded="$1"
+  else
+    _ne_steps_succeeded="$_ne_steps_succeeded
+  $1"
+  fi
+}
+
+_ne_record_failure() {
+  # $1 = step description
+  if [[ -z "$_ne_steps_failed" ]]; then
+    _ne_steps_failed="$1"
+  else
+    _ne_steps_failed="$_ne_steps_failed
+  $1"
+  fi
+}
+
+_ne_prompt_yn() {
+  # $1 = prompt text
+  # Returns 0 for yes, 1 for no/EOF.
+  local _prompt="$1"
+  local _answer
+
+  if [[ "$_ne_yes" -eq 1 ]]; then
+    printf '%s [auto-yes via --yes]\n' "$_prompt"
+    return 0
+  fi
+
+  if [[ ! -t 0 ]]; then
+    # Non-interactive (no tty, or piped): EOF condition.
+    # Abort — ZERO mutations.
+    printf '%s\n' "$_prompt"
+    printf 'Non-interactive input detected (no tty / EOF). Aborting — no mutations applied.\n'
+    printf 'Re-run with --yes to apply in non-interactive mode, or run interactively.\n'
+    exit 3
+  fi
+
+  printf '%s [y/N]: ' "$_prompt"
+  if ! read -r _answer; then
+    # EOF on read.
+    printf '\nEOF detected. Aborting — no mutations applied.\n'
+    exit 3
+  fi
+
+  case "$_answer" in
+    [Yy]|[Yy][Ee][Ss]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# Parse probe output — no jq; use sed BRE (BSD-portable).
+# Extract status/remediation/detail for each probe by name.
+# Defined here (before the macOS/Windows split) because the Darwin reconstruction
+# path calls _ne_probe_status_for at use-site; a definition stranded after the
+# macOS `exit 0` would make that call exit 127 under set -euo pipefail.
+# ---------------------------------------------------------------------------
+_ne_probe_status_for() {
+  # $1 = probe name
+  # Review: code-reviewer — use grep -F (fixed-string) so probe names containing BRE
+  # metacharacters cannot cause a false mismatch; portable to BSD grep.
+  printf '%s' "$_ne_probe_output" | grep -F '"name":"'"$1"'"' \
+    | sed 's/.*"status":"\([^"]*\)".*/\1/' 2>/dev/null || echo "inconclusive"
+}
+
+_ne_probe_remediation_for() {
+  # $1 = probe name
+  # Review: code-reviewer — use grep -F (fixed-string) for consistency with _ne_probe_status_for.
+  printf '%s' "$_ne_probe_output" | grep -F '"name":"'"$1"'"' \
+    | sed 's/.*"remediation":"\([^"]*\)".*/\1/' 2>/dev/null || echo ""
+}
+
+_ne_probe_detail_for() {
+  # $1 = probe name
+  # Review: code-reviewer — use grep -F (fixed-string) for consistency with _ne_probe_status_for.
+  printf '%s' "$_ne_probe_output" | grep -F '"name":"'"$1"'"' \
+    | sed 's/.*"detail":"\([^"]*\)".*/\1/' 2>/dev/null || echo ""
+}
+
+# ---------------------------------------------------------------------------
+# macOS/Linux: print offers; Darwin also offers bash-profile repair when
+# the shell_login_env probe reports fail (orphaned bash login shell).
 # ---------------------------------------------------------------------------
 if ! _ne_is_windows; then
   printf '=== normalize-env.sh — macOS/Linux mode (offers only, no mutation) ===\n\n'
@@ -222,8 +328,11 @@ if ! _ne_is_windows; then
 
   # If probes are available, still run them for informational output.
   if [[ "$_ne_probes_available" -eq 1 ]]; then
+    # Capture probe output once so it can be used for both display and status queries
+    # (the Darwin reconstruction path calls _ne_probe_status_for which reads this var).
+    _ne_probe_output="$(_co_prereq_probe_all || true)"
     printf 'Current prereq probe results:\n'
-    _co_prereq_probe_all | while IFS= read -r _probe_line; do
+    printf '%s' "$_ne_probe_output" | while IFS= read -r _probe_line; do
       # Extract fields without jq: parse "name":"...", "status":"..."
       # BSD-portable: use sed BRE.
       _p_name="$(printf '%s' "$_probe_line" | sed 's/.*"name":"\([^"]*\)".*/\1/')"
@@ -232,6 +341,242 @@ if ! _ne_is_windows; then
       printf '  [%s] %s: %s\n' "$_p_status" "$_p_name" "$_p_detail"
     done
     printf '\n'
+
+    # ---------------------------------------------------------------------------
+    # C2: bash login-shell PATH reconstruction (Darwin only).
+    # Spec backlink: docs/plans/2026-06-22-coordinator-env-normalization-step-zero.md (C2)
+    #
+    # Triggered when shell_login_env probe reports `fail` (orphaned bash login shell).
+    # Idempotency (the Staff Engineer F2): trigger on probe verdict, NOT sentinel presence — an
+    # Offer-C-only ~/.bash_profile carries the start sentinel but is still orphaned.
+    # Reconstruction source (the Staff Engineer F0): intact zsh login PATH via
+    # _co_shell_login_env_reconstruction_source — NOT the broken bash login shell.
+    # Verify before success (the Staff Engineer F5a): spawn a login bash after write to confirm.
+    # ---------------------------------------------------------------------------
+    if [[ "$_ne_os" == "Darwin" ]]; then
+      _ne_shell_env_status="$(_ne_probe_status_for shell_login_env)"
+      _ne_bp_backup=""
+
+      if [[ "$_ne_shell_env_status" == "fail" ]]; then
+        printf -- '--- bash login-shell PATH repair ---\n'
+        printf '  Probe shell_login_env=fail: bash login shell has orphaned ~/.local/bin.\n'
+        printf '  This step reconstructs ~/.bash_profile from the intact zsh login PATH.\n'
+        printf '  Source: zsh login shell (untouched by the bash orphan -- not the broken bash).\n'
+        printf '  NO chsh is performed -- only ~/.bash_profile is updated.\n\n'
+
+        # Get intact zsh PATH as the reconstruction source.
+        # ABORT if empty -- never write an empty-PATH managed block (the Staff Engineer F0).
+        _ne_recon_source="$(_co_shell_login_env_reconstruction_source)"
+
+        if [[ -z "$_ne_recon_source" ]]; then
+          printf '  INCONCLUSIVE: zsh login PATH could not be probed (zsh absent or unprobeable).\n'
+          printf '  Cannot reconstruct ~/.bash_profile safely -- empty PATH block would orphan tools.\n'
+          printf '  Manual repair: add the following to ~/.bash_profile:\n'
+          printf '    export PATH="$HOME/.local/bin:$PATH"\n\n'
+        else
+          printf '  Reconstruction source (intact zsh PATH):\n    %s\n\n' "$_ne_recon_source"
+
+          # Sentinel lines -- EXACT strings (shared with Offer C so its grep -qF guard stands down).
+          _NE_START_SENTINEL="# coordinator-install: brew shellenv (DR-148)"
+          _NE_END_SENTINEL="# coordinator-install: end (DR-148)"
+
+          if [[ "$_ne_dry_run" -eq 1 ]]; then
+            printf '(--dry-run) Would reconstruct ~/.bash_profile with managed block:\n'
+            printf '  Start sentinel: %s\n' "$_NE_START_SENTINEL"
+            printf '  End sentinel:   %s\n' "$_NE_END_SENTINEL"
+            printf '  Non-homebrew PATH entries from zsh snapshot that would be added:\n'
+            _ne_dry_rem="$_ne_recon_source"
+            while [ -n "$_ne_dry_rem" ]; do
+              case "$_ne_dry_rem" in
+                *:*) _ne_dry_pe="${_ne_dry_rem%%:*}"; _ne_dry_rem="${_ne_dry_rem#*:}" ;;
+                *)   _ne_dry_pe="$_ne_dry_rem"; _ne_dry_rem="" ;;
+              esac
+              [ -z "$_ne_dry_pe" ] && continue
+              case "$_ne_dry_pe" in
+                */homebrew/*|*/Homebrew/*) continue ;;
+                /usr/bin|/bin|/usr/sbin|/sbin|/usr/local/bin|/usr/local/sbin) continue ;;
+              esac
+              printf '    export PATH="%s:$PATH"\n' "$_ne_dry_pe"
+            done
+            printf '(--dry-run: no mutations applied.)\n\n'
+          else
+            if _ne_prompt_yn "Reconstruct ~/.bash_profile to repair bash login-shell PATH"; then
+              # Backup the existing ~/.bash_profile BEFORE any write (CONSENT-INVARIANT).
+              _ne_bp_ts="$(_ne_timestamp)"
+              _ne_bp_backup="${HOME}/.bash_profile.coordinator-backup.${_ne_bp_ts}"
+              _ne_bp_repair_ok=1
+
+              if [ -f "$HOME/.bash_profile" ]; then
+                if cp "$HOME/.bash_profile" "$_ne_bp_backup" 2>/dev/null; then
+                  printf '  Backup written: %s\n' "$_ne_bp_backup"
+                  printf '  To revert manually: cp %s %s\n' "$_ne_bp_backup" "$HOME/.bash_profile"
+                else
+                  printf '  ERROR: could not write backup to %s -- aborting repair.\n' "$_ne_bp_backup" >&2
+                  _ne_bp_backup=""
+                  _ne_bp_repair_ok=0
+                fi
+              else
+                # No prior file: nothing to back up.
+                _ne_bp_backup=""
+              fi
+
+              if [[ "$_ne_bp_repair_ok" -eq 1 ]]; then
+                # Review: code-reviewer (F6) — mktemp avoids predictable /tmp name collisions;
+                # PID fallback preserves behaviour on systems without mktemp.
+                _ne_bp_tmp="$(mktemp "$HOME/.bash_profile.tmp.XXXXXX" 2>/dev/null || printf '%s' "${HOME}/.bash_profile.tmp.$$")"
+
+                # Determine block-replacement strategy (BSD-portable awk; no sed -i).
+                _ne_has_end_s=0
+                _ne_has_start_s=0
+                if [ -f "$HOME/.bash_profile" ]; then
+                  if grep -qF "$_NE_END_SENTINEL" "$HOME/.bash_profile" 2>/dev/null; then
+                    _ne_has_end_s=1
+                  elif grep -qF "$_NE_START_SENTINEL" "$HOME/.bash_profile" 2>/dev/null; then
+                    _ne_has_start_s=1
+                  fi
+                fi
+
+                # Step 1: produce base content with old managed block stripped (if any).
+                # Review: code-reviewer (F2) — capture awk/cp exit code; on failure rm the
+                # (already-truncated) temp and abort so step 2 + mv never run with empty content.
+                _ne_bp_step1_ok=0
+                if [[ "$_ne_has_end_s" -eq 1 ]]; then
+                  # Both sentinels present: remove start..end inclusive.
+                  awk \
+                    -v ss="$_NE_START_SENTINEL" \
+                    -v es="$_NE_END_SENTINEL" \
+                    'BEGIN{b=0}
+                     $0==ss{b=1;next}
+                     $0==es{b=0;next}
+                     !b{print}' \
+                    "$HOME/.bash_profile" > "$_ne_bp_tmp" 2>/dev/null
+                  _ne_bp_step1_ok=$?
+                elif [[ "$_ne_has_start_s" -eq 1 ]]; then
+                  # Legacy Offer-C (start sentinel only, no end sentinel):
+                  # remove from start sentinel through the next bare `fi` line.
+                  awk \
+                    -v ss="$_NE_START_SENTINEL" \
+                    'BEGIN{b=0}
+                     $0==ss               {b=1;next}
+                     b&&/^fi[[:space:]]*$/{b=0;next}
+                     !b                   {print}' \
+                    "$HOME/.bash_profile" > "$_ne_bp_tmp" 2>/dev/null
+                  _ne_bp_step1_ok=$?
+                elif [ -f "$HOME/.bash_profile" ]; then
+                  # No sentinel: preserve existing content; managed block will be appended.
+                  cp "$HOME/.bash_profile" "$_ne_bp_tmp" 2>/dev/null
+                  _ne_bp_step1_ok=$?
+                else
+                  # No prior file at all — empty temp is correct here.
+                  : > "$_ne_bp_tmp"
+                  # _ne_bp_step1_ok=0 already
+                fi
+
+                if [[ "$_ne_bp_step1_ok" -ne 0 ]]; then
+                  printf '  ERROR: failed to produce base content for ~/.bash_profile (awk/cp exit %d); prior content preserved.\n' "$_ne_bp_step1_ok" >&2
+                  rm -f "$_ne_bp_tmp" 2>/dev/null || true
+                  _ne_bp_repair_ok=0
+                fi
+
+                if [[ "$_ne_bp_repair_ok" -eq 1 ]]; then
+                # Step 2: append the freshly composed managed block.
+                # printf single-quoted strings pass literal '$' through to the output file;
+                # the generated ~/.bash_profile will contain the literal shell variables.
+                {
+                  printf '\n'
+                  printf '%s\n' "$_NE_START_SENTINEL"
+                  printf '# --- coordinator-managed block -- do not edit between these sentinel lines ---\n'
+                  printf '# Boundaries:\n'
+                  printf '#   (a) rc functions/aliases from the prior shell are NOT carried here --\n'
+                  printf '#       only PATH is snapshotted from the intact zsh login environment.\n'
+                  printf '#   (b) Non-login-interactive bash shells read ~/.bashrc, not ~/.bash_profile\n'
+                  printf '#       (macOS Terminal new-tab is often non-login); consider also adding\n'
+                  printf '#       ~/.local/bin to ~/.bashrc for full coverage in those shells.\n'
+                  printf '#   (c) Reciprocal-source-loop hazard: if ~/.bash_profile sources ~/.bashrc\n'
+                  printf '#       and ~/.bashrc sources ~/.bash_profile, a loop results; the guard\n'
+                  printf '#       variable _COORDINATOR_BASH_PROFILE_SOURCED below breaks that loop.\n'
+                  printf '[ -n "${_COORDINATOR_BASH_PROFILE_SOURCED:-}" ] && return 2>/dev/null; export _COORDINATOR_BASH_PROFILE_SOURCED=1\n'
+                  printf 'if [ -x /opt/homebrew/bin/brew ]; then eval "$(/opt/homebrew/bin/brew shellenv)"; elif [ -x /usr/local/bin/brew ]; then eval "$(/usr/local/bin/brew shellenv)"; fi\n'
+                  # Extra PATH entries: zsh snapshot entries NOT contributed by brew shellenv.
+                  # brew shellenv adds entries under its own trees (identifiable by "homebrew"
+                  # in the path). Universal system defaults are always present in a new login
+                  # shell and need not be re-exported.
+                  _ne_zsh_rem="$_ne_recon_source"
+                  while [ -n "$_ne_zsh_rem" ]; do
+                    case "$_ne_zsh_rem" in
+                      *:*) _ne_pe="${_ne_zsh_rem%%:*}"; _ne_zsh_rem="${_ne_zsh_rem#*:}" ;;
+                      *)   _ne_pe="$_ne_zsh_rem"; _ne_zsh_rem="" ;;
+                    esac
+                    [ -z "$_ne_pe" ] && continue
+                    case "$_ne_pe" in
+                      */homebrew/*|*/Homebrew/*) continue ;;
+                      /usr/bin|/bin|/usr/sbin|/sbin|/usr/local/bin|/usr/local/sbin) continue ;;
+                    esac
+                    printf 'export PATH="%s:$PATH"\n' "$_ne_pe"
+                  done
+                  printf '[ -f ~/.bashrc ] && [ -r ~/.bashrc ] && . ~/.bashrc\n'
+                  printf '%s\n' "$_NE_END_SENTINEL"
+                } >> "$_ne_bp_tmp"
+
+                # Atomic write: mv temp onto target.
+                if mv "$_ne_bp_tmp" "$HOME/.bash_profile" 2>/dev/null; then
+                  printf '  ~/.bash_profile written.\n'
+
+                  # Verify (the Staff Engineer F5a): spawn a login bash against the new file.
+                  # Exit 0 iff ~/.local/bin is in PATH AND claude resolves.
+                  # On non-zero: do NOT declare repaired; leave backup restorable.
+                  # Review: code-reviewer (F4) — PATH bash used here, not the detected login-shell
+                  # binary, because both are bash≥4 reading the same ~/.bash_profile; the verify
+                  # result is equivalent and avoids a second shell-detection step.
+                  # Review: code-reviewer (F3) — capture stderr to a log for diagnostics on failure.
+                  _ne_verify_log="$(mktemp 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/ne-verify-$$.log")"
+                  printf '  Verifying repair via login bash...\n'
+                  if bash -lc 'case ":$PATH:" in *":$HOME/.local/bin:"*) command -v claude >/dev/null 2>&1 && exit 0;; esac; exit 1' 2>"$_ne_verify_log"; then
+                    printf '  Repair VERIFIED: login bash now has ~/.local/bin and claude resolves.\n'
+                    rm -f "$_ne_verify_log" 2>/dev/null || true
+                    _ne_record_success "~/.bash_profile reconstructed (bash login-shell PATH repaired)"
+                  else
+                    printf '  Repair FAILED: login bash still fails the orphan predicate.\n' >&2
+                    printf '  Login bash stderr: see %s\n' "$_ne_verify_log" >&2
+                    printf '  Do NOT declare repaired. Backup is restorable:\n' >&2
+                    if [ -n "$_ne_bp_backup" ]; then
+                      printf '    cp %s %s\n' "$_ne_bp_backup" "$HOME/.bash_profile" >&2
+                    fi
+                    _ne_record_failure "~/.bash_profile reconstruction (verify: login bash still orphaned)"
+                  fi
+                else
+                  printf '  ERROR: mv temp to ~/.bash_profile failed.\n' >&2
+                  rm -f "$_ne_bp_tmp" 2>/dev/null || true
+                  _ne_record_failure "~/.bash_profile reconstruction (mv to target failed)"
+                fi
+                fi  # step1 ok inner gate
+              fi  # _ne_bp_repair_ok
+            else
+              printf '  Skipped by user.\n'
+            fi
+          fi  # dry-run else
+        fi  # _ne_recon_source non-empty
+      fi  # shell_login_env == fail
+    fi  # Darwin
+  fi
+
+  # Partial-failure summary for any macOS repair mutations.
+  if [[ -n "$_ne_steps_succeeded" ]] || [[ -n "$_ne_steps_failed" ]]; then
+    printf '\n=== macOS Repair Summary ===\n'
+    if [[ -n "$_ne_steps_succeeded" ]]; then
+      printf 'Succeeded:\n'
+      printf '  %s\n' "$_ne_steps_succeeded"
+    fi
+    if [[ -n "$_ne_steps_failed" ]]; then
+      printf 'Failed:\n'
+      printf '  %s\n' "$_ne_steps_failed"
+      if [[ -n "${_ne_bp_backup:-}" ]]; then
+        printf 'Restore ~/.bash_profile with:\n'
+        printf '  cp %s %s\n' "$_ne_bp_backup" "$HOME/.bash_profile"
+      fi
+      printf 'Run the above brew/apt/dnf commands, then re-run the coordinator install.\n'
+      exit 4
+    fi
   fi
 
   printf 'Run the above brew/apt/dnf commands, then re-run the coordinator install.\n'
@@ -266,30 +611,6 @@ if [[ "$_ne_probes_available" -eq 1 ]]; then
   # probe run degrades gracefully rather than aborting the script under set -e.
   _ne_probe_output="$(_co_prereq_probe_all || true)"
 fi
-
-# ---------------------------------------------------------------------------
-# Parse probe output — no jq; use sed BRE (BSD-portable).
-# Extract status and remediation for each probe by name.
-# ---------------------------------------------------------------------------
-_ne_probe_status_for() {
-  # $1 = probe name
-  # Review: code-reviewer — use grep -F (fixed-string) so probe names containing BRE
-  # metacharacters cannot cause a false mismatch; portable to BSD grep.
-  printf '%s' "$_ne_probe_output" | grep -F '"name":"'"$1"'"' \
-    | sed 's/.*"status":"\([^"]*\)".*/\1/' 2>/dev/null || echo "inconclusive"
-}
-
-_ne_probe_remediation_for() {
-  # $1 = probe name
-  printf '%s' "$_ne_probe_output" | grep '"name":"'"$1"'"' \
-    | sed 's/.*"remediation":"\([^"]*\)".*/\1/' 2>/dev/null || echo ""
-}
-
-_ne_probe_detail_for() {
-  # $1 = probe name
-  printf '%s' "$_ne_probe_output" | grep '"name":"'"$1"'"' \
-    | sed 's/.*"detail":"\([^"]*\)".*/\1/' 2>/dev/null || echo ""
-}
 
 # ---------------------------------------------------------------------------
 # Build fix plan — mutation ordering: blast-radius LAST.
@@ -461,71 +782,16 @@ fi
 # informational, not a mutation of PATH/shim/alias state). The invariant is that no
 # PATH/shim/alias mutation has occurred above this gate. Do not reorder those mutations
 # above this gate. The backup file is cleaned up below if zero mutations are applied.
+#
+# _ne_prompt_yn, _ne_steps_succeeded/_ne_steps_failed, _ne_record_success/_ne_record_failure
+# are defined above the macOS/Windows split so both paths can call them.
 # ---------------------------------------------------------------------------
-_ne_prompt_yn() {
-  # $1 = prompt text
-  # Returns 0 for yes, 1 for no/EOF.
-  local _prompt="$1"
-  local _answer
-
-  if [[ "$_ne_yes" -eq 1 ]]; then
-    printf '%s [auto-yes via --yes]\n' "$_prompt"
-    return 0
-  fi
-
-  if [[ ! -t 0 ]]; then
-    # Non-interactive (no tty, or piped): EOF condition.
-    # Abort — ZERO mutations.
-    printf '%s\n' "$_prompt"
-    printf 'Non-interactive input detected (no tty / EOF). Aborting — no mutations applied.\n'
-    printf 'Re-run with --yes to apply in non-interactive mode, or run interactively.\n'
-    exit 3
-  fi
-
-  printf '%s [y/N]: ' "$_prompt"
-  if ! read -r _answer; then
-    # EOF on read.
-    printf '\nEOF detected. Aborting — no mutations applied.\n'
-    exit 3
-  fi
-
-  case "$_answer" in
-    [Yy]|[Yy][Ee][Ss]) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
-# ---------------------------------------------------------------------------
-# Track partial success for the partial-failure summary.
-# ---------------------------------------------------------------------------
-_ne_steps_succeeded=""
-_ne_steps_failed=""
-
-_ne_record_success() {
-  # $1 = step description
-  if [[ -z "$_ne_steps_succeeded" ]]; then
-    _ne_steps_succeeded="$1"
-  else
-    _ne_steps_succeeded="$_ne_steps_succeeded
-  $1"
-  fi
-}
-
-_ne_record_failure() {
-  # $1 = step description
-  if [[ -z "$_ne_steps_failed" ]]; then
-    _ne_steps_failed="$1"
-  else
-    _ne_steps_failed="$_ne_steps_failed
-  $1"
-  fi
-}
 
 # ---------------------------------------------------------------------------
 # Step 1 (low risk): git config --global core.longpaths true
 # ---------------------------------------------------------------------------
 if [[ "$_ne_has_longpaths_fix" -eq 1 ]]; then
-  printf '--- Step: git long-path support ---\n'
+  printf -- '--- Step: git long-path support ---\n'
   if _ne_prompt_yn "Apply: git config --global core.longpaths true"; then
     # Review: code-reviewer — removed 2>&1 from if-condition; it redirected stderr to
     # terminal without capture (confusing no-op on success; only exit code is tested here).
@@ -559,7 +825,7 @@ fi
 # Step 2 (low risk): install uv via py -m pip install uv
 # ---------------------------------------------------------------------------
 if [[ "$_ne_has_uv_fix" -eq 1 ]]; then
-  printf '--- Step: install uv package manager ---\n'
+  printf -- '--- Step: install uv package manager ---\n'
   if _ne_prompt_yn "Apply: install uv (py -m pip install uv)"; then
     # Try py launcher first (Windows); fall back to python/python3.
     _ne_pip_python=""
@@ -606,7 +872,7 @@ fi
 # This does not repoint pymanager or touch PATH — it installs the runtime.
 # ---------------------------------------------------------------------------
 if [[ "$_ne_has_python_fix" -eq 1 ]]; then
-  printf '--- Step: install Python 3.12 ---\n'
+  printf -- '--- Step: install Python 3.12 ---\n'
   printf '  Current python probe: %s\n' "$(_ne_probe_detail_for python)" # verify-no-console-flash: allow — string literal, not an interpreter spawn
   printf '  This step installs Python 3.12 via winget (Python.Python.3.12).\n'
   printf '  After install, a new shell session will be needed to pick up the new PATH entry.\n'
@@ -651,7 +917,7 @@ fi
 # Uses PowerShell to toggle the aliases in the registry.
 # ---------------------------------------------------------------------------
 if [[ "$_ne_has_alias_fix" -eq 1 ]]; then
-  printf '--- Step: disable WindowsApps App Execution aliases for python/python3 ---\n'
+  printf -- '--- Step: disable WindowsApps App Execution aliases for python/python3 ---\n'
 
   if [[ "$_ne_store_python_suspected" -eq 1 ]]; then
     printf '  [NOTICE] it looks like you are using Windows Store python intentionally.\n' # verify-no-console-flash: allow — string literal, not an interpreter spawn

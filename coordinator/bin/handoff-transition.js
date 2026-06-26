@@ -45,6 +45,7 @@
  */
 
 const fs = require('fs');
+const path = require('path');
 
 // --- Frontmatter primitives (copied from normalize-consumed-frontmatter.js) -----
 
@@ -129,14 +130,49 @@ function insertFmField(fmText, key, value, afterKey) {
 // --- D4 schema-validation seam (Ask 2 adoption point) ---------------------------
 
 /**
- * validateHandoffFrontmatter — permissive no-op stub. When Ask 2 (handoff body
- * schema for project-opticon) lands, this validates the post-transition frontmatter
- * against the handoff schema before the write, the way cross-repo-memo validates
- * memo frontmatter. Until then it accepts everything.
- * TODO(ask2): wire to the handoff schema validator once defined.
+ * validateHandoffFrontmatter — parses post-transition frontmatter YAML and runs
+ * it through the handoff schema validator (validateFrontmatter + applyCrossFieldRules
+ * via schema.js) before the file write. Exits non-zero with a clear message on
+ * any schema or cross-field-rule violation. Fails loud if the handoff schema cannot
+ * be found (unexpected missing schema — indicates an installation issue).
+ * Review: code-reviewer ROBUSTNESS — docstring updated to match actual behavior (fails
+ *   loud on missing schema, not no-op); the old "no-op" claim was incorrect.
+ *
+ * D5: reuses schema.js primitives; no parallel validation logic.
+ * Spec backlink: archive/specs/2026-06/2026-06-25-qffs-tc-4-fleet-machinery-contract-emit.md § Chunk A3a
  */
-function validateHandoffFrontmatter(_fmText) {
-  return;
+function validateHandoffFrontmatter(fmText) {
+  // Lazy-require schema.js so the module only loads when a consume is actually
+  // in progress — avoids startup cost on parse-error / arg-validation paths.
+  const schemaLib = require(path.join(__dirname, 'lib', 'schema.js'));
+  const schemasDir = path.join(__dirname, '..', 'schemas');
+
+  let schemas;
+  try {
+    schemas = schemaLib.loadSchemas(schemasDir);
+  } catch (e) {
+    // Schema directory missing or parse error — fail loud so infra issues surface.
+    fail(`validateHandoffFrontmatter: could not load schemas from ${schemasDir}: ${e.message}`);
+  }
+
+  const handoffSchema = schemas['handoff'];
+  if (!handoffSchema) {
+    // Handoff schema absent — fail loud (unexpected missing schema).
+    fail(`validateHandoffFrontmatter: handoff schema not found in ${schemasDir}`);
+  }
+
+  // Parse the frontmatter YAML body (without --- delimiters) using the same
+  // parser schema.js uses internally — single source of truth (D5).
+  // Review: code-reviewer ROBUSTNESS — use public parseYamlBlock (not test-only _parseYaml).
+  const fm = schemaLib.parseYamlBlock(fmText);
+
+  const result = schemaLib.validateFrontmatter(fm, handoffSchema);
+  if (!result.ok) {
+    const details = (result.errors || [])
+      .map(e => `  ${e.field}: ${e.error}${e.hint ? ' (' + e.hint + ')' : ''}`)
+      .join('\n');
+    fail(`handoff frontmatter validation failed:\n${details}`);
+  }
 }
 
 // --- consume verb ---------------------------------------------------------------

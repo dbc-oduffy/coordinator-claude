@@ -350,10 +350,14 @@ except Exception as e:
     print(f"PARSE_ERROR: {e}"); sys.exit(1)
 url = direct_url.get("url", "")
 if url.startswith("file:///"):
-    import os
-    pinned_str = url[8:].replace('/', os.sep)
-    if os.name == 'nt' and not pinned_str.startswith(tuple('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz')):
-        pinned_str = pinned_str.lstrip(os.sep)
+    import os, urllib.parse
+    # urlparse yields the absolute path: '/abs/path' on POSIX, '/C:/path' on Windows.
+    # The old url[8:] slice consumed the path-initial '/' (file:// + /abs-path), producing
+    # a broken *relative* path on POSIX (e.g. 'private/var/...'); unquote also handles
+    # %-encoded chars (spaces). pathlib.Path accepts '/' separators on every platform.
+    pinned_str = urllib.parse.unquote(urllib.parse.urlparse(url).path)
+    if os.name == 'nt' and len(pinned_str) > 2 and pinned_str[0] == '/' and pinned_str[2] == ':':
+        pinned_str = pinned_str[1:]   # strip leading '/' before the Windows drive letter
     pinned_path = pathlib.Path(pinned_str)
 else:
     pinned_path = pathlib.Path(url)
@@ -619,10 +623,14 @@ except Exception as e:
     print(f"PARSE_ERROR: {e}"); sys.exit(1)
 url = direct_url.get("url", "")
 if url.startswith("file:///"):
-    import os
-    pinned_str = url[8:].replace('/', os.sep)
-    if os.name == 'nt' and not pinned_str.startswith(tuple('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz')):
-        pinned_str = pinned_str.lstrip(os.sep)
+    import os, urllib.parse
+    # urlparse yields the absolute path: '/abs/path' on POSIX, '/C:/path' on Windows.
+    # The old url[8:] slice consumed the path-initial '/' (file:// + /abs-path), producing
+    # a broken *relative* path on POSIX (e.g. 'private/var/...'); unquote also handles
+    # %-encoded chars (spaces). pathlib.Path accepts '/' separators on every platform.
+    pinned_str = urllib.parse.unquote(urllib.parse.urlparse(url).path)
+    if os.name == 'nt' and len(pinned_str) > 2 and pinned_str[0] == '/' and pinned_str[2] == ':':
+        pinned_str = pinned_str[1:]   # strip leading '/' before the Windows drive letter
     pinned_path = pathlib.Path(pinned_str)
 else:
     pinned_path = pathlib.Path(url)

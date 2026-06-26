@@ -14,7 +14,7 @@
 # machine-local. NEVER mutates a tracked file. Always exits 0 (idempotent; safe as a Phase 0 call).
 set -uo pipefail
 
-CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
+CLAUDE_HOME="${CLAUDE_HOME:-$HOME}/.claude"
 
 # Resolve the machine-local CLI: PATH first, then the in-plugin bin as fallback.
 ML="$(command -v machine-local 2>/dev/null || true)"

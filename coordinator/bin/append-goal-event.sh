@@ -168,7 +168,7 @@ JSON_LINE="$(jq -c -n \
 # Ensure log directory exists; append (never rewrite)
 # ---------------------------------------------------------------------------
 LOG_DIR="${ROOT}/state"
-# Per-machine append-only log: the machine slug in the filename keeps concurrent BettaAir+Striker
+# Per-machine append-only log: the machine slug in the filename keeps concurrent Machine-C+Machine-A
 # appends in separate files so they never git-conflict (the Data Science Reviewer P1-D6). The emitter globs all
 # per-machine logs and derives latest-wins per (repo,root,period,period_value).
 MACHINE_SLUG="$(printf '%s' "$DECLARED_BY_MACHINE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')"
