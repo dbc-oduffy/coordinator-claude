@@ -24,7 +24,7 @@ import re
 import subprocess
 import sys
 
-PERSONA_NAMES = ["Patrik", "Sid", "Camelia", "Palí", "Fru", "Zolí", "YK"]
+PERSONA_NAMES = ["Patrik", "Sid", "Camelia", "Palí", "Pali", "Fru", "Zolí", "Zoli", "YK"]
 PERSONA_RE = re.compile(r"\b(" + "|".join(re.escape(n) for n in PERSONA_NAMES) + r")\b")
 
 NOQA_RE = re.compile(r"#\s*noqa:\s*persona-names", re.IGNORECASE)
