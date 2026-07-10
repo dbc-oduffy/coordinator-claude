@@ -1,0 +1,705 @@
+#!/bin/sh
+# ── sh/python polyglot trampoline ──────────────────────────────────────────────
+# The next line is inert Python (a bare string literal) but executable sh/bash.
+# It lets this CLI be invoked three ways that ALL Just Work, so the habitual
+# `bash <script>` reach no longer exec-fails by feeding Python to bash:
+#   coordinator-lesson-promote ...          # direct, via the shebang above — canonical form
+#   python  coordinator-lesson-promote ...  # explicit interpreter
+#   bash    coordinator-lesson-promote ...  # re-execs under python instead of erroring
+# Under sh/bash the line resolves the interpreter as `python3 || python || py`
+# (macOS 12.3+ and modern Linux ship only `python3` — Apple dropped the `python`
+# symlink; clean Windows python.org installs ship only `python`/`py`), captures
+# its path via command substitution, then execs it; under Python the whole line
+# is a no-op string. One `exec`, three-way probe — the canonical pattern.
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+from __future__ import annotations
+"""
+coordinator-lesson-promote — write a universal lesson to the local lessons-outbox
+for drain by the central /learn-lessons --central procedure.
+
+Shebang note: the SHEBANG line above is `python`, NOT `python3` — `python3` is
+not on PATH on a clean Windows install (only `python`/`py` are), so a `python3`
+shebang exec-127s there. This is the documented rule for coordinator CLIs:
+docs/wiki/bash-on-windows-gotchas.md § Windows exception. The TRAMPOLINE line
+above is a separate concern: it probes `python3 || python || py` so
+`bash coordinator-lesson-promote …` works on macOS, Linux, AND Windows.
+Do not flatten the trampoline back to a single name.
+
+Spec backlink: docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md § C1
+
+Purpose: Write ONE YAML entry to state/lessons-outbox/<ISO-ts>-<slug>.yaml.
+The file is left uncommitted (dirty) so it surfaces in `git status` and is
+picked up by the /learn-lessons --central drain procedure.
+
+Output path: state/lessons-outbox/<ISO-ts>-<slug>.yaml
+  - ISO-ts: UTC timestamp, colons replaced with hyphens for filesystem safety
+  - Slug: title sanitised to lowercase + hyphens, alphanumeric + hyphens only,
+    truncated to 40 chars
+
+from_repo resolution order (same convention as cross-repo-memo):
+  1. cwd git-root → reverse-lookup against machine-local repos.* table
+  2. repos.doe_claude (DoE-claude repo) → "claude-central-em"
+  3. Unregistered git repo → basename of git root + "-em"
+  4. Not in a git repo → "unknown-sender-em"
+  Never uses `git remote get-url origin` — that yields a URL, not a shortname.
+
+Negative-spec: this CLI writes ONLY to state/lessons-outbox/. It does NOT
+append to state/improvement-queue.md, lessons.md, or any other surface.
+Those routes are for project-scoped or wiki-only entries; this CLI is for
+universal lessons destined for the central coordinator wiki.
+
+Invocation:
+  coordinator-lesson-promote \\
+    --title "lesson title" \\
+    --body "lesson body prose" \\
+    --change-kind doctrine-edit \\
+    --target-wiki docs/wiki/some-wiki.md \\
+    [--scope-tags "tag1,tag2"] \\
+    [--evidence "commit-sha or plan path"]
+"""
+
+import argparse
+import datetime
+import json
+import os
+import re
+import subprocess
+import sys
+import uuid
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from coordinator_registry import em_id_for_root, doe_root, _DoeUnresolvable  # noqa: E402
+from cc_invoke import route as _cc_route  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+# Maximum slug length (chars) for the filename component.
+_SLUG_MAX_CHARS = 40
+
+# Env var for test isolation — overrides the outbox root directory.
+# Tests chdir into a temp dir; the CLI resolves state/lessons-outbox/ relative to
+# cwd by default. This env var allows absolute override without chdir.
+_OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
+
+# Env var for machine-local implementation path (mirrors cross-repo-memo pattern).
+_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
+
+# Env var for CLAUDE_HOME override (mirrors cross-repo-memo pattern).
+_CLAUDE_HOME_ENV = "CLAUDE_HOME"
+
+# Env var for EXAMPLE_ORCHESTRATION_HUB_ROOT override — mirrors coordinator-example-orchestration-hub-root.sh §4b
+# idempotency gate. Set to the example-orchestration-hub repo root to bypass machine-local resolution.
+# Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC1 / AC13
+_EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV = "EXAMPLE_ORCHESTRATION_HUB_ROOT"
+
+# Env var for DOE_ROOT override — mirrors EXAMPLE_ORCHESTRATION_HUB_ROOT §4b idempotency gate.
+# Honoured by coordinator_registry.doe_root() (imported above) — kept here as a
+# local constant for documentation and error-message reference.
+# Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
+_DOE_ROOT_ENV = "DOE_ROOT"
+
+
+class _ExampleOrchestrationHubUnresolvable(RuntimeError):
+    """Raised when EXAMPLE_ORCHESTRATION_HUB_ROOT cannot be resolved via env var or machine-local registry.
+
+    Callers in the central write loop catch this and degrade gracefully (WARN + skip,
+    exit 0) per AC13. The low-level resolver itself fails loud; this is the caller-layer
+    resilience wrapper.
+
+    Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC13
+    """
+
+# Path to the node schema-cli.js bridge, resolved relative to this file so it
+# works regardless of cwd or installation location.
+# Spec backlink: dual-yaml-parser option-d, C4
+_SCHEMA_CLI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema-cli.js")
+
+# Subprocess timeout for node schema-cli.js calls — a hung node process fails
+# loud rather than blocking the caller indefinitely.
+_SCHEMA_CLI_TIMEOUT = 10  # seconds
+
+# ---------------------------------------------------------------------------
+# schema-cli.js bridge — replaces schema_loader.load_schema
+# ---------------------------------------------------------------------------
+
+
+def _describe_schema_node(schema_name: str) -> dict:
+    """Invoke `node schema-cli.js --describe <schema_name>` and return parsed JSON.
+
+    Three-class failure handling (the Staff Engineer F3 discipline):
+      (a) ENOENT / spawn failure  → fail loud with node-install remediation.
+      (b) non-zero + parseable {ok:false,...}  → surface as content error.
+      (c) non-zero + no parseable output  → infra crash, fail loud with stderr.
+      timeout  → fails loud, does not block.
+
+    Raises RuntimeError on any failure.
+    """
+    cmd = ["node", _SCHEMA_CLI_PATH, "--describe", schema_name]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_SCHEMA_CLI_TIMEOUT,
+        )
+    except FileNotFoundError:
+        # Class (a): node binary not found
+        raise RuntimeError(
+            "node is not installed or not on PATH. "
+            "Install Node.js (https://nodejs.org/) so schema-cli.js can be invoked."
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            f"schema-cli.js timed out after {_SCHEMA_CLI_TIMEOUT}s "
+            f"for schema '{schema_name}' — possible infra hang. "
+            "Check that node is healthy and not wedged."
+        )
+
+    if result.returncode != 0:
+        # Class (b): try to parse stdout for {ok:false, ...} envelope
+        stdout = result.stdout.strip()
+        if stdout:
+            try:
+                parsed = json.loads(stdout)
+                if isinstance(parsed, dict) and parsed.get("ok") is False:
+                    errors = parsed.get("errors") or []
+                    raise RuntimeError(
+                        f"schema-cli content error for '{schema_name}': {errors}"
+                    )
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Class (c): non-zero with no parseable {ok:false} — infra crash or
+        # unknown-schema error; report raw stderr
+        stderr = result.stderr.strip()
+        raise RuntimeError(
+            f"schema-cli.js exited {result.returncode} for schema '{schema_name}'. "
+            f"stderr: {stderr or '(empty)'}"
+        )
+
+    try:
+        return json.loads(result.stdout)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise RuntimeError(
+            f"schema-cli.js emitted non-JSON output for schema '{schema_name}': {exc}"
+        ) from exc
+
+
+# ---------------------------------------------------------------------------
+# from_repo resolution — mirrors cross-repo-memo._sender_em_id pattern
+# ---------------------------------------------------------------------------
+
+# Registry aliases: stable doctrine EM names that diverge from the repo's
+# machine-local shortname convention. Derived from schemas/coordinator-registry.manifest.json
+# via coordinator_registry.REPO_ALIASES (loaded above). Mirrors cross-repo-memo RECEIVER_EM_ALIASES.
+
+
+def _claude_home() -> str:
+    """Return the ~/.claude root, honouring CLAUDE_HOME env var for test isolation."""
+    override = os.environ.get(_CLAUDE_HOME_ENV)
+    if override:
+        return override
+    return os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def _example_orchestration_hub_root() -> str | None:
+    """Resolve the example-orchestration-hub repo root, mirroring coordinator-example-orchestration-hub-root.sh (AC1).
+
+    Resolution chain:
+      1. EXAMPLE_ORCHESTRATION_HUB_ROOT env var — if non-empty, trusted as-is (§4b idempotency gate).
+      2. machine-local get repos.example_orchestration_hub_repo — delegates to the §4c discovery ladder.
+      3. Returns None when unresolvable — callers degrade gracefully (AC13).
+
+    Negative-spec: this function never raises; it returns None when unresolvable so
+    callers can emit WARN + skip rather than crashing. The low-level shell primitive
+    (coordinator-example-orchestration-hub-root.sh) hard-errors; this is the Python caller-layer wrapper.
+
+    Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC1 / AC13
+    """
+    override = os.environ.get(_EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV, "").strip()
+    if override:
+        return override
+    val = _machine_local_get("repos.example_orchestration_hub_repo")
+    return val if val else None
+
+
+def _machine_local_impl() -> str:
+    """Return the path to _machine_local.py, honouring MACHINE_LOCAL_IMPL for tests."""
+    override = os.environ.get(_MACHINE_LOCAL_IMPL_ENV)
+    if override:
+        return override
+    return os.path.join(_claude_home(), "bin", "_machine_local.py")
+
+
+def _resolve_python() -> str:
+    """Return a usable Python interpreter for subprocess calls to _machine_local.py.
+
+    sys.executable is always valid — the interpreter running this script.
+    Avoids subprocess probing that raises FileNotFoundError on Windows.
+    """
+    return sys.executable
+
+
+def _machine_local_get(key: str) -> str | None:
+    """Call machine-local get <key> and return the value, or None on failure."""
+    impl = _machine_local_impl()
+    python = _resolve_python()
+    cmd = [python, impl, "get", key]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _machine_local_repos_keys() -> list[str]:
+    """Return all repos.* keys from the machine-local registry."""
+    impl = _machine_local_impl()
+    python = _resolve_python()
+    try:
+        result = subprocess.run([python, impl, "keys"], capture_output=True, text=True)
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    return [
+        line.strip()
+        for line in result.stdout.splitlines()
+        if line.strip().startswith("repos.")
+    ]
+
+
+def _current_repo_root() -> str | None:
+    """Return the git repo root of the cwd, or None if not inside a git repo."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _resolve_from_repo(root: str | None = None) -> str:
+    """Identify the from_repo for the outbox entry from cwd context.
+
+    Accepts a pre-resolved repo root to avoid spawning a second git rev-parse when
+    the caller already holds the root. Pass None (default) to resolve internally.
+    Review: code-reviewer strang-08-slice3 — (F3) accept pre-resolved root param.
+    """
+    # Review: code-reviewer strang-08-slice3 — (F3) use caller-supplied root if provided.
+    if root is None:
+        root = _current_repo_root()
+    keys = _machine_local_repos_keys()
+    paths = {k: _machine_local_get(k) for k in keys}
+    # Ensure repos.doe_claude is present so em_id_for_root can match the central identity.
+    # It may not appear in _machine_local_repos_keys() on machines where it is not yet
+    # registered; the setdefault call adds it without duplicating a lookup that already hit.
+    paths.setdefault("repos.doe_claude", _machine_local_get("repos.doe_claude"))
+    return em_id_for_root(root, {k: v for k, v in paths.items() if v})
+
+
+# ---------------------------------------------------------------------------
+# Output path helpers
+# ---------------------------------------------------------------------------
+
+def _outbox_root() -> str:
+    """Return the lessons-outbox directory path.
+
+    Respects LESSON_PROMOTE_OUTBOX_ROOT env var for test isolation (takes precedence).
+    Default: central state root via the DoE seam → <doe_root>/state/lessons-outbox/.
+    Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
+    cannot be resolved and no env override is present — callers catch this and degrade
+    gracefully (WARN + skip, exit 0).
+
+    Negative-spec: does NOT fall back to cwd-relative state/ or to example-orchestration-hub when
+    DOE_ROOT is unresolvable — silent fallback is a write-plane landmine.
+
+    Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
+    """
+    override = os.environ.get(_OUTBOX_ROOT_ENV)
+    if override:
+        return override
+    # Central state (lessons-outbox) routes to DoE — doctrine class.
+    # doe_root() raises _DoeUnresolvable when repos.doe_claude is unregistered and
+    # DOE_ROOT env var is not set; _DoeUnresolvable propagates to legacy_fn() catch.
+    # Spec backlink: gate2-w23-state-seam-caller-switch.md § C1 / AC2
+    return os.path.join(doe_root(), "state", "lessons-outbox")
+
+
+_COLLISION_RETRY_CAP = 1000  # bounded retry attempts before failing loud (see below)
+
+
+def _write_path_excl(out_path: str, content: str) -> str:
+    """Write content to out_path using an exclusive-create + retry-with-suffix loop.
+
+    Replaces a plain open(path, "w") silent overwrite with os.O_CREAT|O_EXCL so a
+    same-timestamp+slug collision from a concurrent second write does NOT destroy
+    the first entry. On FileExistsError, retries with an incrementing filename
+    suffix inserted before the .yaml extension (<ts>-<slug>-2.yaml, -3.yaml, ...)
+    bounded to _COLLISION_RETRY_CAP attempts, so both entries persist under distinct
+    filenames. Only when the cap is exhausted does this raise — fail loud, never
+    silently drop the entry.
+
+    Returns the actual path written (== out_path unless a collision suffix was used).
+
+    Negative-spec: do NOT swap this for a plain open(path, "w") — that silently
+    clobbers a same-key concurrent write. Do NOT swap this for a bare fail-loud
+    FileExistsError (the cross-repo-memo shape) either — legacy_fn() here is a
+    terminal caller with no retry path, so failing loud on the FIRST collision
+    would drop the entry rather than preserve it; retry-with-suffix is required.
+
+    Counter-pattern (deliberate divergence): coordinator/bin/cross-repo-memo's
+    _write_file FAILS LOUD (FileExistsError, no retry) on collision because its
+    caller is interactive and retries with a new --topic.
+
+    Spec backlink: F1/F2 legacy-fallback silent-overwrite collision guard (chunk C1).
+    """
+    root, ext = os.path.splitext(out_path)
+    candidate = out_path
+    attempt = 1
+    while True:
+        try:
+            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            attempt += 1
+            if attempt > _COLLISION_RETRY_CAP:
+                raise FileExistsError(
+                    f"coordinator-lesson-promote: refusing to drop entry — exhausted "
+                    f"{_COLLISION_RETRY_CAP} collision-retry attempts for base path "
+                    f"{out_path!r}. All candidate filenames already exist. "
+                    # Review: code-reviewer — F3: surface the actually-probed suffix
+                    # range, not just the base path, to remove a manual-inference
+                    # step from an already-rare failure path.
+                    f"Tried {out_path!r} through {root!r}-{_COLLISION_RETRY_CAP}{ext!r}."
+                ) from None
+            candidate = f"{root}-{attempt}{ext}"
+            continue
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        return candidate
+
+
+def _slug_from_title(title: str) -> str:
+    """Sanitize a title into a filesystem-safe slug.
+
+    Lowercase, alphanumeric + hyphens only, no leading/trailing hyphens.
+    Truncated to _SLUG_MAX_CHARS chars.
+    """
+    slug = title.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    slug = slug.strip("-")
+    # Review: code-reviewer — F1/F3: strip("-") before truncation, but truncation can
+    # leave a trailing hyphen (e.g. "foo-bar-" at char 40). rstrip("-") after
+    # truncation, matching coordinator-queue-append and migrate-queues-to-base.py:292.
+    return slug[:_SLUG_MAX_CHARS].rstrip("-")
+
+
+def _now_iso() -> str:
+    """Return current UTC datetime as ISO 8601 string (seconds precision)."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+def _ts_for_filename(iso_ts: str) -> str:
+    """Convert an ISO timestamp to a filesystem-safe filename component.
+
+    Replaces ':' and '+' with '-' for cross-platform filename safety.
+    e.g. '2026-06-15T10:30:00+00:00' → '2026-06-15T10-30-00-00-00'
+    """
+    return re.sub(r"[:+]", "-", iso_ts)
+
+
+# ---------------------------------------------------------------------------
+# YAML serialization (minimal, no external deps)
+# ---------------------------------------------------------------------------
+
+def _yaml_str(value: str) -> str:
+    """Serialize a string value for YAML.
+
+    Uses block scalar (|) for multi-line values; quoted scalar for single-line
+    values that contain YAML-special characters.
+    """
+    if "\n" in value:
+        # Block scalar — indent each line by 2 spaces.
+        # Review: code-reviewer Slice-B — (B-F8) changed | (clip chomping) to |- (strip
+        # chomping) for byte-fidelity parity with coordinator-queue-append._yaml_block_scalar.
+        # Clip chomping adds a trailing newline on round-trip; strip chomping preserves exact bytes.
+        indented = "\n".join("  " + line if line.strip() else "" for line in value.splitlines())
+        return "|-\n" + indented
+    # Single-line: quote if it contains YAML-special characters or leading/trailing whitespace.
+    needs_quoting = any(c in value for c in ('"', "'", ":", "#", "{", "}", "[", "]", ",", "&", "*", "?", "|", ">", "!", "%", "@", "`"))
+    needs_quoting = needs_quoting or value != value.strip() or value.lower() in ("true", "false", "null", "yes", "no")
+    if needs_quoting:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return value
+
+
+def _compose_yaml(fields: dict[str, str | list[str] | None]) -> str:
+    """Compose a YAML document from an ordered dict of fields.
+
+    Handles str and list[str] values. None values are serialized as empty string.
+    """
+    lines = ["---"]
+    for key, value in fields.items():
+        if value is None:
+            lines.append(f"{key}: ")
+        elif isinstance(value, list):
+            if not value:
+                lines.append(f"{key}: []")
+            else:
+                lines.append(f"{key}:")
+                for item in value:
+                    lines.append(f"  - {_yaml_str(item)}")
+        elif "\n" in str(value):
+            # Block scalar — write key: |
+            lines.append(f"{key}: {_yaml_str(str(value))}")
+        else:
+            lines.append(f"{key}: {_yaml_str(str(value))}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Core write logic
+# ---------------------------------------------------------------------------
+
+def _write_entry(
+    *,
+    title: str,
+    body: str,
+    change_kind: str,
+    target_wiki: str,
+    scope_tags: list[str],
+    evidence: str | None,
+    entry_id: str,
+    created: str,
+    from_repo: str,
+) -> str:
+    """Write a lessons-outbox YAML entry. Returns the path written."""
+    outbox = _outbox_root()
+    os.makedirs(outbox, exist_ok=True)
+
+    ts_safe = _ts_for_filename(created)
+    slug = _slug_from_title(title)
+    filename = f"{ts_safe}-{slug}.yaml"
+    path = os.path.join(outbox, filename)
+
+    fields: dict = {
+        "id": entry_id,
+        "created": created,
+        "from_repo": from_repo,
+        "change_kind": change_kind,
+        "target_wiki": target_wiki,
+        "title": title,
+        "body": body,
+    }
+    if scope_tags:
+        fields["scope_tags"] = scope_tags
+    if evidence:
+        fields["evidence"] = evidence
+
+    content = _compose_yaml(fields)
+    # Collision guard (C1, legacy-fallback silent-overwrite fix): plain open(path, "w")
+    # is a silent overwrite when path already exists — a same-timestamp+slug collision
+    # from a concurrent second write would destroy the first entry with no error.
+    # _write_path_excl replaces this with an exclusive-create + retry-with-suffix loop
+    # so BOTH entries persist under distinct filenames.
+    return _write_path_excl(path, content)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParser:
+    """Build the argument parser. change_kind_values is derived at runtime from the schema."""
+    parser = argparse.ArgumentParser(
+        prog="coordinator-lesson-promote",
+        description=(
+            "Write a universal lesson entry to state/lessons-outbox/ for drain "
+            "by the /learn-lessons --central procedure.\n\n"
+            "Spec: docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md § C1\n"
+            "Schema: docs/wiki/lessons-outbox-schema.md"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--title",
+        required=True,
+        help="One-line lesson title (bold heading in lessons.md format).",
+    )
+    parser.add_argument(
+        "--body",
+        required=True,
+        help="Lesson body prose — 1-2 sentences describing the pattern and fix.",
+    )
+    parser.add_argument(
+        "--change-kind",
+        required=True,
+        choices=change_kind_values,
+        metavar="CHANGE_KIND",
+        help=(
+            f"Kind of change this lesson routes to. One of: {', '.join(change_kind_values)}. "
+            "See docs/wiki/lessons-outbox-schema.md for semantics."
+        ),
+    )
+    parser.add_argument(
+        "--target-wiki",
+        required=True,
+        help=(
+            "Central wiki path this lesson targets, e.g. docs/wiki/some-wiki.md. "
+            "Use 'unknown' when the target wiki is not yet identified."
+        ),
+    )
+    parser.add_argument(
+        "--scope-tags",
+        default="",
+        help="Optional comma-separated scope tags, e.g. 'executor,plan-authoring'.",
+    )
+    parser.add_argument(
+        "--evidence",
+        default=None,
+        help="Optional evidence: commit SHA, plan path, or lesson source reference.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Entry point. Returns exit code."""
+    # Derive the valid change_kind enum from the lessons-outbox schema at runtime
+    # by calling `node schema-cli.js --describe lessons-outbox`.
+    # Fails loud (non-zero exit + stderr) if the schema cannot be loaded.
+    # Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-consolidation.md § C1
+    # Rewired from schema_loader.load_schema → node CLI: dual-yaml-parser option-d C4
+    try:
+        _cli_output = _describe_schema_node("lessons-outbox")
+        change_kind_values: tuple[str, ...] = tuple(_cli_output["enums"]["change_kind"])
+    except RuntimeError as exc:
+        print(f"error: schema load failed: {exc}", file=sys.stderr)
+        return 1
+    except (KeyError, TypeError) as exc:
+        print(f"error: unexpected schema structure for 'lessons-outbox': {exc}", file=sys.stderr)
+        return 1
+
+    parser = _build_parser(change_kind_values)
+    args = parser.parse_args(argv)
+    # Review: code-reviewer Slice-B — (B-F3) deleted unreachable dead block that re-validated
+    # change_kind after argparse; argparse choices= already rejects invalid values with exit 2
+    # naming the valid set, so the explicit check was dead code.
+
+    scope_tags = [t.strip() for t in args.scope_tags.split(",") if args.scope_tags.strip() and t.strip()]
+
+    entry_id = str(uuid.uuid4())
+    created = _now_iso()
+    # Review: code-reviewer strang-08-slice3 — (F3) hoist _current_repo_root() so git rev-parse
+    # spawns exactly once per invocation; pass resolved root to _resolve_from_repo and reuse
+    # for _cc_route repo_root arg below.
+    _raw_root = _current_repo_root()
+    repo_root = _raw_root or ""
+    from_repo = _resolve_from_repo(root=_raw_root)
+
+    # ── routing gate ─────────────────────────────────────────────────────────
+    # Capture the legacy write body as a closure; byte-identical to pre-swap HEAD.
+    # State-1 (seam absent): _cc_route calls legacy_fn() and returns its int exit code.
+    # State-2 (seam present): _cc_route returns the bare result dict from queue.promote.
+    # Spec backlink: docs/plans/2026-07-06-strang-08-arm-queue-facade-invoke-retarget.md § C4
+    def legacy_fn() -> int:
+        try:
+            path = _write_entry(
+                title=args.title,
+                body=args.body,
+                change_kind=args.change_kind,
+                target_wiki=args.target_wiki,
+                scope_tags=scope_tags,
+                evidence=args.evidence if args.evidence else None,
+                entry_id=entry_id,
+                created=created,
+                from_repo=from_repo,
+            )
+        except _DoeUnresolvable as exc:
+            # AC2: graceful-skip on unresolvable DOE_ROOT — WARN + skip, exit 0.
+            # A coordinator install without repos.doe_claude registered (pre-fleet-clone
+            # or non-DoE machine) WARNs and skips rather than hard-erroring, per the
+            # graceful-degradation contract (state-placement-law.md §Rule graceful-degradation).
+            # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1 / AC2
+            print(
+                f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
+                f"skipping central lessons-outbox write: {exc}",
+                file=sys.stderr,
+            )
+            print(
+                "  Remediation: run 'machine-local set repos.doe_claude /path/to/doe-claude'\n"
+                "  or set DOE_ROOT=/path/to/doe-claude before invoking this CLI.\n"
+                "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+                file=sys.stderr,
+            )
+            return 0
+        except OSError as exc:
+            print(f"error: could not write outbox entry: {exc}", file=sys.stderr)
+            return 1
+
+        print(f"Lesson outbox entry written: {path}")
+        print(f"  id:          {entry_id}")
+        print(f"  from_repo:   {from_repo}")
+        print(f"  change_kind: {args.change_kind}")
+        print(f"  target_wiki: {args.target_wiki}")
+        return 0
+
+    # Build queue.promote params from validated fields; from_repo passed explicitly
+    # so the op does not fall to its basename+"-em" default (provenance parity, AC11).
+    # repo_root already computed above (F3 hoist — single git rev-parse per invocation).
+    params: dict = {
+        "title": args.title,
+        "body": args.body,
+        "change_kind": args.change_kind,
+        "target_wiki": args.target_wiki,
+        "scope_tags": scope_tags,
+        "evidence": args.evidence if args.evidence else None,
+        "from_repo": from_repo,
+    }
+    result = _cc_route("queue.promote", params, repo_root, legacy_fn)
+
+    # Native path: result is the bare dict from queue.promote.
+    if isinstance(result, dict):
+        if result.get("skipped"):
+            # AC12: skipped:true → WARN (parity with _DoeUnresolvable message) + exit 0.
+            # Do NOT treat skipped as unconditional success — emit the WARN so callers see
+            # the write was not performed.
+            reason = result.get("reason", "DOE_ROOT unresolvable")
+            print(
+                f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
+                f"skipping central lessons-outbox write: {reason}",
+                file=sys.stderr,
+            )
+            return 0
+        # Review: code-reviewer strang-08-slice3 — (F1) guard out_path access; bare KeyError
+        # on unexpected op result shape (missing both out_path and skipped) gives a misleading
+        # traceback instead of a clean error. TWO-SIGNAL contract lives in the op, not here.
+        out_path = result.get("out_path")
+        if not out_path:
+            print(
+                f"error: coordinator-lesson-promote: op returned unexpected result shape "
+                f"(no out_path and skipped not set): {result!r}",
+                file=sys.stderr,
+            )
+            return 1
+        print(out_path)
+        return 0
+    # Legacy path: legacy_fn() returned an int exit code.
+    return int(result)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

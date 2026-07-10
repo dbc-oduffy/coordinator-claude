@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# coordinator-safe-name — CLI wrapper for lib/coordinator-safe-name.sh
+#
+# Spec backlink: docs/plans/2026-06-30-cross-platform-file-naming-helper.md § seam 1
+#
+# PURPOSE: Thin CLI wrapper that resolves the lib path relative to this script
+# (CLIs MAY self-locate; the lib they ship beside MUST NOT), sources it, and
+# dispatches timestamp/slug/check subcommands to the csn_* functions.
+#
+# Usage:
+#   coordinator-safe-name timestamp [--now | --mtime <file>]
+#   coordinator-safe-name slug "<text>"
+#   coordinator-safe-name check "<component>"
+
+set -euo pipefail
+
+# Locate the lib relative to this script's own directory.
+_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+_LIB="$_SCRIPT_DIR/lib/coordinator-safe-name.sh"
+
+if [ ! -f "$_LIB" ]; then
+    printf 'coordinator-safe-name: lib not found at %s\n' "$_LIB" >&2
+    exit 1
+fi
+
+# shellcheck source=lib/coordinator-safe-name.sh
+. "$_LIB"
+
+subcommand="${1:-}"
+shift || true
+
+case "$subcommand" in
+    timestamp) csn_timestamp "$@" ;;
+    slug)      csn_slug "$@" ;;
+    check)     csn_check "$@" ;;
+    "")
+        printf 'Usage: coordinator-safe-name <timestamp|slug|check> [args...]\n' >&2
+        exit 1
+        ;;
+    *)
+        printf 'coordinator-safe-name: unknown subcommand "%s"\n' "$subcommand" >&2
+        printf 'Usage: coordinator-safe-name <timestamp|slug|check> [args...]\n' >&2
+        exit 1
+        ;;
+esac

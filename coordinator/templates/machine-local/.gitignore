@@ -1,5 +1,0 @@
-# machine-local registry — per-machine overrides stay out of git
-*.local.toml
-
-# Tracked: *.toml baselines, *.example templates, README.md
-!*.toml.example

@@ -1,0 +1,9 @@
+# Fixture lesson — synthetic entry for lesson-triage schema test.
+# DO NOT process with /lesson-triage — fixture input only.
+created: 2026-01-01
+title: "Subagent dispatch billing inheritance"
+scope: universal
+body: |
+  Parent on 1M-context tier propagates the billing flag to every Agent dispatch
+  regardless of model override. Use Haiku 4.5 to bypass the gate for mechanical
+  work; otherwise drop parent context via /clear or /handoff.

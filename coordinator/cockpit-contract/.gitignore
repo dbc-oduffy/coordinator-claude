@@ -1,5 +1,0 @@
-node_modules/
-dist/
-*.tsbuildinfo
-# Review: code-reviewer — emit:example writes to ./schema-example; gitignore prevents dirty untracked tree after pnpm run emit:example
-schema-example/

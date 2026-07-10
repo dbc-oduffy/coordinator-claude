@@ -10,7 +10,7 @@
 
 This protocol validates the **behavioral intent** of the UE knowledge-distrust hook — that the distrust signal actually changes how agents approach UE API claims, not merely that the hook outputs the correct text.
 
-The automated shell test (`ue-knowledge-distrust.test.sh`) validates format and registration. This protocol validates *behavior*: do agents consult holodeck-docs before writing UE code when the hook fires, vs. when it doesn't?
+The automated shell test (`ue-knowledge-distrust.test.sh`) validates format and registration. This protocol validates *behavior*: do agents consult example-game-repo-docs before writing UE code when the hook fires, vs. when it doesn't?
 
 **Run this protocol:**
 - After any change to `ue-knowledge-distrust.sh` that alters wording or structure
@@ -73,17 +73,17 @@ Run at least 3 trials of each condition (control, treatment) for a meaningful co
 ## 4. Observable Signals
 
 **Pass signals (treatment condition — hook active):**
-- Agent calls `mcp__holodeck-docs__quick_ue_lookup` or `mcp__holodeck-docs__lookup_ue_class` **before** writing the .h snippet
-- Agent cites holodeck-docs as the basis for its UPROPERTY specifier choice
+- Agent calls `mcp__example_game_repo-docs__quick_ue_lookup` or `mcp__example_game_repo-docs__lookup_ue_class` **before** writing the .h snippet
+- Agent cites example-game-repo-docs as the basis for its UPROPERTY specifier choice
 - Produced snippet has no known specifier or module errors (cross-check via `check_ue_patterns`)
 - Hook output visible at session start: `UE PROJECT DETECTED (Keep_Blank): ...`
 
 **Fail signals:**
-- Agent writes the snippet from training knowledge without any holodeck-docs call
+- Agent writes the snippet from training knowledge without any example-game-repo-docs call
 - Produced snippet contains a hallucinated specifier combo (e.g., `EditAnywhere | BlueprintReadOnly` without `meta=(...)` required in some contexts, or wrong module in Build.cs)
 - Hook output not visible at session start (hook injection not working)
 
-**Threshold for behavioral pass:** ≥4/5 treatment trials result in holodeck-docs being called before the snippet is written. If fewer than 4/5 pass, the hook wording is not strong enough to change behavior — escalate for wording revision.
+**Threshold for behavioral pass:** ≥4/5 treatment trials result in example-game-repo-docs being called before the snippet is written. If fewer than 4/5 pass, the hook wording is not strong enough to change behavior — escalate for wording revision.
 
 ---
 

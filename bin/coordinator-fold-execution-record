@@ -1,0 +1,361 @@
+#!/usr/bin/env bash
+# coordinator-fold-execution-record — compose the execution-record fold from a plan + flight sidecars
+#
+# Purpose: given a plan file, reads all tasks/<plan-slug>/flight/*.md sidecars and emits
+# two markdown blocks to stdout:
+#   Part A — "## Execution Observations": one entry per sidecar, keyed by chunk-id resolved
+#             to the AC/segment it targets (from the plan's ## Chunks / ## Dispatch Ledger section).
+#   Part B — "## Completion Entry Prose": a suggested past-tense TITLE + ≤8-sentence BODY
+#             synthesised from the observations + an optional --desc one-liner.
+#
+# The prose synthesis (Part B) is a judgment step. This script gathers and structures the raw
+# material mechanically and emits it in a clearly-labelled block. If sidecars are present but
+# no chunk-to-AC mapping is resolvable, the block is emitted with the raw chunk-id so a
+# downstream Sonnet compose step can fill in the AC annotation.
+#
+# Mechanical parts: frontmatter parse, chunk→AC map extraction, sidecar body assembly.
+# Judgment parts: prose title + body composition (emitted as structured material for downstream).
+#
+# Spec backlink: (inline — no plan doc yet; this script IS the spec surface)
+# DR-148: bash >=4, stdlib/coreutils only — no GNU-isms, no external deps.
+#
+# Usage:
+#   coordinator-fold-execution-record --plan <path> [--desc <one-liner>]
+#
+# Exit codes:
+#   0 — normal exit (output emitted, or no sidecars found → skip signal on stdout)
+#   1 — argument / validation error
+#
+# SKIP sentinel — callers MUST check stdout for a line matching:
+#   <!-- coordinator-fold-execution-record: SKIP
+#   before appending stdout to a plan file. Scripted pipelines that blindly
+#   redirect stdout (>> "$plan") will silently write the SKIP comment into the
+#   plan body. Hard-error SKIPs (plan-not-found, invalid-slug, repo-root-fail)
+#   also write a diagnostic to stderr. Soft SKIPs (no flight dir, no sidecars,
+#   trivial observations) write only to stdout; exit is always 0 for all SKIPs.
+# # code-reviewer F8: documented SKIP sentinel contract; hard-error cases also emit to stderr
+#
+# NEVER commits or stages files. NEVER edits the plan or any sidecar.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Bash >=4 guard (DR-148)
+# ---------------------------------------------------------------------------
+if [[ "${BASH_VERSINFO[0]:-0}" -lt 4 ]]; then
+  printf 'coordinator-fold-execution-record: requires bash >= 4 (found %s). Install via brew: brew install bash\n' "${BASH_VERSION:-unknown}" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Parse flags
+# ---------------------------------------------------------------------------
+plan_path=""
+desc_flag=""
+
+while [[ $# -gt 0 ]]; do
+  case "${1:-}" in
+    --plan)
+      if [[ -z "${2:-}" ]]; then
+        printf 'coordinator-fold-execution-record: --plan requires an argument\n' >&2
+        exit 1
+      fi
+      plan_path="$2"
+      shift 2
+      ;;
+    --desc)
+      if [[ -z "${2:-}" ]]; then
+        printf 'coordinator-fold-execution-record: --desc requires an argument\n' >&2
+        exit 1
+      fi
+      desc_flag="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      printf 'coordinator-fold-execution-record: unknown flag: %s\n' "$1" >&2
+      exit 1
+      ;;
+    *)
+      printf 'coordinator-fold-execution-record: unexpected positional argument: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [[ -z "${plan_path}" ]]; then
+  printf 'Usage: coordinator-fold-execution-record --plan <path> [--desc <one-liner>]\n' >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve plan file
+# ---------------------------------------------------------------------------
+if [[ ! -f "${plan_path}" ]] || [[ ! -r "${plan_path}" ]]; then
+  printf 'coordinator-fold-execution-record: plan not found or unreadable: %s\n' "${plan_path}" >&2
+  printf '<!-- coordinator-fold-execution-record: SKIP plan-not-found -->\n'
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Derive plan-slug: strip leading YYYY-MM-DD- and trailing .md
+# ---------------------------------------------------------------------------
+plan_basename="$(basename "${plan_path}")"
+# Strip leading date prefix (YYYY-MM-DD-)
+plan_slug="${plan_basename#[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-}"
+# Strip trailing .md
+plan_slug="${plan_slug%.md}"
+
+if [[ -z "${plan_slug}" ]]; then
+  printf 'coordinator-fold-execution-record: could not derive plan-slug from: %s\n' "${plan_path}" >&2
+  printf '<!-- coordinator-fold-execution-record: SKIP slug-derivation-failed -->\n'
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Validate plan_slug — reject traversal characters and non-slug patterns
+# ---------------------------------------------------------------------------
+# Derived from basename, so path separators are already stripped. Guard
+# against unusual filenames (e.g. "2026-07-06-../evil.md") that would yield
+# a slug containing ".." or "/" and let flight_dir escape git_root/tasks/.
+# code-reviewer F7: parse-time slug-validation guard — rejects traversal chars + non-slug shapes
+if [[ ! "${plan_slug}" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  printf 'coordinator-fold-execution-record: invalid plan-slug derived from filename: %s\n' "${plan_slug}" >&2
+  printf '<!-- coordinator-fold-execution-record: SKIP invalid-slug -->\n'
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Locate tasks/<plan-slug>/flight/ relative to the plan's repo root
+# ---------------------------------------------------------------------------
+# Resolve repo root via git; fall back to plan's grandparent (docs/plans/../../)
+git_root=""
+git_root="$(git -C "$(dirname "${plan_path}")" rev-parse --show-toplevel 2>/dev/null)" || true
+
+if [[ -z "${git_root}" ]]; then
+  # Heuristic: plan lives at docs/plans/<file> → repo root is two levels up
+  git_root="$(cd "$(dirname "${plan_path}")/../.." 2>/dev/null && pwd)" || git_root=""
+fi
+
+if [[ -z "${git_root}" ]] || [[ ! -d "${git_root}" ]]; then
+  printf 'coordinator-fold-execution-record: cannot resolve repo root from plan path: %s\n' "${plan_path}" >&2
+  printf '<!-- coordinator-fold-execution-record: SKIP repo-root-unresolvable -->\n'
+  exit 0
+fi
+
+flight_dir="${git_root}/tasks/${plan_slug}/flight"
+
+# ---------------------------------------------------------------------------
+# Fail-open: no flight directory → emit skip signal, exit 0
+# ---------------------------------------------------------------------------
+if [[ ! -d "${flight_dir}" ]]; then
+  printf '<!-- coordinator-fold-execution-record: SKIP no-flight-dir tasks/%s/flight/ -->\n' "${plan_slug}"
+  exit 0
+fi
+
+# Collect sidecar files
+sidecar_files=()
+while IFS= read -r -d '' f; do
+  sidecar_files+=("$f")
+done < <(find "${flight_dir}" -maxdepth 1 -name "*.md" -print0 2>/dev/null | sort -z)
+
+if [[ ${#sidecar_files[@]} -eq 0 ]]; then
+  printf '<!-- coordinator-fold-execution-record: SKIP no-sidecars-in tasks/%s/flight/ -->\n' "${plan_slug}"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Parse plan's ## Chunks / ## Dispatch Ledger section to build chunk-id → AC map
+#
+# Strategy:
+#   - Scan for "## Chunks" or "## Dispatch Ledger" sections.
+#   - In the Chunks section, each subsection heading "### C<N> — <description>" maps
+#     the chunk-id (e.g. c1, c2) to its AC/segment label (the text after "— ").
+#   - In the Dispatch Ledger table, assumes column 1 = dispatch number, column 2 = chunk-id
+#     (standard ledger format per execute-plan SKILL.md). Non-standard column orderings
+#     silently produce no fallback entries — Chunks section is authoritative when both
+#     exist. Header rows (col2 = literal "chunk-id") are skipped explicitly.
+# code-reviewer F3: updated comment; was misleading about "column detection" — implementation
+#   hardcodes col1=dispatch#, col2=chunk-id; added header-row skip below
+# ---------------------------------------------------------------------------
+
+# chunk_ac_map: associative array chunk-id (lowercase) -> AC label
+declare -A chunk_ac_map
+
+# Parse the Chunks section from plan for "### C<N> — <label>" headings
+in_chunks_section=0
+while IFS= read -r line; do
+  # Enter chunks or dispatch ledger section
+  if [[ "${line}" =~ ^##[[:space:]]+(Chunks|Dispatch[[:space:]]Ledger) ]]; then
+    in_chunks_section=1
+    continue
+  fi
+  # Exit on next ## heading (^## cannot match ^### — second condition was dead code)
+  # code-reviewer F4: removed redundant && [[ ! "${line}" =~ ^###[[:space:]] ]] — always true when ^##[[:space:]] matches
+  if [[ "${line}" =~ ^##[[:space:]] ]]; then
+    in_chunks_section=0
+    continue
+  fi
+  if [[ "${in_chunks_section}" -eq 1 ]]; then
+    # Match: ### C<N>[.<suffix>] — <label>   (e.g. "### C1 — Registry P0")
+    if [[ "${line}" =~ ^###[[:space:]]+(C[0-9]+[a-z-]*)[[:space:]]*[—-][[:space:]]*(.+)$ ]]; then
+      raw_id="${BASH_REMATCH[1]}"
+      ac_label="${BASH_REMATCH[2]}"
+      # Normalise: lowercase, strip trailing whitespace
+      chunk_key="${raw_id,,}"
+      # Trim trailing whitespace from label
+      ac_label="${ac_label%"${ac_label##*[![:space:]]}"}"
+      chunk_ac_map["${chunk_key}"]="${ac_label}"
+    fi
+    # Also parse Dispatch Ledger table rows: | N | chunk-id | ... |
+    # Format: | # | chunk-id | brief | ... |
+    # Skip the header row (col2 = literal "chunk-id") explicitly.
+    if [[ "${line}" =~ ^\|[^|]*\|[[:space:]]*chunk-id[[:space:]]*\| ]]; then
+      continue
+    fi
+    if [[ "${line}" =~ ^\|[[:space:]]*[0-9]+[[:space:]]*\|[[:space:]]*(C[0-9]+[a-z-]*)[[:space:]]*\| ]]; then
+      raw_id="${BASH_REMATCH[1]}"
+      chunk_key="${raw_id,,}"
+      # Only populate if not already set from Chunks section (Chunks is authoritative)
+      if [[ -z "${chunk_ac_map[${chunk_key}]:-}" ]]; then
+        chunk_ac_map["${chunk_key}"]="${raw_id} (ledger)"
+      fi
+    fi
+  fi
+done < "${plan_path}"
+
+# ---------------------------------------------------------------------------
+# Parse each sidecar: extract chunk-id from frontmatter, extract ## Observations body
+# ---------------------------------------------------------------------------
+
+# Parallel arrays: chunk_ids[], obs_bodies[]
+chunk_ids=()
+obs_bodies=()
+
+for sidecar in "${sidecar_files[@]}"; do
+  [[ -f "${sidecar}" ]] || continue
+  [[ -r "${sidecar}" ]] || continue
+
+  # Parse frontmatter: extract chunk: value
+  sidecar_chunk=$(awk '
+    /^---$/ { n++; if (n == 2) exit; next }
+    n == 1 && /^chunk:/ {
+      sub(/^chunk:[[:space:]]*/, "")
+      gsub(/^["'"'"']|["'"'"']$/, "")
+      print
+      exit
+    }
+  ' "${sidecar}" 2>/dev/null) || sidecar_chunk=""
+
+  [[ -z "${sidecar_chunk}" ]] && sidecar_chunk="$(basename "${sidecar}" .md)"
+
+  # Extract body under ## Observations (everything after that heading until next ## heading).
+  # Prefix match /^## Observations/ tolerates heading variants (e.g. "## Observations & Notes").
+  # code-reviewer F5: changed from exact anchor /^## Observations[[:space:]]*$/ to prefix match
+  obs_body=$(awk '
+    /^## Observations/ { in_obs = 1; next }
+    in_obs && /^## / { in_obs = 0; next }
+    in_obs { print }
+  ' "${sidecar}" 2>/dev/null) || obs_body=""
+
+  # Trim leading/trailing blank lines from obs_body (portable awk — no GNU sed needed)
+  obs_body="$(printf '%s\n' "${obs_body}" | awk '
+    /[^[:space:]]/ { found=1 }
+    found { lines[n++]=$0 }
+    END {
+      # trim trailing blank lines
+      last=n-1
+      while (last >= 0 && lines[last] ~ /^[[:space:]]*$/) last--
+      for (i=0; i<=last; i++) print lines[i]
+    }
+  ' 2>/dev/null)" || true
+
+  # Skip sidecars with empty/trivial observations
+  # "Trivial" = body is empty, or only whitespace, or only "N/A" / "none" / "—"
+  trimmed_obs="${obs_body//[[:space:]]/}"
+  trimmed_obs_lc="${trimmed_obs,,}"
+  if [[ -z "${trimmed_obs}" ]] || [[ "${trimmed_obs_lc}" =~ ^(n/a|none|—|-|na)$ ]]; then
+    continue
+  fi
+
+  chunk_ids+=("${sidecar_chunk}")
+  obs_bodies+=("${obs_body}")
+done
+
+# ---------------------------------------------------------------------------
+# Fail-open: all sidecars had trivial/empty observations
+# ---------------------------------------------------------------------------
+if [[ ${#chunk_ids[@]} -eq 0 ]]; then
+  printf '<!-- coordinator-fold-execution-record: SKIP all-observations-trivial -->\n'
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Part A: ## Execution Observations
+# ---------------------------------------------------------------------------
+printf '## Execution Observations\n\n'
+printf '*Generated by coordinator-fold-execution-record from tasks/%s/flight/*\n\n' "${plan_slug}"  # code-reviewer F6: _…/_ italic closes on punctuation in some parsers; *…/* is portable
+
+for i in "${!chunk_ids[@]}"; do
+  cid="${chunk_ids[$i]}"
+  cid_lc="${cid,,}"
+  obs="${obs_bodies[$i]}"
+
+  # Resolve AC label from map
+  ac_label="${chunk_ac_map[${cid_lc}]:-}"
+  if [[ -n "${ac_label}" ]]; then
+    heading="${cid^^} — ${ac_label}"
+  else
+    heading="${cid^^} (chunk-to-AC mapping not resolved — annotate manually)"
+  fi
+
+  printf '### %s\n\n' "${heading}"
+  printf '%s\n\n' "${obs}"
+done
+
+# ---------------------------------------------------------------------------
+# Part B: ## Completion Entry Prose
+#
+# Mechanical assembly: collect chunk labels + observations into structured
+# material. Prose title and sentence synthesis are flagged as JUDGMENT STEP
+# for downstream Sonnet compose if this is run in a shell-only pipeline.
+# ---------------------------------------------------------------------------
+printf '## Completion Entry Prose\n\n'
+printf '<!-- JUDGMENT NOTE: TITLE and BODY below are structured raw material.\n'
+printf '     Shell assembly is mechanical. A downstream Sonnet compose step\n'
+printf '     should rewrite these into polished past-tense prose if needed. -->\n\n'
+
+# Derive a candidate title from the plan slug (replace hyphens with spaces, title-case)
+slug_title="${plan_slug//-/ }"
+# Simple title-case via awk (portable, no GNU-isms)
+slug_title_cased="$(printf '%s' "${slug_title}" | awk '{for(i=1;i<=NF;i++){$i=toupper(substr($i,1,1))substr($i,2)}print}')"
+
+if [[ -n "${desc_flag}" ]]; then
+  candidate_title="${desc_flag}"
+else
+  candidate_title="[JUDGMENT STEP — suggest title from: ${slug_title_cased}]"
+fi
+
+printf '**TITLE (past-tense one-liner):** %s\n\n' "${candidate_title}"
+printf '**BODY (≤8 sentences — compose from observations below):**\n\n'
+
+# Emit structured body material: one paragraph per chunk
+for i in "${!chunk_ids[@]}"; do
+  cid="${chunk_ids[$i]}"
+  cid_lc="${cid,,}"
+  obs="${obs_bodies[$i]}"
+  ac_label="${chunk_ac_map[${cid_lc}]:-${cid^^}}"
+
+  printf '[%s — %s]\n' "${cid^^}" "${ac_label}"
+  printf '%s\n\n' "${obs}"
+done
+
+if [[ -n "${desc_flag}" ]]; then
+  printf '[Caller-supplied description]\n%s\n\n' "${desc_flag}"
+fi
+
+printf '<!-- END coordinator-fold-execution-record output -->\n'
+exit 0

@@ -1,0 +1,9 @@
+# Fixture lesson — synthetic entry for lesson-triage schema test.
+# DO NOT process with /lesson-triage — fixture input only.
+created: 2026-01-04
+title: "TEXT-ONLY hallucination -- disk-first verification"
+scope: universal
+body: |
+  A subset of dispatched agents hallucinate a "TEXT ONLY" constraint and dump
+  deliverables inline as analysis blocks. Already covered in coord/CLAUDE.md
+  "TEXT ONLY Hallucination" section.

@@ -1,0 +1,292 @@
+#!/usr/bin/env bash
+# coordinator-initiative — mint, attach, and list unattached initiatives.
+#
+# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2 (AC3)
+#
+# Purpose: authoring-side CLI for the initiative governing discipline.
+#   create          Mint state/initiatives/<id>.yaml. Fail-loud on existing id; atomic write.
+#   attach          Write initiative: <id> FK to an artifact's YAML frontmatter.
+#   list-unattached Thin wrapper over query-records --unattached.
+#
+# VERBATIM — central-seam sourcing: state/initiatives/ is resolved via
+# coordinator_state_root --central by sourcing lib/coordinator-state-root.sh.
+# NOT coordinator-session.sh.
+# Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C2
+#
+# Test override: COORDINATOR_INITIATIVE_ROOT bypasses coordinator_state_root resolution
+# (for unit tests that do not have a configured example-orchestration-hub/central state root).
+#
+# Negative-spec: does NOT auto-create initiatives from detector output (surface-and-confirm only).
+# Negative-spec: does NOT build the interactive attach UI.
+# Negative-spec: does NOT use coordinator-session.sh for state root resolution.
+# Negative-spec: does NOT write any file outside state/initiatives/<id>.yaml or the named artifact.
+
+set -euo pipefail
+
+# ── Portability guard ──────────────────────────────────────────────────────────
+# Bash 4+ required (${var^^}, associative arrays, etc. are used elsewhere in the
+# coordinator pipeline; guard here ensures the script fails-loud on stock macOS
+# /bin/bash 3.2 rather than producing silent incorrect behaviour).
+if (( ${BASH_VERSINFO[0]:-0} < 4 )); then
+  printf 'coordinator-initiative: bash 4+ required (found %s).\n' "${BASH_VERSION:-unknown}" >&2
+  printf '  Remediation: install bash 4+ via "brew install bash" (macOS) or "apt install bash" (Linux).\n' >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# lib/ is one level up from bin/ (coordinator/bin/ → coordinator/lib/).
+LIB_DIR="${SCRIPT_DIR}/../lib"
+_COORDINATOR_STATE_ROOT_SH="${LIB_DIR}/coordinator-state-root.sh"
+
+# ── Central-seam resolution ────────────────────────────────────────────────────
+# Resolves state/initiatives/ via coordinator_state_root --central.
+# Respects COORDINATOR_INITIATIVE_ROOT env override for test isolation.
+# Negative-spec: does NOT fall back silently if the seam fails — returns 1 (fail-loud).
+_resolve_initiatives_dir() {
+  # Test-isolation override: bypasses central-seam resolution entirely.
+  if [[ -n "${COORDINATOR_INITIATIVE_ROOT:-}" ]]; then
+    printf '%s' "${COORDINATOR_INITIATIVE_ROOT}"
+    return 0
+  fi
+  if [[ ! -f "$_COORDINATOR_STATE_ROOT_SH" ]]; then
+    printf 'coordinator-initiative: lib/coordinator-state-root.sh not found at %s\n' \
+      "$_COORDINATOR_STATE_ROOT_SH" >&2
+    printf '  Remediation: ensure the coordinator plugin is fully installed.\n' >&2
+    return 1
+  fi
+  # Run in a subshell to avoid inheriting/clobbering the caller shell set options.
+  # This mirrors the subprocess pattern used by coordinator-doc-new (Python) for the same seam.
+  # Review: code-reviewer — F4 (P2): pass lib path via env var to avoid quoting hazard when
+  # _COORDINATOR_STATE_ROOT_SH contains a single-quote (e.g. unusual home dir configurations).
+  # shellcheck disable=SC2016
+  # ENGINE (example-orchestration-hub): sole consumer emit-cockpit-snapshot.sh:2420 reads state/initiatives — §Residency-Is-Not-Ownership; doctrine reclassification pending lockstep cockpit-read flip (improvement-queue entry)
+  local state_root
+  state_root="$(COORD_LIB="${_COORDINATOR_STATE_ROOT_SH}" bash -c '. "$COORD_LIB" && coordinator_state_root --central')" || {
+    printf 'coordinator-initiative: failed to resolve central state root via coordinator-state-root.sh.\n' >&2
+    printf '  Ensure EXAMPLE_ORCHESTRATION_HUB_ROOT is configured (machine-local registry) and the lib is reachable.\n' >&2
+    return 1
+  }
+  if [[ -z "$state_root" ]]; then
+    printf 'coordinator-initiative: coordinator_state_root --central returned empty path.\n' >&2
+    return 1
+  fi
+  printf '%s/initiatives' "$state_root"
+}
+
+# ── YAML quoting ───────────────────────────────────────────────────────────────
+# Wrap a value in YAML double-quoted string, escaping embedded \ and ".
+# Used for id, label, owner, target_date to produce spec-compliant YAML.
+_yaml_dquote() {
+  local val="$1"
+  val="${val//\\/\\\\}"   # escape backslashes
+  val="${val//\"/\\\"}"   # escape double-quotes
+  # Review: code-reviewer — F11 (nit): escape control characters so a newline or carriage
+  # return in --label/--id (e.g. from $'...\n...') produces valid YAML \n/\r, not a literal
+  # newline inside the double-quoted string (which is invalid YAML).
+  # Bash-4/BSD-portable: ${var//$'\n'/replacement} works on bash ≥4 (required above).
+  val="${val//$'\n'/\\n}"   # escape newlines
+  val="${val//$'\r'/\\r}"   # escape carriage returns
+  printf '"%s"' "$val"
+}
+
+# ── Usage ──────────────────────────────────────────────────────────────────────
+_usage() {
+  printf 'Usage:\n' >&2
+  printf '  coordinator-initiative create --id <id> --label <label> [--owner <owner>] [--target-date <YYYY-MM-DD>] [--force]\n' >&2
+  printf '  coordinator-initiative attach <artifact-path> <initiative-id>\n' >&2
+  printf '  coordinator-initiative list-unattached [query-records-options...]\n' >&2
+  printf '\nSubcommands:\n' >&2
+  printf '  create          Mint state/initiatives/<id>.yaml. Fails on existing id (use --force to overwrite).\n' >&2
+  printf '  attach          Set initiative: <id> in the artifact YAML frontmatter (FK write).\n' >&2
+  printf '  list-unattached List all artifacts with initiative == null (wraps query-records --unattached).\n' >&2
+}
+
+# ── create ─────────────────────────────────────────────────────────────────────
+# Mint state/initiatives/<id>.yaml.
+# Fail-loud (non-zero exit + remediation message) when the id already exists and --force is absent.
+# Write is atomic via temp-file + rename to prevent partial writes on crash.
+_cmd_create() {
+  local id="" label="" owner="" target_date="" force=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --id)            id="$2";            shift 2 ;;
+      --id=*)          id="${1#--id=}";    shift ;;
+      --label)         label="$2";         shift 2 ;;
+      --label=*)       label="${1#--label=}"; shift ;;
+      --owner)         owner="$2";         shift 2 ;;
+      --owner=*)       owner="${1#--owner=}"; shift ;;
+      --target-date)   target_date="$2";   shift 2 ;;
+      --target-date=*) target_date="${1#--target-date=}"; shift ;;
+      --force)         force=1;            shift ;;
+      *)
+        printf 'coordinator-initiative create: unknown flag: %s\n' "$1" >&2
+        printf '  Run coordinator-initiative --help for usage.\n' >&2
+        exit 1
+        ;;
+    esac
+  done
+
+  if [[ -z "$id" ]]; then
+    printf 'coordinator-initiative create: --id is required.\n' >&2
+    exit 1
+  fi
+
+  # Review: code-reviewer — F2 (P1): parse-time slug validation to prevent path-traversal writes.
+  # Accept only ^[a-z0-9][a-z0-9-]*$ — reject any id containing /, \, .., or a leading dot.
+  if [[ ! "$id" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    printf 'coordinator-initiative create: invalid --id %q\n' "$id" >&2
+    printf '  Initiative ids must match ^[a-z0-9][a-z0-9-]*$ (lowercase alphanumeric + hyphens, no leading hyphen).\n' >&2
+    printf '  Rejected characters: /, \\, .., or a leading dot.\n' >&2
+    printf '  Example valid id: my-initiative-2026\n' >&2
+    exit 1
+  fi
+
+  if [[ -z "$label" ]]; then
+    printf 'coordinator-initiative create: --label is required.\n' >&2
+    exit 1
+  fi
+
+  local initiatives_dir
+  initiatives_dir="$(_resolve_initiatives_dir)" || exit 1
+  mkdir -p "$initiatives_dir"
+
+  local target="${initiatives_dir}/${id}.yaml"
+
+  # FAIL-LOUD on existing id (without --force).
+  if [[ -f "$target" && "$force" -eq 0 ]]; then
+    printf 'coordinator-initiative create: initiative '\''%s'\'' already exists at %s\n' "$id" "$target" >&2
+    printf '  To attach work to this initiative: coordinator-initiative attach <artifact-path> %s\n' "$id" >&2
+    printf '  To overwrite the initiative definition: re-run create with --force\n' >&2
+    exit 1
+  fi
+
+  # Atomic write: temp-file + rename prevents partial content on crash.
+  local tmp="${target}.tmp.$$"
+  {
+    printf 'id: %s\n'     "$(_yaml_dquote "$id")"
+    printf 'label: %s\n'  "$(_yaml_dquote "$label")"
+    printf 'status: active\n'
+    if [[ -n "$owner" ]]; then
+      printf 'owner: %s\n' "$(_yaml_dquote "$owner")"
+    else
+      printf 'owner: null\n'
+    fi
+    if [[ -n "$target_date" ]]; then
+      printf 'target_date: %s\n' "$(_yaml_dquote "$target_date")"
+    else
+      printf 'target_date: null\n'
+    fi
+  } > "$tmp"
+  mv "$tmp" "$target"
+  printf '%s\n' "$target"
+}
+
+# ── attach ─────────────────────────────────────────────────────────────────────
+# Write initiative: <id> to the artifact's YAML frontmatter (plain FK write).
+# If the artifact already has an initiative: key it is replaced; otherwise inserted
+# before the closing --- of the frontmatter block.
+# Verifies the initiative YAML exists before writing (fail-loud if not).
+# Write is atomic via temp-file + rename.
+_cmd_attach() {
+  if [[ $# -lt 2 ]]; then
+    printf 'coordinator-initiative attach: requires <artifact-path> <initiative-id>\n' >&2
+    printf '  Usage: coordinator-initiative attach <artifact-path> <initiative-id>\n' >&2
+    exit 1
+  fi
+  local artifact_path="$1"
+  local initiative_id="$2"
+
+  if [[ ! -f "$artifact_path" ]]; then
+    printf 'coordinator-initiative attach: artifact not found: %s\n' "$artifact_path" >&2
+    exit 1
+  fi
+
+  # Verify the target initiative exists (fail-loud).
+  local initiatives_dir
+  initiatives_dir="$(_resolve_initiatives_dir)" || exit 1
+  if [[ ! -f "${initiatives_dir}/${initiative_id}.yaml" ]]; then
+    printf 'coordinator-initiative attach: initiative '\''%s'\'' not found at %s/%s.yaml\n' \
+      "$initiative_id" "$initiatives_dir" "$initiative_id" >&2
+    printf '  Create it first: coordinator-initiative create --id %s --label '\''<label>'\''\n' \
+      "$initiative_id" >&2
+    exit 1
+  fi
+
+  # Review: code-reviewer — F3 (P1): fail-loud if artifact has no YAML frontmatter block.
+  # The awk strategy silently no-ops (copies file unchanged, exits 0) when no opening --- exists,
+  # producing a false-success signal. Guard at the boundary before awk runs.
+  if [[ "$(head -1 "$artifact_path")" != "---" ]]; then
+    printf 'coordinator-initiative attach: artifact has no YAML frontmatter block: %s\n' "$artifact_path" >&2
+    printf '  The file must begin with a --- frontmatter opening line.\n' >&2
+    printf '  Ensure the artifact has a valid YAML frontmatter block before attaching.\n' >&2
+    exit 1
+  fi
+
+  # Use awk to update the frontmatter in-place.
+  # Strategy: scan inside the frontmatter block (between opening and closing ---).
+  #   - Update an existing initiative: line to the new id.
+  #   - If no initiative: line exists, inject one before the closing ---.
+  # BSD-portable POSIX awk (no gensub, no --).
+  local tmp="${artifact_path}.tmp.$$"
+  awk -v init_id="$initiative_id" '
+    BEGIN { in_front=0; found=0 }
+    NR==1 && /^---[[:space:]]*$/ { in_front=1; print; next }
+    in_front && /^---[[:space:]]*$/ {
+      if (!found) { print "initiative: " init_id }
+      in_front=0; print; next
+    }
+    in_front && /^initiative:/ {
+      print "initiative: " init_id
+      found=1; next
+    }
+    { print }
+  ' "$artifact_path" > "$tmp"
+
+  # Review: code-reviewer — F3 (P1): detect unterminated-frontmatter / not-found case to
+  # prevent false success. Verify the FK line was actually written to the tmp file.
+  if ! grep -q "^initiative: ${initiative_id}" "$tmp" 2>/dev/null; then
+    rm -f "$tmp"
+    printf 'coordinator-initiative attach: failed to inject initiative FK into %s\n' "$artifact_path" >&2
+    printf '  The artifact frontmatter may be unterminated (no closing ---).\n' >&2
+    exit 1
+  fi
+
+  mv "$tmp" "$artifact_path"
+  printf 'attached: %s -> initiative: %s\n' "$artifact_path" "$initiative_id"
+}
+
+# ── list-unattached ────────────────────────────────────────────────────────────
+# Thin wrapper: exec into query-records --unattached, passing all remaining args.
+# C2 spec: "thin wrapper invoking query-records --unattached".
+# Negative-spec: does NOT filter, transform, or re-implement the lens logic — C3 owns that.
+_cmd_list_unattached() {
+  local qr_bin="${SCRIPT_DIR}/query-records.js"
+  if [[ ! -f "$qr_bin" ]]; then
+    printf 'coordinator-initiative list-unattached: query-records.js not found at %s\n' "$qr_bin" >&2
+    printf '  Ensure the coordinator plugin is fully installed.\n' >&2
+    exit 1
+  fi
+  # exec replaces the current process — no wrapper overhead after this point.
+  exec node "$qr_bin" --unattached "$@"
+}
+
+# ── Main dispatch ──────────────────────────────────────────────────────────────
+if [[ $# -eq 0 ]]; then
+  _usage
+  exit 1
+fi
+
+SUBCMD="$1"; shift
+case "$SUBCMD" in
+  create)           _cmd_create "$@" ;;
+  attach)           _cmd_attach "$@" ;;
+  list-unattached)  _cmd_list_unattached "$@" ;;
+  -h|--help|help)   _usage; exit 0 ;;
+  *)
+    printf 'coordinator-initiative: unknown subcommand '\''%s'\''\n' "$SUBCMD" >&2
+    printf '  Valid subcommands: create, attach, list-unattached\n' >&2
+    printf '  Run coordinator-initiative --help for usage.\n' >&2
+    exit 1
+    ;;
+esac

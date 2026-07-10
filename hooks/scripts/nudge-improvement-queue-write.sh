@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# PreToolUse hook: When the EM appends a new entry to an improvement queue
+# (central or per-project), surface a four-question friction prompt before the
+# write lands. Goal: make "just queue it" more expensive than "just fix it."
+#
+# Motivation: empirically, the queue is a laundromat for reflexive deferral —
+# the EM hits a small structural issue mid-flight, types a queue entry, and
+# moves on. Doctrine alone hasn't held (cf. 2026-05-16 self lesson "PM-brought
+# improvement with a known fix-locus is an action, not a queue entry"). This
+# hook adds tool-boundary friction: every queue-append must justify itself
+# against the five laziness traps (the 5th, added 2026-06-01, is the inbound
+# cross-repo memo-ask case — picking up a memo and queuing its request is one
+# of two hard-forbidden writes the message now names explicitly).
+#
+# Fires on: Write or Edit where file_path matches *improvement-queue.md.
+#
+# Skipped (silent pass):
+#   - File path doesn't match a queue file.
+#   - Edit with no new "- YYYY-MM-DD" entry line in new_string (pruning,
+#     reformat, or non-append edits).
+#   - Transcript tail shows an active legitimate-author skill:
+#     /learn-lessons, /workweek-complete, /workday-complete, /distill,
+#     /workstream-complete (these surfaces own queue maintenance).
+#   - Authorized override: COORDINATOR_QUEUE_PUNT="<reason>" in env. The
+#     reason MUST be non-empty and is logged so the EM can't reuse "1" or
+#     "ok" — it has to name what's being punted.
+#
+# Blocked: any other queue-append. Block message lists the five questions and
+# the two ways to proceed (fix it / set COORDINATOR_QUEUE_PUNT="<reason>").
+#
+# Implementation note: this is a "block to nudge" not a "block to forbid" —
+# the override is one env var away. The friction is the cognitive load of
+# reading the five questions and writing a plain-English reason, not the
+# difficulty of bypassing.
+
+set -uo pipefail
+
+if command -v timeout >/dev/null 2>&1; then
+  INPUT=$(timeout 2 cat 2>/dev/null || true)
+else
+  INPUT=$(cat)
+fi
+
+# Source the shared advisory flatten/call helper (C0 library).
+# Uses the same _cc_root soft-degrade pattern as other hook scripts so that a
+# missing plugin root silently skips the source without aborting the hook.
+_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
+# shellcheck source=/dev/null
+source "$(dirname "${BASH_SOURCE[0]}")/../../lib/coordinator-trusted-root-guard.sh" 2>/dev/null || true
+if command -v coordinator_trusted_root_guard >/dev/null 2>&1; then
+  coordinator_trusted_root_guard --mode=fail-open --root="$_cc_root" --site="$0" || _cc_root=''
+else
+  _cc_root=''
+fi
+[ -d "$_cc_root" ] || _cc_root=""
+_AFC="${_cc_root:+$_cc_root/hooks/scripts/lib/advisory-flatten-call.sh}"
+[ -n "$_AFC" ] && [ -f "$_AFC" ] && . "$_AFC"
+
+# Honor escape hatch — but require a non-trivial reason. "1", "true", empty,
+# "ok", "y", "yes" don't count: the EM has to type a sentence.
+PUNT_REASON="${COORDINATOR_QUEUE_PUNT:-}"
+if [[ -n "$PUNT_REASON" ]]; then
+  PUNT_LOWER=$(printf '%s' "$PUNT_REASON" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+  case "$PUNT_LOWER" in
+    1|true|yes|y|ok|okay|sure|fine|""|"-"|"x")
+      # Reject trivial reasons — fall through to block path with extra hint.
+      TRIVIAL_REASON=1
+      ;;
+    *)
+      # Per Sonnet P3 (2026-05-17): apply threshold to original (non-stripped)
+      # form so a sentence like "needs a plan" (12 chars with space) passes,
+      # while "fix" / "lazy" / "later" still reject. Stripped-form threshold
+      # was harsher than the source comment read.
+      if [[ ${#PUNT_REASON} -ge 12 ]]; then
+        exit 0
+      else
+        TRIVIAL_REASON=1
+      fi
+      ;;
+  esac
+fi
+
+if command -v jq >/dev/null 2>&1; then
+  FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null || true)
+  TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+  TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null || true)
+  NEW_STRING=$(echo "$INPUT" | jq -r '.tool_input.new_string // .tool_input.content // empty' 2>/dev/null || true)
+  OLD_STRING=$(echo "$INPUT" | jq -r '.tool_input.old_string // empty' 2>/dev/null || true)
+elif command -v python >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; then
+  PY=$(command -v python || command -v python3)
+  # Field-per-line (NOT space-joined) — file_path/transcript_path can contain
+  # spaces (e.g. a Windows path under "C:\Users\user name\"), which the old
+  # `read -r A B C` form split across the wrong vars and silently mis-routed.
+  # Mirrors the fix already in nudge-unauthorized-handoff.sh (the Staff Engineer P1,
+  # 2026-05-29). Paths never contain newlines, so line-delimited is safe; each
+  # field is read with its own `IFS= read -r`, and an empty field is an empty
+  # line (no `_` sentinel needed).
+  PARSED=$(printf '%s' "$INPUT" | "$PY" -c '
+import json, sys
+try:
+  d = json.loads(sys.stdin.read())
+  ti = d.get("tool_input", {}) or {}
+  for v in (ti.get("file_path", ""), d.get("transcript_path", ""), d.get("tool_name", "")):
+    sys.stdout.write((v or "") + "\n")
+except Exception:
+  sys.stdout.write("\n\n\n")
+' | tr -d '\r')
+  { IFS= read -r FILE_PATH; IFS= read -r TRANSCRIPT_PATH; IFS= read -r TOOL_NAME; } <<< "$PARSED"
+  # Strip CR consistently with the three-field block above — Windows text-mode
+  # converts \n to \r\n even on sys.stdout.write. Per lessons.md (2026-05-17).
+  NEW_STRING=$(printf '%s' "$INPUT" | "$PY" -c '
+import json, sys
+try:
+  d = json.loads(sys.stdin.read()).get("tool_input", {})
+  sys.stdout.write(d.get("new_string", d.get("content", "")) or "")
+except Exception:
+  pass
+' | tr -d '\r')
+  OLD_STRING=$(printf '%s' "$INPUT" | "$PY" -c '
+import json, sys
+try:
+  d = json.loads(sys.stdin.read()).get("tool_input", {})
+  sys.stdout.write(d.get("old_string", "") or "")
+except Exception:
+  pass
+' | tr -d '\r')
+else
+  FILE_PATH=$(echo "$INPUT" | sed -n 's/.*"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  TRANSCRIPT_PATH=$(echo "$INPUT" | sed -n 's/.*"transcript_path"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  TOOL_NAME=$(echo "$INPUT" | sed -n 's/.*"tool_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  # Without jq or python we cannot reliably extract multiline new_string/old_string.
+  # Conservative default: assume Edits are pruning (pass through), Writes nudge.
+  NEW_STRING=""
+  OLD_STRING=""
+  if [[ "$TOOL_NAME" == "Edit" ]]; then
+    exit 0
+  fi
+fi
+
+[[ -z "$FILE_PATH" ]] && exit 0
+[[ "$TOOL_NAME" != "Write" && "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "MultiEdit" ]] && exit 0
+# MultiEdit doesn't expose a single new_string for entry-line counting; treat
+# like Write (any MultiEdit to a queue file gets the nudge).
+if [[ "$TOOL_NAME" == "MultiEdit" ]]; then
+  TOOL_NAME="Write"
+fi
+
+FILE_PATH_NORM="${FILE_PATH//\\//}"
+
+# Only fire on improvement-queue files (central + per-project both match this).
+# Matches:
+#   - state/improvement-queue/*.yaml  (structured YAML entries, the current form)
+#   - state/improvement-queue.md      (legacy per-project prose form, now retired but still guarded)
+# The retired central prose file state/coordinator-improvement-queue.md is no longer
+# written; any attempt to write it is caught by the *improvement-queue.md arm below.
+case "$FILE_PATH_NORM" in
+  *state/improvement-queue/*.yaml) ;;
+  *improvement-queue.md) ;;
+  *)
+    exit 0
+    ;;
+esac
+
+# For Edit: only fire if a new entry is being added, not for pruning/reformat passes.
+#
+# Review: code-reviewer — F7/F3: The entry-count gate applies ONLY to the legacy
+# *improvement-queue.md prose path (where entries look like "- YYYY-MM-DD | ...").
+# For *.yaml paths the "- YYYY-MM-DD |" pattern never matches YAML content, so
+# the old gate silently passed every Edit on a YAML file (no nudge). This is
+# intentional for YAML: a Write of a new YAML file is already caught by the Write
+# branch above; field-level Edits to an existing YAML entry are legitimately
+# lower-friction (no new entry is being added). Apply the pipe-row count gate only
+# for the legacy improvement-queue.md file path.
+if [[ "$TOOL_NAME" == "Edit" ]]; then
+  case "$FILE_PATH_NORM" in
+    *improvement-queue.md)
+      # Legacy prose form: count "- YYYY-MM-DD |" pipe-row entry lines on both sides.
+      # If new_string doesn't add any rows beyond old_string, pass through silently
+      # (covers pruning, reformat, recurrence-bump-only edits).
+      NEW_ENTRIES=$(printf '%s' "$NEW_STRING" | grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \|' 2>/dev/null || echo 0)
+      OLD_ENTRIES=$(printf '%s' "$OLD_STRING" | grep -cE '^- [0-9]{4}-[0-9]{2}-[0-9]{2} \|' 2>/dev/null || echo 0)
+      NEW_ENTRIES=$(printf '%s' "$NEW_ENTRIES" | tr -d '\r\n ')
+      OLD_ENTRIES=$(printf '%s' "$OLD_ENTRIES" | tr -d '\r\n ')
+      if [[ "${NEW_ENTRIES:-0}" -le "${OLD_ENTRIES:-0}" ]]; then
+        exit 0
+      fi
+      ;;
+    *state/improvement-queue/*.yaml)
+      # Structured YAML form: field Edits to an existing YAML entry are lower-friction
+      # than a Write (no new queue entry is being created). Pass through silently.
+      exit 0
+      ;;
+  esac
+fi
+
+# Skip when an authoring skill that owns queue maintenance is active. These
+# surfaces have already passed the "should this be queued?" gate as part of
+# their procedure.
+#
+# Read the tail into a variable and match via here-string — NOT `tail | grep -q`.
+# Under `set -o pipefail`, `grep -q` matches early and closes the pipe, `tail`
+# dies with SIGPIPE (141), and pipefail propagates 141 as the pipeline status, so
+# the `if` evaluates FALSE *despite a match* and the nudge fires anyway. On a
+# multi-MB transcript that false-negative breaks this suppression branch 100% of
+# the time (same defect found in nudge-unauthorized-handoff.sh, 2026-05-30). The
+# here-string runs `tail` standalone in command substitution (its SIGPIPE/exit
+# swallowed by `|| true`) and feeds `grep` from the variable, so `tail`'s status
+# can never reach the `if`.
+if [[ -n "$TRANSCRIPT_PATH" && -f "$TRANSCRIPT_PATH" ]]; then
+  RECENT_TAIL=$(tail -500 "$TRANSCRIPT_PATH" 2>/dev/null || true)
+  if grep -qE '(^|[^a-z])/(learn-lessons|workweek-complete|workday-complete|workstream-complete|distill|update-docs|bug-blitz|mise-en-place)([^a-z]|$)|coordinator:(learn-lessons|workweek-complete|workday-complete|workstream-complete|distill|update-docs|bug-blitz|mise-en-place)|<command-name>(learn-lessons|workweek-complete|workday-complete|workstream-complete|distill|update-docs|bug-blitz|mise-en-place)</command-name>' <<< "$RECENT_TAIL"; then
+    exit 0
+  fi
+fi
+
+# Build the friction message.
+# Central entries now live under state/improvement-queue/*.yaml (queue_scope: central
+# field in the YAML), not the retired prose file state/coordinator-improvement-queue.md.
+# Both central and project-scoped entries share the same path pattern
+# (*improvement-queue*), so we use a single accurate label here rather than
+# attempting to detect queue_scope from file content at hook time.
+QUEUE_LABEL="improvement queue"
+
+TRIVIAL_HINT=""
+if [[ "${TRIVIAL_REASON:-0}" == "1" ]]; then
+  TRIVIAL_HINT=$(cat <<'EOT'
+
+[hook] COORDINATOR_QUEUE_PUNT was set but the value was trivial ("1", "ok",
+[hook] "yes", or under 12 chars). The override exists to force you to name
+[hook] what you're punting and why — not to give you a one-keystroke bypass.
+[hook] Re-set it with an actual reason, e.g.:
+[hook]   COORDINATOR_QUEUE_PUNT="genuinely cross-cutting, fix needs separate plan"
+EOT
+)
+fi
+
+REASON=$(cat <<EOF
+Hold on — you're about to append to the $QUEUE_LABEL.
+
+The queue is for items that are (a) universal patterns worth promoting, or
+(b) genuinely-not-this-session deferrals with an architectural reason. It is
+NOT a laundromat for "I noticed a thing, moving on."
+
+TWO WRITES ARE HARD-FORBIDDEN (2026-06-01 PM ruling) — the override does NOT
+make them OK:
+  - Work actionable THIS SESSION (named fix-locus + bounded scope = an action,
+    not a queue line — dispatch it or do it inline).
+  - An INBOUND CROSS-REPO MEMO 'ask'. Filing a picked-up memo-ask to the queue
+    launders an inbox into a staging ground and silently makes a PRIORITIZATION
+    call (this ask is not-now) that belongs to the PM, not you. A memo-ask's
+    only exits are Accept / Decline-with-architectural-rationale / Surface-to-PM
+    (skills/pickup M3; docs/wiki/cross-repo-communication.md § Picking up a
+    memo). If this write is either case, do NOT set the override — go fix,
+    decline, or surface instead.
+
+Before this write lands, answer the five questions out loud:
+
+  1. CAN I FIX IT NOW?
+     A quick dispatch is almost always faster than queueing + triage + a
+     future session re-loading context. If the fix-locus is named and the
+     scope is bounded, the queue is the wrong tool — dispatch an executor
+     or do it inline.
+
+  2. SHOULD I FLAG IT TO THE PM?
+     If it's a real tradeoff, a product call, or something that changes
+     user-visible behavior — that's a PM conversation, not a queue entry.
+     Queueing it routes it to nobody.
+
+  3. AM I BEING LAZY?
+     Honestly. "Annoying to fix right now" is not an architectural reason.
+     If the answer is "I could, but I'd rather not" — fix it.
+
+  4. AM I DECIDING SCOPE?
+     "Out of scope for this session" is sometimes a PM call dressed up as
+     an EM call. If you're deferring something the PM might want done now,
+     ask — don't queue around them.
+
+  5. IS THIS AN INBOUND CROSS-REPO MEMO ASK?
+     If you picked up a memo and are about to queue its request, STOP — that
+     is one of the two hard-forbidden writes above. Adjudicate-and-own it:
+     Accept (do the work), Decline (architectural rationale), or Surface-to-PM
+     (it's competing for priority — that's the PM's call). Queuing it is
+     laundering the inbox, not handling the memo.
+
+If after those five questions you still believe queueing is right
+(legitimate cases: cross-cutting universal pattern noticed mid-other-work,
+genuinely needs its own plan, depends on something not yet built):
+
+  Set COORDINATOR_QUEUE_PUNT="<one-sentence reason>" and re-run the write.
+  THEN surface a one-line "Queuing X because Y" to the PM in-session — the
+  PM ruling is visibility-not-approval: you don't need sign-off, but nothing
+  lands silently, so the PM can veto.
+
+The override deliberately requires a typed reason — not because the hook
+will read it, but because YOU have to read it. If writing the sentence
+feels harder than just fixing the thing, that's the signal.
+
+File: $FILE_PATH_NORM$TRIVIAL_HINT
+EOF
+)
+
+# ── example-orchestration-hub --advisory fast-path (Class B deny-decision) ─────────────────────
+# Flatten the hook payload (reusing $INPUT, already captured above), call the
+# advisory op, and consume example-orchestration-hub's permissionDecision ONLY when:
+#   (a) COORDINATOR_EXAMPLE_ORCHESTRATION_HUB_DENY_AUTHORITATIVE=1 is set, AND
+#   (b) permissionDecision parses to exactly "allow" or "deny".
+# All other paths (degrade / service-down / partial/malformed JSON / flag unset)
+# fall through to the existing local deny logic below, unchanged.
+# Pre-DR208 every advisory op returns -32600 → empty stdout → degrade path, so
+# this wiring is inert until DR208 token provisioning lands.
+if declare -f advisory_flatten_params >/dev/null 2>&1 && declare -f advisory_call >/dev/null 2>&1; then
+  _PARAMS="$(printf '%s' "$INPUT" | advisory_flatten_params 2>/dev/null || echo '{}')"
+  _EXAMPLE_ORCHESTRATION_HUB="$(advisory_call "hooks.nudge_improvement_queue_write" "$_PARAMS" 2>/dev/null || true)"
+  _PD="$(printf '%s' "$_EXAMPLE_ORCHESTRATION_HUB" | jq -r '.hookSpecificOutput.permissionDecision // empty' 2>/dev/null)"
+  if [ "${COORDINATOR_EXAMPLE_ORCHESTRATION_HUB_DENY_AUTHORITATIVE:-}" = "1" ] && { [ "$_PD" = "allow" ] || [ "$_PD" = "deny" ]; }; then
+    if [ "$_PD" = "allow" ]; then
+      exit 0
+    fi
+    # deny: emit the same envelope, substituting example-orchestration-hub's reason for the locally-computed one.
+    _EXAMPLE_ORCHESTRATION_HUB_REASON="$(printf '%s' "$_EXAMPLE_ORCHESTRATION_HUB" | jq -r '.hookSpecificOutput.permissionDecisionReason // empty' 2>/dev/null)"
+    _DENY_REASON="${_EXAMPLE_ORCHESTRATION_HUB_REASON:-$REASON}"
+    if command -v jq >/dev/null 2>&1; then
+      jq -nc --arg reason "$_DENY_REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
+    else
+      # Review: code-reviewer F8 — jq required for advisory consume path; without jq _PD is empty and local deny always fires.
+      # The no-jq paths below are dead code: jq absence → _PD="" → enclosing if never entered.
+      _PY="$(command -v python3 || command -v python)"
+      REASON_JSON=$(REASON="$_DENY_REASON" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe "${_PY:-python3}" -c 'import json,os,sys; sys.stdout.write(json.dumps(os.environ["REASON"]))' 2>/dev/null \
+        || printf '"%s"' "$(printf '%s' "$_DENY_REASON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n')")
+      printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$REASON_JSON"
+    fi
+    exit 0
+  fi
+fi
+# degrade / flag-unset / parse-fail → fall through to local deny below (unchanged).
+
+# Form A deny: JSON to STDOUT + exit 0. This is a "block to nudge" — the
+# COORDINATOR_QUEUE_PUNT override (above) is the escape hatch. The prior
+# Form B (exit 1 + stderr) was silently swallowed, so neither the block nor
+# the override had any effect. See docs/wiki/hook-best-practices.md
+# § "PreToolUse deny: JSON output, not exit 2" and § "Friction-as-warning".
+if command -v jq >/dev/null 2>&1; then
+  jq -nc --arg reason "$REASON" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$reason}}'
+else
+  # code-reviewer F2 (2026-06-15): pass REASON as argv to eliminate the printf-pipe
+  # ambiguity around --stdin-mode=safe. The launcher's safe mode is documented as
+  # heredoc/redirect/args-only — argv-only is unambiguously safe and avoids relying
+  # on undocumented pipe-stdin survival through pythonw.exe.
+  # python3-first resolver — bare `python` is absent on modern macOS / many Linux;
+  # the sed-based `|| printf` fallback below still covers the no-interpreter case.
+  _PY="$(command -v python3 || command -v python)"
+  REASON_JSON=$(REASON="$REASON" bash "$(dirname "${BASH_SOURCE[0]}")/../../lib/spawn-hidden.sh" --stdin-mode=safe "${_PY:-python3}" -c 'import json,os,sys; sys.stdout.write(json.dumps(os.environ["REASON"]))' 2>/dev/null \
+    || printf '"%s"' "$(printf '%s' "$REASON" | sed 's/\\/\\\\/g; s/"/\\"/g; s/$/\\n/' | tr -d '\n')")
+  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$REASON_JSON"
+fi
+exit 0

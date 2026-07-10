@@ -186,7 +186,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "enable Git LFS so LFS-backed repos (e.g. project-rag-ue-addon) clone real objects: brew install git-lfs (macOS) / winget install GitHub.GitLFS (Windows), then git lfs install"
+        "remediation": "enable Git LFS so LFS-backed repos clone real objects: brew install git-lfs (macOS) / winget install GitHub.GitLFS (Windows), then git lfs install"
       },
       "reference": "coordinator/scripts/lib/prereq_probe.sh"
     },
@@ -200,7 +200,7 @@
       },
       "install": {
         "mode": "manual",
-        "remediation": "install Unreal Engine via Epic Games Launcher, or set HOLODECK_UE_ROOT to your UE install root"
+        "remediation": "install Unreal Engine via Epic Games Launcher if a downstream game-dev workflow requires it (not required for the base coordinator plugin)"
       },
       "reference": "coordinator/scripts/lib/prereq_probe.sh"
     }

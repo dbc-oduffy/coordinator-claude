@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# claude-doe — persistent launch wrapper for the DoE-maximalist coordinator delivery shape.
+#
+# Purpose: regenerate the settings.json hook block on every launch (self-heals clobber —
+# harness bugs #22659/#28966/#28847), then exec claude with --plugin-dir pointing at the
+# DoE clone's coordinator dir so skills/agents resolve live-external.
+#
+# Spec backlink: docs/plans/2026-07-04-doe-maximalist-execution-plugin-dir.md § M2
+# Mechanism record: docs/wiki/external-plugin-live-resolution.md § Hook-delivery (hook leg)
+#   + § Documented behavior row 4 (--plugin-dir skill leg).
+#
+# Resolution order for DoE clone root:
+#   1. REPO_DOE_CLAUDE env var (explicit operator override)
+#   2. machine-local get repos.doe_claude  (registry — CANONICAL)
+#   2.5. machine-local get plugin.mirrors.coordinator-claude.live_path
+#        (registry — FALLBACK; plan C6/AC9 registry-namespace collision
+#        resolution, only fires when rung 2 returned nothing)
+#   3. Fallback: resolve-coordinator-clone.sh --clone-root (shared unified lib
+#      verb — AC8), which supplies the .doe-root pointer rung and the
+#      flat-layout OSS-fallback rung this wrapper previously lacked.
+#   4. fail-loud with remediation
+#
+# Recast (thin caller): docs/plans/2026-07-09-resolver-unification-v3split-01.md § C3 —
+# rungs 1-2 (env, repos.doe_claude registry key) are UNCHANGED.
+#
+# Registry-namespace collision resolution (plan C6/AC9, § C6): repos.doe_claude
+# and plugin.mirrors.coordinator-claude.live_path describe the SAME fact (the
+# DoE clone path). This is a non-destructive READ-ORDER fix, not a schema
+# restructure — repos.doe_claude stays canonical (rung 2), and rung 2.5 below
+# reads plugin.mirrors.coordinator-claude.live_path as a fallback when
+# repos.doe_claude is unset, so a machine that only set live_path still
+# resolves.
+#
+# NEVER falls back to bare `claude` without --plugin-dir — a coordinator-less session is
+# the footgun this wrapper exists to prevent.
+#
+# Environment overrides (for testing / sandbox runs):
+#   CLAUDE_DOE_DRY_RUN=1        — dry-run: prints resolved exec line, does not exec, and is
+#                                  side-effect-free on the live settings.json (generates to a
+#                                  temp file to validate the generator, then discards it).
+#                                  Same effect as the --dry-run flag.
+#   CLAUDE_DOE_GEN_HOOKS_SCRIPT — override path to gen-settings-hooks.sh, resolved from the
+#                                  DoE clone by default (testing only)
+#   CLAUDE_DOE_MACHINE_LOCAL_BIN — override path to machine-local binary; when set, bypasses
+#                                  the PATH lookup entirely (testing only)
+
+# ---------------------------------------------------------------------------
+# Bash >= 4 guard — must be reachable on bash 3.2 (DR-148). The conditional
+# uses only POSIX-safe constructs: ${v:-default} and [ -lt ].
+# ---------------------------------------------------------------------------
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
+  printf 'claude-doe: bash >= 4 required (got %s)\n' "${BASH_VERSION:-unknown}" >&2
+  printf '  Remediation: brew install bash   (macOS) or apt-get install bash (Linux)\n' >&2
+  exit 1
+fi
+
+set -euo pipefail
+
+# Self-resolve this script's directory. NOTE: this wrapper is installed STANDALONE
+# to ~/.local/bin (install.md step 3.5b copies only this one file) — co-located
+# siblings (gen-settings-hooks.sh, machine-local) are NOT guaranteed to exist next
+# to SCRIPT_DIR. Do not resolve any sibling path from SCRIPT_DIR; resolve from the
+# DoE clone (DOE_CLONE, below) instead. Kept only for the bash-3.2 guard message
+# and general self-reference; see F5 fix (docs/wiki/… / tasks/2026-07-08-install-dogfood-friction.md § F5).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# Resolve the DoE clone root
+#
+# Spec backlink: tasks/2026-07-08-install-dogfood-friction.md § F5 — the wrapper
+# previously resolved GEN_HOOKS and machine-local as co-located SCRIPT_DIR
+# siblings, which broke the moment this wrapper is copied alone to ~/.local/bin
+# (the standard install shape per install.md step 3.5b). The DoE-clone resolution
+# below is the ONLY sibling-path source of truth; GEN_HOOKS is derived from it
+# further down, after DOE_CLONE is known.
+# ---------------------------------------------------------------------------
+_resolve_doe_clone() {
+  if [ -n "${REPO_DOE_CLAUDE:-}" ]; then
+    printf '%s' "$REPO_DOE_CLAUDE"
+    return 0
+  fi
+  # machine-local resolves the registry (repos.doe_claude) which in turn gives us
+  # DOE_CLONE — so machine-local itself cannot be resolved FROM DOE_CLONE here
+  # (that would be circular: it's the very lookup that produces DOE_CLONE).
+  # Mirrors install.md's own canonical resolution snippet (§ 3.5a): override,
+  # then PATH — no co-located-sibling guess, since machine-local is installed as
+  # its own persistent PATH artifact by install-substrate.sh, independent of
+  # wherever this wrapper happens to live.
+  # Review: code-reviewer F5 — CLAUDE_DOE_MACHINE_LOCAL_BIN bypasses the PATH
+  # lookup so tests can inject a mock or absent binary deterministically.
+  local ml_bin
+  if [ -n "${CLAUDE_DOE_MACHINE_LOCAL_BIN:-}" ]; then
+    ml_bin="$CLAUDE_DOE_MACHINE_LOCAL_BIN"
+    if [ ! -x "$ml_bin" ]; then
+      printf 'claude-doe: machine-local not found at %s and not on PATH\n' "$ml_bin" >&2
+      printf '  Remediation: run /coordinator:install (Phase 3) to install machine-local\n' >&2
+      return 1
+    fi
+  else
+    if ! command -v machine-local >/dev/null 2>&1; then
+      printf 'claude-doe: machine-local not found on PATH\n' >&2
+      printf '  Remediation: run /coordinator:install (Phase 3) to install machine-local\n' >&2
+      return 1
+    fi
+    ml_bin="machine-local"
+  fi
+  local resolved _ml_get_failed=0
+  if ! resolved="$("$ml_bin" get repos.doe_claude 2>/dev/null)"; then
+    _ml_get_failed=1
+  fi
+
+  if [ "$_ml_get_failed" -eq 0 ] && [ -n "$resolved" ]; then
+    printf '%s' "$resolved"
+    return 0
+  fi
+
+  # Rung 2.5: fallback to plugin.mirrors.coordinator-claude.live_path (plan
+  # C6/AC9 registry-namespace collision resolution — see file header).
+  # Only fires when rung 2 (repos.doe_claude, canonical) returned nothing.
+  local resolved_fallback
+  if resolved_fallback="$("$ml_bin" get plugin.mirrors.coordinator-claude.live_path 2>/dev/null)" && [ -n "$resolved_fallback" ]; then
+    printf '%s' "$resolved_fallback"
+    return 0
+  fi
+
+  # Rung 3: fallback to the unified resolver lib's --clone-root verb (AC8),
+  # reached via the fixed-path out-of-tree shim (${CLAUDE_HOME:-$HOME}/.claude/bin/
+  # resolve-coordinator-clone) rather than a SCRIPT_DIR-relative sibling lookup —
+  # this wrapper is installed STANDALONE (see file header), so it cannot assume
+  # lib/resolve-coordinator-clone.sh is co-located; the fixed-path shim is
+  # position-independent by design and solves exactly this chicken-and-egg.
+  # Covers the .doe-root pointer rung and the flat-layout rung this wrapper
+  # previously lacked. Only reached when the registry rung (above) yielded
+  # nothing, preserving rungs 1-2 exactly as before.
+  local _cc_home="${CLAUDE_HOME:-$HOME}/.claude"
+  local _fallback
+  if _fallback="$("$_cc_home/bin/resolve-coordinator-clone" --clone-root 2>/dev/null)" && [ -n "$_fallback" ]; then
+    printf '%s' "$_fallback"
+    return 0
+  fi
+
+  # Rung 4: fail-loud. Preserves the two original distinct diagnostics
+  # (get failed vs. registered-but-empty) as the observable interface, now
+  # emitted after the fallback rung has also been exhausted.
+  if [ "$_ml_get_failed" -eq 1 ]; then
+    printf 'claude-doe: machine-local get repos.doe_claude failed\n' >&2
+    printf '  Remediation: run /coordinator:install or set REPO_DOE_CLAUDE=<path>\n' >&2
+  else
+    printf 'claude-doe: repos.doe_claude and plugin.mirrors.coordinator-claude.live_path are both empty — DoE clone not registered\n' >&2
+    printf '  Remediation: machine-local set repos.doe_claude <path>  then /coordinator:install\n' >&2
+  fi
+  return 1
+}
+
+DOE_CLONE=""
+if ! DOE_CLONE="$(_resolve_doe_clone)"; then
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Validate clone and coordinator sub-directory
+# ---------------------------------------------------------------------------
+if [ ! -d "$DOE_CLONE" ]; then
+  printf 'claude-doe: DoE clone not found at "%s"\n' "$DOE_CLONE" >&2
+  printf '  Remediation: git clone <DoE-repo-url> "%s"\n' "$DOE_CLONE" >&2
+  printf '  Then run: /coordinator:install\n' >&2
+  exit 1
+fi
+
+DOE_COORDINATOR="$DOE_CLONE/coordinator"
+if [ ! -d "$DOE_COORDINATOR" ]; then
+  printf 'claude-doe: DoE coordinator/ dir not found at "%s"\n' "$DOE_COORDINATOR" >&2
+  printf '  Remediation: run /coordinator:install (W4.2 cutover required to populate coordinator/)\n' >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve gen-settings-hooks.sh from the resolved DoE clone (F5 fix) — NOT from
+# SCRIPT_DIR. Env override remains first precedence (tests depend on it).
+# ---------------------------------------------------------------------------
+GEN_HOOKS="${CLAUDE_DOE_GEN_HOOKS_SCRIPT:-"$DOE_COORDINATOR/bin/gen-settings-hooks.sh"}"
+
+# ---------------------------------------------------------------------------
+# Parse --dry-run flag from args; forward all other args to claude
+# ---------------------------------------------------------------------------
+DRY_RUN=0
+if [ "${CLAUDE_DOE_DRY_RUN:-0}" = "1" ]; then
+  DRY_RUN=1
+fi
+
+PASSTHROUGH_ARGS=()
+for _arg in "$@"; do
+  if [ "$_arg" = "--dry-run" ]; then
+    DRY_RUN=1
+  else
+    PASSTHROUGH_ARGS+=("$_arg")
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# (a) Regenerate settings.json hook block from hooks.json.
+#     In DRY_RUN mode: invoke the generator with --out <tmp> so the live
+#     settings.json is never touched — generation is validated (fail-loud if
+#     the generator is broken) without any side effect on the live target.
+#     In real mode: invoke without --out so the generator writes the default
+#     live target, then exec.
+#     Fail-loud if the generator is missing — wrapper is broken without it.
+# ---------------------------------------------------------------------------
+if [ ! -f "$GEN_HOOKS" ]; then
+  printf 'claude-doe: generator not found at "%s"\n' "$GEN_HOOKS" >&2
+  printf '  Expected gen-settings-hooks.sh in the DoE clone at: %s/bin/\n' "$DOE_COORDINATOR" >&2
+  printf '  Remediation: ensure M1 (gen-settings-hooks.sh) has been installed; verify the DoE clone at %s is up to date\n' "$DOE_CLONE" >&2
+  exit 1
+fi
+
+if [ "$DRY_RUN" = 1 ]; then
+  # Generate to a temp file — side-effect-free on the live settings.json.
+  # The generator still runs so a broken generator fails loud even in dry-run.
+  _tmp_settings="$(mktemp "${TMPDIR:-/tmp}/claude-doe-dry-run.XXXXXX")"
+  trap 'rm -f "$_tmp_settings"' EXIT
+  "$GEN_HOOKS" --out "$_tmp_settings"
+  # Print the resolved exec line for human inspection.
+  # Review: code-reviewer F1/F6 — args are space-joined (not shell-quoted); display only, not eval.
+  # Security: single %s so passthrough args containing % are never treated as format specifiers.
+  printf '%s\n' "exec claude --plugin-dir $DOE_COORDINATOR${PASSTHROUGH_ARGS[*]:+ ${PASSTHROUGH_ARGS[*]}}"
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# (b) Real run: detect-then-skip hook block; heal quietly if absent/clobbered.
+#     Detection: live settings.json exists AND contains "$DOE_COORDINATOR/hooks"
+#     (literal fixed-string match on the resolved path, not a regex).
+#     Skip silently when intact. Print one "restored" line to stderr when healed.
+#     Non-fatal: generator failure with an existing settings.json warns + continues;
+#     generator failure with no settings.json is fatal (coordinator-less = footgun).
+# ---------------------------------------------------------------------------
+_settings_target="${HOME}/.claude/settings.json"
+
+_needs_regen=1
+if [ -f "$_settings_target" ] && grep -qF "$DOE_COORDINATOR/hooks" "$_settings_target" 2>/dev/null; then
+  _needs_regen=0
+fi
+
+if [ "$_needs_regen" = 1 ]; then
+  _gen_exit=0
+  "$GEN_HOOKS" >/dev/null || _gen_exit=$?
+  if [ "$_gen_exit" -ne 0 ]; then
+    if [ -f "$_settings_target" ]; then
+      printf 'claude-doe: warning — could not regenerate hook block (generator exited %d); launching with existing settings.json\n' "$_gen_exit" >&2
+    else
+      printf 'claude-doe: error — could not regenerate hook block (generator exited %d) and no settings.json exists at %s\n' "$_gen_exit" "$_settings_target" >&2
+      printf '  Remediation: fix gen-settings-hooks.sh or run /coordinator:install\n' >&2
+      exit 1
+    fi
+  else
+    printf 'claude-doe: restored coordinator hook block in settings.json (was missing/clobbered)\n' >&2
+  fi
+fi
+
+exec claude --plugin-dir "$DOE_COORDINATOR" "${PASSTHROUGH_ARGS[@]+"${PASSTHROUGH_ARGS[@]}"}"

@@ -1,0 +1,321 @@
+#!/usr/bin/env node
+'use strict';
+/**
+ * detect-initiative-candidates — Read-only graduation-gate detector.
+ *
+ * Groups the unattached record set (from `query-records --unattached`) by shared
+ * signal (topic/tag/co-citation/directory) and emits CANDIDATE clusters with a
+ * suggested label. Explicitly a surface, never a writer — accepts no output-path
+ * argument and opens no write handles.
+ *
+ * Floor: DR-209's ≥3-items-per-cluster threshold. A cluster below 3 unattached
+ * items does not surface as a candidate.
+ *
+ * Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C4 (AC5)
+ *
+ * Usage:
+ *   detect-initiative-candidates [--format text|json] [--root <path>]
+ *
+ *   Input: invokes `query-records --unattached --format json` or reads JSON from stdin.
+ *
+ * Negative-spec:
+ *   - Does NOT accept an --output or --out argument (read-only surface, hard error if passed).
+ *   - Does NOT open any write handles.
+ *   - Does NOT auto-create initiatives (surface-and-confirm; human authors the cut).
+ */
+
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * DR-209 floor: clusters with fewer than this many items are not surfaced.
+ *
+ * Spec backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C4
+ */
+const MIN_CLUSTER_SIZE = 3;
+
+// Stop words for title-keyword clustering — common English function words plus
+// coordinator-domain verbs that are too ubiquitous to be meaningful cluster signals.
+const STOP_WORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+  'of', 'with', 'by', 'from', 'as', 'is', 'was', 'are', 'were', 'be',
+  'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+  'would', 'could', 'should', 'may', 'might', 'can', 'not', 'no', 'nor',
+  'so', 'yet', 'both', 'either', 'each', 'few', 'more', 'most', 'other',
+  'some', 'such', 'than', 'too', 'very', 'just', 'add', 'fix', 'update',
+  'new', 'old', 'via', 'per', 'into', 'onto', 'about', 'after', 'before',
+  'between', 'through', 'during', 'without', 'within', 'also', 'this',
+  'that', 'these', 'those', 'then', 'when', 'where', 'which', 'while',
+]);
+
+// ---------------------------------------------------------------------------
+// Core clustering logic
+// ---------------------------------------------------------------------------
+
+/**
+ * Cluster a set of unattached records by shared signal and return candidate clusters.
+ *
+ * Purpose: graduation-gate surface — groups items that may warrant becoming an
+ * initiative so a human can author the cut (surface-and-confirm; this function
+ * never writes anything).
+ *
+ * Three signals are evaluated in order; a record may appear in multiple clusters
+ * across different signals:
+ *   1. tag     — shared value in frontmatter.tags / .topic / .areas
+ *   2. directory — shared parent directory path (first two path segments)
+ *   3. keyword — shared significant word extracted from frontmatter.title
+ *
+ * @param {Array<{path: string, frontmatter: object}>} records  Unattached records from query-records.
+ * @returns {Array<{signal: string, value: string, suggestedLabel: string, items: Array<{path: string, title: string}>}>}
+ *   Candidate clusters. Each cluster has ≥MIN_CLUSTER_SIZE items (DR-209 floor).
+ *   Results are ordered: tag clusters first, directory second, keyword last.
+ */
+function detectCandidates(records) {
+  const clusters = [];
+
+  // --- Signal 1: shared tag ---
+  // Records sharing a tag value in frontmatter.tags / .topic / .areas (string or array).
+  const tagMap = new Map(); // tag → [record]
+  for (const rec of records) {
+    for (const tag of _normalizeTags(rec.frontmatter)) {
+      if (!tagMap.has(tag)) tagMap.set(tag, []);
+      tagMap.get(tag).push(rec);
+    }
+  }
+  for (const [tag, recs] of tagMap) {
+    if (recs.length >= MIN_CLUSTER_SIZE) {
+      clusters.push({
+        signal: 'tag',
+        value: tag,
+        suggestedLabel: _humanize(tag),
+        items: recs.map(r => ({ path: r.path, title: (r.frontmatter && r.frontmatter.title) || '' })),
+      });
+    }
+  }
+
+  // --- Signal 2: directory ---
+  // Records sharing the same parent directory (e.g., all state/bug-backlog/ items).
+  const dirMap = new Map(); // dir → [record]
+  for (const rec of records) {
+    const dir = _parentDir(rec.path);
+    if (!dirMap.has(dir)) dirMap.set(dir, []);
+    dirMap.get(dir).push(rec);
+  }
+  for (const [dir, recs] of dirMap) {
+    if (recs.length >= MIN_CLUSTER_SIZE) {
+      clusters.push({
+        signal: 'directory',
+        value: dir,
+        suggestedLabel: _humanize(path.basename(dir)),
+        items: recs.map(r => ({ path: r.path, title: (r.frontmatter && r.frontmatter.title) || '' })),
+      });
+    }
+  }
+
+  // --- Signal 3: title keyword ---
+  // Records sharing a significant word (length ≥4, not a stop word) from frontmatter.title.
+  const kwMap = new Map(); // keyword → [record]
+  for (const rec of records) {
+    const title = (rec.frontmatter && rec.frontmatter.title) || '';
+    for (const kw of _extractKeywords(title)) {
+      if (!kwMap.has(kw)) kwMap.set(kw, []);
+      kwMap.get(kw).push(rec);
+    }
+  }
+  for (const [kw, recs] of kwMap) {
+    if (recs.length >= MIN_CLUSTER_SIZE) {
+      clusters.push({
+        signal: 'keyword',
+        value: kw,
+        suggestedLabel: _humanize(kw),
+        items: recs.map(r => ({ path: r.path, title: (r.frontmatter && r.frontmatter.title) || '' })),
+      });
+    }
+  }
+
+  return clusters;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (prefixed _ to distinguish from exported API)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a flat list of lowercase tag strings from a frontmatter object.
+ * Reads .tags, .topic, or .areas; each may be a string (comma-separated) or array.
+ *
+ * Design: exclusive-alternatives — the three fields are checked in priority order
+ * (.tags first, then .topic, then .areas) and only the first truthy field contributes.
+ * A record with both .tags and .areas contributes only the .tags signal. This is
+ * intentional: mixing multiple tag-style fields from a single record would allow
+ * loosely-related records to cluster on spurious multi-field coincidences.
+ * Review: code-reviewer — F10 (nit): docstring added to make the short-circuit explicit.
+ */
+function _normalizeTags(fm) {
+  if (!fm) return [];
+  const raw = fm.tags || fm.topic || fm.areas;
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.map(t => String(t).toLowerCase().trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    return raw.split(',').map(t => t.toLowerCase().trim()).filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Return the parent directory of a path, normalized to forward slashes.
+ * Used as the directory-cluster key.
+ */
+function _parentDir(filePath) {
+  return path.dirname(filePath).replace(/\\/g, '/');
+}
+
+/**
+ * Extract significant words from a title string.
+ * Words under 4 chars or in the stop-word list are excluded.
+ */
+function _extractKeywords(title) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => w.length >= 4 && !STOP_WORDS.has(w));
+}
+
+/**
+ * Convert a snake_case, kebab-case, or slash-separated identifier to Title Case.
+ * Used to produce the suggestedLabel for each cluster.
+ */
+function _humanize(str) {
+  return str
+    .replace(/[-_/]/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase())
+    .trim();
+}
+
+// ---------------------------------------------------------------------------
+// CLI argument parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse CLI arguments. Hard-errors on any --output / --out flag to enforce the
+ * read-only contract structurally.
+ *
+ * @param {string[]} argv  process.argv.slice(2)
+ * @returns {{ format: string, root: string|null }}
+ */
+function _parseArgs(argv) {
+  const opts = { format: 'text', root: null };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--format' && argv[i + 1]) {
+      opts.format = argv[++i];
+    } else if (arg.startsWith('--format=')) {
+      opts.format = arg.slice('--format='.length);
+    } else if (arg === '--root' && argv[i + 1]) {
+      opts.root = argv[++i];
+    } else if (arg.startsWith('--root=')) {
+      opts.root = arg.slice('--root='.length);
+    } else if (arg.startsWith('--output') || arg.startsWith('--out=') || arg === '--out') {
+      // Structural backstop: reject any attempt to specify an output path.
+      process.stderr.write(
+        'ERROR: detect-initiative-candidates is a read-only surface — --output is not supported.\n' +
+        '       Output is written to stdout only.\n'
+      );
+      process.exit(2);
+    }
+  }
+  return opts;
+}
+
+// ---------------------------------------------------------------------------
+// Text renderer
+// ---------------------------------------------------------------------------
+
+/**
+ * Render candidate clusters as human-readable text.
+ * Each cluster is printed as a CANDIDATE block followed by its item list.
+ */
+function _renderText(candidates) {
+  if (candidates.length === 0) {
+    return 'No initiative candidates detected (all clusters below ≥3 threshold).\n';
+  }
+  const lines = [];
+  for (const cluster of candidates) {
+    lines.push(`CANDIDATE: ${cluster.suggestedLabel}`);
+    lines.push(`  signal: ${cluster.signal}/${cluster.value}`);
+    lines.push(`  items: ${cluster.items.length}`);
+    for (const item of cluster.items) {
+      const label = item.title ? ` (${item.title})` : '';
+      lines.push(`  - ${item.path}${label}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// CLI entry point
+// ---------------------------------------------------------------------------
+
+if (require.main === module) {
+  const opts = _parseArgs(process.argv.slice(2));
+
+  // Determine input source: stdin pipe or direct query-records invocation.
+  const stdinIsPipe = !process.stdin.isTTY;
+
+  if (stdinIsPipe) {
+    // Read JSON from stdin (supports: query-records --unattached | detect-initiative-candidates)
+    let buf = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', chunk => { buf += chunk; });
+    process.stdin.on('end', () => {
+      let records;
+      try {
+        records = JSON.parse(buf);
+      } catch (e) {
+        process.stderr.write(`ERROR: failed to parse JSON from stdin: ${e.message}\n`);
+        process.exit(1);
+      }
+      _emit(records, opts.format);
+    });
+  } else {
+    // Invoke query-records --unattached directly.
+    const queryRecordsPath = path.resolve(__dirname, 'query-records.js');
+    const qrArgs = ['--unattached', '--format', 'json'];
+    if (opts.root) qrArgs.push('--root', opts.root);
+
+    let records;
+    try {
+      const output = execFileSync(process.execPath, [queryRecordsPath, ...qrArgs], {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      records = JSON.parse(output);
+    } catch (e) {
+      process.stderr.write(`ERROR: query-records invocation failed: ${e.message}\n`);
+      process.exit(1);
+    }
+    _emit(records, opts.format);
+  }
+}
+
+function _emit(records, format) {
+  const candidates = detectCandidates(records);
+  if (format === 'json') {
+    process.stdout.write(JSON.stringify(candidates, null, 2) + '\n');
+  } else {
+    process.stdout.write(_renderText(candidates));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exports (for unit testing)
+// ---------------------------------------------------------------------------
+module.exports = { detectCandidates, MIN_CLUSTER_SIZE };

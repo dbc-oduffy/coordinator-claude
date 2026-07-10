@@ -1,0 +1,9 @@
+# Fixture lesson — synthetic entry for lesson-triage schema test.
+# DO NOT process with /lesson-triage — fixture input only.
+created: 2026-01-02
+title: "Skeletal mesh socket attachment ordering"
+scope: project
+body: |
+  UE: AttachActorToComponent must run after the SkeletalMeshComponent has
+  finished its initialization tick -- calling it from BeginPlay races the
+  component init and silently fails on first spawn.

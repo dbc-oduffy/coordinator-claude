@@ -1,0 +1,78 @@
+---
+name: shape
+description: "Converge with the PM on the SHAPE of a problem (the PRD half) before any solutioning. Strategic, not tactical. Exit gate altitude-routes to plan/roadmap-planning/goal-setting based on work horizon."
+description-budget: 225
+version: 1.0.0
+---
+
+# Shape
+
+Converge with the PM on **what the problem actually is** before the EM goes solo on **how to solve it**. Plans fuse a PM-owned PRD half (the problem, what "solved" means) with an EM-owned SDD half (architecture, fix-locus, sequencing); the pipeline has rigor for the SDD half and almost none for the PRD half. `/shape` is that missing front-half: a short, collaborative problem-convergence beat whose only exit is a ratified problem-set that altitude-routes to the horizon-appropriate downstream ceremony (`coordinator:plan`, `coordinator:roadmap-planning`, or `coordinator:goal-setting`).
+
+**`/shape` is a strategic ceremony, not a tactical clarification round.** It operates at the altitude of product intent, scope boundaries, and success criteria — the questions only the PM can resolve. Tactical uncertainties (naming, file structure, which test framework, commit shape, refactor mechanics) are EM remit and do NOT belong in a `/shape` exchange, no matter how genuinely unsure the EM is — resolving them is the EM's job (`global CLAUDE.md § PM Altitude`).
+
+**Announce at start:** "Using `/shape` to converge on the problem before we plan a solution."
+
+<!-- Instance-#1 extraction note (ceremony-calibration § Exception — low-invariant-risk + high-magnitude): this skill was extracted at instance #1 rather than #3 because (a) the failure it prevents — solutioning before problem-agreement, EM confidence coupled with helpfulness — is the same high-magnitude failure that produced the plan-coverage-checker 36/50 incident, (b) the pattern recurred informally for months before codification, and (c) it is an offer-shaped conversational skill with no autonomous writes, so a mis-codified invariant is cheap to correct. -->
+
+## When NOT to invoke
+
+- **Trivial work** (single-file change, obvious scope) → just do it.
+- **PM doesn't know *what* to build / needs approaches explored** → `coordinator:brainstorming`. The discriminating test: *if the PM HAS a problem and wants confirmation you understood it (vs. not knowing what to build at all) → `coordinator:shape`, not `coordinator:brainstorming`.*
+- **Problem already converged** (a prior `/shape`, an existing approved spec, a known next-step on a live workstream) → straight to the appropriate downstream skill (see § Transition).
+
+`/shape` and `coordinator:brainstorming` are siblings, not twins: brainstorming turns vague intent into a *design spec* (a solution artifact in `docs/specs/`); `/shape` converges on the *problem* (a problem-set in `docs/problems/`) and defers solutioning entirely. Both chain into a downstream planning ceremony.
+
+<HARD-GATE>
+Once `/shape` has started, do NOT invoke any implementation skill, write any code, scaffold anything, or dispatch any executor until the problem-set is written and PM-ratified. The only exit from `/shape` is a ratified problem-set that transitions to the horizon-appropriate downstream ceremony via the altitude-router (see § Transition).
+
+This gate is about finishing what you started. If the problem was already converged (prior `/shape`, existing spec, known workstream next-step), skip `/shape` entirely and go straight to the appropriate downstream skill. But once `/shape` starts, see it through.
+</HARD-GATE>
+
+## Process (lightweight — this is NOT brainstorming's full design dialogue)
+
+1. **Restate the problem(s)** as received, in the PM's vocabulary, falsifiably. Not "I understand" — the actual problem, stated so the PM can catch a misread.
+2. **Surface your single biggest uncertainty** per the forced-articulation contract below. This is the load-bearing step — do it honestly or the ceremony is theatre.
+3. **PM corrects/confirms.** Iterate until convergence. The goal is a *shared mental model*; the written problem-set is its residue, not its substitute.
+4. **If the PM has a proposed solution-shape**, reflect *that* back too and flag where you'd push back — but do NOT design. Solutioning is `coordinator:plan`'s job.
+5. **On convergence**, scaffold the problem-set artifact (below) via `coordinator-doc-new`, fill its body, set `estimated_horizon`, and ratify with the PM, then **confirm the horizon and chain into the appropriate downstream ceremony** (see § Transition).
+
+## Forced-articulation contract (defeats confidence-coupled-with-helpfulness)
+
+A yes/no "do I have the shape? ✓" is a **banned response shape** — EM confidence is coupled with helpfulness, so it self-reports green every time and reveals nothing (the same failure mode that made `plan-coverage-checker` no-opt-out). Step 2 must instead produce the thing that *reveals a misunderstanding*:
+
+- **(a) The single least-certain item must be the scope boundary whose wrong guess would cost the most rework.** Phrase it as *"name the boundary that, if guessed wrong, invalidates the most of the plan"* — NOT "name something I'm unsure about." A trivially-chosen item ("I'm slightly unsure whether to put X in a helper or inline") is explicitly non-responsive. <!-- code-reviewer F4: aligned phrasing to match plan/SKILL.md canonical wording (third-person "guessed", "plan" not "work") -->
+- **(b) State the probability-weighted consequence.** *"If I'm wrong about X, then Y and Z are rework."* A low-stakes selection self-evidently fails this test — the PM can see at a glance whether the stated consequence is credible.
+- **(c) The surfaced uncertainty must be a PM-altitude question** — product intent, scope boundary, or success criteria. Tactical/EM-decided uncertainties (naming, test framework, commit shape, file structure) are **disqualified as off-altitude** — not merely low-stakes — regardless of how unsure you are, per `global CLAUDE.md § PM Altitude`. Resolving them is your job; surfacing them is noise.
+- Also flag **any intent you inferred that the PM did not state** — inferred scope, inferred priority, inferred constraint.
+
+This does not make the mechanism un-gameable in absolute terms (no self-report is), but it raises the cost of the dodge above the cost of honest articulation — the right bar for an offer-shaped mechanism, per `eager-agent-calibration.md § offer-shape`.
+
+## The problem-set artifact
+
+**Scaffold via:** `coordinator-doc-new --type problem-set --title "<problem title>"` — emits `docs/problems/YYYY-MM-DD-<slug>.md` with `status: draft` and the canonical section skeleton. Tiny by design — a bulleted problem list, not a design doc. The scaffolder creates `docs/problems/` if absent.
+
+**Fill the skeleton and ratify:**
+1. List problems under `## Problems` (numbered, NOT prioritized — no `P<n>` prefix; plain enumeration only, since these are unordered problem statements).
+2. List explicit non-goals under `## Out of scope (architectural reasons)` with hard architectural reasons (not "later").
+3. On PM convergence, flip `status: draft → ratified`, fill `ratified_by`, `ratified_date`, and `estimated_horizon` in the frontmatter, and stamp the `> Ratified by PM <name> <date>` blockquote.
+
+**Integrity marker:** `status: ratified` plus the `> Ratified by PM …` blockquote are what make this a real PM oracle rather than EM self-talk. A problem-set without ratification is `status: draft` and does NOT count as an oracle. Plans link it via the `problem_set:` frontmatter key.
+
+## Transition
+
+Once the PM ratifies the problem-set, the altitude-router selects the downstream ceremony based on the work's horizon. The horizon is **detect-then-confirm**: surface your horizon read to the PM at ratification and let them confirm before chaining. Never pick a rung silently.
+
+**Horizon routing:**
+
+| `estimated_horizon` | Work shape | Downstream ceremony |
+|---|---|---|
+| `session` | One or two sessions of work | `coordinator:plan` — the ratified problem-set becomes the plan's coverage oracle (`plan-coverage-checker` consumes it). |
+| `week` | Roughly a week, multi-session but bounded | `coordinator:roadmap-planning` — the problem-set seeds a roadmap with sprint-sized stubs. |
+| `initiative` | Weeks-to-quarters, multi-goal scope | `coordinator:goal-setting` — the problem-set seeds an OKR-shaped goal artifact. When the vision decomposes into multiple goal-slices, `/shape` may fan out 1→N spinoff-goal stubs (deferred-baton fan-out) rather than chaining into a single goal-setting ceremony. |
+
+**Precedence:** A PM axiom or directive to use a specific downstream skill, and an architectural-tier flag from the forced-articulation contract that resolves the horizon unambiguously, take precedence over the detect-then-confirm router. The router is the DEFAULT exit for ambiguous or undirected convergence.
+
+**Ambiguous horizon:** If the horizon is genuinely unclear after the convergence exchange, ask explicitly: *"Does this feel like a session, a week, or an initiative?"* Do not silently pick.
+
+*Ceremony placement:* `/shape` is the third vertex beside `coordinator:brainstorming` (vague *what*) and straight-to-the-downstream-ceremony (converged shape — altitude-router selects the rung), per `ceremony-calibration.md`. <!-- Review: code-reviewer F1 — reworded from "straight-to-coordinator:plan" to altitude-neutral phrasing; plan is one rung of the router, not the implied default exit --> <!-- code-reviewer F2: dropped dangling § anchor (vague-vs-concrete framing section does not exist in ceremony-calibration.md); keeping file reference, dropping dead section cite -->
