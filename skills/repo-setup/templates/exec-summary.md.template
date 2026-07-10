@@ -1,0 +1,43 @@
+---
+kind: exec-summary
+repo: {{REPO}}
+project: {{PROJECT}}
+generated: {{GENERATED}}
+generator: bin/generate-exec-summary.sh
+---
+
+# {{PROJECT}} — Executive Summary
+
+> One-screen "why this project matters" brief. The two MANAGED sections are refreshed by
+> `bin/generate-exec-summary.sh` from disk artifacts; the two HAND sections are yours to
+> author once and are preserved verbatim on every regeneration.
+>
+> Spec backlink: docs/wiki/exec-summary-artifact.md
+
+## What this project is
+
+<!-- BEGIN MANAGED: identity -->
+_Run `bin/generate-exec-summary.sh` to populate this section from README + project artifacts._
+<!-- END MANAGED: identity -->
+
+## What makes it special
+
+<!-- BEGIN HAND: special -->
+_What sets this project apart from similar efforts. What problems does it solve that nothing else
+does? Distil the differentiator into 2–4 sentences. The generator preserves this verbatim on
+every refresh — edit once, it survives regen._
+<!-- END HAND: special -->
+
+## Near-term goals
+
+<!-- BEGIN HAND: goals -->
+_The 2–4 most important near-term objectives. What does success look like in the next 4–8 weeks?
+Reference concrete milestones or workstreams where useful. The generator preserves this verbatim
+on every refresh — edit once, it survives regen._
+<!-- END HAND: goals -->
+
+## Progress
+
+<!-- BEGIN MANAGED: progress -->
+_Run `bin/generate-exec-summary.sh` to populate this section from week-changelog + git history._
+<!-- END MANAGED: progress -->

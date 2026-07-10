@@ -4,6 +4,28 @@ All notable changes to coordinator-claude are documented here.
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-06-27
+
+> Theme: **re-architecture of the document-infrastructure / artifact-shape contracts for standardization and queryability** — the largest structural shift since the move to super-skills. The coordinator's entire artifact surface (handoffs, queues, lessons, completions, audit records, review trail, week-changelog) was given uniform, machine-addressable shapes via the example-initiative fleet-substrate (tc-0 → tc-4) and the artifact-shape-contract (v1.1 → v1.5), so the whole substrate is now uniformly queryable. The second theme is a large install-surface + macOS cross-platform-portability hardening cohort from clean-target dogfooding. The breaking contract changes below are why this is a major bump.
+
+### Breaking changes
+
+**Distribution consolidated from five plugins to a single `coordinator` plugin.** The v2 marketplace shipped `coordinator`, `web-dev`, `data-science`, `deep-research`, and `notebooklm` as separate plugins; v3 folds them into one `coordinator` plugin with a flat repository layout (`source: .` at the repo root). The front-end (`web-dev`), data-science, and research (`deep-research`/`notebooklm`) agents and skills now ship inside `coordinator`. Consumers upgrading from 2.9.0 install the single plugin — the separate marketplace entries are retired.
+
+**`coordinator-schema-version` bumped v1 → v2.** The install contract and all central-owned record readers move to schema epoch 2. Consumers of coordinator record contracts must account for the v2 shapes.
+
+**`superseded` retired as a handoff status value.** Supersession of a handoff is now expressed as `status: consumed` + `deployment_state: abandoned` (+ `predecessor`/`supersedes:` lineage) rather than a distinct `superseded` status. Doctrine, code, and existing data were migrated; the cockpit contract was narrowed to match.
+
+**Artifact shapes restandardized across the record family.** example-initiative tc-0 → tc-4 gave plans, decisions, sidecars, queues, lessons, audit records, atlas files, and week-changelog dailies canonical machine-addressable shapes; the artifact-shape-contract emits versioned schemas (v1.1 → v1.5, including new record types and a deliverable-type-schema taxonomy with kind-aware `matchSchema`). Downstream consumers of these shapes (the cockpit / example-repo fleet) should re-vendor against the v1.5 contract.
+
+### Highlights
+
+- **example-initiative fleet-substrate (tc-0 → tc-4)** — canonical baton shape + cross-type liveness predicate + GENERATE-altitude scaffolder; records/queues/lessons consolidation; expressive-audit canonical shape; fleet machinery + versioned contract emission.
+- **Artifact-shape-contract v1.1 → v1.5 + cockpit-contract v2.0** — example-repo example-workstream asks, datetime-coherence (contract v1.5.0), fleet-shaped `coordinator_roots[]`, owner-enum seam (closes a personal-data publish-tree leak), live `state/cockpit-emission.json` C2 producer.
+- **Install-surface completeness + macOS / cross-platform portability** — install-chain Phase B, declarative `system_prerequisites`, fresh-machine `~/.claude` landing, deep-research install-parity, `/bin/sh` polyglot shebang, macOS phase-zero bash login-shell provisioning, persisted machine slug, OSS flat-layout / CLI-primary migration.
+
+Full per-entry detail with source links: `state/week-changelog/` archive for the week of 2026-06-14 and `archive/release-notes/2026-06-27-v3.0.0.md`.
+
 ## [2.9.0] — 2026-06-24
 
 > Theme: **native-CLI install migration + install-suite hardening, from a week of clean-target dogfooding.** This release cuts over to the native `claude plugin` CLI as the primary install path and is the harvest of stress-testing `coordinator:install`, `repo-setup`, the install-chain walker, and the publish/percolate path against fresh machines (macOS Apple-Silicon + new-clone). Most entries close a gap that only appears on a machine you've never seen.
@@ -126,7 +148,7 @@ Minor release — lifecycle skill renames and nomenclature correction, plus a cr
 - **`/session-start` → `/workstream-start` (skill rename).** The PM-invoked front-of-session orientation skill is now `/workstream-start`. The old name `/session-start` is a deprecation alias that resolves to the same skill; it will be removed in a future major release. Update any automation or documented workflows that reference `/session-start`.
 - **`/session-end` → `/workstream-complete` (skill rename).** The PM-invoked end-of-session wrap-up skill is now `/workstream-complete`. The old name `/session-end` is a deprecation alias; same removal timeline. The mutual-exclusion doctrine (`/handoff` vs. `/workstream-complete`) is unchanged — just the command name.
 - **"session boot" coinage reverted.** The term "session boot" (used briefly in doctrine to name the automatic open-session machinery) has been removed. The platform hook is `SessionStart` (PascalCase, no slash); temporal prose uses "session start"; neither role needed a separate coined term. Doctrine updated across `CONTEXT.md` and `coordinator/CLAUDE.md`.
-- **`merging-to-main` Mode A git-tag cut seam generalized (DR-149).** The Step 1.5 Mode A cut (`tag_anchor: git-tag`) gains two optional, additive `coordinator.local.md` knobs — `tag_prefix:` (default empty → bare `vX.Y.Z`; e.g. `holodeck-` → `holodeck-vX.Y.Z`) and `version_source:` (default `manifest` reads `pyproject`/`package.json`/`Cargo`; `tag` treats the latest `${tag_prefix}v*` tag as the version SSOT). Defaults reproduce the current bare-`v*` behavior exactly — non-breaking — so one cut seam now serves single-package repos and prefixed multi-version-line repos alike instead of forcing a hand-rolled fork.
+- **`merging-to-main` Mode A git-tag cut seam generalized (DR-149).** The Step 1.5 Mode A cut (`tag_anchor: git-tag`) gains two optional, additive `coordinator.local.md` knobs — `tag_prefix:` (default empty → bare `vX.Y.Z`; e.g. `example-game-repo-` → `example-game-repo-vX.Y.Z`) and `version_source:` (default `manifest` reads `pyproject`/`package.json`/`Cargo`; `tag` treats the latest `${tag_prefix}v*` tag as the version SSOT). Defaults reproduce the current bare-`v*` behavior exactly — non-breaking — so one cut seam now serves single-package repos and prefixed multi-version-line repos alike instead of forcing a hand-rolled fork.
 - **Receiver-side ceremony calibration for memo pickup.** `/pickup` now scales its ceremony to the inbound memo's `--kind` rather than applying full workstream rigor to every memo, with the calibration recorded in `ceremony-calibration.md`.
 
 ### Motivation
@@ -151,7 +173,7 @@ Patch release — the 2026-06-01 weekly-close ceremony fixes.
 
 ### Fixed
 
-- **Weekly validation gate unblocked.** `validate-capability-catalog` now reads the union of `capability-catalog*.md` so holodeck-domain agents documented in the `.holodeck.md` split count as covered; `_plugin_discovery` skips nested-git/submodule plugin dirs so the meta-repo no longer gates its release on a submodule's internal files; `setup.md` trimmed under the 500-line ceiling.
+- **Weekly validation gate unblocked.** `validate-capability-catalog` now reads the union of `capability-catalog*.md` so example-game-repo-domain agents documented in the `.example-game-repo.md` split count as covered; `_plugin_discovery` skips nested-git/submodule plugin dirs so the meta-repo no longer gates its release on a submodule's internal files; `setup.md` trimmed under the 500-line ceiling.
 - **`block-no-verify.sh` made CRLF-robust.** The `FLAT_COMMAND` pipeline is collapsed onto a single physical line so a transient working-tree CRLF can't make a backslash-continuation escape the CR and crash the hook (which had denied all Bash mid-session).
 - **`workweek-trail-scope.sh` hardened.** Skips (warns) trail records whose `sha_range` isn't a diff range instead of aborting the weekly gate on a co-located plan-review record, and validates `sha_range` against git-argument injection before handing it to git.
 
@@ -181,7 +203,7 @@ Minor release. A large batch of session-lifecycle, hook, and skill work, plus th
 
 ## [2.5.1] — 2026-05-26
 
-Patch release — cleanup. Retires the `game-dev` plugin from the OSS distribution: it is Unreal-Engine/holodeck-coupled by nature (references the holodeck-docs/holodeck-control MCP servers and the `claude-unreal-holodeck` sibling repo) and its MCP health gate aborts on use in a naked consumer, so it has no working configuration for an OSS installer. The plugin is now solely owned by the holodeck distribution. Coordinator ships a coherent operating system for colleagues, not generic personae as an OSS contribution.
+Patch release — cleanup. Retires the `game-dev` plugin from the OSS distribution: it is Unreal-Engine/example-game-repo-coupled by nature (references the example-game-repo-docs/example-game-repo-control MCP servers and the `example-game-workbench-repo` sibling repo) and its MCP health gate aborts on use in a naked consumer, so it has no working configuration for an OSS installer. The plugin is now solely owned by the example-game-repo distribution. Coordinator ships a coherent operating system for colleagues, not generic personae as an OSS contribution.
 
 ### Removed
 
@@ -190,7 +212,7 @@ Patch release — cleanup. Retires the `game-dev` plugin from the OSS distributi
 ### Added
 
 - **Publish-time guard** (`setup/percolate-hooks/coordinator-claude/pre-rsync/`) — aborts a coordinator-claude publish if a `game-dev/` plugin dir reappears in the mirror source; override via `COORDINATOR_OVERRIDE_GAMEDEV_GUARD=1`. Registered in the tripwires wiki.
-- **Doctrine** — one-way ownership note for holodeck-owned plugins in `plugin-extraction-and-distribution.md` (no bidirectional back-prop); editorial principle in the meta-repo local instructions.
+- **Doctrine** — one-way ownership note for example-game-repo-owned plugins in `plugin-extraction-and-distribution.md` (no bidirectional back-prop); editorial principle in the meta-repo local instructions.
 
 ### Fixed
 
@@ -198,7 +220,7 @@ Patch release — cleanup. Retires the `game-dev` plugin from the OSS distributi
 
 ## [2.2.0] — 2026-05-20
 
-Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-resolution definition as a load-bearing module that ships with `/coordinator:setup`, so peer-repo install scripts (project-rag, holodeck, deep-research, future Python/TS/Rust consumers) consume one canonical resolver instead of inlining a precedence chain in each repo. Also trims four pre-existing skills/commands to fit the CI spec-line-count ceiling (>500 lines), and ships the ergonomic-substrate / eager-agent-calibration chunks (meta-ask preamble snippet + sync verifier + templates-mirror verifier + new wiki).
+Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-resolution definition as a load-bearing module that ships with `/coordinator:setup`, so peer-repo install scripts (project-rag, example-game-repo, deep-research, future Python/TS/Rust consumers) consume one canonical resolver instead of inlining a precedence chain in each repo. Also trims four pre-existing skills/commands to fit the CI spec-line-count ceiling (>500 lines), and ships the ergonomic-substrate / eager-agent-calibration chunks (meta-ask preamble snippet + sync verifier + templates-mirror verifier + new wiki).
 
 ### Added
 
@@ -222,7 +244,7 @@ Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-
 
 ### Fixed
 
-- **`coordinator:setup` Phase 3 Step 1** is now fail-loud on missing template directories. Previously emitted an error and "skipped remaining steps of this phase" — Phases 4–7 still ran, leaving the operator with a broken-and-undiagnosable install. Now exits non-zero and halts the chain. Machine-local substrate is a hard precondition for downstream skills (project-rag, holodeck, deep-research all shell out to `bin/machine-local`).
+- **`coordinator:setup` Phase 3 Step 1** is now fail-loud on missing template directories. Previously emitted an error and "skipped remaining steps of this phase" — Phases 4–7 still ran, leaving the operator with a broken-and-undiagnosable install. Now exits non-zero and halts the chain. Machine-local substrate is a hard precondition for downstream skills (project-rag, example-game-repo, deep-research all shell out to `bin/machine-local`).
 - **`install-substrate.sh` PATH check** uses `cygpath -w "${_bin_dst}"` instead of hardcoded `$env:USERPROFILE` — previously, operators with `CLAUDE_HOME` set to a non-default location would have bin/ resolvers installed at `$CLAUDE_HOME/.claude/bin/` but PATH pointing at `%USERPROFILE%\.claude\bin`. Same env-var-passthrough pattern applied to the AppX `Remove-Item` call (defends against shell-injection through the resolved stub path).
 
 ### Internal
@@ -237,7 +259,7 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machin
 
 #### Added
 
-- **`docs/wiki/coordinator-doctor.md`** — wiki-shaped agentic-steps doctor (explicitly NOT a slash skill) with nine probes covering machine-local registry and `coordinator_whoami` substrate. Downstream plugin doctors (holodeck, project-rag, project-rag-ue-addon) cite this wiki as the canonical health-verification surface; reinvention is named as a doctrine violation. Cross-team directives at Chunk 1 §5 bind: (a) coordinator-substrate probes MUST use delegation or augmentation shape; (b) binding-health classification MUST cite P-6 (live whoami) not P-7 (config-presence file read). Reviewed standalone by the Director of Engineering 2026-05-20 (DoE altitude, cross-team seam).
+- **`docs/wiki/coordinator-doctor.md`** — wiki-shaped agentic-steps doctor (explicitly NOT a slash skill) with nine probes covering machine-local registry and `coordinator_whoami` substrate. Downstream plugin doctors (example-game-repo, project-rag, project-rag-ue-addon) cite this wiki as the canonical health-verification surface; reinvention is named as a doctrine violation. Cross-team directives at Chunk 1 §5 bind: (a) coordinator-substrate probes MUST use delegation or augmentation shape; (b) binding-health classification MUST cite P-6 (live whoami) not P-7 (config-presence file read). Reviewed standalone by the Director of Engineering 2026-05-20 (DoE altitude, cross-team seam).
 - **`cross-plugin-whoami-contract.md` — offline diagnostic surface.** New optional `source_kind: "live" | "offline"` discriminator (additive at contract v1; absent value treated as `"live"`). Plugins authoring CLI / file-read fallback envelopes when the daemon is unavailable label them `"offline"`; consumers classifying binding health MUST reject offline envelopes. Schema (`coordinator_whoami/schemas/whoami-envelope.v1.json`) extended additively — 86/86 whoami tests still pass.
 - **Live-not-receipt invariant — consumer side.** The invariant now binds consumers, not just producers: synthesis-time consumers (doctor agents) MUST call live MCP `*_whoami`, NEVER read persisted whoami snapshots from disk as binding-health evidence.
 - **Doctrine-vs-operator-guide pairing.** Both `cross-plugin-whoami-contract.md` and `machine-local-registry.md` gain audience preambles explicitly naming themselves as the substrate-doctrine half of a pair, with `coordinator-doctor.md` as the operator-guide half.
@@ -246,7 +268,7 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machin
 #### Changed (substrate)
 
 - **`commands/setup.md` Phase 3 See: line** cites `coordinator-doctor.md` as the canonical post-install verification surface.
-- **`docs/wiki/machine-local-registry.md`** prose aligned to template ground-truth: `repos.holodeck` → `repos.claude_unreal_holodeck` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
+- **`docs/wiki/machine-local-registry.md`** prose aligned to template ground-truth: `repos.example-game-repo` → `repos.example_game_workbench_repo` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
 - **`docs/wiki/percolate-setup.md` Step 2** default-registers via `machine-local set publish.targets.<name>`; the legacy `publish-targets.sh` path is reachable only via `--legacy` flag.
 - **`setup/publish.sh`** uses a portable PY fallback chain (`python3 || py -3 || python` with fail-loud) instead of bare `python`, so the script works on Linux/macOS AND Windows Git Bash. Smoke `--dry-run` clean across 4 targets.
 - **`/session-start` orientation health-check** now invokes `python3 -m coordinator_whoami.project_rag --human` (gated on `coordinator_whoami` importability) as a spot-check of the coordinator/project-rag binding. Cites `coordinator-doctor.md` P-6.
@@ -254,12 +276,12 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machin
 
 #### Fixed (substrate)
 
-- **`/holodeck:doctor` discovery order** — `machine-local get repos.claude_unreal_holodeck` is now tier 1; `MACHINE_LOCAL_REPOS_CLAUDE_UNREAL_HOLODECK` tier 2; `HOLODECK_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. Holodeck doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
-- **`/project-rag:doctor` PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; Machine-A-specific `X:/project-rag` hardcoded candidate removed from the fallback loop.
+- **`/example-game-repo:doctor` discovery order** — `machine-local get repos.example_game_workbench_repo` is now tier 1; `MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO` tier 2; `EXAMPLE_GAME_REPO_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. example-game-repo doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
+- **`/project-rag:doctor` PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; Striker-specific `X:/project-rag` hardcoded candidate removed from the fallback loop.
 - **`coordinator_whoami/project_rag/cli.py:270` HTTP-transport classification** — `_probe_claude()` now accepts `entry.get("url")` alongside `command` and `args`. Post-multi-RAG MCP daemon entries (HTTP transport, no `command` field) no longer mis-classify as `"broken"`. Mirror of project-rag-ue-addon's F4 finding from the same dogfood run.
 - **`docs/wiki/wiring-env-source-of-truth.md`** — `status: current` → `status: deprecated`, `superseded_by: machine-local-registry.md`, with a prominent deprecation banner naming the dogfood-friction trigger. Wiring.env retirement is the worked precedent for the broader `~/.<project>/` → `~/.claude/<project>/` migration pattern.
 - **`docs/wiki/authoring-an-addon.md:118`** — `required_env` row now flags `~/.project-rag/wiring.env` as transitional/deprecated and names `~/.claude/machine-local/project_rag.toml [env]` as the canonical successor for future addon authors.
-- **`bin/verify-ue-overrides.sh`** — Machine-A-specific hardcoded paths (`X:/...`) removed; resolves UE-context roots via `machine-local get repos.claude_unreal_holodeck` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
+- **`bin/verify-ue-overrides.sh`** — Striker-specific hardcoded paths (`X:/...`) removed; resolves UE-context roots via `machine-local get repos.example_game_workbench_repo` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
 - **`/session-start` `<plugin-cli-path>` literal placeholder** — resolved with an inline `~/.claude.json`-parsing snippet sourced from `commands/workday-start.md` Step 3.6.
 - **Global `CLAUDE.md` line 16 parenthetical** — described `publish-targets.sh` as "(machine-local)" which conflated the legacy file with the canonical `~/.claude/machine-local/` registry. Reworded to "(per-machine legacy file, superseded by `~/.claude/machine-local/`)".
 
@@ -371,7 +393,7 @@ Targeted fixes in `bin/`, `hooks/`, `lib/` from the 2026-05-06 sweep. Highlights
 
 ### Theme E — Doctrine consolidation
 
-CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inline enumerations collapsed to one-liners + links to authoritative wikis). Snippet-system maturation: 6 verify-sync scripts (`prior-art`, `docs-checker`, `default-routing`, `text-only-recovery`, `reviewer-calibration`, `project-rag-preamble`). Prior-art-checker pre-flight agent integrated into `/review-dispatch` Phase 2.7b — Sonnet recall over project wikis + global wikis + lessons + improvement queue, sidecar at `<plan-path>.prior-art-check.md`. Description-length validator (`bin/check-description-length.sh`) added with `description-budget` exemption frontmatter. New wikis: `dogfooding-doctrine.md`, `tiered-context-loading.md`, `prior-art-checker.md`, `docs-checker-pre-review.md`, `oom-reproducer-strategy.md`, `parallel-enrichment-seam-review.md`, `reviewer-routed-workers.md`, `round-trip-contract-tests.md`, `scoped-safety-commits.md`, `cleanup-sweep-hazards.md`, `claude-code-platform-gotchas.md`, `plugin-extraction-and-distribution.md`, `per-project-plugin-gating.md`, `holodeck-for-your-ue-project.md`, `rag-bait-conventions.md`, `reviewer-premise-challenge.md`.
+CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inline enumerations collapsed to one-liners + links to authoritative wikis). Snippet-system maturation: 6 verify-sync scripts (`prior-art`, `docs-checker`, `default-routing`, `text-only-recovery`, `reviewer-calibration`, `project-rag-preamble`). Prior-art-checker pre-flight agent integrated into `/review-dispatch` Phase 2.7b — Sonnet recall over project wikis + global wikis + lessons + improvement queue, sidecar at `<plan-path>.prior-art-check.md`. Description-length validator (`bin/check-description-length.sh`) added with `description-budget` exemption frontmatter. New wikis: `dogfooding-doctrine.md`, `tiered-context-loading.md`, `prior-art-checker.md`, `docs-checker-pre-review.md`, `oom-reproducer-strategy.md`, `parallel-enrichment-seam-review.md`, `reviewer-routed-workers.md`, `round-trip-contract-tests.md`, `scoped-safety-commits.md`, `cleanup-sweep-hazards.md`, `claude-code-platform-gotchas.md`, `plugin-extraction-and-distribution.md`, `per-project-plugin-gating.md`, `example-game-repo-for-your-ue-project.md`, `rag-bait-conventions.md`, `reviewer-premise-challenge.md`.
 
 ### Also Added
 - ISSUE_TEMPLATEs (command_request, docs_improvement, install_problem, reviewer_request) and `evals/` stub (W6 author-feedback roadmap).
@@ -416,7 +438,7 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 
 ### Theme B — Reviewer premise challenge (layered W1–W5 defense)
 
-Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 holodeck `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `state/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
+Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 example-game-repo `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `state/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
 
 #### Added
 - **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
@@ -592,7 +614,7 @@ A run of small, related changes converging on one principle: the code we ship ru
 - **Project-RAG readiness (W1–W6)** — generic project-RAG detection hook (cross-platform), single-source preamble snippet with sentinel-fenced inline distribution to 8 consumers + `verify-preamble-sync.sh`, `docs/wiki/rag-bait-conventions.md` (4 patterns including function-level purpose lines), executor RAG-bait stanza, Staff Engineer generic project-RAG block alongside the UE block.
 - **Reviewer-routed workers** — four Sonnet workers (`test-evidence-parser`, `security-audit-worker`, `dep-cve-auditor`, `doc-link-checker`) named in reviewer findings; EM dispatches. Generalizes the Staff Engineer → Front-End Reviewer escalation pattern.
 - **Mandatory release notes on every merge** — `merging-to-main` Step 1.5 always runs. Detects `CHANGELOG.md`, groups by Added/Changed/Fixed/Deps/Internal, suggests version bump (advisory).
-- **Holodeck overlay Phase 1** — Staff Engineer UE-specific workers subsection (`project_type: unreal` gated) and `merging-to-main` Step 1.6 UE check items.
+- **example-game-repo overlay Phase 1** — Staff Engineer UE-specific workers subsection (`project_type: unreal` gated) and `merging-to-main` Step 1.6 UE check items.
 
 ### Changed
 - **`/distill` reframed** — trim+archive specs (not delete), allowlist/denylist rubric, mandatory re-homing, Decision Rationale extraction, schema-pinned distillation log, broader link-heal sweep, negative-AC set-diff token check.

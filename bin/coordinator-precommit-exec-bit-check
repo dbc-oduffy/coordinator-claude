@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# Pre-commit hook for the ~/.claude meta-repo: assert exec-bit on .sh files
+# under plugins/*/{hooks,bin}/ before drift can land.
+#
+# Surfaced by a project-rag /merge-to-main hook-suite failure on 2026-06-08:
+# the meta-repo gate at /workday-complete Step 5 was correctly placed but
+# only fired end-of-day; in the 80-min window between drift-introduction
+# and the consumer merge, no /workday-complete had run. This hook moves
+# drift detection from end-of-day to commit-time.
+#
+# Scope: only fires inside the meta-repo (recognized by ~/.claude/.git).
+# Outside that repo it exits 0 immediately — consumer repos do not host
+# the plugin source tree, so the test would be a no-op anyway.
+#
+# Auto-fix scoping: when exec-bit drift is detected, only files that are part
+# of the CURRENT COMMIT are auto-fixed and re-staged. Drift on files outside
+# this commit's scope is left alone — the /workday-complete Step 5 whole-tree
+# backstop (which runs exec-bit.test.js without GIT_INDEX_FILE filtering) owns
+# that. This prevents the livelock where a concurrent session's staged files are
+# mutated on every commit that doesn't include them.
+#
+# Cost: ~0.5s per commit (measured 2026-06-09). Below the annoyance floor.
+#
+# Spec backlink: cross-repo/inbox/2026-06-08-exec-bit-drift-runtime-tripwire-tests.md
+
+set -euo pipefail
+
+# Review F2 (2026-06-15): bash 4+ required for `mapfile -t` in the auto-fix
+# block below. Fail loud on bash 3.2 (stock macOS) with brew remediation —
+# DR-148 mandates this guard on every bash-4-using script. Plain arithmetic
+# syntax so bash 3.2 can parse the check before executing it.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "coordinator-precommit-exec-bit-check: requires bash >= 4 (brew install bash on macOS)" >&2
+  exit 1
+fi
+
+# Review F2: fail fast on empty REPO_ROOT — `|| true` followed by `canon ""`
+# silently resolved to cwd, breaking the meta-repo identity guard on detached
+# HEAD or outside-git contexts.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+[ -n "$REPO_ROOT" ] || exit 0
+
+# Resolve coordinator lib dir (this script lives at <coordinator_root>/bin/).
+# Used for sourcing coordinator_is_meta_repo and for resolving META_REPO via
+# the canonical claude-home resolver — replaces the former $HOME/.claude hardcode.
+_EXEC_BIT_LIBDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)"
+
+# Source coordinator_is_meta_repo primitive (CLAUDE_HOME-aware, canonicalized).
+# Replaces the former hand-rolled canon() function + $HOME/.claude compare (misfired
+# under CLAUDE_HOME overrides in CI/sandbox/alt-install contexts).
+# shellcheck source=lib/coordinator-is-meta-repo.sh
+source "${_EXEC_BIT_LIBDIR}/coordinator-is-meta-repo.sh"
+
+# Resolve meta-repo path via canonical claude-home resolver (CLAUDE_HOME-aware).
+# Used as a path base for git -C operations below.  Exit 0 (skip this commit) if
+# the resolver fails — conservative: do not block commits on infra failure.
+META_REPO="$("${_EXEC_BIT_LIBDIR}/claude-home/claude-home" dir 2>/dev/null)" || exit 0
+[ -n "$META_REPO" ] || exit 0
+
+# Discriminator: is this commit being made in the meta-repo?
+# coordinator_is_meta_repo is CLAUDE_HOME-aware and canonicalizes both sides (cd/pwd -P).
+# Exit 0 (skip) on any detection failure — conservative, same as REPO_ROOT-empty guard above.
+if ! coordinator_is_meta_repo "$REPO_ROOT" 2>/dev/null; then
+  exit 0
+fi
+
+# Review F1: override must short-circuit BEFORE the test runs, not after the
+# failure print — otherwise stderr shows "Fix and re-commit" immediately
+# followed by "override accepted; commit proceeding", which is contradictory.
+if [ "${COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT:-}" = "1" ]; then
+  echo "pre-commit: exec-bit check skipped (COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1)." >&2
+  exit 0
+fi
+
+# Review F4: silent-skip if node is missing — otherwise `set -e` + 127 from
+# `node --test` blocks the commit with an opaque "command not found".
+# /workday-complete Step 5 remains the backstop for nodeless machines.
+if ! command -v node >/dev/null 2>&1; then
+  exit 0
+fi
+
+EXEC_BIT_TEST="$META_REPO/plugins/coordinator/tests/plugin-ecosystem/exec-bit.test.js"
+if [ ! -f "$EXEC_BIT_TEST" ]; then
+  # Test not present (partial checkout, mid-rebase, fresh clone before npm) —
+  # do not block the commit. The /workday-complete Step 5 gate remains the
+  # backstop.
+  exit 0
+fi
+
+# Auto-fix shape (2026-06-15): on drift, run `git update-index --chmod=+x`
+# against the offending files and log loudly, instead of failing the commit.
+# Rationale: with `core.filemode=false` (mandatory on Windows Git-Bash, where
+# `chmod +x` is a no-op on NTFS), new shebanged files routinely land at 100644.
+# Daily friction of "detect → print fix → re-commit" inverted into a single
+# audible auto-fix line. Override still available for the rare case where
+# auto-fix is unwanted (e.g. intentional source-only file the allowlist hasn't
+# caught yet — fix the allowlist, then commit with override).
+TEST_OUT="$(node --test "$EXEC_BIT_TEST" 2>&1)" || TEST_FAILED=1
+if [ "${TEST_FAILED:-0}" = "1" ]; then
+  # The test's assertion message embeds: git -C "<repo>" update-index --chmod=+x "<path>"
+  # Extract the path arguments and re-run via the parent shell's git binary
+  # (the captured `git -C "<repo>"` form is for human display; we run inline
+  # since we already know we are in the meta-repo).
+  #
+  # Format dependency (review F3, F5): the regex below is bound to the literal
+  # assertion-message format at plugins/coordinator/tests/
+  # plugin-ecosystem/exec-bit.test.js around line 289-291. If that format
+  # changes, both this regex AND check-all-shebanged-exec-bits.sh's identical
+  # extraction must update together. Paths with embedded double-quotes would
+  # break the `"[^"]+"` capture; coordinator paths don't contain quotes, but
+  # the brittleness is intentional — match the test's display, not arbitrary
+  # path shapes.
+  mapfile -t FIX_PATHS < <(printf '%s\n' "$TEST_OUT" | grep -oE 'update-index --chmod=\+x "[^"]+"' | sed -E 's/.*"([^"]+)"/\1/' | sort -u)
+  if [ ${#FIX_PATHS[@]} -eq 0 ]; then
+    # Test failed but no fix paths surfaced (test infra failure, not drift).
+    echo "$TEST_OUT" >&2
+    echo "" >&2
+    echo "pre-commit: exec-bit test failed but no drift files identified (test infra issue?)." >&2
+    echo "Override (PM-authorized only): COORDINATOR_OVERRIDE_PRECOMMIT_EXEC_BIT=1 git commit ..." >&2
+    exit 1
+  fi
+
+  # Scope the auto-fix to files actually being committed in this invocation.
+  #
+  # In a pre-commit hook, git sets GIT_INDEX_FILE to a temporary pathspec-scoped
+  # index for `git commit -- <paths>`, so `diff --cached --name-only` here returns
+  # ONLY the files included in this commit — not the full working-tree staging area.
+  # Contrast exec-bit.test.js, which explicitly scrubs GIT_INDEX_FILE to audit the
+  # whole tree for the /workday-complete Step 5 backstop. We intentionally do NOT
+  # scrub GIT_INDEX_FILE here — the inherited value is exactly the scoping signal.
+  #
+  # Repo-relative paths (matching FIX_PATHS).
+  # Review F10 (2026-06-27): ASSUMES FIX_PATHS entries are repo-relative (from
+  # exec-bit.test.js's relFromRepo) and must match `git diff --cached --name-only`
+  # output exactly. If that origin ever changes, the intersection silently empties.
+  mapfile -t STAGED_FILES < <(git -C "$META_REPO" diff --cached --name-only --diff-filter=d)
+
+  # Review F4 (2026-06-27): intersection logic extracted to shared lib so the hook
+  # and its regression test cannot drift. Source via this script's own directory.
+  _LIBDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)"
+  # shellcheck source=lib/exec-bit-scoping.sh
+  source "$_LIBDIR/exec-bit-scoping.sh"
+  SCOPED_FIX_PATHS=()
+  compute_scoped_fix_paths FIX_PATHS STAGED_FILES SCOPED_FIX_PATHS
+
+  if [ ${#SCOPED_FIX_PATHS[@]} -eq 0 ]; then
+    # Drift exists but none of the drifted files are in this commit.
+    # The /workday-complete Step 5 whole-tree gate owns that cleanup.
+    exit 0
+  fi
+
+  echo "pre-commit: exec-bit drift auto-fixed on ${#SCOPED_FIX_PATHS[@]} file(s):" >&2
+  for p in "${SCOPED_FIX_PATHS[@]}"; do
+    # Hardening (2026-06-30): use --cacheinfo to re-register the EXISTING staged
+    # blob at mode 100755, rather than --chmod=+x which re-reads the worktree blob.
+    # `update-index --chmod=+x <path>` for a worktree-modified file re-registers
+    # the CURRENT WORKTREE blob into the index (not mode-only), so it could inject
+    # unstaged worktree content into the commit if the pathspec-scoping invariant
+    # ever slips. --cacheinfo "100755,<existing-blob-sha>,<path>" is structurally
+    # incapable of pulling worktree content — it always uses the blob already in the index.
+    existing="$(git -C "$META_REPO" ls-files --stage -- "$p")"
+    if [ -z "$existing" ]; then
+      echo "  SKIP (not in committed index): $p" >&2
+      continue
+    fi
+    blob="$(printf '%s' "$existing" | awk '{print $2}')"
+    git -C "$META_REPO" update-index --cacheinfo "100755,$blob,$p" 2>&1 | sed 's/^/  /' >&2 || {
+      echo "  FAILED: $p" >&2
+      echo "pre-commit: auto-fix failed — see above. Original test output:" >&2
+      echo "$TEST_OUT" >&2
+      exit 1
+    }
+    # Review F4: `git update-index --chmod=+x` exits 0 even when the path is
+    # untracked or deleted (silent no-op). Verify the mode actually flipped
+    # by reading it back from ls-files; fail loud on mismatch.
+    actual_mode=$(git -C "$META_REPO" ls-files --stage -- "$p" | awk '{print $1}' | head -1)
+    if [ "$actual_mode" != "100755" ]; then
+      echo "  FAILED (post-fix mode=$actual_mode, expected 100755): $p" >&2
+      echo "pre-commit: auto-fix silently no-op'd — path may have been deleted, renamed, or untracked between test-run and fix." >&2
+      exit 1
+    fi
+    echo "  +x $p" >&2
+  done
+  echo "pre-commit: commit proceeding with auto-fixed index." >&2
+fi

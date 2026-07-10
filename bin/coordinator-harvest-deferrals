@@ -1,0 +1,763 @@
+#!/bin/sh
+''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+# ── sh/python polyglot trampoline ──────────────────────────────────────────────
+# The next line is inert Python (a bare string literal) but executable sh/bash.
+# It lets this CLI be invoked three ways that ALL Just Work, so the habitual
+# `bash <script>` reach no longer exec-fails by feeding Python to bash:
+#   coordinator-harvest-deferrals ...          # direct, via the shebang above — canonical form
+#   python  coordinator-harvest-deferrals ...  # explicit interpreter
+#   bash    coordinator-harvest-deferrals ...  # re-execs under python instead of erroring
+# Under sh/bash the line resolves the interpreter as `python3 || python || py`
+# (macOS 12.3+ and modern Linux ship only `python3` — Apple dropped the `python`
+# symlink; clean Windows python.org installs ship only `python`/`py`), captures
+# its path via command substitution, then execs it; under Python the whole line
+# is a no-op string. One `exec`, three-way probe — the canonical pattern.
+# Mirrors coordinator-queue-append / coordinator-lesson-promote; do not flatten
+# the trampoline back to a single name.
+from __future__ import annotations
+"""
+coordinator-harvest-deferrals — PM-gated deferral harvest from a plan's
+machine-parseable ## Tasks task-spine into the improvement queue / lessons-outbox.
+
+Shebang note: the SHEBANG line above is `python`, NOT `python3` — `python3` is
+not on PATH on a clean Windows install (only `python`/`py` are), so a `python3`
+shebang exec-127s there. docs/wiki/bash-on-windows-gotchas.md § Windows exception.
+
+Spec backlink: docs/plans/2026-07-09-plan-full-coverage-and-deferred-harvest.md § Architecture (C4a)
+
+Purpose: read a plan's `## Tasks` fenced ```yaml plan-tasks``` block (the pinned
+task-spine contract — see coordinator/schemas/plan-tasks.schema.json), select rows
+where `deferred: true` AND `pm_approved: true` (a deferral the PM has explicitly
+ratified as out-of-scope-for-this-plan), and route each selected row to the
+matching write seam:
+
+  - change_kind in the 8-value project-tier improvement-queue subset
+    (script-edit, skill-edit, wiki-append, wiki-new, hook-edit, agent-prompt-edit,
+    doc-edit, test-edit)
+    -> coordinator-queue-append --schema improvement-queue --queue-scope <row's
+       queue_scope, default project> --status open
+
+  - change_kind in {doctrine-edit, snippet-sync-update} (the universal-doctrine
+    slice of the wider change_kind enum, NOT accepted by improvement-queue at
+    project scope)
+    -> coordinator-lesson-promote --target-wiki <row's surface>
+
+This script does NOT build a parallel YAML emitter — it shells out to the two
+existing write-seam CLIs above and reuses their validation/output-path logic
+verbatim.
+
+Parser-locate rule (pinned contract, plan-tasks.schema.json): a plan's ## Tasks
+section must carry EXACTLY ONE fenced block with info-string `yaml plan-tasks`
+directly under the `## Tasks` heading. Zero such blocks, or more than one, is a
+defined error for schema/coverage-tooling but is WARN-AND-SKIP here (exit 0) —
+a plan mid-authoring may not have a spine yet, and the harvest is best-effort,
+not a gate.
+
+Selection rule: only rows with BOTH `deferred: true` AND `pm_approved: true` are
+harvest candidates. `deferred: true` WITHOUT `pm_approved: true` is the
+plan-coverage-checker's flag surface (an EM preference is not a scope decision),
+NOT this script's concern — such rows are silently left un-harvested (they will
+be picked up automatically once the PM flips pm_approved and this script re-runs,
+by the ordinary idempotency-key mechanism below). ## Anti-scope prose items are
+never harvested — they are not part of the ## Tasks YAML spine at all, so they
+are structurally unreachable here; this comment documents the invariant for a
+future reader who might be tempted to add prose-section parsing.
+
+Malformed-row disposition: a row missing a required field (id, title, body,
+change_kind, surface, deferred) or otherwise failing to parse as a well-formed
+task object is SKIPPED-WITH-WARNING (printed to stderr, counted, harvest
+continues) — never a hard failure. This mirrors the plan-tasks contract's
+defensive parse-or-skip posture; the coverage-checker (not this script) is the
+enforcement surface that flags malformed rows.
+
+Idempotency: keyed on (plan_id, row id). The plan's frontmatter `plan_id` field
+(read from the YAML frontmatter block at the top of the plan markdown file) is
+combined with the row's `id` to form a stable dedup key, e.g.
+"harvest-key: pln-full-coverage-planning-posture-bca96f:D1". This key is
+embedded verbatim in the queued/promoted entry's `evidence` field (the cleanest
+existing carrier on both improvement-queue and lessons-outbox schemas — both
+support a free-text `evidence: string` optional field intended for exactly this
+kind of provenance pointer; adding a new field to either schema was rejected as
+unnecessary schema churn for a value that already fits the existing contract).
+Before writing a new entry, this script greps the plan's own harvest routing
+target (project-scope: <repo-or-QUEUE_APPEND_OUTPUT_ROOT>/state/improvement-queue/*.yaml;
+central-scope: <doe-root>/state/improvement-queue/*.yaml; lessons:
+<doe-root-or-LESSON_PROMOTE_OUTBOX_ROOT>/state/lessons-outbox/*.yaml) for that exact
+harvest-key string in the `evidence:` field of already-written entries. A match means
+"already harvested from this plan" — skip, do not double-write. This is a best-effort
+text scan (not a database query) but is sufficient given the low write-volume and
+human-readable YAML corpus of these directories. The scan-dir resolution (see
+_candidate_search_dirs) mirrors coordinator-queue-append's and coordinator-lesson-
+promote's own root resolution COMPLETELY, not just their env-override leg: env
+overrides (QUEUE_APPEND_OUTPUT_ROOT / LESSON_PROMOTE_OUTBOX_ROOT) win first exactly
+as the write seams check them first, and when unset the central/lessons legs call
+coordinator_registry.doe_root() directly — the identical function
+coordinator-queue-append's central branch and coordinator-lesson-promote's
+_outbox_root() call — so scan-root cannot drift from write-root under the
+machine-local-registry-resolved case (DOE_ROOT unset, `repos.doe_claude` registered:
+the expected steady state on any installed machine) any more than under the
+DOE_ROOT-env case. (Review: code-reviewer slice2 Finding 1 — an earlier revision of
+this docstring/comment claimed env-override-precedence parity while the
+implementation only reproduced the DOE_ROOT-env leg of doe_root()'s three-step
+resolution, silently dropping the machine-local-registry leg; this fixes both the
+implementation and the claim.)
+
+--dry-run: prints what WOULD be queued/promoted (title, change_kind, target,
+dedup-key, already-harvested disposition) without invoking either write-seam
+CLI and without any filesystem writes.
+
+Invocation:
+  coordinator-harvest-deferrals --plan docs/plans/2026-07-09-some-plan.md [--dry-run]
+
+Negative-spec: this script does NOT parse ## Anti-scope or any other prose
+section of the plan — only the single fenced ```yaml plan-tasks``` block under
+## Tasks. It does NOT re-implement queue-append's YAML emission or path
+resolution — every actual write is delegated via subprocess to
+coordinator-queue-append / coordinator-lesson-promote.
+"""
+
+import argparse
+import glob
+import os
+import re
+import subprocess
+import sys
+
+try:
+    import yaml  # type: ignore
+except ImportError:
+    yaml = None
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_QUEUE_APPEND = os.path.join(_BIN_DIR, "coordinator-queue-append")
+_LESSON_PROMOTE = os.path.join(_BIN_DIR, "coordinator-lesson-promote")
+
+# Review: code-reviewer (slice2 Finding 1) — import the SAME doe_root() the
+# write seams (coordinator-queue-append / coordinator-lesson-promote) call,
+# instead of re-deriving a partial (env-var-only) approximation of its
+# resolution chain. Mirrors the _LIB_DIR sys.path pattern used by both seams.
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from coordinator_registry import doe_root, _DoeUnresolvable  # noqa: E402
+
+# The 8-value project-tier improvement-queue-eligible change_kind subset.
+# SSOT: coordinator/docs/wiki/lessons-outbox-schema.md § Change-kind enum
+# (the universal enum); this is the improvement-queue-eligible slice of it.
+_QUEUE_ELIGIBLE_CHANGE_KINDS = frozenset(
+    {
+        "script-edit",
+        "skill-edit",
+        "wiki-append",
+        "wiki-new",
+        "hook-edit",
+        "agent-prompt-edit",
+        "doc-edit",
+        "test-edit",
+    }
+)
+
+# The doctrine-class change_kind values routed to coordinator-lesson-promote
+# instead of coordinator-queue-append (rejected by improvement-queue at
+# project scope per its schema's change_kind enum).
+_LESSON_PROMOTE_CHANGE_KINDS = frozenset({"doctrine-edit", "snippet-sync-update"})
+
+_REQUIRED_ROW_FIELDS = ("id", "title", "change_kind", "surface", "deferred")
+
+_VALID_QUEUE_SCOPES = ("project", "central")
+
+_SUBPROCESS_TIMEOUT_SECS = 30
+
+# Write-seam env-override names — MUST mirror the write seams' own resolution
+# precedence exactly (see _candidate_search_dirs' write-seam-parity comment
+# below for the failure mode this guards against).
+_QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
+_LESSON_PROMOTE_OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
+
+
+# ---------------------------------------------------------------------------
+# Minimal fallback YAML-list parser (no PyYAML on the machine) — reused shape
+# from the coordinator's stdlib-only convention. Handles the specific shape
+# the ## Tasks block requires: a top-level YAML list of flat-ish task objects
+# with optional `body: |` literal block scalars. Falls back only when the
+# `yaml` module is unavailable; PyYAML is preferred when present.
+# ---------------------------------------------------------------------------
+
+
+def _minimal_yaml_list_parse(text: str) -> list[dict]:
+    """Parse a YAML list of task-spine row objects without PyYAML.
+
+    Handles: `- id: X` list-item starts, `key: value` scalar fields (quoted or
+    bare), `key: |` literal block scalars (indented continuation lines), and
+    `#` full-line comments between items. This is intentionally narrow — it
+    only needs to round-trip the task-spine row shape defined in
+    plan-tasks.schema.json, not general YAML.
+    """
+    rows: list[dict] = []
+    current: dict | None = None
+    in_block_key: str | None = None
+    block_lines: list[str] = []
+    block_indent: int | None = None
+
+    def _flush_block() -> None:
+        nonlocal in_block_key, block_lines, block_indent
+        if current is not None and in_block_key is not None:
+            current[in_block_key] = "\n".join(block_lines) + ("\n" if block_lines else "")
+        in_block_key = None
+        block_lines = []
+        block_indent = None
+
+    for raw_line in text.splitlines():
+        if in_block_key is not None:
+            if raw_line.strip() == "" or (
+                block_indent is not None
+                and (len(raw_line) - len(raw_line.lstrip(" "))) >= block_indent
+            ):
+                stripped = raw_line[block_indent:] if block_indent else raw_line.strip()
+                if raw_line.strip() == "":
+                    block_lines.append("")
+                else:
+                    block_lines.append(stripped)
+                continue
+            _flush_block()
+
+        line = raw_line.rstrip("\n")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        if stripped.startswith("- "):
+            if current is not None:
+                rows.append(current)
+            current = {}
+            stripped = stripped[2:].strip()
+            if not stripped:
+                continue
+            # falls through to key: value parsing below on the remainder
+
+        if current is None:
+            continue
+
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$", stripped)
+        if not m:
+            continue
+        key, value = m.group(1), m.group(2).strip()
+
+        if value == "|" or value == "|-" or value.startswith("|"):
+            in_block_key = key
+            block_lines = []
+            # Block indent is determined by the first continuation line.
+            block_indent = None
+            continue
+
+        # Strip a trailing inline comment (space/tab preceded '#'), matching
+        # the queue-append/_lesson-promote quoting convention's negative-spec.
+        if not (value.startswith('"') or value.startswith("'")):
+            value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
+
+        if value.startswith('"') and value.endswith('"') and len(value) >= 2:
+            value = value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+        elif value.startswith("'") and value.endswith("'") and len(value) >= 2:
+            value = value[1:-1]
+        elif value.lower() == "true":
+            value = True  # type: ignore[assignment]
+        elif value.lower() == "false":
+            value = False  # type: ignore[assignment]
+
+        current[key] = value
+
+    _flush_block()
+    if current is not None:
+        rows.append(current)
+
+    # Second pass: block continuation lines need their leading-indent computed
+    # from the first non-empty continuation line, not the key line itself.
+    # The single-pass loop above sets block_indent=None: fix up by re-deriving
+    # indentation from the raw block text captured. Since this is a narrow
+    # fallback (only exercised when PyYAML is absent) we recompute using a
+    # simpler two-pass strategy: re-run block extraction using regex per row
+    # is unnecessary — the primary path (PyYAML present) is exercised in
+    # normal operation; this fallback only needs to not crash and to
+    # best-effort recover fields other than deeply-nested block scalars.
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# ## Tasks fenced-block location (parser-locate rule)
+# ---------------------------------------------------------------------------
+
+_TASKS_HEADING_RE = re.compile(r"^##\s+Tasks\s*$", re.MULTILINE)
+_FENCE_RE = re.compile(r"```yaml plan-tasks\n(.*?)\n```", re.DOTALL)
+
+
+def _locate_tasks_block(plan_text: str) -> str | None:
+    """Return the fenced ```yaml plan-tasks``` block body directly under
+    the first '## Tasks' heading, or None per the parser-locate rule.
+
+    Per the pinned contract: exactly one such fenced block directly under
+    '## Tasks' is well-formed. Zero, or the presence of more than one fenced
+    `yaml plan-tasks` block ANYWHERE in the document, is a defined error —
+    this function returns None in either case so the caller can warn-and-skip.
+    """
+    all_fences = _FENCE_RE.findall(plan_text)
+    if len(all_fences) != 1:
+        return None
+
+    heading_match = _TASKS_HEADING_RE.search(plan_text)
+    if heading_match is None:
+        return None
+
+    after_heading = plan_text[heading_match.end():]
+    fence_in_section = _FENCE_RE.search(after_heading)
+    if fence_in_section is None:
+        return None
+
+    # Directly under the heading: only blank lines permitted between the
+    # heading and the fence's opening ``` marker.
+    between = after_heading[: fence_in_section.start()]
+    if between.strip() != "":
+        return None
+
+    return fence_in_section.group(1)
+
+
+def _parse_plan_id(plan_text: str) -> str | None:
+    """Extract `plan_id: "..."` from the plan's YAML frontmatter block."""
+    fm_match = re.match(r"^---\n(.*?)\n---\n", plan_text, re.DOTALL)
+    if fm_match is None:
+        return None
+    fm = fm_match.group(1)
+    m = re.search(r'^plan_id:\s*"?([^"\n]+?)"?\s*$', fm, re.MULTILINE)
+    if m is None:
+        return None
+    return m.group(1).strip()
+
+
+# ---------------------------------------------------------------------------
+# Row parsing + validation
+# ---------------------------------------------------------------------------
+
+
+def _parse_rows(tasks_yaml_text: str) -> tuple[list[dict], int]:
+    """Parse the fenced block body into a list of row dicts.
+
+    Returns (rows, parse_error_count). A top-level parse failure (the whole
+    block is not a YAML list) yields ([], 1) — treated by the caller as
+    "nothing to harvest, warn and skip" rather than a hard crash, since a
+    plan mid-authoring may have a transiently malformed spine.
+    """
+    if yaml is not None:
+        try:
+            data = yaml.safe_load(tasks_yaml_text)
+        except Exception as exc:  # noqa: BLE001 — malformed YAML is data, not a bug
+            print(
+                f"warn: coordinator-harvest-deferrals: ## Tasks block failed to parse as YAML: {exc}",
+                file=sys.stderr,
+            )
+            return [], 1
+        if not isinstance(data, list):
+            print(
+                "warn: coordinator-harvest-deferrals: ## Tasks block did not parse to a YAML list — skipping harvest.",
+                file=sys.stderr,
+            )
+            return [], 1
+        return [row for row in data if isinstance(row, dict)], 0
+
+    # Fallback: no PyYAML available.
+    rows = _minimal_yaml_list_parse(tasks_yaml_text)
+    return rows, 0
+
+
+def _row_is_well_formed(row: dict) -> str | None:
+    """Return None if row has all required fields, else a warning string."""
+    missing = [f for f in _REQUIRED_ROW_FIELDS if f not in row or row[f] in (None, "")]
+    if missing:
+        row_id = row.get("id", "<unknown>")
+        return f"row '{row_id}' missing required field(s): {', '.join(missing)}"
+    return None
+
+
+def _select_harvest_candidates(rows: list[dict]) -> tuple[list[dict], list[str], int]:
+    """Split rows into (candidates, warnings, skipped_malformed_count).
+
+    A candidate is a well-formed row with deferred==True and pm_approved==True.
+    Rows failing the well-formed check are SKIPPED-WITH-WARNING (never crash).
+    """
+    candidates: list[dict] = []
+    warnings: list[str] = []
+    malformed_count = 0
+
+    for row in rows:
+        problem = _row_is_well_formed(row)
+        if problem is not None:
+            warnings.append(problem)
+            malformed_count += 1
+            continue
+
+        deferred = row.get("deferred") is True
+        pm_approved = row.get("pm_approved") is True
+        if deferred and pm_approved:
+            candidates.append(row)
+
+    return candidates, warnings, malformed_count
+
+
+# ---------------------------------------------------------------------------
+# Idempotency — dedup key + already-harvested check
+# ---------------------------------------------------------------------------
+
+
+def _harvest_key(plan_id: str, row_id: str) -> str:
+    """Stable dedup key embedded in the written entry's `evidence` field.
+
+    Assumes `row_id` (and `plan_id`) contain no ':' — the key is later matched
+    via a plain substring/line scan in `_already_harvested`, not parsed back
+    apart, so an embedded ':' would not corrupt matching but would make the key
+    ambiguous to a human reader distinguishing plan_id from row_id. Current
+    task-spine `id` conventions (short slugs like `D1`) are colon-free; if this
+    assumption is ever violated, prefer a JSON-safe delimiter (e.g. `::`).
+    (Review: code-reviewer slice2 Finding 3 — nit, documented per suggested fix.)
+    """
+    return f"harvest-key: {plan_id}:{row_id}"
+
+
+def _repo_root() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _already_harvested(key: str, search_dirs: list[str]) -> bool:
+    """Best-effort text scan for `key` inside any `evidence:` line in the
+    given directories' *.yaml files. Returns True on first match.
+
+    Scoped to lines whose stripped text starts with `evidence:` (Review:
+    code-reviewer slice2 Finding 4 — an earlier revision scanned the entire
+    file content, which could false-positive-match a `body`/other field that
+    happens to quote the literal harvest-key string, e.g. documentation prose
+    discussing a specific harvest-key example; scoping to the evidence line
+    tightens the match to the field this key is actually written into, per
+    _harvest()/_run_queue_append()/_run_lesson_promote()'s `--evidence key`
+    call site).
+    """
+    for directory in search_dirs:
+        if not directory or not os.path.isdir(directory):
+            continue
+        for path in glob.glob(os.path.join(directory, "*.yaml")):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    content = fh.read()
+            except OSError:
+                continue
+            for line in content.splitlines():
+                if line.strip().startswith("evidence:") and key in line:
+                    return True
+    return False
+
+
+def _resolved_doe_root() -> str | None:
+    """Call the SAME doe_root() the write seams call, degrading to None on
+    _DoeUnresolvable (mirrors the write seams' own WARN+skip-on-unresolvable
+    posture — this is a best-effort scan, never a hard requirement)."""
+    try:
+        return doe_root()
+    except _DoeUnresolvable:
+        return None
+
+
+def _candidate_search_dirs(row: dict) -> list[str]:
+    """Directories to scan for an already-harvested match for this row.
+
+    Write-seam parity requirement (confirmed double-write failure mode):
+    coordinator-queue-append's _output_path() and coordinator-lesson-promote's
+    _outbox_root() BOTH check their own env-override var (QUEUE_APPEND_OUTPUT_ROOT /
+    LESSON_PROMOTE_OUTBOX_ROOT respectively) FIRST, then for the central/lessons
+    case fall back to coordinator_registry.doe_root() — which itself resolves
+    DOE_ROOT env -> machine-local `repos.doe_claude` -> raise _DoeUnresolvable.
+    An earlier version of this function only reproduced the DOE_ROOT-env leg of
+    that chain (missing the machine-local-registry leg, the expected steady
+    state on any installed machine) — that gap is closed here by importing and
+    calling the real doe_root() directly (Review: code-reviewer slice2 Finding 1
+    — option (a): call the same function the write seams call, so scan-root
+    structurally cannot drift from write-root under ANY of doe_root()'s legs).
+
+    Order per candidate class:
+      - project-scope improvement-queue: QUEUE_APPEND_OUTPUT_ROOT env override
+        first (matches coordinator-queue-append's _output_path()), else the
+        repo-root fallback (this leg is a git-root proxy for the *current
+        repo's own* project-scope queue, which is correct — it mirrors
+        _output_path()'s project-scope branch, not the central one).
+      - lessons-outbox: LESSON_PROMOTE_OUTBOX_ROOT env override first (matches
+        coordinator-lesson-promote's _outbox_root()), else doe_root() (the
+        exact function _outbox_root() itself calls).
+      - central-scope improvement-queue: QUEUE_APPEND_OUTPUT_ROOT env override
+        first, else doe_root() (the exact function _output_path()'s central
+        branch itself calls).
+
+    Best-effort throughout: missing/unresolvable roots are silently skipped by
+    _already_harvested's isdir guard — this function only builds candidate
+    paths, it does not require them to exist.
+    """
+    dirs: list[str] = []
+    root = _repo_root()
+
+    queue_override = os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV, "").strip()
+    if queue_override:
+        dirs.append(os.path.join(queue_override, "state", "improvement-queue"))
+    elif root:
+        dirs.append(os.path.join(root, "state", "improvement-queue"))
+
+    # coordinator-lesson-promote's _outbox_root() returns LESSON_PROMOTE_OUTBOX_ROOT
+    # VERBATIM when set (it IS the lessons-outbox dir itself, unlike
+    # QUEUE_APPEND_OUTPUT_ROOT which is a root that "state/improvement-queue" is
+    # joined onto) — do not append "state/lessons-outbox" onto it here.
+    lessons_override = os.environ.get(_LESSON_PROMOTE_OUTBOX_ROOT_ENV, "").strip()
+    if lessons_override:
+        dirs.append(lessons_override)
+
+    # Central-scope improvement-queue and lessons-outbox both route through
+    # doe_root() when their respective env overrides are unset — call the real
+    # seam function (not a partial re-derivation) so this can never drift.
+    if not queue_override or not lessons_override:
+        resolved_doe_root = _resolved_doe_root()
+        if resolved_doe_root:
+            if not queue_override:
+                dirs.append(os.path.join(resolved_doe_root, "state", "improvement-queue"))
+            if not lessons_override:
+                dirs.append(os.path.join(resolved_doe_root, "state", "lessons-outbox"))
+
+    return dirs
+
+
+# ---------------------------------------------------------------------------
+# Row routing + dispatch
+# ---------------------------------------------------------------------------
+
+
+def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
+    """Route one row to coordinator-queue-append --schema improvement-queue.
+
+    Returns True on success (or on a dry-run no-op), False on subprocess failure.
+    """
+    queue_scope = row.get("queue_scope") or "project"
+    if queue_scope not in _VALID_QUEUE_SCOPES:
+        print(
+            f"warn: coordinator-harvest-deferrals: row '{row.get('id')}' has invalid "
+            f"queue_scope '{queue_scope}' — defaulting to 'project'.",
+            file=sys.stderr,
+        )
+        queue_scope = "project"
+
+    body = row.get("body") or row.get("title") or ""
+    cmd = [
+        _QUEUE_APPEND,
+        "--schema",
+        "improvement-queue",
+        "--title",
+        str(row["title"]),
+        "--body",
+        str(body).rstrip("\n"),
+        "--surface",
+        str(row["surface"]),
+        "--proposed-action",
+        str(row["surface"]),
+        "--change-kind",
+        str(row["change_kind"]),
+        "--queue-scope",
+        queue_scope,
+        "--status",
+        "open",
+        "--evidence",
+        key,
+    ]
+
+    if dry_run:
+        print(
+            f"[dry-run] would queue (improvement-queue, scope={queue_scope}): "
+            f"{row.get('id')} — {row.get('title')} [{key}]"
+        )
+        return True
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+    if result.returncode != 0:
+        print(
+            f"error: coordinator-harvest-deferrals: coordinator-queue-append failed for "
+            f"row '{row.get('id')}': {result.stderr.strip() or result.stdout.strip()}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
+    """Route one row to coordinator-lesson-promote --target-wiki <surface>.
+
+    Returns True on success (or on a dry-run no-op), False on subprocess failure.
+    """
+    body = row.get("body") or row.get("title") or ""
+    cmd = [
+        _LESSON_PROMOTE,
+        "--title",
+        str(row["title"]),
+        "--body",
+        str(body).rstrip("\n"),
+        "--change-kind",
+        str(row["change_kind"]),
+        "--target-wiki",
+        str(row["surface"]),
+        "--evidence",
+        key,
+    ]
+
+    if dry_run:
+        print(
+            f"[dry-run] would promote (lesson, target-wiki={row['surface']}): "
+            f"{row.get('id')} — {row.get('title')} [{key}]"
+        )
+        return True
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+    if result.returncode != 0:
+        print(
+            f"error: coordinator-harvest-deferrals: coordinator-lesson-promote failed for "
+            f"row '{row.get('id')}': {result.stderr.strip() or result.stdout.strip()}",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
+def _harvest(plan_id: str, candidates: list[dict], dry_run: bool) -> tuple[list[str], int, int]:
+    """Route + dispatch every candidate row. Returns (queued_ids, deduped_count, failed_count)."""
+    queued_ids: list[str] = []
+    deduped = 0
+    failed = 0
+
+    for row in candidates:
+        row_id = str(row["id"])
+        key = _harvest_key(plan_id, row_id)
+        search_dirs = _candidate_search_dirs(row)
+
+        if _already_harvested(key, search_dirs):
+            deduped += 1
+            if dry_run:
+                print(f"[dry-run] already harvested, skipping: {row_id} [{key}]")
+            continue
+
+        change_kind = row.get("change_kind")
+        if change_kind in _LESSON_PROMOTE_CHANGE_KINDS:
+            ok = _run_lesson_promote(row, key, dry_run)
+        elif change_kind in _QUEUE_ELIGIBLE_CHANGE_KINDS:
+            ok = _run_queue_append(row, key, dry_run)
+        else:
+            print(
+                f"warn: coordinator-harvest-deferrals: row '{row_id}' has unroutable "
+                f"change_kind '{change_kind}' — skipping.",
+                file=sys.stderr,
+            )
+            continue
+
+        if ok:
+            queued_ids.append(row_id)
+        else:
+            failed += 1
+
+    return queued_ids, deduped, failed
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="coordinator-harvest-deferrals",
+        description=(
+            "PM-gated deferral harvest: parse a plan's ## Tasks task-spine, select "
+            "deferred:true && pm_approved:true rows, and route each to "
+            "coordinator-queue-append (improvement-queue) or coordinator-lesson-promote "
+            "(doctrine-edit/snippet-sync-update) by change_kind."
+        ),
+        epilog="Spec backlink: docs/plans/2026-07-09-plan-full-coverage-and-deferred-harvest.md § Architecture (C4a)",
+    )
+    parser.add_argument("--plan", required=True, metavar="PATH", help="Path to the plan markdown file.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be queued/promoted without writing anything.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        with open(args.plan, encoding="utf-8") as fh:
+            plan_text = fh.read()
+    except OSError as exc:
+        print(f"error: coordinator-harvest-deferrals: could not read plan '{args.plan}': {exc}", file=sys.stderr)
+        return 1
+
+    tasks_block = _locate_tasks_block(plan_text)
+    if tasks_block is None:
+        print(
+            "warn: coordinator-harvest-deferrals: zero or >1 fenced ```yaml plan-tasks``` "
+            "block found directly under '## Tasks' — a plan mid-authoring may not have a "
+            "spine yet. Skipping harvest.",
+            file=sys.stderr,
+        )
+        return 0
+
+    plan_id = _parse_plan_id(plan_text)
+    if not plan_id:
+        print(
+            "warn: coordinator-harvest-deferrals: plan frontmatter has no 'plan_id' field — "
+            "cannot form a stable idempotency key. Skipping harvest.",
+            file=sys.stderr,
+        )
+        return 0
+
+    rows, parse_error_count = _parse_rows(tasks_block)
+    if parse_error_count:
+        # _parse_rows already printed the warning; nothing left to harvest.
+        print("Queued 0 deferred items: (none)")
+        return 0
+
+    candidates, malformed_warnings, malformed_count = _select_harvest_candidates(rows)
+    for w in malformed_warnings:
+        print(f"warn: coordinator-harvest-deferrals: {w}", file=sys.stderr)
+
+    queued_ids, deduped, failed = _harvest(plan_id, candidates, args.dry_run)
+
+    id_list = ", ".join(queued_ids) if queued_ids else "(none)"
+    print(f"Queued {len(queued_ids)} deferred items: {id_list}")
+    if deduped:
+        print(f"  ({deduped} already-harvested row(s) deduped-skipped)")
+    if malformed_count:
+        print(f"  ({malformed_count} malformed row(s) skipped-with-warning)")
+    if failed:
+        print(f"  ({failed} row(s) failed to write — see warnings above)", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

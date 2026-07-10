@@ -160,13 +160,13 @@ def check_agent_install(path: Path, plugins: dict[str, dict], errors: list[str])
 
     # Ghost check fires ONLY in actual install-command contexts (fenced code +
     # --plugins lines) — NOT descriptive table rows. A tier table that names an
-    # excluded plugin ("specialized — not part of this install: holodeck") is correct
+    # excluded plugin ("specialized — not part of this install: example-game-repo") is correct
     # guidance, not a ghost; the hazard is a ghost in a real `claude plugin install` /
     # `--plugins` invocation, which these contexts catch.
     install_context_lines = (
         _extract_fenced_code_blocks(text) + _extract_plugins_flag_lines(text)
     )
-    known_ghosts = {"remember", "holodeck", "holodeck-control", "holodeck-docs"}
+    known_ghosts = {"remember", "example-game-repo", "example-game-repo-control", "example-game-repo-docs"}
     ghost_text = "\n".join(install_context_lines)
     for ghost in known_ghosts:
         if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', ghost_text):
@@ -223,7 +223,7 @@ def check_safety_md(path: Path, plugins: dict[str, dict], errors: list[str]) -> 
         )
 
     # Ghost check in enumeration snippet
-    known_ghosts = {"remember", "holodeck", "holodeck-control", "holodeck-docs"}
+    known_ghosts = {"remember", "example-game-repo", "example-game-repo-control", "example-game-repo-docs"}
     for ghost in known_ghosts:
         if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', snippet):
             errors.append(
@@ -242,10 +242,10 @@ def check_readme(path: Path, plugins: dict[str, dict], errors: list[str]) -> Non
 
     # Ghost check fires only in fenced install-command blocks — NOT table rows or prose,
     # which legitimately name excluded/external plugins (e.g. an "other plugins worth
-    # knowing" list linking clangd-lsp, or a tier table naming holodeck as excluded).
+    # knowing" list linking clangd-lsp, or a tier table naming example-game-repo as excluded).
     ghost_text = "\n".join(_extract_fenced_code_blocks(text))
 
-    known_ghosts = {"remember", "holodeck", "holodeck-control", "holodeck-docs"}
+    known_ghosts = {"remember", "example-game-repo", "example-game-repo-control", "example-game-repo-docs"}
     for ghost in known_ghosts:
         if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', ghost_text):
             errors.append(

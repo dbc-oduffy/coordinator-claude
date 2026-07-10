@@ -1,0 +1,382 @@
+# doctor-probes.toml — declarative probe manifest for the coordinator doctor.
+#
+# SSOT for every probe fired by bin/coordinator-doctor-sentinel.sh. The
+# coordinator-doctor.md §3 probe-catalog table and the sentinel's probe-firing
+# set are derived from / validated against this file (VALIDATE-not-GENERATE at
+# rest — see test_doctor_manifest_is_ssot, Chunk 3).
+#
+# Spec backlink: docs/plans/2026-05-27-doctor-shape-doe-alignment.md § Chunk 2.
+# Doctrine: docs/wiki/doctor-probe-design.md § Single-Entry-Point Consolidation
+# Must Stay Addressable. This manifest is the coordinator doctor's instance of
+# the proven project-rag "scalpel-not-hammer" shape (cheap-probe reference impl).
+#
+# CARGO-CULT GUARD (read before adding resource machinery): the coordinator
+# doctor's probes are ALL cheap or standard — file reads, CLI smoke, one
+# live-whoami subprocess. NONE is `heavy`. The `weight` field exists here for
+# SHAPE PARITY with the host manifest and to drive the triage invariant, NOT
+# because any probe is expensive. Do NOT add a peak-RSS / spawn-count
+# regression-net to this doctor — there is no resource problem to bound. The
+# addressability machinery (clusters, triage, selection grammar) is the point.
+#
+# Field definitions (host field names adopted verbatim for cross-repo parity;
+# severity_if_fail + remediation are coordinator-local additive fields the host
+# manifest does not carry):
+#   id              — Verbatim probe id ("P-1".."P-12", "P-6s"); join key to
+#                     coordinator-doctor.md §3 and to the sentinel's probe blocks.
+#   cluster         — Symptom group (coordinator-domain): machine-local |
+#                     whoami | structure | resolver | ue-overrides
+#   weight          — Resource cost (NOT latency):
+#                       cheap    = file reads / bash test, no subprocess spawn
+#                       standard = subprocess spawn (python -c, CLI), no model/VRAM
+#                       heavy    = spawns server / loads torch / touches VRAM
+#                                  (the coordinator doctor has NONE — see guard above)
+#   interactivity   — Always "silent" here: the sentinel is non-interactive by
+#                     design (coordinator-doctor.md "no slash skill"). Field kept
+#                     for cross-repo schema parity. Orthogonal to weight.
+#   fix             — Always "none": the coordinator doctor has no `--fix`
+#                     remediation catalog. Field kept for parity.
+#   symptom_keywords — Free-text tags the triage/`--symptom` path matches.
+#   triage          — true iff in the cheap first-pass run on bare invocation.
+#                     INVARIANT: triage=true ⟹ weight ∈ {cheap, standard}.
+#   severity_if_fail — {error, degraded} — coordinator-local; drives RED/AMBER
+#                     verdict synthesis in the sentinel.
+#   remediation     — coordinator-local; one-line operator next-step.
+#
+# NOT IN THIS MANIFEST — P-7a is EM-native (mcp-registration check via
+# /workday-start Step 1.10.5 reading the deferred-tools registry); the sentinel
+# does NOT fire it (no shell probe body exists; bin/probe-mcp-registration.sh is
+# planned-not-implemented). coordinator-doctor.md documents P-7a as
+# documented-but-not-fired. The manifest is the FIRED-probe set only; the
+# manifest↔sentinel bijection (test_doctor_probes_manifest_schema) operates on
+# fired probes, and --probe/--cluster MUST NOT select a non-fired entry.
+
+# ---------------------------------------------------------------------------
+# Cluster: machine-local — the <settings-home>/machine-local/ registry substrate
+# (relocated from ~/.claude/machine-local/ by durable-substrate-to-settings-home plan;
+# compat symlink retained at ~/.claude/machine-local during the phase-2 transition window)
+# Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C6
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-1"
+cluster = "machine-local"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["machine-local absent", "substrate not bootstrapped", "setup Phase 3"]
+triage = true
+severity_if_fail = "error"
+remediation = "Run /coordinator:install Phase 3"
+
+[[probe]]
+id = "P-2"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["registry.toml unparseable", "schema mismatch", "tomllib", "TOML broken"]
+triage = false
+severity_if_fail = "error"
+remediation = "Re-run /coordinator:install Phase 3; check for manual edits that broke TOML structure"
+
+[[probe]]
+id = "P-3"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["no repos keys", "registry.local.toml empty", "repos.* unpopulated"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run machine-local set repos.<name> <path> for each sibling repo"
+
+[[probe]]
+id = "P-4"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["machine-local CLI not found", "bin not on PATH", "CLI failed", "machine-local key not found"]
+triage = true
+severity_if_fail = "error"
+remediation = "Re-run /coordinator:install Phase 3; on macOS <settings-home>/bin is the primary resolver location (reached via the coordinator/bin forwarder, not PATH directly); the compat forwarder at ~/.claude/bin is also retained during the transition window — re-running Phase 3 installs both"
+
+# ---------------------------------------------------------------------------
+# Cluster: whoami — coordinator_whoami package + mcpServers config
+# (venv relocated from ~/.claude/.coordinator-venv/ to <settings-home>/.coordinator-venv/
+#  by durable-substrate-to-settings-home plan § C5; settings-home = $(coordinator-settings-home))
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-5"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["coordinator_whoami import error", "ImportError", "package not installed", "whoami not importable"]
+triage = true
+severity_if_fail = "error"
+remediation = "Run bin/ensure-coordinator-venv.sh (or re-run /coordinator:install Phase 3 Step 6) — rebuilds the coordinator venv at <settings-home>/.coordinator-venv/ idempotently; <settings-home> = $(coordinator-settings-home). The bare pip install path is no longer correct after the venv relocation."
+
+[[probe]]
+id = "P-6"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["project_rag whoami invalid", "contract_version", "envelope invalid", "plugin-binding health"]
+triage = false
+severity_if_fail = "error"
+remediation = "Check P-5 first; inspect registry keys the probe requires; see cross-plugin-whoami-contract.md"
+
+[[probe]]
+id = "P-6s"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["session whoami invalid", "not oriented", "coordinator-session", "orientation health"]
+triage = false
+severity_if_fail = "error"
+remediation = "Check P-5 first; verify coordinator_whoami.session subpackage present; re-run Phase 3 Step 6"
+
+[[probe]]
+id = "P-7"
+cluster = "whoami"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["mcpServers absent", "claude.json empty", "config missing", "mcpServers entry"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Re-run plugin install to write the mcpServers entry; verify ~/.claude.json is writable"
+
+# ---------------------------------------------------------------------------
+# Cluster: resolver — bin/ path resolvers (claude-home)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-10"
+cluster = "resolver"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["claude-home not found", "resolver drift", "plugins did not resolve", "claude-home"]
+triage = true
+severity_if_fail = "error"
+remediation = "Re-run /coordinator:install Phase 3; on macOS <settings-home>/bin is the primary resolver location reached via the coordinator/bin forwarder (not PATH directly) — re-running Phase 3 installs the forwarder and the claude-home + _claude_home.py scripts at <settings-home>/bin; compat forwarder also retained at ~/.claude/bin during the transition window"
+
+[[probe]]
+id = "P-14"
+cluster = "resolver"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["bare machine-local not found", "forwarder missing", "bin not on PATH (macos)", "bare-name resolver", "command not found machine-local", "command not found claude-home"]
+# Review: code-reviewer slice1-F3 — P-4 already fires at triage for the missing-CLI case;
+# P-14's unique value is diagnostic depth (bare-name vs absolute-path resolution), so it
+# belongs in the full run, not the triage gate — avoids three identical-remediation REDs
+# at triage on a fresh install.
+triage = false
+severity_if_fail = "error"
+# Review: code-reviewer slice1-F4 — corrected: the forwarders ship WITH the plugin
+# (present from clone/install); Phase 3 installs the REAL resolvers to ~/.claude/bin/.
+# A P-14 failure means either the plugin-bin forwarder is absent (plugin corruption /
+# harness didn't inject plugins/*/bin — reinstall the plugin) OR the real ~/.claude/bin/
+# <tool> resolver is missing (re-run /coordinator:install Phase 3).
+remediation = "P-14 failure: either the plugin-bin forwarder is absent (plugin corruption / harness did not inject plugins/*/bin — reinstall the plugin) OR the real <settings-home>/bin/<tool> resolver is missing (re-run /coordinator:install Phase 3); <settings-home> = $(coordinator-settings-home); compat forwarder also retained at ~/.claude/bin during the transition window"
+
+# ---------------------------------------------------------------------------
+# Cluster: structure — sentinel presence, template drift, canonical scaffold
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-8"
+cluster = "structure"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["no sentinels", "cold start", "doctor never run", "doctor-last-run absent"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run each installed plugin's doctor once to bootstrap the sentinel"
+
+[[probe]]
+id = "P-11"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["templates drift", "publish.sh customized", "setup sync", "template out of date"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run verify-templates-setup-sync.sh (no flags, inspect-only) to see drift; recover manually with cp coordinator/templates/setup/<file> ~/.claude/setup/<file>"
+
+[[probe]]
+id = "P-12"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["canonical structure incomplete", "cross-repo dir missing", "scaffold", "README missing"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run scaffold-canonical-structure.sh --root ~/.claude to restore; or re-run /coordinator:install Phase 3 Step 7"
+
+# ---------------------------------------------------------------------------
+# Cluster: currency — onboarding currency drift (per-repo schema-version stamp)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-13"
+cluster = "currency"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["onboarding drift", "schema version stale", "coordinator-currency", "currency stamp", "unstamped legacy", "onboarding currency"]
+triage = true
+severity_if_fail = "degraded"
+remediation = "Re-run /repo-setup to stamp this repo with the current coordinator schema version"
+
+# ---------------------------------------------------------------------------
+# Cluster: system-prereq — machine-level prerequisite gate (SSOT: prereq_probe.sh)
+#
+# Reuses _co_prereq_probe_all from scripts/lib/prereq_probe.sh as the SSOT for
+# every probe body. The sentinel sources prereq_probe.sh and calls the aggregator;
+# no probe logic is duplicated here. This is the doctor-probe-design.md §
+# "A Probe Must Walk the Same Resolution Path as the Runtime Tool It Vouches For"
+# implementation — the same NDJSON output the install Step Zero gate consumes is
+# what the doctor verifies.
+#
+# Only hard-severity prereq failures drive RED (git, python, gh, node).
+# Advisory-tier absences (uv, pwsh, ue, longpaths, git_lfs) stay GREEN per
+# doctor-probe-design.md § "AMBER on Optional Absence Is Bad Form".
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-15"
+cluster = "system-prereq"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["git not found", "python not found", "gh not found", "node not found", "system prerequisites", "prereq", "Step Zero", "install prerequisites", "missing dependency"]
+triage = true
+severity_if_fail = "error"
+remediation = "Install the missing hard prerequisite(s): git (brew install git / apt-get install git), Python 3.11+ (https://python.org/downloads), GitHub CLI (brew install gh / winget install GitHub.cli), Node.js LTS (brew install node / winget install OpenJS.NodeJS.LTS)"
+
+# ---------------------------------------------------------------------------
+# Cluster: machine-local (continued) — hardware capacity SSOT
+#
+# P-16 checks that hardware.cores and hardware.ram_gb have been seeded into
+# machine-local by the install-substrate hardware-audit step (C4 of plan
+# docs/plans/2026-06-23-setup-time-substrate-completeness.md).  Absence means
+# the worker-cap calculation in project-rag / build tools falls back to a
+# conservative or wrong value.  This is a degraded (not error) verdict because
+# the coordinator's own substrate is unaffected — downstream capacity budgets are
+# the consequence, not immediate coordinator function.
+#
+# Remediation is population-aware: two install populations land here via
+# different scripts (coordinator:install Phase 3 vs OSS setup/install.sh).
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-16"
+cluster = "machine-local"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["hardware absent", "hardware.cores missing", "hardware.ram_gb missing", "hardware capacity", "worker cap", "capacity budget", "hardware SSOT"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "hardware.cores / hardware.ram_gb absent from machine-local. Remediation depends on your install path: (1) coordinator:install users — re-run coordinator:install Phase 3 (the hardware-audit step seeds these values via lib/detect-hardware.sh); (2) OSS setup/install.sh users — re-run setup/install.sh (the --setup-only path seeds hardware.* via the same detector). After re-running, verify with: machine-local get hardware.cores"
+
+[[probe]]
+id = "P-17"
+cluster = "machine-local"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["shell", "login-shell", "bash-profile", "local-bin", "path", "orphan", "shell-env"]
+# triage=false: this probe spawns a login shell that sources arbitrary user rc files
+# (nvm/pyenv/conda-init), which have latency and side effects unsuitable for the
+# always-on cheap triage pass. Surfaces under --full / --symptom shell-env /
+# --cluster machine-local. The triage=true => weight in {cheap,standard} invariant
+# does not apply here because triage is false.
+triage = false
+severity_if_fail = "error"
+remediation = "bash login shell orphaned ~/.local/bin — run coordinator:install or normalize-env.sh"
+
+# ---------------------------------------------------------------------------
+# Cluster: ue-overrides — UE override path verifier (OPTIONAL — silent skip if absent)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-9"
+cluster = "ue-overrides"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["ue override drift", "verify-ue-overrides", "example_game_workbench_repo"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Follow the verify-ue-overrides.sh remediation hint (typically set repos.example_game_workbench_repo)"
+
+# ---------------------------------------------------------------------------
+# Cluster: structure — install singularity (canonical-locus integrity)
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-18"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["install singularity", "split install", "multiple clones", "doubled venv pin", "claude-home", "marketplace divergence", "symlink install"]
+# triage=true: install-integrity is load-bearing — a split/divergent install silently
+# loads a stale coordinator copy, so the cheap first-pass run must catch it. The check
+# is file reads + git rev-parse + settings parse (weight=standard, no model/VRAM) —
+# satisfies the triage=true => weight in {cheap,standard} invariant.
+triage = true
+severity_if_fail = "error"
+remediation = "Multiple coordinator install trees or divergent registration detected — reconcile to a single ~/.claude install (remove stray clones/symlinks; align settings.json / settings.local.json / known_marketplaces.json; fix a doubled .claude/.claude venv pin via bin/ensure-coordinator-venv.sh). Re-run /coordinator:install."
+
+# ---------------------------------------------------------------------------
+# Cluster: currency (continued) — release-currency advisory (git-tag anchor)
+#
+# P-19 is advisory-only: a "behind" or "differs" result surfaces an
+# informational note but NEVER contributes a RED or AMBER verdict row.
+# Implementation uses the advisory_notes bucket in the sentinel (not note_red /
+# note_amber), so the verdict is not affected regardless of probe result.
+#
+# Rationale: currency is a convenience signal, not an integrity check —
+# "behind latest release" does not mean the installed coordinator is broken.
+# The boot hook (check-plugin-update-currency.sh) already surfaces this at
+# session start; the doctor probe makes it reachable from the scalpel path
+# (--cluster currency / --probe P-19 / --full) without making every bare
+# :doctor call reach GitHub.
+#
+# Design notes (the Staff Engineer review constraints, non-negotiable):
+#   triage = false  — network I/O (git ls-remote --tags) is unacceptable in
+#                     the always-on cheap first-pass; scalpel/full only.
+#   offline         → silent/inconclusive skip (never RED).
+#   source_is_live  → silent GREEN (authoring machine; no nag expected).
+#   behind / differs → advisory note only; verdict unchanged.
+#
+# Reuses lib/release-currency.sh exclusively — no duplicate currency mechanism.
+# Checks coordinator-claude (mirrors the boot hook's repo set). Per-plugin
+# action hints match the boot hook's _action_hint_for().
+# severity_if_fail = "degraded" documents the declared severity level; the
+# sentinel probe body uses note_advisory (not note_amber), so this field is
+# documentation-only for P-19 and never contributes an AMBER verdict row.
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-19"
+cluster = "currency"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["release currency", "plugin update available", "coordinator behind", "coordinator-update", "git tag currency", "release tag", "update available"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run `/coordinator-update` to update coordinator"

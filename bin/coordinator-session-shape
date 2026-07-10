@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# coordinator-session-shape — Single consumer surface for the session-state contract.
+#
+# Purpose: Assemble and emit the full session-shape contract for a given session id
+#   by merging two sources:
+#     1. Persisted fields  — cs_session_shape_read <sid>  (session-shape.json or skeleton)
+#     2. On-read magnitude — cs_session_shape_magnitude <sid>  (commits_since_start, files_touched)
+#   The assembled contract = persisted JSON + top-level "magnitude" key.
+#
+# Usage:
+#   coordinator-session-shape <sid> [--json|--pretty]
+#
+#   --json   (default) Emit assembled contract as compact JSON on stdout.
+#   --pretty Emit a human-readable rendering (jq pretty-print when available;
+#            python3 json.dumps(indent=2) fallback; key=value last resort).
+#
+#   When both --json and --pretty are given, last flag wins.
+#
+# Exit codes:
+#   0  Success.
+#   1  Missing <sid> argument, unknown flag, or internal merge failure.
+#
+# Spec backlink: docs/plans/2026-07-02-ceremony-as-pipeline-v1-session-state-co.md § C6
+#
+# Honors _CS_FORCE_NO_JQ convention: when jq is absent or _CS_FORCE_NO_JQ=1 is set,
+# the merge step uses a Python3 fallback (then a sed/awk splice as last resort).
+# The --pretty output also degrades gracefully on the same condition.
+
+set -euo pipefail
+
+# Bash >=4 guard — (( )) and BASH_VERSINFO exist since bash 2.x so this is safe on 3.2.
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "ERROR: bash >=4 required (got ${BASH_VERSION}). Install via: brew install bash" >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Source coordinator-session.sh for cs_session_shape_read / cs_session_shape_magnitude.
+# SCRIPT_DIR resolves via BASH_SOURCE[0] (handles invocation by absolute path,
+# relative path, or via a symlink whose target is in this dir).
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/coordinator-session.sh
+source "${SCRIPT_DIR}/../lib/coordinator-session.sh"
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+_usage() {
+  printf 'Usage: coordinator-session-shape <sid> [--json|--pretty]\n' >&2
+  printf '\n' >&2
+  printf '  <sid>     Session id (required).\n' >&2
+  printf '  --json    Emit assembled contract as compact JSON (default).\n' >&2
+  printf '  --pretty  Emit human-readable rendering.\n' >&2
+  printf '\n' >&2
+  printf '  When both --json and --pretty are given, last flag wins.\n' >&2
+  exit 1
+}
+
+SID=""
+MODE="json"  # default
+
+for arg in "$@"; do
+  case "$arg" in
+    --json)   MODE="json" ;;
+    --pretty) MODE="pretty" ;;
+    --*)
+      printf 'coordinator-session-shape: unknown flag: %s\n' "$arg" >&2
+      _usage
+      ;;
+    *)
+      if [[ -z "$SID" ]]; then
+        SID="$arg"
+        # Review: code-reviewer (F2) — validate SID at parse time to prevent path traversal
+        # into .git/coordinator-sessions/<sid>/; reject any value not matching slug allowlist.
+        if [[ ! "$SID" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
+          printf 'coordinator-session-shape: invalid sid (only [A-Za-z0-9][A-Za-z0-9_-]* allowed): %s\n' "$SID" >&2
+          _usage
+        fi
+      else
+        printf 'coordinator-session-shape: unexpected argument: %s\n' "$arg" >&2
+        _usage
+      fi
+      ;;
+  esac
+done
+
+if [[ -z "$SID" ]]; then
+  printf 'coordinator-session-shape: <sid> is required\n' >&2
+  _usage
+fi
+
+# ---------------------------------------------------------------------------
+# Assemble the contract: merge persisted + magnitude
+# ---------------------------------------------------------------------------
+
+_PERSISTED=$(cs_session_shape_read "$SID")
+_MAGNITUDE=$(cs_session_shape_magnitude "$SID")
+
+# Merge: add the magnitude object as the top-level "magnitude" key in the persisted JSON.
+# Prefer jq; fall back to Python3; last resort is a sed splice.
+_ASSEMBLED=""
+
+_jq_ok() {
+  [[ -z "${_CS_FORCE_NO_JQ:-}" ]] && command -v jq >/dev/null 2>&1
+}
+
+# _resolve_py_bin — resolve Python interpreter + args into script-level $_py_bin / $PYTHON_ARGS.
+# Initialises PYTHON_ARGS=() as a safe default so the array is always defined under set -u.
+# resolve-python.sh may set PYTHON_ARGS=("-3") on Windows when the py launcher is used;
+# the documented caller contract is: "$PYTHON_BIN" "${PYTHON_ARGS[@]}" -c "..."
+# Review: code-reviewer (F3 + F1) — Python resolution block was duplicated verbatim in the
+# merge fallback and --pretty fallback; extracted here so the PYTHON_ARGS fix (F1) lives
+# in exactly one place and both code paths benefit automatically.
+_py_bin=""
+PYTHON_ARGS=()
+_resolve_py_bin() {
+  _py_bin=""
+  PYTHON_ARGS=()
+  local _py_lib="${SCRIPT_DIR}/../lib/resolve-python.sh"
+  if [[ -f "$_py_lib" ]]; then
+    # shellcheck source=/dev/null
+    source "$_py_lib" 2>/dev/null || true
+    _py_bin="${PYTHON_BIN:-}"
+  fi
+  [[ -z "$_py_bin" ]] && command -v python3 >/dev/null 2>&1 && _py_bin="python3"
+  [[ -z "$_py_bin" ]] && command -v python  >/dev/null 2>&1 && _py_bin="python"
+  return 0  # always succeed; _py_bin is "" when no interpreter is found, which is valid
+}
+
+# Resolve Python once; both the merge fallback and the --pretty fallback consume
+# the resolved $_py_bin and $PYTHON_ARGS without re-sourcing the lib.
+_resolve_py_bin
+
+if _jq_ok; then
+  _ASSEMBLED=$(
+    printf '%s' "$_PERSISTED" \
+    | jq -c --argjson m "$_MAGNITUDE" '. + {magnitude: $m}' 2>/dev/null
+  ) || _ASSEMBLED=""
+fi
+
+if [[ -z "$_ASSEMBLED" ]]; then
+  # Python3 fallback: inject magnitude key into the persisted JSON object.
+  # Uses "$_py_bin" "${PYTHON_ARGS[@]}" resolved above by _resolve_py_bin — fixes
+  # Windows py-launcher invocation which requires PYTHON_ARGS=("-3") to select Python 3.
+  # Review: code-reviewer (F1) — PYTHON_ARGS now consumed; was silently discarded before.
+  if [[ -n "$_py_bin" ]]; then
+    _ASSEMBLED=$(
+      CS_SHAPE_BASE="$_PERSISTED" CS_SHAPE_MAG="$_MAGNITUDE" \
+      "$_py_bin" "${PYTHON_ARGS[@]}" -c '
+import json, os, sys
+base_str = os.environ.get("CS_SHAPE_BASE", "{}")
+mag_str  = os.environ.get("CS_SHAPE_MAG",  "{}")
+try:
+    base = json.loads(base_str)
+except Exception:
+    base = {}
+try:
+    mag = json.loads(mag_str)
+except Exception:
+    mag = {}
+base["magnitude"] = mag
+sys.stdout.write(json.dumps(base, separators=(",", ":")))
+' 2>/dev/null
+    ) || _ASSEMBLED=""
+  fi
+fi
+
+if [[ -z "$_ASSEMBLED" ]]; then
+  # Sed/awk splice of last resort: strip trailing } from persisted JSON,
+  # append ,"magnitude":<mag_json>}.
+  # This only works for compact (single-line) JSON objects — the lib guarantees
+  # cs_session_shape_read emits single-line output.
+  # Review: code-reviewer (F6) — guard against empty _PERSISTED producing invalid JSON
+  # (e.g. ',"magnitude":...}' with no opening brace) when the lib returns empty on error.
+  [[ -n "$_PERSISTED" ]] || _PERSISTED="{}"
+  _stripped=$(printf '%s' "$_PERSISTED" | sed 's/}$//')
+  # Determine whether we need a leading comma (empty object has no fields)
+  if [[ "$_stripped" == "{" ]]; then
+    _ASSEMBLED="${_stripped}\"magnitude\":${_MAGNITUDE}}"
+  else
+    _ASSEMBLED="${_stripped},\"magnitude\":${_MAGNITUDE}}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Emit
+# ---------------------------------------------------------------------------
+
+if [[ "$MODE" == "json" ]]; then
+  printf '%s\n' "$_ASSEMBLED"
+else
+  # --pretty: jq . if available; python3 json.dumps(indent=2) fallback; raw fallback.
+  if _jq_ok; then
+    printf '%s\n' "$_ASSEMBLED" | jq .
+  else
+    # Uses $_py_bin and ${PYTHON_ARGS[@]} resolved once by _resolve_py_bin above —
+    # no re-sourcing of resolve-python.sh needed here.
+    # Review: code-reviewer (F3 + F1) — duplicate resolution block removed; PYTHON_ARGS now
+    # consumed so the Windows py-launcher -3 arg is forwarded correctly.
+    if [[ -n "$_py_bin" ]]; then
+      printf '%s\n' "$_ASSEMBLED" \
+        | "$_py_bin" "${PYTHON_ARGS[@]}" -c 'import json,sys; print(json.dumps(json.load(sys.stdin),indent=2))'
+    else
+      # Raw fallback: emit as-is (valid JSON, just not indented)
+      printf '%s\n' "$_ASSEMBLED"
+    fi
+  fi
+fi

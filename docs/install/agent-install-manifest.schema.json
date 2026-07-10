@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/install/agent-install-manifest.schema.json",
   "title": "Agent Install Manifest",
-  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/agent-install-contract.md (canonical home: plugins/coordinator/docs/wiki/agent-install-contract.md in the working-repo layout).",
+  "description": "Schema for the ecosystem-wide agentic install contract manifest. Each repo in a dependency chain declares its own direct deps, install entry-points, and functional probes at this contracted path. Spec: docs/wiki/agent-install-contract.md (canonical source: coordinator/docs/wiki/agent-install-contract.md in the DoE-claude clone; published mirror at ~/.claude/plugins/coordinator/docs/wiki/agent-install-contract.md).",
   "type": "object",
   "required": [
     "agent_install_contract_version",

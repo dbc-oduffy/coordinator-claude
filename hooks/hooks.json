@@ -1,0 +1,518 @@
+{
+  "description": "Coordinator hooks — session guardrails and cost optimization",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-settings-integrity.sh",
+            "timeout": 5,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/bin/platform-localize.sh",
+            "timeout": 5,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect-wrapper.sh",
+            "timeout": 5,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-dropped-tracked-files.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "matcher": "startup|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-init.sh",
+            "timeout": 3,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/coordinator-reminder.sh",
+            "timeout": 3,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh",
+            "timeout": 30,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ue-knowledge-distrust.sh",
+            "timeout": 3,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-init.sh",
+            "timeout": 3,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/coordinator-reminder.sh",
+            "timeout": 3,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh --lightweight",
+            "timeout": 3,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ue-knowledge-distrust.sh",
+            "timeout": 3,
+            "async": true
+          }
+        ]
+      },
+      {
+        "_comment": "session-ensure-branch: DO hook — cuts work/{machine}/{today} on startup/clear when the EM is on main, detached HEAD, or a zero-ahead non-span branch. nag→action exemplar (strang-04). Never matches compact — branch is already set during compaction.",
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-ensure-branch.sh",
+            "timeout": 15,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "F14 (2026-07-09) — advisory-only re-check of the Bash-tool invoking-shell bash>=4 version, cheap and async. Catches drift after install-time verification (commands/install.md § 1a.0.1) — e.g. a later chsh back to zsh, a new terminal profile. Never blocks; see hooks/scripts/nudge-invoking-shell-bash4.sh.",
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-invoking-shell-bash4.sh",
+            "timeout": 3,
+            "async": true
+          }
+        ]
+      },
+      {
+        "_comment": "bootstrap-substrate is async (long-running first-boot deploy, up to 120s); check-plugin-update-currency is sync (fast network probe); no data dependency between them — a future hook that depends on substrate presence must account for the async race",
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bootstrap-substrate.sh",
+            "timeout": 120,
+            "async": true
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-plugin-update-currency.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "C7 (P2, install-baton-rendezvous-off-dotclaude, AC12/AC13): guided post-restart self-onboarding nudge. Self-sufficient and fail-safe — reads only coordinator-setup-state.sh and install-status.json receipts, neither deployed by the async bootstrap-substrate entry above, so registration order carries no dependency and needs no ordering guarantee.",
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/surface-unfinished-onboarding.sh",
+            "timeout": 10,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "_comment": "C1a — L1 idle-EM awareness on end-of-turn",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "C2b — L2 asyncRewake stop-watcher (per-session PID lock; sleeps to threshold; exits 2 on overrun)",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-stop-watcher.sh",
+            "timeout": 1800,
+            "async": true,
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "_comment": "C1a — L1 idle-EM awareness on user-prompt-submit (catches conversational-idle case)",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "_comment": "Timeout is 15s because it is >= the max of the former per-hook timeouts (rm and orphan were 10s, doing git rev-list/status); checks now run sequentially in one process. This single dispatcher replaces the 8 folded guards PLUS validate-commit (folded Phase 2, 2026-06-30, see docs/plans/2026-06-30-fold-validate-commit-into-dispatcher.md). 15s comfortably covers validate-commit's former 5s commit-path budget.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.sh",
+            "timeout": 15,
+            "async": false
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-foreground-agent-dispatch.sh",
+            "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/enforce-agent-dispatch-mode.sh",
+            "timeout": 3,
+            "async": false
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/suggest-sonnet-research.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-frontmatter-schema.js",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-claude-md-size.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-illegal-filename.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dev-side-mirror-wiki.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-completion-monolith-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-archive-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-plan-body-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-plan-body-bash-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-tracker-edit.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-consumed-handoff-edit.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-reviewer-write-outside-sidecar.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "REVIEWER-BASH-ALLOWLIST — confines the confined findings-agent set (see `_cs_is_confined_findings_agent`) to coordinator-doc-new --type review-findings only; all other Bash invocations from those types are denied fail-closed.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-reviewer-bash-outside-allowlist.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-bin-polyglot-break.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-improvement-queue-write.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-windows-subprocess-popup.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "NUDGE-EM-CODE-DISPATCH — offer-shaped nudge when the EM (main-agent) writes a non-doc/data file inline; subagent writes are silently allowed",
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-em-code-dispatch.js",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.sh",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-touched-files.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-unauthorized-handoff.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "NUDGE-INITIATIVE-GOALS-LADDER — offer-shaped nudge when a state/initiatives/*.yaml is Written or Edited with empty/absent goals and the repo has >=1 goal under state/goals/. PostToolUse exit 2 reaches model without blocking. See hooks/scripts/nudge-initiative-goals-ladder.sh.",
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-initiative-goals-ladder.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "ExitPlanMode",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.sh",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "Phase 3 consolidation (docs/plans/2026-06-30-pretooluse-bash-hook-dispatcher.md): the two universal PostToolUse advisories (context-pressure + runtime-tripwire) are folded into one postuse_advisory_dispatch surface. This is a command spawn (not an mcp_tool). The script merges both check_* advisories' additionalContext into a single emission (see postuse-advisory-dispatch.sh). timeout 10 preserves the former per-hook budget headroom.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.sh",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -129,16 +129,16 @@ The ecosystem has three tiers. Offer the first two; do NOT offer the third to a 
 
 | Tier | Plugins | Default |
 |---|---|---|
-| **core** | `coordinator` | Always on. This is the system. |
-| **recommended** | `deep-research` | On by default — opt out if not wanted. Also available standalone at [dbc-oduffy/deep-research-claude](https://github.com/dbc-oduffy/deep-research-claude). Requires `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` for full multi-agent pipelines (the fresh session in Step 2 sets this). |
-| **specialized — not part of this install** | UE/holodeck plugins, game-dev plugin, project-rag | Only relevant for Unreal Engine and holodeck workflows. Do NOT offer to a generic OSS user. |
+| **core** | `coordinator` (deep-research folded in) | Always on. This is the system. The deep-research pipelines ship *inside* the coordinator plugin — install coordinator and you have them. Full multi-agent pipelines require `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` (the fresh session in Step 2 sets this). |
+| **specialized — not part of this install** | UE/example-game-repo plugins, game-dev plugin, project-rag | Only relevant for Unreal Engine and example-game-repo workflows. Do NOT offer to a generic OSS user. |
 
 If the human gave you a signal about their project type (web, ML, data science), confirm which
 recommended plugins fit. Otherwise ask once, briefly.
 
-**Offer granularity is the add-on level, never the component level.** The picks above —
-deep-research (on by default, opt out) and the NotebookLM add-on (opt in) — are genuine install-time
-choices, and they are the *only* kind of install-time choice on offer. You never pick-'n'-mix the
+**Offer granularity is the add-on level, never the component level.** The one genuine install-time
+choice on offer is the NotebookLM add-on (opt in). deep-research is NOT an install-time choice — it
+is folded into the coordinator plugin for everyone (install coordinator and you have it). You never
+pick-'n'-mix the
 **internals** of a plugin you've chosen: install coordinator and you get *all* of it — every skill and
 reviewer (`/staff-session`, the review personas, the full pipeline). There is no install-time per-skill
 picker, and you do not add one. If the human wants a piece of an installed plugin turned off, that is a
@@ -150,7 +150,6 @@ install when the human wants several related tools — it is the contract the re
 this is an **add-on-level** question, not a component-level one: you are asking *which whole tools go
 in alongside coordinator*, not which slices of coordinator to keep. So while you have them, ask once:
 
-- **deep-research** — recommended; the bundled OSS add-on. Install it in the same CLI pass (1d).
 - **Other downstream repos** — if the human came here to install something further down a chain
   (e.g. a private/proprietary product that lists coordinator as a prerequisite), that product has
   its own installer. Note what they name; the post-restart session sequences any queued install legs
@@ -170,9 +169,8 @@ versions, updates, and the on-disk layout for you:
 # 1. Register the PUBLIC GitHub repo as the marketplace (NOT your local clone — see note below):
 claude plugin marketplace add dbc-oduffy/coordinator-claude
 
-# 2. Install coordinator (always) and deep-research (if opted in at 1c):
+# 2. Install coordinator (always) — deep-research pipelines ship folded into it:
 claude plugin install coordinator@coordinator-claude
-claude plugin install deep-research@coordinator-claude
 ```
 
 Claude Code caches the marketplace under `~/.claude/plugins/marketplaces/coordinator-claude/` and
@@ -264,8 +262,8 @@ In the fresh session, the human runs:
    `/coordinator:repo-setup` is the project-level step.
 3. **`/workday-start`** — only if the human queued *other* downstream tools at the pre-restart step
    (1c): each downstream installer seeds its own install leg into `~/.claude/state/handoffs/`, and
-   `/workday-start` triages whatever is present and sequences it. On a solo coordinator install (with
-   or without deep-research — neither seeds a downstream leg), there is nothing queued — skip
+   `/workday-start` triages whatever is present and sequences it. On a solo coordinator install
+   (deep-research is folded in and seeds no downstream leg), there is nothing queued — skip
    `/workday-start` and go straight to `/workstream-start` when ready to work.
 
 The fresh session is a Claude that now understands the system. The highest-leverage first

@@ -5,9 +5,10 @@ contract: ../wiki/agent-install-contract.md
 
 # Agent install guide — coordinator-claude
 
-> **Chain position:** coordinator-claude sits at **step 5 of 5** in the install DAG. It is the
-> DAG root — it has NO upstream dependencies and is always installed first. Every other repo
-> in the chain directly or transitively depends on coordinator-claude.
+> **Chain position:** coordinator-claude is the **DAG root** of the agent install contract.
+> It declares zero direct upstream dependencies and is always installed first. Any downstream
+> repo that adopts the contract may declare coordinator-claude as a dependency; coordinator-claude
+> itself declares none.
 
 > **You are an agent reading this file** because the setup skill dispatched you to walk the
 > install chain for coordinator-claude. Follow the install contract at
@@ -17,22 +18,18 @@ contract: ../wiki/agent-install-contract.md
 
 ## Chain posture
 
-coordinator-claude occupies **chain step 5 of 5** in the five-position install DAG — it is the
-**DAG root**:
+coordinator-claude is the **DAG root**: it declares **zero direct deps** (`direct_deps: []`).
+The chain-walker visits coordinator-claude, observes the empty dep list, and terminates
+immediately:
 
-```
-5. coordinator-claude   ← YOU ARE HERE (DAG root; no upstream deps)
-4. deep-research-claude  (optional dep of holodeck; soft dep on coordinator-claude)
-3. project-rag-ue-addon (hard dep of holodeck)
-2. project-rag          (hard dep of holodeck; soft dep of ue-addon)
-1. claude-unreal-holodeck (chain leaf)
-```
-
-*Chain positions are numbered leaf-first: 1 = chain leaf (claude-unreal-holodeck); 5 = DAG root (coordinator-claude, always installed first). "Step 5 of 5" means topmost in dep direction, not last in install order.*
-
-This repo declares **zero direct deps** (`direct_deps: []`). The chain-walker visits
-coordinator-claude, observes the empty dep list, and terminates:
 "chain walk complete — coordinator-claude is DAG root".
+
+No upstream probe is needed — as the root, there is nothing above it to walk. Any downstream
+consumer that depends on coordinator-claude recurses into this same terminal state; coordinator
+is visited exactly once even when reached via multiple paths, via the disk-resident visited-set
+per contract § Visited-set protocol.
+
+---
 
 ## Three install verbs — disambiguation
 
