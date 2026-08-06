@@ -1,6 +1,4 @@
-#!/bin/sh
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 coordinator-lesson-add — thin wrapper over coordinator-queue-append --schema lessons
 with a dedup pre-check at capture time.
@@ -23,6 +21,7 @@ direct coordinator-queue-append path when those fields are needed.
 
 Spec backlink: docs/plans/2026-06-30-lessons-md-to-queryable-yaml-queue.md § C2
 """
+from __future__ import annotations
 
 import argparse
 import glob
@@ -35,16 +34,31 @@ import sys
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _QUEUE_APPEND = os.path.join(_THIS_DIR, "coordinator-queue-append")
 
+_LIB_DIR = os.path.join(_THIS_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from machine_local_impl_resolve import (  # noqa: E402
+    claude_home as _mlir_claude_home,
+    machine_local_impl_path as _mlir_machine_local_impl_path,
+)
+
 # Mirrors coordinator-queue-append._QUEUE_APPEND_OUTPUT_ROOT_ENV for test isolation.
 # When set, the dedup scan looks under <QUEUE_APPEND_OUTPUT_ROOT>/state/lessons/
 # (matching where coordinator-queue-append writes when this env var is set).
 _QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
 
 # Mirrors coordinator-queue-append._CLAUDE_HOME_ENV for test isolation.
+# Review: code-reviewer (F4) — unused for resolution since _claude_home()
+# delegates to machine_local_impl_resolve.claude_home() (hardcodes
+# "CLAUDE_HOME" internally), but re-checked against current disk before
+# deleting per this dispatch's instructions and found still load-bearing:
+# test_coordinator_lesson_add_meta_routing.py imports it externally
+# (`_cli_mod._CLAUDE_HOME_ENV`) for env-isolation setup/teardown. Kept.
 _CLAUDE_HOME_ENV = "CLAUDE_HOME"
 
-# Mirrors coordinator-queue-append._EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV for test isolation and §4b gate.
-_EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV = "EXAMPLE_ORCHESTRATION_HUB_ROOT"
+# Mirrors coordinator-queue-append._CLAUDE_KLABAUTER_ROOT_ENV for test isolation and §4b gate.
+_CLAUDE_KLABAUTER_ROOT_ENV = "CLAUDE_KLABAUTER_ROOT"
 
 # Mirrors coordinator-queue-append._MACHINE_LOCAL_IMPL_ENV for test isolation.
 _MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
@@ -72,21 +86,23 @@ def _git_root():
 def _claude_home() -> str:
     """Return the ~/.claude root, honouring CLAUDE_HOME env var for test isolation.
 
-    Mirrors coordinator-queue-append._claude_home().
+    Mirrors coordinator-queue-append._claude_home(). Delegates to
+    machine_local_impl_resolve.claude_home() (shared resolver).
     """
-    override = os.environ.get(_CLAUDE_HOME_ENV)
-    if override:
-        return override
-    return os.path.join(os.path.expanduser("~"), ".claude")
+    return _mlir_claude_home()
 
 
 def _machine_local_get(key: str):
     """Call machine-local get <key> and return the value, or None on failure.
 
-    Mirrors coordinator-queue-append._machine_local_get().
+    Mirrors coordinator-queue-append._machine_local_get(). Settings-home
+    first (DR-210 Amendment 2026-07-24: "resolves nothing through
+    ~/.claude/bin"), falling back to the retired compat mirror only when the
+    settings-home candidate is absent on disk. Delegates to
+    machine_local_impl_resolve.machine_local_impl_path() (shared resolver —
+    review: code-reviewer F3, was a hand-rolled duplicate of that ladder).
     """
-    impl_override = os.environ.get(_MACHINE_LOCAL_IMPL_ENV)
-    impl = impl_override if impl_override else os.path.join(_claude_home(), "bin", "_machine_local.py")
+    impl = _mlir_machine_local_impl_path(_MACHINE_LOCAL_IMPL_ENV)
     try:
         result = subprocess.run(
             [sys.executable, impl, "get", key],
@@ -101,21 +117,21 @@ def _machine_local_get(key: str):
     return result.stdout.strip()
 
 
-def _example_orchestration_hub_root():
-    """Resolve the example-orchestration-hub repo root, returning None when unresolvable.
+def _claude_klabauter_root():
+    """Resolve the claude-klabauter repo root, returning None when unresolvable.
 
     Resolution chain:
-      1. EXAMPLE_ORCHESTRATION_HUB_ROOT env var — trusted as-is (§4b idempotency gate).
-      2. machine-local get repos.example_orchestration_hub_repo.
+      1. CLAUDE_KLABAUTER_ROOT env var — trusted as-is (§4b idempotency gate).
+      2. machine-local get repos.claude_klabauter.
       3. Returns None when unresolvable (caller degrades gracefully).
 
-    Mirrors coordinator-queue-append._example_orchestration_hub_root().
-    Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC1 / AC13
+    Mirrors coordinator-queue-append._claude_klabauter_root().
+    Spec backlink: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § AC1 / AC13
     """
-    override = os.environ.get(_EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV, "").strip()
+    override = os.environ.get(_CLAUDE_KLABAUTER_ROOT_ENV, "").strip()
     if override:
         return override
-    val = _machine_local_get("repos.example_orchestration_hub_repo")
+    val = _machine_local_get("repos.claude_klabauter")
     return val if val else None
 
 
@@ -138,18 +154,18 @@ def _lessons_dir():
 
     Resolution mirrors the routing logic of coordinator-queue-append._output_path for the lessons schema:
       1. QUEUE_APPEND_OUTPUT_ROOT env override → <override>/state/lessons
-      2. Meta-repo cwd (git root == ~/.claude) → <example-orchestration-hub>/state/lessons
+      2. Meta-repo cwd (git root == ~/.claude) → <claude-klabauter>/state/lessons
          (mirrors queue-append._output_path else-branch stop-the-rot routing so
          the dedup scan looks where queue-append actually writes)
       3. cwd git-root → <root>/state/lessons
       4. Fallback → cwd-relative state/lessons
     Tolerates the directory not existing (returns the path; caller checks isdir).
-    On unresolvable example-orchestration-hub root, emits a stderr warning and falls back to the
+    On unresolvable claude-klabauter root, emits a stderr warning and falls back to the
     git-root path (dedup pre-check degrades to no-op rather than crashing).
 
     Negative-spec: WITHOUT this meta-repo routing, cwd=~/.claude causes the dedup
     scan to look in ~/.claude/state/lessons while queue-append writes to
-    <example-orchestration-hub>/state/lessons — the dedup check silently misses all existing entries.
+    <claude-klabauter>/state/lessons — the dedup check silently misses all existing entries.
     Fix: align with queue-append._output_path else-branch (stop-the-rot taxonomy).
     Spec backlink: state/bug-backlog/2026-07-06-lesson-add-dedup-scans-wrong-dir-in-meta.yaml
     """
@@ -160,22 +176,22 @@ def _lessons_dir():
     if root:
         home = _claude_home()
         if _same_path(root, home):
-            # Meta-repo cwd → dedup scan must look in example-orchestration-hub, not in ~/.claude.
+            # Meta-repo cwd → dedup scan must look in claude-klabauter, not in ~/.claude.
             # Mirrors coordinator-queue-append._output_path else-branch (stop-the-rot).
-            example-orchestration-hub = _example_orchestration_hub_root()
-            if example-orchestration-hub is not None:
-                return os.path.join(example-orchestration-hub, "state", "lessons")
-            # ExampleOrchestrationHub unresolvable: degrade gracefully — dedup scan falls back to the
+            claude-klabauter = _claude_klabauter_root()
+            if claude-klabauter is not None:
+                return os.path.join(claude-klabauter, "state", "lessons")
+            # Claude-Klabauter unresolvable: degrade gracefully — dedup scan falls back to the
             # git-root path; the pre-check becomes a no-op (directory likely absent)
             # rather than crashing or writing to the wrong place.
             print(
-                "coordinator-lesson-add: warning: example-orchestration-hub root unresolvable; "
-                "dedup pre-check will miss all existing entries in example-orchestration-hub; "
+                "coordinator-lesson-add: warning: claude-klabauter root unresolvable; "
+                "dedup pre-check will miss all existing entries in claude-klabauter; "
                 "lesson will still be written correctly by coordinator-queue-append",
                 file=sys.stderr,
             )
             # Review: code-reviewer — nit: old text "may miss" understated; on any machine
-            # with a working example-orchestration-hub setup the fallback dir is always empty, so the dedup
+            # with a working claude-klabauter setup the fallback dir is always empty, so the dedup
             # check is always a complete no-op. "will miss all" is accurate.
         return os.path.join(root, "state", "lessons")
     return os.path.join(os.getcwd(), "state", "lessons")

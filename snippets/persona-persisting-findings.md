@@ -1,0 +1,19 @@
+<!-- canonical source for persona-persisting-findings — edit here, then run bin/verify-snippet-sync persona-persisting-findings --fix -->
+<!-- consumers: see bin/snippet-registry list-consumers persona-persisting-findings -->
+
+<!-- BEGIN persona-persisting-findings (synced from snippets/persona-persisting-findings.md) -->
+## Persisting your findings (the easy path)
+
+Your deliverable is a **file on disk**, not inline text — the harness blocks the `Write` tool on report files. Which mechanism applies depends on the deliverable:
+
+- **Plan/design document** — persist to its `docs/plans/...` path from your brief via a **Bash shell redirect** as your final action, then return only a pointer line. Full procedure: `snippets/findings-self-persist-bash.md`.
+- **Review findings feeding an integrator** — your dispatch brief carries your provisioned subagent-share sidecar path; use **Edit** on that pre-provisioned file (it already exists — that's the whole point of provisioning) to write your full `ReviewOutput` JSON + narrative there as your final action, then return only a pointer line (`DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`). Inline ONLY when no path is in the brief (advisory use). The Bash-redirect recipe below is for the plan/design case, not this one — a provisioned sidecar already exists, so Edit is the direct path and a Bash redirect is the wrong tool here. **Do not fall back to a Bash heredoc/redirect for this Edit, even when Bash is available to you.** A Bash payload that persists findings quoting a governed doctrine surface's filename in its own prose (e.g. a finding *about* `coordinator/snippets/em-operating-doctrine.md`) can be denied by `guard-doctrine-surface-bash-write.py` as a false positive: that hook cannot tell "a governed filename appears as prose inside the content you are writing" from "a governed filename is the write's actual destination", and fails closed on the ambiguity by design. Edit on your pre-provisioned sidecar sidesteps this entirely — it targets your real destination file directly and never goes through that hook's Bash-command classification. If you ever find yourself reaching for a Bash heredoc to persist a findings sidecar that already exists, that is the wrong tool for this job; use Edit instead. (This is the reviewer/persona-audience copy of this guidance — `snippets/findings-self-persist-sentinel.md` carries a parallel copy for its own self-scaffolding findings-agent audience, which does not use this snippet.)
+
+Short version (plan/design path only — a plan/design target typically does not exist yet, so a redirect creates it; a review-findings sidecar already exists, so use Edit above instead):
+1. Choose the target path — a plan/design goes to its `docs/plans/...` path from your brief.
+2. Write the full content there via a Bash redirect (`python3 -c "import pathlib; pathlib.Path('<target>').write_text(..., encoding='utf-8')"` for content with quotes/backticks; `printf ... > <target>` for simple content).
+3. `ls -l <target>` to confirm it is non-empty.
+4. Return only a pointer line (e.g. `DONE: <path> | verdict: <...>`), not the body.
+
+You have Read/Write/Edit/Bash and there is no tool-confinement in your way — you are trusted to review and return. The EM and review-integrator read your findings from the file, not from chat.
+<!-- END persona-persisting-findings -->

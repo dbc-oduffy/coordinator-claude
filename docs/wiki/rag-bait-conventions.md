@@ -99,7 +99,7 @@ Routes:
 ```
 
 **Why this pattern earns its own subsection (and is not optional for owner files):** measured
-empirically on project-rag's bucket-c retrieval-quality investigation, a single-paragraph
+empirically in a retrieval-quality investigation on a RAG-indexed repo, a single-paragraph
 invariant edit moved the canonical chunk for "how does the system avoid loading two large
 neural network models into memory at the same time" from chroma rank 874 (absent from
 top-500) to rank 2 in production top-50. The pre-enrichment preamble described the file's
@@ -140,8 +140,8 @@ etc. — both siblings MUST carry equivalent §1a invariant preambles. "Equivale
 lead vocabulary, same intent-query phrasing, same "this is the canonical answer to ..."
 sentence; only the OS-specific mechanism details (path separators, command names) differ.
 
-**Why this is required, not optional:** measured empirically on project-rag's
-§1a-coverage-expansion remeasurement (2026-05-18). Tuning the `.ps1` sibling's invariant
+**Why this is required, not optional:** measured empirically in a §1a-coverage-expansion
+remeasurement on a RAG-indexed repo. Tuning the `.ps1` sibling's invariant
 preamble in isolation while leaving the `.sh` sibling un-tuned produced asymmetric
 retrieval: the `.ps1` surfaced at rank 5 for `py-graded-install-interpreter-e2e-conceptual`
 while the `.sh` was outside top-100 despite both being indexed under the same chunker.
@@ -163,8 +163,8 @@ work; not yet enforced).
 
 **Driver/orchestrator vs focused-mechanism distinction (related amendment 2026-05-18):**
 the §1a AC-A3 retrieval gate accepts rank ≤5 for `text_preamble` driver/orchestrator scripts
-(e.g., `install-project-rag-plugin.{ps1,sh}`) versus rank ≤2 for focused mechanism files
-(e.g., `read-claude-pin.py`, `select-python.sh`). Drivers get out-competed in re-ranking by
+(e.g., `install-plugin.{ps1,sh}`) versus rank ≤2 for focused mechanism files
+(e.g., `read-claude-pin.py`, a focused interpreter-resolution helper). Drivers get out-competed in re-ranking by
 focused mechanism files under tightly-scoped queries — that's the corpus telling the truth
 about which file is the mechanism vs which is the orchestrator. The rank-5 gate matches
 retrieval reality for drivers; the rank-2 gate continues to apply for mechanisms. Both gates
@@ -230,7 +230,7 @@ remains accurate unless the *purpose* of the code changes. Points at `archive/sp
 **Python example:**
 ```python
 def decompose_query(query: str) -> list[SubQuery]:
-    # Implements archive/specs/2026-04-29-project-rag-readiness.md §3.2 — decompose_query semantics
+    # Implements archive/specs/2026-04-29-example-readiness.md §3.2 — decompose_query semantics
     ...
 ```
 
@@ -313,7 +313,7 @@ surface, then a one-line `Do not use for: refactoring, writing scripts from scra
 debugging business logic, code review, or general programming concepts.`
 
 **Canonical exemplar in this ecosystem:**
-`project-rag-ue-addon/plugin/project-rag-ue-addon/skills/ue-engine-docs/SKILL.md § Do not use for`.
+a UE-engine-docs domain-plugin's `SKILL.md § Do not use for` section.
 
 **When to apply:** any new plugin-bundled SKILL.md whose description-as-trigger could match
 tangentially-related prompts. Skills whose trigger is intrinsically narrow (scoped to a
@@ -328,7 +328,7 @@ docstrings, and comments MUST use the canonical terms. Terms in the `_Avoid_:` l
 not appear.
 
 **Discipline is most load-bearing for project-coined and domain-specific terms** — `distill`,
-`enricher`, `example-game-repo`, `RAG-bait`, `coordinator`, `spec backlink`. These are low-frequency
+`enricher`, `RAG-bait`, `coordinator`, `spec backlink`. These are low-frequency
 tokens where the embedding model has no prior; synonym fragmentation breaks retrieval.
 
 **Latitude is fine for general engineering vocabulary** — `function`, `module`, `test`,
@@ -403,7 +403,7 @@ integrator thread from that spec, the retrieval recipe is:
 1. Read the trimmed `archive/specs/` version (on disk, indexed by RAG).
 2. For the verbose original: `git show <last_verbose_sha>:<original path>`.
 
-**Distillation log** (`state/distillation-log.md`, append-only) carries domain prose in
+**Distillation log** (append-only, under `state/`) carries domain prose in
 `reason` fields. Because the log lives on disk, RAG indexes it. A log row reading "integrator
 triage resolving async-run wrapper conflict in port-patterns FastMCP transport" surfaces on a
 query about that conflict and surfaces the `last_sha` needed to retrieve the verbose original.
@@ -413,9 +413,9 @@ This makes the log a retrieval bridge across the /distill boundary — cheapest 
 Example provenance frontmatter on a wiki entry:
 ```yaml
 provenance:
-  - archived_spec: archive/specs/2026-04-29-port-patterns-implementation.md
-    original_path: docs/plans/2026-04-29-port-patterns-implementation.md
-    last_verbose_sha: acc49ed5
+  - archived_spec: archive/specs/2026-04-29-example-implementation.md
+    original_path: docs/plans/2026-04-29-example-implementation.md
+    last_verbose_sha: <git-sha>
     distilled: 2026-04-29
 ```
 

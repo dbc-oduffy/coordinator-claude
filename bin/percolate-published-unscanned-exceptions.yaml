@@ -1,0 +1,64 @@
+# percolate-published-unscanned-exceptions.yaml — deliberate exclusions for
+# dispatch_end_of_run_unscanned_published_check (coordinator/bin/publish.py).
+#
+# NOT setup/percolate-hooks/percolate-store.yaml -- deliberately a separate,
+# harness-owned file. That file is parked pending a cross-repo naming
+# decision (state/audits/2026-08-05-first-full-payload-identity-findings.md);
+# this file has no such dependency and is safe to edit independently of it.
+#
+# A published file this list names is EXPECTED to sit outside the transform
+# sweep's surface, ON PURPOSE, for the stated reason. Every entry requires
+# BOTH `path` and `reason` -- an entry with no reason is refused at load
+# time (coordinator/bin/publish.py::_load_unscanned_exceptions), because an
+# exclusion with no stated reason is exactly the "looks identical to an
+# accident" shape this mechanism exists to close.
+#
+# `path`: POSIX-style, relative to the destination repo root -- the same
+# form check-persona-names.py / check-install-doc-payload.py already report
+# paths in, so a finding from any of the three end-of-run legs can be
+# cross-referenced by the same string.
+#
+# state/audits/2026-08-05-first-full-payload-identity-findings.md Group B named
+# a second live candidate (published as `bin/depersonalize-identity.example.yaml`,
+# excluded from the sweep by an existing file_surface exclude_globs entry) and
+# left whether the exclusion was ever a DELIBERATE decision as unverified. That
+# ratification has since ARRIVED -- DoE-claude's EM and PM confirm the exclusion
+# is deliberate and correct -- see
+# cross-repo/inbox/2026-08-05-doe-claude-em-three-publish-gates-block-the-4-0-0-percolate.md
+# -- so the entry below is now present and this file has no outstanding
+# un-ratified candidate.
+#
+# Add an entry here only once a human has actually reviewed and ratified a
+# given unscanned-but-published file as correct.
+
+exceptions:
+  - path: ".github/scripts/check-persona-names.py"
+    reason: >-
+      The mirror's own release-CI identity checker must never scrub itself --
+      ratified as AC4/AC5 of docs/plans/2026-08-03-mirror-native-content-homed-and-injected.md
+      (AC4: "A test fails loudly if the harness is ever routed through
+      substitute/depersonalize"; AC5: "check-persona-names.py's BANNED tokens
+      remain non-contiguous in source, so the file does not trip its own
+      checker"). Excluded from the transform sweep via `base.file_surface`'s
+      exact-basename entry `exclude_basenames: ["check-persona-names.py"]`
+      (setup/percolate-hooks/percolate-store.yaml) -- this exceptions entry
+      records that pre-existing, already-ratified decision, not a new one.
+      NOT via a glob: the `exclude_globs: ["*check-persona*"]` wildcard this
+      prose used to cite was removed in 084dbad7f for silently over-covering
+      check-persona-slug-leak.*, the same over-broad-wildcard shape as the
+      `*depersonalize*` entry narrowed days before it.
+  - path: "bin/depersonalize-identity.example.yaml"
+    reason: >-
+      The per-operator identity-rewrite DATA-FILE TEMPLATE: its body is worked
+      examples of substitution pairs, so running the depersonalize transform
+      over it would rewrite its own illustrative values and corrupt the very
+      template an operator copies to author their own rewrite table. A file
+      whose content IS the transform's input vocabulary cannot also be the
+      transform's subject. Already excluded from the sweep by a `file_surface`
+      `exclude_globs` entry; Group B of
+      state/audits/2026-08-05-first-full-payload-identity-findings.md
+      flagged that exclusion as unverified-whether-deliberate and declined to
+      ratify it unilaterally. Ratified as deliberate and correct by DoE-claude's
+      EM and PM in
+      cross-repo/inbox/2026-08-05-doe-claude-em-three-publish-gates-block-the-4-0-0-percolate.md
+      -- this entry records that ratification.

@@ -1,6 +1,6 @@
 ---
 name: spinoff
-description: PM-GATED. Fork a mid-session topic into its own pickup-able handoff (a spinoff). Never EM-initiated.
+description: "PM-GATED, never EM-initiated. Fork a mid-session topic into its own handoff."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: "<slug> [optional one-line title]"
 ---
@@ -9,225 +9,65 @@ argument-hint: "<slug> [optional one-line title]"
 
 A **spinoff** is a handoff written mid-session by the current EM, addressed to a *future* picking-up EM, describing a workstream the current session does NOT intend to execute. Synonyms used in older artifacts: "orphan-promotion handoff," "ersatz-handoff." `spinoff` is the canonical term.
 
+The assembler computes the mechanical spine — deliverable/initiative id inheritance, `origin_*` provenance capture, frontmatter scaffolding, and the scoped commit — and returns one decision object. What follows is the judgment residue the assembler cannot resolve for you: it narrows the evidence, you decide.
+
+Compute it via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/baton-assemble" brief spinoff <slug> [title]`. Every `judgment_points[]` entry in the returned object carries its own guidance inline — describing what each disposition means and how to carry it out, never a recommendation to pick from; resolve each one before its gated directive(s) proceed.
+
+Feed those resolutions back by passing `--decisions` to `apply`: a JSON object mapping each `judgment_points[].id` to `{"disposition": "<value>"}`. The legal values for a given point are that point's own `dispositions[].value` entries from the same run's `brief` output — read them there rather than guessing. `{"value": "<v>"}` is accepted as an exact equivalent of `{"disposition": "<v>"}`, and sibling keys (a `decision_note`, for instance) are carried through; supplying both keys with disagreeing values fails loud.
+
+---
+
 ## Step 0 — PM-authorization gate (hard requirement)
 
-**Spinoffs require explicit PM authorization. The EM never initiates a spinoff on its own judgment.** If the PM has not typed `/spinoff`, named the skill, or explicitly said "spinoff this" / "make a spinoff for X" / one of the trigger phrases below for *this specific topic*, STOP. Do not write a spinoff file.
+**Spinoffs require explicit PM authorization. The EM never initiates a spinoff on its own judgment.** If the PM has not typed `/spinoff`, named the skill, or explicitly said "spinoff this" / "make a spinoff for X" / one of its trigger phrases for *this specific topic*, STOP. Do not write a spinoff file.
 
 Topic drift counts: an earlier "spinoff that auth thing" does NOT authorize a later spinoff of "the migration cleanup." Each spinoff is its own authorization.
 
-**Paraphrase is not authorization.** A statement of *eventual intent* — "another session will do this," "we should spin that off sometime," "that's really its own workstream," "someone should pick that up" — is the EM observing that a spinoff *might* be warranted. It is NOT the PM invoking the spinoff primitive. The authorizing speech act is the literal trigger: `/spinoff`, the skill name, or one of the trigger phrases below, directed at *this specific topic now*. When you find yourself inferring authorization from intent-shaped prose rather than a literal trigger, STOP and surface the candidate (one-line proposal, below) — do not promote your read of the PM's intent into a write.
+**Paraphrase is not authorization.** A statement of *eventual intent* — "another session will do this," "we should spin that off sometime," "that's really its own workstream," "someone should pick that up" — is the EM observing that a spinoff *might* be warranted. It is NOT the PM invoking the spinoff primitive. The authorizing speech act is the literal trigger: `/spinoff`, the skill name, or a trigger phrase, directed at *this specific topic now*. When you find yourself inferring authorization from intent-shaped prose rather than a literal trigger, STOP and surface the candidate (one-line proposal, below) — do not promote your read of the PM's intent into a write.
 
 If the EM identifies a candidate workstream that *would* warrant a spinoff but the PM has not authorized one, surface it as a one-line proposal — "Candidate spinoff: <slug> — <one-line topic>. Authorize?" — and wait. Do not proceed past Step 0 until the PM says yes.
 
-Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) MUST surface the candidate list and obtain PM authorization before writing any spinoff file. The skill body following Step 0 only runs after authorization.
+Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) MUST surface the candidate list and obtain PM authorization before writing any spinoff file. The rest of this skill only runs after authorization.
 
-**When to use this vs. its neighbors:**
+---
 
-- Use `/handoff` when ending the *current* session's *current* work — predecessor links to whatever you're continuing.
-- Use `/spinoff` mid-session when a topic comes up that deserves its own session and you don't want to context-switch into it now. The current session keeps its own work; the fork lives at `state/handoffs/` for someone else (or future-you) to pick up.
-- Use the improvement queue (one-line entry) for half-formed ideas. A spinoff is the same level of detail as a real handoff: load-bearing context, references, acceptance criteria, anti-scope.
-
-## Trigger phrases
-
-"spinoff", "make a spinoff for X", "ersatz handoff", "orphan handoff", "fork off this workstream", "make a handoff for someone else", "carve out X into its own pickup", "split this off as a spinoff."
-
-## Workflow
-
-### Step 1: Capture the slug and title
-
-The PM gives you `$ARGUMENTS` of shape `<slug> [optional title]`. The slug becomes part of the filename; the title is the H1 of the handoff body. If only a slug was provided, ask the PM for a one-line title before writing.
-
-### Step 2: Author the body
+## Step 2 — Authoring discipline
 
 **Do NOT add interactive AskUserQuestion ceremony.** The EM (you) writes the body from current session context. The PM has just told you what the spinoff covers; you have everything you need. A skill that auto-fills the body from heuristics will produce shallow spinoffs the picking-up EM can't act on.
 
-Path: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_{slug}.md`
-
-Create the file using `coordinator-doc-new` — the GENERATE altitude that derives conformant frontmatter from the registry:
-
-**Deliverable-spine threading (D1 carry-not-remint).** Before scaffolding, resolve the `deliverable_id` for this spinoff. A spinoff is a fork, so it discovers its id from the artifact it was forked from rather than minting fresh — only mint when no parent context is available.
-
-Discovery order for spinoffs:
-
-1. **Roadmap stub being executed** — when this spinoff is forked in the context of executing a `kind: spinoff-roadmap` stub, carry that stub's `deliverable_id` (= `dlv-<stub_id>`; already in the stub's frontmatter).
-2. **Active plan** — when this spinoff is forked from a plan-in-execution, carry the plan's `deliverable_id`.
-3. **Mint** — when no parent artifact carries a `deliverable_id`, mint a fresh one from the spinoff slug.
-
-```bash
-# C3d — deliverable_id auto-inheritance for spinoffs (D1 carry-not-remint rule)
-# Set PARENT_ARTIFACT to the roadmap stub or plan this spinoff is forked from (if known).
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-DLVR_ID=""
-if [ -n "${PARENT_ARTIFACT:-}" ] && [ -f "${PARENT_ARTIFACT}" ]; then
-  DLVR_ID=$(bash "${_cc_root}/bin/read-frontmatter-field.sh" "${PARENT_ARTIFACT}" deliverable_id)
-fi
-# Carry or mint via shared helper (logs "carry path" / "mint-from-slug path" to stderr)
-# Review: code-reviewer — removed redundant _COORDINATOR alias; use _cc_root consistently
-if [ -n "$DLVR_ID" ]; then
-  DLVR_ID=$(bash "${_cc_root}/bin/mint-deliverable-id.sh" --deliverable-id "$DLVR_ID")
-else
-  # Review: code-reviewer — fail-loud guard mirrors handoff's fallback; empty slug produces degenerate id
-  [ -n "${slug:-}" ] || { echo "ERROR: slug is empty — set slug from \$ARGUMENTS before running this block" >&2; exit 1; }
-  DLVR_ID=$(bash "${_cc_root}/bin/mint-deliverable-id.sh" --slug "${slug}")
-fi
-# Also carry initiative: FK from the parent artifact when present (nullable):
-INITIATIVE_ID=$(bash "${_cc_root}/bin/read-frontmatter-field.sh" "${PARENT_ARTIFACT:-}" initiative)
-```
-
-After this block, `$DLVR_ID` and `$INITIATIVE_ID` hold the values the scaffolder writes via `--deliverable-id` and `--initiative` args — no manual Edit needed for these two fields; all other frontmatter fields still require Edit.
-
-```bash
-# Replace ${slug} with the slug from $ARGUMENTS:
-SPINOFF_FILE="state/handoffs/$(date +%Y-%m-%d)_$(date +%H%M%S)_${slug}.md"
-coordinator-doc-new --type spinoff \
-    --title "<one-line title>" \
-    --deliverable-id "$DLVR_ID" \
-    --initiative "$INITIATIVE_ID" \
-    --out "$SPINOFF_FILE"
-# Scaffolder writes deliverable_id and initiative from the args above — verify-only, no manual Edit for these two fields.
-```
-
-<!-- Review: code-reviewer S4-F2 — bridge note added to close gap between scaffolder skeleton and body-section guidance list. -->
-The scaffolder emits the canonical spinoff section skeleton; fill each section's body via Edit — the body is the value (do not leave placeholder stubs).
-
-The scaffolder writes `title:`, `created:`, `branch:` (auto-detected), `status: active`, `kind: spinoff`, `predecessor: none`, `deployment_state: ready_to_fire`, `category: infra`, a placeholder `summary:`, `pickup_ready: true`, and placeholder `authoring_session:`/`workstream:` fields. Open the file via Edit and set:
-
-- **`workstream:`** — the slug from `$ARGUMENTS`
-- **`authoring_session:`** — one-line description of the current session
-- **`category:`** — correct category (not scaffold default `infra` unless appropriate)
-- **`summary:`** — one-line tl;dr (≤120 chars; required ≥ 2026-05-29)
-- **`scope:`** — add: git pathspec block for files the picking-up EM will own
-- **`kind:`** — scaffold emits `spinoff`; Edit to `spinoff-roadmap` for Phase 5 roadmap stubs only (see `skills/roadmap-planning`); `spinoff-goal` for goal-oriented fork batons; `spinoff-roadmap-creator` for the session that produces a roadmap (but is not itself a stub)
-- **`predecessor: none`** — emitted by scaffolder; **do NOT change** (spinoffs have no continuity ancestor)
-- **`pickup_ready: true`** — emitted by scaffolder; **do NOT remove** (positive pickup-authorization signal)
-- **`deployment_state: ready_to_fire`** — keep unless this spinoff depends on another spinoff/handoff shipping first; then set `awaiting_gate` and add `gate_dependency: <other-handoff-filename>`
-- **`deliverable_id:`** — auto-written by the scaffold args above; verify-only, do not hand-set (D1 carry-not-remint rule; see `bin/mint-deliverable-id.sh`)
-- **`initiative:`** — auto-written by the scaffold args above; verify-only, do not hand-set (`$INITIATIVE_ID` from parent artifact frontmatter; nullable)
-- **`origin_session:`** — resolve at fork-authoring time: `$CLAUDE_CODE_SESSION_ID` if set, else `cat .git/coordinator-sessions/.current-session-id 2>/dev/null`; emit explicit `null` if neither is available. A global UUID (no prefix — already globally unique). Scalar.
-- **`origin_handoff:`** — the path of the active pickup baton this session was opened with (e.g. `state/handoffs/2026-07-04_…_topic.md`); emit explicit `null` if this session has no active baton. Scalar.
-- **`origin_plan_id:`** — the `pln-…` id of the plan under execution at fork time, if any; emit explicit `null` otherwise. Scalar.
-- **`origin_goal_id:`** — an **array** of tagged goal id(s) (e.g. `["goal-example-game-repo-shipping-velocity"]`) for the goal(s) this spinoff serves; emit explicit `null` when no goal context is active. Array even for a single goal; prefix is `goal-` (kebab-case slug).
-
-> **Origin-provenance axis — distinct from `predecessor`:** `origin_*` records *where this fork was spawned from* (session, baton, plan, goal). It is a DISTINCT axis from `predecessor` (the continuation spine — always `none` for spinoffs) and from `forked_from` (branch-point ancestry, a handoff-path). Never set `predecessor:` to encode origin provenance; `predecessor: none` is invariant for all spinoff kinds.
->
-> **Interim producer note:** this SKILL-side capture is the **interim producer**. example-orchestration-hub's `handoff.author_fork` op will absorb it: when that op ships, the skill calls the op rather than hand-writing the four `origin_*` fields. Do NOT build a parallel auto-populator here — this is documentation-level frontmatter-fill guidance, consistent with how other frontmatter fields are documented above. Once `handoff.author_fork` ships, the skill body at this step will call the op and the manual field-fill guidance here will be superseded.
-
-`status: active` (ready for pickup). `pickup_ready: true` always — positive pickup-authorized signal; absence triggers a non-blocking warning at `/pickup`. `predecessor: none` always — spinoffs have no continuity ancestor. `authoring_session` replaces the predecessor link as the audit trail back to origin. `workstream` lets `/workday-start` and `/pickup` group related forks. `deployment_state: ready_to_fire` makes the spinoff visible to query-driven `/workstream-start` and `/workday-start` surfaces.
-
-Body sections (adapted from the regular handoff template):
-
-- `# <title>` (H1 mirrors frontmatter title)
-- Opening paragraph: one sentence on **why this exists as its own session** — what triggered the fork, why it deserves separation from the current work.
-- `## What this covers` — origin context. Plain English on the topic, who's affected, what surface is in play.
-- `## Reference materials (read first)` — file paths the picking-up EM will need, each with a one-line "what's in it" annotation. Include any session-context artifacts (plan paths, scout outputs) that aren't obvious from a fresh `git log`.
-- `## Specification` — the actual work spec. Be concrete enough that a context-less EM can act.
-- `## Acceptance criteria` — checklist a picking-up EM gates completion against.
-- `## Recommended next steps for the picking-up EM` — 3-7 numbered, each verifiable.
-- `## Anti-scope` — failure modes a context-less EM might hit. Negative scope.
-- (Optional) `## Out of scope` — adjacent work explicitly NOT included.
-
-**Related-chain discovery (optional, run while authoring the body).** Before writing `## Reference materials`, query for completion records in the same chain so the picking-up EM has concrete prior-work context:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-records.sh" --type completion --where "chain~<topic-slug>"
-```
-
-Replace `<topic-slug>` with the spinoff's `workstream` slug. If the query returns matches, surface the most relevant entries as a `### Prior completed work in this chain` subsection under `## Reference materials` — one line per entry with its date and summary. This is optional: if the query returns zero rows, omit the subsection (no zero-row rendering required here; the absence is informative). The `predecessor: none` frontmatter rule is unchanged — body-level citation of related chains is orientation aid only, not lineage.
-
-End the file with a single-line HTML comment marker for greppability:
+The assembler scaffolds frontmatter and the canonical body-section skeleton; fill each section's content via Edit — the body is the value, never a placeholder stub. End the file with a single-line HTML comment marker for greppability:
 
 ```html
 <!-- spinoff: <YYYY-MM-DD> by current EM during <authoring_session> -->
 ```
 
-### Step 3: Mark in the source session
+Then mark the fork in the source session's own task tracker (or session memory) so the current EM does not accidentally absorb the work back into the active session, and surface the written path + workstream slug to the PM before returning to the work the current session was already doing. A spinoff is a fork, not a context switch.
 
-Append one line to your session task tracker (or session memory if no tracker exists) noting:
+---
 
-```
-spinoff written: <path> — do NOT pick this up in current session.
-```
+## `origin_*` vs `predecessor` vs `forked_from`
 
-This prevents the current EM from accidentally absorbing the work back into the active session.
+**Origin-provenance is a distinct axis from `predecessor`.** `origin_*` (`origin_session`, `origin_handoff`, `origin_handoff_id`, `origin_plan_id`, `origin_goal_id`) records *where this fork was spawned from* — session, baton, plan, goal. It is DISTINCT from `predecessor` (the continuation spine — always `none` for spinoffs) and from `forked_from` (branch-point ancestry, a handoff-path). Never set `predecessor:` to encode origin provenance; `predecessor: none` is invariant for all spinoff kinds. The assembler resolves and writes the `origin_*` fields; this note exists so you never confuse the axes when hand-adjusting frontmatter.
 
-### Step 4: Commit
+> **Producer note — `origin_*` is set for you; never hand-set it.** claude-klabauter's `handoff.author_fork` op owns the five `origin_*` fields. It resolves `origin_session` from the current session, then derives `origin_handoff`/`origin_handoff_id` by finding the baton that session currently holds (the handoff whose `claimed_by` matches it); `origin_plan_id`/`origin_goal_id` are caller-supplied. `coordinator-doc-new --type=spinoff` deliberately scaffolds **none** of them — their absence from a freshly-scaffolded file is correct, not a gap to fill in by hand.
+>
+> **`handoff.author_fork` is an op name, not a `bin/` executable.** It appears in the brief's `directives[]` as `"cli": "handoff.author_fork"`, but nothing under `settings-home/bin` answers to that name and invoking it as a shell command exits 127. `baton-assemble apply` dispatches it in-process through its own table. Do NOT build a parallel auto-populator, and do NOT hand-write the fields when the directive appears to fail.
 
-Plain-git scoped commit — do NOT use coordinator-safe-commit here (SC-DR-008, lessons.md:43, lessons.md:207). Extract scope paths from handoff frontmatter; the handoff file itself is always included since it was just written.
+**Run `apply`, not `brief`, when you mean to author.** `baton-assemble brief` is read-only — it *emits* `directives[]` as data and executes nothing. `baton-assemble apply` is what walks that list and actually mutates. Hand-executing a brief's directives one at a time is the mistake this paragraph exists to prevent: it silently skips every in-process op in the dispatch table, so the spinoff lands with its `origin_*` provenance missing.
 
-```bash
-HANDOFF=<handoff-path>
-# Extract scope paths from YAML frontmatter (  - <path> lines under scope: key)
-SCOPE=$(awk '/^scope:/{found=1; next} found && /^  - /{print substr($0, 5)} found && /^[a-z]/{exit}' "$HANDOFF")
-if [ -z "$SCOPE" ]; then
-  echo "FAIL: handoff frontmatter scope: block missing or empty — cannot enumerate paths" >&2
-  exit 1
-fi
-# Include the handoff file itself alongside the declared scope
-git add -- $SCOPE "$HANDOFF" && git commit -m "chore(spinoff): <slug> [authored mid-session]" -- $SCOPE "$HANDOFF"
-```
-
-The auto-push hook handles propagation.
-
-*(The block below is the universal mandatory-commit-shape reminder; for spinoff Step 4 specifically, the plain-git form above is the expected path — coordinator-safe-commit is for handoff-scoped sessions, not spinoff-write.)*
-
-<!-- mandatory-commit-shape -->
-**Mandatory commit shape (concurrent-EM safe).** Plain explicit-path git is the default per SC-DR-008; the helper is reserved for sweep ceremonies + the executor's branch-pin path. Use ONE of:
-
-```bash
-# Default — explicit-path commit (SC-DR-008 baseline):
-git add -- <paths> && git commit -m "<subject>" -- <paths>
-
-# OR, for handoff-scoped sessions, the helper (defaults to em-only as of 2026-06-15):
-coordinator-safe-commit --scope-from <handoff> "<subject>"
-```
-
-Plain-git is listed first deliberately — the helper is the carve-out, not the primary path. **Never `git add -A` / `git add .` / `git add --all`** — the `block-blanket-git-add.sh` PreToolUse hook enforces this; see `docs/wiki/coordinator-tripwires.md § BLOCK-BLANKET-GIT-ADD` and `docs/wiki/scoped-safety-commits.md § SC-DR-014`.
-
-### Step 5: Surface to PM
-
-Print one line:
-
-```
-Spinoff written: <path> — workstream: <slug>. Pick up with /pickup <filename> from any session.
-```
-
-Then return to the work the current session was doing **before** the fork. A spinoff is a fork, not a context switch.
+---
 
 ## Anti-scope
 
-- **`reviewed_at_workstream_complete:` does NOT apply to spinoffs.** Spinoffs are forks authored mid-session, not continuations of a session's own work — the workstream-complete review marker tracks what the *current* EM reviewed before handing off a workstream they were executing. A spinoff has no executed diff to review; it is a brief for someone else's future session. Do not add `reviewed_at_workstream_complete:` to spinoff frontmatter. (Field is defined in `schemas/handoff.schema.json` as optional for the handoff kind but semantically meaningless on `kind: spinoff` and `kind: spinoff-roadmap`.)
-- **Don't bake content generation into this skill.** No heuristic templates that fill `## Specification` from the slug. The body is the value — the skill provides the shape, the EM provides the content.
-- **Don't auto-delete or auto-merge spinoffs that get picked up.** Spinoffs follow the standard handoff lifecycle on consumption: `/pickup` mutates frontmatter in place, then the picking-up session's `/handoff` (chain-archival) or `/workstream-complete` Step 2.7 moves the file to `archive/handoffs/`. The `<!-- consumed: -->` marker is deprecated — do not write it.
-- **Don't extend `kind:` to other values speculatively.** Five values are now authorized — `session-handoff`, `spinoff`, `spinoff-roadmap`, `spinoff-goal`, `spinoff-roadmap-creator` (and `recovery` for crash recovery). `spinoff-roadmap` was added 2026-05-08 after the recurring-shape threshold was met: the project-rag cross-deep-dive-synthesis episode (see `archive/specs/2026-05-08-roadmap-planning-skill-brief.md` § "Weaknesses and gaps #2") was instance #3 of stubs ending up *adjacent to* spinoffs rather than *as* spinoffs. `spinoff-goal` and `spinoff-roadmap-creator` were added as part of the goal-setting OKR system (2026-07). Further extension still requires a documented recurring shape, not speculation. (Canonical source: `schemas/handoff.schema.json` `kind` enum.) <!-- Review: code-reviewer F5 — anti-scope block named stale 3-value set; updated to 5 authorized kinds to match handoff.schema.json -->
+- **`reviewed_at_workstream_complete:` does NOT apply to spinoffs.** Spinoffs are forks authored mid-session, not continuations of a session's own work — the workstream-complete review marker tracks what the *current* EM reviewed before handing off a workstream they were executing. A spinoff has no executed diff to review; it is a brief for someone else's future session. Do not add `reviewed_at_workstream_complete:` to spinoff frontmatter.
+- **Don't bake content generation into this skill.** No heuristic templates that fill `## Specification` from the slug. The body is the value — the assembler provides the shape, the EM provides the content.
+- **Don't auto-delete or auto-merge spinoffs that get picked up.** Spinoffs follow the standard handoff lifecycle on consumption: `/pickup` mutates frontmatter in place, then the picking-up session's `/handoff` (chain-archival) or `/workstream-complete` moves the file to `archive/handoffs/`. The `<!-- consumed: -->` marker is deprecated — do not write it.
+- **Don't extend `kind:` to other values speculatively.** Further extension requires a documented recurring shape, not speculation — the hand-authorable set is deliberately narrower than the schema enum (see `schemas/handoff.schema.json` for the full list, including assembler-only kinds no human or EM may scaffold).
 - **Don't replace `/handoff` with `/spinoff`.** They serve different needs. The writer-of-spinoff still ends their own session with `/handoff`.
 - **Don't migrate prior orphan-promotion handoffs.** Their lifecycle is over; renaming retroactively is churn. New spinoffs use the `kind:` field; old ones stay as-is.
 
 ## See also
 
-- `docs/wiki/cross-repo-communication.md` — decision tree for handoff vs spinoff vs cross-repo messaging; codifies PM-as-relay as the cross-repo primitive (NOT a spinoff to the other repo).
 - `commands/handoff.md` — end-of-session continuation handoffs.
 - `commands/pickup.md` — picking up a handoff (recognizes `kind: spinoff` and emits a banner).
 - `CLAUDE.md` § "Handoff Lineage — Single Predecessor, No Adjacency-Inference" — doctrine on why `predecessor: none` is correct for spinoffs.

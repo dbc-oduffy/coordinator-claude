@@ -2,11 +2,111 @@
 
 All notable changes to coordinator-claude are documented here.
 
-## [Unreleased]
+## [4.0.0] — 2026-08-06
+
+
+> Theme: **the bash→Python engine migration reaches its floor, and the cost of that migration is now versioned honestly.** ~2,115 commits landed since v3.0.0 with nothing public in between — this release closes that gap in one bump rather than several silent ones. The headline is not a feature: it is that the coordinator's entire executable surface was renamed, a chunk of its safety-hook surface was deleted with no successor shipping in this repo yet, two skills/agents were retired, and the handoff lifecycle vocabulary changed shape. Every one of those is a breaking change for an existing install, so this is a major bump on the honest reading of semver, not the flattering one.
+
+### Breaking changes
+
+**The `bin/`/`lib`/`hooks` executable surface was renamed wholesale — nothing that referenced a script by path survives.** Across the migration, roughly 360 files under `coordinator/bin/`, `coordinator/lib/`, and `coordinator/hooks/scripts/` were converted from bash (`.sh`) to Python (`.py`), and the majority of that executable surface relocated out of this repo entirely into the `coordinator_core` execution engine (see the gap note below). This repo's own `coordinator/bin/` now tracks zero files. Any doc, script, or downstream tool that names a `.sh` path, or a `coordinator/bin/<name>` location, is stale.
+
+| Old shape | New shape |
+|---|---|
+| `coordinator/bin/<name>.sh` | ported to `coordinator_core` (Python), not present in this repo |
+| `coordinator/hooks/scripts/<name>.sh` | `coordinator/hooks/scripts/<name>.py` (where a hook survives) or retired (see below) |
+| `sh`/`python` polyglot trampoline shim | deleted outright — the carve-out was rejected (amends the 3.1.0 entry; see below) |
+
+**~20 `block-*` safety hooks were deleted, and no successor ships in this repo today.** Removed: `block-destructive-rm`, `block-destructive-git-orphan`, `block-destructive-git-clean`, `block-destructive-git-revert`, `block-blanket-git-add`, `block-no-verify`, `block-subagent-destructive-action`, `block-subagent-plan-body-write`, `block-subagent-plan-body-bash-write`, `block-subagent-archive-write`, `block-consumed-handoff-edit`, `block-tracker-edit`, `block-completion-monolith-write`, `block-reviewer-bash-outside-allowlist`, `block-runaway-find`, `block-bin-polyglot-break`, `block-dev-side-mirror-wiki`, `block-off-daily-branch`, among others. Their logic was ported to `coordinator_core.write_guards`, which ships in the separate companion repository (see below). **An installer running only this repository has none of these guarantees**: no destructive-`rm` guard, no destructive-git guard, no `--no-verify` block, no subagent write-sandbox confinement. Installing the engine repository restores them. This is a real, not cosmetic, reduction in shipped safety surface for a doctrine-only install — stated loudly rather than softened.
+
+**`coordinator:review-code` is retired; use `coordinator:review --surface diff`.** The two skills shared duplicated triage scaffolding and one review pipeline; `review` is now the single implementation for both the `plan` and `diff` surfaces.
+
+| Old verb | New verb |
+|---|---|
+| `Skill(coordinator:review-code)` | `Skill(coordinator:review --surface diff)` |
+| `/review-code` (slash command) | still resolves — `commands/review-code.md` is a redirect shim, not deleted |
+
+**The `code-architect` agent is removed.** Nothing in the tree — no skill, no command, no pipeline — ever dispatched it; it existed only as an entry in rosters and registries. No migration: there was no live caller to redirect.
+
+**Handoff lifecycle vocabulary overhauled.** The prior enum conflated "used up" with "still being carried" and had no expressible terminal state for a handoff whose work continued into a successor.
+
+| Old field/value | New field/value |
+|---|---|
+| `status: active \| consumed` | `status: open \| claimed` |
+| `consumed_at` / `consumed_by` | `claimed_at` / `claimed_by` |
+| `deployment_state: abandoned` | `deployment_state: continued \| closed` (`closed` carries a `closed_reason`: `cancelled \| displaced \| stale`) |
+
+Existing `state/handoffs/` records are migrated; `handoff-archived.schema.json` still reads the legacy `active`/`consumed`/`abandoned` values for old archived records (read-tolerant, not a live target).
+
+### The execution engine ships as a separate repository
+
+27 of this plugin's 36 skills call into `coordinator_core`, the Python execution engine that produces work-state artifacts and drives session control (`/pickup`, `/handoff`, `/workstream-complete`, `/execute-plan`, among others). coordinator-claude declares a hard dependency on that engine, and it ships from a **separate companion repository, [`claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter), released alongside this version**. Installing only this repository gets you the doctrine and the machinery it drives; those 27 skills additionally need the engine repository on the machine-local registry. The split is deliberate and the two layers version independently — it is a boundary, not a gap.
+>
+> **Correction, 2026-08-06:** "released alongside this version" was true-as-intended at the time this entry was written but has not held up: `claude-klabauter`'s publish is **not yet live** (zero commits pushed as of this correction). Until it goes live, the engine is available on request from the maintainer, the same access model already used for `project-rag`. Nothing else in this entry changes — the boundary and the hard dependency both stand.
+
+### Highlights
+
+- **DR-047/DR-059/DR-060 bash→`coordinator_core` engine migration completed.** The Zod/TS cockpit-contract emitter is retired; `coordinator_core`'s pydantic emitter is canonical. DoE retains governance of the frozen artifact contract; the engine owns execution.
+- **Weekly-goal (OKR) loop closed.** Weekly priorities are first-class `period=week` goal artifacts, wired into orientation and cockpit-contract wire fields.
+- **Artifact-shape and record-family hardening continues** on top of the v3.0.0 tc-0 → tc-4 fleet-substrate: widened handoff/decision schemas, a portability-gates spec + conformance bar turning two ad hoc scripts into a fleet contract, and a corpus-wide sweep closing a machine-absolute-path leak class.
+- **Cross-repo commit-grant retirement (DR-127).** The former standing DoE→engine-repo commit grant is retired outright, not superseded quietly — every cross-repo write, engine repo included, now routes through the `cross-repo-memo` CLI + PM-relay, with per-session PM assent required for any cross-repo commit.
+- **Subagent Bash confinement narrowed to two classes (DR-125)**, replacing the broader write-sandbox mechanism that DR-058 retired in 3.1.0.
+- **Sizing lobby.** Novel work now enters through a dedicated `coordinator:sizing` gate before routing to plan/shape/roadmap/dispatch, closing a class of underweighted asks that skipped straight to implementation.
+- **Fabricated or stale planning inputs are now caught earlier.** An automated check confirms where a plan's stated justification actually came from before planning proceeds, and separate automated detection flags stale or unverified documentation before it ships.
+- **A prompt-injection-style loophole is closed.** Text arriving inside tool output is now documented, and enforced, as never trusted as a command — closing a proposal that would have let certain marked messages in tool output be treated as instructions.
+- **The published package now always regenerates correctly from source.** The published coordinator-claude package is rebuilt from a clean slate on every publish, closing a gap where the published copy could quietly drift from what was actually shipped.
+- **Continued Mac/Linux/Windows portability hardening.** Assumptions that only hold on Mac/Linux are now banned in code, not just doctrine, as part of an ongoing push to make every code path run reliably on Windows too.
+
+### Notable
+
+- Orientation cache made fresh-by-construction (self-heals at boot instead of relying on four separate human-invoked ceremonies) and untracked fleet-wide.
+- Runtime tripwire and the fast-tier test-exit path both had unscoped/false-positive defects closed.
+- Console-popup nag (DR-054) and the old subagent write-sandbox confinement (DR-058) — both already retired in 3.1.0 — stay retired; DR-125 is their narrower replacement.
+- `~/.claude` retired as a percolate source (DR-122): it is an install target only, never a publish origin.
+- Agent-body sizes cut ~31.5% fleet-wide with a size ratchet under them; a POSIX-only-execution-assumption ban landed in code, not just doctrine.
+- Guard/advisory messages gained a hard character cap enforced at runtime, and ceremony summaries moved to report-by-exception.
+- Reviewer feedback now identifies reviewers by stable role name instead of a hardcoded persona name, fixing a real bug where renaming or removing a reviewer agent would have silently produced meaningless output.
+- Fast test runs now require an explicit per-session permission grant before they can fire, closing a gap where the fast test tier could be triggered far more often than intended.
+- A durable priority ledger now lets stated priorities persist across sessions instead of being re-derived from scratch each time.
+- Skills continue moving toward computing their own next step from live state rather than relying on a long written checklist being followed correctly every time — this wave covered the pickup flow, a new task-sizing entry point, and a safer step-by-step migration primitive.
+- Per-command startup overhead was trimmed further: redundant file-write hook processing was folded from eight passes down to two, and slow imports were removed from the code path that runs on every terminal command.
+- Which AI agent tier gets used for a given task is now chosen using measured real-world startup cost, cheapest-first.
+
+### Other
+
+- ~20 `block-*` hook test suites retired alongside their hooks (see Breaking changes); `check-shipped-on-main`-style reachability checks folded into the engine repo's parity suite.
+- `/mise-en-place` gained an explicit definition of completion, decoupled from `/autonomous`'s posture.
+- `dep-cve-auditor`, `plan-coverage-checker` Lens 4, and several one-off machine-specific hardcoded paths (UE-override resolution, project-rag doctor fallback candidates) removed in favor of `machine-local` registry lookups.
+- Roadmap stub codes re-prefixed to globally-unique `<slug>-N`; `tc_id` renamed to `stub_id` end-to-end.
+- Goal targets can now be pulled in from an external source in addition to being set directly.
+- A macOS-specific gap in cross-platform install reliability was closed, along with a safety check meant to catch this kind of regression that had never actually been working.
+
+### Amendment to the 3.1.0 entry (2026-08-03)
+
+The 3.1.0 theme line claimed "script invocation is preserved via sh/python polyglot trampolines." That claim is **false as of 4.0.0** — the polyglot-trampoline carve-out was reconsidered and rejected; the trampolines were deleted as part of the de-bash campaign above. The 3.1.0 entry above is annotated in place rather than silently rewritten; this is the correction, not a retraction of the fact that the claim was true when 3.1.0 shipped.
+
+## [3.1.0] — 2026-07-19
+
+> Theme: **infrastructure & engine migration** — the DR-047/DR-059 bash→`coordinator_core` Python migration and the DR-060 contract-vs-engine ownership split, alongside the new weekly-goal (OKR) system. **Amended 2026-08-03:** the "script invocation is preserved via sh/python polyglot trampolines" claim below is no longer true — the 4.0.0 de-bash campaign rejected that carve-out and deleted the polyglot trampolines outright. See the 4.0.0 entry's breaking changes. No consumer-facing breaking changes at the time 3.1.0 shipped: the vendored artifact-shape contract stayed additive.
+
+### Notable
+- **cockpit-contract emitter decommission (DR-060).** Retired the DoE-side Zod/TS emitter (76 files); `coordinator_core`'s pydantic emitter is now canonical. DoE keeps governance and the frozen artifact contract.
+- **Execution-handoff-phase contract (DR-047).** First-classed the plan→execute baton as a typed `handoff_phase` schema with cross-field validation.
+- **DoE-side auto-reconcile adoption (DR-047).** Wired `/workday-start` and `/pickup` onto `coordinator_core`'s reconcile / gate-recheck ops.
+- **Weekly-goal loop closure.** Weekly priorities are now first-class `period=week` goal artifacts, with cockpit-contract 2.13.0 wire fields for downstream analytics and goal-tracking consumers.
+
+### Other
+- Parallel-code-review Rule-5 skip on large already-reviewed spans; Codex integration removed; `ensure-local-mcps` SessionStart self-heal; `ScopedEmission` emission-scope invariant; crash-orphan reaper fail-closed ship-check; plan-body Dispatch Ledger retired (→ Workflow wave-map); per-repo competitor self-description marking; `entity_anchor` ProvenanceEnvelope claim-ID freeze; cockpit contract v2.16.0 market-intel entities; `cross-repo-memo send` repointed onto `coordinator_core`'s `memo.send` (DR-210); ~1,800 doctrine working-data files reclaim-custody (engine repo → DoE); DR-054 console-popup nag + DR-058 subagent write-sandbox confinement retired.
+
+Full per-entry detail with source links: `archive/release-notes/2026-07-19-v3.1.0.md`.
+
+## [3.0.1] — 2026-07-13
+
+Patch release — OSS percolate hardening (an internal-codename scrub, `.git/` exclusion in the leak scanner).
 
 ## [3.0.0] — 2026-06-27
 
-> Theme: **re-architecture of the document-infrastructure / artifact-shape contracts for standardization and queryability** — the largest structural shift since the move to super-skills. The coordinator's entire artifact surface (handoffs, queues, lessons, completions, audit records, review trail, week-changelog) was given uniform, machine-addressable shapes via the example-initiative fleet-substrate (tc-0 → tc-4) and the artifact-shape-contract (v1.1 → v1.5), so the whole substrate is now uniformly queryable. The second theme is a large install-surface + macOS cross-platform-portability hardening cohort from clean-target dogfooding. The breaking contract changes below are why this is a major bump.
+> Theme: **re-architecture of the document-infrastructure / artifact-shape contracts for standardization and queryability** — the largest structural shift since the move to super-skills. The coordinator's entire artifact surface (handoffs, queues, lessons, completions, audit records, review trail, week-changelog) was given uniform, machine-addressable shapes via the tc-0 → tc-4 fleet-substrate work and the artifact-shape-contract (v1.1 → v1.5), so the whole substrate is now uniformly queryable. The second theme is a large install-surface + macOS cross-platform-portability hardening cohort from clean-target dogfooding. The breaking contract changes below are why this is a major bump.
 
 ### Breaking changes
 
@@ -16,12 +116,12 @@ All notable changes to coordinator-claude are documented here.
 
 **`superseded` retired as a handoff status value.** Supersession of a handoff is now expressed as `status: consumed` + `deployment_state: abandoned` (+ `predecessor`/`supersedes:` lineage) rather than a distinct `superseded` status. Doctrine, code, and existing data were migrated; the cockpit contract was narrowed to match.
 
-**Artifact shapes restandardized across the record family.** example-initiative tc-0 → tc-4 gave plans, decisions, sidecars, queues, lessons, audit records, atlas files, and week-changelog dailies canonical machine-addressable shapes; the artifact-shape-contract emits versioned schemas (v1.1 → v1.5, including new record types and a deliverable-type-schema taxonomy with kind-aware `matchSchema`). Downstream consumers of these shapes (the cockpit / example-repo fleet) should re-vendor against the v1.5 contract.
+**Artifact shapes restandardized across the record family.** The tc-0 → tc-4 fleet-substrate work gave plans, decisions, sidecars, queues, lessons, audit records, atlas files, and week-changelog dailies canonical machine-addressable shapes; the artifact-shape-contract emits versioned schemas (v1.1 → v1.5, including new record types and a deliverable-type-schema taxonomy with kind-aware `matchSchema`). Downstream consumer repos re-vendoring these shapes should target the v1.5 contract.
 
 ### Highlights
 
-- **example-initiative fleet-substrate (tc-0 → tc-4)** — canonical baton shape + cross-type liveness predicate + GENERATE-altitude scaffolder; records/queues/lessons consolidation; expressive-audit canonical shape; fleet machinery + versioned contract emission.
-- **Artifact-shape-contract v1.1 → v1.5 + cockpit-contract v2.0** — example-repo example-workstream asks, datetime-coherence (contract v1.5.0), fleet-shaped `coordinator_roots[]`, owner-enum seam (closes a personal-data publish-tree leak), live `state/cockpit-emission.json` C2 producer.
+- **Fleet-substrate work (tc-0 → tc-4)** — canonical baton shape + cross-type liveness predicate + GENERATE-altitude scaffolder; records/queues/lessons consolidation; expressive-audit canonical shape; fleet machinery + versioned contract emission.
+- **Artifact-shape-contract v1.1 → v1.5 + cockpit-contract v2.0** — cross-repo example-workstream asks, datetime-coherence (contract v1.5.0), fleet-shaped `coordinator_roots[]`, owner-enum seam (closes a personal-data publish-tree leak), live `state/cockpit-emission.json` C2 producer.
 - **Install-surface completeness + macOS / cross-platform portability** — install-chain Phase B, declarative `system_prerequisites`, fresh-machine `~/.claude` landing, deep-research install-parity, `/bin/sh` polyglot shebang, macOS phase-zero bash login-shell provisioning, persisted machine slug, OSS flat-layout / CLI-primary migration.
 
 Full per-entry detail with source links: `state/week-changelog/` archive for the week of 2026-06-14 and `archive/release-notes/2026-06-27-v3.0.0.md`.
@@ -228,7 +328,7 @@ Minor release. Headline change: centralize the `CLAUDE_HOME` / `~/.claude` path-
 - **`docs/wiki/machine-local-registry.md § 4a`** — new doctrine section: filesystem-layout invariant (`.claude.json` and `.claude/` are SIBLINGS under `$HOME`, never nested); resolution-order precedence with rationale for why `CLAUDE_HOME` ranks ABOVE `HOME` (unlike `MACHINE_LOCAL_<KEY>` env vars which rank BELOW the registry); generic `read_config` / `write_config` JSON I/O surface; alignment policy naming project-rag as the canonical consumer to retire its inline copy.
 - **`coordinator/lib/install-substrate.sh`** — new helper encapsulating `/coordinator:setup` Phase 3 mechanical work (machine-local substrate, bin/ resolver install, Windows PATH integration, Windows Python-resolution health checks: orphan AppX stub detection with `[y/N]` consent, store-alias-on-PATH warning, no-Python-at-all warning). Replaces ~190 lines of inline bash in `setup.md`; setup.md now describes the contract while the script does the work. Fail-loud on missing template directories (hard precondition for downstream skills).
 - **`coordinator/lib/discover-working-repos.sh`** — new helper encapsulating `/coordinator:setup` Phase 2 Step 4 working-repos discovery (Tier A: `~/.claude/projects/` activity record; Tier B: common dev-folder layouts). Tier C interactive prompt remains in `setup.md`.
-- **`coordinator/lib/workweek-trail-scope.sh`** — new helper encapsulating the `/workweek-complete` Step 7 prelude logic (parses `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, computes `patrik_scope = unreviewed_week_SHAs ∪ cross-segment-seam SHAs`, writes `state/review-trail/.weekly-reviewer-scopes.json`). Subprocess-only, fail-loud, spec-backlinked. Same shape as `install-substrate.sh`.
+- **`coordinator/lib/workweek-trail-scope.sh`** — new helper encapsulating the `/workweek-complete` Step 7 prelude logic (parses `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, computes `reviewer_scope = unreviewed_week_SHAs ∪ cross-segment-seam SHAs`, writes `state/review-trail/.weekly-reviewer-scopes.json`). Subprocess-only, fail-loud, spec-backlinked. Same shape as `install-substrate.sh`.
 - **`coordinator/snippets/meta-ask-preamble.md` + `bin/verify-meta-ask-preamble-sync.sh`** — new shared preamble snippet plus a sync verifier in the tripwires registry; ergonomic substrate for the eager-agent-calibration doctrine.
 - **`coordinator/docs/wiki/eager-agent-calibration.md`** — new wiki capturing the design-as-offers ethos: agent-facing tooling defaults to offer-shape (lead with the better alternative), not nag-shape. Referenced from `~/.claude/CLAUDE.md § Implementation Standards`.
 - **`coordinator/bin/verify-templates-bin-sync.sh`** — new verifier ensuring `templates/bin/` resolver scripts stay in sync between source and install targets.
@@ -276,12 +376,12 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `~/.claude/machin
 
 #### Fixed (substrate)
 
-- **`/example-game-repo:doctor` discovery order** — `machine-local get repos.example_game_workbench_repo` is now tier 1; `MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO` tier 2; `EXAMPLE_GAME_REPO_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. example-game-repo doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
-- **`/project-rag:doctor` PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; Striker-specific `X:/project-rag` hardcoded candidate removed from the fallback loop.
+- **`/example-game-repo:doctor` discovery order** — `machine-local get repos.example_game_workbench_repo` is now tier 1; `MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO` tier 2; `EXAMPLE_GAME_REPO_REPO` env var demoted to named-successor tier 3; cwd marker tier 4; hard error remediation now points operators at `machine-local-registry.md`. Example-game-repo doctor's remediation prose now names machine-local as Tier 0 (canonical fix) before the env-var and reinstall fallbacks.
+- **`/project-rag:doctor` PLUGIN_ROOT discovery** — prepended a `machine-local get repos.project_rag` lookup; a hardcoded machine-specific `project-rag` candidate removed from the fallback loop.
 - **`coordinator_whoami/project_rag/cli.py:270` HTTP-transport classification** — `_probe_claude()` now accepts `entry.get("url")` alongside `command` and `args`. Post-multi-RAG MCP daemon entries (HTTP transport, no `command` field) no longer mis-classify as `"broken"`. Mirror of project-rag-ue-addon's F4 finding from the same dogfood run.
 - **`docs/wiki/wiring-env-source-of-truth.md`** — `status: current` → `status: deprecated`, `superseded_by: machine-local-registry.md`, with a prominent deprecation banner naming the dogfood-friction trigger. Wiring.env retirement is the worked precedent for the broader `~/.<project>/` → `~/.claude/<project>/` migration pattern.
 - **`docs/wiki/authoring-an-addon.md:118`** — `required_env` row now flags `~/.project-rag/wiring.env` as transitional/deprecated and names `~/.claude/machine-local/project_rag.toml [env]` as the canonical successor for future addon authors.
-- **`bin/verify-ue-overrides.sh`** — Striker-specific hardcoded paths (`X:/...`) removed; resolves UE-context roots via `machine-local get repos.example_game_workbench_repo` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
+- **`bin/verify-ue-overrides.sh`** — machine-specific hardcoded paths (`...`) removed; resolves UE-context roots via `machine-local get repos.example_game_workbench_repo` and `repos.project_rag`. Now fail-loud on absent registry instead of silent-pass.
 - **`/session-start` `<plugin-cli-path>` literal placeholder** — resolved with an inline `~/.claude.json`-parsing snippet sourced from `commands/workday-start.md` Step 3.6.
 - **Global `CLAUDE.md` line 16 parenthetical** — described `publish-targets.sh` as "(machine-local)" which conflated the legacy file with the canonical `~/.claude/machine-local/` registry. Reworded to "(per-machine legacy file, superseded by `~/.claude/machine-local/`)".
 
@@ -291,7 +391,7 @@ No breaking changes. Operators with `~/.claude/machine-local/` already populated
 
 #### Sanitization
 
-- OSS-side stale self-reference fixed in `cross-plugin-whoami-contract.md` (line was describing the file's own location as a "ships outward via setup/publish.sh to X:/coordinator-claude" destination).
+- OSS-side stale self-reference fixed in `cross-plugin-whoami-contract.md` (line was describing the file's own location as a "ships outward via setup/publish.sh to coordinator-claude" destination).
 
 ## [2.1.0] — 2026-05-09
 
@@ -320,7 +420,7 @@ Minor release. New publish-flow skills, sanitization hardening, plugin-wiki bund
 
 ### Sanitization
 
-- Generalized hardcoded `c:/users/<user>/.claude` path in `/update-docs` Phase 14 (Step 2c MEDIUM).
+- Generalized hardcoded `~<user>/.claude` path in `/update-docs` Phase 14 (Step 2c MEDIUM).
 - Dropped hardcoded `/x/<peer-repo>` list from `staff-eng.md` routing note (Step 2c MEDIUM).
 - Source-edit sanitization sweep per audit Section 4.3.
 
@@ -528,7 +628,7 @@ Promotes the `docs-checker` Sonnet agent from optional reporting-only to a sugge
 - **`plugins/coordinator/skills/requesting-code-review/SKILL.md`**, **`plugins/coordinator/skills/requesting-staff-session/SKILL.md`** — pointer to docs-checker pre-flight in review-setup steps.
 
 ### Internal
-- Source commit `3a00f18` on `dbc-oduffy/.claude` `main`. The Staff Engineer's R1 review (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → the Staff Engineer's R2 review (APPROVED, 0 findings). Plan + reviews preserved at `state/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
+- Source commit `3a00f18` on the pre-publish source mirror's `main`. The Staff Engineer's R1 review (REQUIRES_CHANGES, 11 findings) → integrator (all 11 AUTO-FIX-applied) → the Staff Engineer's R2 review (APPROVED, 0 findings). Plan + reviews preserved at `state/reviews/2026-05-03-docs-checker-pre-flight-*.md` in the source repo.
 
 ## [1.7.1] — 2026-05-03
 
@@ -542,10 +642,10 @@ Patch release. README plugin enumeration was stale (still listing 4 plugins and 
 - **`plugins/coordinator/.claude-plugin/plugin.json`** bumped 1.6.0 → 1.7.1 (1.7.0 release shipped without a manifest bump).
 
 ### Fixed
-- **`hooks/scripts/track-tier-usage.sh`** — normalize MSYS/Git-Bash cwd before slug derivation so the W3 telemetry counter writes to the correct per-repo log on Windows (mirror of `dbc-oduffy/.claude` PR #62).
+- **`hooks/scripts/track-tier-usage.sh`** — normalize MSYS/Git-Bash cwd before slug derivation so the W3 telemetry counter writes to the correct per-repo log on Windows (mirror of a PR against the pre-publish source mirror).
 
 ### Internal
-- Promoted 5 universal-tier lessons from `/workday-start` triage queue (mirror of `dbc-oduffy/.claude` PR #63).
+- Promoted 5 universal-tier lessons from `/workday-start` triage queue (mirror of a PR against the pre-publish source mirror).
 
 ## [1.7.0] — 2026-05-01
 
@@ -603,7 +703,7 @@ A run of small, related changes converging on one principle: the code we ship ru
 - **Project-RAG project-scope guard** — single-source preamble (`snippets/project-rag-preamble.md`) gains a guard so agents skip project-RAG calls when the indexed repo doesn't match the current working directory. Propagated to all 8 sentinel-fenced consumers via `bin/verify-preamble-sync.sh --fix`. Prevents wrong-project pollution when an agent is dispatched in repo A while project-RAG is indexed against repo B.
 
 ### Changed
-- **UE distrust hook runbook** (`docs/testing/`) genericized — dropped the machine-specific `Keep_Blank` path that was leaking out of one author's environment. Runbook is now reproducible on any UE project layout.
+- **UE distrust hook runbook** (`docs/testing/`) genericized — dropped a hardcoded machine-specific path that was leaking out of one author's environment. Runbook is now reproducible on any UE project layout.
 
 ### Internal
 - No surface API changes for end users beyond the README Quick Start. The installer (`setup/install.sh`) is untouched and remains the canonical mechanism — agents and humans both invoke it, the difference is who types the command.

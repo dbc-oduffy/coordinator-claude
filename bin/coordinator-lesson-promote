@@ -1,29 +1,7 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work, so the habitual
-# `bash <script>` reach no longer exec-fails by feeding Python to bash:
-#   coordinator-lesson-promote ...          # direct, via the shebang above — canonical form
-#   python  coordinator-lesson-promote ...  # explicit interpreter
-#   bash    coordinator-lesson-promote ...  # re-execs under python instead of erroring
-# Under sh/bash the line resolves the interpreter as `python3 || python || py`
-# (macOS 12.3+ and modern Linux ship only `python3` — Apple dropped the `python`
-# symlink; clean Windows python.org installs ship only `python`/`py`), captures
-# its path via command substitution, then execs it; under Python the whole line
-# is a no-op string. One `exec`, three-way probe — the canonical pattern.
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 coordinator-lesson-promote — write a universal lesson to the local lessons-outbox
 for drain by the central /learn-lessons --central procedure.
-
-Shebang note: the SHEBANG line above is `python`, NOT `python3` — `python3` is
-not on PATH on a clean Windows install (only `python`/`py` are), so a `python3`
-shebang exec-127s there. This is the documented rule for coordinator CLIs:
-docs/wiki/bash-on-windows-gotchas.md § Windows exception. The TRAMPOLINE line
-above is a separate concern: it probes `python3 || python || py` so
-`bash coordinator-lesson-promote …` works on macOS, Linux, AND Windows.
-Do not flatten the trampoline back to a single name.
 
 Spec backlink: docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md § C1
 
@@ -55,15 +33,57 @@ Invocation:
     --change-kind doctrine-edit \\
     --target-wiki docs/wiki/some-wiki.md \\
     [--scope-tags "tag1,tag2"] \\
-    [--evidence "commit-sha or plan path"]
+    [--evidence "commit-sha or plan path"] \\
+    [--allow-new-wiki]
+
+Exit-code contract:
+  0  success — the entry was written to state/lessons-outbox/.
+  1  unexpected error (schema load failure, filesystem error, unexpected op result shape).
+  2  invalid arguments — argparse-detected (missing/unknown flag, invalid --change-kind),
+     or --target-wiki not found in the central wiki inventory (see § A7 below).
+  3  DoE-claude root unresolvable — the write (or the --target-wiki inventory check) was
+     SKIPPED, not silently treated as success. Remediate per the stderr message
+     (`machine-local set repos.doe_claude /path/to/DoE-claude`).
+
+Negative-spec (A13): a skipped write due to an unresolvable DoE-claude root is NEVER
+exit 0. A caller checking only `returncode == 0` must be able to trust that outcome —
+exit 0 means an entry was actually written.
+
+--target-wiki validation (A7): validated against the real central wiki inventory
+(<doe_root>/coordinator/docs/wiki/*.md) unless the literal value 'unknown' is passed,
+or --allow-new-wiki is given (escape hatch for a genuine change_kind: wiki-new
+promotion, where the target intentionally does not exist yet). An unresolvable
+DoE-claude root during this check is the SAME exit 3 as the write-skip case above —
+never a silently-skipped validation.
+
+--target-wiki normalization (A9): normalized to the canonical 'docs/wiki/<name>.md'
+form before validation and before being written, so 'foo', 'foo.md', and
+'docs/wiki/foo.md' all collapse to the same target and dedupe correctly downstream.
+
+--target-wiki is change_kind-gated (A7/A9 scope fix, 2026-07-23): `target_wiki` is
+the generic promotion-target field for EVERY change_kind, not only wiki entries — a
+`skill-edit` promotion stores a `SKILL.md` path here, a `script-edit` promotion
+stores a `bin/` script path. Only `wiki-new` and `wiki-append` (the two schema
+change_kind members whose semantics are unambiguously wiki-targeting — see
+docs/wiki/lessons-outbox-schema.md § Change-kind enum) run through
+_normalize_target_wiki and the central-wiki-inventory check below. Every other
+change_kind's --target-wiki passes through completely UNCHANGED and UNVALIDATED.
+Negative-spec: this CLI previously ran BOTH the collapse and the inventory check
+unconditionally for every change_kind, which silently corrupted non-wiki targets
+(a `skill-edit` value became `docs/wiki/coordinator/skills/pickup/SKILL.md`) and
+then hard-failed the write on the corrupted value never matching the wiki
+inventory — every non-wiki promotion was broken. See
+coordinator/bin/lib/target_wiki_canon.py for the shared canonicalization both this
+CLI and lessons-outbox-drain.py's dedupe key now import.
 """
+from __future__ import annotations
 
 import argparse
 import datetime
+import difflib
 import json
 import os
 import re
-import subprocess
 import sys
 import uuid
 
@@ -71,8 +91,15 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from coordinator_registry import em_id_for_root, doe_root, _DoeUnresolvable  # noqa: E402
+from coordinator_registry import doe_root, _DoeUnresolvable  # noqa: E402
 from cc_invoke import route as _cc_route  # noqa: E402
+import cli_shared  # noqa: E402
+from target_wiki_canon import (  # noqa: E402
+    WIKI_TARGETING_CHANGE_KINDS as _WIKI_TARGETING_CHANGE_KINDS,
+    normalize_target_wiki as _normalize_target_wiki,
+    TARGET_WIKI_UNKNOWN as _TARGET_WIKI_UNKNOWN,
+    TARGET_WIKI_PREFIX as _TARGET_WIKI_PREFIX,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -86,108 +113,80 @@ _SLUG_MAX_CHARS = 40
 # cwd by default. This env var allows absolute override without chdir.
 _OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
 
-# Env var for machine-local implementation path (mirrors cross-repo-memo pattern).
-_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
+# Env var for test isolation — overrides the central wiki inventory directory used
+# by --target-wiki validation (A7). Mirrors _OUTBOX_ROOT_ENV's override shape: when
+# set, points DIRECTLY at a directory of .md files (not the DoE repo root), so tests
+# never need a real DoE-claude checkout on disk to exercise validation.
+# Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-learn-lessons-dogfood-2026-07-23.md
+# (finding A7)
+_WIKI_ROOT_ENV = "LESSON_PROMOTE_WIKI_ROOT"
+
+# Exit code for a write (or --target-wiki validation) SKIPPED because the DoE-claude
+# root could not be resolved. Deliberately distinct from 0 (success) and 1 (generic
+# error) so a caller checking only `returncode == 0` can trust that outcome (A13
+# negative-spec: a skipped write is never exit 0).
+_EXIT_DOE_UNRESOLVABLE = 3
+
+# Env var overrides for test isolation. Canonical spellings now live in
+# bin/lib/cli_shared.py (T2-g2a consolidation) — aliased here so existing
+# doc/error-message references in this file don't need a rename.
+_MACHINE_LOCAL_IMPL_ENV = cli_shared.MACHINE_LOCAL_IMPL_ENV
 
 # Env var for CLAUDE_HOME override (mirrors cross-repo-memo pattern).
-_CLAUDE_HOME_ENV = "CLAUDE_HOME"
+_CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
 
-# Env var for EXAMPLE_ORCHESTRATION_HUB_ROOT override — mirrors coordinator-example-orchestration-hub-root.sh §4b
-# idempotency gate. Set to the example-orchestration-hub repo root to bypass machine-local resolution.
-# Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC1 / AC13
-_EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV = "EXAMPLE_ORCHESTRATION_HUB_ROOT"
+# Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
+# idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
+# Spec backlink: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § AC1 / AC13
+_CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 
-# Env var for DOE_ROOT override — mirrors EXAMPLE_ORCHESTRATION_HUB_ROOT §4b idempotency gate.
+# Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
 # Honoured by coordinator_registry.doe_root() (imported above) — kept here as a
 # local constant for documentation and error-message reference.
 # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
 _DOE_ROOT_ENV = "DOE_ROOT"
 
 
-class _ExampleOrchestrationHubUnresolvable(RuntimeError):
-    """Raised when EXAMPLE_ORCHESTRATION_HUB_ROOT cannot be resolved via env var or machine-local registry.
+class _ClaudeKlabauterUnresolvable(RuntimeError):
+    """Raised when CLAUDE_KLABAUTER_ROOT cannot be resolved via env var or machine-local registry.
 
     Callers in the central write loop catch this and degrade gracefully (WARN + skip,
     exit 0) per AC13. The low-level resolver itself fails loud; this is the caller-layer
     resilience wrapper.
 
-    Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC13
+    Spec backlink: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § AC13
     """
 
-# Path to the node schema-cli.js bridge, resolved relative to this file so it
-# works regardless of cwd or installation location.
-# Spec backlink: dual-yaml-parser option-d, C4
-_SCHEMA_CLI_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema-cli.js")
-
-# Subprocess timeout for node schema-cli.js calls — a hung node process fails
-# loud rather than blocking the caller indefinitely.
-_SCHEMA_CLI_TIMEOUT = 10  # seconds
-
 # ---------------------------------------------------------------------------
-# schema-cli.js bridge — replaces schema_loader.load_schema
+# Native schema seam — replaces schema_loader.load_schema, then the deleted
+# schema-cli.js Node bridge (removed 480ad8f8).
+# Spec backlink: dual-yaml-parser option-d, C4 (original Node-CLI bridge)
+# Spec backlink: coordinator_core/frontmatter/schema_cli.py (parity port + op
+#   dual-registration this seam routes to)
 # ---------------------------------------------------------------------------
 
 
 def _describe_schema_node(schema_name: str) -> dict:
-    """Invoke `node schema-cli.js --describe <schema_name>` and return parsed JSON.
+    """Call the native "schema.describe" op and return its result dict.
 
-    Three-class failure handling (the Staff Engineer F3 discipline):
-      (a) ENOENT / spawn failure  → fail loud with node-install remediation.
-      (b) non-zero + parseable {ok:false,...}  → surface as content error.
-      (c) non-zero + no parseable output  → infra crash, fail loud with stderr.
-      timeout  → fails loud, does not block.
+    Routes via cc_invoke.route(): State-2 (native seam present) calls the op;
+    State-1 (seam absent) raises a hard, actionable error — schema-cli.js (the
+    former Node bridge) was deleted in 480ad8f8 and there is no legacy
+    implementation to fall back to, so the legacy_fn passed to route() always
+    raises rather than degrading schema introspection to a fake-valid result.
 
-    Raises RuntimeError on any failure.
+    Raises RuntimeError on any route()/transport failure or "unknown schema"
+    op-level error — caller (main()) catches this and exits 1.
     """
-    cmd = ["node", _SCHEMA_CLI_PATH, "--describe", schema_name]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=_SCHEMA_CLI_TIMEOUT,
-        )
-    except FileNotFoundError:
-        # Class (a): node binary not found
+    def _no_legacy() -> dict:
         raise RuntimeError(
-            "node is not installed or not on PATH. "
-            "Install Node.js (https://nodejs.org/) so schema-cli.js can be invoked."
-        )
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(
-            f"schema-cli.js timed out after {_SCHEMA_CLI_TIMEOUT}s "
-            f"for schema '{schema_name}' — possible infra hang. "
-            "Check that node is healthy and not wedged."
+            f"coordinator-lesson-promote: schema-cli.js was deleted (480ad8f8) — "
+            f"schema.describe requires the native coordinator_core.invoke seam "
+            f"(schema='{schema_name}'); no legacy fallback exists."
         )
 
-    if result.returncode != 0:
-        # Class (b): try to parse stdout for {ok:false, ...} envelope
-        stdout = result.stdout.strip()
-        if stdout:
-            try:
-                parsed = json.loads(stdout)
-                if isinstance(parsed, dict) and parsed.get("ok") is False:
-                    errors = parsed.get("errors") or []
-                    raise RuntimeError(
-                        f"schema-cli content error for '{schema_name}': {errors}"
-                    )
-            except (json.JSONDecodeError, ValueError):
-                pass
-
-        # Class (c): non-zero with no parseable {ok:false} — infra crash or
-        # unknown-schema error; report raw stderr
-        stderr = result.stderr.strip()
-        raise RuntimeError(
-            f"schema-cli.js exited {result.returncode} for schema '{schema_name}'. "
-            f"stderr: {stderr or '(empty)'}"
-        )
-
-    try:
-        return json.loads(result.stdout)
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise RuntimeError(
-            f"schema-cli.js emitted non-JSON output for schema '{schema_name}': {exc}"
-        ) from exc
+    repo_root = _current_repo_root() or os.getcwd()
+    return _cc_route("schema.describe", {"schema_name": schema_name}, repo_root, _no_legacy)
 
 
 # ---------------------------------------------------------------------------
@@ -199,115 +198,23 @@ def _describe_schema_node(schema_name: str) -> dict:
 # via coordinator_registry.REPO_ALIASES (loaded above). Mirrors cross-repo-memo RECEIVER_EM_ALIASES.
 
 
-def _claude_home() -> str:
-    """Return the ~/.claude root, honouring CLAUDE_HOME env var for test isolation."""
-    override = os.environ.get(_CLAUDE_HOME_ENV)
-    if override:
-        return override
-    return os.path.join(os.path.expanduser("~"), ".claude")
+# _claude_home / _claude_klabauter_root / _machine_local_impl / _resolve_python /
+# _machine_local_get / _machine_local_repos_keys / _current_repo_root: extracted
+# to bin/lib/cli_shared.py (T2-g2a consolidation, ~150 LoC dup with
+# coordinator-queue-append). Thin aliases preserve the pre-consolidation call
+# sites below without a mass rename.
+_claude_home = cli_shared.claude_home
+_claude_klabauter_root = cli_shared.claude_klabauter_root
+_machine_local_impl = cli_shared.machine_local_impl
+_resolve_python = cli_shared.resolve_python
+_machine_local_get = cli_shared.machine_local_get
+_machine_local_repos_keys = cli_shared.machine_local_repos_keys
+_current_repo_root = cli_shared.current_repo_root
 
-
-def _example_orchestration_hub_root() -> str | None:
-    """Resolve the example-orchestration-hub repo root, mirroring coordinator-example-orchestration-hub-root.sh (AC1).
-
-    Resolution chain:
-      1. EXAMPLE_ORCHESTRATION_HUB_ROOT env var — if non-empty, trusted as-is (§4b idempotency gate).
-      2. machine-local get repos.example_orchestration_hub_repo — delegates to the §4c discovery ladder.
-      3. Returns None when unresolvable — callers degrade gracefully (AC13).
-
-    Negative-spec: this function never raises; it returns None when unresolvable so
-    callers can emit WARN + skip rather than crashing. The low-level shell primitive
-    (coordinator-example-orchestration-hub-root.sh) hard-errors; this is the Python caller-layer wrapper.
-
-    Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § AC1 / AC13
-    """
-    override = os.environ.get(_EXAMPLE_ORCHESTRATION_HUB_ROOT_ENV, "").strip()
-    if override:
-        return override
-    val = _machine_local_get("repos.example_orchestration_hub_repo")
-    return val if val else None
-
-
-def _machine_local_impl() -> str:
-    """Return the path to _machine_local.py, honouring MACHINE_LOCAL_IMPL for tests."""
-    override = os.environ.get(_MACHINE_LOCAL_IMPL_ENV)
-    if override:
-        return override
-    return os.path.join(_claude_home(), "bin", "_machine_local.py")
-
-
-def _resolve_python() -> str:
-    """Return a usable Python interpreter for subprocess calls to _machine_local.py.
-
-    sys.executable is always valid — the interpreter running this script.
-    Avoids subprocess probing that raises FileNotFoundError on Windows.
-    """
-    return sys.executable
-
-
-def _machine_local_get(key: str) -> str | None:
-    """Call machine-local get <key> and return the value, or None on failure."""
-    impl = _machine_local_impl()
-    python = _resolve_python()
-    cmd = [python, impl, "get", key]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
-
-
-def _machine_local_repos_keys() -> list[str]:
-    """Return all repos.* keys from the machine-local registry."""
-    impl = _machine_local_impl()
-    python = _resolve_python()
-    try:
-        result = subprocess.run([python, impl, "keys"], capture_output=True, text=True)
-    except OSError:
-        return []
-    if result.returncode != 0:
-        return []
-    return [
-        line.strip()
-        for line in result.stdout.splitlines()
-        if line.strip().startswith("repos.")
-    ]
-
-
-def _current_repo_root() -> str | None:
-    """Return the git repo root of the cwd, or None if not inside a git repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
-
-
-def _resolve_from_repo(root: str | None = None) -> str:
-    """Identify the from_repo for the outbox entry from cwd context.
-
-    Accepts a pre-resolved repo root to avoid spawning a second git rev-parse when
-    the caller already holds the root. Pass None (default) to resolve internally.
-    Review: code-reviewer strang-08-slice3 — (F3) accept pre-resolved root param.
-    """
-    # Review: code-reviewer strang-08-slice3 — (F3) use caller-supplied root if provided.
-    if root is None:
-        root = _current_repo_root()
-    keys = _machine_local_repos_keys()
-    paths = {k: _machine_local_get(k) for k in keys}
-    # Ensure repos.doe_claude is present so em_id_for_root can match the central identity.
-    # It may not appear in _machine_local_repos_keys() on machines where it is not yet
-    # registered; the setdefault call adds it without duplicating a lookup that already hit.
-    paths.setdefault("repos.doe_claude", _machine_local_get("repos.doe_claude"))
-    return em_id_for_root(root, {k: v for k, v in paths.items() if v})
+# _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a consolidation) —
+# same cwd git-root -> machine-local reverse-lookup -> doe_claude -> unregistered
+# -> "unknown-sender-em" ladder, byte-identical to the pre-consolidation body.
+_resolve_from_repo = cli_shared.resolve_from_repo
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +228,10 @@ def _outbox_root() -> str:
     Default: central state root via the DoE seam → <doe_root>/state/lessons-outbox/.
     Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
     cannot be resolved and no env override is present — callers catch this and degrade
-    gracefully (WARN + skip, exit 0).
+    to a SKIP with a non-zero exit (A13: never exit 0 — see legacy_fn's
+    _DoeUnresolvable handler in main()).
 
-    Negative-spec: does NOT fall back to cwd-relative state/ or to example-orchestration-hub when
+    Negative-spec: does NOT fall back to cwd-relative state/ or to claude-klabauter when
     DOE_ROOT is unresolvable — silent fallback is a write-plane landmine.
 
     Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
@@ -338,21 +246,123 @@ def _outbox_root() -> str:
     return os.path.join(doe_root(), "state", "lessons-outbox")
 
 
-_COLLISION_RETRY_CAP = 1000  # bounded retry attempts before failing loud (see below)
+# ---------------------------------------------------------------------------
+# --target-wiki normalization and validation (A9, A7)
+# ---------------------------------------------------------------------------
+
+def _wiki_inventory_dir() -> str:
+    """Return the directory of central wiki .md files to validate --target-wiki against.
+
+    Respects LESSON_PROMOTE_WIKI_ROOT env var for test isolation (takes precedence;
+    points DIRECTLY at a directory of .md files, mirroring _OUTBOX_ROOT_ENV's
+    override shape — no real DoE-claude checkout required to exercise validation).
+    Default: <doe_root>/coordinator/docs/wiki/.
+
+    Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
+    cannot be resolved and no env override is present.
+    """
+    override = os.environ.get(_WIKI_ROOT_ENV)
+    if override:
+        return override
+    return os.path.join(doe_root(), "coordinator", "docs", "wiki")
+
+
+def _list_central_wiki_targets(wiki_dir: str) -> frozenset[str]:
+    """Return the canonical 'docs/wiki/<name>.md' form of every .md file in wiki_dir.
+
+    Raises RuntimeError if wiki_dir does not exist — a resolvable DoE root with a
+    missing coordinator/docs/wiki/ directory is an install-integrity problem, not a
+    graceful-skip case (contrast the DoE-root-unresolvable case, which IS a
+    graceful-skip via _DoeUnresolvable).
+    """
+    if not os.path.isdir(wiki_dir):
+        raise RuntimeError(f"central wiki directory not found: {wiki_dir!r}")
+    return frozenset(
+        f"{_TARGET_WIKI_PREFIX}{name}"
+        for name in os.listdir(wiki_dir)
+        if name.endswith(".md")
+    )
+
+
+def _validate_target_wiki(
+    parser: argparse.ArgumentParser, normalized_target_wiki: str, allow_new_wiki: bool
+) -> int | None:
+    """Validate a normalized --target-wiki value against the central wiki inventory (A7).
+
+    Returns an exit code the caller should return immediately, or None when
+    validation passed (or was legitimately bypassed) and normal processing should
+    continue.
+
+    Bypassed (returns None without touching the DoE root) when:
+      - normalized_target_wiki is the 'unknown' sentinel (schema-documented for an
+        unresolved classifier target — never a real wiki path).
+      - allow_new_wiki is True (the --allow-new-wiki escape hatch, for a genuine
+        change_kind: wiki-new promotion where the target intentionally does not
+        exist yet).
+
+    On a miss, fails loud via parser.error() (design-as-offers: leads with the
+    top-5 closest existing targets via difflib, not just the bare violation) —
+    this exits 2, the same family as every other argparse-detected invalid-argument
+    case in this CLI.
+
+    Negative-spec (A13 interaction): an unresolvable DoE root during this check is
+    NOT a silently-skipped validation — it is the SAME _EXIT_DOE_UNRESOLVABLE (3)
+    as the write-skip case, because the inventory this check needs lives under the
+    same DoE root the write does.
+    """
+    if normalized_target_wiki == _TARGET_WIKI_UNKNOWN or allow_new_wiki:
+        return None
+
+    try:
+        wiki_dir = _wiki_inventory_dir()
+    except _DoeUnresolvable as exc:
+        print(
+            f"error: coordinator-lesson-promote: cannot validate --target-wiki — "
+            f"DoE-claude root unresolvable: {exc}",
+            file=sys.stderr,
+        )
+        print(
+            "  Remediation: run 'machine-local set repos.doe_claude /path/to/doe-claude'\n"
+            "  or set DOE_ROOT=/path/to/doe-claude before invoking this CLI.\n"
+            "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
+            file=sys.stderr,
+        )
+        return _EXIT_DOE_UNRESOLVABLE
+
+    try:
+        valid_targets = _list_central_wiki_targets(wiki_dir)
+    except RuntimeError as exc:
+        print(f"error: coordinator-lesson-promote: {exc}", file=sys.stderr)
+        return 1
+
+    if normalized_target_wiki in valid_targets:
+        return None
+
+    suggestions = difflib.get_close_matches(
+        normalized_target_wiki, sorted(valid_targets), n=5
+    )
+    lines = [
+        f"--target-wiki {normalized_target_wiki!r} does not exist in the central wiki "
+        f"inventory ({len(valid_targets)} files under {wiki_dir}).",
+    ]
+    if suggestions:
+        lines.append("Did you mean one of:")
+        lines.extend(f"  {s}" for s in suggestions)
+    lines.append(
+        "If this is a genuine new wiki (change_kind: wiki-new), pass --allow-new-wiki "
+        "to skip this check."
+    )
+    parser.error("\n".join(lines))
+    return 2  # unreachable — parser.error() always calls sys.exit(2); kept for type-checkers.
 
 
 def _write_path_excl(out_path: str, content: str) -> str:
     """Write content to out_path using an exclusive-create + retry-with-suffix loop.
 
-    Replaces a plain open(path, "w") silent overwrite with os.O_CREAT|O_EXCL so a
-    same-timestamp+slug collision from a concurrent second write does NOT destroy
-    the first entry. On FileExistsError, retries with an incrementing filename
-    suffix inserted before the .yaml extension (<ts>-<slug>-2.yaml, -3.yaml, ...)
-    bounded to _COLLISION_RETRY_CAP attempts, so both entries persist under distinct
-    filenames. Only when the cap is exhausted does this raise — fail loud, never
-    silently drop the entry.
-
-    Returns the actual path written (== out_path unless a collision suffix was used).
+    Thin wrapper over bin/lib/cli_shared.write_path_excl (T2-g2a consolidation,
+    ~150 LoC dup with coordinator-queue-append) — pins caller_name so the
+    exhausted-retry error message still names this CLI. Byte-identical retry/cap/
+    fail-loud-after-cap-exhausted behavior to the pre-consolidation body.
 
     Negative-spec: do NOT swap this for a plain open(path, "w") — that silently
     clobbers a same-key concurrent write. Do NOT swap this for a bare fail-loud
@@ -366,29 +376,9 @@ def _write_path_excl(out_path: str, content: str) -> str:
 
     Spec backlink: F1/F2 legacy-fallback silent-overwrite collision guard (chunk C1).
     """
-    root, ext = os.path.splitext(out_path)
-    candidate = out_path
-    attempt = 1
-    while True:
-        try:
-            fd = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            attempt += 1
-            if attempt > _COLLISION_RETRY_CAP:
-                raise FileExistsError(
-                    f"coordinator-lesson-promote: refusing to drop entry — exhausted "
-                    f"{_COLLISION_RETRY_CAP} collision-retry attempts for base path "
-                    f"{out_path!r}. All candidate filenames already exist. "
-                    # Review: code-reviewer — F3: surface the actually-probed suffix
-                    # range, not just the base path, to remove a manual-inference
-                    # step from an already-rare failure path.
-                    f"Tried {out_path!r} through {root!r}-{_COLLISION_RETRY_CAP}{ext!r}."
-                ) from None
-            candidate = f"{root}-{attempt}{ext}"
-            continue
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(content)
-        return candidate
+    return cli_shared.write_path_excl(
+        out_path, content, caller_name="coordinator-lesson-promote"
+    )
 
 
 def _slug_from_title(title: str) -> str:
@@ -462,10 +452,10 @@ def _compose_yaml(fields: dict[str, str | list[str] | None]) -> str:
                 lines.append(f"{key}:")
                 for item in value:
                     lines.append(f"  - {_yaml_str(item)}")
-        elif "\n" in str(value):
-            # Block scalar — write key: |
-            lines.append(f"{key}: {_yaml_str(str(value))}")
         else:
+            # Review: code-reviewer — collapsed the former "\n" in str(value) elif and
+            # this else branch: both emitted byte-identical code since _yaml_str already
+            # internally branches on newline presence (block scalar vs. quoted scalar).
             lines.append(f"{key}: {_yaml_str(str(value))}")
     lines.append("---")
     return "\n".join(lines) + "\n"
@@ -531,7 +521,14 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
             "Write a universal lesson entry to state/lessons-outbox/ for drain "
             "by the /learn-lessons --central procedure.\n\n"
             "Spec: docs/plans/2026-06-15-universal-lesson-routing-mechanical-capture.md § C1\n"
-            "Schema: docs/wiki/lessons-outbox-schema.md"
+            "Schema: docs/wiki/lessons-outbox-schema.md\n\n"
+            "Exit codes:\n"
+            "  0  success — entry written to state/lessons-outbox/.\n"
+            "  1  unexpected error (schema load failure, filesystem error).\n"
+            "  2  invalid arguments — including --target-wiki not found in the\n"
+            "     central wiki inventory (see --allow-new-wiki).\n"
+            "  3  DoE-claude root unresolvable — write (or --target-wiki\n"
+            "     validation) SKIPPED, never treated as success."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -559,8 +556,17 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
         "--target-wiki",
         required=True,
         help=(
-            "Central wiki path this lesson targets, e.g. docs/wiki/some-wiki.md. "
+            "Central wiki path this lesson targets, e.g. docs/wiki/some-wiki.md — validated "
+            "against the real central wiki inventory unless 'unknown' or --allow-new-wiki. "
             "Use 'unknown' when the target wiki is not yet identified."
+        ),
+    )
+    parser.add_argument(
+        "--allow-new-wiki",
+        action="store_true",
+        help=(
+            "Skip the --target-wiki inventory check for a genuine change_kind: wiki-new "
+            "promotion, where the target intentionally does not exist yet."
         ),
     )
     parser.add_argument(
@@ -579,10 +585,11 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns exit code."""
     # Derive the valid change_kind enum from the lessons-outbox schema at runtime
-    # by calling `node schema-cli.js --describe lessons-outbox`.
+    # via the native "schema.describe" op (schema='lessons-outbox').
     # Fails loud (non-zero exit + stderr) if the schema cannot be loaded.
     # Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-consolidation.md § C1
-    # Rewired from schema_loader.load_schema → node CLI: dual-yaml-parser option-d C4
+    # Rewired from schema_loader.load_schema → node CLI (dual-yaml-parser option-d C4)
+    # → native coordinator_core op seam (schema-cli.js deleted 480ad8f8)
     try:
         _cli_output = _describe_schema_node("lessons-outbox")
         change_kind_values: tuple[str, ...] = tuple(_cli_output["enums"]["change_kind"])
@@ -598,6 +605,35 @@ def main(argv: list[str] | None = None) -> int:
     # Review: code-reviewer Slice-B — (B-F3) deleted unreachable dead block that re-validated
     # change_kind after argparse; argparse choices= already rejects invalid values with exit 2
     # naming the valid set, so the explicit check was dead code.
+
+    # --allow-new-wiki is documented (and only sound) as an escape hatch for a genuine
+    # change_kind: wiki-new promotion, where the target intentionally does not exist yet.
+    # wiki-append targets an EXISTING wiki section by schema semantics (see
+    # docs/wiki/lessons-outbox-schema.md § Change-kind enum) — an append target should
+    # always be inventory-validated. Reject the mismatch here, at argparse time, rather
+    # than threading change_kind into _validate_target_wiki, so a caller combining the
+    # flag with wiki-append (or any other change_kind) fails loud and early instead of
+    # silently skipping the inventory check.
+    if args.allow_new_wiki and args.change_kind != "wiki-new":
+        parser.error(
+            f"--allow-new-wiki is only valid with --change-kind wiki-new "
+            f"(got --change-kind {args.change_kind!r})"
+        )
+
+    # A9: normalize BEFORE the A7 inventory check, so 'foo' and 'foo.md' validate
+    # (and later write) identically instead of diverging into two dedup keys.
+    # Gated on change_kind (A7/A9 scope fix): --target-wiki is the generic
+    # promotion-target field for every change_kind, not only wiki entries — a
+    # skill-edit promotion stores a SKILL.md path here, not a central-wiki name.
+    # Only wiki-new/wiki-append (the schema's wiki-targeting change_kinds — see
+    # docs/wiki/lessons-outbox-schema.md § Change-kind enum) run the directory
+    # collapse and the central-wiki-inventory check; every other change_kind's
+    # --target-wiki passes through UNCHANGED and UNVALIDATED.
+    if args.change_kind in _WIKI_TARGETING_CHANGE_KINDS:
+        args.target_wiki = _normalize_target_wiki(args.target_wiki)
+        _early_exit = _validate_target_wiki(parser, args.target_wiki, args.allow_new_wiki)
+        if _early_exit is not None:
+            return _early_exit
 
     scope_tags = [t.strip() for t in args.scope_tags.split(",") if args.scope_tags.strip() and t.strip()]
 
@@ -629,10 +665,14 @@ def main(argv: list[str] | None = None) -> int:
                 from_repo=from_repo,
             )
         except _DoeUnresolvable as exc:
-            # AC2: graceful-skip on unresolvable DOE_ROOT — WARN + skip, exit 0.
+            # A13 fix: graceful-skip on unresolvable DOE_ROOT is WARN + skip, but the
+            # skip is NEVER silent success — exit _EXIT_DOE_UNRESOLVABLE (3), not 0.
             # A coordinator install without repos.doe_claude registered (pre-fleet-clone
-            # or non-DoE machine) WARNs and skips rather than hard-erroring, per the
-            # graceful-degradation contract (state-placement-law.md §Rule graceful-degradation).
+            # or non-DoE machine) WARNs, writes nothing, and reports that honestly via
+            # a non-zero exit code — a caller checking only `returncode == 0` must be
+            # able to trust that outcome. Negative-spec: this was PREVIOUSLY `return 0`
+            # (A13 defect) — every promotion on a machine without repos.doe_claude
+            # registered evaporated while the exit code claimed success.
             # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1 / AC2
             print(
                 f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
@@ -645,7 +685,7 @@ def main(argv: list[str] | None = None) -> int:
                 "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
-            return 0
+            return _EXIT_DOE_UNRESOLVABLE
         except OSError as exc:
             print(f"error: could not write outbox entry: {exc}", file=sys.stderr)
             return 1
@@ -669,21 +709,35 @@ def main(argv: list[str] | None = None) -> int:
         "evidence": args.evidence if args.evidence else None,
         "from_repo": from_repo,
     }
+    # Test isolation gate: LESSON_PROMOTE_OUTBOX_ROOT redirects the outbox path (see
+    # _outbox_root() above), which the native queue.promote op does not honour — it
+    # resolves repos.doe_claude on its own, independent of this process's env. When
+    # set, routing native would silently escape the override and write to whatever
+    # doe_claude is ACTUALLY registered as on the invoking machine — mirrors
+    # coordinator-queue-append's identical QUEUE_APPEND_OUTPUT_ROOT gate immediately
+    # above _cc_route("queue.append", ...) in that sibling CLI. In production,
+    # LESSON_PROMOTE_OUTBOX_ROOT is NEVER set, so this check is a no-op.
+    if os.environ.get(_OUTBOX_ROOT_ENV):
+        return legacy_fn()
+
     result = _cc_route("queue.promote", params, repo_root, legacy_fn)
 
     # Native path: result is the bare dict from queue.promote.
     if isinstance(result, dict):
         if result.get("skipped"):
-            # AC12: skipped:true → WARN (parity with _DoeUnresolvable message) + exit 0.
-            # Do NOT treat skipped as unconditional success — emit the WARN so callers see
-            # the write was not performed.
+            # A13 fix (native-op mirror of the legacy_fn _DoeUnresolvable handler
+            # above): skipped:true → WARN + exit _EXIT_DOE_UNRESOLVABLE (3), never 0.
+            # Negative-spec: this was PREVIOUSLY `return 0` (A13 defect) — identical
+            # silent-success hole to the legacy path, just reached via the native
+            # queue.promote op's {"skipped": true, "reason": ...} result shape instead
+            # of a raised _DoeUnresolvable exception.
             reason = result.get("reason", "DOE_ROOT unresolvable")
             print(
                 f"warn: coordinator-lesson-promote: DOE_ROOT unresolvable — "
                 f"skipping central lessons-outbox write: {reason}",
                 file=sys.stderr,
             )
-            return 0
+            return _EXIT_DOE_UNRESOLVABLE
         # Review: code-reviewer strang-08-slice3 — (F1) guard out_path access; bare KeyError
         # on unexpected op result shape (missing both out_path and skipped) gives a misleading
         # traceback instead of a clean error. TWO-SIGNAL contract lives in the op, not here.

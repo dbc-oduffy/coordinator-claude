@@ -1,192 +1,112 @@
 ---
 name: review
-description: Use when a plan / design doc / RFC is ready for review or plan-review findings have landed.
-version: 1.0.0
-spec_backlink: archive/specs/2026-05/2026-05-06-review-super-skill.md
+description: "Review a plan/design doc or code diff — findings land on either one."
+version: 2.0.0
+argument-hint: "--surface plan|diff"
 ---
 
 # coordinator:review
 
-<!-- Purpose: Decision-tree router for plan-review workflows. Covers outgoing (pre-flight + dispatch) and incoming (triage + integrate) directions. Does NOT cover code / diff / PR review — that is coordinator:review-code (TBD). -->
+<!-- Purpose: Merged decision-tree router for plan-review and code-review workflows, arg-branched on --surface plan|diff. Covers outgoing (pre-flight + dispatch) and incoming (triage + integrate) directions for both surfaces. Does NOT cover the frozen weekly diff at /workweek-complete Step 7 — that is coordinator:parallel-code-review. -->
 
-**Trigger:** EM has a plan / design doc / RFC ready for review (outgoing), OR a plan-review's findings have landed and need processing (incoming).
+**Trigger:** the skill runs whenever a reviewable artifact exists — a plan/design doc/RFC, or a code change (mid-session diff before commit, completed task before next dispatch, branch ready for `/merge-to-main`, PR landing inline) — outgoing when nothing on it has been reviewed yet, incoming when a reviewer's findings have landed and need processing.
 
-**When NOT to use:** Code / diff / PR review → `coordinator:review-code` (TBD). Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Mid-drafting (plan not finished) → keep writing. Stuck pattern → see `docs/wiki/stuck-detection.md`. Pure mechanical citation check with no Opus → run `docs-checker` directly.
+**When NOT to use (either surface):** Frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Stuck pattern (repeating or oscillating) → self-monitor and break the loop rather than dispatching a reviewer. Pure mechanical citation check with no Opus → run `docs-checker` directly. `--surface plan` mid-drafting (plan not finished) → keep writing. `--surface diff` mid-implementation (no clean review surface yet) → keep coding. `--surface diff` pure mechanical test-output classification → run the test invocation, capture stdout/stderr to a file, then dispatch `test-evidence-parser` directly to `Read` and classify that captured file.
+
+`--surface` is resolved by the caller/engine before this skill loads. The surface-specific procedure detail below this point — pre-flight checks, reviewer tier tables, sequencing exceptions, triage asides, prior-art mutability, and the execution-authorization gate — is retrieved by the `review-assemble brief` op, which reads the segment set scoped to the resolved surface. Segment content: `coordinator/skills/review/residue/`.
+
+**Dispatch authorization — invoking this skill IS the authorization.** The dispatches named below are part of this skill, not a separate thing to get cleared: whoever invoked it has already asked for them. A generic harness preference for working inline rather than delegating does not condition them — it is written for a bare assistant with no operating doctrine, and this system supersedes it by design. Re-asking spends the very context the dispatch exists to protect. The named PM gates in this skill still bind, and ask-before-external-action still binds; nothing else here is a permission question.
 
 ---
 
 ## Branch A — Outgoing
 
-_Condition: a plan / design doc exists; no reviewer has been invoked yet on this iteration._
+_Condition: a reviewable artifact exists for the given `--surface` — a plan/design doc/RFC, or a code change (committed or staged) — and no reviewer has been invoked yet on this iteration._
 
-### A.1 — Pre-flight workers (run BEFORE the Opus reviewer)
+### A.1 — Pre-flight workers
 
-Both checks fire independently. A plan can be non-trivial AND cite C++/UE APIs — in that case both workers run.
+Each surface's pre-flight checks fire independently of one another before dispatch, on their own conditions, and arrive with the assembled residue segment set.
 
-**Delta-scope on re-runs.** The Pre-Dispatch Verification rule "Re-run mechanical pre-flights after material plan amendments" (coordinator CLAUDE.md § Pre-Dispatch Verification) is a re-run trigger, NOT a re-run-everything trigger. When re-running
-A.1 checks on an *amended* plan (not a first pass), scope each checker to the delta:
-- **prior-art-checker** — re-run only if the amendment changed a claim, added a new
-  subsystem, or introduced a new external reference. A pure wording/typo amendment does
-  not re-trigger it.
-- **docs-checker** — re-run only over the *newly cited or changed* external APIs, not
-  the full citation set already verified in the prior pass.
-- **plan-coverage-checker** — re-run when the oracle or slate table changed (rows
-  added/removed/edited). A prior sidecar exists; the checker renames it (Phase 0) and the
-  EM diffs the new sidecar against it to see what the amendment moved.
+**The diff freeze's range/slice-id is a real judgment call, not something the op resolves for you.** `code-reviewer` cannot obtain its own diff — its Bash is allowlist-confined and it has no `git show`/`git diff`/`git log` access — so before dispatching it, the diff must be frozen via the `freeze-review-diff` op, invoked with the caller-chosen range and slice-id. The op never defaults the range: only the caller knows whether this dispatch is session-scoped, branch/PR-scoped, or plan/chunk-scoped, and a shared `work/*` branch with concurrent sessions must never default to `origin/main...HEAD` (that sweeps sibling sessions' already-reviewed commits into this review). Inject the frozen diff path into the reviewer's dispatch brief as the primary artifact — a dispatch without it is incomplete, not merely suboptimal.
 
-Name the delta in the re-dispatch brief ("amendment touched §X and the slate table;
-scope your check to those"). A full re-run is correct only when the amendment was
-structural enough that the prior pass's coverage no longer holds.
+### A.2 — Reviewer selection and dispatch (shared spine)
 
-**Check 1 — Triviality (prior-art-checker)**
+**This gate dispatches. That is not a question to resolve before proceeding.** Invoking this skill is what authorizes the reviewer dispatch — there is no separate permission to obtain, and stopping here to ask for one is the single most common way this gate fails. If you notice a pull to check first, that is generic caution about spawning agents, not a judgment about this review; the gate does not function without reviewers. Select and dispatch.
 
-- _Plan covers non-trivial work?_ (design docs, RFCs, architectural plans; anything beyond a single-file fix)
-  → Before dispatching: run `coordinator-doc-new --type prior-art-check --plan <stem>` (where `<stem>` is the plan filename without extension — e.g. for `docs/plans/2026-06-29-my-plan.md`, `<stem>` is `2026-06-29-my-plan`). This scaffolds `docs/plans/<stem>.prior-art-check.md`. Then dispatch `prior-art-checker` with the plan path; pass the scaffolded path in the dispatch brief and instruct the agent to fill the pre-scaffolded sidecar at `docs/plans/<stem>.prior-art-check.md`. Read sidecar at `docs/plans/<stem>.prior-art-check.md`. Act on buckets: **Conflicts** → surface to PM with wiki quote before continuing; **Compatible-but-relevant** → fold reference into plan's "Considered alternatives"; **Silent** → no action.
-  _See CLAUDE.md § Adding a Convention to the Coordinator System (Prior-art-checker tripwire)._
-- _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint, no design content)
-  → Skip `prior-art-checker`.
+**Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the artifact's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed). `coordinator/routing.md` is the source of truth for the signal → reviewer mapping (both surfaces route through the same composite table; see that file for the current fragment set and per-reviewer signals).
 
-**Check 2 — Cited external APIs (docs-checker)** _(runs independently of Check 1)_
+**Tier selection is surface-specific** (Sonnet-vs-Opus precedence, single-vs-cross-domain tables, the diff-only Sonnet dispatch pattern) — assembled by the op named above, from the residue segment set.
 
-| API surface cited in plan | docs-checker? |
-|---|---|
-| C++ or Unreal Engine APIs | **Mandatory** — run `docs-checker` regardless of EM judgment. |
-| Other external library APIs | EM judgment — run if cost is justified; skip silently if not. |
-| Pure prose / in-repo-only references / no cited external APIs | Skip `docs-checker`. |
+**Effort is PM-gated — it is not an EM dial.** `coordinator/routing.md`'s Effort field is PM-facing reference, NOT a parameter the EM sets, changes, or surfaces. Dispatch each persona at its natural Opus altitude; do **not** put an effort level (`High`, `Medium`, `Low`) in the dispatch prompt, and do not narrate one to the PM as the chosen level, unless the PM has explicitly named it. If the PM has not named an effort level, omit it entirely. Reading an effort off the table and applying it — even verbatim — is the overreach this rule prevents. The PM owns the effort dial; the EM owns reviewer selection and sequencing.
 
-When dispatching `docs-checker` (Mandatory or EM-judgment rows above): before invoking the agent, run `coordinator-doc-new --type docs-check --plan <stem>` (where `<stem>` is the plan filename without extension). This scaffolds `docs/plans/<stem>.docs-check.md`. Include the scaffolded path in the dispatch brief and instruct the agent to fill the pre-scaffolded sidecar at `docs/plans/<stem>.docs-check.md`.
-
-_See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._
-
-**Check 2b — Acceptance-criteria shape (offer, not block)** _(runs independently; offer-shaped)_
-
-<!-- spec-backlink: archive/specs/2026-05-24-acceptance-oracle-with-teeth.md §2.5 — review-skill offer -->
-
-When the reviewed plan's `## Acceptance Criteria` section is in **old prose-checkbox form** (lines like `- [ ] prose description`) rather than the bindable-table form (`ID | Criterion | Test | Binding-Class | Status`), NOTICE this and offer the template — do NOT block.
-
-Offer: _"This plan's acceptance criteria are in prose-checkbox form. If this plan warrants review, it warrants verifiable exit criteria — the bindable-table form makes acceptance tests mechanically enforceable at merge time. Template and two-altitude flow: `docs/wiki/writing-plans.md` § Acceptance Oracle. Pre-review `Test` cells stay `pending realization`; they're realized as named failing tests after review. No action needed now — this is just a heads-up before the reviewer reads the criteria as a design lens."_
-
-The reviewer's **substantive design-lens job is unchanged** — evaluating whether the criteria are testable-shaped, complete, and correctly scoped is always the reviewer's primary role here. This is a mechanical shape nudge, not a blocker. If the plan already uses the bindable-table form, skip this check silently.
-
-**Check 3 — Plan internal completeness (plan-coverage-checker)** _(runs independently of Checks 1 and 2)_
-
-| Plan shape | plan-coverage-checker? |
-|---|---|
-| Plan contains an audit/findings/issues table (any size) | **Run.** |
-| Plan is greenfield design with no found-facts oracle | Skip — agent emits `SCOPE-MISMATCH`. |
-| Plan is single-file mechanical fix | Skip. |
-| Plan is doc redesign / wiki rewrite | Skip. |
-
-_See `docs/wiki/plan-coverage-checker.md` for trigger rationale and lens details. Skip is silent — no flag, no justification._
-
-### A.2 — Reviewer selection and dispatch
-
-**Routing table assembly:** Read the base routing table from `coordinator/routing.md`, scan all enabled plugins for root-level `routing.md` fragments, merge into a composite routing table. Match the artifact's signals against the composite table to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed).
-
-**Composite routing table (reference — assembled at dispatch time from fragment discovery):**
-
-| Signal | Reviewer 1 (Domain) | Reviewer 2 (Generalist) | Effort |
-|--------|---------------------|------------------------|--------|
-| Game dev / Unreal / example-sim-repo | the Game Dev Reviewer | the Staff Engineer | Medium → Medium |
-| Architectural change, new subsystem | the Staff Engineer | (backstop: the Director of Engineering) | High |
-| Cross-team / cross-repo seam (consumer ↔ producer, plugin ↔ host) | the Director of Engineering (standalone — DoE altitude) | (none) | High |
-| Generic-substrate / consumer-leak risk on producer-side surface | the Director of Engineering (standalone — DoE altitude) | (none) | High |
-| Front-end, CSS, UI components | the Front-End Reviewer | (backstop: the UX Reviewer) | Medium |
-| Front-end + architecture | the Front-End Reviewer | the Staff Engineer | Medium → High |
-| ML/AI pipeline, model serving, RAG | the Data Science Reviewer | the Staff Engineer | High → High |
-| UX flow, user-facing feature | the UX Reviewer | (backstop: the Staff Engineer) | Low → Medium |
-| Cross-cutting (many files, new pattern) | the Staff Engineer | (backstop: the Director of Engineering) | High |
-| Major example-sim-repo feature / new game mode | the Game Dev Reviewer | the Staff Engineer | High → High |
-| Other / unmatched | the Staff Engineer | (none) | Medium |
-
-**Effort is PM-gated — it is not an EM dial.** The **Effort** column above is PM-facing reference, NOT a parameter the EM sets, changes, or surfaces. Dispatch each persona at its natural Opus altitude; do **not** put an effort level (`High`, `Medium`, `Low`) in the dispatch prompt, and do not narrate one to the PM as the chosen level, unless the PM has explicitly named it. If the PM has not named an effort level, omit it entirely. Reading an effort off this table and applying it — even verbatim from the column — is the overreach this rule prevents (2026-06-17 PM correction). The PM owns the effort dial; the EM owns reviewer selection and sequencing.
-
-**the Director of Engineering standalone vs. The Director of Engineering backstop.** When the signal matches a cross-team or consumer-leak row above, dispatch the Director of Engineering directly as the primary reviewer — describe the standalone / DoE-altitude posture in the brief (do NOT pass a `mode` argument; that is the harness tool param and will error). Do NOT run the Staff Engineer first. Standalone the Director of Engineering is a peer of the Staff Engineer in technical rigor with the additional cross-team authority the Staff Engineer's EM altitude would hedge on. The "(backstop: the Director of Engineering)" entries above are the chained-after-the Staff Engineer usage for High-effort architectural reviews; that posture is still in play but does not exhaust the Director of Engineering's role.
+**the Director of Engineering standalone vs. The Director of Engineering backstop.** When the signal matches a cross-team or consumer-leak row in the routing table, dispatch the Director of Engineering directly as the primary reviewer — describe the standalone / DoE-altitude posture in the brief (do NOT pass a `mode` argument; that is the harness tool param and will error). Do NOT run the Staff Engineer first. Standalone the Director of Engineering is a peer of the Staff Engineer in technical rigor with the additional cross-team authority the Staff Engineer's EM altitude would hedge on. The routing table's chained-after-the Staff Engineer "backstop" entries are the usage for High-effort architectural reviews; that posture is still in play but does not exhaust the Director of Engineering's role.
 
 If `--reviewers "name1,name2"` was provided, skip auto-detection. Use the explicit list — first name is Reviewer 1, second (if any) is Reviewer 2. Report: "PM-directed review: [name1] then [name2]."
 
-**Matching review tier to plan complexity:**
+**Matching review tier to complexity.** Match tier to complexity, not importance. Routing every "important" artifact to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
 
-Match tier to complexity, not importance. Routing every "important" plan to a staff session burns budget without finding more bugs. The heuristic: would a second reviewer likely **contradict** the first, or just add diminishing-return notes? If contradiction is unlikely, one reviewer is enough.
+**Pipeline phases** (docs-checker, prior-art-checker/plan-coverage-checker, external-pattern-checker, integrator, backstop, report) are not optional — walk them inline. The applicable surface's phase walk is retrieved by the op named above and arrives with the assembled residue.
 
-| Situation | Correct tier |
-|---|---|
-| Single-domain plan (new feature, doc redesign, refactor) | One Opus-persona reviewer (auto-detects domain from routing table above) |
-| Single-domain refactor where a domain reviewer already covered the load-bearing concerns | One reviewer (the domain persona). Do NOT chain a generalist (the Staff Engineer) backstop by default — empirically the second pass yields P2 framings, not architectural redirects (2026-05-18: the Staff Engineer on a UE-only plan after the Game Dev Reviewer = 3 P2s, 0 redirects). **This default applies ONLY when the domain reviewer's findings demonstrably engaged the architectural layer** (abstraction boundaries, cross-system seams, the load-bearing design choice) — NOT merely that a domain pass ran. A domain pass that returned only surface findings does NOT license skipping the generalist; in that case a generalist backstop is still warranted. Generalist backstop is explicit opt-in: `--reviewers "<domain>,the Staff Engineer"`. |
-| Cross-domain plan (e.g., UE + data pipeline, front-end + arch) | Two sequential Opus-persona reviewers: `--reviewers "<domain>,the Staff Engineer"` |
-| Contested architectural choice with ≥2 valid approaches AND PM authorized | `/staff-session` review-mode |
-| "This is important, I want it done right" | One Opus-persona reviewer (auto-detects domain) |
-| "the Staff Engineer feels heavy for this; route to code-reviewer instead" | **Not a valid row.** `code-reviewer` is the Sonnet diff reviewer, not a plan reviewer. The fork is named Opus persona OR skip review (implement and let `code-reviewer` catch issues on the diff at `/workstream-complete`). Sonnet-on-plan-body is not on the menu. _See `skills/plan/SKILL.md` § Exit ¶ Reviewer altitude is binary._ |
+**Persist the reviewer/persona findings — provisioned sidecar, doc-handoff contract, no sentinel-append.** Every dispatched reviewer (persona or `code-reviewer`) is auto-provisioned its identity-typed sidecar at spawn (`state/subagent-share/<session>/<provision_key>.md` — `staff-eng-review` for the 6 personas, `review-findings` for `code-reviewer` and the mechanical review workers) — the path is already in the dispatch brief; the engine's `provision_report` capability created it at spawn. Persist findings with **Edit** on that pre-provisioned path — it already exists, so Edit is the direct tool; a Bash redirect is neither needed nor wanted here (`snippets/persona-persisting-findings.md`). There is no EM pre-scaffold, no sentinel-append (`snippets/findings-self-persist-sentinel.md` is not appended to the brief), no injected `docs/plans/*.review.md` path, no variant selection, and no `cs_write_review_claim`.
 
-- _Plan is genuinely trivial?_ (one-line doc fix, typo, link repoint)
-  → No review needed; commit and proceed.
-- _PM has explicitly waived review on a non-trivial plan?_ ("ship it", "skip review", "straight to execution")
-  → Exit; this skill does not run. Log the waiver in the plan frontmatter (`review: skipped per PM direction YYYY-MM-DD`).
+**Pattern A — persona / Opus reviewer (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering):** it writes its findings to the provisioned sidecar and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. EM reads the returned path and passes it to the integrator. The diff-only Sonnet dispatch pattern (`code-reviewer`) is assembled by the op named above.
 
-_See CLAUDE.md § Challenging the PM — `/staff-session` is PM-gated; ask first._
+**Multi-reviewer chain (either surface):** each reviewer writes to its own provisioned sidecar; the integrator is dispatched once per reviewer pointing at that reviewer's returned path. The intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled scaffold — the intake fill-guard, not a per-dispatch-site check.
 
-**Pipeline phases (docs-checker, (prior-art-checker ∥ plan-coverage-checker), external-pattern-checker, integrator, backstop, report) live in `docs/wiki/reviewer-pipeline.md`. Walk those phases inline — they are not optional.** Walk Phase 2.5 → 2.7 → (2.7b ∥ 2.7d) → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.
-<!-- Review: code-reviewer — listed phases as a flat sequence, obscuring that prior-art-checker and plan-coverage-checker run in parallel; updated to (prior-art-checker ∥ plan-coverage-checker) to match the runtime shape. -->
+### A.3 — Sequencing
 
-**Persist the persona verdict — snippet-append, no EM pre-scaffold.** Personas are dual-use (advisory or sidecar-review); self-persist is NOT baked into their prompts. When a persona review feeds an integrator, append the contents of `snippets/findings-self-persist-sentinel.md` verbatim to the reviewer's dispatch brief. The persona then scaffolds its own sidecar in `state/review-trail/findings/` and returns a pointer line of the form `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. EM reads that returned path and passes it to the integrator. There is no EM pre-scaffold (`coordinator-doc-new --type review` is not called), no injected `docs/plans/*.review.md` path, and no `cs_write_review_claim`. **Multi-reviewer chain:** each reviewer self-persists to its own sidecar in `state/review-trail/findings/`; the integrator is dispatched once per reviewer pointing at the reviewer's returned path. _Spec backlink: `cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`._
-
-### A.3 — Sequencing (HARD RULE for plan reviews)
-
-- Default → sequential. Integrate Reviewer 1's findings via `coordinator:review-integrator` BEFORE dispatching Reviewer 2.
-- The merge-gate parallel-review carve-out does NOT apply to plan reviews — plans are never parallelized.
-- _See CLAUDE.md § Review Sequencing._
+**Sequential by default (HARD RULE), either surface.** Integrate Reviewer 1's findings via `coordinator:review-integrator` BEFORE dispatching Reviewer 2. The one exception is the merge-gate parallel carve-out, and it applies ONLY at `/workweek-complete` Step 7 on a frozen weekly diff with orthogonal lenses + a no-rewrite synthesizer — it never applies to mid-session, `/merge-to-main`, or `/workday-complete` diff reviews, and it never applies to plan reviews at all (plans are never parallelized; there is no carve-out on that surface).
+_See `coordinator/snippets/em-operating-doctrine.md` § How to Review What Came Back._
 
 ---
 
 ## Branch B — Incoming
 
-_Condition: a reviewer has returned output on a plan. EM is deciding what to do with each finding._
+_Condition: a reviewer has returned output on the reviewed artifact. EM is deciding what to do with each finding._
 
 **Forbidden triage outcomes (never valid):** defer-to-later, capture-for-backlog, time-estimate-as-rationale. If any of these would be the disposition, surface to PM — the PM decides whether to defer, not the EM.
-_See CLAUDE.md § Core Principles ('Implement and iterate over deliberate and defer')._
+_See ~/.claude/CLAUDE.md § Engineering Defaults ('Implement and iterate over deliberate and defer') and `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off ("STOP and re-plan when something goes sideways")._
+
+**Provenance gate — resolve this BEFORE the triage table, because the table below routes only reviewer findings.** Every row's destination assumes the finding came from a dispatched reviewer's own sidecar. Check where the finding actually came from:
+
+- _Finding came from a **reviewer** — a persona or `code-reviewer` — whose sidecar is at `state/subagent-share/<session>/<key>.md`?_
+  → The triage table below applies as written. Continue.
+- _Finding came from a **pre-flight lens checker** — `prior-art-checker`, `plan-coverage-checker`, `docs-checker`, `external-pattern-checker` — whose sidecar is at `state/plan-sidecars/<plan-stem>.<lens>.md`?_
+  → **`coordinator:review-integrator` is the wrong agent and its intake guard will deny the dispatch.** It applies reviewer findings only, strictly from a `state/subagent-share/` path named in the prompt; a `state/plan-sidecars/` path is not one, however tradeoff-free the finding is. Applying a lens finding to a plan body is **plan-body maintenance → dispatch `coordinator:enricher`** with the lens sidecar path and the adjudicated items. This is the same fact `coordinator/snippets/em-operating-doctrine.md` states as *"pre-flight sidecars are consumed alongside the plan, not inserted into that chain"* — that clause says what not to do; this row says who does it instead, which is the half that was missing.
+  → **Why this misroutes so reliably, named so it stops:** the tradeoff-free row below correctly forbids hand-authoring *however small it looks*, and until this gate existed it named exactly one non-hand-authoring destination. A correct reading of a loud prohibition plus a single offered destination produces the wrong dispatch every time — the defect was the incomplete destination set, not the EM's memory. Do not "fix" a denial here by hand-authoring the edit; that trades a guard hit for the exact failure the prohibition exists to prevent.
 
 Walk each finding against the triage table below — it lands in exactly one row:
 
-- _Tradeoff-free correctness fix?_ (factual error, broken citation, wrong API name in stub, missing cross-reference, internally inconsistent rule)
-  → Dispatch `coordinator:review-integrator` with `mode: "auto"` and findings. EM spot-checks the diff.
-  **Never hand-author the fix yourself, however small it looks.** The integrator is not a cheaper typist — it is a *fresh agent that independently re-checks each finding against current disk before applying it*. That second check catches findings that were wrong, stale, or mis-scoped (a concurrent executor moved the schema; the rename collides with a constraint that landed after the review) — exactly what self-authoring discards by applying the reviewer's claim at face value. "One line / obvious" is the rationalization this rule defeats, not an exception to it: the cheaper the integrator pass looks, the easier it is to skip the check that occasionally catches the obvious-looking finding that was actually stale.
-  _See CLAUDE.md § Review Sequencing (after-review integrator rule) and § Reviewer findings — apply, don't ratify; `review-integration-doctrine.md` § Review Sequencing._
+- _Tradeoff-free correctness fix?_ (factual error, broken citation, wrong API name, missing cross-reference or import, wrong precedence, internally inconsistent rule/identifier, off-by-one in a clear path)
+  → Dispatch `coordinator:review-integrator` with `mode: "auto"` pointing at the reviewer's returned sidecar path (the `DONE: <path>` from A.2 above). EM spot-checks the diff. **Reviewer-sidecar findings only — see the provenance gate above.**
+  **Never hand-author the fix yourself, however small it looks.** The integrator is not a cheaper typist — it is a *fresh agent that independently re-checks each finding against current disk before applying it*. That second check catches findings that were wrong, stale, or mis-scoped (a concurrent executor moved the schema; the rename collides with a constraint that landed after the review) — exactly what self-authoring discards by applying the reviewer's claim at face value. "One line / obvious" is the rationalization this rule defeats, not an exception to it.
+  Three exceptions narrow the tradeoff-free-fold-in default: (a) a single-agent math/precedence/symbolic-reasoning finding needs verification against source before applying — that shape is exactly the one most prone to confident-but-wrong findings; (b) a reserved-word-collision finding gets double-quoted, not renamed, out from under its callers; (c) closure-bar fallback feasibility is engineering verification (read the cited file before asking), not a PM question.
+  - _(i) Math / algebra / precedence / symbolic-reasoning finding from a single agent?_ → Verify against source before applying (exception (a) above).
 
-- _Plan-shape tradeoff?_ (architectural direction, scope question, sequencing call)
-  → Surface to PM with finding + reasoning. Wait for direction.
-  Plan reviews skew heavily toward this row — most plan findings are about *what to build*, not *how it's coded*.
-  - _(i) YAGNI / scope-trim argument from reviewer?_ → **Always escalation, never auto-trim.** Even framed as tradeoff-free, YAGNI is a product decision. Surface to PM. _See CLAUDE.md § Challenging the PM._
-  - _(ii) Refactor-over-patch signal?_ → Refactor is the default when AI is the implementer. Surface to PM with refactor proposal. _See CLAUDE.md § Core Principles ('Do the right thing, not the easy thing')._
-  - _(iii) Build-vs-defer call?_ → Always PM. Never EM-unilateral. _See CLAUDE.md § Challenging the PM ¶ Ask the PM when._
+- _Artifact-shape tradeoff?_ (architectural direction, scope question, sequencing call, file-organization call, abstraction boundary)
+  → Surface to PM with finding + reasoning. Wait for direction. Plan reviews skew heavily toward this row — most plan findings are about *what to build*, not *how it's coded*.
+  - _(i) YAGNI / scope-trim argument from reviewer?_ → **Always escalation, never auto-trim.** Even framed as tradeoff-free, YAGNI is a product decision. Surface to PM. _See `coordinator/snippets/em-operating-doctrine.md` § How to Decide._
+  - _(ii) Refactor-over-patch signal?_ → Refactor is the default when AI is the implementer. Surface to PM with refactor proposal. _See ~/.claude/CLAUDE.md § Engineering Defaults ('Do the right thing, not the easy thing')._
+  - _(iii) Build-vs-defer call?_ → Always PM. Never EM-unilateral. _See `coordinator/snippets/em-operating-doctrine.md` § How to Decide._
 
-- _Multiple findings collectively suggest the plan needs a structural refactor (not just patches)?_
+- _Multiple findings collectively suggest the artifact needs a structural refactor (not just patches)?_
   → Do NOT integrate piecemeal. Surface to PM with a refactor proposal — the aggregate signal is the finding.
-  _See CLAUDE.md § Core Principles ('Refactor over patch') and § Convergence as Confidence._
+  _See ~/.claude/CLAUDE.md § Engineering Defaults ('Refactor over patch') and § Convergence as Confidence._
 
-- _Premise / hypothesis question?_ (reviewer challenges the plan's framing or motivating hypothesis)
-  → Read the cited prior art (wiki, lessons, archived spec). Confirm or revise premise.
-  _See `docs/wiki/reviewer-premise-challenge.md`._
+- _Premise / hypothesis question?_ (reviewer challenges the artifact's framing or motivating hypothesis, or claims a bug/gap exists where the artifact is correct)
+  → Read the cited evidence at its source, not the reviewer's paraphrase. Confirm or revise premise either way. Where that evidence lives for the resolved surface is assembled by the op named above, from the residue segment set.
 
 - _Multiple reviewers converged on the same issue from different entry points?_
-  → High-confidence; apply via integrator without per-finding verification.
-  _See CLAUDE.md § Convergence as Confidence._
+  → High-confidence; apply via integrator without per-finding verification. The threshold is independence + distinct entry points, not raw count — single-agent findings (especially math/logic/precedence) still require verification first. On reviewer divergence, read source rather than tiebreaking by vote.
 
 - _Worker Dispatch Recommendations block present in reviewer output?_
-  → Dispatch each named worker. For plan reviews: `doc-link-checker` (most relevant); `dep-cve-auditor` (if plan introduces a dependency). Feed worker output back into EM context.
-  `test-evidence-parser` and `security-audit-worker` do NOT fire for plan reviews — they require runtime artifacts. If a reviewer names them on a plan, treat as miscalibration and surface to PM.
-  _See `docs/wiki/reviewer-routed-workers.md` and CLAUDE.md § Reviewer-Routed Workers._
+  → Dispatch each named worker; reviewers name, EM dispatches. Feed worker output back into EM context either way. The surface-specific worker eligibility list (which workers fire on which surface, and the test-evidence-parser capture-before-dispatch rule) is assembled by the op named above, from the residue segment set.
+  _See `coordinator/snippets/em-operating-doctrine.md` § How to Review What Came Back, "Reviewer-routed workers"._
 
 - _Default / unmatched?_
-  → Apply via integrator. Default is to integrate, not to ratify.
-  _See `docs/wiki/receiving-code-review.md` (triage tables, push-back patterns, performative-agreement guard) and CLAUDE.md § Reviewer findings — apply, don't ratify._
+  → Apply via integrator. Default is to integrate, not to ratify (the same tradeoff-free-fold-in default and its three exceptions from the first triage row above).
 
----
-
-## Prior-Art Mutability and Reviewer Elevation
-
-**Prior-art mutability as first-class deliverable.** When the PM authorizes prior-art mutation as an explicit deliverable of the review (i.e., the plan is intended to *update* settled doctrine, not simply comply with it), the DoE-elevated reviewer (typically the Director of Engineering) MAY override the prior-art-checker sidecar's `update-plan` / `update-prior-art` recommendation with an explicit cross-reference to the PM authorization in their findings. Default mode is still "plan adapts to prior art"; prior-art mutation is opt-in and requires PM sign-off stated in the dispatch brief.
-
-**Reviewer elevation must be stated verbatim in the dispatch brief.** Elevating a reviewer past their charter (e.g., the Director of Engineering from ambition-backstop to DoE-with-mutation-authority) without verbatim brief language reverts at integrator-apply — the reviewer's prompt-defined charter is the default boundary. If the PM authorizes elevation, the EM must include the exact authorization phrase (e.g., "PM-authorized to override prior-art-checker on this run") in the dispatch brief to the reviewer; otherwise the integrator will treat the override as out-of-charter and escalate as ASK.
+The diff-only triage residue (the performative-agreement guard, the executor out-of-scope reminder, and the probe-wiring brief authority note) is assembled by the op named above.
 
 ---
 
@@ -194,7 +114,6 @@ Walk each finding against the triage table below — it lands in exactly one row
 
 After Branch B completes for a multi-reviewer review and Reviewer 1 is integrated, return to **A.2** to dispatch Reviewer 2. This skill is re-entrant — each pass walks one direction.
 
-**When all reviewer integration is complete, surface to the PM and WAIT: _"Plan reviewed and integrated. Proceed to execute?"_** Review approval is not execution authorization — the EM does not begin dispatching on its own, and the write-bar is the PM's words, not their sentiment: the stamp below is written ONLY when the PM's message NAMES execution ("execute", "proceed to execute", "run it", "ship it", "go ahead and execute"). Plan-approval words alone ("looks good", "lgtm", "approved", "nice") authorize the PLAN, NOT its execution, and MUST NOT trigger the stamp. On execution-naming approval, the default forward verb is (a) stamp the plan frontmatter `execution_authorized_by: PM` + `execution_authorized_at: <date>` + `execution_authorized_sha: <hash>` (the plan-body hash — recipe in `docs/wiki/plan-execute-session-split.md`, computed over the FINAL plan body after all integration) + `execution_authorized_note: "<verbatim PM utterance>"`, then (b) `/handoff` (execution handoff) so a fresh session runs `/execute-plan`. Same-session `/execute-plan` is the token-economics carve-out only — narrow, named-reason, never the default. The two bypasses of this checkpoint: (a) the PM has explicitly post-review authorized execution under the token-economics carve-out, or (b) the session is in `/autonomous` mode (the `autonomous` skill writes `/tmp/autonomous-run-${SESSION_ID}`; the checkpoint is sentinel-keyed in consumers, and `/autonomous` bypasses to same-session `/execute-plan` without the handoff). See `docs/wiki/plan-execute-session-split.md` for the full rule, rationale, and exceptions. <!-- Review: code-reviewer — path-form consistency: bare `docs/wiki/...` matches this file's own convention and sibling skills (Finding 2) --> Only after authorization does the EM own the dispatch-gate graph (below) — for same-session execution under the carve-out or `/autonomous`; the default execution-handoff path hands the dispatch-gate graph to the fresh session that picks up via `/pickup` → `/execute-plan`.
+The execution-authorization gate, its precondition, the stamp-op invocation, and prior-art mutability/reviewer-elevation treatment — plan-only concerns — are assembled by the op named above and arrive with the assembled residue.
 
-After authorization, the EM (same session under the carve-out/`/autonomous`, or the fresh execution session under the default) owns the **dispatch-gate graph** before the first executor dispatch:
-<!-- Review: code-reviewer — prior opening "When all reviewer integration is complete and the plan is ready for execution, the EM owns..." was a second independent trigger clause that could read as bypassing the authorization checkpoint above; rewritten to make ordering unconditional. --> enumerate touched files per task, mark file-overlap / output-consumption / contract-change gates (and only those — narrative causality is not a gate), size per-executor scope to ~5-10 min (15 min hard ceiling), and author parallel-wave prompts with explicit peer-scope prohibition. Procedure: `coordinator:execute-plan` Phase 1.5. Taxonomy: `docs/wiki/dispatching-parallel-agents.md` § Dispatch-Gate Taxonomy and § Peer-Scope Prohibition in Parallel-Wave Prompts.
+After authorization, the EM (same session under the carve-out/`/autonomous`, or the fresh execution session under the default) owns the **dispatch-gate graph** before the first executor dispatch: enumerate touched files per task, mark file-overlap / output-consumption / contract-change gates (and only those — narrative causality is not a gate), size per-executor scope to ~5-10 min (15 min hard ceiling), and author parallel-wave prompts with explicit peer-scope prohibition. Procedure: `coordinator:execute-plan` Phase 1.5.

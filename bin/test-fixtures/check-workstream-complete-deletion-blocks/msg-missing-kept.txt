@@ -1,6 +1,0 @@
-workstream-complete quick-save
-
-Kept (Step 2.67):
-fixture/kept-doc.md — still load-bearing for follow-up
-fixture/does-not-exist.md — phantom reference
---- end Step 2.67 blocks ---

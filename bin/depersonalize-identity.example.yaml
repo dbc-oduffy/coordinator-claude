@@ -1,0 +1,70 @@
+# depersonalize-identity.example.yaml — per-operator identity-rewrite pairs
+# data-file template.
+#
+# Native-Python-port successor to the retired `depersonalize-identity.example.sh`
+# (chunk C-W4a, docs/plans/2026-07-21-percolate-python-port.md — the bash consumer
+# it was sourced by, `publish-time-transform.sh`, is retired; the content-transform
+# sweep now runs via the engine's `coordinator_core.percolate.engine` `depersonalize`
+# hook, which reads `key`/`placeholder`/`token_class` entries in this exact shape
+# from a percolation store — see `setup/percolate-hooks/percolate-store.yaml`'s
+# own `depersonalize:` list for the live, wired oracle of this shape).
+#
+# Copy this file to `depersonalize-identity.yaml` (no `.example` suffix) in the
+# same directory and edit with your own values, OR fold these entries directly
+# into your own percolation store's `depersonalize:` list under the relevant
+# target/composed section — this file is a per-operator DATA TEMPLATE, not
+# something any coordinator code currently auto-sources by this exact filename.
+#
+# See coordinator/docs/wiki/percolate-setup.md
+#
+# THREE CLASSES of operator-private token require substitution entries here:
+#
+#   1. Private company org / GitHub org slug -> public-facing name
+#      Any private org that appears in file paths, comments, or import strings
+#      must be rewritten to a neutral synthetic value before OSS publish.
+#
+#   2. Operator-private repo / project codename -> synthetic OSS-safe placeholder
+#      Use this slot for YOUR OWN private project names that are not part of
+#      the coordinator system itself (e.g. a client codename, an internal
+#      product name, a private experiment repo you happen to cite in a wiki).
+#
+#      Coordinator-system-authored codenames (the built-in system codenames
+#      that ship seeded for every operator) belong in the percolation store's
+#      own `depersonalize:` list (`setup/percolate-hooks/percolate-store.yaml`),
+#      not here. Do NOT add coordinator-authored codenames to this file — they
+#      must fire for all operators who publish the coordinator system, not
+#      just for you personally.
+#
+#   3. Machine slugs -> role-name (machine-a / machine-b / ...)
+#      Machine hostnames that appear in docstrings (e.g., branch examples,
+#      machine-local path examples) must be rewritten before OSS publish.
+#      Use a consistent convention: first machine = machine-a, second = machine-b, etc.
+#
+# Format: a flat list of entries, each `key` (the literal string to find) paired
+# with a `placeholder` (the OSS-safe replacement) and a `token_class` (informational
+# only — mirrors the store schema's `vocabulary`/`attribution` classification).
+# List entries LONGEST-KEY-FIRST so a key that is a substring of another is
+# processed AFTER the longer key (prevents partial clobbering mid-pass) — this
+# is a convention, not an enforced ordering constraint in this data format.
+#
+# entries:
+#   # Class 1 -- private company org -> public-facing name
+#   # - key: "acme-internal"
+#   #   placeholder: "acme-public"
+#   #   token_class: "vocabulary"
+#
+#   # Class 2 -- operator-private project codename -> synthetic placeholder
+#   #   (coordinator system codenames go in the percolation store, not here)
+#   # - key: "my-client-project"
+#   #   placeholder: "example-repo"
+#   #   token_class: "vocabulary"
+#
+#   # Class 3 -- machine slugs -> role-name convention
+#   # - key: "myhost"
+#   #   placeholder: "machine-x"
+#   #   token_class: "vocabulary"
+#   # - key: "myother-host"
+#   #   placeholder: "machine-y"
+#   #   token_class: "vocabulary"
+
+entries: []

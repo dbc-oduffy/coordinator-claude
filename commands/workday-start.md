@@ -1,6 +1,6 @@
 ---
 name: workday-start
-description: Morning orientation — triage handoffs, surface staleness, align priorities
+description: "Morning orient — triage handoffs, surface staleness, align priorities."
 allowed-tools: ["Read", "Write", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[optional day focus]"
 ---
@@ -11,53 +11,73 @@ Prepare the day's workstream-start calls to be maximally efficient. Ensure conte
 
 **Announce at start:** "I'm running workday-start to prepare the day's context."
 
+## Step -0.9: Assemble the Day-Cadence Brief
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/orient-assemble" brief --cadence day`
+
+The op computes the cadence-invariant orient spine in one read-only pass — EM environment/effort
+drift, agent-worktree sweep, addon/doctor health scan, inbound cross-repo memo surfacing,
+project-RAG staleness, branch span assertion, open-handoff auto-reconcile observation,
+handoff triage (ready-to-fire, awaiting-gate, stale-executing-plan advisory), exec-bit drift,
+Claude-klabauter-bin sentinel, the post-ceremony command hook, a read-side report on orphaned in_flight
+handoffs, and today's marker-freshness check — the same computation `workstream-start` and
+`workweek-start` name for their own cadences. Parse the returned decision object:
+
+- **`directives[]`** — each is an unconditional action; execute it as you reach it, rendering its
+  `detail` into the relevant Morning Briefing section (§ Step 5) rather than re-deriving the
+  finding by hand.
+- **`judgment_points[]`** — genuine EM/PM calls the op cannot resolve for you (e.g. an inbound
+  cross-repo memo `ask`/`proposal`/`consult` awaiting Accept/Decline/Surface-to-PM). Resolve each
+  before any directive gated on it proceeds; never auto-pick a disposition.
+- **`narration`** / **`next_move`** — surface verbatim as the lead of the relevant briefing
+  section when non-empty.
+
+Do not narrate the individual checks above as separate steps — the op owns their procedure; this
+surface only consumes its output. What follows is the day-specific residue the op does not
+compute: session-reaper hygiene, branch setup/reconciliation, the archival/reaper family beyond
+its read-side report, and the deeper doctor/engine-drift matrix.
+
 ## Step -1: Session Reaper
 
 Run the session reaper before any other work to bound stale-session accumulation. Capture stdout to a log file; do not echo reaped-session lines into the Morning Briefing.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-REAP_LOG=$("$_cc_root/bin/coordinator-reap-sessions" 2>/dev/null)
-if [[ -n "$REAP_LOG" ]]; then
-  mkdir -p ~/.claude/logs
-  printf '%s  %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$REAP_LOG" >> ~/.claude/logs/coordinator-reap.log
-fi
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-day-branch-resolve" reap-log`
 
 Non-zero exit (lib not found) → continue; the reaper is hygiene, not a gate.
 
-## Step -0.5: EM Environment Check
+## Step -0.45: Git-Hook Freshness Self-Heal
 
-Before load-bearing work, confirm the EM is on the right model and effort:
+Deployed git hooks (`.git/hooks/prepare-commit-msg`, `.git/hooks/post-commit`) are generated at
+one-time `repo-setup` and never re-run on a recurring cadence — a hook body ported to a new
+implementation (e.g. bash → Python) leaves the deployed hook stale until something re-invokes the
+installer. Run both idempotent installer entrypoints once per day so a stale or absent hook
+self-heals within a day, without reintroducing the per-session boot cost that boot-time
+guardrail/reminder/detector SessionStart hooks were retired to avoid (only the fast orientation
+injector survives boot). Full rationale: `pipelines/workday-start-internals.md` § Step -0.45.
 
-- **Effort** — you cannot observe this yourself (it shows only in the CLI startup banner, never in your system prompt). Run the safety script and relay any banner it prints in the Morning Briefing; silent output means clean (`medium` effort), so say nothing:
-  ```bash
-  _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-  _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-  _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-  _cc_trusted=0
-  case "$_cc_root" in
-    "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-  esac
-  [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-  case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-  [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-  [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-  [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-  bash "$_cc_root/bin/check-em-environment.sh"
-  ```
-- **Model** — your system prompt names your model. If it is not Opus, WARN the PM (`⚠ MODEL DRIFT — not Opus; toggle via /model`) and recommend switching before proceeding. (The script also reads the transcript model as a backstop.)
+Run both idempotent installer entrypoints: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-ensure-prepare-commit-msg-hook"` then `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-ensure-post-commit-hook"`.
+
+<!-- Windows invocation of these extensionless python3-shebang entrypoints (vs their paired
+     `.cmd` launchers) is the surface the in-flight macos-first-class-invocation workstream is
+     normalizing — this step matches the existing direct-path idiom used by neighbouring steps
+     and defers Windows-path specifics to that workstream. -->
+
+Both entrypoints are idempotent: on an already-current deployed hook they no-op silently; on a
+stale or absent one they rewrite it atomically. **The common case is silent** — surface a
+one-line note in the Morning Briefing (under the environment section) ONLY when an installer
+actually repaired a stale/absent hook (e.g. _"prepare-commit-msg hook repaired (stale body)."_).
+Non-zero exit (installer absent, lib error) → one-line skip note; do not block the ceremony.
+
+## Step -0.4: Untested-Platform Advisory
+
+Before Branch Setup, warn once if this ceremony is running on a platform this repo declares
+present but has never actually verified. Silent when the
+platform is tested, or when the manifest hasn't opted into the packageability contract at all.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/untested-platform-advisory"`
+
+Relay any output verbatim in the Morning Briefing. Non-zero exit or no interpreter found →
+continue silently; this is advisory hygiene, not a gate — the helper itself always exits 0.
 
 ## Step 0: Branch Setup
 
@@ -69,21 +89,7 @@ Every off-daily ref operation requires `COORDINATOR_OVERRIDE_BRANCH=1 COORDINATO
 
 **Run the canonical Step 0 script — do not transcribe the procedure inline:**
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/workday-start-step0.sh"
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-step0"`
 
 The script encapsulates sync-main, the precedence switch (Checks 1–4 + 3.5), the rename procedure (Step 0.4), and the reconcile flow (Step 0.4.5).
 
@@ -95,46 +101,13 @@ Exit codes: `0` success; `2` `STALE-NEEDS-ABC` → invoke A/B/C flow below; `3` 
 
 ### Step 0.45: Post-Step-0 Span Assertion
 
-After the precedence switch resolves, verify the active branch's name covers today. Catches EM judgment-skips, rename failures, and silent fall-throughs.
+After the precedence switch resolves, verify the active branch's name covers today — catches EM
+judgment-skips, rename failures, and silent fall-throughs. `d-branch-span-mismatch` (Step -0.9's
+brief) carries the comparison; when it fires, surface its `detail` verbatim as a top-line
+`### Branch Span Mismatch` block (above `### Context Freshness`). Do NOT auto-rename — assertion
+is a tripwire, not a retry.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-source "$_cc_root/lib/coordinator-daily-branch.sh"
-source "$_cc_root/lib/coordinator-daily-day.sh"
-CURRENT=$(git branch --show-current)
-# Match Step 0's LOCAL clock: workday-start-step0.sh uses coordinator_local_day() so the
-# span-assertion must use the same anchor. Using date -u here would false-fire after ~17:00 in
-# UTC-negative offsets if Step 0 already renamed to the local-date span — a reverse flip-flop.
-TODAY=$(coordinator_local_day)
-SPAN_ASSERT_FAIL=
-SPAN_ASSERT_MSG=
-
-if cs_parse_branch_span "$CURRENT" > /dev/null 2>&1; then
-  END_DATE=$(cs_parse_branch_span "$CURRENT" | awk '{print $2}')
-  if [[ "$END_DATE" != "$TODAY" ]]; then
-    SPAN_ASSERT_FAIL=1
-    EXPECTED="work/$(cs_compute_machine)/$(cs_format_span_suffix "$(cs_parse_branch_span "$CURRENT" | awk '{print $1}')" "$TODAY")"
-    SPAN_ASSERT_MSG="Active branch \`$CURRENT\` does not cover today ($TODAY) — end=$END_DATE, expected rename to \`$EXPECTED\`. Step 0 Check 4 did not fire. The library helpers work; the rename was skipped at the command level. Re-run \`/workday-start\` Step 0 manually or rename inline."
-  fi
-fi
-```
-
-- **If `$SPAN_ASSERT_FAIL` is set:** surface `$SPAN_ASSERT_MSG` as a top-line `### Branch Span Mismatch` block (above `### Context Freshness`). Do NOT auto-rename — assertion is a tripwire, not a retry.
-- **If branch does not parse as `work/{machine}/...`** (named long-lived, `main`, or other authorized shape): skip silently — Check 3.5 covered it.
-- **If the branch parses and end-DD == today:** skip silently.
-
-Rationale (2026-05-18 drift): "reconcile not rotate" forbids *abandoning* the branch, not skipping the midnight rename.
+Rationale: "reconcile not rotate" forbids *abandoning* the branch, not skipping the midnight rename.
 
 ### Step 0 conflict handling — Branch Reconciliation Decision
 
@@ -149,7 +122,9 @@ When `git merge --no-ff` hits a conflict, abort and produce a **Branch Reconcili
 
 ## Step 0.5: Orphan Branch Sweep
 
-Run `orphan-branch-sweep.sh --format text --severity-min warning`. For each line returned:
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/orphan-branch-sweep" --format text --severity-min warning`
+
+For each line returned:
 
 - **CRITICAL** entries → surface in the Morning Briefing under a `### Orphan Sweep` section. Include the branch name, the merged PR number, and the count of post-merge commits. Recommend: _"Investigate before opening new work — these commits may be orphaned. Salvage via PR or consolidate into today's branch."_
 - **WARNING** entries → surface as a heads-up in the same section. Recommend: _"Open a PR or consolidate before the branch goes stale."_
@@ -159,158 +134,70 @@ Append the rendered section to the Morning Briefing template in Step 5 (after `#
 
 ## Step 0.6: Agent Worktree Sweep
 
-Claude Code 2.1.x auto-creates per-dispatch worktrees under `<repo>/.claude/worktrees/agent-<hash>/` that accumulate. Doctrine forbids worktrees as parallelism (→ `docs/wiki/dispatching-parallel-agents.md` § Worktree vs. Same-Worktree); any on disk is unintended residue. Run sweep in `--reap` mode:
+Classification and disposition (which worktree is reapable vs. needs EM/PM triage) come from Step
+-0.9's brief as `d-worktree-reap-*` directives and, for non-benign dirty worktrees, a judgment
+point — never re-classify by hand. Each directive names the existing
+`agent-worktree-sweep --reap` CLI; execute it as reached. **Why these worktrees are unintended
+residue:** git worktrees are structurally banned for parallel agent dispatch fleet-wide — they
+degrade badly on Windows (the primary machine and audience) and don't scale to a concurrent
+agentic fleet (merge/conflict/integration overhead exceeds the time parallelism saves). Any
+worktree found here is leftover from a bypass or an expired PM-permission exception, not a
+legitimate dispatch artifact.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/agent-worktree-sweep.sh" --reap --format text
-```
-
-Per-worktree disposition: `empty-clean` → removed silently. `commits-clean` → cherry-picked onto active branch (carries `COORDINATOR_OVERRIDE_BRANCH=1`), then removed (conflict aborts pick, leaves worktree intact, exit 3). `dirty-benign` (allowlist: `.claude/settings.local.json`, `.last-cleanup`) → `git worktree remove --force` — Claude Code permission auto-add residue; main worktree is authoritative. `dirty` (outside allowlist, or commits-ahead-AND-dirty) → left alone; EM triages.
-
-**Surface `### Agent Worktrees`** only when something other than empty-clean/benign-discard happened. Format: `[N] swept ([K] clean, [B] benign, [S] salvaged, [D] dirty retained, [F] salvage-conflict)` + per-path triage notes. **Do not** emit "dirty retained" under "probably benign" — if benign by allowlist, the script removed it; outside, the EM triages. (Step 0.6 not 0.5: orphan-branch-sweep matches `work/*`/`feature/*`; agent worktrees use ephemeral `worktree-agent-*` branches invisible to that pass.)
+**Surface `### Agent Worktrees`** only when a directive fired or a judgment point was raised.
 
 ## Step 0.7: Consumed-Marker Frontmatter Sync
 
 Belt-and-suspenders against handoff-frontmatter drift: EMs sometimes mark work shipped with `<!-- consumed: YYYY-MM-DD -->` body markers but forget to flip `status:`/`deployment_state:` in frontmatter, leaving unflipped records in `ready_to_fire` queries.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-node "$_cc_root/bin/normalize-consumed-frontmatter.js"
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/normalize-consumed-frontmatter"`
 
-Idempotent; one-line no-drift notice to stderr when nothing changes. Each change names file + field flips; recurring drift across days is a doctrine signal (consider `coordinator:learn-lessons`). Scans handoffs + plans + decisions + reviews. Strips `gate_dependency:` on flipped records; preserves terminal states (`superseded`, `abandoned`).
+Idempotent; one-line no-drift notice to stderr when nothing changes. Each change names file + field flips; recurring drift across days is a doctrine signal (consider `coordinator:learn-lessons`). Scans handoffs + plans + decisions + reviews. Strips `gate_dependency:` on flipped records; preserves terminal states — plan/decision axis `superseded`/`abandoned`, handoff axis `shipped`/`continued`/`closed`.
 
 ## Step 0.8: Stale-Executing Plan Nudge
 
-*Lesson 2026-05-16, project-rag — session-init orphan-sweep archives handoffs without running workstream-end ceremony.* When `session-init.sh` silently archives an orphaned handoff, the driving plan in `docs/plans/` stays `status: executing` forever. This step catches that — plans whose handoff was silently archived, or where code landed without the EM flipping the plan to `implemented`.
+The stale-executing-plan advisory (plans whose driving handoff was silently archived by the
+boot-time sweep, or where code landed without the EM flipping the plan to `implemented`) is one
+of Step -0.9's handoff-triage directives — surface its `detail` verbatim; don't re-query.
+Triage: flip to `status:implemented`, `status:abandoned`, or pick back up.
 
-```bash
-# Advisory: list plans with status:executing untouched >3 days (git mtime).
-for plan in docs/plans/*.md; do
-  [[ -f "$plan" ]] || continue
-  awk '/^---$/{n++; next} n==1' "$plan" 2>/dev/null | grep -qE '^status:[[:space:]]*executing' || continue
-  last_commit=$(git log -1 --format=%ct -- "$plan" 2>/dev/null)
-  [[ -z "$last_commit" ]] && continue
-  age_days=$(( ($(date +%s) - last_commit) / 86400 ))
-  [[ "$age_days" -gt 3 ]] && echo "  - $plan (status: executing, untouched ${age_days}d)"
-done
-```
-
-Advisory only — never blocks. Recurring entries across runs are the doctrine signal. Triage: flip to `status:implemented`, `status:abandoned`, or pick back up.
-
-**Also read `tasks/orphan-sweep-notes.md` if present** — `session-init.sh` appends a line per orphan-archive event. Surface alongside the stale-executing list, then rotate (preserve 4-line header):
-
-```bash
-if [[ -f tasks/orphan-sweep-notes.md ]] && [[ $(wc -l < tasks/orphan-sweep-notes.md) -gt 4 ]]; then
-  echo "Orphan handoffs archived by session-init since last workday-start:"
-  tail -n +5 tasks/orphan-sweep-notes.md
-  head -n 4 tasks/orphan-sweep-notes.md > tasks/orphan-sweep-notes.md.new && mv tasks/orphan-sweep-notes.md.new tasks/orphan-sweep-notes.md
-fi
-```
+**Also read `tasks/orphan-sweep-notes.md` if present** — the boot-time archival sweep
+(claude-klabauter `coordinator_core/ops/session/boot_sweep.py`) appends a line per orphan-archive
+event; not assembler-owned (it mutates disk to rotate). Surface alongside the stale-executing
+list, then rotate (preserve 4-line header) via: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-handoff-triage" trim-notes`
 
 Non-empty on days when concurrent sessions died mid-pickup overnight.
 
 ## Step 1: Handoff Triage
 
-Query-driven, not grep-driven. Two `bin/query-records` calls — sub-second by construction.
+Query-driven, not grep-driven. Actionable-now and awaiting-gate handoff triage are Step -0.9
+directives (`d-handoff-triage-*`, ported from `workday-start-handoff-triage`'s `ready`/
+`awaiting-gate` subcommands) — surface their `detail` verbatim; don't re-query.
 
 ### Step 1.1: Actionable-now handoffs
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-records.sh" --type handoff \
-  --where "deployment_state=ready_to_fire AND status=active" \
-  --sort "-created" --format markdown-list
-```
-
-Routing on `kind:` (spinoffs cluster separately):
+Routing on `kind:` (spinoffs cluster separately) when rendering the directive's detail:
 
 - **`kind: spinoff` and `kind: spinoff-roadmap`** — both are pickup-able forks. List together in a "Spinoffs awaiting pickup" subsection. `spinoff-roadmap` rows additionally cluster by `roadmap_id:` (group all stubs from a single roadmap-planning run) — surface roadmap heading + stub count, not raw rows, when `roadmap_id` is non-empty and the count > 3.
 - **`kind: session-handoff`** (or absent) and **`kind: recovery`** — list together in a "Continuation handoffs" subsection. Recovery rows get a `(recovery)` suffix so the PM can see at a glance which continuations came from a crashed/killed prior session.
 
 ### Step 1.2: Gated handoffs (always surface count; flag stale subset)
 
-Two queries — first lists everything `awaiting_gate`, second flags the stale subset:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-records.sh" --type handoff \
-  --where "deployment_state=awaiting_gate AND status=active" \
-  --sort "-created" --format markdown-list
-
-"$_cc_root/bin/query-records.sh" --type handoff \
-  --where "deployment_state=awaiting_gate AND status=active" \
-  --older-than 6d --format markdown-list
-```
-
 - **If any `awaiting_gate` exist:** surface the full list as a "Gated handoffs" subsection (titles + gate_dependency, not bodies). Morning briefing is the right surface for cross-workstream gate awareness — silently filtering them buries actionable triage decisions (clear gate, retarget, pick up early).
 - **If any are >6 days old (≈ one working week):** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage, PM clear-gate, or close out."_
 - **If none exist:** skip silently.
 
-**Mechanized 14d/7d aging check.** The `--older-than 6d` query above is a coarse informational nudge; the load-bearing 14d/7d force-recheck predicate (docs/wiki/spinoff-handoffs.md § "Awaiting_gate aging") is mechanized separately — run it against `state/handoffs/` once the `awaiting_gate` query above returns any rows:
+**Standalone 14d/7d aging check — retired as a batch nag.** This step used to also force-invoke `bin/handoff-gate-aging` against `state/handoffs/` and surface a separate "past the 14d/7d force-recheck threshold" line. Dropped because `coordinator_core.reconcile.gate_eval` (the resolver every gate-eval-driven pass already runs) surfaces every `awaiting_gate` handoff that needs a human look — via `blocking_notes`/prose `gate_dependency` dominance — unconditionally of calendar age; the "Gated handoffs" full-list surface + the `>6d` nudge two bullets above already give the PM everything the retired check added for that population. The one bucket the resolver never surfaces (real, still-open structured `blocked_by` edges, nothing wrong — `evaluate_gate`'s `not-cleared` verdict) is a deliberate quiet design in `gate_eval.py` itself, not a gap for this ceremony to re-nag around. Full evidence + disposition: `coordinator_core.ops.handoff_gate_aging` module docstring. The predicate itself is not deleted — `handoff-gate-aging` stays runnable ad hoc, and `pickup-assemble` still surfaces it per-handoff as `jgate` evidence.
 
-```bash
-bash "$_cc_root/bin/handoff-gate-aging.sh" state/handoffs
-```
+**Mechanized draft-plan staleness check.** Parallel check for orphaned draft plans — run it against `docs/plans/` unconditionally (not gated on the `awaiting_gate` query above):
 
-- **Exit `1`** (stale handoffs found, one line each): surface under "Gated handoffs" as _"{N} awaiting_gate handoffs past the 14d/7d force-recheck threshold — run `/pickup` Step 3.d aging reconcile, or PM clear-gate."_ List the flagged paths.
-- **Exit `0`** (nothing stale): skip silently — the `--older-than 6d` line above already covers the softer 6d nudge.
-- **Exit `2`** (parse error — missing `created:` field, unparseable date): surface the stderr diagnostic verbatim under "Gated handoffs"; do not silently drop the malformed record.
-
-**Mechanized draft-plan staleness check.** Parallel check for orphaned draft plans (docs/wiki/coordinator-tripwires.md § DRAFT-PLAN-AGING) — run it against `docs/plans/` unconditionally (not gated on the `awaiting_gate` query above):
-
-```bash
-bash "$_cc_root/bin/draft-plan-aging.sh" docs/plans
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/draft-plan-aging" docs/plans`
 
 - **Exit `1`** (stale draft plans found, one line each): surface under a "Stale draft plans" subsection with a decision prompt — _"{N} draft plans older than 14d with no recent real-work commits and no owning baton — execute / archive / close-DR?"_ List the flagged paths.
 - **Exit `0`** (nothing stale): skip silently.
 - **Exit `2`** (internal error): surface the stderr diagnostic verbatim under "Stale draft plans"; do not silently drop the malformed record.
+- **Exit `3`** (claude-klabauter-link transport failure — the trampoline's own dedicated code, distinct from the `2` internal-error business code): surface the stderr diagnostic verbatim under "Stale draft plans"; a real claude-klabauter-link outage must be visible, not silently treated as "no stale plans."
+- **Any other exit code:** treat as transport/internal failure too — surface the stderr diagnostic verbatim under "Stale draft plans" rather than silently skipping.
 
 ### Step 1.3: Reconcile pending items against git (MANDATORY before declaring any item actionable)
 
@@ -318,46 +205,15 @@ Per-handoff in `ready_to_fire`: (a) `git log --oneline --since="<handoff-date>" 
 
 ### Step 1.4: Cross-reference against completed archive (sanity check)
 
-Query the completed archive for recent entries:
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-completions.sh" --where "created>=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d)" --sort "created" --format json
-```
+Query the completed archive for recent entries: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --where "created>=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d)" --sort "created" --format json`
 
-**Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/YYYY-MM.md` exists, read the legacy monolith for this reconciliation check only (read-only; no writes to the legacy path).
+**Legacy fallback:** if `query-completions` returns empty AND `archive/completed/legacy/<YYYY-MM>.md` exists, read the legacy monolith for this reconciliation check only (read-only; no writes to the legacy path).
 
 For each `ready_to_fire` handoff, check whether the work it describes appears as completed in the query results — match on workstream names, feature names, commit hashes, or distinctive keywords. If a match is found, flag it: _"Handoff [file] describes [work] — archive/completed shows this shipped on [date] (commit: [hash]). Likely already done — pick up to confirm and archive, or close out?"_
 
 ### Step 1.47: Sweep shipped handoffs (deployment-axis archival)
 
-Run the shipped-handoff sweep — idempotent, concurrency-safe, safe to run every `/workday-start`:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/sweep-shipped-handoffs.sh"
-```
+Run the shipped-handoff sweep — idempotent, concurrency-safe, safe to run every `/workday-start`: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/sweep-shipped-handoffs"`
 
 Surface the one-line output in the Morning Briefing under `### Handoffs`:
 - If handoffs were archived: include the summary line (e.g. _"3 shipped handoffs archived."_).
@@ -366,33 +222,51 @@ Surface the one-line output in the Morning Briefing under `### Handoffs`:
 
 Non-zero exit (script absent, lib error) → one-line note ("shipped-handoff sweep skipped: \<reason\>"); do not block.
 
-### Step 1.475: Reap orphaned in_flight handoffs (crash-orphan sweep)
+### Step 1.473: Promote shipped claimed/in_flight spinoff-roadmap stubs
 
-<!-- Review: code-reviewer F1 — reaper had no caller; wired here mirroring Step 1.47's
-     session-boot-gated, idempotent sweep pattern so crash-orphaned consumed+in_flight
-     handoffs get closed out instead of accumulating forever. -->
+<!-- Interim closer — retire this step once lvv-09's claimed/in_flight branch (Branch C)
+     lands in /workday-complete. -->
 
-Run the crash-orphan reaper — idempotent, concurrency-safe, safe to run every `/workday-start`. It never mutates frontmatter directly (delegates to `handoff-transition.js supersede`); only a `consumed_by:` session confirmed dead via the shared liveness predicate is reaped:
+<!-- Ordering note: this closer MUST run before Step 1.475's reaper scan. The reaper's
+     scan predicate (status==claimed && deployment_state==in_flight, no kind: filter)
+     overlaps this closer's scan set on claimed spinoff-roadmap in_flight stubs, but the
+     two decisions are disjoint — this step decides deliverable-shipped, the reaper decides
+     holder-liveness. Promoting a shipped stub to terminal `shipped` here means Step 1.475's
+     liveness gate finds it already terminal and skips it, instead of reaping a live
+     deliverable stub as a crash orphan. Closer-before-reaper ordering plus the closer's
+     single TOCTOU re-read (immediately before its stamp/ship sequence begins) closes the
+     interleaving window between a closer run and a reaper run. A narrower residual race
+     remains between the closer's OWN stamp and ship sub-steps (the TOCTOU read is not
+     repeated between them): if a concurrent writer flips the record to `closed` in that
+     window, the closer still proceeds to ship. This residual is correct-by-construction
+     rather than merely acceptable — the closer only reaches ship after its stamp already
+     landed a real `shipped_in` SHA, so the deliverable genuinely shipped on origin/main;
+     last-writer-wins between the two terminal outcomes (shipped vs closed) resolves to
+     the semantically correct state, not an arbitrary race winner. Both outcomes are
+     terminal, strictly better than the pre-existing unbounded-in_flight gap. -->
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/reap-orphaned-in-flight-handoffs.sh"
-```
+Run the shipped-spinoff-roadmap-stub closer — idempotent, concurrency-safe, safe to run every `/workday-start`: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/promote-shipped-in-flight-stubs"`
 
 Surface the one-line output in the Morning Briefing under `### Handoffs`:
-- If handoffs were reaped: include the summary line (e.g. _"2 orphaned in_flight handoffs reaped."_).
-- If nothing was reaped (_"no orphaned in_flight handoffs reaped"_): skip silently.
+- If any promotion happened, or either advisory line fired: include it verbatim. There are two, and they mean different things — _"N in_flight spinoff-roadmap stubs resolved no-resolving-commits ..."_ is "confirmed not shipped yet"; _"... rollup-derive reported unknown-error — could not determine ship-state ..."_ is "the question could not be answered", most often a stale or unfetched `origin/main` on this box. The second is advisory rather than loud on purpose — going loud there rebuilds the morning false-alarm — but reading it aloud is what stops a box that answers "nothing to promote" every morning from looking clean.
+- If silent (nothing promoted, no advisory): skip silently.
+
+Non-zero exit (script absent, lib error) → one-line note ("shipped-stub promotion skipped: \<reason\>"); do not block.
+
+### Step 1.475: Reap orphaned in_flight handoffs (crash-orphan sweep)
+
+Step -0.9's brief accepts one subprocess call to this CLI's `--dry-run` mode (the sole
+zero-spawn-budget exception in the assembler) and, when the dry-run finds anything to release or
+reclaim, names the live CLI as `d-reaper-orphaned-handoffs` — execute it as reached. It never
+mutates frontmatter directly (delegates to `archive-stamp-cli`'s `unconsume-handoff` verb);
+dual-reads `status: consumed | claimed` and only a claim whose session is confirmed dead
+via the shared liveness predicate has its claim released — the handoff returns to the pool
+(`status: open`, `deployment_state: ready_to_fire`, claim fields stripped, a `park_note:`
+recording the release) and stays in `state/handoffs/`, never auto-abandoned or archived. A dead
+holder that ran a genuine terminal completion ceremony still stamps `shipped`.
+
+Surface the directive's `detail` in the Morning Briefing under `### Handoffs`; nothing to render
+when the assembler emitted no directive.
 
 Non-zero exit (script absent, not inside a git repo) → one-line note ("orphan-reap sweep skipped: \<reason\>"); do not block.
 
@@ -400,68 +274,111 @@ Non-zero exit (script absent, not inside a git repo) → one-line note ("orphan-
 
 _"{N} actionable handoffs ({K} continuations, {S} spinoffs incl. {R} roadmap stubs in {G} groups). {G} awaiting_gate (of which {M} >6 days) [if any]. {X} items verified-closed by git reconciliation."_ Omit any clause whose count is zero.
 
-### Step 1.48: Refresh DoE handoff-tracker aggregate
-
-`state/doe-handoff-tracker.md` is the cross-repo DoE roll-up of every reachable sibling repo's handoffs/spinoffs/memos. Unlike the per-repo `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff` inside each repo), no per-repo ceremony reaches across the DoE — so without a daily render hook the aggregate goes stale silently. Run it here unconditionally; the script is a pure render (idempotent, ~100ms) and silently skips repos not present on this machine:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-node "$_cc_root/bin/render-handoff-tracker.js" --all-repos 2>&1 | tail -3
-```
-
-No surfacing required — the file's freshness is the signal. Errors (machine-local CLI missing, no roots configured) → one-line note in the Morning Briefing under `### Handoffs` ("DoE tracker refresh skipped: <reason>"); do not block.
-
 ## Step 1.45: Outstanding Cross-Repo Memos
 
-Run `workday-start-cross-repo-memo-surface.sh`. Non-empty → surface verbatim under `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.45`.
+Inbound-memo judgment points (`j-memo-*`) come from Step -0.9's brief — resolve each as
+Accept / Decline / Surface-to-PM before proceeding; never silently auto-resolve. Surface under
+`#### Outstanding cross-repo memos (DoE attention):`.
 
-Run `workday-start-cross-repo-memo-outbox-surface.sh`. Non-empty → surface verbatim under `#### Outbox drafts awaiting send (DoE attention):`. Empty → skip. Details: `pipelines/workday-start-internals.md § Step 1.46`.
+**Route-to-baton default:** any surfaced memo — likewise any review finding or triage item encountered during this ceremony — whose subject falls inside the scope of an active handoff (`state/handoffs/*.md`, `status: open|claimed`) gets a routing note appended into that handoff under a dated `## Routed from inbox triage (<YYYY-MM-DD>)` heading (source path cited, handoff frontmatter untouched), and that edit committed with pathspec, as a matter of course. Not held in session context, not left inbox-only, not asked per-instance. The memo's own lifecycle flip still happens only in the `/pickup` memo branch.
+
+Outbox drafts are not assembler-owned — run `workday-start-cross-repo-memo-outbox-surface.py`. Non-empty → surface verbatim under `#### Outbox drafts awaiting send (DoE attention):`. Empty → skip.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-cross-repo-memo-outbox-surface"`
+
+### Step 1.45a: Inbox blitz — count-and-age escalation
+
+The inbox is the one recurring backlog directory with no batch move over it (`state/bug-backlog/` has `/bug-blitz`, `state/lessons/` has `/learn-lessons`, the debt backlog has `/debt-triage`). Its failure mode is **accretion, not volume** — no single day looks bad enough to act on, and sixteen days later there are sixty memos. This step is that batch move, housed here rather than in a skill of its own: the ceremony that already looks at the inbox every morning is the right place to notice it has grown. **There is deliberately no `/inbox-blitz` skill** (skill-accumulation aversion) — do not re-house this.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-inbox-blitz-assemble"`
+
+One JSON object on stdout. Route on `state`:
+
+- `skipped` — claude-klabauter unresolvable or `memo.blitz_buckets` unregistered. Render nothing; never nag about claude-klabauter's activation state.
+- `inventory` — **neither** trigger leg tripped. The plain Step 1.45 inventory above stands unchanged; add nothing.
+- `escalate` — **either** leg tripped (open count over threshold **or** oldest open memo over the age threshold; defaults 10 / 7 days, both tunable). Surface the counts under `#### Inbox blitz (N open, oldest Nd)` and run the blitz.
+
+**The age leg is the load-bearing one.** A count-only trigger never fires on slow accretion, which is the observed failure mode.
+
+On `escalate`, dispatch **one Sonnet agent per entry in `dispatches[]`** — fyi-tier, dominant correspondent, rest — passing that entry's `brief` **verbatim** and its `memos[]` as scope. The briefs are engine-generated, not paraphrased here, because three of their clauses are non-negotiable and each was earned by a concrete finding: the **fyi sweep is not a rubber stamp** (the sender labels `fyi` from their own vantage and cannot know what is load-bearing for the receiver — this is what surfaced a break-class contract defect), **supersession precedes classification** (or real effort goes into classifying dead asks), and **verification is mandatory** (a memo saying "your X is broken" is a claim to check, not a fact to record). Retyping a brief is how a clause gets dropped; paste it.
+
+Classification vocabulary is fixed in those briefs: DISPATCH-TO-FIX / DISPATCH-TO-IMPLEMENT / PLAN-WEIGHT / REPLY-ONLY / SUPERSEDED. Fix and implement stay split — both dispatch, but repairing a defect and building a surface want different briefs and different verification.
+
+`supersession_candidates[]` are **candidates**, never confirmations: confirming that a later memo *resolves* an earlier one rather than merely touching the same topic is judgment and stays with the EM. Loose matching drops live asks.
+
+When the reports land, group PLAN-WEIGHT items by problem/solution space and cut **one baton per space, not per memo** (`plan_weight_note` carries this verbatim) — the reason is concurrency safety on a shared worktree, not tidiness. Route into an existing open baton wherever one covers the space; that is the route-to-baton default already standing above.
 
 ## Step 1.55: Recent Roadmap Orientation
 
-Surface last quarter's top-10 roadmap completions by size — grounding the day in recent delivery context. Per `docs/wiki/orientation-surfacing-doctrine.md` count-always pattern: heading renders regardless of row count.
+Surface last quarter's top-10 roadmap completions by size — grounding the day in recent delivery context. Count-always pattern: the heading renders regardless of row count.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-records.sh" --type completion --since "90d" --where "nature=roadmap" \
-  --sort "-loe.tshirt" --limit 10 --format markdown-list
-```
+Run: `python3 "<claude-klabauter-root>/coordinator/bin/lib/records_query.py" completion "nature=roadmap" markdown-list 10 --sort "-loe.tshirt" --since "90d"` (`<claude-klabauter-root>` resolved via `$REPO_CLAUDE_KLABAUTER` / `machine-local get repos.claude_klabauter`).
 
-Render under `#### Recent roadmap (last 90d, top-10 by size)` inside `### Handoffs` (Step 5). One bullet per row; `(none)` when zero rows (expected on new/un-migrated repos). `query-completions.sh` with equivalent flags is also accepted.
+Render under `#### Recent roadmap (last 90d, top-10 by size)` inside `### Handoffs` (Step 5). One bullet per row; `(none)` when zero rows (expected on new/un-migrated repos). `query-completions.py` with equivalent flags is also accepted.
 
 ## Step 1.6: Coordinator-Improvement Queue Check
 
-Read the central improvement queue (`$(coordinator_state_root --central)/coordinator-improvement-queue.md`, example-orchestration-hub-resident — see `docs/wiki/state-placement-law.md`) (if it exists). Count `- ` lines in `## Active queue`; note the oldest date and any entries carrying `[recurring: ≥3]` on the main line (DR-056 amended 2026-05-17 — main-line-only schema).
+Read the central improvement queue (resolved via `coordinator-state-root.py --central`'s `improvement-queue/*.yaml`, structured per-entry YAML, claude-klabauter-resident) and the local queue (`state/improvement-queue/*.yaml`, if present in current repo) via the block below. Count `*.yaml` files as active entries per queue; oldest = earliest dated filename (`YYYY-MM-DD-*.yaml`). `[recurring: ≥3]` is now a per-entry field read from inside each YAML entry (not a main-line markdown schema) — read matching entries to surface any.
 
-Also read `state/improvement-queue.md` (if present in current repo). Count its `## Active queue` entries.
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-advisory-counters" improvement-queue` (emits one line of JSON: central + local entry counts, oldest-by-filename, and any `recurring` flags).
 
 Surface in the Morning Briefing when notable: central ≥ 5 entries, oldest >14 days, any `[recurring: ≥3]`, or local ≥ 1. EM advocates based on depth — judgment, not a threshold trigger. Skip silently when both queues are empty or absent.
 
+Also check `state/cross-repo-commitments/` (directory of YAML entries; if present) — count entries with `status: open`. Surface alongside the queue counts when ≥1: _"N open sibling commitments — oldest Nd (computed from `observed`)"_. Skip silently when the directory is absent or empty.
+
 ## Step 1.65: Bug Backlog Depth Check
 
-Read `state/bug-backlog.md` (if it exists). Count P1+P2 data rows (stop before `## Resolved`; exclude headers and separators). Surface in the Morning Briefing when ≥ 10: moderate (10–19) → `/bug-blitz` suggestion; heavy (≥ 20) → stronger nudge. Skip silently if absent or <10.
+Read `state/bug-backlog/*.yaml` (structured per-entry YAML dir; if it exists). Use `bin/query-records --type bug --where 'severity in (P1,P2) AND status=open' | wc -l` to count open P1/P2 items. Surface in the Morning Briefing when ≥ 10: moderate (10–19) → `/bug-blitz` suggestion; heavy (≥ 20) → stronger nudge. Skip silently if the `state/bug-backlog/` directory is absent/empty or the count is <10.
+
+## Step 1.66: Test-Red Delta Surface
+
+Companion advisory to Step 1.65 — same altitude, same non-blocking counter shape, one more
+morning surface rather than a new ceremony phase. This step consumes the record `state/test-red/<machine>.yaml`
+emits per tier. **`failing` is tri-state**, not a plain list: a YAML list (including `[]`) is
+authoritative (`[]` means authoritatively clean); `null` means red but the failing set could not be
+derived from this run's output — never treated as green, and never folded into a `cleared` delta.
+**Comparison baseline:** `acknowledged.baseline` when an acknowledgement is present and not voided,
+otherwise `previous.failing`. **Delta vocabulary:** `new` (in current `failing[]`, absent from the
+baseline), `cleared` (in the baseline, absent from current), `persistent` (in both). **An
+acknowledgement is VOID** — treat as absent, surface the full current red set — when its `owner`
+artifact is unresolvable/unparseable, or when `expires_at` (default `acknowledged_at` + 14 days) has
+passed.
+
+Resolve the machine token via `machine-local get coordinator.machine_slug`, then check for
+`state/test-red/<machine>.yaml` (per-tier mapping, e.g. `tiers: {fast: {...}, plugin-ecosystem:
+{...}}`). **Absent or malformed record → emit nothing, silently** — this is the expected state on
+every machine until the claude-klabauter-side emitter lands (C0/AC6), not a health regression.
+
+When the record exists and parses, evaluate each tier against the wiki's surfacing rule and
+render as a conditional bullet row under the combined `### Orphan Sweep / Agent Worktrees /
+Auto-Push Health / Addon Health / Test-Red Delta` heading in Step 5's Morning Briefing template
+— non-empty only:
+
+- **`new` non-empty** (vs. `acknowledged.baseline` when present and unvoided, else
+  `previous.failing`): _"Test-red: {tier} — {N} new failure(s) since {baseline source}:
+  {list}."_
+- **`acknowledged` null or voided, and `failing[]` non-empty:**
+  - **void-on-doubt** (owner unresolvable): _"Test-red: {tier} — acknowledgement void: owner
+    `<path>` unresolvable. {N} failures unsuppressed: {list}."_
+  - **void-on-expiry:** _"Test-red: {tier} — acknowledgement expired `<date>`, owner `<path>`
+    still open. {N} failures unsuppressed: {list}."_
+  - **no acknowledgement at all:** _"Test-red: {tier} — {N} unacknowledged failures: {list}."_
+- **acknowledged owner artifact closed/terminal while `failing[]` still non-empty:**
+  _"Test-red: {tier} — owning work `<path>` closed but {N} failures remain: {list}."_
+- **`failing` is `null`:** _"Test-red: {tier} — red, failing set unavailable (run at {ran_at},
+  runner: {runner})."_ Never treat this as green; never fold it into a `cleared` computation.
+
+Each of the four branches above (`new`, void-on-doubt, void-on-expiry, `failing: null`) is a
+distinct line — do not collapse any of them into the absent-record skip path, and do not
+collapse void-on-doubt and void-on-expiry into a single generic "void" line; their reasons
+differ and both must be visible.
+
+**An acknowledged, unexpired red set whose delta is all-`persistent` produces no output at
+all** — same convention as Step 1.6's cross-repo-commitments check ("Skip silently when the
+directory is absent or empty"): silence is the correct response to nothing actionable, not a
+gap in coverage.
+
+Never run the test tier. Never block the ceremony on this step's outcome.
 
 ## Step 1.7: Scheduled Rechecks
 
@@ -472,13 +389,37 @@ Glob `tasks/cookbook-recheck-due-*.md`, `state/inspiration-recheck-due-*.md`, `s
 
 No marker files → skip silently. Do not auto-execute — PM-actioned, not auto-dispatched.
 
+## Step 1.72: Outstanding Provisional Decisions
+
+Daily catch for the failure class D1's conservation assertion does not cover — an
+unexecuted staged decision (ratification, second rollout stage, park-note hold) sitting in
+a plan's `provisional_until:`/`revisit_by:` frontmatter with no reconciler candidate ever
+involved. Chosen over `/workweek-start` because this class went undetected for 13 days on
+the motivating case; a daily cadence bounds recurrence tighter than a weekly one.
+
+Run: `"${COORDINATOR_PYTHON:-python3}" "$CLAUDE_PLUGIN_ROOT/coordinator/lib/check-provisional-expiry.py" docs/plans`
+
+- **Exit `1`** (expired provisional decisions found, one `EXPIRED:` line each): surface
+  under a "Provisional Decisions" subsection with a decision prompt — _"{N} plans have an
+  expired provisional_until/revisit_by date — ratify, extend the date with a reason, or
+  flip the plan terminal (implemented/deferred/abandoned/superseded)?"_ List the flagged
+  lines verbatim.
+- **Exit `0`** (nothing expired): skip silently.
+- **Exit `2`** (internal error — missing path, unparseable date): surface the stderr
+  diagnostic verbatim under "Provisional Decisions"; do not silently drop the malformed
+  record.
+
+DoE-side detector, no claude-klabauter involvement. Read-only — never auto-resolves a flagged plan.
+
 ## Step 1.75: Central Learn-Lessons Volume Trigger
 
-Run `central-run-due.sh` (relative to the coordinator plugin root). It counts `[universal]`
+Run `central-run-due.py` (relative to the coordinator plugin root). It counts `[universal]`
 entries accrued across the configured roots since the last **COMPLETE** central run and compares to
 `central_volume_threshold` (config, default 150). This is the *volume* companion to the date-based
-recheck marker (Step 1.7): a fixed cadence under-runs in busy weeks, when the sibling `lessons.md`
+recheck marker (Step 1.7): a fixed cadence under-runs in busy weeks, when the sibling `state/lessons/`
 boot-surface floor balloons fastest.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/central-run-due"`
 
 - **Prints a `CENTRAL_RUN_DUE` line** (over threshold): surface in Priority Suggestions —
   _"Central learn-lessons due (volume): {N} universals accrued since {date}. Consider `/learn-lessons` central."_
@@ -490,30 +431,23 @@ unreachable roots are skipped silently (the date-based marker in Step 1.7 still 
 
 ## Step 1.8: Project-RAG Preamble Drift Check
 
-Run `verify-preamble-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator/bin/verify-preamble-sync.sh`).
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/verify-snippet-sync" project-rag-preamble`
 
 - **No consumers found** (exit 0): skip silently.
 - **All consumers OK** (exit 0, all `OK`): skip silently.
-- **Any MISMATCH or MISSING_END** (exit non-zero): surface under **Preamble Drift**: _"project-rag-preamble drift in [N] consumer(s): [list files]. Run `verify-preamble-sync.sh --fix` to repair, then commit all touched files together."_
+- **Any MISMATCH or MISSING_END** (exit non-zero): surface under **Preamble Drift**: _"project-rag-preamble drift in [N] consumer(s): [list files]. Run `verify-snippet-sync project-rag-preamble --fix` to repair, then commit all touched files together."_
 
 **Do NOT auto-fix** — investigate which consumer drifted and why; a drift may need to be merged back into the canonical snippet rather than overwritten.
 
 ## Step 1.82: CLAUDE_PLUGIN_ROOT Source-Guard Drift Check
 
-Run `verify-cc-root-source-guard-sync.sh` (relative to the coordinator plugin root, typically `~/.claude/plugins/coordinator/bin/verify-cc-root-source-guard-sync.sh`).
-
-- **All files OK** (exit 0): skip silently.
-- **Any UNGUARDED** (exit non-zero): surface under **Source-Guard Drift**: _"CLAUDE_PLUGIN_ROOT guard missing in [N] file(s): [list files]. Run `verify-cc-root-source-guard-sync.sh --dry-run` to preview, then `--fix` to insert, then commit all touched files together."_
-
-**Auto-fix is safe** — the `--fix` pass is idempotent and the guard is mechanically derived (no judgment call per occurrence). Unlike the preamble-sync step, the source guard is a mechanical insertion with no per-site judgment calls — auto-fix does not require investigative review before running. Review the dry-run diff before committing. <!-- Review: code-reviewer (C-F4) — added discriminator sentence making the contrast with Step 1.8 explicit -->
+No automated enforcement runs here — the fixer that used to is retired with no replacement CLI yet named. Manual spot-check: grep the anchored `_cc_trusted=0` initializer across the corpus for any `="${CLAUDE_PLUGIN_ROOT:-` resolve-site missing the trusted-prefix guard core on the immediately following lines. Any drift found by that manual check surfaces under **Source-Guard Drift** and routes to the PM.
 
 ## Step 1.85: Daily-Wrap Coverage Gap Detector
 
 Morning is the T+1 catch point for a skipped `/workday-complete`: a day that ran sessions but never wrapped leaves no `archive/daily-summaries/<day>.md` and no `state/week-changelog/<day>-<machine>.md` block, and nothing in the cadence surfaces it until someone eyeballs the changelog dir (the weekly staleness nudge is too coarse). This step closes that loop — it reuses the **same scanner** that `/workday-complete` Step 3.5 uses to backfill, run here read-only as a nudge.
 
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/workday-complete-backfill-scan.sh" --lookback 7
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-backfill-scan" --lookback 7`
 
 - **Empty output:** no gap — skip silently (the healthy common case).
 - **Non-empty:** surface a single non-blocking nudge under **Daily-Wrap Coverage**:
@@ -523,66 +457,23 @@ bash "${CLAUDE_PLUGIN_ROOT}/bin/workday-complete-backfill-scan.sh" --lookback 7
 
 **Why 7 here vs 14 in `/workday-complete` Step 3.5:** the morning nudge uses the tighter 7-day window to surface the most-recent gap week and reduce noise; older gaps (8–14d) remain silently handled by `/workday-complete` Step 3.5's 14-day backfill.
 
-> Convergence: project-rag-em independently requested this morning-side detector (cross-repo memo 2026-06-23) as the complement to the workday-complete backfill. Scanner: `bin/workday-complete-backfill-scan.sh` (shared with `/workday-complete` Step 3.5).
+> Convergence: this morning-side detector complements the workday-complete backfill. Scanner: `bin/workday-complete-backfill-scan.py` (shared with `/workday-complete` Step 3.5).
 
 ## Step 1.86: Completion-Entry Reconcile Backstop
 
-Next-session backstop for sessions that closed mid-air without a terminal ceremony (`/workday-complete`, `/handoff`, or `/workstream-complete`). Detects any `pending-release` completion entry authored by a prior session that has `Session-Id:`-trailer commits not yet recorded in its `commits:` list — the gap the within-session ceremonies cannot catch when a session ends abnormally.
+Next-session backstop for sessions that closed mid-air without a terminal ceremony (`/workday-complete`, `/handoff`, `/workstream-complete`, or `/quick-wrap`). Detects any `pending-release` completion entry authored by a prior session that has `Session-Id:`-trailer commits not yet recorded in its `commits:` list — the gap the within-session ceremonies cannot catch when a session ends abnormally.
 
 Bounded scan: today + the immediately-prior calendar day only (not the whole archive). Detect mode only — never auto-mutates another session's entry. Keyed on the entry's own `authored_by:` field; works without the prior session being live.
 
-```bash
-_WDS_TODAY=$(date +%Y-%m-%d)
-_WDS_YESTERDAY=$(date -d 'yesterday' +%Y-%m-%d 2>/dev/null || date -v-1d +%Y-%m-%d)
-_WDS_RECONCILE="${CLAUDE_PLUGIN_ROOT}/bin/reconcile-completion-commits.sh"
-for _wds_month_dir in archive/completed/*/; do
-  [[ -d "$_wds_month_dir" ]] || continue
-  for _wds_entry in "$_wds_month_dir"*.md; do
-    [[ -f "$_wds_entry" ]] || continue
-    # Bounded scan: today + immediately-prior day only
-    _wds_created=$(awk '/^---$/{n++; next} n==1 && /^created:/{sub(/^created:[[:space:]]*/,""); print; exit}' "$_wds_entry" 2>/dev/null)
-    [[ "$_wds_created" == "$_WDS_TODAY" || "$_wds_created" == "$_WDS_YESTERDAY" ]] || continue
-    # pending-release entries only
-    _wds_status=$(awk '/^---$/{n++; next} n==1 && /^status:/{sub(/^status:[[:space:]]*/,""); print; exit}' "$_wds_entry" 2>/dev/null)
-    [[ "$_wds_status" == "pending-release" ]] || continue
-    # authored_by guard: skip null/absent (literal "null" passes the session-id allowlist regex — do NOT pass it)
-    _wds_authored_by=$(awk '/^---$/{n++; next} n==1 && /^authored_by:/{sub(/^authored_by:[[:space:]]*/,""); sub(/[[:space:]]*#.*$/,""); gsub(/^"|"$/,""); print; exit}' "$_wds_entry" 2>/dev/null)
-    if [[ -z "$_wds_authored_by" || "$_wds_authored_by" == "null" ]]; then
-      echo "⚠ entry $(basename "$_wds_entry"): unscopable (no authored_by) — manual reconcile check"
-      continue
-    fi
-    # Detect mode only — read-only; a different session authored this entry, never --append
-    _wds_result=$("$_WDS_RECONCILE" --session-id "$_wds_authored_by" "$_wds_entry" 2>/dev/null)
-    _wds_rc=$?
-    if [ "$_wds_rc" -ne 0 ]; then
-      echo "⚠ reconcile helper failed for $_wds_entry (rc=$_wds_rc) — manual check" >&2
-      continue
-    fi
-    _wds_delta=$(printf '%s' "$_wds_result" | grep -o 'delta=[0-9]*' | cut -d= -f2)
-    if [[ -n "$_wds_delta" && "$_wds_delta" -gt 0 ]]; then
-      echo "⚠ completion entry $(basename "$_wds_entry") has $_wds_delta session commit(s) not accounted (authored by a prior session) — reconcile."
-    fi
-  done
-done
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-reconcile-sweep"`
 
-Surface any output under **Completion Reconcile** in the Morning Briefing. Empty output → skip silently. Informational only — never auto-mutates another session's entry. The `reconcile-completion-commits.sh` helper's `--append` flag is used by within-session ceremonies (`/workday-complete` Step C3, `/handoff` Step C4); this backstop calls it in detect mode only.
-
-<!-- Spec backlink: docs/plans/2026-06-27-post-summary-completion-loop-closure.md § C5 -->
+Surface any output under **Completion Reconcile** in the Morning Briefing. Empty output → skip silently. Informational only — never auto-mutates another session's entry. The `reconcile-completion-commits.py` helper's `--append` flag is used by within-session ceremonies (`/workday-complete` Step C3, `/handoff` Step C4); this backstop calls it in detect mode only.
 
 ## Step 1.9: Auto-Push Failure Surface
 
 Silent `coordinator-auto-push` failures (Windows case-mismatched branch refs, expired credentials, SSH agent unreachable) accumulate in `.git/push-failures.log` until the next manual push — surfaced here each morning.
 
-```bash
-LOG=".git/push-failures.log"
-if [[ -s "$LOG" ]]; then
-  TOTAL=$(wc -l < "$LOG" | tr -d ' ')
-  RECENT_24H=$(awk -v cutoff="$(date -d '24 hours ago' -Iseconds 2>/dev/null || date -v-1d -Iseconds 2>/dev/null)" \
-    '$0 >= "[" cutoff' "$LOG" | wc -l | tr -d ' ')
-  LAST_LINE=$(tail -1 "$LOG")
-fi
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-advisory-counters" push-failures` — emits one line of JSON with `total`, `recent_24h`, and `last_line` (`TOTAL`/`RECENT_24H`/`LAST_LINE` below are those fields).
 
 **Surface `### Auto-Push Health`** when `RECENT_24H ≥ 1` OR `TOTAL ≥ 5`:
 ```
@@ -597,22 +488,7 @@ fi
 
 Complement to Step 1.9. Step 1.9 surfaces failures that the auto-push hook *captured* into `.git/push-failures.log`; this step catches the silent failure mode where the hook never ran at all (uninstalled, non-executable, routed elsewhere) — in which case `.git/push-failures.log` would never be created and Step 1.9 would report all-green even though commits are stranding on local disk.
 
-Spec backlink: `state/handoffs/2026-06-11_145955_auto-push-silent-failure-email-privacy.md`. The 2026-06-11 instance stranded ~15 commits across multiple sessions for an entire day before being noticed at `/workstream-complete`.
-
-```bash
-CUR_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
-LOCAL_ONLY_AHEAD=0
-LOCAL_ONLY_NOORIGIN=0
-if [[ "$CUR_BRANCH" == work/* || "$CUR_BRANCH" == feature/* ]]; then
-  git fetch --quiet origin "$CUR_BRANCH" 2>/dev/null
-  if git rev-parse --verify --quiet "refs/remotes/origin/$CUR_BRANCH" >/dev/null 2>&1; then
-    LOCAL_ONLY_AHEAD=$(git rev-list --count "origin/$CUR_BRANCH..HEAD" 2>/dev/null || echo 0)
-  else
-    # Branch doesn't exist on origin at all — every commit is local-only.
-    LOCAL_ONLY_NOORIGIN=$(git rev-list --count HEAD 2>/dev/null || echo 0)
-  fi
-fi
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-advisory-counters" local-ahead` — emits one line of JSON with `branch`, `eligible`, `ahead_count`, `no_origin`, and `push_failures_log_present`. `CUR_BRANCH` = `branch`; `LOCAL_ONLY_AHEAD` = `ahead_count` when `no_origin` is false; `LOCAL_ONLY_NOORIGIN` = `ahead_count` when `no_origin` is true.
 
 **Surface `### Local-Only Branch Warning`** when `LOCAL_ONLY_AHEAD ≥ 1` OR `LOCAL_ONLY_NOORIGIN ≥ 1`:
 ```
@@ -624,106 +500,76 @@ fi
 ```
 **Otherwise:** skip silently.
 
+## Step 1.92: Stale-Stash Surface
+
+On a shared tree an unscoped `git stash` sweeps every concurrent session's uncommitted work into one entry, not just the stasher's own. Both execution paths that could create one are now closed (`block_subagent_destructive_action` on the subagent path, the EM main-loop guard on the other), but entries created before those guards — or by a hand-run stash — sit in `git stash list` indefinitely and are found only by accident. Two such caches (19 entries, ~20,900 patch lines of other sessions' in-flight work) were each discovered by chance, one after three weeks. This step is the detector for the pile itself — acting on a stash once found (whose work it is, whether it's safe to pop or must be inspected first) is a separate judgment call, not this step's job.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-advisory-counters" stale-stashes` — emits one line of JSON with `threshold_days` (default 7), `total`, `stale[]` of `{ref, age_days, subject}`, `advice`, and `error`. Read-only (one `git stash list` spawn; never `show`/`pop`/`apply`/`drop`) and advisory — it never gates.
+
+**Surface `### Stale Stashes`** when `stale[]` is non-empty:
+```
+### Stale Stashes
+- [N] stash entries older than [THRESHOLD_DAYS] days (total in list: [M]).
+  - <ref> — <age_days>d — <subject>
+- <advice, verbatim>
+```
+**If `stale[]` is empty, or `error` is set:** skip silently.
+
+Surface `advice` **verbatim** — it leads with the safe forward action rather than the violation, per design-as-offers. Rephrasing it into a scold is the failure mode this field exists to prevent; a stale stash may hold a sibling's only copy of real work, so the forward action is inspect-and-recover, never drop.
+
 ## Step 1.10: Addon Health Sentinels
 
 **First**, heal canonical-structure drift at `~/.claude` before the doctor fires. The scaffold is idempotent and additive-only (`mkdir -p` + `.gitkeep`; never overwrites READMEs or existing content). Running it here turns manifest-extension drift into a self-healing event instead of a recurring P-12 AMBER nag across every repo's daily health snapshot:
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/scaffold-canonical-structure.sh" --root "$HOME/.claude"
-```
+Run: `python3 -m coordinator_core.install.scaffold_structure --root "$HOME/.claude" --manifest-root "$CLAUDE_PLUGIN_ROOT"` with `PYTHONPATH` set to `<claude-klabauter-root>` (resolved via `$REPO_CLAUDE_KLABAUTER` / `machine-local get repos.claude_klabauter`). Skip with a one-line stderr note if either the claude-klabauter root or a Python interpreter is unresolvable.
 
-Silent on no-op (already-scaffolded). Brief on creation (new dirs introduced by manifest evolution). Always safe to re-run. P-12 stays as the detector for *actual* brokenness (scaffold script error, manifest unreadable) — not for "manifest grew and your install hasn't caught up." See `docs/wiki/install-surface-completeness.md`.
+Silent on no-op (already-scaffolded). Brief on creation (new dirs introduced by manifest evolution). Always safe to re-run. P-12 stays as the detector for *actual* brokenness (scaffold script error, manifest unreadable) — not for "manifest grew and your install hasn't caught up."
 
-**Then**, refresh the coordinator-claude sentinel:
+**Then**, refresh the coordinator-claude sentinel: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doctor-sentinel" --full`
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/coordinator-doctor-sentinel.sh" --full
-```
+Fires all probes and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`. Silent on GREEN, brief on AMBER/RED. Always exits 0 — advisory only. (`--full` is required: bare invocation now defaults to `--triage` which does not write the sentinel.)
 
-Fires all probes (`docs/wiki/coordinator-doctor.md`) and writes `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`. Silent on GREEN, brief on AMBER/RED. Always exits 0 — advisory only. (`--full` is required: bare invocation now defaults to `--triage` which does not write the sentinel.)
+Plugins that ship a doctor skill write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. The scan itself (`scan-addon-health.py --red-and-stale`, incl. its SessionStart hook-script existence pass) is one of Step -0.9's addon-health directives (`d-addon-health-*`) — render each `detail` under `### Addon Health` (between `### Auto-Push Health` and `### Priority Suggestions`); nothing to do when the assembler emitted none.
 
-Plugins that ship a doctor skill write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Run `scan-addon-health.sh --red-and-stale`; on non-empty output, render under `### Addon Health` (between `### Auto-Push Health` and `### Priority Suggestions`); on empty, omit. Schema + EM dispatch flow: `docs/wiki/addon-health-sentinel.md`. The scan now also includes a SessionStart hook-script existence pass (2026-05-27): missing hook scripts referenced in `hooks/hooks.json` surface as `[health]` lines here. Authoring guide: `docs/wiki/plugin-session-start-hooks.md`.
-
-Additionally, run `check-plugin-drift.sh` to probe git-state and venv-state drift for registered plugin live installs. On non-empty output (exit 1), append into the same `### Addon Health` section:
-<!-- [ok-via-git-propagation] lines exit 0 and are intentionally silent here — the state is benign (live content matches source; sentinel will advance on next install). Operators who want to inspect sentinel state run the probe directly. See docs/plans/2026-05-28-forward-drift-probe-content-equivalence.md § Chunk 3. -->
+Additionally, run `check-plugin-drift.py` to probe git-state and venv-state drift for registered plugin live installs. On non-empty output (exit 1), append into the same `### Addon Health` section:
+<!-- [ok-via-git-propagation] lines exit 0 and are intentionally silent here — the state is benign (live content matches source; sentinel will advance on next install). Do not add surfacing for this state; operators who want to inspect sentinel state run the probe directly. -->
 ```
 Plugin propagation: <summary e.g. "project-rag 22 commits behind, venv ok" or "all clean">
 ```
 No `plugin.mirrors` entries → omit silently. `source_is_live` entries (e.g. coordinator) surface as "n/a-by-design" and are not counted as drift.
 
-Spec backlink: `docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md § Chunk 1`
+Additionally, run `check-claude-klabauter-doctor-sentinel.sh` — a read-only consumer of claude-klabauter's health sentinel at `<CLAUDE_KLABAUTER_ROOT>/state/doctor-last-run.json` (claude-klabauter-owned, written by claude-klabauter's `bin/claude-klabauter-doctor-probe.py`; written elsewhere, never here). On non-empty output, append the line verbatim into the same `### Addon Health` section:
 
-Additionally, run `check-example-orchestration-hub-doctor-sentinel.sh` — a read-only consumer of example-orchestration-hub's `/example-orchestration-hub:doctor` health sentinel at `<EXAMPLE_ORCHESTRATION_HUB_ROOT>/state/doctor-last-run.json` (example-orchestration-hub-owned; written elsewhere, never here). On non-empty output, append the line verbatim into the same `### Addon Health` section:
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-claude-klabauter-doctor-sentinel"`
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { [ -n "$_cc_root" ] && [ -d "$_cc_root" ] && echo "[coordinator] WARNING: '$_cc_root' outside trusted prefix — hook degraded" >&2; _cc_root=''; }
-bash "$_cc_root/bin/check-example-orchestration-hub-doctor-sentinel.sh"
-```
+Nudges on the same three states `check-plugin-drift.py` nudges on: **absent** (doctor never run on this machine), **stale** (>7d since last run, override via `COORDINATOR_CLAUDE_KLABAUTER_DOCTOR_STALE_SEC`), and **RED/AMBER** (echoes the sentinel's `hint`). Silent on fresh GREEN. CLAUDE_KLABAUTER_ROOT resolves via the canonical settings-home seam (`hooks/scripts/_engine_root.py`), env-first via `CLAUDE_KLABAUTER_ROOT`/`REPO_CLAUDE_KLABAUTER`. Degrades to a fully silent skip (exit 0, no output) when CLAUDE_KLABAUTER_ROOT itself cannot resolve (machine has no claude-klabauter checkout registered — a fleet-topology fact, not a health regression).
 
-Nudges on the same three states `check-plugin-drift.sh` nudges on: **absent** (doctor never run on this machine), **stale** (>7d since last run, override via `COORDINATOR_EXAMPLE_ORCHESTRATION_HUB_DOCTOR_STALE_SEC`), and **RED/AMBER** (echoes the sentinel's `hint`). Silent on fresh GREEN. EXAMPLE_ORCHESTRATION_HUB_ROOT resolves via `coordinator_example_orchestration_hub_root()` (`lib/coordinator-example-orchestration-hub-root.sh`). Degrades to a fully silent skip (exit 0, no output) when EXAMPLE_ORCHESTRATION_HUB_ROOT itself cannot resolve (machine has no example-orchestration-hub checkout registered — a fleet-topology fact, not a health regression).
+## Step 1.10.3: Engine Freshness Drift (claude-klabauter engine)
 
-Spec backlink: `cross-repo/inbox/2026-07-04-workday-start-example-orchestration-hub-doctor-sentinel.md`
+Run `check-engine-drift.py` — a read-only consumer of claude-klabauter's registered `engine.drift` freshness probe (invoked via `python3 -m coordinator_core.invoke engine.drift` from the claude-klabauter repo root; probes whether the running coordinator engine checkout is fresh against its floor). On non-empty output, append the line verbatim into the same `### Addon Health` section:
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-engine-drift"`
+
+Offers-not-nags: silent on `state: clean` (engine fresh, nothing to say), an offer line on `state: behind` (echoes the op's `offer` string), and a distinct "cannot verify freshness" notice on `state: indeterminate` (echoes the op's `notice` string). Silent skip — no output, no error — when CLAUDE_KLABAUTER_ROOT cannot resolve (machine has no claude-klabauter checkout registered, a fleet-topology fact not a health regression) OR when the op is not yet registered on the running claude-klabauter (any JSON-RPC `.error` envelope, e.g. the currently-unregistered case on some machines — DoE is a consumer and must never nag about claude-klabauter's activation state). CLAUDE_KLABAUTER_ROOT resolves via the canonical settings-home seam (`hooks/scripts/_engine_root.py`), env-first via `CLAUDE_KLABAUTER_ROOT`/`REPO_CLAUDE_KLABAUTER`.
+
+## Step 1.10.31: Forwarder Drift (claude-klabauter)
+
+Run `check-forwarder-drift.py` — a read-only consumer of claude-klabauter's registered `plugin_health.forwarder_drift` probe. It compares the CLIs *derived* from a live scan of claude-klabauter's `coordinator/bin/` against the forwarders actually *installed*, in both write locations (the settings-home `bin/` and the `~/.claude/bin` compat mirror), in both directions: derived-but-not-installed (a stale install) and installed-but-not-derived (an orphaned forwarder for a deleted CLI). On non-empty output, append the lines verbatim into the same `### Addon Health` section:
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-forwarder-drift"`
+
+Offers-not-nags: silent when derived and installed match. On drift it names every affected CLI and states the remedy (re-run the install to regenerate forwarders) — the names are the point, since drift is typically one or two CLIs out of ~300. Silent skip — no output, no error — when CLAUDE_KLABAUTER_ROOT cannot resolve; a machine with no claude-klabauter checkout is a fleet-topology fact, not a health regression, and an OSS consumer must never have `/workday-start` fail at them. Never fails the ceremony: exit 0 even with drift present.
+
+Why this exists: forwarders generate only from a directory scan at install time, so a CLI landing in `coordinator/bin/` afterwards has no forwarder until the next install run — and nothing else reconciles the two sets. That gap has silently stranded CLIs before (e.g. `gen-settings-hooks`, `run-platform-localize`); the symptom is a 127 mid-ceremony with a remediation message that does not name the cause.
 
 ## Step 1.10.4: Onboarding Currency Offer (cwd repo)
 
-Run the onboarding currency detector against the cwd repo:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/lib/detect-onboarding-offer.sh"
-```
+Run the onboarding currency detector against the cwd repo: `python3 "<claude-klabauter-root>/coordinator/lib/detect-onboarding-offer.py"` (`<claude-klabauter-root>` resolved via `$REPO_CLAUDE_KLABAUTER` / `machine-local get repos.claude_klabauter`).
 
 - **Non-empty output** → append the line verbatim into the `### Addon Health` section (alongside other health findings). The line is offer-shaped — surface it as a PM-facing suggestion, not a warning.
 - **Empty output** → silent (repo is current, not a git repo, distribution repo, or already dismissed).
 
 The detector respects the dismissal sentinel (`<repo>/.git/coordinator-onboarding-dismissed`) — once dismissed it never fires again for that repo. The offer text tells the PM how to dismiss.
-
-Spec backlink: `archive/specs/2026-05/2026-05-29-it-just-works-agentic-install-currency.md § Chunk 3`
 
 ## Step 1.10.5: MCP Tool Registration
 
@@ -734,19 +580,87 @@ For each entry in `~/.claude.json mcpServers` (top-level AND `projects.<active-c
 3. **0 matches** → emit under `### MCP Tool Registration`: `- <server>: 0 tools registered. Configured at <transport>:<url-or-stdio-cmd>. Investigate with /<server>:doctor.`
 4. **>0 matches** → silent.
 
-**Sentinel:** atomically write `~/.claude/plugins/coordinator-claude/data/mcp-registration-last-check.json` (`.tmp` + `mv`) with: `ran_at`, `verdict` (`RED`/`GREEN`), `checked_servers[]` (`name`, `tool_count`, `transport`, `configured_at`), `red_servers[]`. Feeds `scan-addon-health.sh`.
+**Sentinel:** atomically write `~/.claude/plugins/coordinator-claude/data/mcp-registration-last-check.json` (`.tmp` + `mv`) with: `ran_at`, `verdict` (`RED`/`GREEN`), `checked_servers[]` (`name`, `tool_count`, `transport`, `configured_at`), `red_servers[]`. Feeds `scan-addon-health.py`.
 
 **Render:** when section has content, place between `### Addon Health` and `### Priority Suggestions`; otherwise omit heading. Auto-remediation is out of scope — surfacing only.
 
-## Step 1.10.6: Cross-Repo Paired-Fixture Sync (conditional)
+## Step 1.10.6: Auto-Reconcile Open Handoffs (claude-klabauter)
 
-Repos with paired cross-repo writers ship a `bin/check-fixture-sync.sh` that byte-compares declared fixtures against sibling-repo copies (see `docs/wiki/cross-repo-contract-test-discipline.md` § "Paired Cross-Repo Writers"). Catches the two fixture copies silently diverging when one repo updates and the partner's is left stale.
+The `handoff.reconcile_open` observation (surfaced, never forced-live) is one of Step -0.9's
+`judgment_points[]` — a per-handoff auto-reconcile candidate, resolved the same as any other
+judgment point, never rubber-stamped. Render non-empty results under `### Auto-Reconcile`,
+placed immediately after `### Addon Health`; omit the heading entirely when empty.
 
-```bash
-[ -x bin/check-fixture-sync.sh ] && bin/check-fixture-sync.sh 2>&1
-```
+## Step 1.10.61: Hidden Deferral — Orphaned Memos (claude-klabauter)
 
-(`2>&1` required: drift → stdout, config errors → stderr.)
+Run `check-deferral-orphan-memo.py` — a read-only consumer of claude-klabauter's registered `deferral.detect_orphan_memo` op. On non-empty output, append the line verbatim into the same `### Addon Health` section:
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-deferral-orphan-memo"`
+
+Offers-not-nags: silent on `clean` (nothing orphaned, nothing to say), an offer line on `orphans_found` (echoes the op's `offer` string). Silent skip — no output, no error — when CLAUDE_KLABAUTER_ROOT cannot resolve (machine has no claude-klabauter checkout registered, a fleet-topology fact not a health regression) OR when the op is not yet registered on the running claude-klabauter (any JSON-RPC `.error` envelope — DoE is a consumer and must never nag about claude-klabauter's activation state). CLAUDE_KLABAUTER_ROOT resolves via the canonical settings-home seam (`hooks/scripts/_engine_root.py`), env-first via `CLAUDE_KLABAUTER_ROOT`/`REPO_CLAUDE_KLABAUTER`.
+
+**Not a second inbox inventory:** Step 1.45 already lists every outstanding cross-repo memo — this op does not duplicate that roster. It fires only on the actionable-AND-still-open-AND-aged-past-threshold-AND-unowned subset (a memo of kind `ask` or `proposal`, `status: open`, older than the op's default 3-day threshold, with no plan, baton, or decision record referencing it) — the deferral *signal*, not the memo *roster*. It surfaces as its own distinct `[health]` line under `### Addon Health`, never folded into the Step 1.45 list.
+
+## Step 1.10.62: Hidden Deferral — Partial Stranglers (claude-klabauter)
+
+Run `check-deferral-partial-strangle.py` — a read-only consumer of claude-klabauter's registered `deferral.detect_partial_strangle` op. On non-empty output, append the line verbatim into the same `### Addon Health` section:
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-deferral-partial-strangle"`
+
+Offers-not-nags: silent on `clean` (no partial stranglers, nothing to say), an offer line on `partial_strangles_found` (echoes the op's `offer` string), and a distinct "cannot verify" notice on `indeterminate` (echoes the op's `notice` string). Silent skip — no output, no error — when CLAUDE_KLABAUTER_ROOT cannot resolve (machine has no claude-klabauter checkout registered, a fleet-topology fact not a health regression) OR when the op is not yet registered on the running claude-klabauter (any JSON-RPC `.error` envelope — DoE is a consumer and must never nag about claude-klabauter's activation state). CLAUDE_KLABAUTER_ROOT resolves via the canonical settings-home seam (`hooks/scripts/_engine_root.py`), env-first via `CLAUDE_KLABAUTER_ROOT`/`REPO_CLAUDE_KLABAUTER`.
+
+## Step 1.10.63: Global Doctrine Mirror Drift (DoE-claude only)
+
+Run `check-global-doctrine-mirror.py` — a read-only DoE-side probe (no claude-klabauter op involved) that
+byte-compares the derived `~/.claude/CLAUDE.md` live copy against its authoritative repo-root
+`global-doctrine/` source. On non-empty output, append the line(s) verbatim into the same
+`### Addon Health` section:
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-global-doctrine-mirror" 2>&1`
+
+Silent skip (exit 0, no output) when the DoE-claude repo has no `global-doctrine/` mirror at
+`<repo-root>/global-doctrine/` — this is the expected state on every OSS install and on any
+DoE-claude clone that predates the mirror, not a health regression. When the mirror exists and
+`~/.claude/CLAUDE.md` matches it byte-for-byte, also silent — nothing to say. A mirrored pair
+absent on both sides (`CLAUDE.local.md` today) is a not-in-play skip, never a drift hit.
+On drift, append a `DRIFT DETECTED:` block naming both absolute paths, both byte sizes, and a
+capped diff excerpt; remediate by running `check-global-doctrine-mirror.py --sync` (`~/.claude` ←
+mirror, the authoritative direction — never the reverse). A drift hit here means the live copy was
+edited out of band: re-author the change in the tracked `global-doctrine/` authoring copy so the
+byte cap and the classification ledger see it, then let the sync overwrite the live copy.
+
+## Step 1.10.64: Orphaned Observer Sidecar Sweep
+
+Advisory, non-blocking sweep for the leak class where a backfilled day can sit with a
+committed `*.observer.md` strategic-observer sidecar and zero `## Strategic Review` heading
+in the corresponding main daily summary — invisible for days because nothing checked
+`archive/daily-summaries/` independently of a single `/workday-complete` Step 4d run. This step is that independent check: it runs on a separate
+invocation (workday-start), so it sees a prior day's residue regardless of how or whether
+that day's `/workday-complete` terminated — the defining property of this leak class is that
+it survives the ceremony that produced it, so the detector cannot live only inside that
+ceremony.
+
+`archive/daily-summaries/` is per-repo (each repo running the daily-summary ceremony keeps
+its own), so this sweeps the CURRENT repo's directory (cwd-relative), not claude-klabauter's own tree —
+unlike the Step 1.10.61/1.10.62 deferral detectors, which are JSON-RPC ops scoped to claude-klabauter's
+own state, this is a plain filesystem CLI call against wherever `/workday-start` is running.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-health-probes" observer-sidecar-scan --dir archive/daily-summaries`
+
+Mirrors the Step 1.11 cruft-sweep WARN shape (one advisory line, `(non-blocking)`, never
+gates morning orientation) extended just enough to name the specific dates rather than only
+signal that *something* is wrong. Silent (no output) when: claude-klabauter root is unresolvable (a
+fleet-topology fact, not a health regression — matches the deferral detectors' posture);
+`archive/daily-summaries/` doesn't exist yet (a repo that has never run the daily-summary
+ceremony, not a leak); the scan finds nothing (rc=0); or the scan hits a usage error (rc=2,
+e.g. `stitch-observer-sidecar.py` absent on a stale claude-klabauter checkout — that's the Step 1.10.9
+sentinel probe's job to catch, not this step's).
+
+## Step 1.10.7: Cross-Repo Paired-Fixture Sync (conditional)
+
+Repos with paired cross-repo writers ship a `bin/check-fixture-sync.sh` that byte-compares declared fixtures against sibling-repo copies. Catches the two fixture copies silently diverging when one repo updates and the partner's is left stale.
+
+If `bin/check-fixture-sync.sh` exists and is executable, run it, capturing both stdout and stderr (drift reports to stdout, config errors to stderr).
 
 - **Exit 0, no output** → in sync or sibling not on machine → skip silently.
 - **Exit 1 (drift)** → surface `FIXTURE DRIFT:` lines verbatim under `### Cross-Repo Fixture Sync`. Re-pin both copies byte-identical via `cross-repo-memo` (never a direct sibling edit).
@@ -754,62 +668,35 @@ Repos with paired cross-repo writers ship a `bin/check-fixture-sync.sh` that byt
 
 Advisory only — never blocks.
 
-## Step 1.10.7: Exec-Bit Drift Probe (meta-repo only)
+## Step 1.10.8: Exec-Bit Drift Probe (meta-repo only)
 
-Daily detect-only probe for shebanged files in the meta-repo whose git index mode is `100644` instead of `100755`. The pre-commit hook (`coordinator-precommit-exec-bit-check`) auto-fixes drift at commit time, so steady-state findings here mean files that drifted out-of-band: `--no-verify` commits, external pushes, or hook-bypass paths.
+**Retired — the reader this step surfaces was deleted.** The `d-exec-bit-*` judgment-point
+emitter (`check-all-shebanged-exec-bits.py`'s `workday-start-health-probes.py` wiring) was
+removed from the engine's ceremony-probe wiring — the shebang-implies-100755 invariant it
+probed for was itself retired as a POSIX-only portability defect. This step keys off the
+judgment-point id, never the CLI by name, so it silently produces nothing rather than
+erroring — but it can never fire again either way. Left in place (not deleted) purely as a
+record of what used to run here, matching the retirement style above (§ Standalone 14d/7d
+aging check).
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# `realpath` is GNU-only and absent on stock macOS — use the same canon idiom
-# as coordinator-precommit-exec-bit-check (cd && pwd -P).
-_canon(){ (cd "$1" 2>/dev/null && pwd -P) || echo "$1"; }
-[ "$(_canon "$PWD")" = "$(_canon "$HOME/.claude")" ] && \
-  bash "$_cc_root/bin/check-all-shebanged-exec-bits.sh" 2>&1
-```
+## Step 1.10.9: Coordinator-Bin Sentinel Probe
 
-- **Exit 0, no output** → in sync → skip silently.
-- **Exit 1 (drift)** → surface stderr verbatim under `### Exec-Bit Drift` (between `### Addon Health` and `### Priority Suggestions`). Fix path printed by the probe.
-- **Exit 2 (probe infra)** → silent (node/test missing — not a daily-noise condition).
-- **Outside meta-repo** → probe skipped silently (no consumer-repo drift to guard against).
-
-Spec backlink: `state/handoffs/2026-06-15_114014_exec-bit-drift-recurring-on-windows-git-bash.md`.
+`d-claude-klabauter-bin-sentinel` (Step -0.9's brief) — the resolved engine-side `coordinator/bin` and
+its `archive-stamp-cli` sentinel. Every skill fence fail-louds on this same condition at
+invocation time via the resolve-coordinator-bin snippet; this directive surfaces it once, at
+day-start, instead of mid-ceremony. Surface under `### Coordinator-Bin Sentinel` when fired.
 
 ## Step 1.11: Cruft Sweep Advisory
 
 Surface filesystem-cruft reclaim opportunities when they cross threshold. Layer 1 floor only — Layer 2 (`/cruft-sweep`) is PM-actioned.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/cruft-sweep.sh" --class all --dry-run --quiet
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/cruft-sweep" --class all --dry-run --quiet`
 
 Surface one-line `Cruft sweep candidates: <N reclaimable>, last sweep <YYYY-MM-DD>` in the Morning Briefing when EITHER:
 - Reclaimable size > 1 GB (read from the dry-run grand-total banner on stderr), OR
-- Staleness > 14d (read the most recent row timestamp from `$(coordinator_state_root --central)/cruft-sweep-log.md` (example-orchestration-hub-resident — see `docs/wiki/state-placement-law.md`) using `tail -1 "$(coordinator_state_root --central)/cruft-sweep-log.md" | awk -F'|' '{gsub(/ /, "", $2); print $2}'`; if the file does not exist, treat as stale). <!-- Review: Slice C reviewer F5 — use row-parse not file mtime; log is pipe-delimited, field 2 is the timestamp -->
+- Staleness > 14d (read the most recent row timestamp from the central state cruft-sweep log — resolved via `coordinator-state-root.py --central`'s `cruft-sweep-log.md` (claude-klabauter-resident) — using `tail -1 "<resolved-path>/cruft-sweep-log.md" | awk -F'|' '{gsub(/ /, "", $2); print $2}'`; if the file does not exist, treat as stale).
 
-PM-actioned only — DO NOT auto-invoke `/cruft-sweep` or `cruft-sweep.sh --apply` from this advisory. The apply pass runs automatically in `/workday-complete` Step 1.5; an out-of-session scheduler (cron / Windows Task Scheduler) is optional additional layering for days when Claude Code is not opened, per `docs/wiki/cruft-sweep-cadence.md` § Cadence.
+PM-actioned only — DO NOT auto-invoke `/cruft-sweep` or `cruft-sweep --apply` from this advisory. The apply pass runs automatically in `/workday-complete` Step 1.5; an out-of-session scheduler (cron / Windows Task Scheduler) is optional additional layering for days when Claude Code is not opened.
 
 Silent when below both thresholds.
 
@@ -819,22 +706,7 @@ Silent when below both thresholds.
 2. Find commits since: `git log --oneline <last-update-docs-commit>..HEAD`
 3. **Commits exist:** Flag: _"Docs are stale — [N] commits since last update-docs. Recommend `/update-docs` before feature work."_ Do NOT dispatch automatically — it commits files and would race with the working tree.
 4. **No commits since:** "Docs are current."
-5. Run the harvest-debt probe and surface its output verbatim if non-empty (flag only — never auto-run `/distill`):
-   ```bash
-   _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-   _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-   _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-   _cc_trusted=0
-   case "$_cc_root" in
-     "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-   esac
-   [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-   case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-   [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-   [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-   [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-   bash "$_cc_root/bin/check-harvest-debt.sh"
-   ```
+5. Run the harvest-debt probe and surface its output verbatim if non-empty (flag only — never auto-run `/distill`): `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-harvest-debt"`
 
 ## Step 3: Test Staleness
 
@@ -846,7 +718,7 @@ Silent when below both thresholds.
 
 Check if a bug sweep should be suggested — based on **code churn since last sweep**, not just calendar time:
 
-1. Read `state/bug-backlog.md` header for `Last sweep:` date and `Commit at sweep:` hash. Header format (written by `/bug-sweep`): `> Last sweep: YYYY-MM-DD | Commit at sweep: [short hash] | Open: N items (P0: X, P1: Y, P2: Z)`
+1. Read `state/bug-backlog/.meta.yaml` (written by `/bug-sweep`) for its `last_sweep_at:` date and `last_sweep_commit:` hash; count open items by severity by enumerating `state/bug-backlog/*.yaml`.
 2. If no backlog exists: count source files (`find . \( -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.cpp" -o -name "*.h" -o -name "*.cs" -o -name "*.go" -o -name "*.rs" \) | grep -v node_modules | grep -v __pycache__ | wc -l`). If >50: _"No bug sweep has ever run ([N] source files). Recommend running bug-sweep."_ If <50, skip silently.
 3. If backlog exists: count commits since anchor (`git rev-list --count <sweep-commit>..HEAD`).
 4. **Suggest sweep if:** >50 commits AND >7 days since last sweep (churn + time floor prevents sprint-mode nagging), OR >14 days AND >20 commits (moderate churn + time). Message: _"Bug sweep last ran [date] ([N] commits ago). Recommend running bug-sweep before new feature work."_
@@ -854,51 +726,21 @@ Check if a bug sweep should be suggested — based on **code churn since last sw
 
 ## Step 3.6: Project-RAG Staleness (conditional)
 
-**Skip silently** if `ToolSearch` finds no `mcp__project-rag__*` tool — same gate pattern as `workstream-start.md`. Coordinator does not depend on project-rag; it only adapts when present.
-
-When present:
-
-1. Invoke the staleness survey directly via `project-rag-cli`. Coordinator does NOT parse `~/.claude.json` to extract project-rag's internal state — the CLI resolves its own project root via env (`PROJECT_RAG_PROJECT_ROOT` / legacy `EXAMPLE_GAME_REPO_PROJECT_ROOT`) or cwd-walk. Set the env var to the active project root and invoke:
-
-   ```bash
-   PROJECT_RAG_PROJECT_ROOT="$(pwd)" project-rag-cli staleness-survey --json
-   ```
-
-   If `project-rag-cli` is not on PATH, fall back to:
-
-   ```bash
-   # python3-first resolver — `python` is absent on modern macOS / many Linux.
-   PY="$(command -v python3 || command -v python)"; [ -n "$PY" ] || { echo "no python3/python on PATH" >&2; exit 1; }
-   PROJECT_RAG_PROJECT_ROOT="$(pwd)" "$PY" -m project_rag.cli staleness-survey --json
-   ```
-
-2. Parse the JSON. If `verdict == "current"`, emit nothing. Otherwise inline the rendered output into the Morning Briefing under a new **Project-RAG** line (template below).
-
-**Doctrine — no parsing peer-plugin config from coordinator.** Contract: `invoke + read exit code + read stdout`. Reaching into `~/.claude.json` is cross-plugin leakage that breaks on transport migration. See `docs/wiki/plugin-extraction-and-distribution.md` § Cross-plugin contract.
+Project-RAG staleness (`d-rag-staleness-regen`, from Step -0.9's brief — same resolution
+`workstream-start` and `workweek-start` name for their own cadences, computed once per the
+shared reader, not three times) — when the directive fires, inline its `detail` into the Morning
+Briefing under a new **Project-RAG** line (template below). Silent when the assembler emits none
+(current, or no project-RAG tool registered this session).
 
 **Flag-only — never auto-run.** A reindex can race with an open editor. PM invokes manually after `/workday-start` completes.
 
 ## Step 4: Priority Alignment
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/whats-next.sh"
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/whats-next"`
 
 Emits: improvement-queue head (top 5), `docs/project-tracker.md` Ready/Executing rows, open handoffs. Use as-is for § Priority Suggestions; do not reconstruct from prose.
 
-**Reconcile active work against completed archive:** `query-completions.sh --where "created>=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d)" --sort "created" --format json` (fallback: `archive/completed/legacy/YYYY-MM.md` if query empty). Cross-reference tracker Ready/Executing items and open handoffs:
+**Reconcile active work against completed archive:** `query-completions.py --where "created>=$(date -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -v-30d +%Y-%m-%d)" --sort "created" --format json` (fallback: `archive/completed/legacy/<YYYY-MM>.md` if query empty). Cross-reference tracker Ready/Executing items and open handoffs:
 - **Match found** → Flag: _"Tracker shows [workstream] as [status], but archive/completed records it shipped on [date]."_
 - Fuzzy match on names/descriptions — when unsure, flag as "possible match — verify" rather than auto-resolving.
 - Report mismatches under **Alignment Check** in the Morning Briefing.
@@ -914,7 +756,7 @@ Present a concise morning report:
 **Branch:** [current branch]
 
 ### Branch Span Mismatch
-_(Omit this section entirely unless Step 0.45's `$SPAN_ASSERT_FAIL` was set. When present, render `$SPAN_ASSERT_MSG` verbatim — this is the loudest tripwire in the briefing and PM should see it first.)_
+_(Omit this section entirely unless Step 0.45's `span-assert` exited `1`. When present, render its stdout message verbatim — this is the loudest tripwire in the briefing and PM should see it first.)_
 
 ### Context Freshness
 - Handoffs: [N] actionable for today, [M] stale (flagged for /update-docs archival)
@@ -924,22 +766,23 @@ _(Omit this section entirely unless Step 0.45's `$SPAN_ASSERT_FAIL` was set. Whe
 - Atlas: [N systems mapped, M stale >90 days / no atlas]
 - Bug backlog: [N open (P0: X, P1: Y) / empty / no backlog]
 - Bug sweep: [current (N commits since) / suggest sweep (N commits since last)]
+- Cross-repo commitments: [N open sibling commitments — oldest Nd] _(from Step 1.6; omit this line entirely when the directory is absent or empty, per Step 1.6's skip-silent rule)_
 - Project-RAG: [{verdict} — {age}, {code_commits} commits / {asset_changes} assets / verdict source: {recommendation_command}] _(omit this line if verdict is `current`)_
 - Tools: [missing optional tools, if any — see below]
 
 ### Tool Availability
 Check PATH for `scc` (also `~/bin/scc`) and `shellcheck`. Surface install hint for each missing tool (`winget install BenBoyter.scc` / `winget install koalaman.shellcheck`). When both present: _"Tools: scc + shellcheck available."_ Only nag when missing.
 
-**Fan-out tooling:** `fan-out-dispatch.sh` (compiler — overlap pass + scoped prompts); follow the fan-out methodology (`docs/wiki/dispatching-parallel-agents.md` § Executing a Fan-Out Wave) to dispatch the compiled wave and hold the EM-serial commit (not a skill — no `/fan-out` command). Use for any multi-chunk parallel or serial dispatch instead of hand-authoring executor prompts.
+**Fan-out tooling:** claude-klabauter `coordinator/bin/fan-out-dispatch.py` (compiler — overlap pass + scoped prompts); dispatch the compiled wave and hold the EM-serial commit (not a skill — no `/fan-out` command). Use for any multi-chunk parallel or serial dispatch instead of hand-authoring executor prompts.
 
 ### Handoffs
-- **Continuation:** [N active, M aging, K likely-consumed]
+- **Continuation:** [N open, M aging, K likely-claimed]
 - **Shipped sweep:** [N shipped handoffs archived / omit if none / WARNING line verbatim if present]
 - **Spinoffs awaiting pickup:** [list each: filename — title — age — workstream]
   _(Omit this bullet if no spinoffs exist.)_
 - **Stale spinoffs (≥14 days):** [list each with a one-line nudge]
   _(Omit this bullet if no stale spinoffs exist.)_
-- **Tracker:** durable snapshot at `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `render-handoff-tracker.js`). **DoE aggregate `state/doe-handoff-tracker.md` is refreshed daily by `/workday-start` Step 1.48** (`--all-repos`); ad-hoc: same command with `--all-repos`.
+- **Tracker:** durable snapshot at `state/handoff-tracker.md` (refreshed by `/workstream-complete` and `/handoff`; ad-hoc: `render-handoff-tracker.py`).
 
 #### Recent roadmap (last 90d, top-10 by size)
 _(Results from Step 1.55 query — one bullet per row. Render "(none)" when the query returns zero rows. Heading always present — count-always per orientation-surfacing-doctrine.)_
@@ -949,8 +792,8 @@ _(Results from Step 1.55 query — one bullet per row. Render "(none)" when the 
 - [List each mismatch: "Tracker: X is Executing — Archive: shipped YYYY-MM-DD"]
 - [List each handoff flagged as likely completed]
 
-### Orphan Sweep / Agent Worktrees / Auto-Push Health / Addon Health
-Each section omitted unless its step (0.5 / 0.6 / 1.9 / 1.10) produced surfaceable findings; render only the non-empty rows from that step's structured output.
+### Orphan Sweep / Agent Worktrees / Auto-Push Health / Addon Health / Test-Red Delta
+Each section omitted unless its step (0.5 / 0.6 / 1.9 / 1.10 / 1.66) produced surfaceable findings; render only the non-empty rows from that step's structured output.
 
 ### Priority Suggestions
 Pull from the active state: bugs (top severity first), stale sweep, stale tests, stale atlas, tracker Ready rows, deep debt backlog. Order by urgency, not by template.
@@ -959,15 +802,13 @@ Pull from the active state: bugs (top severity first), stale sweep, stale tests,
 [Surface tracker Ready items, handoff action items, and PM-facing options]
 ```
 
-After synthesizing the Priority Suggestions, for each suggestion, emit a structured daily goal event. Run one invocation per suggestion:
+After synthesizing the Priority Suggestions, for each suggestion, emit a structured daily goal event. Run one invocation per suggestion (moved outside the Morning Briefing markdown fence per review A-F12, to prevent nested-fence parse failure):
 
-    # Review: A-F12 — moved outside the Morning Briefing markdown fence to prevent nested-fence parse failure
-    append-goal-event.sh \
-      --period day --period-value <today ISO date, e.g. 2026-06-22> --text "<the suggestion>"
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/append-goal-event" --period day --period-value <today ISO date, e.g. 2026-06-22> --text "<the suggestion>"`
 
 Runs automatically as part of the ceremony — no new manual PM step.
 
-**Set marker:** Write `state/.workday-start-marker` with today's date (single line). Workstream-start checks this one file.
+**Set marker:** `d-workday-marker-write` (Step -0.9's brief, AC-7 marker-freshness dedup — the same cadence-parameterized gate `workstream-start` reads and `workweek-start` owns for its own cadence) — write `state/.workday-start-marker` with today's date (single line) once this ceremony completes. Workstream-start checks this one file.
 
 ## Step 5.5: Write Orientation Cache
 
@@ -977,28 +818,9 @@ Generate `state/orientation_cache.md` — a compact 40-60 line summary the Sessi
 
 ## Step 5.6: Project Post-Ceremony Command Hook
 
-Advisory, non-blocking. Calls the generic per-repo post-ceremony command hook so a consumer repo can register its own opt-in command (e.g. a settled-state publish step) to run once orientation has settled. Silent no-op when the repo declares no `workday_start_post_command:` key in `coordinator.local.md`. See `docs/plans/2026-07-08-ceremony-post-command-hook-seam.md` for the full contract.
+Advisory, non-blocking. Calls the generic per-repo post-ceremony command hook so a consumer repo can register its own opt-in command (e.g. a settled-state publish step) to run once orientation has settled. Silent no-op when the repo declares no `workday_start_post_command:` key in `coordinator.local.md`.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Review: code-reviewer (F1) — guard is defensive-only against the helper-script-absent
-# (install-drift) case; the helper itself is contracted always-exit-0, so this `||` fires
-# only if `bash <path>` itself can't find/exec the script (e.g. exit 127).
-_HOOK_OUT="$(bash "$_cc_root/bin/coordinator-ceremony-hook.sh" workday-start)" \
-  || echo "[workday-start] WARN: ceremony-hook exited non-zero (non-blocking)" >&2
-if [ -n "$_HOOK_OUT" ]; then printf '%s\n' "$_HOOK_OUT"; fi
-```
+`d-ceremony-hook-output` (Step -0.9's brief, cadence-parameterized on `workday-start`) carries the hook's output — print it verbatim; a non-fired directive is a non-blocking WARN, never a hard fail.
 
 **Asymmetric vs the other three ceremonies:** workday-start's user-facing summary is Step 5 (Morning Briefing), which renders BEFORE this Step 5.6 settle point — so the hook line CANNOT be folded into an already-rendered summary template the way workday-complete/workweek-start/workweek-complete do. It emits as a STANDALONE trailing line printed by this step itself, after the Morning Briefing has already been shown. This is fine functionally — it preserves the settle-after-cache-write ordering — but do not try to retrofit the line into the Step 5 template.
 

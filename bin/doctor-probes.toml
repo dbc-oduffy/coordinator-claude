@@ -1,6 +1,6 @@
 # doctor-probes.toml — declarative probe manifest for the coordinator doctor.
 #
-# SSOT for every probe fired by bin/coordinator-doctor-sentinel.sh. The
+# SSOT for every probe fired by bin/coordinator-doctor-sentinel.py. The
 # coordinator-doctor.md §3 probe-catalog table and the sentinel's probe-firing
 # set are derived from / validated against this file (VALIDATE-not-GENERATE at
 # rest — see test_doctor_manifest_is_ssot, Chunk 3).
@@ -116,7 +116,7 @@ fix = "none"
 symptom_keywords = ["coordinator_whoami import error", "ImportError", "package not installed", "whoami not importable"]
 triage = true
 severity_if_fail = "error"
-remediation = "Run bin/ensure-coordinator-venv.sh (or re-run /coordinator:install Phase 3 Step 6) — rebuilds the coordinator venv at <settings-home>/.coordinator-venv/ idempotently; <settings-home> = $(coordinator-settings-home). The bare pip install path is no longer correct after the venv relocation."
+remediation = "Re-run /coordinator:install (Phase 3 Step 6) — rebuilds the coordinator venv at <settings-home>/.coordinator-venv/ idempotently; <settings-home> = $(coordinator-settings-home). The bare pip install path is no longer correct after the venv relocation."
 
 [[probe]]
 id = "P-6"
@@ -146,10 +146,10 @@ cluster = "whoami"
 weight = "standard"
 interactivity = "silent"
 fix = "none"
-symptom_keywords = ["mcpServers absent", "claude.json empty", "config missing", "mcpServers entry"]
+symptom_keywords = ["mcpServers absent", "enabled plugin missing mcp server", "config missing", "mcpServers entry"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "Re-run plugin install to write the mcpServers entry; verify ~/.claude.json is writable"
+remediation = "An enabled MCP-serving plugin (project-rag, example-game-repo-control, or notebooklm) has no entry in ~/.claude.json mcpServers — re-run plugin install to register it. An empty mcpServers map is otherwise healthy (coordinator ships no first-party MCP server; core: none, docs/wiki/mcp-topology.md)."
 
 # ---------------------------------------------------------------------------
 # Cluster: resolver — bin/ path resolvers (claude-home)
@@ -210,7 +210,7 @@ fix = "none"
 symptom_keywords = ["templates drift", "publish.sh customized", "setup sync", "template out of date"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "Run verify-templates-setup-sync.sh (no flags, inspect-only) to see drift; recover manually with cp coordinator/templates/setup/<file> ~/.claude/setup/<file>"
+remediation = "Run verify-templates-setup-sync.py (no flags, inspect-only) to see drift; recover manually with cp coordinator/templates/setup/<file> ~/.claude/setup/<file>"
 
 [[probe]]
 id = "P-12"
@@ -221,7 +221,7 @@ fix = "none"
 symptom_keywords = ["canonical structure incomplete", "cross-repo dir missing", "scaffold", "README missing"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "Run scaffold-canonical-structure.sh --root ~/.claude to restore; or re-run /coordinator:install Phase 3 Step 7"
+remediation = "Run python3 -m coordinator_core.install.scaffold_structure --root ~/.claude --manifest-root <coordinator-plugin-root> to restore; or re-run /coordinator:install Phase 3 Step 7"
 
 # ---------------------------------------------------------------------------
 # Cluster: currency — onboarding currency drift (per-repo schema-version stamp)
@@ -239,11 +239,18 @@ severity_if_fail = "degraded"
 remediation = "Re-run /repo-setup to stamp this repo with the current coordinator schema version"
 
 # ---------------------------------------------------------------------------
-# Cluster: system-prereq — machine-level prerequisite gate (SSOT: prereq_probe.sh)
+# Cluster: system-prereq — machine-level prerequisite gate
+# (SSOT: coordinator_core.install.prereq_probe, claude-klabauter)
 #
-# Reuses _co_prereq_probe_all from scripts/lib/prereq_probe.sh as the SSOT for
-# every probe body. The sentinel sources prereq_probe.sh and calls the aggregator;
-# no probe logic is duplicated here. This is the doctor-probe-design.md §
+# Reuses probe_all() from coordinator_core.install.prereq_probe (native
+# Python port; this doctor sentinel no longer bridges to the DoE-side
+# scripts/lib/prereq_probe.sh bash oracle it was ported from — that file
+# was DELETED 2026-07-22, PM override of the prior DR-079 keep-as-vendor-SSOT
+# ruling; project-rag-ue-addon and deep-research vendored it byte-stable and
+# their parity gates go red until they re-vendor against the Python port)
+# as the SSOT for every probe body.
+# plugin_health/sentinel.py calls probe_all() in-process (DR-079); no
+# probe logic is duplicated here. This is the doctor-probe-design.md §
 # "A Probe Must Walk the Same Resolution Path as the Runtime Tool It Vouches For"
 # implementation — the same NDJSON output the install Step Zero gate consumes is
 # what the doctor verifies.
@@ -319,7 +326,7 @@ fix = "none"
 symptom_keywords = ["ue override drift", "verify-ue-overrides", "example_game_workbench_repo"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "Follow the verify-ue-overrides.sh remediation hint (typically set repos.example_game_workbench_repo)"
+remediation = "Follow the verify-ue-overrides.py remediation hint (typically set repos.example_game_workbench_repo)"
 
 # ---------------------------------------------------------------------------
 # Cluster: structure — install singularity (canonical-locus integrity)
@@ -338,7 +345,7 @@ symptom_keywords = ["install singularity", "split install", "multiple clones", "
 # satisfies the triage=true => weight in {cheap,standard} invariant.
 triage = true
 severity_if_fail = "error"
-remediation = "Multiple coordinator install trees or divergent registration detected — reconcile to a single ~/.claude install (remove stray clones/symlinks; align settings.json / settings.local.json / known_marketplaces.json; fix a doubled .claude/.claude venv pin via bin/ensure-coordinator-venv.sh). Re-run /coordinator:install."
+remediation = "Multiple coordinator install trees or divergent registration detected — reconcile to a single ~/.claude install (remove stray clones/symlinks; align settings.json / settings.local.json / known_marketplaces.json; fix a doubled .claude/.claude venv pin by re-running /coordinator:install). Re-run /coordinator:install."
 
 # ---------------------------------------------------------------------------
 # Cluster: currency (continued) — release-currency advisory (git-tag anchor)
@@ -380,3 +387,58 @@ symptom_keywords = ["release currency", "plugin update available", "coordinator 
 triage = false
 severity_if_fail = "degraded"
 remediation = "Run `/coordinator-update` to update coordinator"
+
+# ---------------------------------------------------------------------------
+# Cluster: system-prereq (continued) — durable coordinator-root pointer probes
+#
+# P-20/P-21 are the DoE-side detect-and-advise complement to the claude-klabauter
+# install-engine's durable-root provisioning (docs/plans/2026-07-21-durable-
+# coordinator-root-pointer.md § C7/C8). Both are per-machine confirmation
+# checks — they do not write or repair anything themselves (fix = "none",
+# consistent with every other probe in this manifest).
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-20"
+cluster = "system-prereq"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["bash<4", "bash 3.2", "old bash on PATH", "system bash ahead of brew bash", "BASH_VERSINFO", "macos default bash"]
+triage = true
+severity_if_fail = "error"
+remediation = "The bash resolved first on PATH is < 4 (macOS ships 3.2 at /bin/bash). Install a modern bash (brew install bash) and ensure its install prefix (e.g. /opt/homebrew/bin or /usr/local/bin) precedes /bin on PATH; re-run /coordinator:install to re-verify."
+
+[[probe]]
+id = "P-21"
+cluster = "system-prereq"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["doe-root missing", "settings-home doe-root absent", ".doe-root pointer", "durable coordinator root pointer", "DR-072", "coordinator root unresolvable"]
+triage = true
+severity_if_fail = "error"
+remediation = "No <settings-home>/machine-local/.doe-root pointer found (DR-072 durable location) and no legacy ~/.claude/.doe-root fallback either — re-run /coordinator:install to re-seed the durable coordinator-root pointer."
+
+# ---------------------------------------------------------------------------
+# P-22 — publish-targets.portable DoE-tracked vs live-install divergence.
+# Closes code-reviewer Finding 1a (restore-oss-seed-wiki slice, 2026-07-21):
+# the DoE-tracked setup/publish-targets.portable and the untracked live-
+# install copy (usually ${CLAUDE_HOME:-$HOME}/.claude/setup/, PERCOLATE_ROOT
+# rung 3) have no sync mechanism, and the seed-wiki-allowlist regression
+# guard (test_publish_seed_wiki_allowlist.py) structurally cannot see the
+# live copy. Machine-dependent (needs a live-install PERCOLATE_ROOT to
+# compare against) — doctor-probe placement only, NOT the fast test tier,
+# per the P-11 precedent immediately above.
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-22"
+cluster = "structure"
+weight = "standard"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["publish-targets.portable drift", "publish-targets divergence", "OSS mirror allowlist drift", "live install publish targets", "wiki seed allowlist re-drift", "percolate root publish targets mismatch"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Run verify-publish-targets-portable-sync.py (no flags, inspect-only) to see which row(s) diverged and how; recover manually by hand-copying the correct row(s) between the DoE-tracked copy and the live-install copy — this check never syncs either copy itself."

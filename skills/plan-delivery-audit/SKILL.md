@@ -1,19 +1,12 @@
 ---
 name: plan-delivery-audit
-description: "Triangulate plan-claim / code-reality / review oracles to classify each plan into DELIVERED+REVIEWED / DELIVERED-UNREVIEWED / PARTIAL / IN-FLIGHT / ABANDONED. Run after any crash or 'did we actually finish what we think we finished?' moment."
-description-budget: 175
+description: "Triangulate plan claims against code and reviews for delivery status."
 version: 1.0.0
 allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: "[plan-glob — default: docs/plans/*.md]"
 ---
 
 # Plan-Delivery Audit
-
-> **Spec backlink:** `archive/specs/2026-05/2026-05-28-archive-aware-review-oracle-and-audit-skill.md` § Chunk C5.
-> **Origin:** Distilled from the 2026-05-27 example-game-repo audit
-> (`X:\example-game-workbench-repo\tasks\recovery\2026-05-27-plan-delivery-audit.md`) where a
-> live-only review-trail read produced a false "most work unreviewed" alarm — 22 archived
-> records had been moved by `/workweek-complete` Step 13 and were invisible to the live glob.
 
 ## When to invoke
 
@@ -38,8 +31,9 @@ any file matching:
 - Any file whose basename contains `.review-` or `.check.`
 
 Apply the exclusion at glob time. Default glob: `docs/plans/*.md` minus the patterns above.
-The example-game-repo audit (2026-05-27) confirmed this exclusion is load-bearing — sidecars were the
-source of misleading `status: reviewed` entries in the candidate set before filtering.
+This exclusion is load-bearing — sidecars are the source of misleading `status: reviewed`
+entries in the candidate set when left unfiltered (see the worked example below for the audit
+that surfaced this).
 
 ## The three oracles (read each independently)
 
@@ -88,37 +82,28 @@ implemented plans in the batch. Do NOT modify files, commit, or push during Orac
 
 Does an independent review-trail record cover the plan's delivery commits?
 
-**A commit C is covered by trail record [A..B] if and only if:**
-
-```bash
-  git merge-base --is-ancestor C B   # must succeed (exit 0): C is within the reviewed window (at or before B)
-! git merge-base --is-ancestor C A   # must succeed (exit 0): C is NOT before the window start (after A, exclusive)
-```
-
-Both clauses are required: `is-ancestor C B` AND `! is-ancestor C A`. The negative clause
-prevents a review record from absorbing commits that predate the reviewed window — without it,
-any record with a sufficiently old start SHA would appear to "cover" any commit in the repo.
-**The `!` negation in front of the second `git merge-base` is load-bearing — omitting it inverts the
-test from "after the window start" to "before the window start" and silently breaks the audit.**
+**Coverage test:** call `coordinator_core.git_ancestry.is_covered(commit, start_sha, end_sha)`
+(claude-klabauter) for each delivery commit against each trail record's `sha_range`. The helper
+is the single source of truth for the covered-by-range polarity (ancestor-of-end AND NOT
+ancestor-of-start) — do not hand-run the `git merge-base --is-ancestor` probes or restate the
+polarity warning here; both live in the helper now.
 
 **Trail records live at BOTH `state/review-trail/**/*.json` AND `archive/review-trail/**/*.json`.**
 Read via:
 
 ```bash
-list-review-trail-records.sh
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/list-review-trail-records"
 ```
 
 **DO NOT glob `state/review-trail/` alone.** The `/workweek-complete` Step 13 archival moves
 all current-week records into `archive/review-trail/<week-starting>/` on every weekly reset.
-A live-only read systematically under-counts coverage for anything older than the current week.
-This is the exact failure mode that prompted this skill — the 2026-05-27 example-game-repo audit found
-22 archived records invisible in the live dir, producing a false "most work unreviewed" alarm.
-See `docs/wiki/workstream-complete-review.md` § Archive-Aware Glob.
+A live-only read systematically under-counts coverage for anything older than the current week
+— see the worked example below for the audit that surfaced this failure mode.
 
-**For each trail record returned by `list-review-trail-records.sh`:**
+**For each trail record returned by `list-review-trail-records.py`:**
 
 1. Read the record's `sha_range` field (format: `"<start>..<end>"`)
-2. For each of the plan's delivery commits C: run the two-clause ancestry test above
+2. For each of the plan's delivery commits C: call `is_covered(C, start_sha, end_sha)`
 3. If any record covers all delivery commits, Oracle 3 = COVERED; else UNCOVERED
 
 If the plan's delivery commits cannot be identified from frontmatter or execution notes,
@@ -171,12 +156,8 @@ Follow the table with:
 
 Save to `state/audits/YYYY-MM-DD-<SID_SHORT>-plan-delivery-audit.md`, where `SID_SHORT` is the
 first 8 characters of the session id resolved via `cs_resolve_session_id` (4-tier:
-`COORDINATOR_SESSION_ID` → `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` → sentinel), e.g.:
-
-```bash
-SID="$(cs_resolve_session_id)"; SID="${SID:-unknown}"
-SID_SHORT="${SID:0:8}"
-```
+`COORDINATOR_SESSION_ID` → `CLAUDE_SESSION_ID` → `CLAUDE_CODE_SESSION_ID` → sentinel), falling
+back to `unknown` if the resolver returns nothing.
 
 If `cs_resolve_session_id` is unavailable in the current shell, fall back to a short nonce
 (e.g. `$(date +%s%N 2>/dev/null || date +%s)` truncated to 8 characters) rather than omitting
@@ -186,16 +167,16 @@ do not silently clobber each other's output. Create the `state/audits/` director
 ## Worked example — 2026-05-27 example-game-repo audit
 
 > **the Staff Engineer F3 falsifiability hook.** The rows below are drawn directly from the example-game-repo
-> audit at `X:\example-game-workbench-repo\tasks\recovery\2026-05-27-plan-delivery-audit.md`.
+> audit at `<repo-root>/tasks/recovery/2026-05-27-plan-delivery-audit.md`.
 > A reviewer can walk the decision tree against each row independently and verify the bucket
-> assignment. Plans are in the example-game-repo repo (`X:\example-game-workbench-repo\docs\plans\`).
+> assignment. Plans are in that repo's `<repo-root>/docs/plans/` directory.
 
 **Plans audited (4 real plans; sidecar exclusion applied first):**
 
 | Plan | Oracle 1 (claim) | Oracle 2 (code) | Oracle 3 (review) | Bucket |
 |------|-----------------|-----------------|-------------------|--------|
 | `2026-05-24-patch-and-send-back-contribution-invite.md` | `status: implemented`; cites commits `d67f7371b`, `d368b6269`, `a92447c17`, `b5b824d47`; 10 ACs | 9/10 ACs verified at disk; AC3 (URL liveness) inherently manual — remaining 9 pass grep/cited checks | **COVERED (archive-aware).** `archive/review-trail/2026-05-21/2026-05-24-115430145738-08b5c444.json` — range `977a40b29..cc4c936d6`; all 4 delivery commits satisfy `is-ancestor C cc4c936d6 && ! is-ancestor C 977a40b29`. _A live-only Oracle 3 (`state/review-trail/` glob without `archive/review-trail/**`) would mis-classify this plan as DELIVERED-UNREVIEWED — see Key finding below._ | **DELIVERED+REVIEWED** (under archive-aware Oracle 3) — **would have been DELIVERED-UNREVIEWED** under live-only Oracle 3 |
-| `2026-05-26-game-dev-ownership-and-bidirectional-install-drift.md` | `status: implemented`; 9 delivery commits; 13 ACs; `reviewed: the Staff Engineer 2026-05-26; code-reviewer 2026-05-26` | 12/13 ACs fully in-repo; AC7 realized as external coordinator dependency (landed) | **COVERED.** Live record `state/review-trail/2026-05-26-131032300171-1afa35ae.json` — range `609399fcc..HEAD`; all 9 delivery commits fall inside range | **DELIVERED+REVIEWED** |
+| `2026-05-26-game-dev-ownership-and-bidirectional-install-drift.md` | `status: implemented`; 9 delivery commits; 13 ACs; `reviewed: the Staff Engineer 2026-05-26; code-reviewer 2026-05-26` | 12/13 ACs fully in-repo; AC7 realized as an external coordinator dependency that is present | **COVERED.** A live `state/review-trail/` record dated 2026-05-26 — range `609399fcc..HEAD`; all 9 delivery commits fall inside range | **DELIVERED+REVIEWED** |
 | `2026-05-26-headless-extractor-seam-buildout.md` | `status: draft`; active workstream with recovery handoff `2026-05-27_084305_e40956a9.md` ("review-complete, ZERO C++ authored; resume by dispatching Phase 1 H-2 resolver") | Not run — no terminal close; Oracle 2 does not apply to in-flight work | Not applicable — delivery not claimed | **IN-FLIGHT** |
 | `2026-05-19-headless-extraction-buildout.md` | `status: draft`; `kind: roadmap-lite`; explicitly superseded by the 05-26 seam plan | Not run — no delivery expected | Not applicable — abandoned by supersession | **ABANDONED** |
 
@@ -211,15 +192,15 @@ do not silently clobber each other's output. Create the `state/audits/` director
 
 4. **headless-extraction-buildout (05-19):** Oracle 1 = `draft` with explicit supersession pointer → bucket resolves at Oracle 1. No delivery expected or claimed. Bucket: **ABANDONED**. ✓ (Audit recommends a frontmatter flip to `status: superseded` + `superseded_by:` for hygiene — the current `draft` falsely signals "resumable" to pickup candidates.)
 
-**Key finding from this audit:** The handoff's alarm — *"only 4 review-trail records, most shipped work unreviewed"* — was **an archival artifact, not a coverage gap**. The `/workweek-complete` run on 2026-05-24 (commit `db151655e`) moved 22 review-trail records into `archive/review-trail/2026-05-21/`. A live-only read of `state/review-trail/` saw only the current week's 4 records and missed them. Oracle 3 reading ONLY the live dir would have mis-classified the 05-24 plan as **DELIVERED-UNREVIEWED** — a false verdict. The archive-aware read via `list-review-trail-records.sh` is load-bearing, not optional.
+**Key finding from this audit:** The handoff's alarm — *"only 4 review-trail records, most shipped work unreviewed"* — was **an archival artifact, not a coverage gap**. The `/workweek-complete` run at commit `db151655e` moved 22 review-trail records into `archive/review-trail/2026-05-21/`. A live-only read of `state/review-trail/` saw only the current week's 4 records and missed them. Oracle 3 reading ONLY the live dir would have mis-classified the 05-24 plan as **DELIVERED-UNREVIEWED** — a false verdict. The archive-aware read via `list-review-trail-records.py` is load-bearing, not optional.
 
 ## Why a skill, not a one-shot
 
 This shape recurs after every crash and every "did we actually ship what we think we shipped?"
-moment — it has fired at least twice in the coordinator workstream and once explicitly in example-game-repo
-(2026-05-27). Re-deriving the three-oracle protocol, the git range-membership formula, the
-archive-aware glob, and the sidecar exclusion rule by hand each time is the cost this skill
-exists to amortise.
+moment — it has fired repeatedly in the coordinator workstream, including the example-game-repo case
+in the worked example above. Re-deriving the three-oracle protocol, the git-ancestry helper
+call, the archive-aware glob, and the sidecar exclusion rule by hand each time is the cost this
+skill exists to amortise.
 
 Closest analogues in `skills/`: `bug-sweep` (sweep-and-classify), `architecture-audit`
 (multi-oracle assessment), `validate` (project test suite runner). All three support skill-shape
@@ -249,14 +230,13 @@ For each implemented plan, dispatch a read-only Sonnet scout with:
 > claim exists at HEAD using grep/ls/symbol lookup. Report each claim as PRESENT / ABSENT /
 > UNVERIFIABLE. Do NOT modify files, commit, or push. Return results inline."
 
-Concurrently (EM-side), run Oracle 3 for each plan:
+Concurrently (EM-side), run Oracle 3 for each plan. First, get all live + archived records:
 
 ```bash
-list-review-trail-records.sh   # get all live + archived records
-# for each record, read sha_range and test delivery commits for range membership:
-  git merge-base --is-ancestor <commit> <end_sha>    # must succeed (exit 0)
-! git merge-base --is-ancestor <commit> <start_sha>  # must succeed (exit 0) — note the leading !
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/list-review-trail-records"
 ```
+
+Then, for each record, read its `sha_range` and test delivery commits for range membership by calling `coordinator_core.git_ancestry.is_covered(commit, start_sha, end_sha)` (claude-klabauter) — the same helper documented under Oracle 3 above.
 
 **Phase 3 — Synthesise and write output (~3 min)**
 

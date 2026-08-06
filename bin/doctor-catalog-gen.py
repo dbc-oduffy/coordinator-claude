@@ -18,7 +18,19 @@ Modes:
 
 Environment:
   DOCTOR_PROBES_MANIFEST   override manifest path (default: sibling doctor-probes.toml)
-  DOCTOR_WIKI_PATH         override wiki path (default: ../docs/wiki/coordinator-doctor.md)
+  DOCTOR_WIKI_PATH         override wiki path (default: resolved via
+                           coordinator_data_root.data_root("docs") / "wiki" /
+                           "coordinator-doctor.md" — co-located if this repo ships
+                           its own docs/, else DoE-resident via coordinator_registry.
+                           doe_root(); see coordinator/bin/lib/coordinator_data_root.py)
+
+Cross-repo write note: --write mode writes coordinator-doctor.md in place at the
+resolved wiki path above. In the current split-repo layout that path resolves to
+DoE-claude's coordinator/docs/wiki/coordinator-doctor.md (this repo's coordinator/docs/
+does not exist), so --write is a cross-repo write into DoE's tree, same as it always
+was pre-migration when this script's caller ran with a DoE-relative CWD. This module
+does not change that write behavior or its governance — it only fixes path resolution
+to still find the target after the executable-surface split.
 """
 
 from __future__ import annotations
@@ -28,11 +40,21 @@ import sys
 import difflib
 from pathlib import Path
 
+# Defensive self-locate — mirrors the sys.path.insert convention every bin/
+# entrypoint uses (see coordinator/bin/snippet-registry's own `_LIB_DIR`
+# insertion) so this module resolves its `coordinator_data_root` sibling
+# import regardless of caller cwd.
+_LIB_DIR = Path(__file__).resolve().parent / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+
+from coordinator_data_root import data_root  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Sentinel markers (must stay byte-identical across all write/check operations)
 # ---------------------------------------------------------------------------
 
-BEGIN_MARKER = "<!-- BEGIN generated-probe-metadata (from bin/doctor-probes.toml — regenerate via bin/doctor-catalog-gen.py; do not hand-edit) -->"
+BEGIN_MARKER = "<!-- BEGIN generated-probe-metadata (from claude-klabauter coordinator/bin/doctor-probes.toml — regenerate via claude-klabauter coordinator/bin/doctor-catalog-gen.py; do not hand-edit) -->"
 END_MARKER = "<!-- END generated-probe-metadata -->"
 
 
@@ -51,7 +73,7 @@ def _wiki_path() -> Path:
     override = os.environ.get("DOCTOR_WIKI_PATH")
     if override:
         return Path(override)
-    return Path(__file__).parent.parent / "docs" / "wiki" / "coordinator-doctor.md"
+    return data_root("docs") / "wiki" / "coordinator-doctor.md"
 
 
 # ---------------------------------------------------------------------------

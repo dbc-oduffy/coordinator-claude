@@ -1,6 +1,6 @@
 ---
 name: finishing-a-development-branch
-description: "Use when implementation is complete and tests pass — presents structured options for merge, PR, or cleanup to integrate the work."
+description: "Presents merge, PR, or cleanup options once tests pass."
 version: 1.0.0
 ---
 
@@ -20,10 +20,7 @@ Guide completion of development work by presenting clear options and handling ch
 
 **Before presenting options, verify tests pass:**
 
-```bash
-# Run project's test suite
-npm test / cargo test / pytest / go test ./...
-```
+Resolve and run the fast tier via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-resolve-validation-cmd" --fast` (rc 0 = resolved, run the result and capture its exit code; rc 2 = no `fast_test_cmd` configured — skipped, not failed), EM-side, ungated. This skill is not on the implicit-grant ceremony list (`/workday-complete`, `/workweek-complete`, `/merging-to-main`), so it does not invoke the full suite here — a full-suite gate belongs to the merge ceremony downstream (Option 1 chains into `merging-to-main`, which runs its own CI-gated checks). The fast tier is a proportionate pre-disposition sanity check, not a substitute for that gate. Interim caveat: a chained `fast_test_cmd` (`a && b`, `a; b`, a pipe) is denied by the invocation guard today — don't reshape the command to dodge it; configure `fast_test_cmd` as a single command, with multi-step logic in a wrapper script instead.
 
 **If tests fail:**
 ```
@@ -40,10 +37,7 @@ Stop. Don't proceed to Step 2.
 
 ### Step 2: Determine Base Branch
 
-```bash
-# Try common base branches
-git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
-```
+Try common base branches: `git merge-base HEAD main`, falling back to `git merge-base HEAD master` if that fails.
 
 Or ask: "This branch split from main - is that correct?"
 
@@ -65,14 +59,16 @@ Which option?
 
 **Why no "discard" option:** when this skill fires, work is reviewed, tested, and committed. Offering discard as a peer of "merge" treats the choice as ambivalent when it isn't. If the PM genuinely wants to throw the work away, they'll say so explicitly — and that path goes through deliberate destructive-action confirmation, not a numbered menu.
 
+**No worktrees.** Worktrees are forbidden — work happens on the active workstream branch. An
+override exists but requires explicit PM permission via the EM. If a stray worktree turns up
+during Step 5 below, that's debris to remove, not state to preserve.
+
 ### Step 4: Execute Choice
 
 #### Option 1: Merge to main via PR (Recommended)
 
 Invoke the `merging-to-main` skill. This creates a PR, waits for CI checks, and merges
 on success. Branch is deleted after merge.
-
-If on a worktree: worktree is removed after merge (Step 5).
 
 #### Option 2: Create a Pull Request (manual merge later)
 
@@ -81,20 +77,7 @@ Push the feature branch and create a PR, but do NOT merge. Use this when:
 - CI needs to pass but you're not ready to merge yet
 - You want to come back to this later
 
-```bash
-git push -u origin <feature-branch>
-
-gh pr create --title "<title>" --body "$(cat <<'EOF'
-## Summary
-<2-3 bullets of what changed>
-
-## Test Plan
-- [ ] <verification steps>
-EOF
-)"
-```
-
-If on a worktree: keep the worktree active.
+Push the feature branch (`git push -u origin <feature-branch>`), then create the PR with `gh pr create`, giving it a title and a body with `## Summary` (2-3 bullets of what changed) and `## Test Plan` (verification steps as a checklist) sections.
 
 #### Option 3: Keep the branch as-is
 
@@ -102,34 +85,21 @@ Don't merge, don't create PR. Branch stays. Use this when:
 - Work is in progress and not ready for review
 - You plan to continue in another session
 
-Report: "Keeping branch <name>. Worktree preserved at <path>."
+Report: "Keeping branch <name>."
 
-If on a worktree: keep the worktree active.
+### Step 5: Remove Any Stray Worktree
 
-### Step 5: Cleanup Worktree
+Check if in a worktree by grepping `git worktree list` for the current branch name (`git branch --show-current`).
 
-<!-- Review: the Staff Engineer — Option 2 keeps worktree active; contradicted the quick reference table -->
-**For Option 1:**
-
-Check if in worktree:
-```bash
-git worktree list | grep $(git branch --show-current)
-```
-
-If yes:
-```bash
-git worktree remove <worktree-path>
-```
-
-**For Options 2 and 3:** Keep worktree.
+If yes, remove it (`git worktree remove <worktree-path>`) — regardless of which option was chosen. Worktrees are forbidden, so any found here is stray debris left behind, not deliberately preserved state.
 
 ## Quick Reference
 
-| Option | PR | Merge | Keep Worktree | Cleanup Branch |
-|--------|-----|-------|---------------|----------------|
-| 1. Merge via PR | ✓ | ✓ (CI-gated) | - | ✓ |
-| 2. PR only | ✓ | - | ✓ | - |
-| 3. Keep as-is | - | - | ✓ | - |
+| Option | PR | Merge | Cleanup Branch |
+|--------|-----|-------|---------------|
+| 1. Merge via PR | ✓ | ✓ (CI-gated) | ✓ |
+| 2. PR only | ✓ | - | - |
+| 3. Keep as-is | - | - | - |
 
 ## Common Mistakes
 
@@ -141,13 +111,8 @@ git worktree remove <worktree-path>
 - **Problem:** "What should I do next?" → ambiguous
 - **Fix:** Present exactly 3 structured options
 
-**Automatic worktree cleanup**
-- **Problem:** Remove worktree when might need it (Option 2, 3)
-- **Fix:** Only cleanup for Option 1
-
 **Offering discard as a numbered option**
-- **Problem:** When work is reviewed, tested, and committed, presenting "discard" as a peer of "merge" treats the choice as ambivalent and invites accidental selection.
-- **Fix:** Don't include discard in the menu. If the PM wants to throw work away, they'll say so explicitly — and that path is deliberate destructive-action confirmation, not a numbered choice.
+- **Problem/Fix:** see Step 3, "Why no 'discard' option" — don't restate it here.
 
 ## Red Flags
 
@@ -160,16 +125,21 @@ git worktree remove <worktree-path>
 **Always:**
 - Verify tests before offering options
 - Present exactly 3 options
-- Clean up worktree for Option 1 only
+- Remove any stray worktree found, regardless of chosen option
 
 ## Integration
 
 **Called by:**
-- **Executor-dispatch workflow** (`docs/wiki/delegate-execution.md`) — After all tasks complete
+- **Executor-dispatch workflow** — After all tasks complete
 - **The PM directly** — when a branch is ready for disposition (merge / PR / keep)
 
 **Not called by:**
 - **/execute-plan** — execute-plan finalizes and offers `/workstream-complete`; it deliberately does **not** chain into branch disposition, since that reaches the keyword-gated `/merge-to-main`. Branch disposition is a separate, PM-invoked decision.
 
 **Pairs with:**
-- No worktrees — worktrees are forbidden. Use the active workstream branch for WIP parking.
+- **`consolidate-git`** — operates on sibling branches/worktrees, not the current branch; kept as a
+  separate skill from this one rather than folded, since a "fold thin engines into their only
+  caller" consolidation only applies when the two skills share one caller and scope — these don't.
+
+**Extraction note:** the Step 3 3-option menu is the judgment residue an assembler cannot
+resolve — it stays hand-authored prose, not a computed op.

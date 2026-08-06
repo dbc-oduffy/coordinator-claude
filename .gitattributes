@@ -1,0 +1,54 @@
+# Byte-equal cross-repo conformance fixture: pin LF explicitly so it does not
+# diverge to CRLF under autocrlf on a Windows checkout. This .gitattributes lives
+# INSIDE the publish source root (not the meta-repo root) so the pin ships to the
+# OSS coordinator-claude publish. See docs/wiki/cross-repo-contract-test-discipline.md
+# and docs/wiki/step-zero-emitter-contract.md.
+tests/fixtures/step-zero-conformance.json text eol=lf
+
+# Emitted contract bundle compared byte-for-byte against a fresh emit by
+# bin/tests/test-emit-artifact-shape-contract.js. The emitter always writes LF,
+# so without this pin autocrlf checks the committed copy out as CRLF on Windows
+# and the drift guard fails permanently on every Windows clone (found on a real
+# Windows box 2026-07-20; Mac-only validation cannot surface it).
+artifact-shape-contract/artifact-shape-contract.schema.json text eol=lf
+
+# Unix-executed scripts (shebang-invoked shell/Python/Node, plus repo-tooling
+# JS) MUST be LF. This .gitattributes lives INSIDE the publish source root, so
+# these pins ship to the OSS coordinator-claude publish — without them, an OSS
+# user cloning on Windows with core.autocrlf=true gets every .sh/.py/.js/.mjs
+# checked out CRLF, and a CRLF shell script emits a stray \r into its own
+# stdout, silently corrupting any pipeline consuming it (invisible on
+# macOS/Linux, fails far from its cause). See
+# docs/wiki/gitattributes-lfs-carve-outs.md for the last-match-wins semantics
+# these pins rely on, and docs/wiki/windows-cmd-shims.md for the CRLF
+# counterpart below.
+*.sh text eol=lf
+*.py text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+
+# Extensionless executables directly under bin/ (coordinator-doc-new,
+# coordinator-auto-push, etc.) are shell/Python scripts dispatched via
+# shebang, not extension — they need the same LF pin as *.sh/*.py above, but
+# have no extension to key a pattern off. Path is relative to THIS file's
+# directory (coordinator/ IS the publish source root here, unlike the
+# meta-repo-root .gitattributes, which needs a coordinator/ prefix it does not
+# carry here) — see tests/fixtures/step-zero-conformance.json above for the
+# same relative-path convention.
+bin/* text eol=lf
+
+# Windows .ps1 PowerShell launchers have the same CRLF requirement as the
+# .cmd shims below — powershell.exe can mis-parse LF-only script files under
+# some execution-policy/encoding combinations. Pin CRLF so the bytes survive
+# any consumer's core.autocrlf setting on checkout.
+*.ps1 text eol=crlf
+
+# Windows .cmd PATHEXT shims (machine-local.cmd, python3.cmd, claude-home.cmd,
+# coordinator-settings-home.cmd) MUST be CRLF — cmd.exe mis-parses LF-only batch
+# files (REM lines execute as commands). Pin CRLF so the bytes survive any
+# consumer's core.autocrlf setting on checkout. See docs/wiki/windows-cmd-shims.md.
+# NOTE: *.cmd must stay the LAST line in this file — bin/* above also matches
+# .cmd files under bin/ (last-match-wins; see
+# docs/wiki/gitattributes-lfs-carve-outs.md), so this rule must resolve after
+# it to keep .cmd pinned CRLF instead of falling through to bin/*'s LF.
+*.cmd text eol=crlf

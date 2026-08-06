@@ -6,11 +6,11 @@
 > this playbook **in partnership with the human**, and they participate in the shape decisions while
 > you move fast on mechanism.
 >
-> coordinator-claude is a standard **Claude Code marketplace** — the plugins live at the repo root
-> (`coordinator/`, `deep-research/`, `web-dev/`, `data-science/`) and are installed with the native
-> `claude plugin` CLI. There is no bespoke installer script; the CLI does the wiring, and a
-> post-restart `/coordinator:install` finishes the environment. The collaboration model is what the
-> human is actually installing.
+> coordinator-claude is a standard **Claude Code marketplace** — the single `coordinator` plugin
+> lives at the repo root (deep-research is folded inside it, not a separate plugin) and is
+> installed with the native `claude plugin` CLI. There is no bespoke installer script; the CLI
+> does the wiring, and a post-restart `/coordinator:install` finishes the environment. The
+> collaboration model is what the human is actually installing.
 
 ---
 
@@ -23,29 +23,28 @@
 > coordinator clone root — the directory you cloned and read this playbook from; `cd` there first.
 > Post-install (`/coordinator:install` onward) runs from a fresh session and needs no clone path.
 
-Before any other action, run the Track A/B classifier from the clone root:
+Before any other action, determine which track applies. **No automated classifier script ships in
+this package** — the three-state detector lives in coordinator's private engine repo and is not
+part of this OSS distribution, so there is no `coordinator/lib/…` (or any other in-tree) path to
+invoke here. Determine the state by hand, from the human's `~/.claude`:
 
-```bash
-bash coordinator/lib/detect-existing-claude-home.sh
-```
+- **`state=pristine`** — `~/.claude` does not exist, or exists but is empty. **Track A** — proceed
+  to Step 1 from zero.
+- **`state=used-vanilla`** — `~/.claude` exists and Claude Code has run there, but nothing
+  opinionated was set up: not a git repo, `~/.claude/plugins/installed_plugins.json` is absent or
+  `{}`, and no coordinator infra (no `.doe-root`, no `coordinator.local.md`). **Track A** — proceed
+  to Step 1; the human's sessions and any `CLAUDE.md` edits are preserved, not overwritten. Surface
+  a *light, non-alarming* note that an existing-but-uncustomized Claude Code home was detected; do
+  NOT show the Track-B collision warning.
+- **`state=configured`** — an opinionated, deliberately-customized home: `~/.claude` is a git repo,
+  `installed_plugins.json` lists real plugins, or coordinator infrastructure is already present.
+  **Track B** — surface the merge caveat below before proceeding.
 
-The script emits one line: `state=<pristine|used-vanilla|configured> track=<A|B> reason: …`.
-**Branch on the `state=` field** (the `track=` field is a backward-compat binary alias — `configured`
-→ `B`, else `A` — kept for older callers; do not key new logic on it):
-
-- **`state=pristine`** — Claude Code has never run here. **Track A** — proceed to Step 1 from zero.
-- **`state=used-vanilla`** — Claude Code has run but nothing opinionated was set up (no git, no
-  installed plugins, no coordinator infra). **Track A** — proceed to Step 1; the human's sessions and
-  any `CLAUDE.md` edits are preserved, not overwritten. Surface a *light, non-alarming* note that an
-  existing-but-uncustomized Claude Code home was detected; do NOT show the Track-B collision warning.
-- **`state=configured`** — an opinionated, deliberately-customized home (git-tracked, installed
-  plugins, or coordinator infrastructure). **Track B** — surface the merge caveat below before
-  proceeding.
-
-**Track B — existing structure detected (`state=configured`).** The classifier found a git-tracked
+**Track B — existing structure detected (`state=configured`).** You found a git-tracked
 `~/.claude`, an installed plugin, or a substantially-edited `CLAUDE.md`. Surface this to the human:
 
-> "Your `~/.claude` already has structure (the classifier detected: [paste reason line]).
+> "Your `~/.claude` already has structure (I found: [name what you found — git history / installed
+> plugins / an edited `CLAUDE.md`]).
 > The coordinator installs cleanly from zero. Merging into an existing setup is **your call and
 > your EM's job** — we do not provide a cherry-pick or merge engine for pre-existing config.
 > Two options:
@@ -175,9 +174,13 @@ claude plugin install coordinator@coordinator-claude
 
 Claude Code caches the marketplace under `~/.claude/plugins/marketplaces/coordinator-claude/` and
 each plugin under `~/.claude/plugins/cache/coordinator-claude/<plugin>/<version>/` — **both inside
-`~/.claude`. The install is fully self-contained: once it completes, the clone is a build-time input
-you can move or delete, and the plugins keep working.** Read the CLI output; if it reports an error,
-surface it to the human verbatim — do not paper over.
+`~/.claude`. The plugin install itself is fully self-contained: once it completes, the clone is a
+build-time input you can move or delete, and the plugin's skills, hooks, and commands keep working.**
+That self-containment is scoped to the plugin, not to every capability it offers — see the engine
+dependency note in Prerequisites below: state-mutating flows (claiming handoffs, memo resolution,
+coverage computation, terminal stamping) need the coordinator engine, which is a separate,
+access-on-request dependency, not something this clone/install step provides. Read the CLI output;
+if it reports an error, surface it to the human verbatim — do not paper over.
 
 > **Why the GitHub repo, not your clone path?** `claude plugin marketplace add <a-directory>`
 > registers a *directory* source that Claude Code resolves from that exact path on **every** load —
@@ -254,7 +257,7 @@ In the fresh session, the human runs:
 
 1. **`/coordinator:install`** — environment wiring (safe to re-run; skips anything already
    configured). It checks prerequisites, sets the Agent Teams env var, lays down the machine-local
-   registry, builds the helper venv, renders `CLAUDE.local.md`, scaffolds the canonical document
+   registry, builds the helper venv, scaffolds the canonical document
    structure, records the `setup_concluded` receipt, and offers a guided tour + repo bootstrap. This
    is the post-restart onboarding — there is no separate baton to `/pickup`.
 2. **`/coordinator:repo-setup`** — per-project scaffolding (project `CLAUDE.md`, tracker, project
@@ -267,7 +270,7 @@ In the fresh session, the human runs:
    `/workday-start` and go straight to `/workstream-start` when ready to work.
 
 The fresh session is a Claude that now understands the system. The highest-leverage first
-*customization* is co-writing `CLAUDE.md` / `CLAUDE.local.md` together — the coordinator ships an
+*customization* is co-writing `CLAUDE.md` together — the coordinator ships an
 opinionated default; the operator and EM write the version that fits *how they want to work*. The
 guided tour in `docs/getting-started.md` is the vehicle.
 
@@ -312,7 +315,7 @@ Before installing, verify:
   `/bin/bash` — decides. `/coordinator:install` fails fast with this guidance if it runs under < 4.3.
   Linux, WSL, and Git Bash for Windows ship bash 4.3+ already — **but on Windows, `bash` is not
   invokable by name after a fresh Git-for-Windows install.** Git deliberately keeps `bash.exe` off
-  `PATH` (to avoid shadowing); it lives at `C:\Program Files\Git\bin\bash.exe`. Either launch the
+  `PATH` (to avoid shadowing); it lives at `Program Files\Git\bin\bash.exe`. Either launch the
   "Git Bash" terminal (which puts it on `PATH` for that shell) or invoke it by full path. The native
   `claude plugin` install flow above needs no bash at all — bash is a prerequisite for coordinator's
   *scripts and hooks at runtime*, not for installing the plugins.
@@ -336,6 +339,15 @@ Before installing, verify:
 - **jq** on PATH (`jq --version`). Hooks use it. If missing, install it
   (`brew install jq` / `sudo apt install jq` / `winget install jqlang.jq`).
 - **Node 18+** — only if the human wants the NotebookLM add-on. Otherwise irrelevant.
+- **The coordinator engine (published as `claude-klabauter`) — one hard dependency, not part of
+  this clone.** coordinator-claude has one hard dependency: the engine that handles all durable
+  work-state mutation. It is published as `claude-klabauter`. **That publish is not yet live** —
+  until it is, the engine is available on request from the maintainer (same access-on-request
+  model as `project-rag`). Without it, every pure-prompt flow (planning, review, personas, shaping)
+  still works; what's lost is the state machine (claiming handoffs, memo resolution, coverage
+  computation, terminal stamping). This is not a step to run now — it is a fact to tell the human
+  before they hit a state-mutating flow and find it missing. See
+  [docs/install/AGENT.md](install/AGENT.md) for the full dependency detail.
 
 ---
 
@@ -362,11 +374,11 @@ steps are self-contained — you do not need any installer script. The CLI flow 
 preferred; reach for this only when it is genuinely unavailable.
 
 1. `mkdir -p ~/.claude/plugins/coordinator-claude`
-2. `cp -r coordinator deep-research web-dev data-science ~/.claude/plugins/coordinator-claude/`
-   (copy whichever plugins the human chose — the repo's top-level plugin dirs).
+2. `cp -r coordinator ~/.claude/plugins/coordinator-claude/` (the repo's single top-level plugin
+   dir — deep-research ships folded inside it, there is nothing else to copy).
 3. Copy `.claude-plugin/marketplace.json` into
-   `~/.claude/plugins/.claude-plugin/marketplace.json`. The `source` fields are already flat
-   (`./coordinator`, `./deep-research`, …) — keep them as-is.
+   `~/.claude/plugins/.claude-plugin/marketplace.json`. Its one plugin entry's `source` field is
+   already flat (`.`) — keep it as-is.
 4. Merge an entry into `~/.claude/plugins/known_marketplaces.json` for `coordinator-claude`
    pointing at the install dir.
 5. Merge entries into `~/.claude/plugins/installed_plugins.json` (one per plugin, key
@@ -377,7 +389,7 @@ preferred; reach for this only when it is genuinely unavailable.
    `permissions.allow` (background subagents need these — `defaultMode: dontAsk` does not propagate
    to them).
 
-On Windows (Git Bash / WSL), config files store **native** Windows paths (`C:\Users\…`), not POSIX
+On Windows (Git Bash / WSL), config files store **native** Windows paths (`~…`), not POSIX
 (`/c/…`). Write native paths into the JSON or Claude Code will fail to resolve the plugins.
 
 After a manual install, restart and run `/coordinator:install` exactly as in Step 3.
@@ -455,8 +467,9 @@ up the latest from the marketplace; `/coordinator-update` is the safer, customiz
 
 ## Where the deeper docs live
 
-- [docs/getting-started.md](getting-started.md) — first-run usage, per-project config,
+- `docs/wiki/getting-started.md` — first-run usage, per-project config,
   troubleshooting (audience: human, post-install).
-- [docs/architecture.md](architecture.md) — how the system works.
-- [docs/customization.md](customization.md) — adding skills, persona templates, CI checks.
+- `docs/wiki/DIRECTORY_GUIDE.md` — the wiki index; browse from here for
+  architecture, customization (adding skills, persona templates, CI checks), and everything else —
+  there is no single `architecture.md`/`customization.md` file, the material lives across the wiki.
 - [docs/install/AGENT.md](install/AGENT.md) — the install-chain walker guide (for multi-repo chains).

@@ -9,7 +9,10 @@ Negative-spec:
   - Do NOT re-implement the YAML frontmatter parser; reuse _parse_outbox_yaml (---fence + key:value).
   - Do NOT skip/quarantine partial records — degrade and emit (C-F2).
   - Do NOT skip drained-only entries — union is a FULL OUTER JOIN (C-F3).
-  - Do NOT hardcode absolute home paths — accept repo_root as argv[1] or discover via marker.
+  - Do NOT hardcode absolute home paths — repo_root is a required positional CLI arg (argv[0]).
+  - Do NOT emit absolute operator-home provenance paths — relativize to repo-root-relative
+    POSIX at source (via _relativize_prov_path), matching the goals/handoff conventions in the
+    same cockpit envelope. Absolute paths leak /Users/<operator> and machine-lock parity.
   - Do NOT import yaml — not available in the base python3 env; use the ---fence+key:value parser.
   - `from_repo` and `repo` are DISTINCT dimensions (C-F7) — do NOT unify.
 """
@@ -24,29 +27,6 @@ import re
 import subprocess
 import sys
 from pathlib import Path
-
-
-# ---------------------------------------------------------------------------
-# Repo-root discovery
-# ---------------------------------------------------------------------------
-
-def _find_repo_root(start: Path) -> Path:
-    """Walk up from start looking for a directory with state/ + plugins/ siblings,
-    which is the ~/.claude meta-repo root. Falls back to start if not found."""
-    candidate = start.resolve()
-    for _ in range(10):
-        if (candidate / "state").is_dir() and (candidate / "plugins").is_dir():
-            return candidate
-        parent = candidate.parent
-        if parent == candidate:
-            break
-        candidate = parent
-    # Review: code-reviewer — emit a warning when falling back to cwd so callers can diagnose
-    # discovery failures rather than silently operating against the wrong tree.
-    sys.stderr.write(
-        f"[emit-lesson-summaries] warning: could not discover repo root from {start}; using cwd\n"
-    )
-    return start.resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +343,53 @@ def _normalize_created(val: str | None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Relativize a provenance path to repo-root-relative POSIX
+# ---------------------------------------------------------------------------
+
+def _relativize_prov_path(prov_path: str, repo_root: Path) -> str:
+    """Coerce a provenance path to repo-root-relative POSIX form.
+
+    The cockpit LessonSummary provenance path must be portable: an absolute
+    operator-home path (e.g. /Users/<operator>/X/<repo>/state/lessons/x.yaml)
+    both leaks the operator's home directory into the ingested cockpit artifact
+    and machine-locks parity to one checkout path — a consumer/CI/fresh-clone at
+    a different path cannot reproduce it. Emit repo-root-relative POSIX to match
+    the goals/handoff provenance conventions already used in the same envelope.
+    Values only — schema shape/key/version are unchanged.
+
+    Spec backlink: cross-repo/archive/2026-07-21-claude-klabauter-em-lessons-producer-absolute-provenance-path-relativize-at-source.md
+    """
+    p = Path(prov_path)
+    if not p.is_absolute():
+        # Already relative (e.g. the "state/lessons" fallback strings) — POSIX-normalize only.
+        return p.as_posix()
+    # Review: code-reviewer (Finding 3) — the two-iteration relative_to loop is dead defensive
+    # code now that repo_root is resolved once at build_lesson_summaries entry (Finding 1):
+    # every p is constructed by joining onto that same resolved repo_root, so a single
+    # relative_to attempt covers the real case; the ValueError fallback below is purely
+    # never-crash safety, not an expected path.
+    try:
+        return p.relative_to(repo_root).as_posix()
+    except ValueError:
+        pass
+    # Absolute but outside repo_root (should not happen by construction now that repo_root is
+    # resolved at entry — Finding 1) — fall back to a relative path so we never emit the raw
+    # absolute operator-home path.
+    # Review: code-reviewer (Finding 2) — os.path.relpath raises ValueError on Windows
+    # cross-drive paths (repo is Windows-primary); never let this "should not happen" branch
+    # crash the emitter — degrade to the raw POSIX-normalized absolute-turned-string path with
+    # a stderr warning, matching the file's existing degrade-and-emit convention.
+    try:
+        return Path(os.path.relpath(str(p), str(repo_root))).as_posix()
+    except ValueError:
+        sys.stderr.write(
+            f"[emit-lesson-summaries] warning: could not relativize {p!r} against"
+            f" repo_root {repo_root!r} (cross-drive?) — emitting as-is\n"
+        )
+        return p.as_posix()
+
+
+# ---------------------------------------------------------------------------
 # Build a single LessonSummary record
 # ---------------------------------------------------------------------------
 
@@ -397,10 +424,17 @@ def _make_record(
         "provenance": {
             "source_kind": "local_fs",
             "repo": repo,
-            "ref": {"branch": git_branch, "sha": git_sha},
+            # source_kind:local_fs is non-git; ProvenanceEnvelope requires
+            # ref:null for non-git source_kinds (D9 — see
+            # artifact-shape-contract.schema.json ~line 4482-4485). The
+            # lesson YAML is read from the working tree (possibly
+            # uncommitted), so branch/sha is emission context, not source
+            # identity; repo is already carried above and in provenance.
+            "ref": None,
             "path": prov_path,
             "observed_at": observed_at,
             "derivation": "parsed",
+            "entity_anchor": None,
         },
         # Nullable fields — present-as-null per D9
         "change_kind": change_kind,
@@ -417,7 +451,6 @@ def _make_record(
 
 def build_lesson_summaries(
     repo_root: Path,
-    coordinator_root: Path,
     repo_name: str,
     git_branch: str,
     git_sha: str,
@@ -433,6 +466,13 @@ def build_lesson_summaries(
     An entry ONLY in drained/ (not in lessons.md) IS emitted — full outer join,
     not left-join. This is the load-bearing correctness property (AC6).
     """
+    # Review: code-reviewer (Finding 1) — resolve repo_root ONCE here, before it is used to
+    # derive outbox_dir/drained_dir or passed to _load_lessons_yaml_dir, so every downstream
+    # _source_path is built on an absolute+resolved basis. This closes the "relative repo_root
+    # leaks a caller-relative prefix" gap at the root instead of guarding it defensively inside
+    # _relativize_prov_path. Transparent to callers below — they only ever join onto repo_root
+    # to build Paths.
+    repo_root = repo_root.resolve()
     # Review: code-reviewer Slice-B — (B-F4) renamed lessons_md_map → lessons_yaml_map;
     # the source is the per-entry YAML dir state/lessons/, not the legacy lessons.md.
     lessons_yaml_map = _load_lessons_yaml_dir(repo_root)
@@ -542,7 +582,7 @@ def build_lesson_summaries(
             body=body,
             promotion_state=promotion_state,
             parse_status=parse_status,
-            prov_path=prov_path,
+            prov_path=_relativize_prov_path(prov_path, repo_root),
             repo=repo_name,
             git_branch=git_branch,
             git_sha=git_sha,
@@ -568,15 +608,6 @@ def main() -> None:
     git_branch, git_sha, observed_at are optional; auto-discovered if omitted.
     Prints a JSON array of LessonSummary records to stdout.
     """
-    # Discover coordinator root (this script lives at coordinator/bin/lib/)
-    script_dir = Path(__file__).resolve().parent
-    coordinator_root = script_dir.parent.parent  # bin/lib/ -> bin/ -> coordinator/
-
-    # Repo root: coordinator -> plugins -> .claude/
-    repo_root_inferred = coordinator_root.parent.parent.parent
-    if not ((repo_root_inferred / "state").is_dir() and (repo_root_inferred / "plugins").is_dir()):
-        repo_root_inferred = _find_repo_root(Path.cwd())
-
     argv = sys.argv[1:]
     # Review: code-reviewer — repo_name had a hardcoded author-identity default; now required arg
     if len(argv) <= 1:
@@ -593,7 +624,6 @@ def main() -> None:
 
     records = build_lesson_summaries(
         repo_root=repo_root,
-        coordinator_root=coordinator_root,
         repo_name=repo_name,
         git_branch=git_branch,
         git_sha=git_sha,

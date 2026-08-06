@@ -14,8 +14,8 @@ argument-hint: "[--install-root <dir>]"
 
 **Purpose.** Check whether a newer version of the coordinator plugin has been published, compute
 a classified delta between the published version and your live install, and advise a migration
-path that **preserves your implementation shape by default** — renamed personas, DoE/Claude-Central
-setup, structural divergence, project-specific customizations.
+path that **preserves your implementation shape by default** — renamed personas, custom
+environment setup, structural divergence, project-specific customizations.
 
 **Verb-name check:** `/coordinator-update` was checked against Claude Code platform vocabulary
 before ship. It does not shadow a native Claude Code command or verb (per the `/fan-out` lesson;
@@ -35,7 +35,7 @@ The following rules are quoted verbatim and apply throughout this skill's execut
 
 > **Never overwrite a `consumer_modified` file without the user's Claude affirmatively judging
 > the upstream change worth it AND surfacing the tradeoff to the user. The user's own
-> implementation shape (persona names, DoE/Claude-Central setup, structural divergence) is
+> implementation shape (persona names, custom environment setup, structural divergence) is
 > preserved by default.**
 
 ### Commit Safety Rule
@@ -67,9 +67,10 @@ This skill explicitly does NOT:
 - Push to any remote.
 - Modify project-level scaffolding managed by the 2026-05-29 `coordinator-currency` surface
   (that surface governs per-project structural currency, not the plugin tree).
-- Run on a `source_is_live` machine (the meta-repo / Claude Central install). This skill is
-  for OSS consumers who installed via the publish repo (the `coordinator:install` flow). If you are on the
-  meta-repo machine, you do not need this skill — you author the coordinator directly.
+- Run on a `source_is_live` machine (a coordinator development install where the plugin source
+  is authored directly). This skill is for OSS consumers who installed via the publish repo (the
+  `coordinator:install` flow). If you are on a development machine authoring the coordinator
+  source directly, you do not need this skill.
 
 ---
 
@@ -90,17 +91,28 @@ Stop.
 ## Step 2: Run the Delta Helper
 
 Run the Chunk 2 helper to produce a classified delta. The helper is co-located at:
-`<skill-dir>/lib/compute-update-delta.sh`
+`<skill-dir>/lib/compute-update-delta.py`
 
 where `<skill-dir>` is the directory containing this SKILL.md — typically
-`~/.claude/plugins/coordinator-claude/coordinator/skills/coordinator-update/`.
+`~/.claude/plugins/coordinator/skills/coordinator-update/`.
 
 ```bash
 # Review: code-reviewer — $0 is unreliable when Claude runs this block via the Bash tool
 # ($0 resolves to /bin/bash, not the skill path). Derive SKILL_DIR deterministically from
 # INSTALL_ROOT, which was already resolved in Step 1.
 SKILL_DIR="${INSTALL_ROOT}/coordinator/skills/coordinator-update"
-bash "${SKILL_DIR}/lib/compute-update-delta.sh" --install-root "${INSTALL_ROOT}"
+
+# The engine root this update flow depends on is resolved by the shipped
+# resolver script, which is the single source of that resolution — no other
+# code in this skill hardcodes how or where it is found.
+_cc_engine_root="$(python3 "${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py" 2>/dev/null)"
+if [ -z "$_cc_engine_root" ] || [ ! -d "$_cc_engine_root" ]; then
+  echo "ERROR: could not resolve the coordinator engine root via ${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py — consult your coordinator install's engine-setup documentation for how to register it, then retry." >&2
+  exit 1
+fi
+
+source "${_cc_engine_root}/coordinator/lib/resolve-python.sh"
+"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "${SKILL_DIR}/lib/compute-update-delta.py" --install-root "${INSTALL_ROOT}"
 ```
 
 The helper emits a single JSON object to stdout. Capture it. The schema:
@@ -172,7 +184,7 @@ Summarize what they contain. Examples: "updated workstream-start.md with a new S
 
 Files where BOTH the upstream changed AND you have a local edit. These carry your
 implementation shape — likely renamed reviewer personas, added project-specific steps,
-DoE/Claude-Central setup, structural divergence that reflects your working style.
+custom environment setup, structural divergence that reflects your working style.
 
 **DEFAULT: PRESERVE.** These files are NOT in any apply set unless you affirmatively judge
 the upstream change worth taking.
@@ -254,8 +266,8 @@ copy it to `<path>.bak` first. Note: "Your install tree is not git-tracked. Back
 before applying (`.bak` convention matching the coordinator installer's). You can restore any
 file from its `.bak` if needed."
 
-The coordinator OSS `CLAUDE.local.md.tmpl` recommends git-tracking your `~/.claude` — this
-is the reason why. Consider git-initializing after this session for better future reversibility.
+Git-tracking your `~/.claude` is recommended for exactly this reason — better future
+reversibility. Consider git-initializing after this session.
 
 ### 6b. Apply the Named Files
 
@@ -324,11 +336,11 @@ Revertible: yes — via git revert <commit-hash> (or .bak files if untracked)
 
 This verb is announced in the coordinator OSS getting-started documentation and the `coordinator:install`
 completion summary as the recommended path for future updates. It is NOT surfaced on the
-source-is-live (meta-repo / Claude Central) machine — it is installed and invokable only for
+source-is-live (meta-repo) machine — it is installed and invokable only for
 OSS consumers who installed via the publish-repo `coordinator:install` flow.
 
 If you are reading this as a developer on the coordinator meta-repo: this skill lives at
-`plugins/coordinator-claude/coordinator/dist/oss-only-skills/coordinator-update/SKILL.md`
+`plugins/coordinator/dist/oss-only-skills/coordinator-update/SKILL.md`
 and is injected into the OSS publish tree by the `20-inject-oss-only-skills.sh` percolate hook.
 It is intentionally absent from the meta-repo's `skills/` tree.
 

@@ -1,31 +1,54 @@
-#!/usr/bin/env bash
-# claude-home — thin shell wrapper for the ~/.claude path resolver.
-#
-# Spec backlink: coordinator/docs/wiki/machine-local-registry.md §4a
-# Purpose: delegate all subcommands to _claude_home.py, resolving Python
-# interpreter portably. Mirrors the bin/machine-local shape exactly so the
-# two resolvers compose cleanly in install scripts.
+#!/usr/bin/env python3
+"""claude-home — canonical resolver CLI for the ~/.claude path resolver.
 
-set -euo pipefail
+Spec backlink: coordinator/docs/wiki/machine-local-registry.md §4a
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMPL="$SCRIPT_DIR/_claude_home.py"
+Naked-Python entrypoint: it IS the implementation's CLI trampoline. The
+former bash veneer resolved a python3/python interpreter and execed
+_claude_home.py; a python3-shebang script needs neither step — Python is
+already running. This file locates its co-located _claude_home.py (fail-loud
+if absent, matching the bash predecessor's guard) and dispatches straight
+into its _main().
 
-if ! [ -f "$IMPL" ]; then
-    echo "claude-home: implementation not found at $IMPL" >&2
-    exit 1
-fi
+Kept extensionless (not renamed to claude-home.py) — callers on PATH
+(shutil.which("claude-home"), bare claude-home <subcommand> shell-outs)
+depend on the exact bareword name.
 
-# Resolve Python interpreter: prefer python3, fall back to python.
-# Matches bin/machine-local's resolver for consistency; _claude_home.py uses
-# only stdlib so any Python 3.x will do.
-if command -v python3 >/dev/null 2>&1; then
-    PYTHON=python3
-elif command -v python >/dev/null 2>&1; then
-    PYTHON=python
-else
-    echo "claude-home: python3 (or python) not found on PATH" >&2
-    exit 1
-fi
+No sh/python polyglot trampoline line (removed 2026-07-28; this docstring
+was briefly demoted to a #-comment header in the same change and is
+restored here as a real docstring, since a module docstring is required at
+this structural boundary — CLAUDE.md § Implementation Standards — and
+carries no command-substitution span, which is the actual property that
+matters, not the mere presence of a docstring). The retired trampoline
+shape cost ~326ms/invocation on Windows versus a direct python3 invocation
+(1306ms via the shim vs 980ms direct, byte-identical output — measured by
+coordinator/bin/check-sh-suffix-polyglot.py's docstring, source-of-record
+state/audits/2026-07-20-sh-suffixed-python-trampolines.md in the
+DoE-claude clone, not this repo — the path is qualified deliberately, and
+its absence here is not evidence it is missing), paid unconditionally on
+every call,
+independent of the separate command-substitution hazard
+coordinator/bin/tests/test_no_bin_docstring_command_substitution.py gates
+(a backtick-delimited or dollar-paren command-substitution span inside a
+docstring is live shell text to a mistaken bash <file> invocation and can
+hang forever on a span that resolves to a stdin-blocking command).
+"""
+from __future__ import annotations
 
-exec "$PYTHON" "$IMPL" "$@"
+import sys
+from pathlib import Path
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_IMPL = _SCRIPT_DIR / "_claude_home.py"
+
+if not _IMPL.is_file():
+    sys.stderr.write(f"claude-home: implementation not found at {_IMPL}\n")
+    sys.exit(1)
+
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from _claude_home import _main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv))

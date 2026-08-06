@@ -1,6 +1,6 @@
 ---
 name: staff-session
-description: "PM-GATED: ask first; never from subagent. Agent Teams collaborative planning/review for architectural decisions only. Modes: plan, review."
+description: "PM-GATED, never from a subagent. Agent Teams review for architecture calls."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff Engineer,the Director of Engineering,...\"] <input>"
 ---
@@ -9,7 +9,7 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff E
 
 The EM scopes the work, selects the team, creates the team, spawns all teammates, and is **freed**. The team works autonomously:
 - **Debaters** (2-5, Opus, persona agents) — read input independently, research the codebase, form positions, debate peers via messaging, converge, write position documents, send DONE to synthesizer
-- **the Director of Engineering / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through his ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
+- **the Director of Engineering / Synthesizer** (1, Opus) — Director of Engineering. Blocked until all debaters complete, then reads all positions and writes the final output through their ambition-calibrated lens. Represents all positions fairly but resolves contested topics with an eye toward what's achievable with AI execution capacity
 
 **Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or `/review-code` (code) — no team created.**
 
@@ -31,17 +31,14 @@ Parse `$ARGUMENTS`:
 
 Generate run ID: `YYYY-MM-DD-HHhMM` (current timestamp, e.g., `2026-03-22-09h30`)
 
-Record spawn timestamp:
-```bash
-date +%s
-```
+Record spawn timestamp via `date +%s`.
 
 Generate topic slug from input (e.g., `camera-refactor-plan`, `pipeline-d-review`).
 
-Create scratch directory:
-```bash
-mkdir -p tasks/scratch/staff-session/{run-id}
-```
+Create the workdir: `mkdir -p docs/research/{run-id}-workdir/`. This is the same paper-trail
+convention `/coordinator:notebooklm-research` uses (`docs/research/{run-id}-workdir`) — sharing
+it is what lets Step 8's archive-and-cleanup op (claude-klabauter `fleet.archive_paper_trail`) serve both
+call sites from one module rather than two near-identical implementations.
 
 Set output path based on mode:
 - **Plan mode:** `docs/plans/YYYY-MM-DD-{topic-slug}.md` (canonical output for `/enrich-and-review`)
@@ -69,41 +66,40 @@ Write `{scratch-dir}/scope.md` per the template in `pipelines/staff-session/temp
 
 ## Step 4 — Select Team Composition
 
-**If `--members` specified:** Use those exact personas. Validate each slug maps to a known persona agent. Fail with a clear error if any slug is unknown.
+**If `--members` specified:** those exact slugs are the debater list.
 
-**If `--members` not specified:** Auto-select based on domain signals from the input topic and scope.
+**If `--members` not specified:** match the input topic + scope to a domain category (e.g.
+architecture/infrastructure, game dev/Unreal, frontend/UI, data science/ML, cross-cutting/unclear)
+— this categorization is the one piece of genuine judgment this step retains; everything
+downstream of it is resolved, not looked up.
 
-**Important: the Director of Engineering is the synthesizer, not a debater.** the Director of Engineering cannot appear in the debater list — he reads all debater positions and produces the final output. If the user specifies `--members "the Staff Engineer,the Director of Engineering"`, reject with: "the Director of Engineering is the staff session synthesizer — he can't also debate. Choose a different second debater, or I'll auto-select one."
+**For `--tier full`:** on top of whatever pair the category resolves to, judgment-select 1-3
+additional personas most relevant to the topic and append their slugs to an explicit override
+list for the roster call below.
 
-| Domain Signal | Default Pair |
-|---|---|
-| Architecture / infrastructure | `the Staff Engineer` + `sid` |
-| Game dev / Unreal | `sid` + `the Staff Engineer` |
-| Frontend / UI | `the Front-End Reviewer` + `the UX Reviewer` |
-| Data science / ML | `the Data Science Reviewer` + `the Staff Engineer` |
-| Cross-cutting / unclear | `the Staff Engineer` + `sid` |
+**Resolve the roster — do not hand-maintain a lookup table for this.** Call
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/staff-session-assemble"
+--session-mode <plan|review> (--domain-signal "<category>" | --slug <slug> [--slug <slug> ...])
+--json`. The CLI reads DoE-claude's doctrine-side `coordinator/routing.md` (F1 reconciliation —
+the roster DATA lives there, not in this skill or in the resolver) and returns `{personas:
+[{slug, agent_file, subagent_type}, ...], narration, source}`. It fails loud (usage exit) on an
+unresolvable domain signal, an unknown slug, or `the Director of Engineering` appearing as a debater — surface that
+error to the PM verbatim rather than re-deriving the rejection rule here.
+<!-- Caution: the resolver module lives in claude-klabauter
+(coordinator_core/staff_session_assemble); its coordinator/bin/ CLI trampoline (the
+`staff-session-assemble` name invoked above) is the agreed entrypoint name for that trampoline —
+confirm it is verified-live before relying on it blindly. -->
 
-For `--tier full`: add domain experts on top of the default pair. Use judgment based on the input topic to identify which additional personas are most relevant.
+**Note:** `the Director of Engineering` is never a valid debater slug — they are the synthesizer, spawned separately in
+Step 6 with a fixed identity (`coordinator:eng-director`), never resolved through this roster
+call.
 
-Determine debater count:
-- `standard`: 2 debaters
-- `full`: 3-5 debaters (determined by domain signals and persona relevance)
+Determine debater count from the resolved roster: `standard` = 2 (the resolved default pair),
+`full` = 3-5 (default pair + the judgment-selected additions above, all passed as an explicit
+`--slug` list to the same call).
 
-Announce team composition to PM before creating the team:
+Announce team composition to PM before creating the team, using the resolved `personas[].slug`:
 > "I'll run this with **{Persona A}** and **{Persona B}** [+ **{Persona C}**...] debating, plus a staff synthesizer. Proceeding."
-
-Persona slug → agent file mapping:
-
-| Slug | Agent File |
-|---|---|
-| `the Staff Engineer` | `coordinator/agents/staff-eng.md` |
-| `sid` | `game-dev/agents/staff-game-dev.md` |
-| `the UX Reviewer` | `coordinator/agents/staff-ux.md` |
-| `the Front-End Reviewer` | `coordinator/agents/senior-front-end.md` |
-| `the Data Science Reviewer` | `coordinator/agents/staff-data-sci.md` |
-| `vp-product` | `coordinator/agents/vp-product.md` |
-
-**Note:** `the Director of Engineering` is NOT a valid debater slug — he is the synthesizer. See Step 6.
 
 ## Step 5 — Create Tasks
 
@@ -139,7 +135,7 @@ TaskUpdate(taskId: "{synthesizer-task-id}", addBlockedBy: [{debater-A-id}, {deba
 
 ## Step 6 — Spawn All Teammates
 
-Read the planner / reviewer / synthesizer prompt templates from `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/`. For each debater, read the persona identity excerpt from its agent definition file (injected at `[PERSONA_IDENTITY]`). Fill ALL `[BRACKETED_FIELD]` placeholders before spawning — **see `pipelines/staff-session/templates-and-fields.md` § Step 6 for the full common/debater/synthesizer field list.**
+Read the planner / reviewer / synthesizer prompt templates from `${CLAUDE_PLUGIN_ROOT}/pipelines/staff-session/`. For each debater, read the persona identity excerpt from its agent definition file (`personas[].agent_file` from Step 4's resolved roster, injected at `[PERSONA_IDENTITY]`). Fill ALL `[BRACKETED_FIELD]` placeholders before spawning — **see `pipelines/staff-session/templates-and-fields.md` § Step 6 for the full common/debater/synthesizer field list.**
 
 **Spawn ALL teammates in a single message (parallel):**
 
@@ -147,8 +143,10 @@ Read the planner / reviewer / synthesizer prompt templates from `${CLAUDE_PLUGIN
 Agent(
   name: "{persona-slug-A}",
   model: "opus",
-  # Review: code-reviewer — prefix varies by persona; see the subagent_type mapping table below for the correct plugin prefix (e.g., game-dev: for the Game Dev Reviewer, not coordinator:)
-  subagent_type: "{subagent_type-A}",
+  # prefix varies by persona; resolved via Step 4's staff-session-assemble roster call,
+  # never hardcoded here (e.g., game-dev: for the Game Dev Reviewer, not coordinator:) — use the
+  # `subagent_type` field the CLI returned for this slug.
+  subagent_type: "{personas[A].subagent_type}",
   prompt: <filled debater prompt for persona A>
 )
 TaskUpdate(taskId: "{debater-A-id}", owner: "{persona-slug-A}")
@@ -156,7 +154,7 @@ TaskUpdate(taskId: "{debater-A-id}", owner: "{persona-slug-A}")
 Agent(
   name: "{persona-slug-B}",
   model: "opus",
-  subagent_type: "{subagent_type-B}",
+  subagent_type: "{personas[B].subagent_type}",
   prompt: <filled debater prompt for persona B>
 )
 TaskUpdate(taskId: "{debater-B-id}", owner: "{persona-slug-B}")
@@ -171,17 +169,6 @@ Agent(
 )
 TaskUpdate(taskId: "{synthesizer-task-id}", owner: "synthesizer")
 ```
-
-Persona slug → subagent_type mapping:
-
-| Slug | subagent_type |
-|---|---|
-| `the Staff Engineer` | `coordinator:staff-eng` |
-| `sid` | `game-dev:staff-game-dev` |
-| `the UX Reviewer` | `coordinator:staff-ux` |
-| `the Front-End Reviewer` | `coordinator:senior-front-end` |
-| `the Data Science Reviewer` | `coordinator:staff-data-sci` |
-| `vp-product` | `coordinator:vp-product` |
 
 ## Step 7 — EM Is Freed
 
@@ -203,40 +190,56 @@ When you receive a notification that the synthesizer task is complete:
 1. Read the output at `{output-path}`. Verify it has substantive content (not just headers or a stub).
 
 2. Mode-specific verification:
-   - **Plan mode:** Verify the plan has an `## Implementation Plan` section with tasks, files, and steps in plan format (per `docs/wiki/writing-plans.md`). Verify `**Review:** Staff session ({participants}) — debated and synthesized. Ready for enrichment.` is present.
+   - **Plan mode:** Verify the plan has an `## Implementation Plan` section with tasks, files, and steps in plan format. Verify the marker
+     `**Review:** Staff session ({participants}) — debated and synthesized. Ready for enrichment.`
+     is present, byte-exact. <!-- Marker-string pin: this line is the single authoritative
+     producer copy of the marker string `enrich-and-review`'s Phase 0 gate matches against.
+     Consumers cite THIS anchor (staff-session/SKILL.md Step 8, item 2) — never hand-type a
+     second copy of the string. -->
    - **Review mode:** Verify findings are structured with severities and persona attributions. Verify a `## Verdict` line is present.
 
 3. Check for advisory: `test -f {scratch-dir}/advisory.md` — if the file exists, read it.
 
-4. Commit the output (plain-git scoped — SC-DR-008, lessons.md:207):
-   ```bash
-   # Stage only the output files this session wrote (scratch dir contents + any plan/review artifact)
-   git add -- {output-paths} && git commit -m "staff-session: {mode} — {topic-slug}" -- {output-paths}
-   ```
+4. Commit the output artifact (plain-git scoped — lessons.md:207; `docs/wiki/scoped-safety-commits.md § Current Doctrine`): `git add --
+   {output-path}` then `git commit -m "staff-session: {mode} — {topic-slug}" -- {output-path}`.
+   This is the deliverable itself (the plan or review-findings file), distinct from the paper
+   trail archived below — it stays at its canonical location, it is not moved.
 
-5. Archive the paper trail:
-   ```bash
-   mkdir -p docs/research/archive/YYYY-MM-DD-staff-{topic-slug}
-   cp -r {scratch-dir}/* docs/research/archive/YYYY-MM-DD-staff-{topic-slug}/
-   ```
+   Then commit the paper trail too, same scoped form:
+   `git add -- {scratch-dir}` then `git commit -m "staff-session: paper trail — {topic-slug}" -- {scratch-dir}`.
+   **Item 5 cannot archive an untracked workdir.** Its `git mv` fails `fatal: not under version
+   control`, and staging alone does not rescue it — the op works through a private index seeded
+   from `git read-tree HEAD`, which cannot see the shared index. Only a real commit works; that is
+   measured behaviour of the op, not an inference from reading it. The commit belongs **here**
+   rather than beside Step 1's `mkdir`, because what item 5 needs is the tree's state at
+   invocation time: everything the session wrote into the workdir after creation would otherwise
+   be untracked again by the time the op runs.
+   <!-- Negative spec: do NOT push this commit down into the archival op. An op may commit content
+   it authored on a path it owns, never content it merely found — `docs/wiki/scoped-safety-commits.md`
+   carries the incident from this same op family where the accepted fix was subtractive and adding
+   `git add` in front did NOT help. -->
 
-6. Remove scratch directory:
-   ```bash
-   rm -rf {scratch-dir}
-   ```
+5. Archive-and-cleanup. Invoke the archive-and-cleanup op — claude-klabauter's `fleet.archive_paper_trail`
+   (claude-klabauter `coordinator_core/ops/fleet/archive_paper_trail.py`, `register_op
+   "fleet.archive_paper_trail"`) — with `run_id={run-id}`, `topic_slug={topic-slug}`,
+   `dry_run=false`. It moves `{scratch-dir}` (Step 1's `docs/research/{run-id}-workdir`) to
+   `docs/research/archive/YYYY-MM-DD-{topic-slug}/` via `git mv` and lands ONE scoped commit
+   covering the move (`docs/wiki/scoped-safety-commits.md § Current Doctrine`), then removes the
+   now-empty source tree — the mkdir, copy,
+   remove, stage, and commit this step used to spell out as five separate fenced commands are
+   this one op call. Re-running it after a prior success is a safe no-op
+   (`already_archived: true`) rather than a silent re-merge.
+   <!-- Caution: the op module is landed (verified on disk); its coordinator/bin/ CLI trampoline
+   for direct skill-level invocation may not yet be landed — verify before relying on direct
+   invocation. -->
 
-7. The team auto-cleans on session exit — no explicit teardown step.
+6. The team auto-cleans on session exit — no explicit teardown step.
 
-8. Commit cleanup (plain-git scoped — SC-DR-008, lessons.md:207):
-   ```bash
-   git add -- docs/research/archive/YYYY-MM-DD-staff-{topic-slug}/ && git commit -m "staff-session: archive + cleanup" -- docs/research/archive/YYYY-MM-DD-staff-{topic-slug}/
-   ```
-
-9. Present output to PM:
+7. Present output to PM:
    - Mode-specific framing: plan mode → "Here's the staff session plan, ready for `/enrich-and-review`"; review mode → "Here are the synthesized findings"
    - Brief executive summary (2-3 bullets of the most important content)
    - Output path
-   - If advisory exists: "The synthesizer flagged observations beyond scope — see `{scratch-dir}` (archived at `docs/research/archive/YYYY-MM-DD-staff-{topic-slug}/advisory.md`)."
+   - If advisory exists: "The synthesizer flagged observations beyond scope — see `{scratch-dir}` (archived at `docs/research/archive/YYYY-MM-DD-{topic-slug}/advisory.md`)."
 
 ## Error Handling
 

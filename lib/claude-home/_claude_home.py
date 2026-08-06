@@ -277,8 +277,8 @@ def machine_local_dir() -> Path:
             "does not. This process is using the legacy home. Run the one-time\n"
             "migration to eliminate this warning:\n"
             "\n"
-            "Remediation — run the one-time migration to consolidate both homes:\n"
-            "    coordinator/lib/migrate-substrate-to-settings-home.sh\n"
+            "Remediation — re-run /coordinator:install (the substrate→settings-home\n"
+            "migration is now performed natively by the coordinator install step).\n"
             "\n"
             f"  Legacy path : {legacy}\n"
             f"  New    path : {new}\n"
@@ -295,9 +295,10 @@ def plugins_dir() -> Path:
 def coordinator_root() -> Path:
     """Return the for-content coordinator root (highest-precedence readable payload).
 
-    Mirrors the precedence chain of resolve-coordinator-clone.sh --for-content
+    Mirrors the precedence chain of resolve-coordinator-clone.py --for-content
     but without the registry/cache tiers that require external tooling. This
-    subset is safe to call from any Python context without spawning bash.
+    subset is safe to call from any Python context without spawning a
+    subprocess.
 
     Precedence (Python-accessible tiers only):
       1. CLAUDE_PLUGIN_ROOT env var — harness / test sandbox injection wins.
@@ -305,7 +306,7 @@ def coordinator_root() -> Path:
       3. Flat layout: ~/.claude/plugins/coordinator-claude/coordinator
 
     For full precedence (including registry live_path and versioned-cache glob),
-    use the bash CLI: resolve-coordinator-clone.sh --for-content
+    use: resolve-coordinator-clone.py --for-content
 
     Primary Python consumer: coordinator/whoami/.../probes.py (coordinator root
     discovery for session-init and doctor probes).
@@ -334,6 +335,22 @@ def coordinator_root() -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _is_absent_or_empty_husk(path: Path) -> bool:
+    """True when `path` carries no machine-local state — absent, or a directory
+    left behind empty by a completed migration.
+
+    An empty directory is not a second content home: nothing can be read from
+    it, so warning about it turns a finished migration into recurring noise.
+    A dangling symlink and an unreadable directory both count as no-state too.
+    """
+    try:
+        if not path.exists():
+            return True
+        return not any(path.iterdir())
+    except OSError:
+        return True
+
+
 def _check_machine_local_divergence() -> None:
     """Warn loud if both legacy and new machine-local homes exist with divergent realpaths.
 
@@ -342,8 +359,8 @@ def _check_machine_local_divergence() -> None:
       New:    settings_home()   / "machine-local"   (<settings-home>/machine-local)
 
     Returns silently when:
-      - The legacy path does not exist, OR
-      - The new path does not exist, OR
+      - The legacy path is absent or an empty post-migration husk, OR
+      - The new path is absent or an empty husk, OR
       - Both exist and Path.resolve() produces the same canonical path
         (compat-symlink case — not a divergent second home).
 
@@ -362,8 +379,8 @@ def _check_machine_local_divergence() -> None:
     legacy = claude_home_dir() / "machine-local"
     new = settings_home() / "machine-local"
 
-    if not legacy.exists() or not new.exists():
-        return  # one or both absent — no divergence possible
+    if _is_absent_or_empty_husk(legacy) or _is_absent_or_empty_husk(new):
+        return  # one or both hold no state — no divergence possible
 
     rp_legacy = legacy.resolve()
     rp_new = new.resolve()
@@ -379,8 +396,8 @@ def _check_machine_local_divergence() -> None:
             "(new) location. Run the one-time migration to eliminate this\n"
             "warning:\n"
             "\n"
-            "Remediation — run the one-time migration to consolidate both homes:\n"
-            "    coordinator/lib/migrate-substrate-to-settings-home.sh\n"
+            "Remediation — re-run /coordinator:install (the substrate→settings-home\n"
+            "migration is now performed natively by the coordinator install step).\n"
             "\n"
             f"  Legacy realpath : {rp_legacy}\n"
             f"  New    realpath : {rp_new}\n"

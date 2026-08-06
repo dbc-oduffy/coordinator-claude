@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """CI validator: every tracked file with a '#!' shebang must be committed at mode 100755.
 
-Spec backlink: docs/plans/2026-06-11-exec-bit-install-surface-completion.md § Chunk 6
-
 WHY THIS VALIDATOR EXISTS
 --------------------------
 On Windows with core.fileMode=false, Git does not preserve executable bits in the index.
@@ -24,13 +22,16 @@ SOURCE_ONLY_ALLOWLIST and FOREIGN_OWNED_ALLOWLIST entries for files that legitim
 live at 100644 (sourced-only scripts, vendored third-party files). This CI validator
 carries NO such allowlist — CI is the final strict gate. Any file that begins with '#!'
 must be 100755. If a legitimate exception exists, it requires a documented architectural
-reason in DR-151, not an allowlist entry here.
+reason recorded alongside the change (e.g. in the commit message or an adjacent doc),
+not an allowlist entry here — CI stays a strict, exception-free gate on purpose.
 
 REPO-ROOT DISCOVERY
 --------------------
 The validator calls `git rev-parse --show-toplevel` at runtime rather than assuming any
-fixed directory layout. This satisfies the "CI scripts in publish repos must not hardcode
-layout paths" lesson (state/lessons.md, grep: "CI scripts in publish repos").
+fixed directory layout. A CI script that hardcodes a layout path (e.g. assumes it runs
+from the repo root, or assumes a fixed relative depth to `.github/`) breaks the moment a
+consumer forks, relocates, or nests this repo differently than the authoring layout —
+runtime discovery avoids that class of breakage entirely.
 
 EXIT CONTRACT
 --------------
@@ -213,9 +214,11 @@ def main() -> int:
     # Review: the Staff Engineer — shlex.quote ensures paths with spaces are shell-safe
     print(f"  git update-index --chmod=+x {' '.join(shlex.quote(p) for p in offenders)}")
     print()
-    print("Then commit the mode change WITHOUT a path-restricted `-- <paths>` suffix")
-    print("(Windows core.fileMode=false silently resets exec bits when path-restricting).")
-    print("See DR-151 for the Windows-chmod commit mechanic exception to scoped-commit doctrine.")
+    print("Then commit the mode change WITHOUT a path-restricted `-- <paths>` suffix:")
+    print("  git commit -m '<subject>'   # no '-- <paths>' suffix")
+    print("A path-restricted commit re-reads the working-tree pathspec, which on Windows")
+    print("(or any repo with core.fileMode=false) silently resets the exec bit back to")
+    print("100644, undoing the `git update-index --chmod=+x` above.")
     return 1
 
 

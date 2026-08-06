@@ -1,0 +1,415 @@
+#!/usr/bin/env python3
+# scoped-git-commit — CLI trampoline over claude-klabauter's `ceremony.scoped_git_commit`
+# op (coordinator_core/ops/ceremony/scoped_git_commit.py), the mechanism DoE's
+# always-loaded doctrine routes ordinary scoped commits to
+# (`coordinator/snippets/em-operating-doctrine.md` ~:422: "it selects the
+# agree-case form vs. an isolated private-index mechanism for you").
+#
+# WHY THIS FILE EXISTS: the op was registered and correct, and had NO caller-
+# reachable entrypoint. An EM session's only CLI surface is the settings-home
+# forwarder dir, whose contents are DERIVED from a scan of this directory, so
+# an op with no artifact here is unreachable without hardcoding a claude-klabauter path
+# — which reads to a caller exactly like no mechanism at all, and left the
+# reachable-but-wrong `coordinator-safe-commit` as the only thing a
+# scoped-commit advisory could name. Sourced from doe-claude-em's 2026-07-29
+# memo (`cross-repo/archive/2026-07-29-doe-claude-em-safe-commit-advisory-
+# offers-a-mode-that-does-not-exist.md`), ask option 1.
+#
+# The argument grammar deliberately mirrors `git commit`'s own scoped form
+# (`-m <subject> -- <paths>...`) so the command an agent already knows how to
+# type IS the command that gets the mechanism selection for free. That is the
+# discharge test applied to this rule: the correct path is cheaper than the
+# wrong one, rather than documented next to it.
+#
+# Contract: DoE-claude coordinator/docs/wiki/scoped-safety-commits.md
+#   § SC-DR-015 (agree-case vs. private-index discriminator)
+# Registration seam: a new engine capability registers by shipping a thin
+# bin/ trampoline over a coordinator_core op — same shape as cross-repo-memo
+# (route_mutation variant) rather than the direct-import variant, because
+# `ceremony.scoped_git_commit` is a registered async op, not a plain module
+# entrypoint.
+#
+# Usage:
+#   scoped-git-commit -m "<subject>" -- <path> [<path>...]
+#   scoped-git-commit -m "<subject>" --repo <worktree-root> -- <path>...
+#     Stages exactly <paths>, commits them under <subject>, and pushes when a
+#     remote exists. Selects the agree-case form vs. the private-index form
+#     from index/worktree state — the caller never classifies the horn. A
+#     directory named in <paths> is expanded (2026-08-06) to its dirty
+#     TRACKED files beneath it and each is classified individually — never
+#     untracked content, and a directory with nothing dirty tracked beneath
+#     it still refuses (see the op's own docstring). MUTATING.
+#   scoped-git-commit --json ...
+#     Emit the op's raw result envelope instead of the human line.
+#
+# Exit codes:
+#   0 — a commit landed, OR a benign no-op (nothing to commit).
+#   1 — business failure (op refusal: gate failed, commit failed).
+#   2 — usage error.
+#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / seam absent).
+from __future__ import annotations
+"""scoped-git-commit — see the # comment block above for the RAG-bait purpose
+text (the shebang line makes THIS triple-quoted string a discarded expression
+statement, not the module __doc__ — same convention as close-out-and-stamp)."""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import route_mutation  # noqa: E402
+
+_OP = "ceremony.scoped_git_commit"
+
+_EXIT_OK = 0
+_EXIT_BUSINESS_FAIL = 1
+_EXIT_USAGE = 2
+_EXIT_TRANSPORT_FAIL = 3
+
+_USAGE = (
+    "usage: scoped-git-commit -m \"<subject>\" [--repo <worktree-root>] [--json]\n"
+    "                        [--include-orphans] -- <path> [<path>...]\n"
+    "\n"
+    "Stages and commits exactly <paths> via claude-klabauter's ceremony.scoped_git_commit,\n"
+    "which selects the agree-case form vs. the private-index form from\n"
+    "index/worktree state. The `--` separator and at least one path are\n"
+    "REQUIRED: this CLI has no unscoped mode by construction.\n"
+    "\n"
+    "--include-orphans adopts NAMED orphan paths (dirty, claimed by no session,\n"
+    "not a live peer) among the paths already listed after `--` — it never\n"
+    "widens the pathspec itself. Reach for it only after the op has actually\n"
+    "refused a path with its orphan-specific message; it is a deliberate\n"
+    "response to that refusal, not a default posture.\n"
+)
+
+
+class _Usage(Exception):
+    """Argument-shape rejection — mapped to exit 2, never to a guess."""
+
+
+def _parse_args(argv: list[str]) -> tuple[str, str | None, list[str], bool, bool]:
+    """`-m <subject> [--repo <root>] [--json] [--include-orphans] -- <paths>...`.
+
+    Hand-rolled rather than argparse because the `--` separator is load-bearing
+    here in git's own sense (everything after it is a pathspec, never a flag)
+    and argparse's own `--` handling would swallow it before this function
+    could require it.
+    """
+    subject: str | None = None
+    repo: str | None = None
+    as_json = False
+    include_orphans = False
+    paths: list[str] = []
+    saw_separator = False
+
+    i = 0
+    n = len(argv)
+    while i < n:
+        tok = argv[i]
+        if saw_separator:
+            paths.append(tok)
+            i += 1
+            continue
+        if tok == "--":
+            saw_separator = True
+            i += 1
+            continue
+        if tok in ("-m", "--message"):
+            if i + 1 >= n:
+                raise _Usage("%s requires a subject argument." % tok)
+            subject = argv[i + 1]
+            i += 2
+            continue
+        if tok == "--repo":
+            if i + 1 >= n:
+                raise _Usage("--repo requires a path argument.")
+            repo = argv[i + 1]
+            i += 2
+            continue
+        if tok == "--json":
+            as_json = True
+            i += 1
+            continue
+        if tok == "--include-orphans":
+            include_orphans = True
+            i += 1
+            continue
+        if tok in ("-h", "--help"):
+            raise _Usage("")
+        raise _Usage("unrecognized argument %r (paths go after `--`)." % tok)
+
+    if subject is None:
+        raise _Usage("-m \"<subject>\" is required.")
+    if not saw_separator:
+        raise _Usage(
+            "the `-- <paths>` separator is required — this CLI has no unscoped "
+            "mode. Name the paths this commit owns."
+        )
+    if not paths:
+        raise _Usage("`--` was given with no paths after it.")
+    return subject, repo, paths, as_json, include_orphans
+
+
+def _worktree_root(explicit: str | None) -> str:
+    """Explicit `--repo` wins; otherwise the enclosing worktree's own root,
+    asked of git rather than assumed to be cwd (an agent frequently runs from
+    a subdirectory, and the op's `paths` are repo-relative)."""
+    if explicit:
+        return os.path.abspath(explicit)
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        raise _Usage(
+            "not inside a git worktree (and no --repo given): %s"
+            % (proc.stderr or "").strip()
+        )
+    return proc.stdout.strip()
+
+
+def _legacy_absent() -> None:
+    """State-1 (claude-klabauter seam absent) has no bash predecessor to fall back to —
+    this CLI is native-only from birth. Raising here lets `route()` wrap the
+    failure in its own four-rung CLAUDE_KLABAUTER_ROOT remediation message rather than
+    this file re-deriving one."""
+    raise RuntimeError(
+        "scoped-git-commit has no legacy fallback: it is a thin trampoline over "
+        "claude-klabauter's %s op and needs the coordinator_core seam present." % _OP
+    )
+
+
+# Human renderings of the op's `push_state` tri-state. `unconfirmed` deliberately
+# does NOT read as a failure and names no corrective action: the commit is local,
+# the remote could not be read, and the reader's cheapest correct next move is to
+# re-check, never to re-push or amend. Sourced from doe-claude-em's 2026-07-30
+# memo (`cross-repo/archive/2026-07-30-doe-claude-em-scoped-git-commit-misreports-
+# push-state.md`) — a two-valued report rendered an in-flight push identically to
+# a failed one, and the corrections that invites (re-push, amend, force-push) are
+# more dangerous on an auto-push-armed shared branch than the symptom.
+#: A diagnostic that is nothing but the subprocess exit code explains nothing —
+#: `git commit` exits 1 on an empty commit set, so the benign already-committed
+#: no-op arrives carrying exactly this and no more. Used by `_render` to tell a
+#: real refusal (which names its cause in prose) from that ordinary outcome.
+_BARE_EXIT_CODE_RE = re.compile(r"^exit_code=\d+$")
+
+_PUSH_NOTES = {
+    "pushed": "pushed",
+    "push-failed": "PUSH FAILED — commit is local only",
+    "unconfirmed": "push unconfirmed — re-check, do not re-push",
+    "no-remote": "no remote",
+}
+
+# Human renderings of the op's `ownership_gate.verdict`. Same mapping shape as
+# `_PUSH_NOTES` rather than prose inlined into `_render`, for the same reason:
+# a new verdict arm is one row here, not a new branch. Sourced from
+# example-cockpit-repo-em's 2026-08-04 consumer-side probe — the op's ownership gate
+# emitted text ONLY when it DENIED, so a successful run printed
+# `committed <sha> (pushed)` and a reader could not tell whether the gate had
+# evaluated at all. An ALLOW that leaves no trace is indistinguishable from an
+# absent gate in every transcript that matters.
+_OWNERSHIP_NOTES = {
+    "allowed": "allowed",
+    "denied": "DENIED",
+    "helper-unimportable": "NOT EVALUATED (helper unimportable)",
+    "not-evaluated-clean-pathspec": "not evaluated (clean pathspec)",
+}
+
+
+def _ownership_note(result: dict) -> str:
+    """Render the op's `ownership_gate` verdict as a compact, greppable
+    suffix, or "" when the engine across the seam did not send one.
+
+    Deliberately additive and never load-bearing: an older engine (no
+    `ownership_gate` key) renders exactly the line it rendered before, and an
+    unrecognized verdict string is passed through verbatim rather than
+    dropped — an unknown decision the caller can still read beats a silent
+    one, which is the whole defect this suffix closes.
+    """
+    gate = result.get("ownership_gate")
+    if not isinstance(gate, dict):
+        return ""
+    verdict = str(gate.get("verdict") or "unknown")
+    owner = gate.get("owner_session_id") or "unknown"
+    return " [ownership=%s owner=%s include_orphans=%s]" % (
+        _OWNERSHIP_NOTES.get(verdict, verdict),
+        owner,
+        "true" if gate.get("include_orphans") else "false",
+    )
+
+
+def _declined_note(result: dict) -> str:
+    """Renders the op's `declined_paths` as an operator-facing suffix, or "".
+
+    A path the caller NAMED and the op did not commit must never leave through
+    a rendered line that does not say so. The motivating incident: two commits
+    named a deleted path in their pathspec, the op dropped it, and this
+    renderer printed a bare `committed <sha>` both times -- so both commit
+    MESSAGES assert a removal that never landed, and nothing prompted anyone to
+    check. A commit route that writes false statements into the audit trail is
+    worse than one that refuses, which is the same failure shape `_render`'s own
+    REFUSED branch was already fixed for once (see its comment below).
+
+    Applied to EVERY branch of `_render`, deliberately -- the success branch is
+    the one that bit, precisely because success is where nobody looks.
+    """
+    declined = result.get("declined_paths") or []
+    if not isinstance(declined, list) or not declined:
+        return ""
+    parts = []
+    for entry in declined:
+        if isinstance(entry, dict):
+            path = str(entry.get("path", "?"))
+            reason = str(entry.get("reason", "")).strip()
+            parts.append("%s (%s)" % (path, reason) if reason else path)
+        else:
+            parts.append(str(entry))
+    return " — DECLINED %d named path(s), NOT committed: %s" % (
+        len(parts),
+        "; ".join(parts),
+    )
+
+
+def _explanatory_diagnostics(result: dict) -> list[str]:
+    """The subset of `result["diagnostics"]` that actually EXPLAINS a
+    refusal — never a bare `exit_code=N` (see `_render`'s own comment on
+    this discriminator, which this factors out of, unchanged in meaning).
+    Shared by `_render` and `_exit_code_for_result` so the rendered line and
+    the process exit code can never disagree about whether a given result
+    was a real refusal.
+    """
+    return [
+        str(d).strip()
+        for d in (result.get("diagnostics") or [])
+        if str(d).strip() and not _BARE_EXIT_CODE_RE.match(str(d).strip())
+    ]
+
+
+def _exit_code_for_result(result: dict) -> int:
+    """Map the op's result envelope onto this CLI's own exit-code contract.
+
+    2026-08-06 fix (live incident): `main()` previously printed `_render`'s
+    output and unconditionally returned `_EXIT_OK` afterward — a REFUSED
+    render (`commit_failed`, a denied ownership gate, a rejected pathspec)
+    still exited 0. A caller checking the return code alone (the whole point
+    of a return code) saw success with nothing committed — the exact
+    silent-data-loss shape `d-run-wsc-tail`'s 0/1/2/3 ladder
+    (coordinator/skills/workstream-complete/SKILL.md) exists to prevent.
+
+    Deliberately mirrors `_render`'s own outcome classification instead of
+    inventing a second one: a landed commit, the benign
+    empty-commit-set/already-committed no-op (`reason == "empty-commit-
+    set"`, or `diagnostics` with nothing EXPLANATORY in it — the same
+    `_explanatory_diagnostics` filter `_render` itself applies, e.g. the
+    bare `exit_code=1` `git commit` leaves behind on a no-op), is
+    `_EXIT_OK`, matching this file's own documented contract ("0 — a commit
+    landed, OR a benign no-op"). Every other shape — a real gate/commit
+    refusal (explanatory diagnostics present), an ownership-gate denial or
+    rejected pathspec (`"error"` key, no `"committed"` key at all) — is
+    `_EXIT_BUSINESS_FAIL`: the op ran, and nothing landed.
+    """
+    if result.get("committed"):
+        return _EXIT_OK
+    if result.get("error"):
+        return _EXIT_BUSINESS_FAIL
+    if _explanatory_diagnostics(result):
+        return _EXIT_BUSINESS_FAIL
+    return _EXIT_OK
+
+
+def _render(result: dict) -> str:
+    # Both suffixes ride every branch, the success branch included — success is
+    # where nobody looks, and it is the branch both defects were reported on.
+    declined_note = _declined_note(result)
+    ownership_note = _ownership_note(result)
+    if result.get("committed"):
+        sha = result.get("sha") or "?"
+        push_state = result.get("push_state")
+        if push_state in _PUSH_NOTES:
+            push_note = _PUSH_NOTES[push_state]
+        elif push_state:
+            push_note = str(push_state)
+        else:
+            # Pre-tri-state engine on the other side of the seam: a bare
+            # `pushed` bool cannot distinguish failed from in-flight, so say
+            # "unconfirmed" rather than asserting either certainty.
+            push_note = {True: "pushed", False: "push unconfirmed", None: "no remote"}.get(
+                result.get("pushed"), str(result.get("pushed"))
+            )
+        return "committed %s (%s)%s%s" % (
+            sha[:12], push_note, declined_note, ownership_note
+        )
+    # The engine distinguishes THREE no-commit outcomes and says so in its own
+    # response: a benign already-committed no-op ("reason": "empty-commit-set"),
+    # a refusal with an explanation (`commit_failed` + `diagnostics` — e.g. a
+    # rejected directory pathspec), and an integrity breach. Rendering only
+    # `reason` collapsed all three into "nothing to commit", so a REFUSAL read as
+    # benign success while the caller's files stayed staged on a shared branch,
+    # waiting for the next bare commit to absorb them. `commit_failed` and
+    # `diagnostics` exist precisely to be surfaced here — the engine's own
+    # comment says a caller reading only `committed` cannot tell them apart.
+    # Negative-spec: `commit_failed` alone does NOT mean a refusal worth
+    # shouting about. `git commit` exits 1 on an empty commit set, so the
+    # ordinary already-committed no-op also arrives as commit_failed with a
+    # single content-free "exit_code=N" diagnostic. Rendering that as REFUSED
+    # would cry wolf on the most common outcome there is. The discriminator is
+    # whether a diagnostic actually EXPLAINS anything — a refusal carries prose
+    # naming its cause, a benign no-op carries only the exit code.
+    explanatory = _explanatory_diagnostics(result)
+    if explanatory:
+        return "REFUSED — no commit landed: %s%s%s" % (
+            "; ".join(explanatory),
+            declined_note,
+            ownership_note,
+        )
+    reason = result.get("reason") or "nothing to commit"
+    return "no commit landed: %s%s%s" % (reason, declined_note, ownership_note)
+
+
+def main(argv: list[str]) -> int:
+    try:
+        subject, repo, paths, as_json, include_orphans = _parse_args(argv)
+        worktree_root = _worktree_root(repo)
+    except _Usage as exc:
+        message = str(exc)
+        if message:
+            print("scoped-git-commit: %s" % message, file=sys.stderr)
+        print(_USAGE, file=sys.stderr)
+        return _EXIT_USAGE
+
+    params = {
+        "worktree_root": worktree_root,
+        "paths": paths,
+        "message": subject,
+        "include_orphans": include_orphans,
+    }
+    try:
+        result = route_mutation(_OP, params, worktree_root, _legacy_absent)
+    except RuntimeError as exc:
+        print("scoped-git-commit: %s" % exc, file=sys.stderr)
+        offending = getattr(exc, "result", None)
+        if isinstance(offending, dict):
+            for diagnostic in offending.get("diagnostics") or []:
+                print("  %s" % diagnostic, file=sys.stderr)
+            return _EXIT_BUSINESS_FAIL
+        return _EXIT_TRANSPORT_FAIL
+
+    if not isinstance(result, dict):
+        print("scoped-git-commit: unexpected op result shape: %r" % (result,), file=sys.stderr)
+        return _EXIT_BUSINESS_FAIL
+
+    if as_json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(_render(result))
+    return _exit_code_for_result(result)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

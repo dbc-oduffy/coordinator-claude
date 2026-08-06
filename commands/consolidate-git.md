@@ -1,6 +1,6 @@
 ---
 name: consolidate-git
-description: "Cleans up branch sprawl. Triggers: consolidate branches, clean up branches, stale branches, merge all branches."
+description: "Cleans up branch sprawl — consolidates and prunes stale branches."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 
 ---

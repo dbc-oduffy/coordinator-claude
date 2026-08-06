@@ -1,0 +1,56 @@
+# launcher-spec-backlinks.toml — declarative spec-backlink manifest for
+# generated Windows launchers.
+#
+# SSOT for the OPTIONAL `Spec backlink:` comment line that
+# coordinator/bin/gen-launcher-shim.py emits into a `.cmd` / `.ps1` launcher.
+# Sibling-registry shape, mirroring coordinator/bin/doctor-probes.toml.
+#
+# WHY THIS FILE EXISTS
+#     This repo's CLAUDE.md makes spec backlinks a REQUIRED exception to the
+#     no-inline-comments rule (the "RAG-bait exception"). Generated launchers
+#     could not satisfy it: a backlink hand-added to a `.cmd` is destroyed by
+#     the next regeneration, and `coordinator_core/test_bin_launcher_parity.py`
+#     now byte-compares every launcher against live generator output, so it
+#     ENFORCES that destruction. `bin/claude-klabauter-doctor-probe.cmd` lost exactly
+#     that line in the 2026-08-03 fleet regeneration sweep.
+#
+#     A `--spec-backlink` CLI flag would not have fixed it: the operator would
+#     have to remember to retype the value on every regeneration, which is the
+#     "the operator remembers" non-discharge CLAUDE.md's north star rejects.
+#     The declaration lives here instead, and the generator READS it — so the
+#     backlink is re-derived on every regeneration, by the CLI and by the
+#     parity guard alike, with nobody remembering anything.
+#
+# WHY A REGISTRY AND NOT THE ENTRYPOINT'S OWN DOCSTRING
+#     Reading the backlink out of the entrypoint source would need no file at
+#     all, and was the first choice — but 397 of the 533 `.py` entrypoints
+#     under the parity scan roots already carry a `Spec backlink:` line in
+#     their docstrings. Deriving from them would rewrite ~397 launchers in one
+#     pass: a fleet-wide diff, a second full regeneration sweep, and no gain,
+#     since a launcher's backlink is a statement about the LAUNCHER's spec
+#     (why this Windows twin exists), not about the entrypoint's. This
+#     registry is opt-in and absent-by-default: a launcher with no row here is
+#     byte-for-byte what it was before the mechanism existed.
+#
+# FORMAT
+#     One `[backlinks]` table. Key: the entrypoint's REPO-RELATIVE POSIX path
+#     (the file the launcher invokes, WITH its `.py`/`.sh` suffix, e.g.
+#     "bin/claude-klabauter-doctor-probe.py"). Value: the backlink text, emitted
+#     verbatim after "Spec backlink: " in the launcher's header comment block
+#     — `REM` in `.cmd`, `#` in `.ps1`.
+#
+#     Keying on the ENTRYPOINT rather than on the launcher filename is what
+#     makes one row cover both dialects: `<name>.cmd` and `<name>.ps1` forward
+#     to the same entrypoint and therefore share one declaration.
+#
+#     Value constraints (enforced by
+#     coordinator/bin/test_gen_launcher_shim.py): single-line, non-empty. A
+#     newline would break out of the comment block and emit executable text
+#     into the launcher body.
+
+[backlinks]
+# Restored 2026-08-03. This launcher carried the line by hand until the fleet
+# regeneration sweep overwrote it; C7 is the plan chunk that mandated "make
+# claude-klabauter-doctor-probe.py the direct python3-shebang entrypoint (+ .cmd for
+# Windows)", i.e. the chunk this launcher IS the deliverable of.
+"bin/claude-klabauter-doctor-probe.py" = "docs/plans/2026-07-21-claude-klabauter-pure-python-shop-retire-all-bash.md § C7"

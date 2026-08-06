@@ -26,5 +26,6 @@ It tells you:
 - Do not improvise the install steps from memory or inference — the playbook handles platform-specific traps (path translation, JSON-merge edge cases, bash version checks) that you will get wrong without it.
 - Do not skip the validation pass after install — an install that looks done but isn't validated will fail silently at SessionStart hooks.
 - Do not skip the restart — plugin/marketplace registration and the Agent Teams env var need a fresh session. The post-restart step is `/coordinator:install` (it finishes the environment wiring and records its own completion receipt — there is no `/pickup` baton in the CLI-install flow).
+- Do not skip mentioning the coordinator engine dependency, and do not tell the human to clone it. coordinator-claude has one hard dependency — the coordinator engine, published as `claude-klabauter` — that this install does not provide. **That publish is not yet live**; until it is, the engine is available on request from the maintainer. This plugin install still gives you every pure-prompt flow (planning, review, personas, shaping); only the state machine (claiming handoffs, memo resolution, coverage computation, terminal stamping) needs the engine. Say so plainly; do not present the install as complete without naming this gap.
 
 Follow the playbook. Then report back to the human.

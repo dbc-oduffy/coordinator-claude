@@ -13,12 +13,17 @@ jobs:
   # and repository rulesets. Do not rename without updating those.
   validate:
     runs-on: ubuntu-latest
+    # Review: security-audit-worker — least-privilege floor for push-triggered runs
+    # (fork PR runs are already auto-downgraded to read-only by GitHub platform
+    # behavior; this pins the same floor explicitly rather than inheriting repo default).
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 0  # Full clone needed for file size guard (git diff origin/main)
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5
         with:
           python-version-file: '.python-version'
 
@@ -26,7 +31,7 @@ jobs:
         run: pip install pyyaml==6.0.2
 
       - name: Validate frontmatter
-        # Review: Patrik — PEP 394 removed bare `python` from many distros; use python3 consistently
+        # Review: the Staff Engineer — PEP 394 removed bare `python` from many distros; use python3 consistently
         run: python3 .github/scripts/validate-frontmatter.py
 
       - name: Validate references
@@ -34,6 +39,10 @@ jobs:
 
       - name: Check for secrets
         run: python3 .github/scripts/check-secrets.py
+
+      # Review: code-reviewer — identity gate was recovered on disk but never wired into CI
+      - name: Check persona names
+        run: python3 .github/scripts/check-persona-names.py
 
       - name: Validate JSON schemas
         run: python3 .github/scripts/validate-json-schemas.py

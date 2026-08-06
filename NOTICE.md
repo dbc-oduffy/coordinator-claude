@@ -4,18 +4,28 @@
 
 This release of coordinator-claude ships **doctrine**: skills, agents, reviewer personas,
 and planning conventions — the thinking layer that shapes how work gets planned, reviewed,
-and executed.
+and executed. It also ships the **executing machinery layer** — the `bin/`, `hooks/`, and
+`lib/` scripts that those skills shell out to at runtime — so the workflows described here
+run as described, not merely as a preview.
 
-It does **not** yet ship the **executing machinery layer** (the `bin/`, `hooks/`, and `lib/`
-scripts that skills shell out to at runtime). That layer is delivered separately, as a
-follow-on release — see the project roadmap for the machinery-delivery track.
+What this repository does **not** contain is the **`coordinator_core` control-plane engine**:
+the layer that produces and mutates work-state artifacts and drives session control. That
+engine is published as a separate companion repository,
+[`claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter). **That publish is not yet
+live** — until it is, the engine is available on request from the maintainer. coordinator-claude
+declares a hard dependency on it.
 
 ## What this means for you
 
-Everything you'd expect from the doctrine layer works today: read the skills, study the
-agent and reviewer personas, follow the planning conventions, adapt them to your own
-workflow. Where a skill's steps *shell out* to a coordinator binary, that step is
-**reference material — a preview of the intended workflow** — until the machinery layer
-lands alongside it. Nothing here is broken; it's simply doctrine ahead of its runtime.
+Two repositories, one system, only one of which is publicly clonable today. Install this one
+for the doctrine and the machinery it drives; the control plane those workflows call into needs
+the engine, obtained on request from the maintainer until its own publish goes live.
 
-We'll update this notice once the machinery layer ships.
+Everything in the doctrine layer is readable and adaptable on its own — the skills, the agent
+and reviewer personas, the planning conventions — and the `bin/`, `hooks/`, and `lib/` scripts
+a skill shells out to are present and functional here. The workflows that read and write
+on-disk work state additionally need the engine.
+
+The split is deliberate rather than transitional: the two layers version independently, and
+the boundary between the doctrine that decides and the engine that executes is the same
+boundary this system asks its own operators to respect.

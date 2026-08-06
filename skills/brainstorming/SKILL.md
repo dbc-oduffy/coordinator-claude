@@ -1,7 +1,7 @@
 ---
 name: brainstorming
-description: "Use for new feature requests, vague/ambiguous requirements, or multi-subsystem decomposition before plan mode."
-description-budget: 225
+description: "Shapes vague or multi-subsystem asks into requirements before planning. Invoke coordinator:sizing first if unsized."
+description-budget: 135
 version: 1.0.0
 ---
 
@@ -80,7 +80,7 @@ digraph brainstorming {
 **If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
 <!-- END project-rag-preamble -->
 
-**Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`docs/architecture/systems-index.md`), wiki guides (`docs/wiki/DIRECTORY_GUIDE.md` → relevant guides), repo map (`.claude/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
+**Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`docs/architecture/systems-index.md`), any project wiki guides, repo map (`.claude/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
 
 **Clarifying questions:**
 - One question per message. Break complex topics into sequential questions.
@@ -97,7 +97,7 @@ digraph brainstorming {
 
 If `CONTEXT.md` exists at the project root, read it before the first PM clarification question. If it is absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms in your questions. When the PM says a term that's on the `_Avoid_:` list, gently substitute the canonical term and confirm: *"You said X — you mean &lt;canonical-term&gt;?"*
 
-When the PM resolves a term during dialogue (defines, disambiguates, or names a previously-fuzzy concept), update `CONTEXT.md` inline — don't batch. Use the format at `docs/wiki/context-md-convention.md`.
+When the PM resolves a term during dialogue (defines, disambiguates, or names a previously-fuzzy concept), update `CONTEXT.md` inline — don't batch. Format: a `## Terms` section with entries of the form `**<Canonical term>** — one-sentence definition.` followed by an `_Avoid_: <synonym1>, <synonym2>` line listing any synonyms actually seen in the corpus (omit `_Avoid_:` if none have appeared yet).
 
 If `CONTEXT.md` doesn't exist and a term gets resolved that would clearly recur, lazily create it with the resolved term as the first entry. Never scaffold an empty file. If no term has been resolved yet, don't create the file.
 

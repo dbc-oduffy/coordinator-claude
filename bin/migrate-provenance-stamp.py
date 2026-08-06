@@ -1,12 +1,4 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work:
-#   migrate-provenance-stamp.py ...         # direct, via the shebang above
-#   python  migrate-provenance-stamp.py ... # explicit interpreter
-#   bash    migrate-provenance-stamp.py ... # re-execs under python
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 migrate-provenance-stamp.py — stamp an honest provenance marker onto work-item
 records that lack a top-level `system:` block.
@@ -43,6 +35,8 @@ Negative-spec:
     on the path(s) explicitly passed as CLI arguments.
   - Do NOT commit. Do NOT modify sibling migrators.
 """
+
+from __future__ import annotations
 
 import sys
 import os

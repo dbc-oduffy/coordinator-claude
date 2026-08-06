@@ -60,6 +60,16 @@ if (-not $ManifestPath) {
 $ProjectRagDir = Split-Path $ManifestPath -Parent
 $RepoRoot = Split-Path $ProjectRagDir -Parent
 
+# PS-EMPTY-ARGV-DROP: $RepoRoot feeds `git -C $RepoRoot` below as a standalone argv
+# element. Split-Path returns '' for a path with no parent (a marker at a drive root),
+# and on pwsh 7.0-7.2 an empty element is dropped rather than passed — `git -C rev-list
+# ...` would then take `rev-list` as the directory and report a plausible wrong answer.
+# Assert it here rather than at each call site so both are covered by one check.
+if ([string]::IsNullOrEmpty($RepoRoot)) {
+    Write-Output "project-rag: SKIP — could not derive repo root from $ManifestPath (fail open)"
+    exit 0
+}
+
 # --- Locate graph.db ---
 # Convention: .project-rag/graph.db alongside the manifest
 $DbPath = Join-Path $ProjectRagDir "graph.db"
@@ -91,6 +101,7 @@ if (-not $git) {
 # --- Find commit built against ---
 $MtimeStr = $DbMtime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 try {
+    # psargv-nonempty-verified: $RepoRoot asserted non-empty at derivation (see PS-EMPTY-ARGV-DROP above)
     $BuiltCommit = & git -C $RepoRoot log -1 "--before=$MtimeStr" --format="%H" 2>$null
     $BuiltCommit = $BuiltCommit.Trim()
 }
@@ -106,6 +117,7 @@ if (-not $BuiltCommit) {
 
 # --- Compute commit delta ---
 try {
+    # psargv-nonempty-verified: $RepoRoot asserted non-empty at derivation (see PS-EMPTY-ARGV-DROP above)
     $DeltaRaw = & git -C $RepoRoot rev-list "${BuiltCommit}..HEAD" --count 2>$null
     $Delta = [int]$DeltaRaw.Trim()
 }

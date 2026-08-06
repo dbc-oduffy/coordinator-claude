@@ -86,6 +86,23 @@ def _derive_summary(body: str) -> str:
     return ""
 
 
+def _render_scoped_to(scoped_to: dict[str, str]) -> str:
+    """Render the nested `scoped_to:` frontmatter mapping.
+
+    Matches the shape claude-klabauter's memo.send op composes into
+    engine-delivered memos (`coordinator_core/ops/fleet/memo_send.py`
+    `_render_extra_field`/`_render_yaml_block`, bcc7cdbe): a `scoped_to:`
+    key followed by 2-space-indented `sub_key: "value"` lines, each scalar
+    double-quoted via `_yaml_quote`. Keys are rendered in `scoped_to`'s own
+    iteration order — callers (via `_build_scoped_to`) insert artifact,
+    version-or-sha, then seam, matching claude-klabauter's field order.
+    """
+    lines = ["scoped_to:"]
+    for key, value in scoped_to.items():
+        lines.append(f"  {key}: {_yaml_quote(value)}")
+    return "\n".join(lines)
+
+
 def compose_frontmatter(
     *,
     from_id: str,
@@ -98,6 +115,7 @@ def compose_frontmatter(
     supersedes: str | None = None,
     summary: str | None = None,
     kind: str | None = None,
+    scoped_to: dict[str, str] | None = None,
 ) -> str:
     """Compose the YAML frontmatter block for a memo.
 
@@ -118,6 +136,13 @@ def compose_frontmatter(
         kind:    Optional sender-declared shape: ask | consult | fyi | proposal.
                  When None, NO kind: line is emitted (absence is meaningful —
                  readers apply an 'ask' default for unlabelled memos).
+        scoped_to: Optional nested {artifact, version|sha, seam} mapping —
+                 same shape `_build_scoped_to` (cross-repo-memo) assembles
+                 and claude-klabauter's memo.send op composes into engine-delivered
+                 memos. Rendered AFTER kind:/supersedes:, mirroring
+                 memo_send.py's field order. Omitted entirely when None or
+                 empty (no `scoped_to:` line at all) — never emitted as a
+                 present-but-empty mapping.
 
     Schema backlink:
         docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
@@ -160,6 +185,8 @@ def compose_frontmatter(
         lines.append(f"kind: {_yaml_quote(kind)}")
     if supersedes:
         lines.append(f"supersedes: {_yaml_quote(supersedes)}")
+    if scoped_to:
+        lines.append(_render_scoped_to(scoped_to))
     if self_receipt:
         lines.append(f"action_taken_at: {_now_iso()}")
         lines.append(f"decision: {_yaml_quote(decision)}")
@@ -179,6 +206,7 @@ def compose_memo(
     supersedes: str | None = None,
     summary: str | None = None,
     kind: str | None = None,
+    scoped_to: dict[str, str] | None = None,
 ) -> str:
     """Compose the full memo document (frontmatter + body).
 
@@ -196,5 +224,6 @@ def compose_memo(
         supersedes=supersedes,
         summary=summary,
         kind=kind,
+        scoped_to=scoped_to,
     )
     return frontmatter + "\n" + body.rstrip("\n") + "\n"

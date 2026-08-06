@@ -1,25 +1,23 @@
 ---
 name: bug-blitz
-description: Autonomously grind state/bug-backlog/ (directory of per-entry YAML files) AND the full test suite — run all tests every run, chase failing tests as first-class fix items, verify each backlog entry still applies, fix small items in parallel waves, surface big ones to PM for spinoff authorization. Runs even when the backlog is empty.
+description: "Grind the bug backlog and tests; fix small, surface big items to PM."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: "[--dry-run | --max=N]"
 ---
 
-<!-- Updated 2026-06-15 by structured-queue-medium-rollout C12: state/bug-backlog.md → state/bug-backlog/*.yaml; HEAD-verify gate preserved per the Staff Engineer F4 -->
-
 # Bug Blitz — Aggressively Tackle the Bug Backlog and the Test Suite
 
-Verify-then-grind through **two work sources every run**: (1) `state/bug-backlog/` (directory of per-entry YAML files, each at `state/bug-backlog/<id>.yaml`), and (2) **the full test suite** — the configured test command is run on every invocation, and each genuinely-failing test becomes a first-class fix item that flows through the same triage → wave → fix → verify machinery as a backlog bug. Re-check each backlog item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
+Verify-then-grind through **two work sources every run**: (1) `state/bug-backlog/` (directory of per-entry YAML files, each at `state/bug-backlog/<id>.yaml`), and (2) **the full test suite** — the configured test command, run under an explicit PM authorization gate (`/bug-blitz` holds no implicit grant for a full-suite invocation — see Phase 0.6), and each genuinely-failing test becomes a first-class fix item that flows through the same triage → wave → fix → verify machinery as a backlog bug. Re-check each backlog item against current code (some have been fixed silently), triage by size, fix the small items autonomously in file-disjoint waves, surface big-item spinoff candidates for PM authorization (per `skills/spinoff/SKILL.md` Step 0 — spinoffs are never EM-initiated). Triage is folded into this skill — there is no separate triage step.
 
-**A green test suite is part of the definition of done.** The run does not complete on a thin "fixed 2 bugs" note while tests are red. Failing tests are chased to root cause and fixed (or, when oversized, surfaced as spinoffs) exactly like backlog bugs.
+**A green test suite is part of the definition of done, once the PM has authorized the full-suite leg.** The run does not complete on a thin "fixed 2 bugs" note while tests are known red. Failing tests are chased to root cause and fixed (or, when oversized, surfaced as spinoffs) exactly like backlog bugs. If the PM declines full-suite authorization, the run proceeds on the backlog leg only — see Phase 0.6.
 
-**Runs even when the backlog is empty.** An absent or empty `state/bug-backlog/` directory is no longer a halt condition — the test-suite leg still runs. The run only short-circuits to a green no-op when the backlog is empty AND the full suite passes clean. (Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries and test failures are NOT pre-spec'd executor stubs, so triage is the spec-creation step.)
+**Runs even when the backlog is empty.** An absent or empty `state/bug-backlog/` directory is no longer a halt condition — the (authorized) test-suite leg still runs. The run only short-circuits to a green no-op when the backlog is empty AND the full suite passes clean. (Built from `/bug-sweep` (finds new bugs) + `/mise-en-place` (autonomous waves) but distinct: backlog entries and test failures are NOT pre-spec'd executor stubs, so triage is the spec-creation step.)
 
-**Announce at start:** "Running `/bug-blitz` — running the full test suite, then aggressive autonomous parallel waves through every fixable backlog item AND every failing test. The default is dispatch-and-spot-check; defer requires named evidence. Big items surface as a spinoff candidate list for your authorization before any handoff is written. The run ends with a green-suite gate."
+**Announce at start:** "Running `/bug-blitz` — I'll ask once for authorization to run the full test suite (it's used twice: a baseline now, a confirm-green pass after fixes), then aggressive autonomous parallel waves through every fixable backlog item AND every failing test. The default is dispatch-and-spot-check; defer requires named evidence. Big items surface as a spinoff candidate list for your authorization before any handoff is written."
 
 ## Default Stance — Dispatch, Don't Defer
 
-The skill's job is to *grind the backlog down*, not to produce a triage report. Empirically (smoke 2026-05-14) the skill defers 90%+ of items on lazy grounds — "lacks standalone entry," "judgment-call refactor," "intersects active plan" — and ships a run that fixes 2 of 47 items. That is failure, not caution. **Fix the lazy defer, not the run.**
+The skill's job is to *grind the backlog down*, not to produce a triage report. The characteristic failure mode is deferring the large majority of items on lazy grounds — "lacks standalone entry," "judgment-call refactor," "intersects active plan" — and shipping a run that fixes a handful out of dozens. That is failure, not caution. **Fix the lazy defer, not the run.**
 
 **Hard rules — defer ONLY for these reasons, all of which require evidence in the verdict row:**
 
@@ -35,9 +33,9 @@ The skill's job is to *grind the backlog down*, not to produce a triage report. 
 - "Intersects active plan" without a named file collision. Mechanical fixes adjacent to in-flight plans are fine; they go through the same wave-gate review as everything else and conflict-out at git-level if they actually collide.
 - "Would take careful thought." Careful thought is what the executor + verifier + EM spot-check chain is *for*. Push the judgment into the dispatch, not in front of it.
 
-**Recovery framing.** The 2026-05-14 run resolved 2 items and deferred ~45 P2s in "summary form." On a re-run of that shape: expect to expand the summary-form entries inline during Phase 1, dispatch them in file-disjoint waves, and converge on a fix-rate of 50%+ of the verified-open backlog per run, not 5%.
+**Recovery framing.** When a prior run left most of the backlog deferred in "summary form," expand the summary-form entries inline during Phase 1, dispatch them in file-disjoint waves, and converge on a fix-rate of most of the verified-open backlog per run, not a token fraction of it.
 
-## Severity-Tier Dispatch Rules (PM doctrine, 2026-05-18)
+## Severity-Tier Dispatch Rules
 
 `/bug-blitz` is intended to be **extremely aggressive**. The failure mode is "great, I took care of 8 bugs out of 1215" — the EM does Phase 1 triage on everything, finds reasons to defer most of it, ships a thin run. Don't. Severity-tier dispatch is the structural fix:
 
@@ -53,11 +51,11 @@ The skill's job is to *grind the backlog down*, not to produce a triage report. 
 - P1s get the chunks-of-20 verify-only Haiku from current Phase 1.
 - P0s get the chunks-of-5 careful Haiku from current Phase 1 with additional cited-code-read step.
 
-If the backlog lacks severity tags, the EM tags them inline at Phase 0.5 (P2 default unless `crash`, `data-loss`, `security`, or `silent-corruption` shape — those are P0; `wrong-behavior` / `breaking-flow` are P1).
+Severity tagging for untagged backlog entries happens at Phase 0.5 step 1 below, not here — this section only sets the resulting dispatch shape once a tag exists.
 
-## Spinoff Phantom Verification (PM doctrine, 2026-05-18)
+## Spinoff Phantom Verification
 
-**Spinoffs are last resort, not the size-overflow drawer.** Today's failure mode: PM was offered 7 candidate spinoffs; 4 were phantoms (file/symbol gone from HEAD), 1 was a 2-line fix mis-classified as `big`. Pre-surface verification is mandatory:
+**Spinoffs are last resort, not the size-overflow drawer.** The characteristic failure mode: the PM is offered a candidate-spinoff list where most entries are phantoms (file/symbol already gone from HEAD) or small fixes mis-classified as `big`. Pre-surface verification is mandatory:
 
 For each `big` candidate, BEFORE adding it to the spinoff candidate list shown at Phase 2.1:
 
@@ -67,12 +65,98 @@ For each `big` candidate, BEFORE adding it to the spinoff candidate list shown a
 
 Only candidates that survive all three checks go onto the PM-authorization list at Phase 2.1. Surface count must be calibrated to "PM expects ≤2 phantoms in a 5-item list" — if more than 30% of pre-surface candidates flunk a check, the EM's size-classify is mis-calibrated for this run and should be re-tightened mid-run.
 
+## Queue Terminus Alignment — the Four Outcome Classes
+
+`/bug-blitz` is a queue-terminus ceremony: every item this skill disposes of lands in one of
+four outcome classes (immediate dispatch, solo baton, close, or themed baton), and a themed
+baton is authored to the multi-item shape used at Step 2.15 below (shared thesis, why these
+belong together, the picker-up's first move, every constituent id/path). Bug-blitz already
+maps three of the four outcome classes to existing machinery; the fourth (themed baton) is the
+delta this alignment adds — it is largely naming what already exists as the shared doctrine,
+not rebuilding a pipeline:
+
+| Outcome class | Existing `/bug-blitz` mechanism |
+|---|---|
+| Immediate dispatch | Phase 3 file-disjoint executor waves (`small` items) |
+| Solo baton | Phase 2.1's PM-authorized auto-spinoff (`big` items) |
+| Close | `already-fixed` / `file-removed` verdicts (Phase 1) and the `wontfix` status value |
+| Themed baton | **New — Step 2.15 below.** N `small` items clustered by shared thesis into one handoff, authored to the multi-item shape (shared thesis, why these belong together, the picker-up's first move, every constituent id/path). |
+
+Bug-specific dispositions — severity, repro, the `wontfix` status value — are unchanged by
+this alignment. The four classes are the terminus, not a replacement for bug triage's own
+semantics. `/bug-sweep` (the queue producer, Phase 4 append) has no PM gate and no triage
+terminus of its own — out of scope here; its only touch is whether its append populates the
+`initiative` clustering key, which is a producer-side concern, not this file's.
+
+### Step 2.15: Themed-baton clustering (between Step 2.1 and Step 2.2)
+
+After Step 2.1 disposes of `big` items but before Step 2.2 drops already-fixed items, cluster
+the verified-`small` set (across all severities, pre-footprint-grouping) by title keyword.
+Clustering is a proposal mechanism, not an authority — the op proposes, the EM disposes. No
+clustering output is ever written as a baton verbatim; the EM merges, splits, or discards
+proposed clusters before a baton is authored. Prefer, in order: (1) a registered engine op
+wrapping the clustering leg, if one exists; (2) degraded-but-mechanical — the shipped
+`detect-initiative-candidates` CLI in `claude-klabauter`, invoked directly, rather than either
+blocking or reinventing the clustering algorithm inline; (3) EM judgment, only if the CLI itself
+is unreachable — the fallback of last resort, not the default degrade target. Bug-blitz's own
+delta from that ladder: suppress the `directory` clustering signal (degenerate on this single-queue
+corpus — it returns one cluster containing everything) and expect only a minority of proposed
+clusters to survive EM judgment as genuine themes; merge/split/discard the rest before anything
+is surfaced.
+
+A cluster that survives EM judgment becomes a **themed-baton candidate**, added to the same
+Phase 2.1 PM-authorization list (see below) — it is never dispatched as if its members were
+ordinary `small` items, and it is never surfaced through a second gate.
+
+**Footprint-vs-theme partition — footprint governs dispatch, theme governs authorship.**
+Step 2.3 already clusters `small` items by FILE FOOTPRINT to build disjoint executor waves;
+thematic clustering is a different partition of the same item set and will disagree with it in
+either direction — a real theme can be footprint-**concentrated** (its members collide on write
+targets and would have to serialize) or footprint-**scattered** (its members land in different
+footprint waves); neither direction is hypothetical. **Resolution: footprint partitioning
+governs wave dispatch (Step 2.3 is unchanged); thematic clustering governs baton authorship
+only.**
+
+- A themed baton whose members span several footprint waves is authored as **one baton
+  referencing multiple wave IDs** — it is never force-dispatched together as a single wave.
+- A themed baton whose members collide on one footprint is authored as one baton whose
+  constituent fixes dispatch **serially** within that footprint's wave, same as any other
+  same-footprint item.
+
+Either way, the baton is one handoff; the wave-dispatch mechanics under it are whatever
+footprint partitioning already dictates. A themed baton never overrides Step 2.3's
+disjointness analysis to force parallel dispatch of colliding footprints.
+
+**Gate hole closed — themed batons ride the Phase 2.1 gate regardless of constituent size.**
+Phase 2.1's PM-authorization gate today fires only for `big` items. A themed baton bundling
+several `small` items is the entire point of the new class, and reaching no gate on the
+existing path is a defect this alignment closes: DEC-7 forbids adding a second gate, so every
+themed-baton candidate — regardless of whether its constituents are `small` or `big` — is
+added to the *same* candidate list Step 2.1 already surfaces to the PM (extend that message's
+numbered list with themed-baton rows, e.g. `N. <cluster thesis> — themed baton, M items:
+<IDs>, footprint: <wave IDs or "serial, footprint X">`), authorized or declined in the same
+PM response. **A themed baton is never dispatched as if it were a `small`-class immediate
+fix** — even after PM authorization, its constituent items are scaffolded into the baton body
+per the multi-item shape above (shared thesis, why these belong together,
+the picker-up's first move, every constituent id/path), not routed to Step 2.3's wave-builder.
+
+Declined themed-baton candidates fall back to the size/severity classification their
+constituent items already carry from Phase 1 — Step 2.3 wave-building for `small` items, or
+Step 2.1 solo-spinoff if any constituent is independently `big`. A decline is a fallback to
+the classes the items already qualified for, not a re-park.
+
+### Scaffolding and category (interim)
+
+Themed batons scaffold via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new"` with its current default `category: infra`,
+hand-edited to the new queue-derived-baton value immediately after scaffolding — the same
+interim behaviour `/debt-triage` C4 uses, pending the claude-klabauter category-default change (C9).
+
 ## Arguments
 
 | Trigger | Mode |
 |---------|------|
-| No arguments | Full grind: full test suite + every fix-able item, no stops |
-| `--dry-run` | Phases 0-2 only — run the suite baseline (Phase 0.7, informational) and produce a plan; do not dispatch executors and do not run the Phase 4 gate. **Not zero-cost:** `--dry-run` still EXECUTES the test suite (the baseline is real, not simulated — it pays the suite-run wall-clock to show you the real `TF-*` set in the plan); it suppresses only executor dispatch and the Phase 4 gate. |
+| No arguments | Full grind: PM-authorized full test suite + every fix-able item, no stops |
+| `--dry-run` | Phases 0-2 only — produce a plan; do not dispatch executors and do not run the Phase 4 gate. **Zero-cost on the suite:** `--dry-run` asks no authorization and executes no Tier-U invocation — Phase 0.7 is a no-op stub, and the plan notes that `TF-*` items are not sourced this mode ("test-failure sourcing requires a live authorized run"). |
 | `--max=N` | Cap fixed items at N this run; remainder stays in backlog. `TF-*` items are P0/P1, so they sort ahead of all P2 backlog items; within a severity tier they interleave with backlog items by ID (`TF-*` sorts after `BS-*` lexically). A small `--max` therefore prioritises a red suite over the P2 backlog — not necessarily over equal-severity backlog bugs. |
 | `--dry-run --max=N` | Phases 0-2 only, plan capped at N items — produces a capped plan without dispatching executors |
 
@@ -82,39 +166,39 @@ Out of scope for this run, no exceptions: `gh pr merge`, `gh pr create` against 
 
 ## Phase 0: Preflight (~1 min, EM)
 
-1. **Check backlog presence — do NOT halt on absence.** Note whether `state/bug-backlog/` exists and how many `.yaml` files it contains (use `bin/query-records.sh --type bug | wc -l` or `ls state/bug-backlog/*.yaml 2>/dev/null | wc -l`). An absent or empty `state/bug-backlog/` is **not** a halt condition: the test-suite leg (Phase 0.7) runs regardless and supplies its own work items. Record `backlog_present: true|false` and the open count for the Phase 2 plan. (Contrast with the prior behaviour, which halted here and recommended `/bug-sweep` — that gate is removed because a clean backlog with a red suite is exactly the state this skill must still act on.)
+1. **Check backlog presence — do NOT halt on absence.** Note whether `state/bug-backlog/` exists and how many `.yaml` files it contains (use `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-records" --type bug | wc -l` or `ls state/bug-backlog/*.yaml 2>/dev/null | wc -l`). An absent or empty `state/bug-backlog/` is **not** a halt condition: the test-suite leg (Phase 0.7) runs regardless and supplies its own work items. Record `backlog_present: true|false` and the open count for the Phase 2 plan. (Contrast with the prior behaviour, which halted here and recommended `/bug-sweep` — that gate is removed because a clean backlog with a red suite is exactly the state this skill must still act on.)
 2. **Generate run ID.** Format: `YYYY-MM-DD-HHhMM`. Scratch dir: `state/scratch/bug-blitz/{run-id}/`.
 3. **Active workstream branch check.** Confirm `git branch --show-current` is an allowed workstream branch: `work/{machine}/{date-or-span}` (span names like `work/machine-a/2026-05-06to07` are accepted; both uppercase and lowercase machine segments are accepted). If not an allowed branch (e.g. on `feature/X` or bare topic branch), halt and report. Bug-blitz commits explicitly (no helper — see Phase 3 commit doctrine) and must run on an active workstream branch. **Note: `/bug-blitz` is fail-closed-only (no override mode).** It does not set `COORDINATOR_OVERRIDE_BRANCH=1` and does not run off the active workstream branch under any circumstance.
-4. **Capture branch name.** `BLITZ_BRANCH=$(git branch --show-current)`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
+4. **Capture branch name.** Run `git branch --show-current` and store its output as `BLITZ_BRANCH`. EM re-confirms this branch immediately before each commit at the wave gate. Executors never commit (see Phase 3) so they don't need this.
 5. **Read a sample of backlog entries** (skip if backlog absent) to confirm last_sweep_commit (from any entry's `created` field or a directory-level header file if present) and item counts. If entries are old relative to HEAD, expect more "already-fixed" verdicts in Phase 1.
 
-## Phase 0.7: Full Test-Suite Baseline (EM + test-evidence-parser, ~3 min)
+## Phase 0.6: Full-Suite Authorization Gate (EM, PM ask — skipped under `--dry-run`)
 
-Run the project's configured test suite up front. Every genuinely-failing test becomes a synthetic work item that joins the backlog items at Phase 0.5 and rides the same triage → wave → fix → verify machinery. **This phase runs on every invocation, including `--dry-run` (the baseline is informational there) and including an empty backlog.**
+`/bug-blitz` holds no implicit grant for a Tier-U (full-suite) invocation. Ask the PM explicitly, once, before Phase 0.7 fires.
 
-1. **Resolve the test command via the single-owner resolver lib — do NOT inline a guess.** Bug-blitz wants the FULL suite (it chases every failing test), so it calls `cs_resolve_full_test_cmd` — the full-tier sibling of the `cs_resolve_fast_test_cmd` that `/validate` runs. Both live in the same lib, so bug-blitz cannot drift to a hand-rolled test surface:
-   ```bash
-   _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-   _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-   _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-   _cc_trusted=0
-   case "$_cc_root" in
-     "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-   esac
-   [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-   case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-   [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-   [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-   [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-   _LIB="$_cc_root/lib/coordinator-resolve-validation-cmd.sh"
-   source "$_LIB"
-   TEST_CMD=$(cs_resolve_full_test_cmd 2>/tmp/blitz-resolve-diag.$$); RESOLVER_EXIT=$?
-   ```
-   Branch on the exit code — it tells you the coverage tier so the plan/report can label it honestly:
+**One ask covers both runs this skill needs.** The premise — chase failing tests to green — structurally requires seeing the suite twice: a baseline now (Phase 0.7) and a confirm-green re-run after fixes land (Phase 4 step 0). These cannot collapse into a single execution; the second run's whole purpose is to observe state that only exists after the first run's fixes are committed. Rather than asking twice, ask once for both, sequenced (never concurrent) under the same grant. This falls out of the grant being **session-scoped** (valid for as long as the granting session lives — no expiry clock, no use counter; see `coordinator/schemas/tier-u-grant.schema.json`), not something this skill engineers around: write the grant once, and both runs read the same live token.
+
+**Ask:** *"This run needs the full test suite — once now to baseline, once after fixes to confirm green. Authorize the full-suite tier for this run?"*
+
+**The ask is not the grant — write the token, don't just narrate the answer.** A PM response only counts as a grant when it is an explicit affirmative reply to *this specific ask* — "yes, run the full suite", "authorized, full-suite tier", "granted — Tier U", "go ahead and run the full suite" said in direct response to the Phase 0.6 question, naming its subject (the full suite / Tier U / the full-suite run) so the stored note is self-contained for a future auditor. Adjacent approval of the blitz run in general ("looks good", "go ahead with bug-blitz", "sounds good, run it") does NOT qualify — that approves running `/bug-blitz` itself, not a Tier-U full-suite invocation, and must NOT be treated as a grant.
+
+**A terse-but-clear reply ("yes" / "authorized" / "granted" alone, with no restated subject) still qualifies as a grant** — refusing a plainly-intended one-word reply to a well-formed ask because it didn't repeat the subject would turn the bar into a password, not an audit aid. What changes is what gets written, not whether it counts: the EM does not store the bare reply as the note. Compose the note from the Phase 0.6 ask's subject plus the PM's reply (e.g. `note: "full-suite tier authorized ('yes')"`) so a fresh reader gets the subject without reconstructing the transcript. A reply that already names its subject can be stored closer to verbatim.
+
+- **Granted (qualifying phrasing above)** → write the grant via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" grant pm <note>`, carrying the composed note (subject + PM's reply, per above) — this is the same CLI Phase 0.7/Phase 4 will read from. No second ask at Phase 4 step 0: the same token, being session-scoped, already covers it — Phase 4 step 0 re-confirms liveness via the same CLI's `check` verb rather than re-asking. Proceed to Phase 0.7.
+- **Declined** → write nothing. No token is written and none is left on disk — do not call the grant CLI at all on a decline. Skip Phase 0.7 and the Phase 4 suite gate entirely. Continue on the backlog leg only (Phase 0.5 built from backlog items alone, no `TF-*` items). Note the decline in the final report ("full-suite leg declined by PM this run — backlog-only grind").
+- **`--dry-run`** → do not ask, and do not write a grant; the mode runs zero Tier-U invocations by design (see Arguments table). Phase 0.7 becomes a no-op stub.
+
+## Phase 0.7: Full Test-Suite Baseline (EM + test-evidence-parser — the parser never runs the suite itself, ~3 min; no-op unless Phase 0.6 granted)
+
+Run the project's configured test suite up front, once Phase 0.6 has granted authorization (or skip entirely under `--dry-run` / decline). Every genuinely-failing test becomes a synthetic work item that joins the backlog items at Phase 0.5 and rides the same triage → wave → fix → verify machinery.
+
+0. **Consult the grant before firing — do not rely on the Phase 0.6 conversation having happened.** Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check`. Exit 0 means granted — proceed. Exit 1 (ungranted) halts this phase regardless of what the transcript above says; a token absent or malformed reads as ungranted, never granted (fail-closed — see the schema's provenance note).
+
+1. **Resolve the test command via the single-owner resolver CLI — do NOT inline a guess.** Bug-blitz wants the FULL suite (it chases every failing test), so it resolves `--full` — the full-tier sibling of the `--fast` mode that `/validate` runs. Both live in the same module, so bug-blitz cannot drift to a hand-rolled test surface. Run the installed forwarder `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-resolve-validation-cmd" --full`, redirecting stderr to a scratch diagnostic path. The forwarder self-resolves the CLI's home repo, so no separate root resolution is needed. Capture the resolver's stdout as `TEST_CMD` and, immediately after (before it is overwritten by any later command), its exit code as `RESOLVER_EXIT`. Branch on `RESOLVER_EXIT` — it tells you the coverage tier so the plan/report can label it honestly:
    - **Exit 0 — full suite resolved** (`full_test_cmd:` in `coordinator.local.md` or `$COORDINATOR_FULL_TEST_CMD`). `suite_state: full`. This is the intended path.
    - **Exit 3 — fast-tier fallback.** No `full_test_cmd` is configured, so the resolver fell back to the fast tier. `suite_state: fast-fallback`. Run it (coverage is real, just narrower), and **report the coverage honestly** — the announce, plan, and final report say "fast tier (no full_test_cmd configured)" plus the remediation (`set full_test_cmd: in coordinator.local.md`). Do NOT call a fast-fallback run "the entire test suite."
    - **Exit 2 — unconfigured.** Neither tier is configured for this repo. `suite_state: unconfigured`. Emit the diagnostic, continue (the backlog leg still runs), name the remediation in the report. Do **not** fabricate a `npm test` / `pytest` guess; an unconfigured suite is a reported gap, not an invented command.
-2. **Run the suite through `test-evidence-parser`.** Dispatch `coordinator:test-evidence-parser` (`run_in_background: true`) with the resolved `TEST_CMD`. It runs the command, captures stdout/stderr, and classifies each failure: `real` / `flake` / `env` / `timeout` / `known-skip`. On-disk deliverable: `state/scratch/bug-blitz/{run-id}/suite-baseline.md` (table of every failure with classification + the failing test's file:line and assertion excerpt). Inline the disk-first verification preamble (below) verbatim.
+2. **The EM runs the suite directly via `Bash`; a subagent parses the captured output, never invokes.** Running the full suite is a Tier-U (or Tier-F, if scoped to the fast tier) invocation — subagents never invoke it (same rule as `/bug-sweep` Track B). The EM runs the resolved `TEST_CMD` via `Bash`, capturing stdout/stderr to `state/scratch/bug-blitz/{run-id}/suite-baseline-raw.txt`. Then dispatch `coordinator:test-evidence-parser` (`run_in_background: true`), instructing it to skip its own Workflow steps 1-2 (framework auto-detection and running the command) and instead `Read` the captured raw-output file at that path, then classify each failure per its standard rubric: `real` / `flake` / `env` / `timeout` / `known-skip`. On-disk deliverable: `state/scratch/bug-blitz/{run-id}/suite-baseline.md` (table of every failure with classification + the failing test's file:line and assertion excerpt). Inline the disk-first verification preamble (below) verbatim.
 3. **Convert `real` failures into synthetic items.** For each `real` failure, mint a work item with ID `TF-{run-id}-{n}`. **The parser does NOT emit a crash-shape class** — its rubric is exactly `real` / `flake` / `env` / `timeout` / `known-skip` (see `agents/test-evidence-parser.md`). So crash-vs-assertion severity is an **EM-side post-classification on the parser's evidence excerpt**, not a column read:
    - Grep the failure's evidence excerpt for crash signals — `SIGSEGV` / `segfault` / `panic` / `abort` / `core dumped` / `unhandled exception` / `fatal` → **P0**.
    - Otherwise (assertion failure / wrong-result / broken-flow) → **P1**.
@@ -125,7 +209,7 @@ Run the project's configured test suite up front. Every genuinely-failing test b
 **Disk-first verification preamble (inline verbatim into the test-evidence-parser dispatch):**
 > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
 
-**Empty-backlog-and-green-suite short-circuit.** If `state/bug-backlog/` is absent/empty (zero `.yaml` files) AND the suite resolves, runs, and is fully green (zero `real` failures), there is no work: skip Phases 0.5–3, write no commit, and emit this one-line all-clear report — *"Bug-blitz {run-id}: backlog empty/absent, suite green — no work this run."* (Distinct from the Phase 4 step 3 no-op, which covers a *non-empty* backlog where nothing was fixable and points to `/bug-sweep` or `/plan`.) An all-clear is a useful signal, not a failed run.
+**Empty-backlog-and-green-suite short-circuit.** If `state/bug-backlog/` is absent/empty (zero `.yaml` files) AND the suite resolves, runs, and is fully green (zero `real` failures), there is no work: skip Phases 0.5–3, write no commit, and emit this one-line all-clear report — *"Bug-blitz {run-id}: backlog empty/absent, suite green — no work this run."* (Distinct from the Phase 4 step 3 no-op, which covers a *non-empty* backlog where nothing was fixable and points to `/bug-sweep` or `/plan`.) An all-clear is a useful signal, not a failed run. **Under a Phase 0.6 decline or `--dry-run`, this short-circuit cannot fire** (suite state is unknown, not green) — an empty backlog in that mode is simply "no backlog work this run," with the suite leg noted as skipped rather than green.
 
 ## Phase 0.5: Severity Split (EM, ~1 min)
 
@@ -157,15 +241,15 @@ Verdict per item: `confirmed` | `pattern-shifted`. Write to `state/scratch/bug-b
 
 After both chunk verifiers return, EM reviews `pattern-shifted` items inline before adding them to executor dispatch. Items flagged `pattern-shifted` are NOT dispatched to executors automatically — EM reads the cited file and decides: re-classify, update the backlog entry, or proceed with adjusted recommended-fix.
 
-**Pattern-shifted is a dispatch signal, not a defer reason.** Empirically (2026-05-18, project-rag-ue-addon: 0 of ~6 pattern-shifted deferrals were real moved-bugs — all were the same bug with the named symbol renamed or the surrounding code reshuffled by an unrelated edit). When the cited symbol is missing at the cited line, the high-prior interpretation is "the bug still exists, the pattern moved" — grep the recommended-fix's central noun-phrase (the buggy condition, not the symbol name) across the cited file and adjacent siblings before classifying as deferral-eligible. Closing as `file-removed` requires `ls` confirming absence; closing as `already-fixed` requires a commit SHA showing the fix. "Pattern shifted, can't find it" with neither evidence is a re-grep task, not a defer.
+**Pattern-shifted is a dispatch signal, not a defer reason.** A missing symbol at the cited line is rarely a genuinely moved or resolved bug — it is far more often the same bug with the named symbol renamed or the surrounding code reshuffled by an unrelated edit. When the cited symbol is missing at the cited line, the high-prior interpretation is "the bug still exists, the pattern moved" — grep the recommended-fix's central noun-phrase (the buggy condition, not the symbol name) across the cited file and adjacent siblings before classifying as deferral-eligible. Closing as `file-removed` requires `ls` confirming absence; closing as `already-fixed` requires a commit SHA showing the fix. "Pattern shifted, can't find it" with neither evidence is a re-grep task, not a defer.
 
 **Backlog entries written in summary-form paragraphs are actionable items, not noise.** Dense deferred-summary sections with file:line citations are verification candidates — do not skip them at Phase 1 triage.
 
 **Pre-classification eligibility — verify status freshness, not just FIXED tagging.** An entry tagged FIXED months ago may have a fresh IN-PROGRESS continuation underneath; check `git log -- <cited-path>` since the FIXED tag's date before pruning. "Already-fixed ghost" prunes can collateral-damage in-progress work.
 
-**Long-stale backlog — ghost-prune dominates fix-value; trust the header SHA over the per-entry OPEN field.** When Phase 0 step 5 shows `last_sweep_commit` many commits behind HEAD, the dominant value of this run is *pruning ghost entries* (items the backlog still marks OPEN but that are provably fixed or whose cited file is gone on HEAD), not net-new fixes — expect a high `already-fixed` / `file-removed` rate and treat the prune as the deliverable, not a thin run. When a per-entry `OPEN` status field disagrees with the backlog header's SHA attribution (the header is the freshest cross-cutting truth; per-entry status fields drift because they are hand-maintained per item), **trust the header SHA over the OPEN field** — re-verify against HEAD per the cited-file read, and close ghosts as `already-fixed` (commit SHA cited) or `file-removed` (`ls` confirms absence). A per-entry `OPEN` field is not evidence the bug is live; it is a stale assertion the verify step exists to overturn. **Stale per-entry status drifts in both directions** — a stale FIXED tag can hide live in-progress work (paragraph above), and a stale OPEN field can be a ghost (here); the resolution is the same in both cases — the per-entry status field is hypothesis, the HEAD re-verification is ground truth, and the SHA is a verification-triggering prior, never an auto-close. (see `docs/wiki/cleanup-sweep-hazards.md` § 19 — "entries that no longer reproduce get deleted"; sibling: `CLAUDE.md` § Verifying Handoff Premises — "broken-today claims need HEAD verification before action".)
+**Long-stale backlog — ghost-prune dominates fix-value; trust the header SHA over the per-entry OPEN field.** When Phase 0 step 5 shows `last_sweep_commit` many commits behind HEAD, the dominant value of this run is *pruning ghost entries* (items the backlog still marks OPEN but that are provably fixed or whose cited file is gone on HEAD), not net-new fixes — expect a high `already-fixed` / `file-removed` rate and treat the prune as the deliverable, not a thin run. When a per-entry `OPEN` status field disagrees with the backlog header's SHA attribution (the header is the freshest cross-cutting truth; per-entry status fields drift because they are hand-maintained per item), **trust the header SHA over the OPEN field** — re-verify against HEAD per the cited-file read, and close ghosts as `already-fixed` (commit SHA cited) or `file-removed` (`ls` confirms absence). A per-entry `OPEN` field is not evidence the bug is live; it is a stale assertion the verify step exists to overturn. **Stale per-entry status drifts in both directions** — a stale FIXED tag can hide live in-progress work (paragraph above), and a stale OPEN field can be a ghost (here); the resolution is the same in both cases — the per-entry status field is hypothesis, the HEAD re-verification is ground truth, and the SHA is a verification-triggering prior, never an auto-close.
 
-**Per-item verification + size classification.** Each agent, for each item — read frontmatter from `state/bug-backlog/<id>.yaml` to extract `id`, `severity`, `system`, `title`, `body`, `cross_ref`, and `why_blocked` fields (field names per `docs/wiki/bug-backlog-schema.md`). The `cross_ref` field carries the file:line citation used below:
+**Per-item verification + size classification.** Each agent, for each item — read frontmatter from `state/bug-backlog/<id>.yaml` to extract `id`, `severity`, `system`, `title`, `body`, `cross_ref`, and `why_blocked` fields. The `cross_ref` field carries the file:line citation used below:
 
 1. **Verify still-applies:**
    - Read the cited file:line (from the entry's `cross_ref` field) — does the bug pattern still exist in HEAD?
@@ -183,7 +267,7 @@ After both chunk verifiers return, EM reviews `pattern-shifted` items inline bef
 ```markdown
 | ID | Verdict | Size | Footprint | Notes |
 |----|---------|------|-----------|-------|
-| BS-2026-05-06-007 | still-open | small | find-polluter.sh | Add `command -v npm` pre-flight + `set -o pipefail` |
+| BS-2026-05-06-007 | still-open | small | find-polluter.py | Add `command -v npm` pre-flight + `set -o pipefail` |
 | BS-2026-05-06-001 | still-open | big | coordinator-safe-commit, tests/... | Frontmatter parser refactor + new CRLF tests |
 | BS-2026-05-06-018 | already-fixed | — | — | Fixed in commit abc1234 |
 ```
@@ -216,43 +300,7 @@ Authorize all / authorize subset / none?
 
 Block on PM response. Only authored spinoffs proceed; unauthorized candidates revert to `needs-investigation` in `state/bug-backlog/<ID>.yaml` (update the `why_blocked` field with "PM declined spinoff at bug-blitz <run-id>"). Do not retry without fresh PM direction.
 
-For each PM-authorized `big` item, write a spinoff handoff using the canonical schema below (or invoke `/spinoff <slug>` per-item).
-
-**Canonical spinoff frontmatter** (all fields required — do not paraphrase keys):
-
-```yaml
----
-title: <one-line title describing the bug and fix scope>
-created: <YYYY-MM-DD>
-branch: <current branch — git symbolic-ref>
-status: active
-kind: spinoff
-predecessor: none
-authoring_session: bug-blitz <run-id>
-workstream: bug-backlog item <ID> (state/bug-backlog/<ID>.yaml)
-deployment_state: ready_to_fire
-scope:
-  - <pathspec 1>
-  - <pathspec 2>
----
-```
-
-**`status` MUST be `active`, not `pickup-ready`** — `active` is the canonical value per `commands/spinoff.md`. `predecessor: none` always. `status: pickup-ready` is not a valid value. **`deployment_state: ready_to_fire`** is hard-coded for bug-blitz spinoffs: each is a scoped, actionable fix with no PM-gate by definition (already triaged through the bug-backlog as `big` — actionable but oversized for in-wave fix). Never use `awaiting_gate` here.
-
-**Canonical body sections:**
-- `# <title>` (H1 mirrors frontmatter title)
-- Opening paragraph: one sentence on why this is its own session
-- `## What this covers`
-- `## Reference materials (read first)`
-- `## Specification` — include the original backlog entry verbatim from `state/bug-backlog/<ID>.yaml` (fields: `body`, `cross_ref`, `why_blocked`) plus a brief rationale: "classified `big` because: <reason>"
-- `## Acceptance criteria`
-- `## Recommended next steps`
-- `## Anti-scope`
-
-**Trailing marker (required for greppability):**
-```html
-<!-- spinoff: <YYYY-MM-DD> by bug-blitz <run-id> -->
-```
+For each PM-authorized `big` item, write a spinoff handoff via the `spinoff-handoff-template` directive (`backlog-grind-assemble`'s `directives.build_spinoff_handoff_template_emission`) rather than hand-assembling the frontmatter and body — the directive renders the canonical schema (the `commands/spinoff.md` frontmatter shape, `status: active` never `pickup-ready`, `predecessor: none`, `deployment_state: ready_to_fire` hard-coded because a bug-blitz spinoff is already triaged as actionable-but-oversized and carries no further PM-gate, and the standard body-section set plus the trailing spinoff marker) from fields this run already holds: title, run-id, the backlog item's ID/footprint, and its `body`/`cross_ref`/`why_blocked`. State the intent — one spinoff handoff per authorized item — and hand the directive the computed fields; do not re-narrate the template's own shape. (`/spinoff <slug>` per-item remains the sibling manual path.)
 
 Path: `state/handoffs/{YYYY-MM-DD}_{HHMMSS}_bug-blitz-spinoff-{slug}.md`
 
@@ -264,7 +312,7 @@ Delete already-fixed items from active P1/P2 tables; name them in the Phase 4 co
 
 ### Step 2.3: Build small-item waves (file-disjoint)
 
-**Phase 2 — pre-bundle by file footprint.** Group bug IDs by shared file footprint and dispatch one executor per file (not per bug ID). For Phase 3 verification, prefer batched per-wave verifiers when the EM is reading each DONE line; per-DONE Haiku is overkill at that read-density. Empirical: 28 executors / 42 items / 3 waves / 0 regressions (2026-05-14 blitz).
+**Phase 2 — pre-bundle by file footprint.** Group bug IDs by shared file footprint and dispatch one executor per file (not per bug ID). For Phase 3 verification, prefer batched per-wave verifiers when the EM is reading each DONE line; per-DONE Haiku is overkill at that read-density.
 
 Group `small` items by file footprint:
 
@@ -301,43 +349,22 @@ If `--dry-run`, stop here.
 
 ## Phase 3: Execute Waves (Sonnet executors edit; EM serializes commits)
 
-**Commit doctrine — single committer, explicit-path, fused add+commit.** Parallel executors that each call a commit helper produce two failure modes empirically observed in the 2026-05-06-22h42 smoke run: (a) **concurrent-commit absorption** — N near-simultaneous `git commit` calls bundle each other's staged work into the first commit, leaving N-1 commit messages orphaned; (b) **scope sweep** — `coordinator-safe-commit` consulted touched-files in long-lived sessions and absorbed unrelated dirty work from other workstreams into the bug-blitz commits. Both defects are eliminated by: executors edit-and-report only (no commit), EM serializes commits at the wave gate using `git reset && git add -- <paths from DONE> && git commit` fused into a single Bash call. No helper invocation; explicit paths only; one committer at a time.
+**Commit doctrine — single committer, named op, per-item granularity.** Parallel executors that each call a commit helper produce two known failure modes: (a) **concurrent-commit absorption** — N near-simultaneous `git commit` calls bundle each other's staged work into the first commit, leaving N-1 commit messages orphaned; (b) **scope sweep** — a touched-files commit heuristic in a long-lived session absorbs unrelated dirty work from other workstreams into the bug-blitz commits. Both defects are eliminated by: executors edit-and-report only (no commit), EM commits at the wave gate via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" apply bug-blitz --wave-path <path> [--wave-path <path>]... --granularity per-item --message <message>` (one `--wave-path` per file in the item's footprint — `granularity` governs commit cardinality across items, not files-per-commit; all of one item's files land in that item's single commit regardless of how many `--wave-path` flags it took to name them), one committer at a time. Bug-blitz's per-item audit trail (one commit per item, own message) is the `per-item` granularity's whole point — never collapse this to `per-wave`.
 
 For each wave:
 
-1. **Dispatch all items concurrently.** One Sonnet executor per item, `run_in_background: true`, `mode: "auto"`. Each prompt must include:
-   - **Disk-first verification preamble (verbatim):**
-     > Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
-   - The full backlog entry (severity, file:line, description, recommended fix)
-   - **P0/P1 verification gate (verbatim):** *"Before writing any fix: read the cited file:line and confirm the bug pattern is present in the current code. If the pattern is absent or has materially changed, STOP and report `BLOCKED: pattern-not-as-described` with what you actually found. Do not 'fix anyway' based on the description."* **(For `TF-*` items flagged `locus-underdetermined`, the gate is relaxed: reproduce the failing test first, confirm it fails, then fix — there is no cited line to anchor on.)**
-   - **Assertion-weakening prohibition (verbatim — REQUIRED for every `TF-*` test-failure item):** *"This item is a failing test. You MUST NOT make the test pass by weakening, deleting, loosening, or skipping its assertion (or marking it xfail/skip) UNLESS you have concrete evidence the assertion itself is wrong — i.e. it encodes a stale expectation against intended new behaviour. Fixing the code under test is the default. If you believe the test is genuinely wrong, STOP and report `BLOCKED: assertion-weakening-without-evidence` with the evidence (the commit/spec that changed the intended behaviour), rather than editing the assertion. Greening a test by deleting its check is the cardinal failure mode this skill exists to prevent."*
-   - **Footprint constraint:** *"You MUST NOT modify any file outside this footprint: [list]. If you discover you need to, STOP and report `BLOCKED: footprint-overflow`."*
-   - **Edit-and-report constraint (executors do NOT commit):**
-     > After your edit: (1) re-read the cited code and confirm the bug pattern is gone; (2) run any local tests under the same directory as the modified file — if tests fail, revert your edit (`git checkout -- <paths>` is fine here because executors leave the working tree unstaged and the EM has no concurrent unstaged work for this item) and report `BLOCKED: regression`. **Do NOT stage and do NOT commit. Leave changes unstaged in the working tree** — the EM stages and commits each item serially at the wave gate. Helper invocation (`coordinator-safe-commit`) is forbidden in executor scope: empirically (smoke 2026-05-06-22h42) it produced concurrent-commit absorption and scope sweep.
-   - **DONE summary:** Write to `state/scratch/bug-blitz/{run-id}/{item-id}.done.md` with: `status` (`DONE` | `BLOCKED: <reason>`), `files: [explicit paths]` (newline-separated, exactly the paths the EM should `git add --` — no globs, no parent dirs), `before` snippet, `after` snippet, `verified` result. Do NOT include a commit SHA — committing is the EM's job. Reply `DONE: <path>` only.
-
-   <!-- Review: 2026-05-06-22h42 smoke run — defect 1 (concurrent-commit absorption) + defect 2 (scope sweep) traced to executor self-commit via coordinator-safe-commit. Reverted the Staff Engineer F8 in favor of EM-serial commit at wave gate; per-item commit cadence preserved (still one commit per backlog item) but funneled through a single committer. -->
-   <!-- Review: the Staff Engineer F10 — disk-first verification preamble inlined into executor dispatch prompt. -->
+1. **Dispatch all items concurrently.** One Sonnet executor per item, `run_in_background: true`, `mode: "auto"`. Render each prompt via the `executor-dispatch-prompt-template` directive (`backlog-grind-assemble`'s `directives.build_executor_dispatch_prompt_template_emission`) rather than hand-assembling the fixed multi-part prompt every dispatch — the directive emits the disk-first verification preamble, the full backlog entry (severity, file:line, description, recommended fix), the P0/P1 verification gate (relaxed for `TF-*` items flagged `locus-underdetermined`: reproduce the failing test first, confirm it fails, then fix — there is no cited line to anchor on), the assertion-weakening prohibition (required on every `TF-*` test-failure item — fixing the code under test is the default; a genuinely wrong test is `BLOCKED: assertion-weakening-without-evidence`, not an edited assertion), the footprint constraint, the edit-and-report constraint (executors never stage or commit — see the commit doctrine above), and the DONE-summary spec (`state/scratch/bug-blitz/{run-id}/{item-id}.done.md`: `status`, `files`, `before`/`after` snippets, `verified` result, no commit SHA). Feed the directive this item's severity/file:line/description/recommended-fix and footprint; do not re-narrate the template's own fixed parts.
 
 2. **Process completions on arrival.** Read each DONE summary (only). Do NOT pull executor transcripts.
 
 3. **Dispatch Haiku verifier per DONE.** `run_in_background: true`, on-disk verdict. Verifier reads the DONE summary + the unstaged diff for the item's `files` (`git diff -- <paths>`) + cited code; confirms bug pattern is gone, no out-of-footprint changes, tests pass. Verdict: `PASS` | `PATTERN-STILL-PRESENT` | `FOOTPRINT-VIOLATION` | `REGRESSION`. Path: `state/scratch/bug-blitz/{run-id}/{item-id}.verify.md`.
 
-4. **Wave gate — EM serial commit + incremental backlog update.** When all wave verifiers return:
+4. **Wave gate — named op, per-item granularity, incremental backlog update.** When all wave verifiers return:
    - **Poll `git branch --show-current` BEFORE any wave-gate action.** If it does not equal `$BLITZ_BRANCH`, halt and reconcile before proceeding.
-   - **For each PASS item, in deterministic order (sorted by item ID), the EM serially commits the item.** Single Bash call per item to fuse stage+commit and avoid sibling-session windows:
-     ```bash
-     git reset && \
-       git add -- <paths from DONE.files> && \
-       git -c gpg.program=... commit -m "<item-id>: <one-line description>"
-     ```
-     The leading `git reset` clears any sibling-session staging so only this item's paths land. Use plain `git commit` (not `coordinator-safe-commit`) — the helper's touched-files heuristic is what produced the smoke-run scope sweep. The auto-push hook fires on commit; capture the resulting SHA from `git rev-parse HEAD` and write it back to the DONE summary as `commit: <sha>`. Re-confirm `git branch --show-current == $BLITZ_BRANCH` before each commit; halt the wave if it flipped mid-loop.
-   - For PASS items: PASS commits at the wave gate ARE the persistence (commit subject names each item). No per-wave backlog append — PASS items are deleted from the active P1/P2 tables in Phase 4 only.
-   - For BLOCKED / non-PASS items: the working tree still carries the executor's edit (unstaged, since executors don't commit). Revert via `git checkout -- <paths from DONE.files>` (safe under this skill because the EM controls staging and no other agent has unstaged work on these specific paths within the wave). Update `state/bug-backlog/<id>.yaml` — append a note to `why_blocked` field: `re-attempted-{date}: <reason>`, leave the entry in the active backlog directory.
+   - **For each PASS item, in deterministic order (sorted by item ID), the EM commits it via the named op** — one invocation per item, its own message, no interleaving from a sibling session: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" apply bug-blitz --wave-path <path1 from DONE.files> [--wave-path <path2 from DONE.files>]... --granularity per-item --message "<item-id>: <one-line description>"` (one `--wave-path` per path in `DONE.files` — `granularity` still governs commit cardinality *across items*, not files-per-commit; all of one item's files land in that item's single commit regardless of how many `--wave-path` flags it took to name them). The op re-verifies `$BLITZ_BRANCH` immediately before its own commit and halts before committing if the branch flipped — this owns the per-commit branch recheck, no separate mid-loop poll needed. Capture the returned `commit_sha` and write it back to the DONE summary as `commit: <sha>`.
+   - For PASS items: PASS commits at the wave gate ARE the persistence (commit subject names each item) — a mid-run crash recovers attribution from `git log` rather than file state, so there is no separate per-wave backlog append. PASS items are deleted from the active P1/P2 tables in Phase 4 only.
+   - For BLOCKED / non-PASS items: the working tree still carries the executor's edit (unstaged, since executors don't commit). Revert via `git checkout -- <paths from DONE.files>` — the op is a stage-and-commit helper, not a revert helper, so this leg stays direct git (safe under this skill because the EM controls staging and no other agent has unstaged work on these specific paths within the wave). Update `state/bug-backlog/<id>.yaml` — append a note to `why_blocked` field: `re-attempted-{date}: <reason>`, leave the entry in the active backlog directory.
    - Update flight-recorder tasks to `completed`.
-
-   <!-- Review: the Staff Engineer F4 — poll git branch --show-current BEFORE each commit at the wave gate. Branch is captured at Phase 0 as $BLITZ_BRANCH; EM re-checks before every commit (per-item granularity, not per-wave, because the loop spans many seconds). -->
-   <!-- Review: the Staff Engineer F5 (revised 2026-05-07) — per-wave incremental backlog writes removed; PASS commits at the wave gate ARE the persistence (commit subject names each item), so a mid-run crash recovers attribution from `git log` rather than file state. Doctrine: docs/plans/2026-05-07-prune-resolved-state-bloat.md. -->
 
 5. **Brief status, no question.** "Wave N complete (X fixed, Y blocked). Firing wave N+1."
 
@@ -347,7 +374,7 @@ For each wave:
 
 After all waves complete:
 
-0. **Green-suite gate — re-run the full suite (mandatory, every run that dispatched any fix).** Re-resolve and re-run the Phase 0.7 test command through `test-evidence-parser` against HEAD (post-fix tree). Deliverable: `state/scratch/bug-blitz/{run-id}/suite-final.md`. Compare against the Phase 0.7 baseline:
+0. **Green-suite gate — re-run the full suite (mandatory, every run that dispatched any fix, and only reachable when Phase 0.6 was granted).** This re-run is covered by the single Phase 0.6 authorization — do not ask again, but do re-confirm the token is still live via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check` before firing, rather than trusting that the earlier conversation happened. Same invocation split as Phase 0.7 step 2: the EM re-resolves and re-runs the test command directly via `Bash` against HEAD (post-fix tree), capturing stdout/stderr to `state/scratch/bug-blitz/{run-id}/suite-final-raw.txt`; then dispatch `coordinator:test-evidence-parser` to `Read` and classify that captured file only — it never invokes the suite. Deliverable: `state/scratch/bug-blitz/{run-id}/suite-final.md`. Compare against the Phase 0.7 baseline:
    - **All `real` failures cleared → gate PASS.** Record the green result for the report.
    - **A baseline failure persists** → the TF item's fix did not take. It was committed at the wave gate only if its verifier returned PASS, so a persistent failure means the verifier and the suite disagree — re-read the cited test and code, and either (a) dispatch one more corrective wave this run, or (b) if oversized, `git revert` the non-working fix commit and surface the TF item as a spinoff. Do NOT report the run green with a known-red suite. (This is a *pre-existing* failure that stayed red — reverting the attempted fix returns the suite to its baseline state, which is acceptable; the unfixed test was already red when the run started.)
    - **A NEW failure appeared that was green at baseline → regression introduced by this run's fixes.** This is the highest-priority signal, and its terminal state is **mandatory revert, not surface-and-leave**. Identify the introducing commit (`git log` since baseline over the failing test's exercised paths). Attempt a correction in one more wave; if that wave does not restore green, **`git revert <introducing-sha>`** (NOT `git reset` — the commit is already pushed by the auto-push hook, and the shared-branch doctrine forbids history rewrites on a pushed branch), then re-run the gate to confirm green-restored. Name the reverted regression explicitly in the final report. A bug-blitz must NEVER end with the suite redder than it found it on a self-inflicted regression — reverting the regression is non-negotiable; "stop chasing the original TF item and spin it off" is the acceptable part, "leave the regression on the branch" is not.
@@ -360,45 +387,35 @@ After all waves complete:
 1. **Final backlog update — close-with-paper-trail.** The fixes themselves are the paper trail (each PASS item committed individually in Phase 3 with the item ID in the commit subject); Phase 4 moves the now-resolved YAML files out of the active `state/bug-backlog/` directory so the queue only holds open items. Phase 4:
    - **Archives — does NOT delete in-place — every closed entry** via `git mv`. Three closure shapes, all move to `archive/bug-backlog/<YYYY-MM>/<id>.yaml`:
      - `PASS` (fixed this run) — set `status: closed`, `closed_at: <date>`, `closed_by: <Phase-3-commit-SHA>` in the archived YAML's frontmatter before committing the move
-     - `already-fixed` (silent prior fix) — set `status: closed`, `closed_at: <date>`, `closed_by: <prior-commit-SHA>` (cited in the final report)
+     - `already-fixed` (silent prior fix) — set `status: closed`, `closed_at: <date>`, `closed_by: <prior-commit-SHA>` (this frontmatter field is the attribution's only record — the final report no longer carries an "Already-fixed" line)
      - `spun-off` (auto-spinoff to handoff) — set `status: closed`, `closed_at: <date>`, `closed_by: spun-off-<handoff-path>`
    - **No "Resolved this run" section inside the active backlog directory.** The `state/bug-backlog/` directory holds only `open`-status YAML files. Closed items live in `archive/bug-backlog/`, `git log`, and the final report.
    - The `archive/bug-backlog/<YYYY-MM>/` path is self-indexing — the YAML filenames and frontmatter carry all attribution.
    **Note: last-write-wins hazard.** If two bug-blitz runs overlap they may both attempt to move the same YAML files. Do NOT run concurrent bug-blitzes.
-2. **Commit the backlog archive moves** as the final wave (EM-serial, single Bash call):
-   ```bash
-   git reset && git add -- state/bug-backlog/ archive/bug-backlog/ && \
-     git commit -m "bug-blitz {run-id}: prune resolved — fixed: <ID1, ID2, ...>; already-fixed: <ID3, ...>; spun-off: <ID4, ...>"
-   ```
-   **The commit subject MUST name every closed ID** (across all three closure shapes). This is the greppable paper trail — `git log --all -- state/bug-backlog/ | grep BS-NNNN` resolves "whatever happened to that bug?" without reading the backlog history. Verify `git branch --show-current == $BLITZ_BRANCH` immediately before. Plain `git commit`, not `coordinator-safe-commit`, per Phase 3 commit doctrine.
+2. **Commit the backlog archive moves** as the final wave, one shared commit via the named op: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" apply bug-blitz --wave-path state/bug-backlog/ --wave-path archive/bug-backlog/ --granularity per-wave --message "bug-blitz {run-id}: prune resolved — fixed: <ID1, ID2, ...>, already-fixed: <ID3, ...>, spun-off: <ID4, ...>"`. **The commit subject MUST name every closed ID** (across all three closure shapes). This is the greppable paper trail — `git log --all -- state/bug-backlog/ | grep BS-NNNN` resolves "whatever happened to that bug?" without reading the backlog history. The op re-verifies `$BLITZ_BRANCH` before this commit and halts if it flipped.
 3. **If no items closed this run** (all verifications came back blocked / pattern-shifted / nothing fixable), do NOT commit an empty backlog update. Skip to the final report and announce the no-op — that itself is a useful signal that the backlog has reached a state where bug-blitz alone can't make progress and the next step is `/bug-sweep` or `/plan`.
-4. **Clean scratch.** Run cleanup only after backlog commit succeeds:
-   ```bash
-   rm -rf state/scratch/bug-blitz/{run-id}/ 2>/dev/null || { echo "Warning: scratch cleanup failed — state/scratch/bug-blitz/{run-id}/ may need manual removal. Not failing the run." ; }
-   ```
-5. **Final report to PM:**
+4. **Clean scratch.** Run cleanup only after backlog commit succeeds: remove `state/scratch/bug-blitz/{run-id}/`, tolerating failure with a warning rather than failing the run.
+5. **Final report to PM.**
+
+**Report by exception.** Two lines always; everything else appears only when it is *not* clean. A bug-blitz summary is still an EM→PM reply and still owes the ≤200-word budget — a fixed block of per-item sub-bullet lists scales with backlog size and guarantees the all-clean run (the common run) is the maximum-length run. Print what needs a reader or a decision, not what needs a checkbox.
 
 ```markdown
 ## Bug Blitz Complete
 
-**Run:** {run-id} | **Backlog at start:** N | **Backlog at end:** M
-
+**Backlog:** N → M
 **Resolved this run:** F items (backlog: Fb, failing tests fixed: Ft)
-- [list with item ID + commit SHA]
-
-**Spun off (need plan):** S items
-- [list with item ID + handoff path]
-
-**Already-fixed (silent):** A items
-- [list with item ID + commit SHA where attributable, otherwise "untracked"]
-
-**Re-attempted (still blocked):** R items
-- [list with item ID + reason]
-
-**Suite gate:** [baseline: P real failures → final: green | still-red: <IDs> | regression-introduced: <IDs> | unconfigured (remediation: set fast_test_cmd: in coordinator.local.md)]
-
-**Suite noise (not chased):** [flake/env/timeout counts from baseline, with parser evidence; a reproducible flake filed to backlog is named here]
 ```
+
+Then append a line **only** if its condition holds:
+
+| Line | Include only when |
+|---|---|
+| `**Spun off (need plan):**` | S ≥ 1 — list with item ID + handoff path; these need a PM decision |
+| `**Re-attempted (still blocked):**` | R ≥ 1 — list with item ID + reason |
+| `**Suite gate:**` | the gate ran and did not come back a clean PASS — still-red `<IDs>`, regression-introduced `<IDs>` (name the reverted SHA), or `unconfigured` (remediation: set `fast_test_cmd:` in `coordinator.local.md`) |
+| `**Suite noise (not chased):**` | flake/env/timeout counts from baseline are non-zero, with parser evidence; a reproducible flake filed to backlog is named here |
+
+**Negative-spec — these are gone, do not restore them.** `Run: {run-id}` is dropped — the run-id is derivable from the scratch-dir path and the commit trail, and carries no PM decision. `Already-fixed (silent)` is dropped entirely, not demoted to a count — it is a bookkeeping fact about a prior commit, has no PM decision attached, and no reader other than the archive YAML's own `closed_by` field, which already carries the attribution. A clean `Suite gate: PASS` is dropped rather than printed — the gate having run and come back green is already implied by "no `Suite gate:` line" plus the fixed items being committed at wave gate. Their absence is not a signal the step was skipped — the gate and archival directives still run every time, and `git log` / the archived YAML frontmatter are their record. A future reader must not re-add them "for completeness."
 
 ## Post-Ship Cleanup
 
@@ -408,7 +425,8 @@ After canonical outputs are committed, delete the working-notes scratch director
 
 | Situation | Action |
 |-----------|--------|
-| `state/bug-backlog/` missing or empty (zero `.yaml` files) | Do NOT halt — run the test-suite leg (Phase 0.7); only short-circuit to green no-op if the suite is also clean. Recommend `/bug-sweep` in the report if the suite was green and the backlog absent. |
+| `state/bug-backlog/` missing or empty (zero `.yaml` files) | Do NOT halt — run the (Phase 0.6-gated) test-suite leg if authorized; only short-circuit to green no-op if the suite is also clean. Recommend `/bug-sweep` in the report if the suite was green and the backlog absent. |
+| Phase 0.6 authorization declined | Run the backlog leg only; no suite-related work this run; note the decline in the final report. |
 | Test command unconfigured (resolver exit 2) | Continue on the backlog leg; report the `unconfigured` remediation (`full_test_cmd:` in `coordinator.local.md`, or `fast_test_cmd:` for fast-tier coverage). Do NOT fabricate a test command. |
 | No `full_test_cmd` configured (resolver exit 3) | Run the fast-tier fallback; report coverage honestly as `fast-fallback` with the `set full_test_cmd:` remediation. Do NOT label a fast-fallback run "the entire test suite." |
 | `test-evidence-parser` returns text-only (no file) | Re-dispatch with `snippets/text-only-recovery-preamble.md` inlined; on second failure EM runs the suite directly and persists the classification. |
@@ -437,14 +455,14 @@ In all cases: commit completed waves, update backlog with current state, write a
 - **`/mise-en-place`** — for pre-spec'd executor stubs (reviewed-and-sealed plan items). Bug-blitz handles the un-spec'd backlog case where triage is the spec-creation step.
 - **`/spinoff`** — convention used by Phase 2.1 to fork big items into pickup-ready handoffs.
 - **`/debt-triage`** — separate skill for `state/debt-backlog/` (technical debt, not bugs — directory of per-entry YAML files). Different surface, conversational prioritization.
-- **`/validate`** — shares the single-owner resolver lib (`coordinator/lib/coordinator-resolve-validation-cmd.sh`). `/validate` resolves the **fast** tier (`cs_resolve_fast_test_cmd`) and runs it once, reporting an enum. Bug-blitz resolves the **full** tier (`cs_resolve_full_test_cmd`, which falls back to fast with a caveat when no `full_test_cmd` is set), runs it, *chases the failures*, and re-runs as a green-suite gate. Neither inlines its own resolution — the tiers are siblings in one lib so they can't diverge.
+- **`/validate`** — shares the single-owner resolver CLI, reached through the same `coordinator-resolve-validation-cmd` forwarder in the settings home. `/validate` resolves the **fast** tier (`--fast` / `resolve_fast_test_cmd`) and runs it once, reporting an enum. Bug-blitz resolves the **full** tier (`--full` / `resolve_full_test_cmd`, which falls back to fast with a caveat when no `full_test_cmd` is set), runs it, *chases the failures*, and re-runs as a green-suite gate. Neither inlines its own resolution — the tiers are siblings in one module so they can't diverge.
 - **`/learn-lessons`** — if blitz reveals recurring patterns (e.g., 3 different items all flag the same hook bug, or the same test flakes every run), capture the meta-lesson.
 
 ## Surface Integration
 
-`/bug-blitz` is wired into the discovery surfaces (smoke run 2026-05-06-22h42 follow-up):
+`/bug-blitz` is wired into the discovery surfaces:
 
-- **`/workstream-start`** — "work the backlog" framing advocates `/bug-blitz` when `state/bug-backlog/` contains ≥10 open P1+P2 `.yaml` files (use `bin/query-records.sh --type bug | wc -l`), OR (independent of backlog depth) when the last suite run was red — a red suite alone justifies a blitz now that the test-suite leg runs on an empty backlog.
-- **`/workday-start`** — Step 1.55 emits a depth nudge (moderate 10–19, heavy ≥20) before scheduled-rechecks.
+- **`/workstream-start`** — "work the backlog" framing advocates `/bug-blitz` when `state/bug-backlog/` contains ≥10 open P1+P2 `.yaml` files (use `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-records" --type bug | wc -l`), OR (independent of backlog depth) a **red-suite predicate** read from `state/test-red/<machine>.yaml` (per-machine shard, a mapping keyed by tier — `fast`, `plugin-ecosystem` — evaluated independently; absent or malformed is skipped silently) — per tier this advocates `/bug-blitz` not on bare redness but on any of: a non-empty `new` delta against the comparison baseline (`acknowledged.baseline` when live and unexpired, else `previous.failing`); `acknowledged` null or voided (on-doubt or on-expiry) with `failing[]` non-empty, **independent of whether `new` is also non-empty**; the acknowledged owner artifact closed/terminal while `failing[]` is still non-empty; or `failing: null` ("red, failing set unavailable"). An acknowledged, unexpired red set whose delta is all-`persistent` advocates nothing.
+- **`/workday-start`** — Step 1.65 emits a depth nudge (moderate 10–19, heavy ≥20) before scheduled-rechecks.
 - **`/workweek-complete` Step 4** — bug-backlog depth check joins the improvement-queue triage gate; ≥10 open proposes a blitz, otherwise summarised.
 - **Coordinator README** — listed adjacent to `/bug-sweep` in the commands table, failure-modes section, and skills section.

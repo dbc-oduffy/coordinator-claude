@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+"""
+gen-doe-root-pointer.py — CLI trampoline over claude-klabauter coordinator_core.ops.gen_doe_root_pointer.
+
+Finish-strangler port (DOE-PORT R1, variant #1 — pristine, no claude-klabauter shim borrows this
+script): the bash implementation (reads repos.doe_claude from the machine-local registry,
+writes ~/.claude/.doe-root, --check-only dry-run mode) has been fully ported to
+coordinator_core/ops/gen_doe_root_pointer.py per DR-047 (DoE owns contract/generator,
+Claude-klabauter owns engine). This file is now a thin DoE-side (contract) trampoline over that
+Claude-klabauter (engine) module.
+
+Spec backlink: docs/plans/2026-07-04-coordinator-maximalist-install-shape.md § C1
+Prior bash implementation: see git log (gen-doe-root-pointer.py, 223 lines, retired on
+this cutover).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+
+def _import_runner():
+    """Resolve CLAUDE_KLABAUTER_ROOT and import the in-process runner.
+
+    DR-276: routes through `coordinator_core.cli_entry.run_op_main` rather
+    than calling the op's `main` directly, so the pointer file this op
+    writes becomes a session scope-touch claim instead of an orphan at the
+    `scoped_git_commit` sink.
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.cli_entry import run_op_main
+    return run_op_main
+
+
+def main() -> None:
+    try:
+        run_op_main = _import_runner()
+    except RuntimeError as exc:
+        print(f"gen-doe-root-pointer.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except ImportError as exc:
+        print(
+            f"gen-doe-root-pointer.py: coordinator_core.cli_entry not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        code = run_op_main("coordinator_core.ops.gen_doe_root_pointer", sys.argv[1:])
+    except ImportError as exc:
+        print(
+            f"gen-doe-root-pointer.py: coordinator_core.ops.gen_doe_root_pointer not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

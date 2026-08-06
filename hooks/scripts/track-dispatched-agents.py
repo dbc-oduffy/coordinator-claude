@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""PostToolUse(Agent) naked-Python bookkeeping dispatcher.
+
+Replaces the former bash PostToolUse(Agent)
+registration (agentId/model/subagent_type bookkeeping writes) with ONE
+`python3` hook entry -- zero Git-Bash cold-start per Agent-tool return on
+Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
+
+DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
+the raw PostToolUse payload, extract the same flat scalars the legacy bash
+cascade computed, resolve the claude-klabauter engine, hand it the mapped params, relay
+its stdout. Claude-klabauter owns the write LOGIC (coordinator_core.hooks.
+track_dispatched_agents, registered under "hooks.track_dispatched_agents") --
+the dedup/collision-rewrite/append to dispatched-agents.txt and the atomic
+em-session-id.txt back-pointer. The engine is imported and run IN-PROCESS via
+coordinator_core.ipc.dispatch_message -- no bash, no `python3 -m` subprocess
+re-spawn -- so a whole Agent-tool return pays exactly one Python interpreter
+start.
+
+Contract (mirrors the retired bash hook it replaces):
+  stdin   -- PostToolUse JSON (tool_name, tool_input, tool_response,
+             session_id, cwd, ...)
+  stdout  -- NOTHING (this op returns no_advisory() unconditionally; its
+             product is the on-disk write side-effect, not stdout)
+  exit 0  -- always (advisory bookkeeping; never blocks the Agent tool call)
+
+stdin -> params mapping (op scope "common_dir" -- REQUIRES _origin_worktree;
+see coordinator_core/ipc.py _OP_KEY_SCOPE["hooks.track_dispatched_agents"] =
+"common_dir", and W2-stub-contract.md § 3's bookkeeping-ops caveat).
+Unlike postuse_advisory_dispatch (op scope "none", flat stdin-key ==
+params-key identity mapping), this op's handler does NOT do its own field
+extraction from tool_response/tool_input -- its docstring's "R-1" note says
+dispatched_agent_id / dispatched_model / subagent_type arrive as FLAT SCALARS
+"pre-resolved by manifest" (the mcp_tool-era three-pass / four-source
+cascades). This stub is not going through mcp_tool, so it must itself run
+those same cascades over the raw JSON payload before calling the op --
+mirroring the retired bash hook's extraction logic exactly (see
+_extract_dispatch_fields below), not just relaying stdin keys 1:1.
+
+    session_id                <- stdin["session_id"]                          (top level)
+    dispatched_agent_id       <- stdin["tool_response"]["agentId"]            (pass a, camelCase)
+    dispatched_agent_id_snake <- stdin["tool_response"]["agent_id"]           (pass a, snake_case)
+                                  regex last-resort (pass a2, bash step) folds
+                                  into dispatched_agent_id when both of the above
+                                  are absent -- mirrors bash's single AGENT_ID
+                                  cascade landing in the op's primary field.
+    dispatched_model           <- tool_response.resolvedModel
+                                   -> tool_response.model
+                                   -> tool_input.model
+                                   -> "" (handler itself defaults "" to "unknown")
+    subagent_type               <- tool_input.subagent_type -> "" (handler defaults "unknown")
+
+Handler-side validation NOT replicated here (belongs to claude-klabauter, not this
+stub): agent-id format guard (bare-hex >=12 / teammate canonical id), the
+session_id/agent_id required-field early-outs, and the model/subagent_type
+"" -> "unknown" fallback -- all already implemented in
+coordinator_core/hooks/track_dispatched_agents.py's handler. This stub only
+extracts and forwards; it does not duplicate that logic.
+
+_origin_worktree (REQUIRED -- "common_dir" scope): set to stdin["cwd"], the
+same field preuse-write-dispatch.py already extracts for its own (non-scoped)
+purposes. The op handler resolves this into the shared .git common directory
+via coordinator_core.lifecycle.git_common_dir (a `git rev-parse
+--path-format=absolute --git-common-dir` subprocess call with cwd=repo_root)
+-- claude-klabauter-owned, not this stub's concern; mirrors the same "not the stub's
+subprocess" caveat postuse-advisory-dispatch.py's reference contract already
+names for the runtime-tripwire's git call. If cwd is absent, dispatch_message
+returns an INVALID_PARAMS error response (not a raised exception) -- result is
+None, `if result:` is already false, this degrades to the SAME silent no-op
+fail-open as every other seam (see W2-stub-contract.md § 3's caveat: this is a
+functional regression vs a resolvable cwd, but a safe one -- absent cwd never
+crashes or writes partial state).
+
+Tool-name gate: the legacy bash exits 0 immediately unless
+tool_name == "Agent" (matcher scoping done in-script, not via hooks.json
+matcher alone, historically). This stub preserves that same early-out --
+running the extraction cascade and a full IPC dispatch on every non-Agent
+PostToolUse event would be pure waste (the op has no tool_name gate of its
+own; the docstring's "R-1" contract assumes the caller already scoped to
+Agent-tool returns).
+
+Graceful degradation -- REQUIRED: any failure to resolve/import/run the
+Claude-klabauter engine, or to parse stdin, falls through to fail-open (exit 0, no
+stdout). A missing sibling engine must NEVER brick an Agent-tool return --
+identical philosophy to preuse-write-dispatch.py._resolve_claude_klabauter_root (kept
+in lockstep deliberately; see W2-stub-contract.md).
+
+NOTE (historical): during the bash->Python cutover, the retired bash hook and
+this dispatcher briefly co-registered; both writing the same dedup/append-tab-
+format file was harmless (idempotent dedup on matching agent_id +
+subagent_type), so there was no window with bookkeeping down. The bash hook
+is now fully retired; this dispatcher is the only writer.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import re
+import sys
+import threading
+from pathlib import Path
+from typing import Any
+
+
+def _read_stdin(timeout: float = 2.0) -> str:
+    """Bounded stdin read (Windows hang guard) -- copied from
+    runtime-tripwire-stop-watcher.py._read_stdin (~186-201).
+
+    A bare sys.stdin.read() blocks forever if the harness never closes
+    stdin's write end (observed Windows failure mode), backstopped with a 2s
+    threaded-join timeout, returning "" (the same fail-open value a
+    JSON-decode failure already produces) instead of hanging the hook chain.
+    """
+    box = {"data": ""}
+
+    def _read() -> None:
+        try:
+            box["data"] = sys.stdin.read()
+        except Exception:
+            box["data"] = ""
+
+    t = threading.Thread(target=_read, daemon=True)
+    t.start()
+    t.join(timeout)
+    return box["data"]
+
+
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
+except Exception:
+    # Defensive fallback -- a hook script copied/deployed WITHOUT its
+    # sibling _engine_root.py (e.g. an isolated test harness, or a
+    # partial deploy) must still fail-open rather than crash on import.
+    def _resolve_claude_klabauter_root() -> str | None:
+        return None
+
+
+# Last-resort regex fallback (bash step a2): bounded char class stops at the
+# JSON backslash-escape boundary; mirrors the retired bash hook's
+# `agent_?id:[[:space:]]*\"?([A-Za-z0-9_.@-]+)` bash =~ match applied over the
+# tool_response substring of the raw payload text.
+_AGENT_ID_REGEX_FALLBACK = re.compile(r'agent_?id["\s:]*\\?"?([A-Za-z0-9_.@-]+)', re.IGNORECASE)
+
+
+def _extract_dispatch_fields(payload: dict) -> dict[str, str]:
+    """Run the same three-pass agent-id / four-source model cascade as the bash hook.
+
+    Mirrors the retired bash hook's steps (a)/(a2)/(c) exactly, operating on
+    the already-parsed JSON dict instead of raw-text slicing. Returns "" for any
+    field that cannot be resolved -- the op handler's own field()/fallback logic
+    treats "" as absent, matching mcp_tool's own convention.
+    """
+    tool_response = payload.get("tool_response")
+    if not isinstance(tool_response, dict):
+        tool_response = {}
+    tool_input = payload.get("tool_input")
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+
+    # (a) primary: camelCase agentId (unnamed/background agents).
+    dispatched_agent_id = tool_response.get("agentId") or ""
+    # (a) fallback: snake_case agent_id (named Agent-Teams teammates).
+    dispatched_agent_id_snake = tool_response.get("agent_id") or ""
+
+    # (a2) last-resort: regex over the tool_response substring, folded into the
+    # primary (camelCase) field when BOTH direct-key passes came up empty --
+    # mirrors the bash script's single AGENT_ID cascade landing in one variable.
+    if not dispatched_agent_id and not dispatched_agent_id_snake:
+        try:
+            tail = json.dumps(tool_response, ensure_ascii=False)
+        except Exception:
+            tail = ""
+        m = _AGENT_ID_REGEX_FALLBACK.search(tail)
+        if m:
+            dispatched_agent_id = m.group(1)
+
+    # (c) model: resolvedModel -> model (both tool_response) -> tool_input.model -> "".
+    dispatched_model = (
+        tool_response.get("resolvedModel")
+        or tool_response.get("model")
+        or tool_input.get("model")
+        or ""
+    )
+
+    # subagent_type: tool_input only; "" if absent (handler defaults to "unknown").
+    subagent_type = tool_input.get("subagent_type") or ""
+
+    return {
+        "dispatched_agent_id": dispatched_agent_id if isinstance(dispatched_agent_id, str) else "",
+        "dispatched_agent_id_snake": dispatched_agent_id_snake if isinstance(dispatched_agent_id_snake, str) else "",
+        "dispatched_model": dispatched_model if isinstance(dispatched_model, str) else "",
+        "subagent_type": subagent_type if isinstance(subagent_type, str) else "",
+    }
+
+
+def main() -> int:
+    raw = _read_stdin()
+
+    try:
+        payload: Any = json.loads(raw)
+        if not isinstance(payload, dict):
+            payload = {}
+    except Exception:
+        payload = {}
+
+    # Tool-name gate (mirrors bash line 82): only Agent-tool returns carry a
+    # dispatched agentId worth bookkeeping. Cheap early-out before any engine
+    # resolution / IPC dispatch cost.
+    if payload.get("tool_name") != "Agent":
+        return 0
+
+    root = _resolve_claude_klabauter_root()
+    if not root:
+        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+    try:
+        # Importing coordinator_core.hooks.track_dispatched_agents triggers the
+        # coordinator_core.hooks package __init__ (registers all 7 advisory ops +
+        # 4 bookkeeping ops via register_op side-effects at import time -- the
+        # hooks package has no lazy-skip guard, unlike coordinator_core.ops).
+        # One-time-per-invocation cost, in-process, still zero subprocess
+        # spawns -- but each hook fire is a fresh process, so this import
+        # cost recurs every fire, not just once per session.
+        from coordinator_core.hooks import track_dispatched_agents as _op  # noqa: F401
+        from coordinator_core.ipc import dispatch_message
+    except Exception:
+        return 0  # engine unimportable -> fail-open
+
+    session_id = payload.get("session_id") or ""
+    cwd = payload.get("cwd") or None
+
+    fields = _extract_dispatch_fields(payload)
+
+    params = {
+        "session_id": session_id if isinstance(session_id, str) else "",
+        **fields,
+    }
+
+    msg: dict = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "hooks.track_dispatched_agents",
+        "params": params,
+    }
+    # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRED.
+    # Absent/unresolvable cwd degrades to an INVALID_PARAMS error response
+    # (caught below by the `if result:` falsy check), not a raised exception.
+    if cwd:
+        msg["_origin_worktree"] = str(cwd)
+
+    try:
+        asyncio.run(dispatch_message(msg))
+    except Exception:
+        return 0  # any engine failure -> fail-open (never brick an Agent-tool return)
+
+    # No stdout relay: this op is MUTATING bookkeeping (dedup/append to
+    # dispatched-agents.txt + the em-session-id.txt back-pointer), never
+    # advisory -- it always returns no_advisory() == {}. The contract is
+    # "stdout NOTHING" (see module docstring), enforced structurally here by
+    # never inspecting/relaying the response, not incidentally via `{}`'s
+    # falsiness under `if result:`.
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

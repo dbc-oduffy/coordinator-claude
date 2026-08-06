@@ -5,7 +5,6 @@ last_calibrated: 2026-05-03
 calibrated_against: Claude Opus 4.7 (1M context)
 type: doctrine
 related:
-  - archive/specs/2026-05-03-docs-checker-default-pre-flight.md
   - plugins/coordinator/agents/docs-checker.md
   - plugins/coordinator/snippets/docs-checker-consumption.md
 ---
@@ -16,7 +15,7 @@ related:
 
 docs-checker is a Sonnet-tier agent that verifies external API claims in an artifact before the artifact reaches an Opus reviewer. It checks API names, headers, signatures, and enum values against authoritative sources (Context7, LSP, project-RAG) and reports each claim as VERIFIED, UNVERIFIED, or INCORRECT.
 
-With inline-edit authority (shipped 2026-05-03), docs-checker goes one step further: INCORRECT claims that fall within the AUTO-FIX allowlist are corrected in place before the Opus reviewer sees the artifact. Every correction is logged to a timestamped sidecar so the reviewer — and the EM — has a complete audit trail. When project-RAG is present, docs-checker also verifies in-repo symbol claims (C++ classes, functions, Blueprint nodes), not just external library APIs. Without project-RAG, in-repo symbols are skipped and noted as out-of-scope.
+With inline-edit authority, docs-checker goes one step further: INCORRECT claims that fall within the AUTO-FIX allowlist are corrected in place before the Opus reviewer sees the artifact. Every correction is logged to a timestamped sidecar so the reviewer — and the EM — has a complete audit trail. When project-RAG is present, docs-checker also verifies in-repo symbol claims (C++ classes, functions, Blueprint nodes), not just external library APIs. Without project-RAG, in-repo symbols are skipped and noted as out-of-scope.
 
 The result: Opus reviewers receive a mechanically pre-verified artifact and can direct their attention to architecture, approach, and design instead of spending cycles on API lookups.
 
@@ -115,21 +114,19 @@ The integrator continues to handle Opus reviewer findings as today. The docs-che
 **Why:** A green docs-checker verified "torch.cuda.mem_get_info inflates free VRAM on WDDM" (true) while the plan's highest-leverage chunk (C5) was built to route the VRAM gate through pynvml. A source-reading domain reviewer found the mem_get_info→pynvml migration had already shipped — no live call site existed. C5 collapsed to its one genuinely-missing piece.
 **How to apply:** after docs-checker passes, dispatch a domain reviewer or run a targeted grep (`grep -rn 'mem_get_info'`) to confirm the fix-locus still holds the symbol the plan proposes to replace. docs-checker answers "is the API claim true?"; only a source read answers "is the proposed locus still the current state?".
 
-*Source: example-game-repo `state/lessons.md` (example-game-repo-L199, central-promoted 2026-05-28).*
+*Source: a real incident from a domain-plugin deployment, since promoted to universal guidance.*
 
 ## Distribution
 
-The reviewer-side consumption block is synced via `verify-docs-checker-sync.sh --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
+The reviewer-side consumption block is synced via `verify-snippet-sync docs-checker-consumption --fix` from `snippets/docs-checker-consumption.md` to all Opus reviewer prompts:
 
 - `plugins/coordinator/agents/staff-eng.md` (the Staff Engineer)
 - `plugins/coordinator/agents/eng-director.md` (the Director of Engineering)
-- example-game-repo sibling repo `game-dev/agents/staff-game-dev.md` (the Game Dev Reviewer — example-game-repo-resolved via machine-local registry key `repos.example_game_workbench_repo`; skipped when example-game-repo repo is absent locally; `game-dev` retired from OSS coordinator-claude distribution 2026-05-26)
-<!-- Review: code-reviewer — replaced stale plugins/game-dev/agents/staff-game-dev.md (the Game Dev Reviewer) with example-game-repo-resolved note mirroring plan-coverage-checker.md Distribution (F6 nit) -->
 - `plugins/coordinator/agents/staff-data-sci.md` (the Data Science Reviewer)
 - `plugins/coordinator/agents/senior-front-end.md` (the Front-End Reviewer)
-- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant)
+- `<plugin-consumer>/game-dev/agents/staff-game-dev.md` (optional domain-plugin the Game Dev Reviewer variant — resolved via a machine-local registry key when the sibling domain repo is present locally; skipped otherwise)
 
-See the tripwire in `coordinator/CLAUDE.md` — "Adding a Convention to the Coordinator System" section. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
+See the "Adding a Convention" tripwire entry for this doctrine. The sync script is added to `/update-docs` Phase 11c alongside the calibration and project-rag-preamble syncs. Never edit consumer sentinel blocks directly — the `--fix` pass overwrites them.
 
 ## Enumeration scope — every spec-cited external API, not just the "complicated" subsection
 
@@ -151,7 +148,7 @@ When the API claim is bound to a specific engine/library version (UE 5.7.4, Pyth
 
 docs-checker (and prior-art) answer "is this API claim true?" — they do not answer "is the proposed fix-locus still the current state of the code?" A plan can cite a real bug whose fix already landed; the API-behavior pre-flight goes green either way.
 
-*2026-05-27, example-game-workbench-repo.* docs-checker VERIFIED "torch.cuda.mem_get_info inflates free-VRAM on WDDM" (true, logged bug BS-2026-05-05) and the plan's highest-leverage chunk (C5) was built to "route the VRAM gate through pynvml." the Game Dev Reviewer read the call sites and found the mem_get_info→pynvml migration had ALREADY shipped (stub G1/BS-W3) — no live mem_get_info call site existed. C5 collapsed to its one genuinely-missing piece (a WDDM sysmem warning). This is the planning-time face of "audit symptom correct, locus may be stale" (coordinator CLAUDE.md § Pre-Dispatch).
+A real incident from a domain-plugin deployment: docs-checker VERIFIED "torch.cuda.mem_get_info inflates free-VRAM on WDDM" (true, a logged bug) and the plan's highest-leverage chunk (C5) was built to "route the VRAM gate through pynvml." A domain reviewer read the call sites and found the mem_get_info→pynvml migration had ALREADY shipped — no live mem_get_info call site existed. C5 collapsed to its one genuinely-missing piece (a WDDM sysmem warning). This is the planning-time face of "audit symptom correct, locus may be stale."
 
 **How to apply:** for any plan chunk that proposes to CHANGE existing code at a cited locus (vs. add new code), the domain reviewer (or a Tier-3 grep) must confirm the locus still has the shape the plan assumes — a green docs-checker is necessary but not sufficient. Cheapest catch: `grep` the symbol the chunk proposes to replace; if it only appears in comments/docstrings, the migration already happened.
 
@@ -159,7 +156,7 @@ docs-checker (and prior-art) answer "is this API claim true?" — they do not an
 
 **"Symbol exists" (docs-checker green) ≠ "the call-shape the consumer will write exists" — for fixed-arity engine APIs, verify the producer's actual signature/arity, not just symbol presence.**
 
-docs-checker verified `FPlatformProcess::ExecProcess` exists and confirmed the 5-arg form — green. An executor then authored an **8-arg** `ExecProcess(..., InStdInput)` call to pipe clang-format's stdin; UE5.7 `ExecProcess` is 7-arg on every platform with NO stdin param, so the call was a hard compile failure breaking the whole test module. Caught at EM-verify by a targeted `project_cpp_symbol ExecProcess` (source=unreal) returning the exact signature across all platform overloads.
+docs-checker verified `FPlatformProcess::ExecProcess` exists and confirmed the 5-arg form — green. An executor then authored an **8-arg** `ExecProcess(..., InStdInput)` call to pipe clang-format's stdin; the real engine's `ExecProcess` is 7-arg on every platform with NO stdin param, so the call was a hard compile failure breaking the whole test module. Caught at EM-verify by a targeted symbol lookup returning the exact signature across all platform overloads.
 
 **How to apply:** a docs-checker "symbol OK" verdict bounds existence, not the consumer's call arity. When an executor writes a call to a fixed-arity native API for a capability the API may not support (stdin piping, optional out-params), grep/RAG the EXACT signature and count the args at the call site before accepting the executor's output.
 
@@ -167,11 +164,17 @@ This is distinct from the "fix already shipped" scope limit (§ Scope Limit abov
 
 Sister to fix-locus-discrimination and "reusing a helper as-is is a correctness trap unless its SHAPE matches" — existence ≠ fit, at the call-signature granularity.
 
-*Source: example-game-repo 2026-06-18 (tc-11a ExecProcess arity mismatch).* [universal]
+*Source: a domain-plugin incident, since promoted to universal guidance.* [universal]
 
 ## Em-Dash Slug-Rot in Linked-To Headings
 
 Em-dash (or any Unicode dash `—`, `–`) in linked-to markdown headings causes silent slug-rot. GitHub's anchor slugger strips Unicode dashes, so `## Foo — Bar` generates slug `#foo--bar` (missing the dash), not `#foo-bar`. Links to the heading silently 404. Prefer ASCII hyphens in headings expected to be linked from other files. doc-link-checker is the mechanical catch. Also: doc-link-checker mis-parses backtick-quoted filenames inside inline-code expressions (e.g., `` `file.py` ``) as link targets — filter the report by resolved-path sanity before treating broken-link count as meaningful.
+
+## `git rm` of a Cited Doc Needs an Inbound-Citation Sweep — Same as `git mv`
+
+**Deleting a plan/spec doc that other surfaces cite by bare relative path leaves dangling spec-backlinks** — exactly the failure `git mv` / rename guards against. doc-link-checker is already a plan-authoring default for `git mv` / rename / relocation; **extend the reflex to `git rm`.** Before removing a cited doc, grep the repo for citers of the doomed path and repoint live ones to the archive copy *in the same commit*.
+
+*Case: code review caught several live code/wiki citers of a `git rm`'d duplicate plan — the deletion left them dangling.* The catch is mechanical: `grep -rn <doomed-path-or-basename>` before the remove, repoint each live citer to the `archive/…` copy, commit together. [universal]
 
 ## Recalibration
 

@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/spike-result.schema.json",
+  "x-schema-name": "spike-result",
+  "x-schema-version": "1.0.0",
+  "applies_to": "docs/research/spike-verdicts/*.md",
+  "description": "Durable verdict record authored exclusively by coordinator:spike at end-of-run \u2014 evidence that a mechanism was proven or disproven, not a baton. The contract deliberately defines no deployment_state/pickup_ready/status/claimed_by: this is not a handoff-shaped artifact and has no lifecycle to advance. (Their absence is a statement of the contract, not a rejection rule \u2014 like its sibling handoff schema this file leaves additionalProperties unset, so the guarantee here is definitional rather than enforced.) The one rule this schema does enforce structurally is the cross-field allOf below: it makes a verdict record with a live, unlanded routing intent UNWRITABLE \u2014 an author cannot record that a verdict gates something without also naming what took up that routing intent. Spec backlink: docs/plans/2026-07-28-spike-verdict-records-stable-evidence-home.md \u00a7 C1",
+  "type": "object",
+  "required": [
+    "title",
+    "created",
+    "author",
+    "mechanism",
+    "verdict",
+    "gated_route"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable label for the spiked mechanism."
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the verdict record was authored (YYYY-MM-DD)."
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Session or agent identifier that authored this verdict record."
+    },
+    "mechanism": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What was spiked \u2014 the specific mechanism this record derisks or disproves."
+    },
+    "verdict": {
+      "enum": [
+        "viable",
+        "not-viable"
+      ],
+      "description": "CLOSED verdict enum. viable routes to coordinator:plan (or resumes a trampolined plan, per the plan\u21c4spike back-edge); not-viable routes back to shaping/re-derivation. No third value \u2014 an inconclusive spike is not a verdict record yet."
+    },
+    "gated_route": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "REQUIRED key. Either a non-empty string naming what this verdict gates (the plan/decision/baton awaiting this mechanism to be proven or disproven), or the explicit literal null meaning this verdict gates nothing. An empty string is not a valid value for either state \u2014 use null. Cross-field rule below: a non-null, non-empty gated_route makes discharged_by required and non-null."
+    },
+    "discharged_by": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The plan/baton/commit/PM-facing surface that took up gated_route's routing intent. Nullable \u2014 null is only valid when gated_route is itself null (nothing to discharge). REQUIRED and non-null whenever gated_route is a non-empty string (enforced by the allOf cross-field rule below): a verdict record cannot assert a live routing intent without naming what took it up."
+    },
+    "evidence_commit": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Commit SHA carrying the empirical evidence for this verdict (spike scripts, probe output, measurements), or null when the evidence is captured entirely in this record's own prose."
+    }
+  },
+  "allOf": [
+    {
+      "description": "The schema's real teeth: a non-null, non-empty gated_route makes discharged_by required and constrains it to a non-null, non-empty string \u2014 a verdict record with a live, unlanded routing intent is structurally unwritable. A null gated_route (this verdict gates nothing) does not trigger this rule; discharged_by is then free to be absent or null.",
+      "if": {
+        "properties": {
+          "gated_route": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "gated_route"
+        ]
+      },
+      "then": {
+        "required": [
+          "discharged_by"
+        ],
+        "properties": {
+          "discharged_by": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  ]
+}

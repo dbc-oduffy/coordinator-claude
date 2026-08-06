@@ -1,477 +1,138 @@
-#!/usr/bin/env bash
-# snippet-registry — CLI for the central snippet → consumer mapping registry.
-#
-# Purpose: read snippets/registry.toml and expose per-snippet consumer sets and
-# reverse-lookup (consumer → snippets) without requiring callers to parse TOML.
-#
-# Spec backlink: docs/plans/2026-06-15-snippet-sync-consumer-registry.md (C3)
-# DR backlink:   docs/decisions/2026-06-15-snippet-registry-shape.md
-#
-# Usage:
-#   snippet-registry list-snippets
-#       Print one snippet name per line (all enrolled names), alphabetically.
-#
-#   snippet-registry list-consumers <snippet-name>
-#       Print one resolved consumer path per line.
-#       Exit 0 on success, 2 on unknown snippet name, 3 on schema_version mismatch.
-#       Conditional consumers with unset machine-local keys emit a NOTE to stderr
-#       and are skipped (no exit-nonzero — absent sibling repos are routine).
-#
-#   snippet-registry list-for <consumer-path>
-#       Reverse lookup: print snippet names whose resolved consumer set includes
-#       <consumer-path>. Empty output + exit 0 = no match.
-#
-# Exit codes:
-#   0  success
-#   1  usage / internal error
-#   2  unknown snippet name (list-consumers only)
-#   3  schema_version mismatch or absent
+#!/usr/bin/env python3
+"""
+snippet-registry — CLI trampoline over claude-klabauter coordinator_core.snippet_sync.registry.
 
-set -euo pipefail
+Folded from the retired bash CLI (477 LoC, itself shelling to a python3
+heredoc to parse snippets/registry.toml) per T3a-g3f Q14 — the nested
+bash-wraps-python shape was exactly the antipattern this migration targets.
 
-# ---------------------------------------------------------------------------
-# Bash 4+ guard (bash 3.2 on stock macOS is unsupported per DR-148).
-# Syntax must parse on 3.2 — no bash-4 syntax before this guard.
-# ---------------------------------------------------------------------------
-if [[ "${BASH_VERSINFO[0]}" -lt 4 ]]; then
-    echo "ERROR: snippet-registry requires bash >= 4 (got ${BASH_VERSION})." >&2
-    echo "  macOS: brew install bash, then ensure /usr/local/bin/bash is first in PATH." >&2
-    exit 1
-fi
+Usage:
+  snippet-registry list-snippets
+      Print one snippet name per line (all enrolled names), alphabetically.
 
-# ---------------------------------------------------------------------------
-# Resolve paths
-# ---------------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLUGIN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REGISTRY_TOML="$PLUGIN_ROOT/snippets/registry.toml"
+  snippet-registry list-consumers <snippet-name>
+      Print one resolved consumer path per line.
+      Exit 0 on success, 2 on unknown snippet name, 3 on schema_version mismatch.
+      Conditional consumers with unset machine-local keys emit a NOTE to stderr
+      and are skipped (no exit-nonzero — absent sibling repos are routine).
 
-if [[ ! -f "$REGISTRY_TOML" ]]; then
-    echo "ERROR: snippet-registry: registry.toml not found at $REGISTRY_TOML" >&2
-    exit 1
-fi
+  snippet-registry list-for <consumer-path>
+      Reverse lookup: print snippet names whose resolved consumer set includes
+      <consumer-path>. Empty output + exit 0 = no match.
 
-# ---------------------------------------------------------------------------
-# machine-local helper (best-effort; skip conditional consumers when absent)
-# ---------------------------------------------------------------------------
-_ML_BIN=""
-if [[ -x "$SCRIPT_DIR/machine-local" ]]; then
-    _ML_BIN="$SCRIPT_DIR/machine-local"
-elif command -v machine-local >/dev/null 2>&1; then
-    _ML_BIN="$(command -v machine-local)"
-fi
+Exit codes:
+  0  success
+  1  usage / internal error
+  2  unknown snippet name (list-consumers only)
+  3  schema_version mismatch or absent
 
-# Resolve a machine-local key; echo empty string on any failure.
-_ml_get() {
-    local key="$1"
-    if [[ -z "$_ML_BIN" ]]; then
-        echo ""
-        return 0
-    fi
-    "$_ML_BIN" get "$key" 2>/dev/null || echo ""
-}
+Spec backlink: DoE scratch/subagent-sandbox/bash-to-python-engine-migration/recipe-t3a-g3.md § 6
+DR backlink:   docs/decisions/2026-06-15-snippet-registry-shape.md
+Port of: coordinator/bin/snippet-registry (bash CLI, retired on cutover; see git log)
+"""
+from __future__ import annotations
 
-# ---------------------------------------------------------------------------
-# Python TOML parser — python3 + tomllib (stdlib >=3.11) or tomli fallback
-# ---------------------------------------------------------------------------
-PYTHON_BIN="$(command -v python3 || command -v python || true)"
-if [[ -z "$PYTHON_BIN" ]]; then
-    echo "ERROR: snippet-registry: python3 not found on PATH" >&2
-    exit 1
-fi
-
-# Probe python version and select tomllib vs tomli.
-_PY_TOML_IMPORT=$("$PYTHON_BIN" - <<'PYEOF'
-import sys
-if sys.version_info >= (3, 11):
-    print("tomllib")
-else:
-    try:
-        import tomli  # noqa: F401
-        print("tomli")
-    except ImportError:
-        print("MISSING")
-PYEOF
-)
-
-if [[ "$_PY_TOML_IMPORT" == "MISSING" ]]; then
-    echo "ERROR: snippet-registry: python3 < 3.11 detected and 'tomli' package is absent." >&2
-    echo "  Remediation: pip install tomli  (or upgrade to python >= 3.11)." >&2
-    exit 2
-fi
-
-# ---------------------------------------------------------------------------
-# Parse registry.toml into shell-consumable form via Python.
-# Output protocol (one record per line to stdout):
-#
-#   SCHEMA_VERSION=<N>
-#   SNIPPET=<name>
-#   CONSUMER=<name>|<path>               (unconditional consumer)
-#   COND=<name>|<path>|<condition_type>|<condition_key>
-#
-# Any parse error or missing required field exits non-zero from Python.
-# ---------------------------------------------------------------------------
-# Use tr to strip Windows carriage returns (\r) so the shell parses SCHEMA_VERSION=1
-# correctly on Windows (Python on Windows emits \r\n line endings in some contexts).
-_PARSED_DATA=$("$PYTHON_BIN" - "$REGISTRY_TOML" "$_PY_TOML_IMPORT" <<'PYEOF' | tr -d '\r'
-import sys
 import os
+import sys
+from pathlib import Path
 
-registry_path = sys.argv[1]
-toml_import = sys.argv[2]
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+# machine_local_resolve.py imports from the coordinator_core package
+# (win_portability) at module level -- that package is resolvable only from
+# the repo root, not from _LIB_DIR, so it must be on sys.path too or the
+# import below raises ModuleNotFoundError every time this CLI runs as a
+# subprocess (which is how every real caller invokes it).
+_REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-if toml_import == "tomllib":
-    import tomllib
-    with open(registry_path, "rb") as f:
-        data = tomllib.load(f)
-elif toml_import == "tomli":
-    import tomli
-    with open(registry_path, "rb") as f:
-        data = tomli.load(f)
-else:
-    print("ERROR: snippet-registry: internal: unknown toml_import=" + toml_import, file=sys.stderr)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from coordinator_data_root import data_root  # noqa: E402
+from machine_local_resolve import resolve_machine_local_bin  # noqa: E402
+
+
+def _resolve_plugin_root() -> Path:
+    """Resolve the coordinator root consumer relative paths (e.g. "agents/...")
+    resolve against — CLAUDE_PLUGIN_ROOT override always wins; otherwise the
+    parent of the resolved snippets/ data dir (co-located or DoE-resident per
+    `coordinator_data_root.data_root()`), since that parent IS the coordinator
+    root under either layout.
+    """
+    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env:
+        return Path(env)
+    return data_root("snippets").parent
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    subcommand = args[0] if args else ""
+
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    try:
+        from coordinator_core.snippet_sync import registry as reg
+    except ImportError as exc:
+        print(
+            f"snippet-registry: coordinator_core.snippet_sync.registry not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+    plugin_root = _resolve_plugin_root()
+    registry_toml = plugin_root / "snippets" / "registry.toml"
+    machine_local_bin = resolve_machine_local_bin(script_dir)
+
+    try:
+        data = reg.load_registry(registry_toml)
+    except reg.RegistryError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(exc.exit_code)
+
+    if subcommand == "list-snippets":
+        for name in reg.list_snippets(data):
+            print(name)
+        sys.exit(0)
+
+    if subcommand == "list-consumers":
+        if len(args) < 2:
+            print("Usage: snippet-registry list-consumers <snippet-name>", file=sys.stderr)
+            sys.exit(1)
+        try:
+            consumers = reg.resolve_consumers(
+                data, args[1], plugin_root, machine_local_bin=machine_local_bin
+            )
+        except reg.RegistryError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(exc.exit_code)
+        for path in consumers:
+            print(path)
+        sys.exit(0)
+
+    if subcommand == "list-for":
+        if len(args) < 2:
+            print("Usage: snippet-registry list-for <consumer-path>", file=sys.stderr)
+            sys.exit(1)
+        for name in reg.list_for(data, args[1], plugin_root, machine_local_bin=machine_local_bin):
+            print(name)
+        sys.exit(0)
+
+    if subcommand == "":
+        print("Usage: snippet-registry <subcommand> [args]", file=sys.stderr)
+        print("  list-snippets", file=sys.stderr)
+        print("  list-consumers <snippet-name>", file=sys.stderr)
+        print("  list-for <consumer-path>", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"ERROR: snippet-registry: unknown subcommand '{subcommand}'", file=sys.stderr)
+    print("  Known subcommands: list-snippets, list-consumers, list-for", file=sys.stderr)
     sys.exit(1)
 
-# schema_version check
-schema_version = data.get("schema_version")
-if schema_version is None:
-    print("ERROR: snippet-registry: schema_version field absent from registry.toml", file=sys.stderr)
-    sys.exit(3)
-print(f"SCHEMA_VERSION={schema_version}")
 
-snippets = data.get("snippet", {})
-for name, entry in snippets.items():
-    # Required fields check
-    for required in ("sentinel_begin", "sentinel_end", "consumers"):
-        if required not in entry:
-            print(f"ERROR: snippet-registry: [snippet.{name}] missing required field '{required}'", file=sys.stderr)
-            sys.exit(1)
-    print(f"SNIPPET={name}")
-    for path in entry["consumers"]:
-        # Escape pipe characters in path just in case (none expected, but be safe)
-        print(f"CONSUMER={name}|{path}")
-    for cond in entry.get("conditional_consumer", []):
-        # path + condition_type are required on every conditional_consumer.
-        for required in ("path", "condition_type"):
-            if required not in cond:
-                print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] missing required field '{required}'", file=sys.stderr)
-                sys.exit(1)
-        cond_path = cond["path"]
-        cond_type = cond["condition_type"]
-        # Per-condition_type field contract (DR F6 as amended 2026-06-19, schema v2).
-        if cond_type == "machine-local-key":
-            if "condition_key" not in cond:
-                print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] condition_type='machine-local-key' requires field 'condition_key'", file=sys.stderr)
-                sys.exit(1)
-            cond_key = cond["condition_key"]
-        elif cond_type == "file-exists":
-            if "condition_key" in cond:
-                print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] condition_type='file-exists' FORBIDS field 'condition_key' (paste-drift from a machine-local-key entry?)", file=sys.stderr)
-                sys.exit(1)
-            cond_key = ""
-        else:
-            print(f"ERROR: snippet-registry: [[snippet.{name}.conditional_consumer]] unknown condition_type '{cond_type}'", file=sys.stderr)
-            sys.exit(1)
-        print(f"COND={name}|{cond_path}|{cond_type}|{cond_key}")
-PYEOF
-)
-
-# ---------------------------------------------------------------------------
-# Parse schema_version from the data
-# ---------------------------------------------------------------------------
-_SCHEMA_VERSION=""
-while IFS= read -r _line; do
-    if [[ "$_line" == SCHEMA_VERSION=* ]]; then
-        _SCHEMA_VERSION="${_line#SCHEMA_VERSION=}"
-        break
-    fi
-done <<< "$_PARSED_DATA"
-
-# Review: logic-slice L-F7 — Enumerated allowlist, not arithmetic — a non-integer version must also fail-loud.
-if [[ "$_SCHEMA_VERSION" != "1" && "$_SCHEMA_VERSION" != "2" ]]; then
-    echo "ERROR: snippet-registry: unknown schema_version (this CLI supports up to 2, got ${_SCHEMA_VERSION}). Update the CLI before reading this registry." >&2
-    exit 3
-fi
-
-# ---------------------------------------------------------------------------
-# Build in-memory data structures from _PARSED_DATA
-# ---------------------------------------------------------------------------
-
-# All snippet names (ordered by appearance in file, for list-snippets we sort)
-declare -a _ALL_SNIPPETS=()
-
-# snippet_consumers_<name> — unconditional consumer paths (raw, relative)
-# snippet_conds_<name>     — conditional entries as "path|condition_type|condition_key"
-
-# We store per-snippet arrays by encoding them as indexed variables.
-# Use associative arrays indexed by snippet name for the list of consumer arrays.
-declare -A _SNIPPET_CONSUMERS=()    # name -> newline-separated consumer paths
-declare -A _SNIPPET_CONDS=()        # name -> newline-separated "path|ctype|ckey" records
-
-_current_snippet=""
-while IFS= read -r _line; do
-    case "$_line" in
-        SCHEMA_VERSION=*) ;;
-        SNIPPET=*)
-            _sn="${_line#SNIPPET=}"
-            _ALL_SNIPPETS+=("$_sn")
-            _SNIPPET_CONSUMERS["$_sn"]=""
-            _SNIPPET_CONDS["$_sn"]=""
-            ;;
-        CONSUMER=*)
-            _rest="${_line#CONSUMER=}"
-            _sn="${_rest%%|*}"
-            _path="${_rest#*|}"
-            if [[ -n "${_SNIPPET_CONSUMERS[$_sn]+x}" ]]; then
-                if [[ -n "${_SNIPPET_CONSUMERS[$_sn]}" ]]; then
-                    _SNIPPET_CONSUMERS["$_sn"]="${_SNIPPET_CONSUMERS[$_sn]}"$'\n'"$_path"
-                else
-                    _SNIPPET_CONSUMERS["$_sn"]="$_path"
-                fi
-            fi
-            ;;
-        COND=*)
-            _rest="${_line#COND=}"
-            _sn="${_rest%%|*}"
-            _triplet="${_rest#*|}"
-            if [[ -n "${_SNIPPET_CONDS[$_sn]+x}" ]]; then
-                if [[ -n "${_SNIPPET_CONDS[$_sn]}" ]]; then
-                    _SNIPPET_CONDS["$_sn"]="${_SNIPPET_CONDS[$_sn]}"$'\n'"$_triplet"
-                else
-                    _SNIPPET_CONDS["$_sn"]="$_triplet"
-                fi
-            fi
-            ;;
-    esac
-done <<< "$_PARSED_DATA"
-
-# ---------------------------------------------------------------------------
-# Emit sorted unconditional consumers for a snippet, then conditional ones.
-# F5 ordering rule:
-#   1. PLUGIN_ROOT-relative paths (no leading "../"), sorted alpha.
-#   2. "../" sibling paths, sorted alpha.
-#   3. Conditional resolutions, in author-declared order.
-# ---------------------------------------------------------------------------
-_emit_consumers_for_snippet() {
-    local sn="$1"
-    local -a plugin_rel=()
-    local -a sibling_rel=()
-
-    # Process unconditional consumers
-    local consumers_raw="${_SNIPPET_CONSUMERS[$sn]:-}"
-    if [[ -n "$consumers_raw" ]]; then
-        while IFS= read -r raw_path; do
-            [[ -z "$raw_path" ]] && continue
-            if [[ "$raw_path" == ../* ]]; then
-                sibling_rel+=("$PLUGIN_ROOT/$raw_path")
-            else
-                plugin_rel+=("$PLUGIN_ROOT/$raw_path")
-            fi
-        done <<< "$consumers_raw"
-    fi
-
-    # Emit group 1 — PLUGIN_ROOT-relative (sorted)
-    if [[ ${#plugin_rel[@]} -gt 0 ]]; then
-        printf '%s\n' "${plugin_rel[@]}" | LC_ALL=C sort
-    fi
-
-    # Emit group 2 — sibling paths (sorted)
-    if [[ ${#sibling_rel[@]} -gt 0 ]]; then
-        printf '%s\n' "${sibling_rel[@]}" | LC_ALL=C sort
-    fi
-
-    # Emit group 3 — conditional consumers (author-declared order)
-    local conds_raw="${_SNIPPET_CONDS[$sn]:-}"
-    if [[ -n "$conds_raw" ]]; then
-        while IFS= read -r cond_entry; do
-            [[ -z "$cond_entry" ]] && continue
-            local cond_path cond_type cond_key
-            # Format: path|condition_type|condition_key
-            # Split on first two pipe chars
-            cond_path="${cond_entry%%|*}"
-            local _rest2="${cond_entry#*|}"
-            cond_type="${_rest2%%|*}"
-            cond_key="${_rest2#*|}"
-
-            if [[ "$cond_type" == "file-exists" ]]; then
-                # path is relative to $PLUGIN_ROOT (live-install tree). Emit iff the file
-                # exists — graceful skip when the sibling marketplace is not installed.
-                local fe_path="$PLUGIN_ROOT/$cond_path"
-                if [[ -f "$fe_path" ]]; then
-                    echo "$fe_path"
-                fi
-                continue
-            fi
-
-            if [[ "$cond_type" != "machine-local-key" ]]; then
-                echo "NOTE: snippet-registry: unknown condition_type '$cond_type' for $sn/$cond_path — skipping" >&2
-                continue
-            fi
-
-            local resolved_root
-            resolved_root="$(_ml_get "$cond_key")"
-            # Strip trailing slash
-            resolved_root="${resolved_root%/}"
-
-            if [[ -z "$resolved_root" ]]; then
-                echo "NOTE-${cond_key}: key unset — skipping conditional consumer for ${cond_path}" >&2
-                continue
-            fi
-
-            local full_path="$resolved_root/$cond_path"
-            if [[ -f "$full_path" ]]; then
-                echo "$full_path"
-            fi
-            # If the resolved root exists but the target file doesn't, emit nothing
-            # (file may not be present on this machine's checkout of the sibling)
-        done <<< "$conds_raw"
-    fi
-}
-
-# ---------------------------------------------------------------------------
-# Subcommand: list-snippets
-# ---------------------------------------------------------------------------
-_cmd_list_snippets() {
-    if [[ ${#_ALL_SNIPPETS[@]} -eq 0 ]]; then
-        return 0
-    fi
-    printf '%s\n' "${_ALL_SNIPPETS[@]}" | LC_ALL=C sort
-}
-
-# ---------------------------------------------------------------------------
-# Subcommand: list-consumers <snippet-name>
-# ---------------------------------------------------------------------------
-_cmd_list_consumers() {
-    local sn="$1"
-    if [[ -z "${_SNIPPET_CONSUMERS[$sn]+x}" ]]; then
-        echo "ERROR: snippet-registry: unknown snippet name '$sn'" >&2
-        exit 2
-    fi
-    _emit_consumers_for_snippet "$sn"
-}
-
-# ---------------------------------------------------------------------------
-# Subcommand: list-for <consumer-path>
-# Reverse lookup: which snippets have this consumer in their resolved set?
-# Matching strategy (per spec "match the path as written"):
-#   1. Match against the raw registry path (as written in TOML) — primary.
-#   2. Match against the resolved absolute path — for callers that pass an abs path.
-# Both unconditional (PLUGIN_ROOT-relative or ../ sibling) and conditional
-# consumers are checked.
-# ---------------------------------------------------------------------------
-_cmd_list_for() {
-    local target_path="${1%/}"
-    local -a matched_snippets=()
-
-    for sn in "${_ALL_SNIPPETS[@]}"; do
-        local _matched=0
-
-        # Check unconditional consumers
-        local consumers_raw="${_SNIPPET_CONSUMERS[$sn]:-}"
-        if [[ -n "$consumers_raw" ]]; then
-            while IFS= read -r raw_path; do
-                [[ -z "$raw_path" ]] && continue
-                local resolved="$PLUGIN_ROOT/$raw_path"
-                # Match raw registry path OR resolved absolute path
-                if [[ "$raw_path" == "$target_path" || "$resolved" == "$target_path" ]]; then
-                    _matched=1
-                    break
-                fi
-            done <<< "$consumers_raw"
-        fi
-
-        # Check conditional consumers if not already matched
-        if [[ "$_matched" -eq 0 ]]; then
-            local conds_raw="${_SNIPPET_CONDS[$sn]:-}"
-            if [[ -n "$conds_raw" ]]; then
-                while IFS= read -r cond_entry; do
-                    [[ -z "$cond_entry" ]] && continue
-                    local cond_path cond_type cond_key
-                    cond_path="${cond_entry%%|*}"
-                    local _rest3="${cond_entry#*|}"
-                    cond_type="${_rest3%%|*}"
-                    cond_key="${_rest3#*|}"
-
-                    # Review: logic-slice L-F2 — handle file-exists conditional before the
-                    # machine-local-key continue so reverse-lookup doesn't silently skip
-                    # file-exists entries (which have no condition_key, just a PLUGIN_ROOT-relative
-                    # path). Match raw cond_path OR the resolved absolute path.
-                    if [[ "$cond_type" == "file-exists" ]]; then
-                        local fe_abs_path="$PLUGIN_ROOT/$cond_path"
-                        if [[ "$cond_path" == "$target_path" || "$fe_abs_path" == "$target_path" ]]; then
-                            _matched=1
-                            break
-                        fi
-                        continue
-                    fi
-
-                    [[ "$cond_type" != "machine-local-key" ]] && continue
-
-                    # Match raw conditional path
-                    if [[ "$cond_path" == "$target_path" ]]; then
-                        _matched=1
-                        break
-                    fi
-
-                    # Also try resolved path
-                    local resolved_root
-                    resolved_root="$(_ml_get "$cond_key")"
-                    resolved_root="${resolved_root%/}"
-                    if [[ -n "$resolved_root" ]]; then
-                        local full_path="$resolved_root/$cond_path"
-                        if [[ "$full_path" == "$target_path" ]]; then
-                            _matched=1
-                            break
-                        fi
-                    fi
-                done <<< "$conds_raw"
-            fi
-        fi
-
-        if [[ "$_matched" -eq 1 ]]; then
-            matched_snippets+=("$sn")
-        fi
-    done
-
-    if [[ ${#matched_snippets[@]} -gt 0 ]]; then
-        printf '%s\n' "${matched_snippets[@]}" | LC_ALL=C sort
-    fi
-    exit 0
-}
-
-# ---------------------------------------------------------------------------
-# Dispatch
-# ---------------------------------------------------------------------------
-_SUBCOMMAND="${1:-}"
-
-case "$_SUBCOMMAND" in
-    list-snippets)
-        _cmd_list_snippets
-        ;;
-    list-consumers)
-        if [[ $# -lt 2 ]]; then
-            echo "Usage: snippet-registry list-consumers <snippet-name>" >&2
-            exit 1
-        fi
-        _cmd_list_consumers "$2"
-        ;;
-    list-for)
-        if [[ $# -lt 2 ]]; then
-            echo "Usage: snippet-registry list-for <consumer-path>" >&2
-            exit 1
-        fi
-        _cmd_list_for "$2"
-        ;;
-    "")
-        echo "Usage: snippet-registry <subcommand> [args]" >&2
-        echo "  list-snippets" >&2
-        echo "  list-consumers <snippet-name>" >&2
-        echo "  list-for <consumer-path>" >&2
-        exit 1
-        ;;
-    *)
-        echo "ERROR: snippet-registry: unknown subcommand '$_SUBCOMMAND'" >&2
-        echo "  Known subcommands: list-snippets, list-consumers, list-for" >&2
-        exit 1
-        ;;
-esac
+if __name__ == "__main__":
+    main()

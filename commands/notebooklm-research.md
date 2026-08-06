@@ -1,5 +1,5 @@
 ---
-description: "PM-GATED — only invoke when the PM explicitly asks; EM must ask first if it thinks it's warranted; NEVER invoke from a subagent. NotebookLM research (Pipeline D) using Agent Teams — EM scopes directly, then right-sized team (scout + N workers + sweep) executes autonomously. Best for YouTube videos, podcasts, audio content, and media Claude cannot access directly. Invoked as /coordinator:notebooklm-research."
+description: "PM-GATED, never from a subagent. NotebookLM research for video/audio sources."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: "<topic> [--context file1 file2] [--sources url1 url2] [--cleanup]"
 ---
@@ -21,7 +21,6 @@ Research via Google NotebookLM for media-rich sources Claude cannot access direc
 - Quick API docs → Context7
 
 **Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using NotebookLM."
-<!-- Review: code-reviewer — F8: wrong command name; this is notebooklm-research, not research -->
 
 ---
 
@@ -43,6 +42,23 @@ Research via Google NotebookLM for media-rich sources Claude cannot access direc
 
 ## Execution Flow
 
+### Step 0 — NotebookLM MCP Advisory Check
+
+At command entry, check whether the `mcp__notebooklm-mcp__*` tools resolve (graduated `ToolSearch` probe, e.g. `ToolSearch("select:mcp__notebooklm-mcp__notebook_query")` or equivalent).
+
+This is a **new advisory check** — there is no prior command-entry MCP-presence check. It is an install hint only, NOT a precondition and NOT a fail-fast gate:
+
+- If the tools resolve: continue silently, no message.
+- If the tools do NOT resolve: surface this message verbatim, then **CONTINUE** into Step 1 regardless —
+
+  ```
+  NotebookLM MCP not detected — install: uv tool install notebooklm-mcp-cli && nlm login && nlm setup add claude-code (see coordinator/docs/wiki/notebooklm-for-your-research.md)
+  ```
+
+The pipeline still enters and proceeds normally after surfacing this hint. This check does NOT pre-empt or harden the existing per-agent graceful-degrade contracts (research-worker's Step-3 failure note; the coverage auditor's claims-only continue in Step 6) — those contracts remain the sole authority on whether the pipeline proceeds past a missing-MCP condition downstream. This step is purely an early advisory surfaced to the PM/EM; it does not itself block, retry, or alter control flow.
+
+---
+
 ### Step 1 — Setup
 
 Parse `$ARGUMENTS`:
@@ -53,17 +69,12 @@ Parse `$ARGUMENTS`:
 
 Generate run ID: `{topic-slug}-{YYYYMMDD}` (e.g., `ai-agents-20260321`)
 
-<!-- Review: Slice B reviewer F8 — Pipeline D run-id already contains the topic-slug; using {run-id}-{topic-slug}-workdir/ would double the slug (e.g., ai-agents-20260321-ai-agents-workdir/). Pipeline D workdir omits the trailing -{topic-slug} from the convention. -->
 **Pipeline D's workdir omits the trailing `-{topic-slug}` from the standard convention** because the run-id format already contains the slug; this avoids slug duplication (e.g., `ai-agents-20260321-ai-agents-workdir/` is wrong; `ai-agents-20260321-workdir/` is correct).
 
-Create workdir:
-```bash
-mkdir -p docs/research/{run-id}-workdir/
-```
+Create workdir (`mkdir -p docs/research/{run-id}-workdir/`).
 Set `{scratch-dir}` = `docs/research/{run-id}-workdir`
 
 Set output path: `docs/research/YYYY-MM-DD-{topic-slug}-nlm.md`
-<!-- Review: code-reviewer — F3: ~/docs/research breaks schema glob match from consumer repos; all other drivers use project-relative paths -->
 
 Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-nlm-advisory.md` (replace `.md` with `-advisory.md` on the output path)
 
@@ -75,7 +86,6 @@ Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-nlm-advisory.md` (repl
 ```
 Read("${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/notebooklm-best-practices.md")
 ```
-<!-- Review: code-reviewer — F5: was missing CLAUDE_PLUGIN_ROOT prefix + deep-research/notebooklm/ two-level infix post-C4 -->
 
 **Gather two pieces of required information from the PM before proceeding:**
 
@@ -171,7 +181,6 @@ Read the prompt templates from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/no
 - `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/scout-prompt-template.md`
 - `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/worker-prompt-template.md`
 - `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/sweep-prompt-template.md`
-<!-- Review: code-reviewer — F5: was missing CLAUDE_PLUGIN_ROOT prefix + deep-research/notebooklm/ two-level infix; notebooklm templates live in the notebooklm/ subdirectory -->
 
 Spawn all teammates in one operation:
 
@@ -250,6 +259,16 @@ When the sweep agent sends a completion message:
 
 1. Read `{output-path}`. Verify it's substantive (not empty, not error-only).
 2. Check for advisory: `test -f {advisory-path}` — if the file exists, read it.
+3. **Emit the durable claims pair** — you do this, not the sweep; the pair has exactly one writer. Take `--ran-at` and the pipeline token from the sweep's completion message; never derive either from `{run-stem}`:
+   ```bash
+   "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \
+     --producer notebooklm-research \
+     --out {output-path-base} \
+     --ran-at {ran_at from the sweep's completion message} \
+     --pipeline notebooklm \
+     < {scratch-dir}/merged-claims.json
+   ```
+   `--out` takes the stem; the CLI writes `{output-path-base}.claims.json` and `{output-path-base}.claims.meta.json` together. `--ran-at` must be RFC3339 and timezone-aware (naive, date-only, or empty is rejected — day precision recovered from `{run-stem}` does not satisfy it); `--pipeline` must be non-blank and is never derived from `--producer`. Exit 0 = both written, 1 = producer-side failure, 2 = invalid invocation. A failed emission is a no-op on disk — an occupied stem is restored byte-for-byte, so re-running over an existing run-stem is safe.
 
 **6b — Run coverage auditor (always-on for Pipeline D)**
 
@@ -263,12 +282,10 @@ Dispatch the coverage auditor as a plain (non-teammate) `Agent(...)` — do NOT 
 
 Build the auditor dispatch prompt from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`
 using the **Pipeline D input block** (fills in the `[PIPELINE_INPUT_BLOCK]` placeholder):
-<!-- Review: code-reviewer — F5: was missing CLAUDE_PLUGIN_ROOT prefix + deep-research/ infix; coverage-auditor-prompt-template is at deep-research/ (not notebooklm/) -->
 
 Fill-in fields:
 - `[SYNTHESIS_PATH]` = `{output-path}`
 - `[RUN_STEM]` = strip `docs/research/` prefix and `.md` suffix from `{output-path}` (e.g. `docs/research/2026-06-30-topic-nlm.md` → `2026-06-30-topic-nlm`)
-<!-- Review: code-reviewer — F1: template uses [RUN_STEM] not [OUTPUT_PATH_WITHOUT_EXTENSION] -->
 - `[SCRATCH_DIR]` = scratch dir path for this run
 
 The D auditor carries notebooklm MCP tools (`notebook_query` at minimum) with the
@@ -292,13 +309,28 @@ The auditor has completed. Notebooks may now be deleted if `--cleanup` was passe
 
 **6d — Archive, teardown, commit**
 
-4. Archive workdir (atomic rename — no copy-then-delete race window):
-   <!-- Review: Slice B reviewer F8 — src path corrected to {run-id}-workdir/ (no slug-doubling); archive destination unchanged -->
-   **Precondition: `docs/research/` and `docs/research/archive/` resolve to the same filesystem.** If `archive/` is ever moved to a different mount, this archive step must be revisited — POSIX `mv` across filesystems degrades to copy-then-unlink, reopening the race window the change is meant to eliminate. Executor-time guard: `stat -c '%d' docs/research 2>/dev/null || stat -f '%d' docs/research` on both paths before mv; fail-loud if device IDs differ.
-   <!-- Review: Slice B reviewer F10 — cross-FS guard added here (missing from Pipeline D; the Staff Engineer R1 required it in all executor-touched archive steps) -->
+4. Archive workdir. **Commit it first** — the archive op moves the tree with `git mv`, which
+   fails `fatal: not under version control` against an untracked path, and staging does not
+   rescue it: the op works through a private index seeded from `git read-tree HEAD`, which cannot
+   see the shared index. Only a real commit works, and it belongs here rather than at workdir
+   creation — what the op needs is the tree's state at invocation time, and everything the run
+   wrote into the workdir after Phase 1 would otherwise be untracked again by now.
    ```bash
-   mv docs/research/{run-id}-workdir docs/research/archive/YYYY-MM-DD-{topic-slug}
+   git add -- docs/research/{run-id}-workdir
    ```
+   Then commit that staged path:
+   ```bash
+   git commit -m "notebooklm-research: paper trail — {topic-slug}" -- docs/research/{run-id}-workdir
+   ```
+   Then invoke the archive-and-cleanup op `fleet.archive_paper_trail` with `run_id={run-id}`,
+   `topic_slug={topic-slug}`, `dry_run=false` — the same op and the same contract
+   `coordinator/skills/staff-session/SKILL.md` Step 8 uses; read the full pointer there rather
+   than restating it. It moves `docs/research/{run-id}-workdir` to
+   `docs/research/archive/YYYY-MM-DD-{topic-slug}/`, lands ONE scoped commit covering the move,
+   then removes the emptied source tree. Re-running after a success is a safe no-op
+   (`already_archived: true`), never a silent re-merge — which is what retires the hand-rolled
+   `mv` this step used to spell out, along with its same-filesystem precondition: git owns the
+   rename now, so there is no POSIX copy-then-unlink to guard against.
 5. The team auto-cleans on session exit — no explicit teardown step. (Note: workdir scratch persists at `{scratch-dir}/` until archived above.)
 6. Commit the output file and coverage-audit sidecar.
 

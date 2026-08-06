@@ -1,179 +1,85 @@
-#!/usr/bin/env bash
-# detect-hardware.sh — cross-platform hardware audit for the machine-local registry.
-#
-# Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C4
-# Purpose: detect CPU cores, RAM, and (best-effort) GPU/VRAM, then persist the
-# values into hardware.local.toml via the --concern writer in the machine-local
-# CLI. Idempotent: re-run re-audits and upserts without losing other keys.
-#
-# Platforms:
-#   Linux   — /proc/cpuinfo (nproc), /proc/meminfo
-#   macOS   — sysctl hw.ncpu, hw.memsize
-#   Windows — PowerShell Get-CimInstance Win32_ComputerSystem (NOT deprecated wmic)
-#
-# GPU/VRAM detection is best-effort and non-blocking: if the probe fails or the
-# tool is unavailable, the key is simply not written — no error is emitted.
-#
-# Fail-loud policy: if a required probe (cores, RAM) cannot resolve a value, the
-# script exits non-zero with a specific remediation message. Never writes a
-# placeholder or a wrong number.
-#
-# Prerequisites: `machine-local` must be on PATH (installed by install-substrate.sh
-# before this script is called). MACHINE_LOCAL_REGISTRY_DIR may override the
-# default registry location for testing.
-#
-# Usage: bash detect-hardware.sh
-#
-# Negative-spec: does NOT use deprecated wmic on Windows (Get-CimInstance only).
-# Negative-spec: does NOT write to registry.local.toml — --concern hardware only.
+#!/usr/bin/env python3
+from __future__ import annotations
+"""
+detect-hardware.sh — CLI trampoline over claude-klabauter coordinator_core.ops.detect_hardware.
 
-set -euo pipefail
+Finish-strangler port: the bash implementation (cross-platform CPU/RAM/GPU
+audit, persisted into hardware.local.toml via the machine-local --concern
+writer) has been fully ported to coordinator_core/ops/detect_hardware.py, with
+tests in the co-located test_detect_hardware.py. This file is now a thin
+DoE-side (contract) trampoline over that claude-klabauter (engine) module, per DR-047
+(DoE owns contract/generator, claude-klabauter owns engine).
 
-# ---------------------------------------------------------------------------
-# Resolve machine-local binary
-# ---------------------------------------------------------------------------
-if command -v machine-local >/dev/null 2>&1; then
-    _ml=machine-local
-elif [[ -n "${CLAUDE_HOME:-}" ]] && [[ -x "${CLAUDE_HOME}/.claude/bin/machine-local" ]]; then
-    _ml="${CLAUDE_HOME}/.claude/bin/machine-local"
-elif [[ -x "${HOME}/.claude/bin/machine-local" ]]; then
-    _ml="${HOME}/.claude/bin/machine-local"
-else
-    echo "detect-hardware: machine-local not found on PATH or at ~/.claude/bin/machine-local" >&2
-    echo "  Remediation: run install-substrate.sh first, or ensure ~/.claude/bin is on PATH." >&2
-    exit 1
-fi
+Shebang note: the SHEBANG line above is `python3` — irrelevant on Windows,
+where the `.cmd` sibling launcher (not this shebang) resolves the interpreter;
+`python3` is not on PATH on a clean Windows install (only `python`/`py` are),
+which is exactly why the `.cmd` shim exists instead of relying on this line.
 
-# ---------------------------------------------------------------------------
-# Platform detection
-# ---------------------------------------------------------------------------
-_os_type="${OSTYPE:-}"
-_is_windows=0
-_is_macos=0
-_is_linux=0
+Filename kept WITH the `.sh` suffix (unlike coordinator-auto-push's dropped
+suffix) — callers (doctor-probes.toml, test_hardware_audit_ssot.bats,
+docs/wiki/machine-local-registry.md, docs/wiki/coordinator-doctor.md,
+templates/machine-local/hardware.toml.example) all
+hardcode the literal `lib/detect-hardware.sh` path; keeping the suffix avoids
+N caller edits with zero functional benefit (same rationale documented for
+handoff-has-live-children.sh in the R1 port template).
 
-if [[ "$_os_type" == "msys" || "$_os_type" == "cygwin" || "${OS:-}" == "Windows_NT" ]]; then
-    _is_windows=1
-elif [[ "$_os_type" == darwin* ]]; then
-    _is_macos=1
-else
-    _is_linux=1
-fi
+Exit convention: this is a fail-loud script (a config-writer, not a
+never-block hook shape) — the bash oracle exits 1 when machine-local is
+missing or a required probe (cores/RAM) is undetectable. This trampoline
+mirrors that: CLAUDE_KLABAUTER_ROOT resolution failure or an unimportable engine module
+both exit 1 (not 0), matching the oracle's own fail-loud posture rather than
+the auto-push "never block a commit" exemption.
 
-# ---------------------------------------------------------------------------
-# Detect CPU cores
-# ---------------------------------------------------------------------------
-_cores=""
+Usage: detect-hardware.sh   (no arguments)
 
-if [[ "$_is_windows" -eq 1 ]]; then
-    if command -v powershell.exe >/dev/null 2>&1; then
-        _cores=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
-            '(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors' \
-            2>/dev/null | tr -d '\r\n ')
-    elif [[ -n "${NUMBER_OF_PROCESSORS:-}" ]]; then
-        _cores="$NUMBER_OF_PROCESSORS"
-    fi
-elif [[ "$_is_macos" -eq 1 ]]; then
-    if command -v sysctl >/dev/null 2>&1; then
-        _cores=$(sysctl -n hw.ncpu 2>/dev/null || echo "")
-    fi
-else
-    # Linux
-    if command -v nproc >/dev/null 2>&1; then
-        _cores=$(nproc 2>/dev/null || echo "")
-    elif [[ -f /proc/cpuinfo ]]; then
-        _cores=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "")
-    fi
-fi
+Spec backlink: docs/plans/2026-06-23-coordinator-install-surface-dogfood-hardening.md §C4
+Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+"""
 
-if [[ -z "$_cores" ]] || ! [[ "$_cores" =~ ^[0-9]+$ ]]; then
-    echo "detect-hardware: could not determine CPU core count." >&2
-    echo "  Remediation: set hardware.cores manually:" >&2
-    echo "    machine-local set --concern hardware hardware.cores <n>" >&2
-    exit 1
-fi
+import os
+import sys
 
-# ---------------------------------------------------------------------------
-# Detect RAM (GB, rounded to nearest integer)
-# ---------------------------------------------------------------------------
-_ram_bytes=""
-_ram_gb=""
+_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
 
-if [[ "$_is_windows" -eq 1 ]]; then
-    if command -v powershell.exe >/dev/null 2>&1; then
-        _ram_bytes=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
-            '(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory' \
-            2>/dev/null | tr -d '\r\n ')
-    fi
-elif [[ "$_is_macos" -eq 1 ]]; then
-    if command -v sysctl >/dev/null 2>&1; then
-        _ram_bytes=$(sysctl -n hw.memsize 2>/dev/null || echo "")
-    fi
-else
-    # Linux: /proc/meminfo reports kB
-    if [[ -f /proc/meminfo ]]; then
-        _ram_kb=$(grep '^MemTotal:' /proc/meminfo 2>/dev/null | awk '{print $2}' || echo "")
-        if [[ -n "$_ram_kb" ]] && [[ "$_ram_kb" =~ ^[0-9]+$ ]]; then
-            _ram_bytes=$(( _ram_kb * 1024 ))
-        fi
-    fi
-fi
 
-if [[ -n "$_ram_bytes" ]] && [[ "$_ram_bytes" =~ ^[0-9]+$ ]]; then
-    # Round to nearest GB: (bytes + 536870912) / 1073741824
-    _ram_gb=$(( (_ram_bytes + 536870912) / 1073741824 ))
-fi
+def _import_main():
+    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
 
-if [[ -z "$_ram_gb" ]] || ! [[ "$_ram_gb" =~ ^[0-9]+$ ]]; then
-    echo "detect-hardware: could not determine total RAM." >&2
-    echo "  Remediation: set hardware.ram_gb manually:" >&2
-    echo "    machine-local set --concern hardware hardware.ram_gb <n>" >&2
-    exit 1
-fi
+    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
+    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
+    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
+    deliberately NOT used here.
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.ops.detect_hardware import main as _op_main
 
-# ---------------------------------------------------------------------------
-# Detect GPU / VRAM (best-effort, non-blocking)
-# ---------------------------------------------------------------------------
-_gpu=""
-_vram_gb=""
+    return _op_main
 
-if [[ "$_is_windows" -eq 1 ]] && command -v powershell.exe >/dev/null 2>&1; then
-    _gpu=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
-        'try { (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name } catch {}' \
-        2>/dev/null | tr -d '\r' | tr -s ' ' | head -1 || echo "")
-    _vram_bytes=$(powershell.exe -NoProfile -WindowStyle Hidden -Command \
-        'try { (Get-CimInstance Win32_VideoController | Select-Object -First 1).AdapterRAM } catch {}' \
-        2>/dev/null | tr -d '\r\n ' || echo "")
-    if [[ -n "$_vram_bytes" ]] && [[ "$_vram_bytes" =~ ^[0-9]+$ ]] && [[ "$_vram_bytes" -gt 0 ]]; then
-        _vram_gb=$(( (_vram_bytes + 536870912) / 1073741824 ))
-    fi
-elif [[ "$_is_macos" -eq 1 ]]; then
-    if command -v system_profiler >/dev/null 2>&1; then
-        _gpu=$(system_profiler SPDisplaysDataType 2>/dev/null \
-            | awk -F': ' '/Chipset Model:/{print $2; exit}' || echo "") # Review: reviewer — $NF printed only last word ("Pro"); -F': ' captures full value after label
-    fi
-elif [[ "$_is_linux" -eq 1 ]]; then
-    if command -v lspci >/dev/null 2>&1; then
-        _gpu=$(lspci 2>/dev/null | grep -i 'vga\|3d\|display' | head -1 \
-            | sed 's/.*: //' | sed 's/ (.*//' || echo "")
-    fi
-fi
 
-# ---------------------------------------------------------------------------
-# Persist values via --concern writer
-# ---------------------------------------------------------------------------
-echo "[detect-hardware] cores=${_cores} ram_gb=${_ram_gb}"
-"$_ml" set --concern hardware hardware.cores "${_cores}"
-"$_ml" set --concern hardware hardware.ram_gb "${_ram_gb}"
+def main() -> None:
+    try:
+        op_main = _import_main()
+    except RuntimeError as exc:
+        # Fail-loud: the bash oracle exits 1 on any unresolvable prerequisite
+        # (missing machine-local, undetectable cores/RAM); an unresolvable
+        # engine link is the same class of failure.
+        print(f"detect-hardware: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except ImportError as exc:
+        print(
+            f"detect-hardware: coordinator_core.ops.detect_hardware not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-if [[ -n "$_gpu" ]]; then
-    echo "[detect-hardware] gpu=${_gpu}"
-    "$_ml" set --concern hardware hardware.gpu "${_gpu}" || true
-fi
+    sys.exit(op_main(sys.argv[1:]))
 
-if [[ -n "$_vram_gb" ]] && [[ "$_vram_gb" =~ ^[0-9]+$ ]] && [[ "$_vram_gb" -gt 0 ]]; then
-    echo "[detect-hardware] vram_gb=${_vram_gb}"
-    "$_ml" set --concern hardware hardware.vram_gb "${_vram_gb}" || true
-fi
 
-echo "[detect-hardware] hardware audit complete — values in hardware.local.toml"
+if __name__ == "__main__":
+    main()

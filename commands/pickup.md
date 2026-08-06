@@ -1,6 +1,6 @@
 ---
 name: pickup
-description: "Resume work from a handoff or action a cross-repo memo — grab the baton and run"
+description: "Resume from a handoff or action a cross-repo memo — grab the baton."
 allowed-tools: ["Read", "Grep", "Glob", "Bash"]
 argument-hint: [handoff-file-path | memo-file-path]
 ---

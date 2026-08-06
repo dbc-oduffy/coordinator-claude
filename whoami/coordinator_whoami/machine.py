@@ -24,7 +24,7 @@ Usage:
     python -m coordinator_whoami.machine                              # compact JSON
     python -m coordinator_whoami.machine --human                     # pretty-printed
     python -m coordinator_whoami.machine --disk-path /mnt/data       # specific volume
-    python -m coordinator_whoami.machine --disk-path C:\\ --disk-path D:\\  # multi-volume
+    python -m coordinator_whoami.machine --disk-path /vol1 --disk-path /vol2  # multi-volume
 """
 from __future__ import annotations
 

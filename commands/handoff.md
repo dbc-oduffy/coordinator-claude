@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: "Involuntary mid-workstream save-state under context pressure. By definition a continuation, never a workstream ending — see Step 0."
+description: "Mid-workstream save-state under context pressure — always a continuation."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: [optional context]
 ---

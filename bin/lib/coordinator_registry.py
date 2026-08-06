@@ -10,6 +10,12 @@ Exposed names (reconstruction rules per manifest._reconstruction key):
   QUEUE_TYPES         — frozenset of queue-delegate types
   REPO_ALIASES        — dict registryKey → shortname  (Python _REPO_KEY_ALIASES convention)
   CENTRAL_RECEIVER_IDS — frozenset of valid central EM receiver identity strings
+  REDIRECT_ALIASES    — frozenset of DoE-canonical home/mirror redirect aliases
+                         (identity.redirectAliases; cross-repo-memo's former
+                         code-pinned _DOE_CANONICAL_REDIRECT_ALIASES literal.
+                         Cross-repo contract surface: claude-klabauter's
+                         coordinator_core/ops/fleet/_memo_resolver.py
+                         read_redirect_aliases() is a downstream consumer.)
   RECEIVER_EM_ALIASES — dict shortname → registryKey  (inverse; for cross-repo-memo)
   SIDECAR_SUFFIXES    — dict sidecar-type → filesystem suffix (e.g. "review" → "review")
   DOC_TYPES           — raw docTypes tuple for callers needing schemaName/offerable fields
@@ -17,10 +23,17 @@ Exposed names (reconstruction rules per manifest._reconstruction key):
 Shared identity-resolution functions (canonical, importable by all 4 CLIs):
   repo_key_to_em_id(key)                         — repos.<name> → <name>-em, with central anchor
   em_id_for_root(root, repo_key_paths)            — repo root path → em-id string
+  _central_canonical_id()                        — the one canonical central-EM identity string
+                                                    (centralReceiverIds[0]); see docstring below
   _same_path(a, b)                               — internal path-equality helper, importable by the CLIs that need direct comparison
 
 Shared state-root resolver (canonical, importable by all doctrine CLIs):
-  doe_root()                         — DoE repo root (env DOE_ROOT → machine-local repos.doe_claude → raise)
+  doe_root()                         — DoE repo root (env DOE_ROOT → env REPO_DOE_CLAUDE →
+                                        machine-local repos.doe_claude → raise). REPO_DOE_CLAUDE
+                                        is the documented override (ambient, shell-exported by
+                                        claude-klabauter's install surface); DOE_ROOT is a permanent legacy
+                                        alias retained for backward compatibility and still wins
+                                        first when both are set.
   _DoeUnresolvable                   — raised when DoE root is unresolvable; callers catch and WARN+skip (exit 0)
 """
 from __future__ import annotations
@@ -30,15 +43,76 @@ import os
 import subprocess
 import sys
 
+# Self-locating sys.path insert (defensive — most callers already insert this
+# same directory before importing this module, but this module must also be
+# importable standalone). Enables the settings-home-first delegation below.
+_REGISTRY_LIB_DIR = os.path.dirname(os.path.abspath(__file__))
+if _REGISTRY_LIB_DIR not in sys.path:
+    sys.path.insert(0, _REGISTRY_LIB_DIR)
+
+from machine_local_impl_resolve import (  # noqa: E402
+    claude_home as _mlir_claude_home,
+    machine_local_bin_candidates as _mlir_machine_local_bin_candidates,
+    machine_local_impl_path as _mlir_machine_local_impl_path,
+)
+
 # ---------------------------------------------------------------------------
-# Manifest path — resolved relative to __file__ (bin/lib/ → ../../schemas/).
-# Never hardcoded to an absolute path; portable across machines and clones.
+# Manifest path — layout-tolerant, never a hardcoded absolute path.
+#
+# Two live layouts since the 2026-07-22 executable-surface migration:
+#   1. Co-located    — schemas/ sits beside bin/ under the same coordinator root
+#                      (the pre-migration DoE layout, and any OSS install that
+#                      ships both halves together).
+#   2. Split-repo    — this code lives in claude-klabauter while schemas/ stayed
+#                      in DoE-claude, because schemas are CONTRACT and DR-047
+#                      puts contract with DoE, engine with claude-klabauter. Resolve the
+#                      DoE root the same way every other doctrine CLI does.
+#
+# Rung 1 first so the co-located case costs nothing and needs no registration.
 # ---------------------------------------------------------------------------
+_MANIFEST_RELPATH = os.path.join("schemas", "coordinator-registry.manifest.json")
 _MANIFEST_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "schemas",
-    "coordinator-registry.manifest.json",
+    _MANIFEST_RELPATH,
 )
+
+if not os.path.exists(_MANIFEST_PATH):
+    # Split-repo layout: fall back to the DoE clone. Resolved inline rather than
+    # via doe_root() below because this runs at import time, before that
+    # function is defined — same chain (DOE_ROOT env → REPO_DOE_CLAUDE env →
+    # machine-local repos.doe_claude), deliberately duplicated only for the
+    # bootstrap order. REPO_DOE_CLAUDE is aliased here too (not just in
+    # doe_root() below) — it is the ambient, shell-exported name; omitting it
+    # from the bootstrap would leave the split-repo import path resolving to
+    # the wrong root exactly the way doe_root() used to.
+    #
+    # Settings-home-first (DR-210 Amendment 2026-07-24: "resolves nothing
+    # through ~/.claude/bin") — try each machine-local candidate in order
+    # (settings-home, then the retired compat mirror as last resort) until
+    # one exists on disk; the mirror candidate is never removed, only tried
+    # last. Spec backlink: machine_local_impl_resolve.py module docstring.
+    _doe = os.environ.get("DOE_ROOT", "").strip() or os.environ.get("REPO_DOE_CLAUDE", "").strip()
+    if not _doe:
+        for _ml_cand in _mlir_machine_local_bin_candidates():
+            if not os.path.exists(_ml_cand):
+                continue
+            try:
+                _mlres = subprocess.run(
+                    [_ml_cand, "get", "repos.doe_claude"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if _mlres.returncode == 0:
+                    _doe = _mlres.stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                _doe = ""
+            if _doe:
+                break
+    if _doe:
+        _candidate = os.path.join(_doe, "coordinator", _MANIFEST_RELPATH)
+        if os.path.exists(_candidate):
+            _MANIFEST_PATH = _candidate
 
 try:
     with open(_MANIFEST_PATH, encoding="utf-8") as _f:
@@ -100,6 +174,44 @@ REPO_ALIASES: dict[str, str] = {a["registryKey"]: a["shortname"] for a in _repo_
 # CENTRAL_RECEIVER_IDS: valid central EM receiver identity strings
 CENTRAL_RECEIVER_IDS: frozenset[str] = frozenset(_central_receiver_ids_raw)
 
+
+def _central_canonical_id() -> str:
+    """The single canonical central-EM identity string.
+
+    Derived from identity.centralReceiverIds[0] in the manifest — index 0 is
+    canonical by convention (mirrors DoE's frontmatter validator, which derives
+    its own canonical id the same way: centralReceiverIds[0]). All OTHER entries
+    in the list remain valid receiver aliases (see CENTRAL_RECEIVER_IDS, which
+    membership-tests the full set) — this helper exists only to name the ONE
+    preferred value callers should emit/display, not to narrow what's accepted.
+
+    Negative-spec: do not hardcode "doe-claude-em" (or any central-em string) as
+    a bare literal anywhere that needs the canonical id — derive it from here so
+    a future manifest re-ordering of centralReceiverIds propagates automatically.
+    """
+    return _central_receiver_ids_raw[0]
+
+# REDIRECT_ALIASES: DoE-canonical home/mirror redirect aliases (identity.redirectAliases).
+# Unlike repoAliases/centralReceiverIds above, this key is read via .get() with a
+# fallback default, NOT a required-key KeyError guard — the field is a 2026-07-21
+# promotion of what was previously a code-pinned literal in cross-repo-memo, and a
+# manifest predating that promotion (or a hand-edited copy that dropped the key)
+# must still degrade to the same known-good set rather than hard-failing every CLI
+# invocation. The literal below is therefore a FALLBACK DEFAULT, not the authority —
+# once identity.redirectAliases is present (as it is in this manifest), that value
+# wins; this default only fires if the key is ever absent.
+#
+# Cross-repo contract surface: claude-klabauter's coordinator_core/ops/fleet/
+# _memo_resolver.py `read_redirect_aliases()` reads this same manifest field
+# declaratively (their negative-spec forbids hardcoding the literal on their side).
+_redirect_aliases_raw = _identity.get(
+    "redirectAliases",
+    [".claude-em", "claude-home", "coordinator-claude", "coordinator-claude-em"],
+)
+REDIRECT_ALIASES: frozenset[str] = frozenset(
+    a.strip().lower() for a in _redirect_aliases_raw if isinstance(a, str) and a.strip()
+)
+
 # RECEIVER_EM_ALIASES: shortname → registryKey (inverse of REPO_ALIASES; used by cross-repo-memo)
 RECEIVER_EM_ALIASES: dict[str, str] = {a["shortname"]: a["registryKey"] for a in _repo_aliases_raw}
 
@@ -143,9 +255,11 @@ def _same_path(a: str, b: str) -> bool:
 def repo_key_to_em_id(key: str) -> str:
     """Reverse a repos.<name> registry key to its EM identity string.
 
-    Special-case: repos.doe_claude → claude-central-em (canonical central identity;
-    doe-claude-em is the alias in CENTRAL_RECEIVER_IDS, but the canonical return is
-    claude-central-em so downstream comparisons use one string).
+    Special-case: repos.doe_claude → the manifest-derived canonical central
+    identity (see _central_canonical_id() — identity.centralReceiverIds[0],
+    currently "doe-claude-em"; "claude-central-em" is a retired identity still
+    valid as a receiver alias in CENTRAL_RECEIVER_IDS, but no longer the
+    canonical return, so downstream comparisons converge on one current string).
 
     Otherwise applies REPO_ALIASES for doctrine-shortname divergence (e.g.
     example_game_workbench_repo → example-game-repo → example-game-repo-em), then converts remaining
@@ -158,7 +272,7 @@ def repo_key_to_em_id(key: str) -> str:
     identity is anchored on repos.doe_claude, not the home directory.
     """
     if key == "repos.doe_claude":
-        return "claude-central-em"
+        return _central_canonical_id()
     shortname = key[len("repos."):] if key.startswith("repos.") else key
     canonical = REPO_ALIASES.get(shortname)
     if canonical is not None:
@@ -171,7 +285,8 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
 
     Resolution order:
       1. root is None  → 'unknown-sender-em'
-      2. root path-matches repo_key_paths['repos.doe_claude']  → 'claude-central-em'
+      2. root path-matches repo_key_paths['repos.doe_claude']  → the manifest-derived
+         canonical central identity (see _central_canonical_id())
       3. root path-matches any other registered repos.* path   → repo_key_to_em_id(key)
       4. unregistered git repo  → basename(root) + '-em'
 
@@ -182,7 +297,7 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
         return "unknown-sender-em"
     doe_claude_path = repo_key_paths.get("repos.doe_claude")
     if doe_claude_path and _same_path(root, doe_claude_path):
-        return "claude-central-em"
+        return _central_canonical_id()
     for key, path in repo_key_paths.items():
         if path and _same_path(path, root):
             return repo_key_to_em_id(key)
@@ -193,7 +308,7 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
 # Shared state-root resolver — DoE doctrine central-state writes
 #
 # doe_root() is the canonical resolver for the DoE repo root, importable by all
-# doctrine-writing CLIs. The resolution chain mirrors the _example_orchestration_hub_root() shape
+# doctrine-writing CLIs. The resolution chain mirrors the _claude_klabauter_root() shape
 # in the CLIs but raises on failure rather than returning None — callers catch
 # _DoeUnresolvable and degrade gracefully (WARN + skip, exit 0).
 #
@@ -205,18 +320,31 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
 # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
 # ---------------------------------------------------------------------------
 
-# Env var for DOE_ROOT override — mirrors EXAMPLE_ORCHESTRATION_HUB_ROOT §4b idempotency gate form.
+# Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate form.
 # Guard form: os.environ.get(_DOE_ROOT_ENV, "").strip() — non-empty string wins.
 _DOE_ROOT_ENV = "DOE_ROOT"
 
-# Env var names honoured by the internal machine-local reader — shared with the CLIs
-# so a single test-isolation set covers all callers (MACHINE_LOCAL_IMPL, CLAUDE_HOME).
+# Env var for REPO_DOE_CLAUDE override — the documented, ambient name. Every
+# coordinator_core referent (26 of them, via ops/coordinator_doe_root.py)
+# binds this name, and claude-klabauter's generated shell shim exports it into cold
+# login shells (see coordinator_core/install/sandbox_check.py AC2) — so in
+# normal operation it is already set, not merely available as an escape
+# hatch. DOE_ROOT (above) is a permanent legacy alias and still wins first
+# when both are set — that ordering is load-bearing and preserves every
+# existing test/consumer byte-for-byte.
+_REPO_DOE_CLAUDE_ENV = "REPO_DOE_CLAUDE"
+
+# Env var name honoured by the internal machine-local reader — shared with the CLIs
+# so a single test-isolation set covers all callers (MACHINE_LOCAL_IMPL).
+# Review: code-reviewer (F4) — the sibling _REGISTRY_CLAUDE_HOME_ENV constant was
+# deleted here: dead since _registry_claude_home() delegates to
+# machine_local_impl_resolve.claude_home() (hardcodes "CLAUDE_HOME" internally).
 _REGISTRY_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
-_REGISTRY_CLAUDE_HOME_ENV = "CLAUDE_HOME"
 
 
 class _DoeUnresolvable(RuntimeError):
-    """Raised when DOE_ROOT cannot be resolved via env var or machine-local registry.
+    """Raised when the DoE root cannot be resolved via env var (REPO_DOE_CLAUDE,
+    or the permanent legacy alias DOE_ROOT) or machine-local registry.
 
     Callers in the doctrine central write loop catch this and degrade gracefully
     (WARN + skip, exit 0). The resolver itself fails loud via this exception;
@@ -230,19 +358,24 @@ class _DoeUnresolvable(RuntimeError):
 
 
 def _registry_claude_home() -> str:
-    """Return the ~/.claude root, honoring CLAUDE_HOME env var for test isolation."""
-    override = os.environ.get(_REGISTRY_CLAUDE_HOME_ENV)
-    if override:
-        return override
-    return os.path.join(os.path.expanduser("~"), ".claude")
+    """Return the ~/.claude root, honoring CLAUDE_HOME env var for test isolation.
+
+    Delegates to machine_local_impl_resolve.claude_home() — see that module's
+    docstring for why the settings-home-first ladder now lives there, shared
+    across every caller that used to hand-roll this same join.
+    """
+    return _mlir_claude_home()
 
 
 def _registry_machine_local_impl() -> str:
-    """Return the path to _machine_local.py, honoring MACHINE_LOCAL_IMPL for tests."""
-    override = os.environ.get(_REGISTRY_MACHINE_LOCAL_IMPL_ENV)
-    if override:
-        return override
-    return os.path.join(_registry_claude_home(), "bin", "_machine_local.py")
+    """Return the path to _machine_local.py, settings-home first, honoring
+    MACHINE_LOCAL_IMPL for tests.
+
+    Delegates to machine_local_impl_resolve.machine_local_impl_path() — see
+    that module's docstring (DR-210 Amendment: "resolves nothing through
+    ~/.claude/bin"; this rung now tries settings-home before the mirror).
+    """
+    return _mlir_machine_local_impl_path(_REGISTRY_MACHINE_LOCAL_IMPL_ENV)
 
 
 def _registry_machine_local_get(key: str) -> str | None:
@@ -272,12 +405,17 @@ def _registry_machine_local_get(key: str) -> str | None:
 def doe_root() -> str:
     """Resolve the DoE repo root for doctrine central-state writes.
 
-    Resolution chain (three-rung, env → machine-local → hard-error):
-      1. DOE_ROOT env var — if non-empty, trusted as-is (§4b idempotency parity
-         with EXAMPLE_ORCHESTRATION_HUB_ROOT; guard form os.environ.get(..., "").strip()).
-      2. machine-local get repos.doe_claude — delegates to the §4c discovery ladder
-         via the same _machine_local.py reader the identity flip uses.
-      3. Raises _DoeUnresolvable when neither rung resolves.
+    Resolution chain (four-rung, env → env → machine-local → hard-error):
+      1a. DOE_ROOT env var — if non-empty, trusted as-is (§4b idempotency parity
+          with CLAUDE_KLABAUTER_ROOT; guard form os.environ.get(..., "").strip()). Wins
+          first when both DOE_ROOT and REPO_DOE_CLAUDE are set — a permanent
+          legacy alias, preserved byte-for-byte for every existing test/consumer.
+      1b. REPO_DOE_CLAUDE env var — the documented, ambient override name every
+          coordinator_core referent binds (see _REPO_DOE_CLAUDE_ENV docstring
+          above). Consulted only when rung 1a is unset/empty.
+      2.  machine-local get repos.doe_claude — delegates to the §4c discovery ladder
+          via the same _machine_local.py reader the identity flip uses.
+      3.  Raises _DoeUnresolvable when no rung resolves.
 
     Returns the DoE REPO root (e.g. /path/to/DoE-claude). Callers append
     state/<class>/ to build the full write path:
@@ -295,9 +433,13 @@ def doe_root() -> str:
     override = os.environ.get(_DOE_ROOT_ENV, "").strip()
     if override:
         return override
+    override = os.environ.get(_REPO_DOE_CLAUDE_ENV, "").strip()
+    if override:
+        return override
     val = _registry_machine_local_get("repos.doe_claude")
     if val:
         return val
     raise _DoeUnresolvable(
-        "repos.doe_claude not set in machine-local registry and DOE_ROOT env var not set"
+        "repos.doe_claude not set in machine-local registry and neither "
+        "REPO_DOE_CLAUDE nor DOE_ROOT (legacy alias) env var is set"
     )

@@ -1,6 +1,7 @@
 ---
 name: brainstorming
-description: "Use for new feature requests, vague/ambiguous requirements, or multi-subsystem decomposition before plan mode."
+description: "Shapes vague or multi-subsystem asks into requirements before planning. Invoke coordinator:sizing first if unsized."
+description-budget: 135
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 
 ---

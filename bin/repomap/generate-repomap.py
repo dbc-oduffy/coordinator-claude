@@ -10,6 +10,14 @@ Supports .repomapignore for project-specific exclusions, task-scoped maps
 with --task/--focus-files for contextual narrowing, and UE project detection
 with regex-based C++ parsing for UCLASS/USTRUCT/UFUNCTION signatures,
 include-graph centrality, and dual-parse mode (regex defs + tree-sitter refs).
+
+Not the same tool as `coordinator/bin/repo-census.py` ("repo-census") — that
+one has no git-activity signal, no token budget, and no tree-sitter
+dependency; it emits a flat language census + raw import-occurrence counts +
+distinct-referencing-file counts (JSON or human-readable) for an ARBITRARY
+EXTERNAL repo we have never seen, used by the deep-research repo pipeline to
+scope specialist deep-reads. Reach for repo-census instead of this tool when
+the target is a repo we don't own and have no git-history intuition for.
 """
 
 import argparse

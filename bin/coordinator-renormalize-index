@@ -1,187 +1,111 @@
-#!/usr/bin/env bash
-# coordinator-renormalize-index — clear EOL "phantom-dirty" index entries safely under concurrent-EM.
-#
-# Spec backlink: docs/wiki/concurrent-em-hazards.md § H23.
-#
-# THE BUG. On Git-for-Windows a tracked file's index entry can record a stale line-ending-era
-# blob size while HEAD and the worktree already agree on the normalized content. Concretely
-# (either EOL direction):
-#   - worktree CRLF (e.g. 42218 B) vs index/HEAD LF (41313 B), or
-#   - worktree LF   (e.g.  5115 B) vs index CRLF (5218 B), HEAD LF (5115 B).
-# `git diff` / `git diff --cached` RENORMALIZE then hash, so they see the content as equal and
-# report nothing to commit. But `git status` uses the recorded blob SIZE as a stat shortcut, and
-# size differs across the EOL round-trip — so the file is flagged ` M` forever. `git update-index
-# --refresh` (even --really-refresh) cannot clear it because it compares raw worktree bytes (no
-# renormalization) so the size still differs; and `core.checkStat minimal` cannot either, because
-# size is compared even by `minimal`. The result is a perpetually phantom-dirty tree that makes
-# `git status` lie about thousands of files.
-#
-# THE SAFE FIX (no commit needed). For each phantom path a plain `git add <path>` re-stages the
-# worktree content; because `git add` applies the gitattributes/autocrlf filter, that content
-# renormalizes to the SAME blob the index/HEAD already hold, so NOTHING committable is produced —
-# only the index stat-cache is refreshed so size matches the worktree again and `git status` goes
-# clean. (`git add` is required precisely because `update-index --refresh` does NOT apply the
-# filter; that is why the bug survives --refresh but yields to add.)
-#
-# CONCURRENT-EM SAFETY (the reason this is not a blanket `git add --renormalize .`). A blanket
-# renormalize re-stages every modified file's CURRENT worktree content — absorbing siblings'
-# live uncommitted edits into whatever commit follows, and clobbering a sibling's mid-commit
-# staged blob. This tool instead refreshes ONLY the phantom set:
-#       phantoms = (git ls-files -m)  MINUS  (git diff --name-only)  MINUS  deleted-in-worktree
-#                = stat-modified       MINUS  real worktree-vs-index content diffs
-# A path with a genuine worktree edit, OR a path a sibling has staged (index != HEAD with a
-# differing worktree), appears in `git diff --name-only` and is therefore EXCLUDED.
-#
-# RESIDUAL RACE (honest scope — NOT "by construction impossible"). The set is computed from a
-# snapshot; the `git add` fires later. If a sibling overwrites a phantom-classified path with a
-# real edit in that window, the add would stage their live content. We shrink the window to
-# near-zero by re-confirming the set against a FRESH `git diff` taken immediately before staging
-# (a path that became a real edit is dropped). The residual sub-millisecond window's worst
-# outcome is bounded: the sweep only ever `git add`s, NEVER commits, so an absorbed edit sits
-# merely STAGED (visible in `git status`, recoverable) and is caught downstream by
-# coordinator-safe-commit's touched-files filter before it can enter any commit. Safe to run on a
-# live shared tree at any time — it does not require a quiet tree (unlike the heavier
-# renormalize-and-commit, which fixes it repo-wide for all clones but must run when no sibling
-# edits are live).
-#
-# Modes:
-#   coordinator-renormalize-index            # refresh phantom entries in the current repo
-#   coordinator-renormalize-index --check    # report the phantom count only; never writes the index
-#
-# Exit codes:
-#   0 — clean (no phantoms), counted (--check), refreshed, or deferred (index.lock present).
-#   1 — not a git repository, a required `git diff` probe FAILED (cannot safely classify), or the
-#       `git add` refresh reported a failure for at least one path (--ignore-errors still refreshes
-#       the rest best-effort, but git's exit is non-zero if ANY path failed — callers cannot
-#       distinguish partial from total failure from the exit code alone).
+#!/usr/bin/env python3
+"""
+coordinator-renormalize-index — CLI trampoline over claude-klabauter
+coordinator_core.ops.renormalize_index.
 
-set -uo pipefail
-# Deliberately NOT -e: detection helpers may exit non-zero on an empty set; we handle that.
+Clears EOL "phantom-dirty" index entries safely under concurrent-EM sessions.
 
-# Portability guard. This script needs bash 4+ (associative arrays for the safe set-subtraction).
-# The EOL phantom it cures is a Git-for-Windows + NTFS artifact that does not arise on macOS/Linux
-# (git there resolves the size-vs-content difference correctly), so on an older shell — notably
-# macOS stock /bin/bash 3.2 — there is nothing to do: exit cleanly (0), never error or corrupt.
-# The shebang prefers a modern `env bash` (e.g. Homebrew bash 5 on macOS) so this guard only
-# trips when no bash 4+ is available at all.
-if (( ${BASH_VERSINFO[0]:-0} < 4 )); then
-  echo "coordinator-renormalize-index: bash 4+ required (no-op on bash ${BASH_VERSION:-?}); nothing to do on this platform" >&2
-  exit 0
-fi
+THE BUG. On Git-for-Windows a tracked file's index entry can record a stale
+line-ending-era blob size while HEAD and the worktree already agree on the
+normalized content. `git diff` / `git diff --cached` renormalize then hash, so
+they see the content as equal and report nothing to commit. But `git status`
+uses the recorded blob SIZE as a stat shortcut, and size differs across the
+EOL round-trip — so the file is flagged modified forever. This tool refreshes
+ONLY the phantom set (stat-modified MINUS real worktree-vs-index content diffs
+MINUS deleted-in-worktree), never a blanket `git add --renormalize .` — see
+the ported module's docstring for the full mechanism, the residual-race
+disclosure, and the negative-spec (never commits; never touches a real edit
+or a sibling's staged blob).
 
-CHECK_ONLY=0
-if [[ "${1:-}" == "--check" ]]; then
-  CHECK_ONLY=1
-fi
+Finish-strangler port: the bash implementation (187 lines) has been fully
+ported to coordinator_core/ops/renormalize_index.py (claude-klabauter), with parity
+coverage in the co-located pytest
+(coordinator_core/ops/test_renormalize_index.py). This file is now a thin
+DoE-side trampoline over that claude-klabauter module. Zero production callers of the
+bash original as of this port — tests only, which exec'd this file in place
+and needed no rework: this trampoline preserves the same argv contract (bare /
+`--check`), the same stdout-silent / stderr-messaged behavior, and the same
+exit codes.
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
-  echo "coordinator-renormalize-index: not a git repository" >&2
-  exit 1
-fi
-GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
+Dropped, not translated: the bash oracle's `BASH_VERSINFO < 4` portability
+no-op guard has no equivalent here — this port never spawns bash/sh, so there
+is no shell version to gate on (see the ported module's docstring negative
+-spec). This trampoline runs identically on every platform Python runs on.
 
-_TMPS=()
-# shellcheck disable=SC2317  # cleanup is reached indirectly via the EXIT trap
-cleanup() { local f; for f in "${_TMPS[@]+"${_TMPS[@]}"}"; do [[ -n "$f" ]] && rm -f "$f"; done; }
-trap cleanup EXIT
+Usage:
+  coordinator-renormalize-index            # refresh phantom entries in the current repo
+  coordinator-renormalize-index --check    # report the phantom count only; never writes
 
-# (Re)build the REAL set: paths that genuinely differ worktree-vs-index (renormalize-aware) —
-# real edits and siblings' staged work, NEVER touched. FAIL LOUD on a real `git diff` failure: an
-# *erroring* (not empty) diff would leave the set empty and let real edits + siblings' staged work
-# flood the phantom set — the one input that inverts this tool's safety property. A NUL-stream
-# cannot survive a shell variable (NULs are stripped), so route through a temp file (which also
-# lets us check exit status — lost across process substitution); the caller then reads that file
-# into its OWN top-level associative array. The helper does NOT clear an array (a bare `arr=()`
-# reset of an associative array is version-fragile, and a `declare -A` inside a function would be
-# function-LOCAL, shadowing the global the membership checks read) — instead REAL (snapshot 1) and
-# REAL2 (snapshot 2) are two distinct top-level arrays, each built exactly once. The helper runs in
-# the current shell (not a `$( )` subshell), so its fail-loud `exit 1` propagates to the script.
-declare -A REAL=()
-declare -A REAL2=()
-_DIFF_TMP=""
-diff_to_tmp() {   # sets global $_DIFF_TMP to a NUL-list of worktree-vs-index real diffs; fail-loud
-  # Explicit template — BSD/macOS `mktemp` errors without one (GNU tolerates a bare `mktemp`).
-  _DIFF_TMP="$(mktemp "${TMPDIR:-/tmp}/coordinator-renorm.XXXXXX")" || { echo "coordinator-renormalize-index: ERROR — mktemp failed" >&2; exit 1; }
-  _TMPS+=("$_DIFF_TMP")
-  # 2>/dev/null suppresses the benign "CRLF will be replaced by LF" advisories git prints to stderr.
-  if ! git diff --name-only -z >"$_DIFF_TMP" 2>/dev/null; then
-    echo "coordinator-renormalize-index: ERROR — git diff failed; aborting to avoid misclassifying real edits as phantoms" >&2
-    exit 1
-  fi
-}
+Exit codes (parity-critical — matches coordinator_core.ops.renormalize_index.main
+exactly; see that module's docstring for the full contract):
+  0 — clean (no phantoms), counted (--check), refreshed, or deferred (index.lock present).
+  1 — not a git repository, a required `git diff`/`git ls-files -m` probe FAILED, or the
+      `git add` refresh reported a failure for at least one path.
+  2 — DEDICATED transport/config-failure code, distinct from the business codes above:
+      CLAUDE_KLABAUTER_ROOT resolution failed, or coordinator_core.ops.renormalize_index not
+      importable.
 
-# Snapshot 1 → REAL.
-diff_to_tmp
-while IFS= read -r -d '' p; do [[ -n "$p" ]] && REAL["$p"]=1; done <"$_DIFF_TMP"
+Spec backlink: docs/wiki/concurrent-em-hazards.md § H23.
 
-# Phantom candidates = stat-modified MINUS real diffs MINUS deleted-in-worktree.
-# `git ls-files -m` reports a deleted tracked file as modified; `git add` on a deleted path stages
-# a DELETION (a real change, not a stat refresh), so exclude anything absent from the worktree.
-# (A genuine EOL phantom always has its worktree file present and content-equal.)
-declare -a PHANTOMS=()
-while IFS= read -r -d '' p; do
-  [[ -z "$p" ]] && continue
-  [[ -n "${REAL[$p]:-}" ]] && continue
-  [[ -e "$p" || -L "$p" ]] || continue
-  PHANTOMS+=("$p")
-done < <(git ls-files -m -z 2>/dev/null)
+DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a
+plain in-process `import ... as _op_main` + `sys.exit(op_main(argv))` tail, so
+any paths the op declares via `declare_write` become a session scope-touch
+claim (this op only ever refreshes git INDEX entries via `git add`, never a
+repo-relative file's content — see module docstring's negative-spec — so it
+declares none; routing it is a baseline-shrink, not a behavior change).
+"""
 
-n=${#PHANTOMS[@]}
+import os
+import sys
 
-if (( n == 0 )); then
-  echo "coordinator-renormalize-index: no EOL phantom-dirty entries (clean)" >&2
-  exit 0
-fi
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
 
-if (( CHECK_ONLY == 1 )); then
-  echo "coordinator-renormalize-index: ${n} EOL phantom-dirty entr$( (( n == 1 )) && echo y || echo ies ) detected (--check: not refreshed)" >&2
-  exit 0
-fi
 
-# Defer the write if a commit is in flight: a fresh index.lock means another git process holds
-# the index right now. Piling a stat-refresh write onto that contention is exactly the pressure
-# H21 fights; the sweep is idempotent, so the next session start retries. (The start-time reaper
-# runs BEFORE this script and has already cleared any *stale* lock, so a lock surviving to here
-# is a live one.)
-if [[ -e "$GIT_DIR/index.lock" ]]; then
-  echo "coordinator-renormalize-index: index.lock present (live commit) — deferring sweep" >&2
-  exit 0
-fi
+def _import_run_op_main():
+    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
 
-# Shrink the snapshot→add absorption window: re-confirm against a FRESH diff (snapshot 2 → REAL2)
-# taken immediately before staging, and re-check worktree presence. A candidate that became a real
-# edit (or was deleted) in the interim is dropped.
-diff_to_tmp   # snapshot 2 → REAL2
-while IFS= read -r -d '' p; do [[ -n "$p" ]] && REAL2["$p"]=1; done <"$_DIFF_TMP"
-declare -a SAFE=()
-for p in "${PHANTOMS[@]}"; do
-  [[ -n "${REAL2[$p]:-}" ]] && continue
-  [[ -e "$p" || -L "$p" ]] || continue
-  SAFE+=("$p")
-done
-m=${#SAFE[@]}
+    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
+    re-deriving it — this is a plain in-process import, not an RPC invoke, so
+    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is deliberately
+    NOT used here (variant-#1 direct-import trampoline — see
+    tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1).
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.cli_entry import run_op_main
 
-if (( m == 0 )); then
-  echo "coordinator-renormalize-index: all ${n} candidate(s) became live edits before staging — nothing refreshed" >&2
-  exit 0
-fi
+    return run_op_main
 
-# Refresh the stat-cache for the confirmed phantom set. NUL-safe pathspecs via stdin (filenames
-# may contain spaces / leading dashes; --pathspec-file-nul disables globbing and flag parsing, and
-# stdin avoids ARG_MAX at thousands of paths). --ignore-errors keeps one poison path from sinking
-# the whole batch (so a single un-addable file does not leave the rest phantom-dirty forever under
-# the silent hook). Content renormalizes-equal to the index, so this stages nothing committable.
-#
-# CATASTROPHE GUARD (defence-in-depth): an EMPTY SAFE array would make `printf '%s\0'` emit a single
-# NUL — one *empty* pathspec — and an empty pathspec to `git add` means "add everything" (≈ git add .),
-# absorbing the entire concurrent tree. The `(( m == 0 ))` exit above already prevents reaching here
-# with an empty set; this re-asserts it immediately adjacent to the pipe so a future edit between the
-# two points cannot silently reintroduce the add-everything hazard.
-(( ${#SAFE[@]} == 0 )) && { echo "coordinator-renormalize-index: internal — SAFE empty at staging step (refused)" >&2; exit 0; }
-if printf '%s\0' "${SAFE[@]}" | git add --ignore-errors --pathspec-from-file=- --pathspec-file-nul 2>/dev/null; then
-  echo "coordinator-renormalize-index: refreshed ${m} EOL phantom-dirty index entr$( (( m == 1 )) && echo y || echo ies ) (0 real edits touched)" >&2
-  exit 0
-else
-  echo "coordinator-renormalize-index: WARNING — git add refresh failed for one or more paths (others refreshed best-effort)" >&2
-  exit 1
-fi
+
+def main() -> None:
+    try:
+        run_op_main = _import_run_op_main()
+    except RuntimeError as exc:
+        print(f"coordinator-renormalize-index: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except ImportError as exc:
+        print(
+            f"coordinator-renormalize-index: coordinator_core.cli_entry not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    try:
+        code = run_op_main("coordinator_core.ops.renormalize_index", sys.argv[1:])
+    except ImportError as exc:
+        print(
+            f"coordinator-renormalize-index: coordinator_core.ops.renormalize_index not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,804 @@
+# subagent-sandbox-policy.yaml
+#
+# Policy contract — the doctrine-owned half of the contract-vs-engine split.
+#
+# SCOPE: the write-sandbox confinement half is DEAD. The
+# `confined:` / `exempt:` / `sanctioned_dirs:` deny grammar was removed
+# end-to-end — this doctrine, the Python enforcement engine that reads it, and
+# this file — and the pinned contract grammar table was dropped in lockstep.
+# This file's surviving surface is `report_sidecar:` — the
+# run-report-sidecar provisioning eligibility list — plus the additive
+# `report_type_map:` key (agent-citizenship provisioning) layered on
+# top of it; neither restructures the other.
+#
+# Read by:
+#   (a) a PostToolUse hook (coordinator/hooks/scripts/enforce-agent-dispatch-mode.py),
+#       which resolves a spawning subagent_type against report_sidecar: to decide
+#       eligibility for an auto-provisioned run-report sidecar, and
+#   (b) the provisioning engine's `provision_report` entrypoint.
+# This key's name and value grammar are pinned against that engine's contract
+# for the `report_sidecar` section. Any change to the key name or value
+# grammar here is a breaking drift against that pinned contract and must be
+# relayed to the engine side in lockstep — never silently changed.
+#
+#   report_sidecar:  list[str] of subagent_type values — the run-report-sidecar
+#                     eligibility list. EXACT STRING MATCH — no globbing. Seeded with
+#                     the write-capable / multi-step subagent classes; short read-only
+#                     2-call spawns deliberately stay off it. A subagent_type present
+#                     in this list is ELIGIBLE for an auto-provisioned run-report
+#                     sidecar at spawn time; a subagent_type ABSENT is a lookup-miss,
+#                     which fail-opens to "not eligible — provision nothing" (never a
+#                     hard failure, never a blocked spawn). The provision engine (reader
+#                     (b) above) emits either exactly one {"report_sidecar":"<path>"}
+#                     line (eligible) or empty stdout (ineligible or any fail-open leg),
+#                     exit 0 either way.
+#
+# Fail-open — an empty, absent, unreadable, or malformed policy resolves to an empty
+# policy: every report_sidecar lookup then misses, and every spawn provisions nothing.
+#
+report_sidecar:
+  - coordinator:executor
+  - coordinator:review-integrator
+  - coordinator:enricher
+  - coordinator:repo-scout
+  - coordinator:repo-specialist
+  - coordinator:research-scout
+  - coordinator:research-specialist
+  - coordinator:notebooklm-research-scout
+  - coordinator:research-worker
+  - coordinator:code-reviewer
+  - coordinator:docs-checker
+  - coordinator:staff-eng
+  - coordinator:staff-data-sci
+  - coordinator:senior-front-end
+  - coordinator:staff-ux
+  - coordinator:vp-product
+  - coordinator:eng-director
+  - coordinator:code-reviewer-weekly
+  - coordinator:coverage-auditor
+  - coordinator:doc-link-checker
+  - coordinator:plan-coverage-checker
+  - coordinator:prior-art-checker
+  - coordinator:research-sweep
+  - coordinator:research-synthesizer
+  - coordinator:structured-synthesizer
+  - coordinator:parallel-review-synthesizer
+  - coordinator:security-audit-worker
+  - coordinator:external-pattern-checker
+  - coordinator:dep-cve-auditor
+  - coordinator:test-evidence-parser
+# 2026-07-30 (dispatch-tiering, Leg B): coordinator:atlassian-worker and
+# coordinator:drive-worker were removed from this list — dispatch_tier: (below)
+# classifies both as exploration tier (write-toolless, clause (1)), so neither is
+# provisioning-eligible any more. coordinator:security-audit-worker and
+# coordinator:external-pattern-checker were considered for the same removal and
+# corrected back to review-execution tier (see dispatch_tier:'s own comment) — both
+# stay on this list. coordinator:dep-cve-auditor and coordinator:test-evidence-parser
+# were ALSO removed in that same pass and then restored here (2026-07-30, same-day
+# fix): the two-clause rule as shipped dropped the payload-size discriminator, and
+# both agents' own bodies hard-require a sidecar (see dispatch_tier:'s clause (2)(c)
+# comment) — removing them left their own contract unfulfillable at every dispatch.
+# Removal (for atlassian-worker/drive-worker) is safe by this file's own fail-open
+# contract: an absent subagent_type is a lookup-miss that resolves to "provision
+# nothing", never a hard failure or a blocked spawn.
+
+# report_type_map:  dict[str, str] — subagent_type -> template type, additive
+# on top of report_sidecar (does NOT replace or restructure it). Consumed by
+# a doctrine-side hook to pick which of the provisioning engine's four
+# `provision_report --type` templates (run-report / review-findings /
+# assessment / staff-eng-review) an eligible subagent_type's auto-provisioned
+# sidecar should use. Every key here MUST also be report_sidecar-eligible
+# (see coordinator/tests/test_report_type_map.py) — a subagent_type cannot
+# get a typed sidecar unless it can get a sidecar at all. Every subagent_type
+# declared across coordinator/agents/*.md MUST appear here (no agent left
+# unmapped) — the test enumerates coordinator/agents/*.md `name:` frontmatter
+# and cross-checks.
+report_type_map:
+  coordinator:executor: run-report
+  coordinator:review-integrator: run-report
+  coordinator:enricher: run-report
+  coordinator:code-reviewer: review-findings
+  coordinator:code-reviewer-weekly: review-findings
+  coordinator:plan-coverage-checker: review-findings
+  coordinator:parallel-review-synthesizer: review-findings
+  coordinator:security-audit-worker: review-findings
+  coordinator:dep-cve-auditor: review-findings
+  coordinator:test-evidence-parser: review-findings
+  coordinator:staff-eng: staff-eng-review
+  coordinator:staff-data-sci: staff-eng-review
+  coordinator:senior-front-end: staff-eng-review
+  coordinator:staff-ux: staff-eng-review
+  coordinator:vp-product: staff-eng-review
+  coordinator:eng-director: staff-eng-review
+  coordinator:repo-scout: assessment
+  coordinator:repo-specialist: assessment
+  coordinator:research-scout: assessment
+  coordinator:research-specialist: assessment
+  coordinator:research-worker: assessment
+  coordinator:research-sweep: assessment
+  coordinator:research-synthesizer: assessment
+  coordinator:structured-synthesizer: assessment
+  coordinator:notebooklm-research-scout: assessment
+  coordinator:docs-checker: assessment
+  coordinator:coverage-auditor: assessment
+  coordinator:doc-link-checker: assessment
+  # MCP tool-holding retrieval workers. Both return facts as final message text —
+  # neither carries Write/Edit, so neither can author a sidecar itself. Mapped for
+  # coverage-invariant completeness; the type is the retrieval-worker default.
+  # DISCHARGED 2026-07-30 (dispatch-tiering, Leg B): this row USED to also keep both
+  # agents report_sidecar-eligible, which meant the provisioning engine auto-
+  # scaffolded a sidecar at every dispatch that could never be filled in (no
+  # Write/Edit tool), leaving a permanently-empty state/subagent-share/<session>/
+  # <key>.md behind every real dispatch. That was a named tradeoff, and the
+  # no-sidecar escape hatch it called out as a "known follow-up" now exists:
+  # dispatch_tier: (below) classifies both as exploration tier, and both have been
+  # removed from report_sidecar: accordingly — the coverage invariant
+  # (report_type_map:, this key) and the provisioning trigger (report_sidecar:) are
+  # no longer the same list, by design. This row stays for report_type_map's
+  # coverage invariant only; it no longer implies provisioning.
+  coordinator:atlassian-worker: assessment
+  coordinator:drive-worker: assessment
+  coordinator:prior-art-checker: assessment
+  coordinator:external-pattern-checker: assessment
+  # Bash+Read only, by DR-125 Ruling 3 — no Write/Edit, so it cannot author a
+  # sidecar either. Same shape as the retrieval workers above: mapped for the
+  # coverage invariant, absent from report_sidecar:, no provisioning implied.
+  # Its reporting contract (SHA, exact paths committed, what it declined and
+  # why) returns as final message text to the dispatching EM.
+  coordinator:git-commit-agent: run-report
+
+# dispatch_tier:  dict[str, str] — subagent_type -> "exploration" | "review-execution".
+# Additive on top of report_sidecar: / report_type_map: / contract_blocks: — does not
+# restructure any of them. Every subagent_type declared across coordinator/agents/*.md
+# MUST appear here exactly once (coverage + closed-value-set + the structural clause-1
+# check below are all asserted by coordinator/tests/test_dispatch_tier.py).
+#
+# THE RULE (mechanical — apply it, don't re-litigate it case-by-case):
+#
+# A sidecar buys two different things — crash/compaction protection (redoing lost
+# work costs more than the boot) and EM-context protection (an inline return would
+# spend more of the dispatching EM's context window than the sidecar convention
+# saves). A surface needs only ONE of the two to earn a sidecar, not both.
+#
+# A surface is REVIEW-EXECUTION tier (sidecar provisioned) only if it satisfies BOTH:
+#   (1) It can fill one. It holds a write tool (Write/Edit). An agent without one can
+#       never author its sidecar, so it can never be review-execution tier — this leg
+#       is mechanical and admits no exception.
+#   (2) Losing the run, or returning it inline, costs more than the boot. Its output
+#       is ANY of:
+#         (a) TRANSPORT — consumed by another agent downstream rather than by the
+#             dispatching EM;
+#         (b) ACCUMULATED across more than one independent unit of work (chunk, file,
+#             source, link, package), such that a mid-run crash or compaction means
+#             redoing work already finished; or
+#         (c) LARGE OR UNBOUNDED PAYLOAD — its output is a table/list/report whose
+#             size scales with the input (findings across N packages, N test
+#             failures) rather than a small fixed-size answer (a verdict, a short
+#             list, a pointer), such that returning it inline costs the dispatching
+#             EM more context than the sidecar convention saves. "Returns a table" is
+#             not itself the test — a short, bounded table is exploration-tier;
+#             unbounded-with-input-size is what makes (c) fire.
+#
+# Everything else is EXPLORATION tier: findings come back inline in the final message
+# and no sidecar is provisioned. The saving is real — a doctrine-carrying dispatch
+# boots at ~45-55k against Explore's ~17.6k — but note the honest constraint: the
+# cheap harness tier (Explore/Plan) has no Edit/Write at all, so "exploration tier"
+# here means "needs no sidecar", not "is automatically re-pointed at Explore".
+#
+# report_sidecar: stays the PROVISIONING TRIGGER (fail-open lookup-miss = "provision
+# nothing"). Every review-execution-tier row here is report_sidecar-eligible; every
+# exploration-tier row here is absent from report_sidecar: — dispatch_tier: makes that
+# classification an explicit, checked artifact instead of something inferable only
+# from report_sidecar:'s membership. coordinator/tests/test_dispatch_tier.py enforces
+# clause (1) structurally: no agent lacking a write tool may be review-execution, and
+# no exploration-tier agent may appear in report_sidecar:.
+#
+# Applying clause (2): two agents fail clause (1) alone (no write tool at all) —
+# coordinator:atlassian-worker, coordinator:drive-worker. The rest are write-capable,
+# so clause (2) decides them. TRANSPORT is read off actual downstream wiring, not
+# guessed: docs-checker/prior-art-checker/plan-coverage-checker all have a dedicated
+# "-consumption" block injected into the six G1 reviewer personas (they read these
+# sidecars as part of their own dispatch contract); external-pattern-checker is the
+# same transport case — its sidecar is consumed downstream by an Opus review, the
+# direct sibling of prior-art-checker's pre-flight-recall-into-Opus-review shape, and
+# its bounded web research is expensive to redo, so splitting it from prior-art-checker
+# would be incoherent; the deep-research scout/specialist/sweep chain (repo-scout,
+# repo-specialist, research-scout, research-specialist, research-worker,
+# notebooklm-research-scout) hands off via an explicit, prompt-documented file
+# convention each downstream teammate reads on startup; the six review personas and
+# the G4 execute-pipeline pair (executor, review-integrator, plus enricher upstream of
+# it) are transport/accumulated by construction. ACCUMULATED covers doc-link-checker
+# (up to 100 sequential network link-checks per dispatch), code-reviewer/
+# code-reviewer-weekly/parallel-review-synthesizer/coverage-auditor (chunked review —
+# crash-safety is the whole point), security-audit-worker (it scans a diff,
+# accumulating findings file by file — a crash midway through a large diff loses every
+# finding already made; the unit count scales with the diff's size, not with a fixed
+# per-agent call budget, so "a handful of bounded tool calls" is the wrong measure for
+# it), and the sweep/synthesizer stage (research-sweep, research-synthesizer,
+# structured-synthesizer — merges N upstream specialists' work, expensive to redo).
+# dep-cve-auditor and test-evidence-parser fail BOTH transport ((a) — no consumption
+# block wired to any downstream agent's own prompt; the EM is the sole direct reader)
+# and accumulation ((b) — each is a single fast local pass, cheap to rerun in full,
+# not the many-independent-unit exposure that leg requires), but both hit clause
+# (2)(c): their own agent bodies hard-require a sidecar (test-evidence-parser
+# pre-scaffolds a findings file and makes exactly one Edit replacing a
+# `<!-- FINDINGS -->` sentinel; dep-cve-auditor's Edit "fails loudly if the sidecar is
+# absent — correct behavior", and an inline summary is "task failure, not a
+# shortcut") and their payload — a triage table across N test failures, or a CVE
+# table across ecosystems — scales with the input rather than being a small
+# fixed-size answer, so returning it inline spends exactly the EM context the
+# sidecar convention exists to avoid.
+dispatch_tier:
+  coordinator:executor: review-execution
+  coordinator:review-integrator: review-execution
+  coordinator:enricher: review-execution
+  coordinator:code-reviewer: review-execution
+  coordinator:code-reviewer-weekly: review-execution
+  coordinator:coverage-auditor: review-execution
+  coordinator:parallel-review-synthesizer: review-execution
+  coordinator:staff-eng: review-execution
+  coordinator:staff-data-sci: review-execution
+  coordinator:senior-front-end: review-execution
+  coordinator:staff-ux: review-execution
+  coordinator:vp-product: review-execution
+  coordinator:eng-director: review-execution
+  coordinator:docs-checker: review-execution
+  coordinator:doc-link-checker: review-execution
+  coordinator:plan-coverage-checker: review-execution
+  coordinator:prior-art-checker: review-execution
+  coordinator:repo-scout: review-execution
+  coordinator:repo-specialist: review-execution
+  coordinator:research-scout: review-execution
+  coordinator:research-specialist: review-execution
+  coordinator:research-sweep: review-execution
+  coordinator:research-synthesizer: review-execution
+  coordinator:research-worker: review-execution
+  coordinator:notebooklm-research-scout: review-execution
+  coordinator:structured-synthesizer: review-execution
+  coordinator:security-audit-worker: review-execution
+  coordinator:external-pattern-checker: review-execution
+  coordinator:atlassian-worker: exploration
+  coordinator:drive-worker: exploration
+  coordinator:test-evidence-parser: review-execution
+  coordinator:dep-cve-auditor: review-execution
+  # no Write/Edit — clause (1) forces exploration tier, same as atlassian-worker/drive-worker
+  coordinator:git-commit-agent: exploration
+
+# contract_blocks:  dict[str, list[str]] — subagent_type -> ORDERED list of
+# canonical snippet block names to assemble and inject into that subagent's
+# dispatch prompt at spawn time. Additive on top of report_sidecar:; every key
+# here MUST name a REAL agent declared under coordinator/agents/*.md (see
+# coordinator/tests/test_contract_blocks.py) — it is NOT required to be
+# report_sidecar-eligible. Decoupled 2026-07-30 (dispatch-tiering, Leg B), same
+# shape as report_type_map:'s own decoupling above: a block that teaches an
+# agent about a provisioned sidecar (provisioned-scaffold-precedence,
+# sidecar-emission-contract, sidecar-frontmatter-contract, run-report-
+# citizenship) belongs only to a report_sidecar-eligible agent, but a block
+# like quota-self-detect-preamble teaches an agent to notice its own quota
+# exhaustion regardless of tier — forcing contract_blocks: keys to equal
+# report_sidecar: would strip that protocol from every exploration-tier agent
+# purely to keep the two lists in lockstep, which is exactly the coupling
+# defect this decoupling closes. Block names are registry.toml snippet names
+# WITHOUT the .md suffix and MUST resolve to a real coordinator/snippets/
+# <name>.md on disk. List ORDER is the emission order — deterministic,
+# asserted by test. A subagent_type absent from this map receives no
+# injection (lookup-miss fail-open, never a blocked spawn). An EMPTY list is
+# legal and means the same. This key's name and value grammar are pinned
+# against the provisioning engine's own `contract_blocks` contract — lockstep,
+# never one-sided.
+#
+# Artifact-type families (report_type_map: shape, not persona identity) —
+# three exist as of 2026-07-26: `review-findings`/`staff-eng-review`-shaped
+# rows get sidecar-frontmatter-contract (G1); `assessment`-shaped G2
+# pre-flight rows get sidecar-emission-contract; `run-report`-shaped rows
+# (executor, review-integrator) get run-report-citizenship. These are three
+# genuinely different sidecar shapes (see run-report-citizenship.md's own
+# header for the discriminating detail) — never force one onto a
+# subagent_type whose deliverable shape doesn't match; an agent that never
+# runs a pre-flight does not carry pre-flight-consumption prose, and an
+# `assessment`-shaped worker outside the G2 plan-pipeline does not carry the
+# G2-specific plan-sidecars path convention (see the G5 rows' own comment
+# below for a concrete instance of that discrimination).
+#
+# G1 (reviewer-persona shared contract) rows: the six named Opus-tier reviewer
+# personas. DEFAULT-TO-ALL-TO-ALL (seam adjudication / G1 C2, F9 the Director of Engineering): the
+# universal-safe blocks — persona-dispatch-contract (front of the ordered
+# list — defines the base ReviewOutput envelope every persona-specific delta
+# extends, so it must resolve before them), reviewer-calibration,
+# quota-self-detect-preamble, sidecar-frontmatter-contract, the pre-flight
+# trio (docs-checker-consumption, prior-art-check-consumption,
+# plan-coverage-check-consumption; inert when a persona never receives that
+# pre-flight sidecar), and persona-persisting-findings (persist-to-disk
+# mechanics, positioned last as a downstream-of-sidecar-path concern) —
+# default to all six. reviewer-calibration is the one block excluded
+# per-persona, and ONLY where a STATED behavioral reason exists (burden of
+# argument sits on the exclusion, not the inclusion): staff-ux (the UX Reviewer) runs a
+# flow/step-based finding shape, not the fix-vs-ask rubric; vp-product (the VP-Product Reviewer)
+# runs a product-lens voice, not the fix-vs-ask rubric. Both personas would
+# be behaviorally misled by the rubric's fix-vs-ask framing, so it is
+# omitted for them; the other four personas (staff-eng, eng-director,
+# staff-data-sci, senior-front-end) receive it. do-not-commit.md and
+# guard-encounter-preamble are NOT injected — they stay RESIDENT (pasted)
+# per C1/F3 and are not contract_blocks entries, for these six or for any
+# subagent_type in any family below — that carve-out is universal, not
+# G1-scoped.
+#
+# 2026-07-26 regression note (G0 leg (b)): persona-dispatch-contract and
+# persona-persisting-findings were added to the six G1 rows above to close a
+# live committed regression — commit 909cc10b (G1 second pass) converted all
+# six personas' pasted blocks to prose references pointing at "the injected
+# X block", but the corresponding contract_blocks/registry.toml wiring never
+# landed in that commit. Between 909cc10b and this fix, dispatching any of
+# the six personas delivered NEITHER the old resident paste (removed) NOR the
+# new injected content (not yet wired) — a silent content-loss window, not a
+# duplication one. See state/subagent-share/g1-second-pass/
+# contract-block-requests.md for the diff-intent this closes.
+#
+# G2 (plan-pipeline sidecar contract) rows: the four pre-flight sidecar-
+# emitters get the single sidecar-emission-contract block (their own path/
+# frontmatter/verdict-floor/return-a-pointer contract — distinct from the
+# reviewer-persona sidecar-frontmatter-contract above).
+#
+# G3/G4/G5 rows (2026-07-26, G0 leg (b) citizenship extension): see the
+# per-block-group comments directly above each group of rows below for the
+# specific reasoning (universal-safe quota-self-detect-preamble win, the new
+# run-report-citizenship family for G4, and the deliberate G5 sidecar-
+# emission-contract non-adoption).
+#
+# The transient-duplication note that used to sit here — "the newly-cited
+# blocks are, for now, ALSO still resident-pasted... a follow-up pass must
+# strip the resident copies" — is RESOLVED as of 2026-07-28. The strip landed
+# (909cc10b and successors); zero of the in-repo consumers for
+# persona-dispatch-contract, persona-persisting-findings, or
+# quota-self-detect-preamble carry a resident sentinel. Those three registry
+# rows were flipped paste -> inject to match, because while they still read
+# "paste" a single `verify-snippet-sync <row> --fix` would have re-inserted
+# 37 blocks into files the strip had already cleaned. Do not restore this note
+# as a live caveat: it read as current long after it stopped being true, which
+# is exactly how the stale declaration survived.
+contract_blocks:
+  coordinator:staff-eng:
+    - persona-dispatch-contract
+    - reviewer-calibration
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  coordinator:eng-director:
+    - persona-dispatch-contract
+    - reviewer-calibration
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  coordinator:staff-data-sci:
+    - persona-dispatch-contract
+    - reviewer-calibration
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  coordinator:senior-front-end:
+    - persona-dispatch-contract
+    - reviewer-calibration
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  coordinator:staff-ux:
+    - persona-dispatch-contract
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  coordinator:vp-product:
+    - persona-dispatch-contract
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+  coordinator:prior-art-checker:
+    - provisioned-scaffold-precedence
+    - sidecar-emission-contract
+    - quota-self-detect-preamble
+  coordinator:plan-coverage-checker:
+    - provisioned-scaffold-precedence
+    - sidecar-emission-contract
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:docs-checker:
+    - provisioned-scaffold-precedence
+    - sidecar-emission-contract
+    - quota-self-detect-preamble
+  coordinator:external-pattern-checker:
+    - provisioned-scaffold-precedence
+    - sidecar-emission-contract
+    - quota-self-detect-preamble
+  # enricher gets quota-self-detect-preamble ONLY — deliberately NOT
+  # sidecar-emission-contract. enricher edits the plan/stub body in-place by
+  # charter and is explicitly not a sidecar emitter
+  # (coordinator/agents/enricher.md:20 — "Do not provision or write a
+  # `.X-check.md` sidecar"). The quota block is universal-safe and applies
+  # regardless of sidecar-emission status.
+  coordinator:enricher:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is
+  # the one universal-safe block these 8 already carry RESIDENT (pasted) in
+  # every agent file — no per-agent behavioral variance, same content
+  # everywhere, so it is the one candidate for blanket contract_blocks
+  # citizenship per the G3 second-pass executor's own recommendation
+  # (state/subagent-share/g3-second-pass/contract-block-requests.md Request
+  # 1). NOTE — transient duplication: the hot-file protocol for this pass
+  # forbids editing coordinator/agents/*.md, so these 8 files still ALSO
+  # carry the resident paste; a follow-up pass must strip it once this row
+  # exists, the same two-step G3 itself asked for ("land both halves... in
+  # the same EM-serial commit") but split across two dispatches because the
+  # wiring and the agent-file edit are on opposite sides of the hot-file
+  # boundary this wave. subagent-sandbox-preamble (Request 2, G3) is NOT
+  # added here — it is a separate resident-paste VARIANT mechanism (its own
+  # verify-subagent-sandbox-preamble-sync.py, not registry.toml/
+  # contract_blocks), and G3 itself flagged an unresolved injection-order
+  # caveat for 2 of these 8 (parallel-review-synthesizer, coverage-auditor
+  # carry a per-agent disambiguating override note above it) — left for a
+  # dedicated pass, not blanket-added here.
+  coordinator:code-reviewer:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+    - review-findings-body-contract
+  # review-findings-body-contract NOT added here: code-reviewer-weekly's
+  # Verdict enum / Output structure sections are NOT byte-identical to
+  # code-reviewer's (different wording throughout, plus weekly-only fields —
+  # escalate_to_architecture, Architecture-tier escalation flag,
+  # Cross-chunk observations) — confirmed by direct read, not assumed.
+  # See docs/plans/2026-08-06-route-findings-body-residue-through-contract-blocks.md § C2.
+  coordinator:code-reviewer-weekly:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+  coordinator:parallel-review-synthesizer:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:security-audit-worker:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  # dep-cve-auditor / test-evidence-parser: review-execution tier (see
+  # dispatch_tier: above, clause (2)(c) — payload size / EM-context protection),
+  # so provisioned-scaffold-precedence applies exactly as it does for the other
+  # G3 rows in this group.
+  coordinator:dep-cve-auditor:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+  coordinator:test-evidence-parser:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+  coordinator:coverage-auditor:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:doc-link-checker:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+  # G4 (execute-pipeline, 2nd pass) rows: the third contract_blocks
+  # artifact-type family (run-report-citizenship — see that snippet's own
+  # header for why it is not a shoehorn onto sidecar-frontmatter-contract or
+  # sidecar-emission-contract), plus the same universal-safe
+  # quota-self-detect-preamble both already carry RESIDENT (same transient-
+  # duplication note as the G3 rows above applies here too).
+  coordinator:executor:
+    - provisioned-scaffold-precedence
+    - run-report-citizenship
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  coordinator:review-integrator:
+    - provisioned-scaffold-precedence
+    - run-report-citizenship
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  # G5 (deep-research pipeline, 2nd pass) rows: same universal-safe
+  # quota-self-detect-preamble win as G3/G4 — all 9 already carry it
+  # RESIDENT (same transient-duplication note applies). No G2-style
+  # sidecar-emission-contract analog is added here: that block's path
+  # convention (state/plan-sidecars/<plan-stem>.<lens>.md) is specific to
+  # the G2 plan-pipeline pre-flight emitters, not these research/assessment
+  # workers, which already get the correct path convention from their own
+  # resident subagent-sandbox-preamble VARIANT:assessment paste — adding
+  # sidecar-emission-contract here would force a G2-specific shape onto
+  # agents whose deliverable genuinely differs.
+  #
+  # disk-first-protocol added 2026-07-26 (coverage-gap close): the fourth
+  # contract_blocks artifact family, the early-write-probe + growth-check
+  # discipline for this same G5 9-agent family. Prior to this addition it was
+  # pasted resident in only 2 of the 9 (repo-scout, repo-specialist); the
+  # other 7 — including the two Haiku scouts (research-scout,
+  # notebooklm-research-scout) — carried none of it despite being squarely
+  # in the ~30%-Haiku TEXT-ONLY-hallucination risk population named in
+  # `coordinator/snippets/em-operating-doctrine.md § Extensions to coordinator defaults — EM-only
+  # clauses` ("Scouts: disk-first"). Additive to
+  # the three still-resident blocks (text-only-recovery-preamble,
+  # guard-encounter-preamble, subagent-sandbox-preamble) — see
+  # snippets/disk-first-protocol.md's own header for the discrimination.
+  coordinator:research-scout:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+  coordinator:research-specialist:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:research-sweep:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:research-synthesizer:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+  coordinator:research-worker:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:repo-scout:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:repo-specialist:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:structured-synthesizer:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
+  coordinator:notebooklm-research-scout:
+    - provisioned-scaffold-precedence
+    - disk-first-protocol
+    - quota-self-detect-preamble
+  # atlassian-worker / drive-worker: quota-self-detect-preamble ONLY, restored
+  # 2026-07-30 same-day fix (code-reviewer finding #2 on the dispatch-tiering
+  # diff). Both are exploration tier (see dispatch_tier: above) and absent
+  # from report_sidecar: — neither gets a provisioned sidecar, so neither
+  # carries provisioned-scaffold-precedence or any other sidecar-family block.
+  # But quota-self-detect-preamble applies regardless of tier (it teaches an
+  # agent to notice its own quota exhaustion, not to fill a sidecar), and both
+  # are MCP-tool-heavy retrieval workers making live Atlassian/Drive API calls
+  # over plausibly long sessions — the exact population that block protects.
+  coordinator:atlassian-worker:
+    - quota-self-detect-preamble
+  coordinator:drive-worker:
+    - quota-self-detect-preamble
+
+# bash_policy:  dict[str, dict] — subagent_type -> a mapping describing that
+# subagent_type's allowed Bash surface. Sibling of report_sidecar: /
+# report_type_map: / contract_blocks: above — same file, same exact-string
+# subagent_type key convention, same fail-open-on-lookup-miss posture. EXACT
+# STRING MATCH — no globbing. Consumed by the provisioning engine's own
+# policy loader (its `Policy.bash_policy` field, added in lockstep) and,
+# downstream, by the reviewer Bash guard. This key's name and value grammar
+# are pinned against that engine's `bash_policy` contract — any
+# change to the key name or value grammar here is a breaking drift against
+# that pinned contract and must be relayed to the engine side in lockstep,
+# exactly as report_sidecar:/contract_blocks: already require.
+#
+# Fail-open at the LOADER: an absent bash_policy: key, a non-dict top-level
+# value, a non-dict per-key value, or a lookup-miss on a subagent_type not
+# listed here all resolve to "no policy for this type" — never a parse
+# failure, never a blocked spawn. This mirrors report_sidecar:'s fail-open
+# contract exactly. The GUARD's miss-behaviour is the opposite of the
+# loader's — a policy lookup-miss at the guard falls back to the guard's
+# PRIOR hardcoded enforcement (AC11), never to ALLOW. These are two different
+# layers with two different correct defaults: an eligibility lookup
+# (report_sidecar:) degrading to "provision nothing" is harmless; a deny-
+# guard's lookup degrading to "permit everything" is not. Do not conflate
+# them when reading or extending this key.
+#
+# Two-class posture — read this before adding a row for a new subagent_type.
+# There are exactly two classes of Bash surface in this fleet, not a spectrum:
+# confined findings-agents (code-reviewer today, any future silent-corruption-
+# risk peer tomorrow) get a row here and a real allowlist; every other
+# subagent_type, executor included, is NOT a confined type and gets no row —
+# not an empty one, not a wide-open one, none at all. A lookup-miss for a
+# non-confined type is not a gap to be closed by adding a row "to be safe";
+# it is the correct, intended state under the ruling that removed the
+# executor carve-out from the confined set. If you are asking "should I add a
+# row for type X," the question that actually gates it is "is X a confined
+# findings-agent," not "does X run Bash" — most subagent_types that run Bash
+# belong in the second class and stay off this key entirely.
+#
+# Generality (AC10): a second CONFINED subagent_type is a plain additional row
+# under bash_policy: — no code change, no new top-level key, exactly the same
+# extension shape report_sidecar:/report_type_map:/contract_blocks: already
+# use. For example, adding a second confined findings-agent class would look
+# like:
+#
+#   bash_policy:
+#     coordinator:code-reviewer:
+#       ...
+#     coordinator:some-other-confined-agent:   # <- a plain additional row
+#       ...
+#
+# This is documentation of the shape only — the empirical two-row proof
+# (a fixture policy carrying two bash_policy rows for two distinct
+# subagent_type keys, each resolving independently with no cross-leak) lives
+# in the provisioning engine's own loader test, not here — a
+# header-comment-only demonstration is unfalsifiable.
+#
+# --- Negative spec: Bash ONLY, no write/edit leg, ever ---
+#
+# `bash_policy:` governs the Bash tool surface for a confined subagent_type.
+# It MUST NEVER carry a Write/Edit/MultiEdit-shaped grammar — no `deny:`,
+# `write:`, `edit:`, `sanctioned_dirs:`, `confined:`, or `exempt:` key at any
+# depth under any subagent_type row. That is not a stylistic preference; it
+# is a deliberate, PM-directed ruling that REMOVED exactly this grammar — the
+# `confined:`/`exempt:`/`sanctioned_dirs:` deny keys this file used to carry
+# governed Write/Edit, not Bash, and were killed end-to-end (the doctrine
+# side, the enforcement engine, and this file's own keys) because the
+# confinement overrode the EM's own dispatch intent for no measurable safety
+# gain: a doctrine-sweep worker blocked mid-task by a hook the task text
+# could not override, with no corresponding incident it had actually
+# prevented. The revisit trigger for that ruling is narrow and has NOT
+# fired: reopening a write/edit leg requires a CONCRETE incident where a
+# reviewer (or other confined agent) silently corrupted source that the EM's
+# own `git diff` review missed — i.e. a case where the confinement would
+# have prevented real harm, not merely friction. Even if that trigger fires,
+# the ruling itself scopes any reintroduction to the reviewer class ONLY
+# (never `general-purpose`/`executor`) and forbids it from ever blocking a
+# write the EM explicitly delegated. Until that trigger fires, adding a
+# write/edit leg here is not a local editorial call — it is a doctrine
+# reversal, and the ruling stays in force regardless of how inconvenient its
+# absence feels to a future session.
+#
+# Two further points govern *why* this negative-spec is legible as a rule
+# rather than a bare assertion, and *why* this file — not the engine that
+# reads it — is the correct place to enforce it:
+#
+#   The general doctrine↔engine file-of-authority rule holds here:
+#   doctrine owns the rules, the engine owns the machine that honors them.
+#   `bash_policy:`'s declared grammar (this YAML) is contract/data and
+#   belongs in doctrine; the engine that reads and enforces it (the
+#   provisioning engine's policy loader, and the reviewer Bash guard's
+#   consumption of it) is machine and belongs on the engine side. The split
+#   across the two sides for this same feature is a direct instance of that
+#   cut, not an arbitrary one.
+#
+#   The general doctrine-reversal discipline also holds: a settled ruling is
+#   legitimately reversed only by naming a genuinely NEW fact its original
+#   deciders did not have, never by restating a disagreement they already
+#   considered and decided anyway. It is what makes "adding a write/edit leg
+#   here would not reverse the ruling above without new evidence" a
+#   checkable rule instead of an assertion a future editor can talk
+#   themselves past — the concrete incident named above is exactly the kind
+#   of new fact required before that ruling may be reopened.
+#
+# Gate: this comment states the WHY; coordinator/tests/test_bash_policy_no_write_leg.py
+# is the WHETHER — it asserts both that this file's bash_policy: subtree
+# carries no write/edit-shaped key at any depth, and that the engine's
+# policy class exposes no such field. A future session that adds a
+# `deny:`/`write:`/`edit:`/`sanctioned_dirs:`/`confined:`/`exempt:` key here
+# specifically because it wants to route around this comment will fail that
+# test, not just read past this prose.
+#
+  # atlassian-worker / drive-worker: SUPERSEDED 2026-07-30 (dispatch-tiering, Leg
+  # B), then amended same-day (code-reviewer finding #2). Both used to be
+  # report_sidecar-eligible (assessment-typed) and carried the universal
+  # precedence block as their only contract text, since no family shape block
+  # applied to these read-only MCP workers. Both are now exploration tier (see
+  # dispatch_tier: above) and absent from report_sidecar: — no sidecar is
+  # provisioned, so neither carries provisioned-scaffold-precedence or any
+  # other sidecar-family block any more. Their contract_blocks rows were not
+  # left empty, though: both still carry quota-self-detect-preamble (see that
+  # row, above, in the contract_blocks: section) — that block is tier-
+  # agnostic and applies to these two MCP-heavy retrieval workers regardless.
+bash_policy:
+  coordinator:code-reviewer:
+    # Faithful transcription of code-reviewer's CURRENT allowlist as data —
+    # not a redesign — pinned by the engine-side reviewer Bash guard's own
+    # test suite against its allowlist-enforcement logic.
+    # Bash only. No Write/Edit/MultiEdit surface is or was ever expressed
+    # here — see the negative-spec block above.
+    #
+    # Tier A — read-only git inspection: subcommand allowlist (deny-by-
+    # omission — commit/push/add/checkout/stash/reset/config/etc. are all
+    # absent from this list and therefore denied).
+    git_readonly_subcommands:
+      - show
+      - diff
+      - log
+      - status
+      - blame
+      - ls-files
+      - rev-parse
+      - describe
+    # Tier A — git global options allowed BEFORE the subcommand. Deliberately
+    # excludes -c (arbitrary git-config injection, e.g. -c core.pager=evil)
+    # and --exec-path/--paginate — all write/exec-capable global options.
+    git_global_options:
+      value_taking:
+        - "-C"
+        - "--git-dir"
+        - "--work-tree"
+      no_value:
+        - "--no-pager"
+        - "--literal-pathspecs"
+    # Tier A — options denied on an otherwise-read-only git subcommand.
+    # --output/-o write to an arbitrary caller-chosen file; --ext-diff
+    # enables an external diff driver (arbitrary command execution via
+    # diff.<driver>.command config).
+    git_subcommand_denied_options:
+      - "--output"
+      - "-o"
+      - "--ext-diff"
+    # Tier A — read-only filesystem enumeration/inspection/search binaries.
+    readonly_fs_binaries:
+      - ls
+      - cat
+      - head
+      - tail
+      - wc
+      - find
+      - file
+      - stat
+      - grep
+    # Tier A — find flags denied even though find itself is read-only-tier.
+    find_denied_options:
+      - "-delete"
+      - "-exec"
+      - "-execdir"
+      - "-ok"
+      - "-okdir"
+      - "-fprint"
+      - "-fprintf"
+      - "-fls"
+    # Both tiers — unquoted shell-chaining metacharacters that deny
+    # regardless of tier (checked before either tier is evaluated).
+    denied_metacharacters:
+      - ";"
+      - "&&"
+      - "||"
+      - "|"
+      - "`"
+      - "$("
+      - ">"
+      - "<"
+      - "&"
+    # Tier B — the one allowlisted scaffolder command + its required
+    # argument (word-boundary match, not substring).
+    scaffolder_binary: coordinator-doc-new
+    scaffolder_required_arg: "--type review-findings"

@@ -1,0 +1,579 @@
+#!/usr/bin/env python3
+"""
+plan-tasks-resolve — CLI trampoline over claude-klabauter's plan.tasks.mutate 'resolve'
+verb, exposing the five-exit disposition model on PATH for the first time.
+
+Purpose: plan.tasks.mutate's resolve verb (coordinator_core/ops/
+plan_tasks_mutate.py) already implements the exit model the PM asked for, but
+has no main(), no argparse, and no coordinator/bin/ trampoline — the only
+invocation seam was a hand-composed JSON-RPC blob. Across 643 plan-tasks rows
+in 74 plan files, that unreachability produced 0 backlogged and 0 wont_do
+dispositions. This trampoline is the fix: it holds NO domain logic of its
+own (mirrors coordinator/bin/handoff-carry-gate's "the trampoline resolves
+CLAUDE_KLABAUTER_ROOT/repo_root and calls into coordinator_core" shape) — every gate
+(pm_approved, grouping-approval digest, disposition_detail requirement, D5
+ordering, disposition_ref shape) is enforced by the op itself.
+
+No shebang line (POSIX-EXEC-ASSUMPTION-GUARD, 2026-07-28 PM ruling) — this is
+a bare extensionless polyglot entrypoint, invoked via its own
+coordinator/bin/plan-tasks-resolve.cmd Windows launcher (which resolves a
+Python interpreter and runs this file directly) or via an explicit
+python coordinator/bin/plan-tasks-resolve ... call on POSIX. Modeled on
+coordinator/bin/handoff-carry-gate's "trampoline resolves CLAUDE_KLABAUTER_ROOT/
+repo_root and calls into coordinator_core" shape.
+
+The five exits after the 2026-08-05 DoE ruling
+(cross-repo/inbox/2026-08-05-doe-claude-em-plan-tasks-five-exits-ruling.md;
+docs/plans/2026-08-05-make-the-five-exit-plan-tasks-resolver-r.md):
+
+  --coded <sha>            -> disposition: coded      (no PM word needed)
+  --spun-off <ref>         -> disposition: spun_off    (no PM word needed —
+                               DoE relaxed the pm_approved gate at bd0475fd5,
+                               schema 1.4.0: moving work drops no scope)
+  --moved-to <plan-path>   -> disposition: spun_off with an EXISTING target
+                               plan (no PM word needed — same relaxation;
+                               DoE's ruling: "spun_off with a pre-existing
+                               target", not a sixth disposition value)
+  --backlogged             -> disposition: backlogged  (PM WORD REQUIRED —
+                               retained by PM ruling: "I want to be able to
+                               weigh in on backlogged vs won't do.")
+  --wont-do                -> disposition: wont_do     (PM WORD REQUIRED —
+                               same PM ruling)
+
+Every row takes --id and --plan. --id is repeatable (--id C1 --id C2 ...)
+for --coded ONLY (2026-08-06, cross-repo/inbox/2026-08-06-doe-claude-em-
+deferrals-both-sides-landed-revendor-and-a-resolve-ergonomics-bug.md), so a
+full-plan close-out batch resolves in one atomic op call instead of N
+independent partial writes — "these N rows are implemented" is genuinely one
+shared statement. Every other exit's --disposition-detail/--case-against (or
+--spun-off/--moved-to's --disposition-ref) is PER-ROW rationale, and sharing
+one such string across ids would silently launder distinct decisions into
+one, so a multi-id call against any other exit is refused locally, naming
+the alternative (one call per row). --disposition-detail is REQUIRED for all
+five exits, --coded included (D2/D3/D4: the rationale — for --coded this is
+evidence of work done rather than a scope decision, but every row leaving
+'open' still has to say why, never a synthesised placeholder) — enforced
+here at the CLI layer even though the underlying resolve verb's own
+enforcement of the wont_do leg may still be mid-landing on a peer chunk as
+this ships.
+
+--moved-to is spun_off with an existing target (DoE's ruling; no schema
+change) — it is NOT a sixth disposition. Workflow:
+  1. Read the SOURCE row (plain local file read, no lock — this repo's own
+     plan.tasks.mutate verb has no "read one row" surface, so this mirrors
+     plan-tasks-grouping-digest.py's "plain local read, direct import, no
+     JSON-RPC round-trip" precedent for a read-only lookup).
+  2. add-task the row's content (its disposition fields stripped — the row
+     starts OPEN on the target plan) onto the target plan via
+     plan.tasks.mutate.
+  3. Resolve the SOURCE row to spun_off, disposition_ref = the target
+     plan's own path (a single repo-relative path, matching every other
+     spun_off ref's shape — _dispatch_spun_off in plan_tasks_mutate.py
+     verifies it resolves to a real file, which the target plan already is).
+
+Step 2's add-task response is parsed for the id it ACTUALLY wrote (never
+the caller-proposed id trusted blindly) — mirrors _dispatch_backlogged
+computing its own disposition_ref from the harvest dispatch's real result
+rather than a caller's prediction (DoE's ruling explicitly names this
+pattern). add-task does not mint ids today (duplicate id -> abort, no
+silent rename), so this is defensive-forward, not dead code: if a future
+add-task legitimately mints a non-colliding id, this trampoline already
+detects the divergence and folds it into disposition_detail rather than
+silently recording a fact ("moved to <plan>") that would then be wrong about
+which row it moved to.
+
+The two PM-gated exits refuse with a message naming what the EM should ask
+the PM for (op-side _LEGACY_PM_APPROVAL_HINT/_GROUPING_APPROVAL_HINT,
+surfaced verbatim through RouteMutationError) — this trampoline does not
+invent its own refusal text, and carries NO bypass flag, env override, or
+--force. That gate is deliberate and retained by PM ruling.
+
+Usage:
+  plan-tasks-resolve --id <row-id> --plan <plan-path> <ONE exit flag> \\
+      --disposition-detail "<why>"
+
+Exit codes:
+  0 — resolve (and, for --moved-to, the preceding add-task) applied.
+  1 — op-level refusal (MutateAbort: unknown id, PM gate ungated, missing
+      disposition_detail, D5 ordering violation, bad disposition_ref, ...) or
+      plan/row not found.
+  2 — usage error (bad args, more than one exit flag, missing
+      --disposition-detail on a gated exit) or transport failure (CLAUDE_KLABAUTER_ROOT
+      unresolvable, coordinator_core.invoke seam absent/broken).
+
+Spec backlink: coordinator_core/ops/plan_tasks_mutate.py (resolve verb)
+Spec backlink: docs/plans/2026-08-05-make-the-five-exit-plan-tasks-resolver-r.md § C5
+"""
+from __future__ import annotations
+
+import argparse
+import ast
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+import cc_invoke  # noqa: E402
+
+# Windows: suppresses the console popup a subprocess.run(...) would otherwise
+# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+_OP = "plan.tasks.mutate"
+
+# Dispositions that require a non-empty --disposition-detail at the CLI layer.
+# EVERY non-open disposition needs one, `coded` included. plan_tasks_mutate.py's
+# `_PLAN_TASKS_DETAIL_REQUIRED_DISPOSITIONS` covers only the three closed exits
+# (D2/D4), but the shared disposition-shape check refuses any non-open row with
+# an empty detail — "Every disposition other than 'open' requires
+# disposition_detail naming the rationale." Mirroring the narrower constant here
+# let `--coded` past the CLI and into a server-side refusal, so this set is
+# deliberately WIDER than the one it used to mirror.
+_DETAIL_REQUIRED_DISPOSITIONS = frozenset(
+    {"coded", "spun_off", "backlogged", "wont_do"}
+)
+
+# The two exits the PM retained at the 2026-08-05 ruling — they are where work
+# actually gets dropped, and choosing between them is the whole decision.
+# Mirrors schema_validate.py's `_PLAN_TASKS_PM_APPROVAL_GATED_DISPOSITIONS`.
+# Used only to word refusals accurately; the gate itself is enforced server-side.
+_PM_GATED_DISPOSITIONS = frozenset({"backlogged", "wont_do"})
+
+# Dispositions that require a non-empty --case-against at the CLI layer
+# (leg 1, 2026-08-06, plan docs/plans/2026-08-06-deferrals-carry-both-sides.md)
+# — the SAME two scope-cut exits as _PM_GATED_DISPOSITIONS. Where
+# --disposition-detail carries the case FOR this exit, --case-against
+# carries the strongest honest case for doing the work now, so the PM sees
+# both sides rather than an ID list the EM has already convinced itself of.
+# The underlying resolve verb's own `_PLAN_TASKS_CASE_AGAINST_REQUIRED_
+# DISPOSITIONS` is the real enforcement; this mirrors it here only to fail
+# fast with a usage error instead of a round-trip refusal.
+_CASE_AGAINST_REQUIRED_DISPOSITIONS = frozenset({"backlogged", "wont_do"})
+
+# The offer-shaped refusal for a multi-id call against any exit other than
+# --coded (leg 2, cross-repo/inbox/2026-08-06-doe-claude-em-deferrals-both-
+# sides-landed-revendor-and-a-resolve-ergonomics-bug.md). --coded is the one
+# exit where "these N rows are implemented" is genuinely a single shared
+# statement — every other exit's --disposition-detail/--case-against (or, for
+# --spun-off/--moved-to, --disposition_ref) is PER-ROW rationale, and a
+# repeatable --id sharing one such string would silently launder N distinct
+# decisions into one. Named here, not just enforced, per the dispatch brief's
+# "name WHY, and name the alternative" instruction.
+_MULTI_ID_ONLY_FOR_CODED_MESSAGE = (
+    "repeatable --id is only offered for --coded — {disposition!r} needs "
+    "PER-ROW rationale (each row's case for and against is the whole point "
+    "of this disposition), and a shared --disposition-detail/--case-against "
+    "across multiple ids would silently launder distinct decisions into one. "
+    "Make one call per row instead."
+)
+
+_EPILOG = """\
+Repeatable --id (--id C1 --id C2 ...) is accepted for --coded ONLY — "these
+rows are implemented" is genuinely one shared statement, sent as a single
+atomic batch. Every other exit needs PER-ROW rationale and refuses more than
+one --id; make one call per row instead.
+
+The five exits (2026-08-05 DoE ruling):
+
+  --coded <sha>            -> disposition: coded      (no PM word needed)
+  --spun-off <ref>         -> disposition: spun_off    (no PM word needed)
+  --moved-to <plan-path>   -> disposition: spun_off with an existing target
+                               (no PM word needed)
+  --backlogged             -> disposition: backlogged  (PM WORD REQUIRED)
+  --wont-do                -> disposition: wont_do     (PM WORD REQUIRED)
+
+--disposition-detail is REQUIRED for every exit, --coded included: the
+rationale, not a synthesised placeholder. Any row leaving 'open' has to say
+why in prose — the SHA records what shipped, the detail records what it was.
+
+--case-against is REQUIRED for --backlogged and --wont-do (the two PM-word
+exits, and the only two that actually cut scope — nothing leaves the corpus
+on --spun-off/--moved-to, so there is no cut to argue against): the
+strongest honest case for doing the work now, not a strawman. Where
+--disposition-detail carries the case FOR this exit, --case-against carries
+the case AGAINST, so the PM is shown a real decision, not an ID list the EM
+has already convinced itself of.
+
+Examples:
+  plan-tasks-resolve --id C7 --plan docs/plans/foo.md --coded a1b2c3d
+  plan-tasks-resolve --id C7 --plan docs/plans/foo.md --spun-off \\
+      docs/spinoffs/2026-08-05-foo.md --disposition-detail "split out"
+  plan-tasks-resolve --id C7 --plan docs/plans/foo.md \\
+      --moved-to docs/plans/bar.md --disposition-detail "folded into bar"
+  plan-tasks-resolve --id C7 --plan docs/plans/foo.md --backlogged \\
+      --disposition-detail "PM: defer to next quarter" \\
+      --case-against "nothing blocks on it, but it fixes a real papercut"
+  plan-tasks-resolve --id C7 --plan docs/plans/foo.md --wont-do \\
+      --disposition-detail "PM: superseded by bar" \\
+      --case-against "closest thing to a safety net if bar regresses"
+"""
+
+
+def _resolve_repo_root() -> str:
+    """Resolve the CALLER's repo root — mirrors every sibling trampoline's
+    shape (query-records.py/lib/records_query.py, append-plan-session.py,
+    prune-closed-bugs.py, sweep-boot.py, emit-cockpit-snapshot.py): `git
+    rev-parse --show-toplevel` from cwd, falling back to os.getcwd() on any
+    git failure. This is the CALLER's own repo (route_mutation's third
+    positional), never claude-klabauter's own checkout.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            creationflags=_NO_WINDOW,
+        )
+        resolved = (proc.stdout or "").strip()
+        if proc.returncode == 0 and resolved:
+            return resolved
+    except OSError:
+        pass
+    return os.getcwd()
+
+
+def _no_legacy() -> None:
+    """State-1 (seam-absent) handler — claude-klabauter is a mandatory
+    coordinator dependency; there is no legacy body to fall back to."""
+    raise RuntimeError(
+        "plan-tasks-resolve: coordinator_core.invoke seam absent — no legacy "
+        "path exists for plan.tasks.mutate. Verify CLAUDE_KLABAUTER_ROOT and the "
+        "claude-klabauter coordinator_core install."
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="plan-tasks-resolve",
+        description=(
+            "Resolve a plan '## Tasks' spine row to one of five terminal "
+            "exits via plan.tasks.mutate's resolve verb."
+        ),
+        epilog=_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--id",
+        action="append",
+        dest="task_ids",
+        default=[],
+        help=(
+            "the task row's id — repeatable (--id C1 --id C2 ...) for "
+            "--coded ONLY, to resolve a whole batch in one atomic call; "
+            "every other exit requires per-row rationale and rejects "
+            "more than one --id"
+        ),
+    )
+    parser.add_argument(
+        "--plan", required=True, dest="plan_path", help="path to the plan file (docs/plans/...)"
+    )
+    parser.add_argument(
+        "--disposition-detail",
+        dest="disposition_detail",
+        default=None,
+        help=(
+            "the rationale for this exit — REQUIRED for all five, "
+            "--coded included"
+        ),
+    )
+    parser.add_argument(
+        "--case-against",
+        dest="case_against",
+        default=None,
+        help=(
+            "the strongest honest case for doing the work now — REQUIRED "
+            "for --backlogged/--wont-do only (the two scope-cut exits); "
+            "the both-sides counterpart to --disposition-detail"
+        ),
+    )
+
+    exits = parser.add_mutually_exclusive_group(required=True)
+    exits.add_argument("--coded", dest="coded", metavar="SHA", help="disposition: coded")
+    exits.add_argument("--spun-off", dest="spun_off", metavar="REF", help="disposition: spun_off")
+    exits.add_argument(
+        "--moved-to",
+        dest="moved_to",
+        metavar="PLAN_PATH",
+        help="disposition: spun_off, with an existing target plan",
+    )
+    exits.add_argument(
+        "--backlogged", dest="backlogged", action="store_true", help="disposition: backlogged"
+    )
+    exits.add_argument(
+        "--wont-do", dest="wont_do", action="store_true", help="disposition: wont_do"
+    )
+    return parser
+
+
+def _selected_disposition(args: argparse.Namespace) -> tuple[str, str | None]:
+    """Return (disposition, disposition_ref) for whichever exit flag was given.
+
+    The mutually exclusive group (required=True) already guarantees exactly
+    one of the five was supplied.
+    """
+    if args.coded is not None:
+        return "coded", args.coded
+    if args.spun_off is not None:
+        return "spun_off", args.spun_off
+    if args.moved_to is not None:
+        return "spun_off", None  # disposition_ref computed by _do_moved_to
+    if args.backlogged:
+        return "backlogged", None
+    return "wont_do", None
+
+
+def _parse_written_id(message: str, fallback: str) -> str:
+    """Extract the id add-task's own response reports it actually wrote.
+
+    `_add_task`'s success message ends `added task {task['id']!r}` (Python
+    repr, single- or double-quoted depending on the id's own content) — parsed
+    via `ast.literal_eval` on the trailing token rather than a bare strip of
+    quote characters, so an id containing an apostrophe round-trips correctly.
+    Falls back to `fallback` (the id this trampoline proposed) if the message
+    does not match the expected shape — add-task's own response is still the
+    source of truth on the happy path this defends; failing back to the
+    caller's own proposal is a diagnostic degrade, not a silent success claim.
+    """
+    marker = "added task "
+    idx = message.rfind(marker)
+    if idx == -1:
+        return fallback
+    token = message[idx + len(marker):].strip()
+    try:
+        parsed = ast.literal_eval(token)
+    except (ValueError, SyntaxError):
+        return fallback
+    return parsed if isinstance(parsed, str) and parsed else fallback
+
+
+def _read_source_row(plan_path: str, task_id: str, repo_root: str) -> dict:
+    """Read the SOURCE row's current fields via a plain local file read.
+
+    Read-only lookup — no lock is taken, no write occurs. Mirrors
+    plan-tasks-grouping-digest.py's own "plain local read, direct import, no
+    JSON-RPC round-trip" precedent: `plan.tasks.mutate` has no "read one row"
+    verb, so a --moved-to add-task call needs the row's content from disk
+    directly, in-process, via the same locator the mutate op itself uses
+    (coordinator_core.frontmatter.body_blocks.locate_fenced_block) — never a
+    second hand-rolled fence-locate implementation.
+
+    Raises RuntimeError (never returns a partial/None) on any resolution
+    failure: CLAUDE_KLABAUTER_ROOT unresolvable, plan not found, spine malformed/
+    absent, or the id not present in the spine.
+    """
+    claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    import yaml
+    from coordinator_core.frontmatter.body_blocks import LocateStatus, locate_fenced_block
+
+    p = Path(plan_path)
+    if not p.is_absolute():
+        p = Path(repo_root) / p
+    try:
+        text = p.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"plan-tasks-resolve: cannot read plan {plan_path!r}: {exc}") from exc
+
+    result = locate_fenced_block(text)
+    if result.status is not LocateStatus.LOCATED:
+        raise RuntimeError(
+            f"plan-tasks-resolve: task spine in {plan_path!r} is absent or malformed "
+            "— cannot read source row for --moved-to"
+        )
+    rows = yaml.safe_load(result.body) or []
+    if not isinstance(rows, list):
+        raise RuntimeError(f"plan-tasks-resolve: task spine body in {plan_path!r} is not a list")
+    for row in rows:
+        if isinstance(row, dict) and row.get("id") == task_id:
+            return dict(row)
+    raise RuntimeError(f"plan-tasks-resolve: task id {task_id!r} not found in {plan_path!r}")
+
+
+# Fields resolve's write path owns exclusively (D4) — stripped from the row
+# copied onto the target plan so the moved row starts OPEN there, mirroring
+# `plan_tasks_mutate._STAMP_RESERVED_DISPOSITION_FIELDS`.
+_RESERVED_DISPOSITION_FIELDS = frozenset({"disposition", "disposition_ref", "disposition_detail"})
+
+
+def _do_moved_to(
+    task_id: str,
+    plan_path: str,
+    moved_to_path: str,
+    disposition_detail: str,
+    repo_root: str,
+) -> dict:
+    """Apply the --moved-to exit: add-task onto the target plan, then resolve
+    the source row to spun_off with the target plan itself as disposition_ref.
+
+    See module docstring's --moved-to section for the full rationale.
+    """
+    source_row = _read_source_row(plan_path, task_id, repo_root)
+    task = {k: v for k, v in source_row.items() if k not in _RESERVED_DISPOSITION_FIELDS}
+    proposed_id = task.get("id", task_id)
+
+    add_result = cc_invoke.route_mutation(
+        _OP,
+        {"verb": "add-task", "plan_path": moved_to_path, "task": task},
+        repo_root,
+        _no_legacy,
+    )
+    message = add_result.get("message", "") if isinstance(add_result, dict) else ""
+    written_id = _parse_written_id(message, proposed_id)
+
+    final_detail = disposition_detail
+    if written_id != proposed_id:
+        final_detail = (
+            f"{disposition_detail} (moved to {moved_to_path!r} as task "
+            f"{written_id!r}, not the proposed id {proposed_id!r})"
+        )
+
+    try:
+        return cc_invoke.route_mutation(
+            _OP,
+            {
+                "verb": "resolve",
+                "plan_path": plan_path,
+                "id": task_id,
+                "disposition": "spun_off",
+                "disposition_ref": moved_to_path,
+                "disposition_detail": final_detail,
+            },
+            repo_root,
+            _no_legacy,
+        )
+    except cc_invoke.RouteMutationError as exc:
+        # Review: code-reviewer (Finding 1) — add-task onto the target plan
+        # already applied by this point; a resolve failure here is a PARTIAL
+        # mutation, not a plain refusal. Re-raise with the target plan/id
+        # named so the operator isn't left to discover the duplicate row on
+        # a naive retry via a bare "add-task: duplicate task id" error.
+        raise cc_invoke.RouteMutationError(
+            f"add-task to {moved_to_path!r} already applied (id {written_id!r}); "
+            f"resolve on the source row {task_id!r} in {plan_path!r} failed: {exc}",
+            exc.result,
+        ) from exc
+
+
+def _exit_code_from_route_mutation_error(exc: cc_invoke.RouteMutationError) -> int:
+    """Coerce a RouteMutationError's carried exit_code to a nonzero int.
+
+    Mirrors append-plan-session.py's own coercion: the op's `_err` shape
+    always carries `exit_code: 1` today, but this stays defensive against a
+    future differently-coded refusal rather than hardcoding 1.
+    """
+    result = exc.result if isinstance(exc.result, dict) else {}
+    raw = result.get("exit_code")
+    try:
+        code = int(raw) if raw is not None else 1
+    except (TypeError, ValueError):
+        code = 1
+    return code if code != 0 else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    disposition, disposition_ref = _selected_disposition(args)
+
+    if not args.task_ids:
+        parser.error("--id is required")
+
+    if len(args.task_ids) > 1 and disposition != "coded":
+        parser.error(_MULTI_ID_ONLY_FOR_CODED_MESSAGE.format(disposition=disposition))
+
+    if disposition in _DETAIL_REQUIRED_DISPOSITIONS and not (
+        args.disposition_detail and args.disposition_detail.strip()
+    ):
+        whose = "the PM's reasoning" if disposition in _PM_GATED_DISPOSITIONS else "the rationale"
+        parser.error(
+            f"--disposition-detail is required for disposition {disposition!r} "
+            f"({whose} — every row leaving 'open' has to say why)"
+        )
+
+    if disposition in _CASE_AGAINST_REQUIRED_DISPOSITIONS and not (
+        args.case_against and args.case_against.strip()
+    ):
+        parser.error(
+            f"--case-against is required for disposition {disposition!r} "
+            "(the strongest honest case for doing the work now — this is a "
+            "scope cut, and the PM needs both sides, not just the case for it)"
+        )
+
+    repo_root = _resolve_repo_root()
+
+    try:
+        if args.moved_to is not None:
+            result = _do_moved_to(
+                args.task_ids[0],
+                args.plan_path,
+                args.moved_to,
+                args.disposition_detail or "",
+                repo_root,
+            )
+        elif len(args.task_ids) > 1:
+            # Multi-id --coded batch: one atomic call carrying every named
+            # row's resolution, via the op's existing `resolves` batch shape
+            # (C13, 2026-07-30) — no new op-side surface needed.
+            resolves = []
+            for task_id in args.task_ids:
+                entry: dict[str, object] = {
+                    "id": task_id,
+                    "disposition": disposition,
+                }
+                if disposition_ref is not None:
+                    entry["disposition_ref"] = disposition_ref
+                if args.disposition_detail:
+                    entry["disposition_detail"] = args.disposition_detail
+                if args.case_against:
+                    entry["case_against"] = args.case_against
+                resolves.append(entry)
+            params = {
+                "verb": "resolve",
+                "plan_path": args.plan_path,
+                "resolves": resolves,
+            }
+            result = cc_invoke.route_mutation(_OP, params, repo_root, _no_legacy)
+        else:
+            params: dict[str, object] = {
+                "verb": "resolve",
+                "plan_path": args.plan_path,
+                "id": args.task_ids[0],
+                "disposition": disposition,
+            }
+            if disposition_ref is not None:
+                params["disposition_ref"] = disposition_ref
+            if args.disposition_detail:
+                params["disposition_detail"] = args.disposition_detail
+            if args.case_against:
+                params["case_against"] = args.case_against
+            result = cc_invoke.route_mutation(_OP, params, repo_root, _no_legacy)
+    except cc_invoke.RouteMutationError as exc:
+        print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
+        return _exit_code_from_route_mutation_error(exc)
+    except RuntimeError as exc:
+        # Review: code-reviewer (Finding 1) — moved the fail-safe-state
+        # reasoning off this branch: a RuntimeError here (transport failure,
+        # State-3; seam-absent, State-1; or _read_source_row's --moved-to
+        # lookup failing before any mutation is attempted) means NO write
+        # happened at all — there is no partial state to describe. The
+        # add-task-applied/resolve-failed partial-mutation case is a
+        # RouteMutationError, not a RuntimeError, and is now handled and
+        # reported explicitly inside _do_moved_to itself.
+        print(f"plan-tasks-resolve: {exc}", file=sys.stderr)
+        return 2
+
+    message = result.get("message", "") if isinstance(result, dict) else ""
+    if message:
+        print(message)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

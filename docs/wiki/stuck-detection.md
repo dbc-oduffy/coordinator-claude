@@ -2,10 +2,6 @@
 title: Stuck Detection and Repomap
 system: stuck-detection
 status: distilled
-distilled_from:
-  - archive/specs/2026-03-16-tier1-repomap-stuckdetect.md
-distilled_at: 2026-05-06
-distilled_run: 2026-05-06-13h00
 ---
 
 # Stuck Detection and Repomap
@@ -56,7 +52,7 @@ Before beginning work, review any ANTI-REPETITION section in your dispatch promp
 Some Agent Teams teammates enter an idle loop where they stop processing shutdown requests and plain-text messages. There is no clean live-kill mechanism — they will eventually time out on their own. (Note: `TeamDelete` was removed in v2.1.178; teams auto-clean on session exit.)
 
 **Before attempting any cleanup of a stuck teammate:**
-1. **Commit all in-progress work** — identify the specific deliverable paths the stuck agent (or its peers) wrote, stage those paths explicitly, and commit via the scoped helper: `~/.claude/plugins/coordinator/bin/coordinator-safe-commit "<subject>"`. Do not use `git add -A` or `git add .` — under stress-of-recovery, blanket staging is tempting but produces audit-trail-misleading commits. Stage only the deliverables you can name.
+1. **Commit all in-progress work** — identify the specific deliverable paths the stuck agent (or its peers) wrote, stage those paths explicitly, and commit via the scoped helper: `coordinator-safe-commit "<subject>"`. Do not use `git add -A` or `git add .` — under stress-of-recovery, blanket staging is tempting but produces audit-trail-misleading commits. Stage only the deliverables you can name.
 2. **Archive the deliverable** — if the session's output is a file, verify it exists on disk and is substantive before the session concludes.
 3. **Then** leave the stuck agent to time out — the team auto-cleans on session exit. The work is safe.
 
@@ -151,4 +147,3 @@ Option 3: `requirements-repomap.txt` with pinned versions + inline stdlib fallba
 ## Reference
 
 - Related: [tiered-context-loading](tiered-context-loading.md)
-- Source plan: `archive/specs/2026-03-16-tier1-repomap-stuckdetect.md`

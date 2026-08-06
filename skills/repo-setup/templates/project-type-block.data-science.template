@@ -1,0 +1,7 @@
+## Data Science Conventions
+
+- **Notebook conventions:** <!-- naming, cell organization, output clearing policy -->
+- **Data pipelines:** <!-- tools, orchestration, storage locations -->
+- **Model versioning:** <!-- MLflow, DVC, manual, etc. -->
+- **Environment management:** <!-- conda, venv, poetry -->
+- **Key datasets:** <!-- list primary data sources -->

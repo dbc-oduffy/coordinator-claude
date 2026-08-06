@@ -51,7 +51,12 @@ def _load_derive_module():
         sys.exit(1)
     spec = importlib.util.spec_from_file_location('derive_file_attribution', module_path)
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    sys.modules[spec.name] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:
+        sys.modules.pop(spec.name, None)
+        raise
     return mod
 
 

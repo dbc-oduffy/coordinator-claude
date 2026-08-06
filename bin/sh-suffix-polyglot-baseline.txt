@@ -1,0 +1,54 @@
+# sh-suffix-polyglot-baseline.txt — checked-in baseline for check-sh-suffix-polyglot.py
+#
+# One REPO-RELATIVE path per line (POSIX-separated, as `git ls-files` emits
+# it), repo-wide — NOT bare basenames. Blank lines and `#`-comment lines are
+# ignored.
+#
+# WIDENED 2026-07-20 (PM-authorized follow-up): the original baseline held 111
+# bare basenames scoped to `coordinator/bin/*.sh` non-recursive only. That
+# scope was too narrow — ~25 polyglot trampolines live outside coordinator/bin/
+# entirely (coordinator/lib/, coordinator/tests/ (indirectly, via
+# install-health/), coordinator/dist/, coordinator/scripts/, coordinator/
+# templates/, coordinator/whoami/). The scan domain is now every tracked `.sh`
+# file repo-wide (`git ls-files '*.sh'`), and paths here are repo-relative so
+# that files sharing a basename across different directories cannot collide —
+# a basename-keyed baseline would silently allow a NEW offender that happens
+# to share a name with a baselined one from a different directory.
+#
+# WHAT THIS IS: every file in this list is a `.sh`-suffixed file whose body is
+# Python (the sh/python polyglot trampoline — see check-bin-sh-polyglot.py and
+# docs/wiki/cross-platform-shell-portability.md § sh/python trampoline), NOT
+# bash. The `.sh` suffix on these files is a false signal: it reads as "this is
+# bash" when the file contains zero bash beyond the two-line sh shim, and costs
+# a measured ~326ms/invocation shim tax on Windows versus invoking the same
+# Python body directly (see state/audits/2026-07-20-sh-suffixed-python-
+# trampolines.md for the full measurement + rename-order recommendation).
+#
+# THIS FILE IS THE INVENTORY, NOT JUST AN ALLOWLIST: it is the checked-in record
+# of the known repo-wide backlog. check-sh-suffix-polyglot.py fails ONLY on a NEW
+# .sh-suffixed polyglot trampoline file that is NOT in this list — it is a
+# ratchet, not a retroactive gate. As files are renamed to drop the `.sh` suffix
+# (see the audit doc's rename-order), remove their line from this file in the
+# same commit as the rename; a stale entry for a file that no longer exists is
+# harmless (the guard only checks files that are currently tracked) but should be
+# cleaned up as hygiene.
+#
+# DISCHARGED 2026-07-28: the backlog is EMPTY — `--list-baseline-candidates`
+# returns zero, so every entry the 2026-07-20 widening recorded has since been
+# ported or renamed out of the polyglot class. The list below is deliberately
+# empty rather than deleted: an empty baseline is the strongest form of this
+# ratchet (any new trampoline fails immediately), and the file must keep existing
+# for the guard to read. Two `.sh`-suffixed Python files remain tracked
+# (`coordinator/lib/detect-hardware.sh`, `coordinator/bin/install-health/
+# seed-skill-overrides.sh`) but are NOT in-class: they carry `#!/usr/bin/env
+# python3`, not the sh/python trampoline, so the guard never considers them.
+#
+# Precedent already followed for prior renames (not in this list because they no
+# longer carry the .sh suffix): coordinator-auto-push, handoff-gate-aging.
+#
+# Regenerate this exact list with:
+#   python3 coordinator/bin/check-sh-suffix-polyglot.py --list-baseline-candidates
+#
+# Spec: state/audits/2026-07-20-sh-suffixed-python-trampolines.md
+
+# (empty — backlog discharged; see DISCHARGED note above)

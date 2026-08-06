@@ -7,7 +7,6 @@
   "required": [
     "agent_install_contract_version",
     "repo_id",
-    "setup_skill",
     "standalone_setup_script",
     "direct_deps",
     "required_env_vars",
@@ -16,7 +15,7 @@
   "additionalProperties": false,
   "properties": {
     "agent_install_contract_version": {
-      "description": "Contract version — enables coordinated schema bumps across repos. Consumers must reject manifests with a version they do not recognise. Readers accept the range {1,2,3} (reader-widen-first sequencing) so manifests at different versions can coexist during a coordinated bump; v2 adds the optional DirectDep.consumer_install_args field; v3 adds the optional system_prerequisites array.",
+      "description": "Contract version — enables coordinated schema bumps across repos. Consumers must reject manifests with a version they do not recognise. Readers accept the range {1,2,3} (reader-widen-first sequencing) so manifests at different versions can coexist during a coordinated bump; v2 adds the optional DirectDep.consumer_install_args field; v3 adds the optional system_prerequisites array; v3 also adds the optional programmatic_entry_point field.",
       "enum": [1, 2, 3],
       "type": "integer"
     },
@@ -36,7 +35,7 @@
       "pattern": "^/[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)?$"
     },
     "standalone_setup_script": {
-      "description": "Paths to the standalone (non-skill) setup scripts, relative to the repo root. These are the actual agent dispatch targets.",
+      "description": "Paths to the standalone (non-skill) setup scripts, relative to the repo root. This is the chain-walk DAG dispatch target — the script the chain-walker invokes when walking dependency chains. `entry_point_contract` (optional) describes the chain-walk invocation contract for `posix`/`windows` above, and doubles as the Point-2 FALLBACK witness — authoritative only when the top-level `programmatic_entry_point` field is absent (see that field's `entry_point_contract.description` for the in-band precedence rule). The agentic setup skill (`setup_skill`) stays a human wrapper that delegates to `posix`/`windows` here; no install logic lives only in the skill.",
       "type": "object",
       "required": ["posix", "windows"],
       "additionalProperties": false,
@@ -50,6 +49,32 @@
           "description": "Relative path to the Windows (PowerShell) standalone setup script.",
           "type": "string",
           "minLength": 1
+        },
+        "entry_point_contract": {
+          "description": "OPTIONAL. Declares that `posix`/`windows` above form a single non-interactive, flag-driven, deterministic-exit-code chain-walk invocation. This is the Point-2 FALLBACK witness: authoritative only when the top-level `programmatic_entry_point` field is absent from this manifest. When `programmatic_entry_point` is present, that field's `entry_point_contract` is the authoritative Point-2 witness instead — see its description for the verbatim precedence rule.",
+          "$ref": "#/$defs/EntryPointContract"
+        }
+      }
+    },
+    "programmatic_entry_point": {
+      "description": "OPTIONAL. A dedicated, purpose-built programmatic install entry point — distinct from `standalone_setup_script` (the chain-walk DAG dispatch target). When present, this is the PREFERRED Point-2 witness for packageability contract point 2. Shape mirrors `standalone_setup_script`: `posix` (required), `windows` (optional — no assumption that a Windows twin exists), and an optional `entry_point_contract` describing the non-interactive/check-only/deterministic-exit contract.",
+      "type": "object",
+      "required": ["posix"],
+      "additionalProperties": false,
+      "properties": {
+        "posix": {
+          "description": "Relative path to the POSIX (bash) programmatic entry point script.",
+          "type": "string",
+          "minLength": 1
+        },
+        "windows": {
+          "description": "OPTIONAL. Relative path to the Windows (PowerShell) programmatic entry point script.",
+          "type": "string",
+          "minLength": 1
+        },
+        "entry_point_contract": {
+          "description": "OPTIONAL. Packageability contract point 2 — declares that `posix`/`windows` above form a single non-interactive, flag-driven, deterministic-exit-code install/register/assemble command. This is the PREFERRED Point-2 witness. In-band precedence rule: When both programmatic_entry_point.entry_point_contract and standalone_setup_script.entry_point_contract are present, programmatic_entry_point is the authoritative Point-2 witness; standalone_setup_script.entry_point_contract describes only the chain-walk invocation and is the Point-2 fallback only when programmatic_entry_point is absent.",
+          "$ref": "#/$defs/EntryPointContract"
         }
       }
     },
@@ -118,9 +143,75 @@
           "type": "boolean"
         }
       }
+    },
+    "installer_floor": {
+      "description": "OPTIONAL. Packageability contract point 3 (installer-floor split). A BOUNDARY ANNOTATION, not a re-declaration — the floor itself (git, the Claude Code CLI) is already expressed as `system_prerequisites` entries with `id: git` / `id: claude_code`; this field cross-references those ids rather than restating their probe/install shape. The only genuinely novel content here is `install_root_drivable`. An external provisioner (e.g. Example-os-repo) is expected to provision the floor; this repo declares deps ABOVE that line.",
+      "type": "object",
+      "required": ["floor_prerequisite_ids", "install_root_drivable"],
+      "additionalProperties": false,
+      "properties": {
+        "floor_prerequisite_ids": {
+          "description": "Ids of the `system_prerequisites` entries (e.g. [\"git\", \"claude_code\"]) that constitute the floor this repo assumes an external provisioner has already supplied. Each id MUST match a `system_prerequisites[].id` declared elsewhere in this manifest — do not restate the prereq's probe/install/reference here.",
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "install_root_drivable": {
+          "description": "When true, this repo's install is drivable against an externally-provided install root and carries no hardcoded assumption of `~/.claude` or a fixed sibling-dir layout. When false, the repo has a known hardcoded-path limitation above the floor.",
+          "type": "boolean"
+        }
+      }
+    },
+    "tested_platforms": {
+      "description": "OPTIONAL. Packageability contract point 4 (real, declared, tested platform support). Distinguishes platforms this repo's entry point has been executed-and-verified on (`tested_platforms`) from platforms it merely ships code for (`present_platforms`, e.g. a static-reviewed-only PowerShell twin). A platform absent from `tested_platforms` MUST NOT be marketed as supported parity even if present in `present_platforms`.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/PlatformId" }
+    },
+    "present_platforms": {
+      "description": "OPTIONAL. Packageability contract point 4 — platforms for which this repo ships an entry-point implementation (e.g. a `.ps1` twin) without execution verification. See `tested_platforms` for the executed-and-verified subset.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/PlatformId" }
+    },
+    "configurable_locations": {
+      "description": "OPTIONAL. Packageability contract point 6 — every configurable location this repo resolves (install root, projects root, package store, data root, dep/sibling roots, etc.), expressed as a detect → suggest → default → override surface rather than agent-only instructions. Vocabulary follows the machine-local-registry.md § 4 resolution ladder: discovery.candidates are ranked rungs (env/flag → tracked search-roots autodiscovery → tracked path-exceptions → registry.local.toml last-resort). Override is a unified `{flag, env}` vocabulary (at least one required); dep/sibling-root locations (`dependency_id` present) are a first-class location-class and require BOTH flag and env — the per-dep override is the load-bearing knob, a single-install-root derivation is admissible only as a subordinate default candidate.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/ConfigurableLocation" }
+    },
+    "packageability_compliance": {
+      "description": "OPTIONAL opt-in compliance marker for the fleet packageability contract (docs/wiki/agent-install-contract.md § Packageability). `validate-install-contract.py` keys its completeness checks on `declared === true` — a v3 manifest that omits this field, or sets `declared: false`, SKIPS CLEAN (no packageability checks fire). Presence with `declared: true` is the positive signal that this manifest intends to be checked against points 1/2/3/4/6.",
+      "type": "object",
+      "required": ["declared"],
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "description": "True once this repo has opted this manifest in to packageability-contract completeness checking.",
+          "type": "boolean"
+        }
+      }
     }
   },
   "$defs": {
+    "EntryPointContract": {
+      "description": "Shared non-interactive/check-only/deterministic-exit contract shape referenced by both `standalone_setup_script.properties.entry_point_contract` and `programmatic_entry_point.properties.entry_point_contract` — each call site overrides this def's description with its own parent-level precedence-rule text (2020-12 permits `description` as a sibling annotation alongside `$ref`).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "non_interactive_flag": {
+          "description": "OPTIONAL. Flag string that runs the entry point with no interactive prompts (e.g. '--non-interactive', '--i-am-agent').",
+          "type": "string",
+          "minLength": 1
+        },
+        "check_only_flag": {
+          "description": "OPTIONAL. Flag string that runs the entry point in dry-run/check mode — reports what would change without mutating state.",
+          "type": "string",
+          "minLength": 1
+        },
+        "deterministic_exit": {
+          "description": "OPTIONAL. When true, the entry point's exit code is a deterministic, documented contract (not merely zero-on-success/nonzero-on-failure by accident) that callers can branch on.",
+          "type": "boolean"
+        }
+      }
+    },
     "SystemPrereq": {
       "type": "object",
       "description": "A single machine-level system prerequisite — a tool or capability that must exist on the machine before install can proceed.",
@@ -217,13 +308,13 @@
     },
     "DirectDep": {
       "type": "object",
-      "description": "A single direct upstream dependency declaration.",
+      "description": "A single direct upstream dependency declaration. NOTE: coordinator-claude's own chain-walker (coordinator_core.ops.setup_chain_walker.dep_probe, claude-klabauter) reads FLAT functional_probe_kind/functional_probe_args fields, not a nested functional_probe object -- this sub-schema was corrected 2026-07-19 (W0.5 Option B+C) to match that ACTUAL parser, which is the authoritative shape for coordinator's own manifest. Distinct from SystemPrereq.probe (nested {kind, cmd}), which is a separate, unrelated field consumed by a different probe path.",
       "required": [
         "id",
         "severity",
         "sibling_dir_name",
         "upstream_url",
-        "functional_probe"
+        "functional_probe_kind"
       ],
       "additionalProperties": false,
       "properties": {
@@ -238,7 +329,7 @@
           "enum": ["hard", "soft", "optional"]
         },
         "sibling_dir_name": {
-          "description": "Expected directory name of the sibling clone, relative to the consumer repo's parent directory. The chain-walker checks for sibling presence at <parent>/<sibling_dir_name> before running the functional probe.",
+          "description": "Expected directory name of the sibling clone, relative to the consumer repo's parent directory. The chain-walker checks for sibling presence at <parent>/<sibling_dir_name> before running the functional probe -- EXCEPT for the claude_klabauter_seam_resolvable probe kind, which bypasses the sibling check entirely (registry/env-resolved dep, not sibling-directory-colocated). Still required by this schema for uniformity; the walker ignores its value for that one probe kind.",
           "type": "string",
           "minLength": 1
         },
@@ -247,13 +338,35 @@
           "type": "string",
           "pattern": "^https://github\\.com/[^/]+/[^/]+$"
         },
-        "functional_probe": {
-          "$ref": "#/$defs/FunctionalProbe"
+        "functional_probe_kind": {
+          "description": "Probe kind. sibling_dir_exists: implicit always-run check, no additional fields. file_exists: functional_probe_args.path required. python_import: functional_probe_args.expr required. command_succeeds: functional_probe_args.cmd required. claude_klabauter_seam_resolvable: no additional fields -- bypasses the sibling_dir_exists gate and confirms via a live find_spec(\"coordinator_core.invoke\") check (added W0.5 Option B+C for the claude-klabauter dep, which is registry/env-resolved, not sibling-colocated).",
+          "type": "string",
+          "enum": [
+            "sibling_dir_exists",
+            "file_exists",
+            "python_import",
+            "command_succeeds",
+            "claude_klabauter_seam_resolvable"
+          ]
+        },
+        "functional_probe_args": {
+          "description": "OPTIONAL. Kind-specific probe arguments: {\"path\": ...} for file_exists, {\"expr\": ...} for python_import, {\"cmd\": ...} for command_succeeds. Omitted (or empty object) for sibling_dir_exists and claude_klabauter_seam_resolvable, which take no arguments.",
+          "type": "object"
         },
         "consumer_install_args": {
           "description": "Optional. Args the CONSUMER wants passed to this upstream's standalone setup script (install mode + version selection). Composed by the chain-walker with --i-am-agent and the UPSTREAM's override_flags; does NOT include the upstream's override flags (those are read from the upstream manifest — see override_flags). Introduced in contract v2; intentionally NOT version-guarded — a v1 manifest carrying this field validates clean, consistent with the reader-widen-first doctrine.",
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
+        },
+        "distribution": {
+          "description": "OPTIONAL. How a consumer actually obtains this dep when `upstream_url` alone would mislead — e.g. a private repo whose URL 404s for anyone without access. `private-access-on-request` flags that case: the maintainer grants access on request rather than the repo being publicly cloneable. Absent entirely for deps where a plain `git clone` of `upstream_url` just works. Not version-guarded, same reader-widen-first rationale as `consumer_install_args`.",
+          "type": "string",
+          "enum": ["private-access-on-request"]
+        },
+        "distribution_note": {
+          "description": "OPTIONAL. Short human-readable elaboration of `distribution` — required in practice whenever `distribution` is present, but not schema-enforced as a pair to keep the two fields independently optional.",
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -271,6 +384,10 @@
             "python_import",
             "command_succeeds"
           ]
+        },
+        "remediation": {
+          "description": "OPTIONAL. Packageability contract point 1 — what to do when this probe fails. Reuses the SystemPrereq.install shape (`mode: auto-with-confirmation` with per-OS `posix`/`windows` commands, or `mode: website` with a `url` for un-scriptable prerequisites like the Epic launcher or git-for-windows). Distinct from `SystemPrereq.install` only in $ref location — same settled shape.",
+          "$ref": "#/$defs/Remediation"
         }
       },
       "allOf": [
@@ -340,6 +457,92 @@
       ],
       "$comment": "unevaluatedProperties at THIS level per JSON Schema 2020-12 spec — properties evaluated by adjacent in-place applicators (the if/then chain in allOf) and by this object's own `properties` declaration count as evaluated; extra fields outside both are rejected.",
       "unevaluatedProperties": false
+    },
+    "Remediation": {
+      "description": "Packageability contract point 1 remediation shape — deliberately a SEPARATE def from SystemPrereq.install (which is DR-INSTALL-002-settled and not to be restructured here). Either a machine-runnable command (`mode: auto-with-confirmation`, per-OS `posix`/`windows`) or a website URL for the un-scriptable class (Epic launcher, git-for-windows) via `mode: website`.",
+      "type": "object",
+      "required": ["mode"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "description": "'auto-with-confirmation' = first-class automated remediation with a printed confirmation + opt-out; the per-platform `posix`/`windows` command strings supply what runs. 'website' = the prerequisite has no scriptable install path — `url` points a human at the installer download page.",
+          "type": "string",
+          "enum": ["auto-with-confirmation", "website"]
+        },
+        "posix": {
+          "description": "OPTIONAL. POSIX (sh/bash) remediation command string, run on confirmation under `mode: auto-with-confirmation`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "windows": {
+          "description": "OPTIONAL. Windows (PowerShell) remediation command string, run on confirmation under `mode: auto-with-confirmation`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "url": {
+          "description": "OPTIONAL (required in spirit for `mode: website`). Website URL a human follows to install the un-scriptable prerequisite (e.g. the Epic Games launcher, git-for-windows).",
+          "type": "string",
+          "format": "uri",
+          "minLength": 1
+        }
+      }
+    },
+    "PlatformId": {
+      "description": "Canonical platform identifier vocabulary shared by tested_platforms and present_platforms (packageability contract point 4).",
+      "type": "string",
+      "enum": ["macos", "linux", "windows"]
+    },
+    "ConfigurableLocation": {
+      "description": "Packageability contract point 6 — one configurable location this repo resolves, expressed as detect → suggest → default → override rather than agent-only instructions. Vocabulary follows the machine-local-registry.md § 4 resolution ladder (env/flag → tracked search-roots autodiscovery → tracked path-exceptions → registry.local.toml last-resort). Covers both single-repo locations (install root, projects root, package store, data root) and dep/sibling-root locations (`dependency_id` present) — the latter a first-class location-class per the 2026-07-11 claude-klabauter point-6 ruling. Override is a single unified `{flag, env}` vocabulary; a dep-root location's override MUST carry both (the per-dep knob is load-bearing), never a parallel top-level `root_override` object.",
+      "type": "object",
+      "required": ["name", "discovery", "default", "override"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Identifier for this configurable location, e.g. 'install_root', 'projects_root', 'ue_root', 'package_store', 'data_root'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "dependency_id": {
+          "description": "Present IFF this location is a sibling/dependency root — the id of the dependency repo whose root this resolves (e.g. 'coordinator-claude'). A dependency-root location's override MUST carry both a flag and an env (the per-dep knob is load-bearing); its default is a subordinate sibling derivation, admissible only as a rung-2 default candidate, never the sole knob.",
+          "type": "string",
+          "minLength": 1
+        },
+        "discovery": {
+          "description": "How this repo discovers candidate paths for this location — yields RANKED candidates, not a found/not-found boolean.",
+          "type": "object",
+          "required": ["candidates"],
+          "additionalProperties": false,
+          "properties": {
+            "candidates": {
+              "description": "Ranked discovery rungs, most-preferred first, using the machine-local-registry.md § 4 ladder vocabulary (e.g. 'tracked search-roots autodiscovery via marketplace.json marker', 'tracked path-exceptions table', 'registry.local.toml last-resort fallback').",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "minItems": 1
+            }
+          }
+        },
+        "default": {
+          "description": "Sane default path (or path-deriving rule) used when no candidate is confirmed, so the install flow can proceed silently.",
+          "type": "string",
+          "minLength": 1
+        },
+        "override": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How a human/GUI (e.g. Example-os-repo) injects an explicit path for this location, bypassing discovery/default. Unified vocabulary: a flag and/or an env var. At least one is required. A dependency-root location (dependency_id present) requires BOTH — the per-dep override is the load-bearing knob per the 2026-07-11 claude-klabauter point-6 ruling.",
+          "properties": {
+            "flag": { "type": "string", "minLength": 1, "description": "CLI flag, e.g. '--install-root' or '--coordinator-root'." },
+            "env":  { "type": "string", "minLength": 1, "description": "Environment variable, e.g. 'INSTALL_ROOT' or 'COORDINATOR_CLAUDE_ROOT'." }
+          },
+          "anyOf": [ { "required": ["flag"] }, { "required": ["env"] } ]
+        }
+      },
+      "allOf": [
+        { "if": { "required": ["dependency_id"] },
+          "then": { "properties": { "override": { "required": ["flag", "env"] } } } }
+      ],
+      "$comment": "This allOf's then.properties.override.required:[flag,env] composes with the base override.anyOf (line ~491, MAY-either) per 2020-12 in-place applicator semantics — both constraints apply to the same override sub-schema, so a dependency_id-bearing location ends up MUST-both while a plain location stays MAY-either. Not orphaned/no-op despite override having no re-declared `type` in the then branch (code-reviewer Finding 4, verified correct)."
     }
   }
 }

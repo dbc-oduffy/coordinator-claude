@@ -15,7 +15,8 @@ Development (editable, from this directory):
 pip install -e .
 ```
 
-OSS distribution ships through `X:/coordinator-claude` via `setup/publish.sh`.
+OSS distribution ships through `coordinator-claude` via claude-klabauter
+`coordinator/bin/publish.py`.
 Do not install from PyPI — this package is not published there.
 
 ## CLI invocation (project-rag subpackage)

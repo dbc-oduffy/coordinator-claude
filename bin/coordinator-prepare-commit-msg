@@ -1,74 +1,527 @@
-#!/usr/bin/env bash
-# coordinator-prepare-commit-msg — append a Session-Id trailer to every commit
-# made inside an active coordinator session.
-#
-# Git hook signature (prepare-commit-msg):
-#   $1  COMMIT_EDITMSG path (required)
-#   $2  commit source  (optional: message, template, merge, squash, commit)
-#   $3  SHA1           (optional: present only for --amend / squash)
-#
-# Behaviour:
-#   1. Resolve the current session-id via three-tier ladder (identical to
-#      bin/coordinator-write-review-trail.sh lines 182-199):
-#        (1) ${CLAUDE_SESSION_ID}                                      (legacy var)
-#        (2) ${CLAUDE_CODE_SESSION_ID}                                 (platform-injected)
-#        (3) $(cat .git/coordinator-sessions/.current-session-id)     (sentinel fallback)
-#   2. Empty session-id → exit 0 silently (non-coordinator commit; unaffected).
-#   3. Message already contains a Session-Id: line → exit 0 (idempotent).
-#   4. Otherwise: inject via `git interpret-trailers --in-place --trailer`.
-#
-# NEVER blocks a commit — always exits 0.
-#
-# Cross-platform: bash ≥ 4, BSD coreutils, Git-Bash on Windows.
-# `git interpret-trailers` is core git ≥ 1.8.
-#
-# Spec backlink: docs/plans/2026-06-15-brightline-session-scope-fix.md § C1
+#!/usr/bin/env python3
+"""
+coordinator-prepare-commit-msg — append Session-Id and Deliverable-Id trailers
+to every commit made inside an active coordinator session.
 
-# DR-148 bash-version guard — must remain parseable on bash 3.2 (boot-path hook
-# reachability requirement per cross-platform-shell-portability.md). Uses [ ]
-# not [[ ]], and simple arithmetic, so 3.2 parses it. Guard exits 0 because
-# hooks MUST NEVER block a commit; the trailer is merely omitted on old bash.
-if [ "${BASH_VERSINFO:-0}" -lt 4 ]; then
-  # brew install bash && ensure /usr/local/bin or /opt/homebrew/bin is early in PATH
-  # NOTE: intentional silent no-op (not fail-loud) — this is a git hook; blocking a commit
-  # on bash version is not acceptable. Trailer is omitted on bash < 4.
-  # Review: code-reviewer — added clarity note per Finding 10.
-  exit 0
-fi
+Native-Python port (DR-059 de-bash, Windows-first) of the retired bash hook.
 
-set +e
+Git hook signature (prepare-commit-msg):
+  argv[1]  COMMIT_MSG_FILE path (required)
+  argv[2]  commit source (optional: message, template, merge, squash, commit)
+  argv[3]  SHA1          (optional: present only for --amend / squash)
 
-COMMIT_MSG_FILE="${1:-}"
-[ -z "$COMMIT_MSG_FILE" ] && exit 0
-[ -f "$COMMIT_MSG_FILE" ] || exit 0
+Behaviour:
+  1. Resolve the git dir once (``git rev-parse --git-dir``, ONE subprocess —
+     needed both for the session-id sentinel fallback and for locating
+     ``session-shape.json``) and the current session-id via the canonical
+     three-tier ladder:
+       (1) $CLAUDE_SESSION_ID                                   (legacy var)
+       (2) $CLAUDE_CODE_SESSION_ID                              (platform-injected)
+       (3) <git-dir>/coordinator-sessions/.current-session-id   (sentinel fallback)
+  2. Empty session-id → exit 0 silently (non-coordinator commit; unaffected).
+  3. Fail-safe UUID validation — a resolved session-id that is not UUID-shaped
+     (e.g. a poisoned sentinel or a stray profiling-run env override) → exit 0,
+     Session-Id trailer OMITTED (and, since deliverable-id resolution is keyed
+     off the same session-id, Deliverable-Id is skipped too). A missing
+     trailer is coverage-neutral; a wrong one mis-attributes session scope.
+     Validated once at the resolved value, so it covers all three ladder
+     tiers uniformly.
+  3a. Deliverable-Id tier 0 (artifact-first, 2026-08-04): before any
+     session-keyed tier below, derive this commit's own staged pathspec
+     (``git diff --cached --name-only``, ONE subprocess, only spawned when a
+     Deliverable-Id trailer is actually missing) and check whether any
+     staged artifact carries its own ``deliverable_id`` frontmatter — see
+     ``_resolve_deliverable_id_from_paths`` below for the multi-baton-session
+     defect this closes (2026-08-04 cross-repo memo, example-market-data-repo-em
+     -> claude-klabauter-em, defect 2) and why it wins over every tier below.
+     Fails SOFT on the hot path: staged-set derivation errors (not a repo,
+     git unavailable, timeout, empty stage) and a genuinely divergent
+     multi-artifact commit (``DivergentDeliverableIdError``) both degrade to
+     "tier 0 has nothing to say" — noted on stderr for the divergent case —
+     rather than blocking or erroring the commit. This mirrors
+     ``coordinator_core.git.commit_trailers.compute_missing_trailer_args``'s
+     own tier 0 for a caller (``git commit-tree`` et al.) that hooks never
+     fire for; that sibling is CLI-facing and propagates the same divergence
+     uncaught by design — this hook may not, since a failed hook still lets
+     the underlying ``git commit`` land with a wrong/no trailer rather than
+     blocking, and blocking would be strictly worse than that.
+  4. Deliverable-Id (session-keyed fallback, reached only when tier 0 above
+     yields nothing): read
+     ``<git-dir>/coordinator-sessions/<sid>/session-shape.json``
+     (ONE file read, no additional subprocess) and extract
+     ``pickup.deliverable_id`` — the deliverable-spine id of the handoff this
+     session claimed via ``/pickup`` (coordinator_core.ops.session.record_pickup).
+     Mirrors the Session-Id discipline exactly, more strongly: a missing file,
+     unreadable file, corrupt JSON, absent ``pickup`` key, or absent/blank
+     ``deliverable_id`` all OMIT the trailer — never stamp a guessed or
+     placeholder value. No env-var bypass, no config flag, no fallback that
+     invents an id.
+  4a. Cross-repo fallback (2026-07-27): ``session-shape.json`` is written into
+     the git-dir of whichever repo was ``cwd`` when ``/pickup`` ran — almost
+     always DoE-claude, since EM sessions operate from there (DoE-claude
+     ``CLAUDE.md`` § "Who you are when working in DoE-claude"). A commit
+     landed DIRECTLY into claude-klabauter under the standing cross-repo
+     write grant (DoE-claude ``CLAUDE.md`` § "Cross-repo write discipline")
+     runs this SAME hook script but with ``git_dir`` pointed at claude-klabauter's own
+     ``.git``, which never receives that write — so step 4's lookup always
+     misses for a cross-repo commit, not merely on rare occasion. When step 4
+     resolves nothing, re-resolve against DoE-claude's own git-dir, located
+     via the identical ``.doe-root`` pointer convention already used above
+     (step "SCRIPT" fallback) to locate this very script — no new resolution
+     mechanism introduced, no subprocess spawn (two plain file reads at
+     most). Same omit-rather-than-guess contract: no match there either →
+     Deliverable-Id stays omitted.
+     Spec: cross-repo dispatch 2026-07-27 (`Deliverable-Id trailer never
+     lands on cross-repo claude-klabauter commits` investigation).
+  4b. Claimed-plan fallback (2026-08-01): steps 4/4a both key off
+     ``pickup.deliverable_id``, populated ONLY by ``record_pickup`` on a
+     ``/pickup`` of a HANDOFF. A session that claims a PLAN directly and
+     executes it — no handoff ever authored — never writes that key, so
+     every chunk commit that session makes misses both tiers above. When
+     they both miss, resolve the session's claimed plan (the SAME
+     ``resolve_claimed_plan_path()`` helper ``coordinator_core`` uses —
+     lazily imported here, off this hook's hot path, only once 4/4a have
+     already missed) and read ``deliverable_id`` straight out of that
+     plan's own frontmatter. Same omit-rather-than-guess contract
+     throughout.
+     ``archive/specs/2026-08/2026-08-01-deliverable-id-carry-onto-executing-
+     handoff.md``'s execution note names this residual explicitly and
+     records its own Anti-scope ("do NOT change the commit-trailer
+     resolvers") as reasoning that assumed every execution is
+     handoff-mediated — an assumption that note itself calls incomplete.
+     This step is the deliberate, documented reversal of that anti-scope
+     for the same-session case. Spec backlink: DR-207 DD#1.
+  5. Session-Id and Deliverable-Id have INDEPENDENT idempotency checks — a
+     message may legitimately carry one trailer without the other (e.g. an
+     amended commit, or session-shape written after an earlier commit in the
+     same session). Each trailer is added iff its own line is not already
+     present in the message; both may be added in the SAME
+     ``git interpret-trailers --in-place`` call (a second ``--trailer`` arg),
+     never a second subprocess call.
+  6. Otherwise inject via `git interpret-trailers --in-place --trailer` (one
+     call, carrying whichever trailer(s) are missing).
 
-# --- Three-tier session-id resolution (doctrine: coordinator-write-review-trail.sh:182-199) ---
-# Tier 1: legacy env var (still supported in canonical ladder)
-SESSION_ID="${CLAUDE_SESSION_ID:-}"
+NEVER blocks a commit — always exits 0. `git interpret-trailers` is core git ≥ 1.8.
 
-# Tier 2: platform-injected, unclobberable (preferred over sentinel)
-if [ -z "$SESSION_ID" ]; then
-  SESSION_ID="${CLAUDE_CODE_SESSION_ID:-}"
-fi
+Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § git-hook-installers-port
+Prior spec: docs/plans/2026-06-15-brightline-session-scope-fix.md § C1
+Spec: cross-repo/inbox/2026-07-21-claude-klabauter-em-claude-klabauter-session-id-leak-fix-reply.md (residual B(i))
+Deliverable-Id spec: DoE-claude coordinator/schemas/handoff.schema.json (deliverable_id field);
+    coordinator_core/ops/session/record_pickup.py (write side).
+"""
+from __future__ import annotations
 
-# Tier 3: sentinel file (last-writer-wins fallback for old Claude Code)
-if [ -z "$SESSION_ID" ]; then
-  GIT_DIR=$(git rev-parse --git-dir 2>/dev/null || true)
-  if [ -n "$GIT_DIR" ]; then
-    SESSION_ID=$(cat "${GIT_DIR}/coordinator-sessions/.current-session-id" 2>/dev/null || true)
-  fi
-fi
+import json
+import os
+import re
+import subprocess
+import sys
 
-# Empty resolution → legitimate non-coordinator commit; leave unaffected.
-[ -z "$SESSION_ID" ] && exit 0
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
-# Idempotency guard — already has a Session-Id trailer; do not duplicate.
-if grep -q '^Session-Id:' "$COMMIT_MSG_FILE" 2>/dev/null; then
-  exit 0
-fi
 
-# Inject the trailer in-place. `--in-place` edits the file directly.
-# Trailer format matches git's trailer convention for `git log --grep` filtering.
-git interpret-trailers --in-place --trailer "Session-Id: ${SESSION_ID}" "$COMMIT_MSG_FILE" 2>/dev/null || true
+def _resolve_git_dir() -> str:
+    """Resolve the current repo's git-dir via ONE ``git rev-parse --git-dir``
+    subprocess call. Returns ``""`` on any failure (git missing, not a repo,
+    spawn error, timeout) — callers treat that as "no git-dir available" and
+    degrade gracefully (sentinel-tier session-id resolution and
+    Deliverable-Id lookup both become no-ops, never errors)."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return (out.stdout or "").strip()
+    except Exception:
+        return ""
 
-exit 0
+
+def _resolve_session_id(git_dir: str) -> str:
+    """Three-tier ladder: legacy env → platform env → sentinel file (under
+    the already-resolved ``git_dir`` — no subprocess of its own)."""
+    sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
+    if sid:
+        return sid
+    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+    if sid:
+        return sid
+    if git_dir:
+        sentinel = os.path.join(git_dir, "coordinator-sessions", ".current-session-id")
+        try:
+            with open(sentinel, encoding="utf-8") as fh:
+                return fh.read().strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def _resolve_doe_root() -> str:
+    """Locate DoE-claude's repo root via the SAME ``.doe-root`` pointer
+    convention this hook already uses (see the SCRIPT-location fallback at
+    the top of this file) — settings-home machine-local pointer first, then
+    the legacy ``~/.claude`` location. Returns ``""`` if neither resolves.
+    No subprocess spawn; at most two plain file reads."""
+    settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME", "").strip() or os.path.join(
+        os.path.expanduser("~"), ".coordinator-claude-settings"
+    )
+    for candidate in (
+        os.path.join(settings_home, "machine-local", ".doe-root"),
+        os.path.join(os.path.expanduser("~"), ".claude", ".doe-root"),
+    ):
+        try:
+            with open(candidate, encoding="utf-8") as fh:
+                root = fh.read().strip()
+        except Exception:
+            continue
+        if root:
+            return root
+    return ""
+
+
+def _resolve_deliverable_id_at(git_dir: str, session_id: str) -> str:
+    """Read ``<git_dir>/coordinator-sessions/<session_id>/session-shape.json``
+    (ONE file read, no subprocess) and return ``pickup.deliverable_id`` if
+    present and non-blank, else ``""``.
+
+    Omit-rather-than-guess, mirroring the Session-Id discipline: a missing
+    git_dir, missing/unreadable shape file, corrupt JSON, non-dict shape,
+    non-dict ``pickup``, or absent/blank ``deliverable_id`` all return ``""``
+    — never raises, never fabricates a value.
+    """
+    if not git_dir or not session_id:
+        return ""
+    shape_path = os.path.join(
+        git_dir, "coordinator-sessions", session_id, "session-shape.json"
+    )
+    try:
+        with open(shape_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    pickup = data.get("pickup")
+    if not isinstance(pickup, dict):
+        return ""
+    deliverable_id = pickup.get("deliverable_id")
+    if isinstance(deliverable_id, str) and deliverable_id.strip():
+        return deliverable_id.strip()
+    return ""
+
+
+def _resolve_staged_paths(timeout: float = 10.0) -> list:
+    """``git diff --cached --name-only``, ONE subprocess — derived here
+    because this hook, unlike ``git_native.commit_scoped()``'s callers,
+    receives no pathspec argument of its own (git invokes ``prepare-commit-
+    msg`` with only the commit-message-file path; the staged set is never
+    handed to it). Windows-safe (``creationflags``/``stdin=DEVNULL``) and
+    BOUNDED (``timeout``) — this runs on the commit hot path, so a hang here
+    is strictly worse than a missing trailer.
+
+    Fail-soft, unconditionally: not a repo, git unavailable, a spawn error,
+    a timeout, a non-zero exit, or a genuinely empty stage all return ``[]``
+    — never raises. An empty result reads identically to "tier 0 has
+    nothing to say" at the call site, which is exactly the fallback-to-
+    session-tiers behaviour this hook must degrade to.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            stdin=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:
+        return []
+    if out.returncode != 0:
+        return []
+    return [line for line in (out.stdout or "").splitlines() if line.strip()]
+
+
+def _ensure_claude_klabauter_on_syspath() -> str:
+    """Bootstrap ``coordinator_core`` onto ``sys.path``, resolving the
+    colocated claude-klabauter checkout via ``cc_invoke.resolve_colocated_claude_klabauter_root``
+    (this script's own ``__file__`` parents) — the SAME bootstrap
+    ``_resolve_deliverable_id_from_claimed_plan`` already performs inline,
+    extracted so tier 0's artifact lookup can share it without duplicating
+    the ``sys.path`` dance a second time. Returns the resolved claude-klabauter root,
+    or ``""`` on any resolution failure — never raises.
+    """
+    try:
+        lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        from cc_invoke import resolve_colocated_claude_klabauter_root
+
+        claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        return claude_klabauter_root
+    except Exception:
+        return ""
+
+
+def _resolve_deliverable_id_from_paths(paths: list) -> str:
+    """Tier 0: resolve straight off the committed artifact(s), not the
+    session — hand-mirrored from
+    ``coordinator_core.git.commit_trailers._resolve_deliverable_id_from_paths``
+    (see this file's module docstring and that module's own header note on
+    why the pair is kept in sync by hand rather than one importing the
+    other; that function's own docstring carries the full defect writeup
+    this tier closes).
+
+    Omit-rather-than-guess: ``paths`` empty, or none of ``paths`` resolve to
+    a file carrying a ``deliverable_id``, returns ``""``. Two or more staged
+    paths carrying DIFFERENT non-empty ``deliverable_id`` values raises
+    ``coordinator_core.ops.deliverable_carry.DivergentDeliverableIdError`` —
+    reused rather than forked, per that class's own negative-spec — which
+    ``_resolve_deliverable_id`` (below) downgrades to a non-aborting
+    fallback rather than letting it propagate, unlike the CLI-facing
+    sibling this mirrors.
+    """
+    if not paths:
+        return ""
+
+    claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
+    if not claude_klabauter_root:
+        return ""
+    try:
+        from coordinator_core.ops.deliverable_carry import DivergentDeliverableIdError
+        from coordinator_core.frontmatter.primitives import (
+            read_fm_field_unquoted,
+            split_frontmatter,
+        )
+    except Exception:
+        return ""
+
+    found = {}
+    for rel_path in paths:
+        try:
+            with open(rel_path, encoding="utf-8") as fh:
+                text = fh.read()
+        except Exception:
+            continue
+        split = split_frontmatter(text)
+        if split is None:
+            continue
+        deliverable_id = read_fm_field_unquoted(split.fm_text, "deliverable_id")
+        if isinstance(deliverable_id, str):
+            cleaned = deliverable_id.strip()
+            if cleaned and cleaned.lower() not in ("none", "null", "~"):
+                found[rel_path] = cleaned
+
+    distinct_values = sorted(set(found.values()))
+    if not distinct_values:
+        return ""
+    if len(distinct_values) == 1:
+        return distinct_values[0]
+
+    conflict_desc = ", ".join(f"{p!r} -> {v!r}" for p, v in sorted(found.items()))
+    raise DivergentDeliverableIdError(
+        "coordinator-prepare-commit-msg: this commit's staged pathspec names "
+        f"artifacts with DIFFERING deliverable_id values ({conflict_desc}) -- "
+        "refusing to guess which trailer applies."
+    )
+
+
+def _resolve_deliverable_id_from_claimed_plan() -> str:
+    """Step 4b of the module docstring: the same-session plan-execute path
+    (no handoff). Reached only when steps 4 and 4a both miss.
+
+    Lazily reaches into ``coordinator_core`` — deliberately NOT imported at
+    module scope, so a hit on step 4/4a (the common case) never pays this
+    import's cost on the commit hot path. Resolves CLAUDE_KLABAUTER_ROOT via the
+    self-location-first ``resolve_colocated_claude_klabauter_root()`` (this script
+    lives inside the claude-klabauter checkout at ``coordinator/bin/``, so
+    ``Path(__file__)``'s own parents answer it with zero external
+    dependency) SOLELY to put ``coordinator_core`` on ``sys.path`` for the
+    import below -- ``resolve_claimed_plan_path()`` returns a path relative
+    to THIS PROCESS's cwd (the repo the commit is landing in, per its own
+    docstring), which is not necessarily the same repo this script's own
+    ``__file__`` lives in (e.g. a hook process cwd'd into a different
+    checkout); the plan file itself is therefore opened relative to the
+    process cwd, never joined onto ``claude_klabauter_root``. Reuses
+    ``resolve_claimed_plan_path()`` and the shared frontmatter primitives
+    rather than re-deriving either — see that module's own negative-spec on
+    the ``plan_claim_dir`` import-cycle trap before touching this function.
+
+    Omit-rather-than-guess throughout: an unresolvable CLAUDE_KLABAUTER_ROOT, an
+    unresolvable plan, a missing/unreadable file, or a missing/blank field
+    all return ``""`` — never fabricates a value, never raises (any
+    exception anywhere in this chain is swallowed and treated as "no
+    match").
+
+    Spec backlink: ``archive/specs/2026-08/2026-08-01-deliverable-id-carry-
+    onto-executing-handoff.md`` execution note; DR-207 DD#1.
+    """
+    try:
+        lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        from cc_invoke import resolve_colocated_claude_klabauter_root
+
+        claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.session.claimed_plan import resolve_claimed_plan_path
+        from coordinator_core.frontmatter.primitives import (
+            read_fm_field_unquoted,
+            split_frontmatter,
+        )
+
+        plan_path = resolve_claimed_plan_path()
+        if not plan_path:
+            return ""
+
+        with open(plan_path, encoding="utf-8") as fh:
+            text = fh.read()
+    except Exception:
+        return ""
+
+    split = split_frontmatter(text)
+    if split is None:
+        return ""
+    deliverable_id = read_fm_field_unquoted(split.fm_text, "deliverable_id")
+    # `read_fm_field_unquoted` is a text extractor, not a YAML-typed parser --
+    # a `deliverable_id: null` line reads back as the LITERAL string "null",
+    # not Python None. Treat that (and "none"/"~") as blank, the SAME
+    # convention `coordinator_core.baton_assemble.__init__`'s own
+    # `continued_into`/`predecessor` scalar reads already use.
+    if isinstance(deliverable_id, str):
+        cleaned = deliverable_id.strip()
+        if cleaned and cleaned.lower() not in ("none", "null", "~"):
+            return cleaned
+    return ""
+
+
+def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" = None) -> str:
+    """Step 3a (tier 0) + steps 4 + 4a + 4b of the module docstring: check
+    the committed artifact(s) named by ``paths`` first (tier 0 — the
+    multi-baton-session fix; see ``_resolve_deliverable_id_from_paths``),
+    then ``git_dir`` (the common single-baton case — a commit landed in the
+    same repo ``/pickup`` ran in), then DoE-claude's own git-dir (the
+    cross-repo case — a commit landed directly into claude-klabauter under the
+    standing DoE→claude-klabauter write grant), then the session's claimed PLAN (the
+    same-session plan-execute-without-a-handoff case — see
+    ``_resolve_deliverable_id_from_claimed_plan``). Never fabricates a
+    value; every lookup in the cascade is omit-rather-than-guess.
+
+    Tier 0's ``DivergentDeliverableIdError`` (and any other failure raised
+    resolving it) is caught HERE, not left to propagate to ``main()`` — this
+    hook's hot-path fail-soft contract (module docstring, step 3a) means a
+    genuinely ambiguous or errored artifact lookup degrades to "tier 0 has
+    nothing to say" and falls through to the session-keyed tiers below,
+    never blocks or errors the commit. The ambiguous case is noted on
+    stderr so the divergence is visible without aborting anything.
+    """
+    if paths:
+        try:
+            deliverable_id = _resolve_deliverable_id_from_paths(paths)
+        except Exception as exc:
+            sys.stderr.write(
+                "coordinator-prepare-commit-msg: tier-0 artifact deliverable-id "
+                f"resolution ambiguous or failed ({exc}); falling back to "
+                "session-keyed resolution.\n"
+            )
+            deliverable_id = ""
+        if deliverable_id:
+            return deliverable_id
+    deliverable_id = _resolve_deliverable_id_at(git_dir, session_id)
+    if deliverable_id:
+        return deliverable_id
+    doe_root = _resolve_doe_root()
+    if doe_root:
+        doe_git_dir = os.path.join(doe_root, ".git")
+        if os.path.normpath(doe_git_dir) != os.path.normpath(git_dir):
+            deliverable_id = _resolve_deliverable_id_at(doe_git_dir, session_id)
+            if deliverable_id:
+                return deliverable_id
+    return _resolve_deliverable_id_from_claimed_plan()
+
+
+def _has_trailer_line(commit_msg_file: str, prefix: str) -> bool:
+    """Return True iff ``commit_msg_file`` already contains a line starting
+    with ``prefix`` (e.g. ``"Session-Id:"``). Any read failure is treated as
+    "not present" — the caller's outer try/except around the whole flow
+    already guarantees exit 0 regardless."""
+    try:
+        with open(commit_msg_file, encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith(prefix):
+                    return True
+    except Exception:
+        return False
+    return False
+
+
+def main(argv: list) -> int:
+    commit_msg_file = argv[0] if argv else ""
+    if not commit_msg_file or not os.path.isfile(commit_msg_file):
+        return 0
+
+    git_dir = _resolve_git_dir()
+    session_id = _resolve_session_id(git_dir)
+    if not session_id:
+        return 0  # legitimate non-coordinator commit; leave unaffected.
+
+    # Fail-safe: a non-UUID resolved id (e.g. a poisoned sentinel or a profiling-run
+    # env override) must OMIT both trailers, never stamp a wrong Session-Id (or a
+    # Deliverable-Id keyed off it). A missing trailer is coverage-neutral; a wrong
+    # one mis-attributes session scope.
+    # Spec: cross-repo/inbox/2026-07-21-claude-klabauter-em-claude-klabauter-session-id-leak-fix-reply.md (residual B(i))
+    if not _UUID_RE.fullmatch(session_id):
+        return 0
+
+    try:
+        need_session_id = not _has_trailer_line(commit_msg_file, "Session-Id:")
+        need_deliverable_id_check = not _has_trailer_line(commit_msg_file, "Deliverable-Id:")
+    except Exception:
+        return 0
+
+    trailer_args: list = []
+    if need_session_id:
+        trailer_args += ["--trailer", f"Session-Id: {session_id}"]
+    if need_deliverable_id_check:
+        staged_paths = _resolve_staged_paths()
+        deliverable_id = _resolve_deliverable_id(git_dir, session_id, staged_paths)
+        if deliverable_id:
+            trailer_args += ["--trailer", f"Deliverable-Id: {deliverable_id}"]
+
+    if not trailer_args:
+        return 0  # idempotent: nothing missing (or nothing resolvable) to add.
+
+    # Inject the trailer(s) in-place, ONE git interpret-trailers call. Failure
+    # is swallowed — never block a commit.
+    try:
+        subprocess.run(
+            ["git", "interpret-trailers", "--in-place", *trailer_args, commit_msg_file],
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    # Top-level fail-open guard: an uncaught exception anywhere in main() (bad
+    # argv shape, unexpected OSError, etc.) must never abort the commit — the
+    # per-step try/excepts above cover the known failure points, but this is
+    # the backstop honoring the "NEVER blocks a commit" contract even against
+    # a future internal bug. exec-shim misinvocation (running this file under
+    # `bash` instead of python3) is NOT caught here — that fails before Python
+    # ever starts; the installer fix (git_hook_install.py) is the guard for
+    # that failure mode.
+    # Spec backlink: cross-repo/inbox/2026-07-21-example-market-data-repo-em-prepare-commit-msg-shim-execs-bash-on-python-hook.md
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except SystemExit:
+        raise
+    except Exception:
+        sys.exit(0)

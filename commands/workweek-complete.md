@@ -1,10 +1,9 @@
 ---
 name: workweek-complete
-description: Weekly release ceremony — validate, update docs, cut release notes, version bump, merge to main, archive
+description: "Weekly release ceremony — validate, docs, release notes, merge."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: ""
 ---
-<!-- Updated 2026-06-15 by structured-queue-medium-rollout C13: Step 4 surfaces queue depth via query-records.sh --type bug/debt/improvement; central queue stays markdown -->
 
 # Workweek Complete — Weekly Release Ceremony
 
@@ -12,55 +11,60 @@ PM-invoked, release-grade close. Reads the week-changelog as the canonical recor
 
 **Design contract:** the week-changelog is the ledger. The weekly ceremony reads it, validates against it, and archives it. Release notes are drafted from it, not re-derived.
 
+## Step 0.9: Tier-U Grant (Implicit Ceremony Grant — Written)
+
+`/workweek-complete` holds an implicit Tier-U grant — one of the three ceremonies (alongside `/workday-complete` and `/merge-to-main`) authorized to run the full, unscoped test suite without a fresh ask each time, because each is already a deliberate full-repo gate. Write the token here, before either downstream consumer fires: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" grant ceremony "workweek-complete Tier-U consumers (Step 2 plugin-ecosystem run.js, Step 8 parallel-code-review full-tier suite)" --ceremony workweek-complete`.
+
+**Correction to a prior version of this note.** This step used to write no token, on the stated grounds that the ceremony's only test invocation (Step 2) is Tier F. That premise was found false during a Tier-U enforcement sweep: (1) Step 2's own `node "$CLAUDE_PLUGIN_ROOT/tests/plugin-ecosystem/run.js"` is an unscoped runner invocation — Tier U regardless of how it is reached, independent of the separate `fast_test_cmd` resolution in that same step; and (2) Step 8 dispatches `/parallel-code-review`, whose Test-Output Capture step runs the full suite (`coordinator_resolve_validation_cmd.py --full`) and now gates that run on a live `tier-u-grant-cli check` (`skills/parallel-code-review/SKILL.md` § Test-Output Capture). Both consumers need this ceremony's grant to be live before they fire. `/merge-to-main` at Step 16 still writes its own separate grant at its own open — that is unaffected by this write and remains correct on its own terms. Do not remove this write again without re-verifying both Step 2 and Step 8's call sites first.
+
+---
+
+## Step 0.95: Compute the Ceremony Spine
+
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-brief"`.
+
+The assembler computes the whole mechanical spine of this ceremony in one read-only pass —
+week-changelog enumeration + gap backfill, fast-test-cmd resolution, referential-integrity lint,
+the runtime-tripwire/improvement-queue/initiative/cruft-sweep/wsc-budget/goal-KR counts, the
+Step 4b–4k guard-sweep battery, the illegal-path backstop, the weekly trail-scope compute, the
+architecture-audit staleness + atlas-drift-walk reads, the version-consistency check, and the
+archive/reset — and returns one decision object:
+
+- **`directives[]`** — each names an existing CLI and is either unconditional (`depends_on: null`,
+  execute as you reach it) or gated on a `judgment_points[]` disposition. Render each `detail`
+  into the step it belongs to below rather than re-deriving the finding by hand.
+- **`judgment_points[]`** — the genuine EM/PM calls the assembler cannot resolve for you. Each
+  carries `question`, `dispositions[]`, and (Tier-2 only) a `recommendation` + `rationale` —
+  resolve every open one before its gated directive(s) proceed; never auto-pick a disposition for
+  a Tier-3 (no-recommendation) point.
+- **`narration`** — surface verbatim where noted below. Covers `scc`, `node run.js`, and
+  `gh release`, which have no consumes-manifest project script and are never `directives[]`
+  entries.
+
+**Guard-sweep hard-block set (AC9 census, not the emitted `hard_block` flag alone).** Three of
+the ten former Step 4b–4k lettered gates are hard-blocking — UBT pending-record merge, the
+reverse-drift merge gate, and the vendored-schema/version-consistency drift gate — the remaining
+seven are advisory-only and never halt. Halt before Step 8 on any FAIL among the hard-blocking
+three; surface the rest without halting. **Known gap:** the assembler's own `hard_block` field on
+the guard-sweep directive does not yet mark the UBT check `true` — treat UBT failures as
+hard-blocking per this paragraph regardless of what the emitted flag says until that's fixed
+upstream.
+
+What follows is the residue the assembler does not compute: the PM gates, the dispatch-worthy
+judgment calls, the skill-shaped steps (`/update-docs`, the parallel code-review gate, the Staff Engineer's
+architecture pass, editorial bucketing, `/merge-to-main`), and the two items outside the C4
+consumes-manifest (Subagent-share Sidecar Reap, the diff-scoped portability sweep) that still run
+by hand.
+
 ---
 
 ## Step 1: Read Week-Changelog — PM Confirmation Gate
 
-### Step 1a: Enumerate the ledger BEFORE concluding anything about its content
-
-Substrate-blindness is the failure mode this step exists to prevent: an EM that "looks for" the ledger and concludes it's empty when files are sitting on disk. Print the inventory:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/list-week-changelog.sh"
-```
-
-Then Read HEADER.md and every daily file. **Pre-condition for the off-cycle / PM-blocking branches in Step 9:** any subsequent step that asserts "no ledger" / "no daily blocks" / "no `/workweek-start` was run" must quote a specific line from the output above as evidence. If the output shows ≥1 daily file with non-zero commit-lines, the ledger is non-empty by definition and the ceremony proceeds with what's there — the off-cycle/PM-blocking branches in Step 9 are gated behind this evidence requirement.
-
-### Step 1b: Backfill missing daily blocks
-
-A skipped `/workday-complete` must reduce fidelity, not erase the day. Run:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/backfill-week-changelog-gaps.sh"
-```
-
-Past-date synthesized blocks stay frozen (the day's commit set is closed). **Today's `-backfill.md` is overwritable by design** — commits land throughout the day and an early-morning backfill goes stale by ceremony time. The script re-emits today's synthesized block on every run; human-curated daily blocks (no `-backfill` suffix) are always sacred. Prints one line per backfilled/refreshed date. Synthesized blocks feed Step 9 editorial bucketing the same as human-curated ones (the worker reads `Commit log` when `Scope:` is empty). Name any backfilled dates in the Step 1c summary so the PM can amend before release-notes drafting.
-
-### Step 1c: Surface summary
+`directives[]` cover the enumeration (`d_step1a_list_changelog`) and gap-backfill
+(`d_step1b_backfill_changelog_gaps`) — render each `detail` here. Past-date synthesized blocks
+stay frozen; today's `-backfill.md` is overwritable by design (commits land throughout the day).
+Human-curated daily blocks (no `-backfill` suffix) are always sacred. Name any backfilled dates
+in the summary below so the PM can amend before release-notes drafting.
 
 Surface to PM:
 
@@ -69,643 +73,316 @@ Week covers: D days (YYYY-MM-DD to YYYY-MM-DD)
 Commits: N (range: <oldest-sha>..<newest-sha>)
 Implemented workstreams: <list from Plans touched: implemented fields>
 Blockers: <list or "none">
-Priorities met: <from merged HEADER.priorities.*.md fragments vs. implemented plans>
+Priorities met: <from period=week goal .yaml artifacts' status, dual-sourced with legacy HEADER.priorities.*.md fragments as fallback>
 ```
 
-**Priorities merge-on-read:** glob `state/week-changelog/HEADER.priorities.*.md` (one fragment per `/workweek-start` writer this week — HEADER.md itself no longer carries the Priorities checklist inline, only a pointer line). Read every fragment found and union their checklist items into one merged list before computing "met" vs. "missed". Do not treat any single fragment as authoritative or drop fragments that look duplicative — each is an independent collaborator's set. If no fragments exist, report "no priorities were set this week". (Fragments persist until the next full reset archives them — see `workweek-start.md` § Step 6.)
-<!-- Review: code-reviewer — F6: cross-reference the write-side reset lifecycle so a
-     reader auditing "priorities met vs missed" knows stale fragments from an
-     abandoned mid-week re-run could still be present and unioned in. -->
+**Priorities-met computation (goal-artifact CANONICAL, fragment FALLBACK).** Glob
+`state/goals/*.yaml`, keep `period: week` artifacts matching the closing week's ISO-week, and read
+`status` directly — no freeform-text parsing. Fall back to `state/week-changelog/HEADER.priorities.*.md`
+fragments only for a priority no goal artifact already represents — dedup by priority
+text/identity, never double-count the same priority from both sources. No fragments and no goal
+artifacts → report "no priorities were set this week." Don't drop a fragment as duplicative
+across writers — the dedup rule is cross-source, not cross-fragment.
 
-Ask: _"Does this summary match your recollection? Proceed with release ceremony?"_
-
-**Wait for PM confirmation before continuing.** This is the single explicit PM gate before the irreversible steps.
+**`jp_step1c_pm_recollection_match`** (Tier-3, your-call — no recommendation; reason:
+pm-authority). Ask: _"Does this summary match your recollection? Proceed with release ceremony?"_
+This is the single explicit PM gate before the irreversible steps — **wait for confirmation
+before continuing.**
 
 ---
 
-## Step 2: Full Validation (blocking)
+## Step 2: Fast-Tier Validation (blocking)
 
-Run the complete validation stack:
+`d_step2_resolve_validation_cmd` resolves the configured `fast_test_cmd` (rc 0 = resolved, rc 2 =
+none configured — treat as skipped, not failed). Run the resolved command in a `bash -c` sandbox
+and capture its exit code.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-_LIB="$_cc_root/lib/coordinator-resolve-validation-cmd.sh"
-_RESOLVE_TMP=$(mktemp)
-trap 'rm -f "$_RESOLVE_TMP"' EXIT
-
-if [[ -f "$_LIB" ]]; then
-  # shellcheck source=/dev/null
-  source "$_LIB"
-  CMD=$(cs_resolve_fast_test_cmd 2>"$_RESOLVE_TMP")
-  RC_RESOLVE=$?
-else
-  echo "WARN: resolver lib not found at $_LIB — skipping fast-test gate" >&2
-  RC_RESOLVE=2
-  CMD=""
-fi
-
-if [[ $RC_RESOLVE -eq 0 ]]; then
-  # bash -c (child-shell sandbox) — matches workday-complete and skills/validate/SKILL.md;
-  # prevents assignment-injection clobber of caller state via the resolved command.
-  bash -c "$CMD"
-  RC_CMD=$?
-  # Validation: $RC_CMD  (0 = pass, non-zero = fail)
-elif [[ $RC_RESOLVE -eq 2 ]]; then
-  # Validation: skipped  (no fast_test_cmd configured — see stderr for remediation)
-  RC_CMD=0
-  [[ -s "$_RESOLVE_TMP" ]] && cat "$_RESOLVE_TMP" >&2
-fi
-
-node --test "$_cc_root/tests/plugin-ecosystem/run.js"
-```
+**The plugin-ecosystem contract suite is a Tier-U invocation, not Tier F, and is gated
+separately.** `node "$CLAUDE_PLUGIN_ROOT/tests/plugin-ecosystem/run.js"` names no test file,
+directory, or node-id — an unscoped runner invocation is Tier U under the disjunctive
+definition of that tier regardless of how it is reached, independent of the `fast_test_cmd` run above. Before
+firing it, re-confirm the Step 0.9 grant is still live rather than trusting that step having run
+earlier in this same ceremony: run
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check`.
+Exit 0 — proceed and run the suite. Exit 1 (ungranted) — halt before this invocation and surface
+to the PM; a token absent or malformed reads as ungranted, never granted (fail-closed). The
+`fast_test_cmd` run above is also a grant-gated invocation now — it is already covered by the
+Step 0.9 token written before either consumer fires, so no separate grant check is needed here.
 
 Capture exit codes — they populate `Validation:` in the changelog block:
 - **`Validation: 0`** — fast-tier passed; plugin ecosystem check passed.
 - **`Validation: <non-zero>`** — configured fast-test command failed. Stop and fix before proceeding.
-- **`Validation: skipped`** — no `fast_test_cmd` configured in `coordinator.local.md` and `$COORDINATOR_FAST_TEST_CMD` is unset. Set one or the other; proceed with awareness that fast-tier was not run.
+- **`Validation: skipped`** — no `fast_test_cmd` configured. Proceed with awareness that fast-tier
+  was not run.
 
-Any blocking failure → stop and report. Fix before proceeding. Do not proceed to Step 3 on a failing validation.
+Any blocking failure → stop and report. Fix before proceeding.
 
-> Full-tier cadence gate — not a per-commit reflex; cap parallelism at ~50% cores. → `docs/wiki/test-design-discipline.md § Posture: Proportional Test-Running`.
-
----
-
-## Step 3: Run `/update-docs`
-
-Full multi-phase docs sweep. Commits and pushes to the current branch.
-
-Wait for completion before proceeding.
+> Tier F (`fast_test_cmd`) cadence gate — cap parallelism at ~50% cores. Tier F is grant-gated
+> here too, covered by the Step 0.9 token rather than a separate check. The plugin-ecosystem
+> `node run.js` invocation above is the ceremony's first of two Tier-U consumers — see Step 0.9;
+> the second is Step 8's `/parallel-code-review` full-tier run.
 
 ---
 
-## Step 3.5: Runtime-Tripwire Fire-Log Triage
+## Step 3: Strict Referential-Integrity Gate (blocking)
 
-Before queue triage, read the runtime-tripwire fire-log:
-
-```bash
-_FIRE_LOG="$(coordinator_state_root --central)/runtime-tripwire-fire-log.tsv"
-if [[ -f "$_FIRE_LOG" ]]; then
-  wc -l < "$_FIRE_LOG"
-  # Summarize fire counts by fire_type (columns: timestamp, agentId, model, elapsed_min, fire_type)
-  awk -F'\t' 'NR>1 {count[$5]++} END {for (t in count) print t, count[t]}' "$_FIRE_LOG" | sort
-  # Surface recurring agents (same agentId fired ≥3 times)
-  awk -F'\t' 'NR>1 {count[$2]++} END {for (id in count) if (count[id]>=3) print count[id], id}' "$_FIRE_LOG" | sort -rn | head -20
-else
-  echo "runtime-tripwire-fire-log.tsv absent — skipping."
-fi
-```
-
-**Triage signal:** If `em-side` fires dominate (≥50% of entries) or any `agentId` fires ≥3 times, treat as miscalibration evidence. Surface to PM: _"Tripwire fire-log shows N recurring dispatches — consider recalibrating `SONNET_MAX_MINUTES` or the dispatch-size ceiling."_ See `docs/wiki/runtime-tripwire.md` §6 for the recalibration mechanism. Recurring `agent-side` fires at reasonable elapsed times indicate legitimate long executors; no action needed.
+`d_step2_5_lint_frontmatter` runs `lint-frontmatter --strict-refs --json` — the one place a
+dangling `predecessor_id`/`origin_handoff_id` or a path/ID divergence escalates from `/validate`'s
+soft-warn to a blocking error. `ok: true` (empty `violations`) passes even with non-ref
+`refWarnings` present. `ok: false` → stop and fix before proceeding.
 
 ---
 
-## Step 4: Improvement-Queue Triage
+## Step 4: Run `/update-docs`
 
-Read the central improvement queue (`$(coordinator_state_root --central)/coordinator-improvement-queue.md`, example-orchestration-hub-resident — see `docs/wiki/state-placement-law.md`). Note oldest entry date and total active count.
-
-**Triage triggers (any):** ≥5 active entries; oldest >14 days ago; any `[recurring: ≥3]`.
-
-If triggered: (1) read entries, (2) prioritize `[recurring: ≥3]` first, (3) dispatch small executor per `proposed target`, (4) delete resolved entries (do NOT annotate), (5) commit naming closed entries, (6) >15 entries → `/staff-session`-style sweep.
-
-If not triggered: note _"Improvement queue: K entries, oldest YYYY-MM-DD — no triage needed."_
-
-**Write-time discipline (DR-056):** Append NEW entries as a single main line — no sub-lines, no closure-log sections (`## History`, `## Resolved`, `## Done`, etc.) — the pruner strips them.
-
-**Prior-art sidecar scan (judgment-based):** Scan recent `docs/plans/**/*.prior-art-check*.md` sidecars for Conflicts dispositioned as `override-and-document`, `update-prior-art`, or `both`. Any wiki cited ≥3 times is a revision candidate — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` § "Bidirectional resolution".
-
-**Bug-backlog depth check:** Use `bin/query-records.sh --type bug --where 'severity in (P1,P2),status=open' | wc -l` to count open P1/P2 items. If ≥10, ask PM: _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_ Otherwise note in summary. If `state/bug-backlog/` directory absent or empty: skip silently.
-
-- **Portability sweep on the week's diff.** Run
-  `portability-sweep <repo-root> --diff-only $(week-start-sha)..HEAD --report-format md`.
-  Surface findings to the weekly triage list. Treat the same as the merge-time
-  step: PM dispositions; never a workweek-complete blocker.
-
-### Initiative-Govern Sweep
-
-<!-- spec-backlink: docs/plans/2026-07-04-initiative-govern-sweep-prioritize-doe-d.md § C5 (AC6) -->
-<!-- sole ritual home — NOT workday-complete, workstream-start, or workweek-start;
-     DR-209 (example-orchestration-hub-em) suggested workweek-start, but the PM ratified workweek-complete:
-     backward-looking cadence fits an initiative sweep; queue-triage dispatch teeth already
-     live in this step (predecessor handoff Key Decision #6). -->
-
-Run the unattached-record lens then the candidate detector:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Lens: every artifact with initiative == null across queues, roadmap stubs, handoffs, plans
-# Review: code-reviewer — F9 (volume): first-run --unattached can be high-volume; --limit 50 prevents a wall of output.
-# Re-run with --type (e.g. --type bug) for deeper per-type inspection.
-node "$_cc_root/bin/query-records.js" --unattached --limit 50
-# Detector: cluster unattached items; emits candidate initiative labels (≥3-item floor)
-# Review: code-reviewer — F1: detect-initiative-candidates is a Node.js script (#!/usr/bin/env node); bash invocation bypasses shebang and fails.
-node "$_cc_root/bin/detect-initiative-candidates"
-```
-
-**Surface to PM:** for each candidate cluster output by the detector, show the suggested label, item count, and representative items. Then prompt: _"Confirmed initiatives to name? Run `coordinator-initiative create` for new ones, `coordinator-initiative attach <artifact-path> <id>` to link existing items."_
-
-**If no candidates:** note _"Initiative sweep: N unattached records — no candidate clusters above ≥3-item floor."_ and continue.
-
-**Negative-spec — sole ritual home.** This sweep MUST NOT be added to `/workday-complete`, `/workstream-start`, or `/workweek-start`. Placement at `/workweek-complete` is PM-ratified (backward-looking cadence, queue-triage context). The detector is **read-only** — it surfaces candidates; the human authors the cut via `coordinator-initiative create`/`attach`. No auto-creation of initiatives from this step.
-
-### Cruft-sweep verification (read-only)
-
-Surface the Layer 1 cruft-sweep cadence in the weekly summary. Read-only — no `--apply` from here.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Last sweep timestamp + reclaimable size (if log exists)
-if [[ -f "$(coordinator_state_root --central)/cruft-sweep-log.md" ]]; then
-  # Review: Slice C reviewer F5 — log is pipe-delimited; awk '{print $1}' returns "|" not timestamp.
-  # Use field-split on "|" and strip spaces from field 2 (the timestamp column).
-  LAST=$(tail -1 "$(coordinator_state_root --central)/cruft-sweep-log.md" | awk -F'|' '{gsub(/ /, "", $2); print $2}')
-  echo "Cruft-sweep last run: ${LAST:-never}"
-fi
-bash "$_cc_root/bin/cruft-sweep.sh" --class all --dry-run --quiet 2>&1 | tail -1
-```
-
-If staleness exceeds 21 days OR the dry-run reports > 2 GB reclaimable, surface a one-line note in the weekly summary: _"Cruft-sweep cadence drift — N days since last run, X MB reclaimable. Invoke `/cruft-sweep` to action."_
-
-See `docs/wiki/cruft-sweep-cadence.md` for the full cadence + class breakdown.
-
-### Workstream-complete inline-budget advisory (read-only)
-
-Surface drift in the `workstream-complete` skill's inline bash-block count — the rebound barrier that keeps it a dispatcher of one-liners (new mechanism should land as a `bin/wsc-*.sh` script, not inline). Non-blocking WARN.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/check-wsc-inline-budget.sh" 2>&1 | tail -1
-```
-
-If it prints `WARN: ... exceeds baseline`, surface a one-line note in the weekly summary: _"workstream-complete inline-budget drift — new mechanism inlined instead of extracted to a `bin/wsc-*.sh` script. See `skill-step-parallelization.md` § wsc wiring rule."_ Exit 1 is the WARN signal, not a gate.
+Full multi-phase docs sweep. Commits and pushes to the current branch. Wait for completion.
 
 ---
 
-## Step 4.5: Weekly KR Re-assessment
+## Step 5: Improvement-Queue, Tripwire, Initiative, and Guard-Sweep Triage
 
-<!-- spec-backlink: docs/plans/2026-07-06-goal-setting-okr-legibility-system.md § C6 -->
-<!-- Advisory — non-blocking; does NOT gate Step 5 or beyond -->
+`d_step3_5_advisories` and the Step-4-counts directives (`d_step4_counts_query_records`,
+`d_step4_counts_initiative_candidates`, `d_step4_counts_coordinator_initiative`,
+`d_step4_counts_cruft_sweep`, `d_step4_counts_wsc_budget`, `d_step4_counts_goal_krs`) and the
+guard-sweep directives (`d_step4b_4k_drift_guards`, `d_step4b_4k_reverse_drift`,
+`d_step4b_4k_version_consistency`, `d_step4b_4k_competitor_positioning`,
+`d_step4b_4k_atlas_watch_drift`, `d_step4b_4k_arch_audit_staleness`), plus the human-facing
+doc-health guard-sweep directive (staleness + content verification), resolve everything below in
+one pass — render each `detail` under its heading rather than re-running the underlying CLI by
+hand. The doc-health directive is computed by the Step 0.95 spine before Step 4 runs, but — like
+every other 4b–4k gate — its disposition happens here at Step 5, not as input to Step 4's
+`/update-docs` pass: this doc class (root `README.md`, `INSTALL.md`, `CONTEXT.md`,
+`CONTRIBUTING.md`, plugin-root READMEs) is precisely what `/update-docs` does not cover, so
+there is no pass for it to inform.
 
-Run the weekly KR re-assessment helper. It reads **existing signal only** (completions, handoffs, week-changelog HEADER) — no new instrumentation. For each `state/goals/*.md` artifact it proposes a per-KR status and a `perceptible_movement` flag. KRs with no movement AND `weekly_perceptible: true` are flagged as _"maybe-not-a-goal — no perceptible movement this week"_.
+**Runtime-tripwire fire-log.** If `em-side` fires dominate (≥50% of entries) or any `agentId`
+fires ≥3 times, surface to PM: _"Tripwire fire-log shows N recurring dispatches — consider
+recalibrating `SONNET_MAX_MINUTES` or the dispatch-size ceiling."_
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Review: code-reviewer F9 — guard added so advisory step no-ops cleanly if script not yet installed
-[[ -f "${_cc_root}/bin/reassess-goal-krs.sh" ]] || { echo "INFO: reassess-goal-krs.sh not installed — skipping KR re-assessment"; exit 0; }
-bash "${_cc_root}/bin/reassess-goal-krs.sh" --since 7d
-```
+**`jp_step4_triage_dispatch`** (Tier-2, recommendation: `dispatch`; skip only when there's nothing
+new). If dispatching: prioritize `[recurring: ≥3]` entries first, dispatch a small executor per
+`proposed target`, delete resolved entries (never annotate), commit naming closed entries, and
+route a >15-entry backlog through a `/staff-session`-style sweep — consider running that sweep as
+a background `Workflow` (you should) so N executors' conclusions stay off your context.
 
-- **No `state/goals/` directory:** the script prints `INFO: No goals directory found` and exits 0 — skip.
-- **Goals found:** review the proposed statuses and any `*** maybe-not-a-goal` flags. These are **proposals for EM/PM confirmation** — the live `status` field in each artifact is not overwritten. Confirm, adjust, or reclassify as appropriate before continuing.
-- **Advisory only:** this step is non-blocking. Do NOT halt the workweek-complete ceremony on KR signal gaps; surface findings in the weekly summary instead.
+**Write-time discipline:** new queue entries are a single main line — no sub-lines, no
+closure-log sections; the pruner strips them.
 
-**Negative-spec:** this step MUST NOT auto-set `status:` fields in goal artifacts. Proposed statuses are written as a comment block for explicit human review only.
+**Prior-art sidecar scan.** Scan recent `state/plan-sidecars/*.prior-art-check*.md` sidecars for
+Conflicts dispositioned `override-and-document`/`update-prior-art`/`both`. A wiki cited ≥3 times
+is a revision candidate — surface to PM. Full doctrine: `docs/wiki/prior-art-checker.md` §
+"Bidirectional resolution".
 
----
+**Audience-mismatch cadence gate (not consumes-manifest — runs by hand).** Run
+`python3 -m coordinator_core.ops.audience_mismatch_scan --root .` (claude-klabauter). Reads recent
+`state/subagent-share/` run-report sidecars' `## Exit interview` → "What did you have to work out
+that the brief could have told you?" answers (the channel every dispatched agent already fills,
+enforced present-in-sidecar by `test_review_integrator_fill_guard.py`) and clusters near-duplicate
+answers across independent dispatches. A cluster of ≥3 sidecars naming the same doctrine-shaped gap
+prints a `[audience-mismatch] ...` nudge — treat it as a Step-5-shaped triage item: route it back
+to the classification pass named in `coordinator/snippets/em-operating-doctrine.md` § How to
+Review What Came Back ("a recurring 'what should the brief have told you?' naming an EM-only
+rule is a mis-routing signal") — which rule was missing from the dispatched agent's context, and
+does it belong in the always-on file or the EM channel. Silent output → no recurring gap this cadence; nothing to
+action.
 
-## Step 4b: Install OOM Reproducer Freshness Check
+**Bug-backlog depth.** The `query-records` directive's open P1/P2 count governs this: ≥10 → ask
+PM _"Bug backlog has N open P1/P2 items — run /bug-blitz now or defer?"_; otherwise note in
+summary; `state/bug-backlog/` absent or empty → skip silently.
 
-If `bin/check-install-reproducer-fresh.sh` exists in the repo root:
+**Portability sweep.** Path-portability findings on the week's diff surface to the PM (never
+blocking) via Step 8's parallel-code-review gate, which dispatches `code-reviewer-weekly`
+(delegating to `code-reviewer.md`'s always-on **Cross-platform portability lens** and
+**Path-shape hazard lens** — separator mismatches, foreign-platform paths, and hardcoded
+sibling-repo paths bypassing the settings-home registry) against the week's diff against
+`origin/main` as a structural part of every weekly gate run — not a standalone hand-run step.
 
-```bash
-bash bin/check-install-reproducer-fresh.sh
-```
+**Initiative-govern sweep.** Surface for each candidate cluster the detector returns: label, item
+count, representative items. Prompt: _"Confirmed initiatives to name? Run
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-initiative" create` for new ones, `... attach <artifact-path> <id>` to link existing items."_
+No candidates → note the unattached count and continue. **Negative-spec — sole ritual home.** This
+sweep MUST NOT be added to `/workday-complete`, `/workstream-start`, or `/workweek-start`; the
+detector is read-only, the human authors the cut.
 
-- **Exit 0 (marker fresh, <24h):** notice; proceed.
-- **Exit 0 (test ran and passed):** proceed.
-- **Exit 1 (test failed):** halt and report; do NOT proceed to Step 5+ until fixed or PM grants `--force`.
+**Cruft-sweep verification.** Staleness >21 days OR dry-run >2 GB reclaimable → one-line note:
+_"Cruft-sweep cadence drift — N days since last run, X MB reclaimable. Invoke `/cruft-sweep` to
+action."_
 
-Informational when fresh; **blocking gate** only when the test runs and fails.
+**Subagent-share sidecar reap (not consumes-manifest — runs by hand).** Named exception to
+`state/`'s never-swept posture — canonical three-clause definition lives at
+`coordinator/commands/distill.md § tasks/ vs state/ — aggressive sweep boundary`. Run
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/reap-stale-subagent-sidecars"`.
+Non-zero exit → surface the error, do NOT skip. Zero exit with sidecars reaped → include the
+`git rm` deletions in the weekly maintenance commit and note the reaped count. Zero exit with
+nothing reaped → note "clean (nothing stale)."
 
----
+**Workstream-complete inline-budget advisory.** `WARN: ... exceeds baseline` → one-line note:
+_"workstream-complete inline-budget drift — new mechanism inlined instead of extracted to a
+`bin/wsc-*.sh` script."_
 
-## Step 4c: UBT Pending-Record Merge Gate (UE plugin work only)
+**Weekly KR re-assessment (advisory, non-blocking).** `d_step4_counts_goal_krs` reads existing
+signal only (completions, handoffs, week-changelog HEADER) — no new instrumentation. That clause
+bars *this system standing up instrumentation of its own*; it is a coupling constraint, not a rule
+about where signal originates (`docs/problems/2026-07-06-goal-setting-per-repo-okr-legibility-sys.md`
+OOS #1: folding the instrumentation build in "would couple the legibility system to an
+instrumentation build it doesn't need in order to be useful"). A signal the running repo already
+produces for its own reasons is not barred by it; a signal this step would require someone to build
+in order to run is. Review the
+proposed per-KR statuses and any `*** maybe-not-a-goal — no perceptible movement this week` flags
+as EM/PM-confirmation proposals; the live `status` field is never auto-overwritten. No
+`state/goals/` directory → skip. **Negative-spec:** this step MUST NOT auto-set `status:` fields.
 
-Scan for `*.ubt-compile.pending.json` records in `state/review-trail/` with no `.resolved.json` sibling:
+The step also reads one optional, generalized local source: `state/kr-suggestions/*.yaml`
+(`coordinator/schemas/kr-suggestion.schema.json`) — any producer resident in the running repo may
+emit a suggested KR-shift, anchored on `key_results[].id` and carrying rationale + provenance
+(source record, span, timestamp), for presentation alongside this step's own proposals. This is
+existing local signal under the clause above, not new instrumentation the ceremony stands up — no
+directory present → skip cleanly, exactly like a missing `state/goals/`. Same posture as every
+other proposal here: advisory, EM/PM-confirmed, no auto-apply path at any confidence level, ever.
+A suggestion whose `kr_id` doesn't resolve against the target goal is surfaced to the human, never
+dropped silently — and so is one whose `goal_id` matches no goal at all, or one that resolves
+cleanly onto a goal that has since gone non-active: three distinctly-worded not-presented lines,
+never a silent drop.
 
-```bash
-UNRESOLVED=$(find state/review-trail -maxdepth 1 -name "*.ubt-compile.pending.json" -type f 2>/dev/null | while read -r f; do
-  base="${f%.pending.json}"; [[ ! -f "${base}.resolved.json" ]] && echo "$f"
-done)
-```
+**Guard-sweep results (advisory eight).** Skill description length, owner-file invariant lint,
+enabledPlugins drift, CVE recheck, strategic self-description refresh nudge, competitor-positioning
+nudge, the atlas drift walk / arch-audit staleness read, and human-facing doc health never block —
+note each finding in the weekly summary and move on. CVE recheck dispatches `dep-cve-auditor`
+(Sonnet) only when a tracked manifest changed in the last 14 days — output to
+`state/review-findings/<week-starting>-cve/deps.md`. Strategic self-description nudge: if
+`state/strategic/self-description.yaml` is stale relative to `git log --since="7 days ago"`,
+prompt to run `coordinator:strategic-self-description-refresh`; absent → note that `/repo-setup`
+scaffolds a skeleton. Competitor-positioning nudge fires only on an absent-or-empty
+`competitors[]` — never re-nudge a repo that already has data, even if the freshness nudge above
+separately flags it as stale.
 
-Passes silently when none found. If unresolved: halt and emit `sha_range` values — _"run /workday-complete on the affected day(s) or override with `COORDINATOR_OVERRIDE_UBT_GATE=1`."_ Non-UE repos no-op silently.
+**Human-facing doc health (staleness + content verification).** Advisory, never blocking — but
+unlike the other seven advisory rows, each doc with a finding is also gated through a paired
+`judgment_points[]` entry (one per doc with findings, not per finding — see
+`docs/wiki/human-facing-doc-freshness.md`), requiring an explicit recorded per-doc disposition
+before its gated follow-on directive can proceed; no disposition is ever auto-picked. Staleness
+findings carry commits-since/days-since/last-touch evidence per doc; content-verification
+findings carry the citation and why it failed to resolve. Detector entrypoints:
+`claude-klabauter:coordinator/bin/workweek-complete-doc-staleness.py` (staleness) and
+`claude-klabauter:coordinator/bin/workweek-complete-doc-verify.py` (content verification), each
+with a `.cmd` sibling for Windows.
 
----
-
-## Step 4d: Skill Description Length Advisory
-
-```bash
-set +e
-_DESC_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/check-description-length.sh 2>&1); _DESC_RC=$?
-set -e
-echo "---"; echo "description-length advisory (rc=$_DESC_RC):"; echo "$_DESC_OUT"; echo "---"
-```
-
-Informational — never blocks. Note over-budget skills in the weekly summary; address next session.
-
----
-
-## Step 4e: Owner-File Invariant Lint Advisory
-
-Presence-detected. Applies only when `scripts/lint-owner-file-invariants.py` exists — repos without the §1a convention (`docs/wiki/rag-bait-conventions.md` §1a) pass silently.
-
-```bash
-if [[ -f scripts/lint-owner-file-invariants.py ]]; then
-  set +e
-  # python3-first resolver — `python` is absent on modern macOS / many Linux.
-  # No interpreter → clean SKIP with notice (advisory step); do NOT fall back to a
-  # literal `python3` that 127s and surfaces as a spurious rc into the weekly summary.
-  PY="$(command -v python3 || command -v python)"
-  if [[ -z "$PY" ]]; then
-    echo "---"; echo "owner-file-invariant advisory: SKIP — no python3/python on PATH"; echo "---"
-  else
-    _LINT_OUT=$("$PY" scripts/lint-owner-file-invariants.py 2>&1); _LINT_RC=$?
-    echo "---"; echo "owner-file-invariant advisory (rc=$_LINT_RC):"; echo "$_LINT_OUT"; echo "---"
-  fi
-  set -e
-fi
-```
-
-Informational. Non-zero rc means a file in `scripts/owner_files.yaml` lost its `Invariant —` marker. Note in weekly summary; address next session. Cadence doctrine: `docs/wiki/workday-workweek-cadence.md` lines 56–75.
-
----
-
-## Step 4f: enabledPlugins Drift Audit Advisory
-
-Per-repo advisory — audits current repo's `enabledPlugins` against `project_type` / `stack_tags` from repo-root `coordinator.local.md` or the central state repo-registry (`$(coordinator_state_root --central)/repo-registry.md`, example-orchestration-hub-resident — see `docs/wiki/state-placement-law.md`).
-
-```bash
-set +e
-if [[ -f .claude/settings.json ]]; then
-  _EP_OUT=$(${CLAUDE_PLUGIN_ROOT}/bin/audit-enabled-plugins.sh 2>&1); _EP_RC=$?
-else
-  _EP_OUT="(no .claude/settings.json — skipped)"; _EP_RC=0
-fi
-set -e
-echo "---"; echo "enabledPlugins drift advisory (rc=$_EP_RC):"; echo "$_EP_OUT"; echo "---"
-```
-
-Advisory only — never blocks. `project_type: meta` short-circuits (all plugins intentional). When drift is reported, full uninstall requires removing the entry from `.claude/settings.json`, from `~/.claude/plugins/installed_plugins.json`, and from `~/.claude/plugins/cache/<marketplace>/<plugin>/` — EM surfaces the recipe, PM authorizes.
-
----
-
-## Step 4g: Reverse-Drift Merge Gate (copy_install plugins only)
-
-Blocking gate for plugins whose live install is a copy of source (`copy_install` in `plugin.mirrors`). The forward-SHA `check-plugin-drift.sh` is structurally blind to a live install that was hand-edited *after* the last install — each plugin's registered `reverse_drift_cmd` closes that direction by digest-comparing live against source.
-
-Detection is delegated to the per-plugin `reverse_drift_cmd` registered in `plugin.mirrors.<name>` and discovered through the machine-local registry — so the gate fires from any cwd, not only the example-game-repo source repo. The reader script is referenced by its **authoritative absolute path**; a cwd-relative `bin/...` path would reproduce the exact silent-no-op bug this gate's 2026-05-28 rework fixed (DR-146). Never shorten it.
-
-**Per-repo scoping (`--scope-repo`).** The gate is scoped to the repo running `/workweek-complete`: the meta-repo (`~/.claude`, the coordinator home) checks **every** `copy_install` plugin on the machine (the 2026-05-28 §Chunk 3 meta-repo-coverage intent); a **consumer repo** (project-rag, example-sim-repo, etc.) checks only `copy_install` plugins whose `source_path` IS that repo — usually none, so a clean no-op. This stops a consumer-repo release from gating on a *sibling* plugin's live-install drift, which violates the dependency-direction invariant (a host must never be forced to sync with a consumer's state). The repo root is resolved via `git rev-parse --show-toplevel` and passed through; path forms are normalized inside the reader (Windows `X:/` vs MSYS `/x/` vs `$HOME` `/c/`).
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Discover registered reverse-drift commands via the machine-local registry,
-# scoped to THIS repo (see Per-repo scoping above).
-# Absolute path is load-bearing — see DR-146 and docs/wiki/machine-local-registry.md § reverse_drift_cmd.
-# `|| REVDRIFT_RC=$?` (not a bare `RC=$?` on the next line) so a non-zero rc is captured
-# even if this block is paste-run under `set -e` — otherwise the shell aborts on the
-# assignment before rc is read, and the fail-loud branches below never fire.
-REVDRIFT_SCOPE_REPO="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-REVDRIFT_RC=0
-REVDRIFT_ROWS="$("$_cc_root/bin/list-reverse-drift-cmds.sh" --scope-repo "$REVDRIFT_SCOPE_REPO")" || REVDRIFT_RC=$?
-
-if [[ $REVDRIFT_RC -eq 3 ]]; then
-  # copy_install plugins ARE registered but none carry a reverse_drift_cmd: the gate is blind.
-  echo "Reverse-drift gate MISCONFIGURED — copy_install plugins exist but none have a reverse_drift_cmd. Register with: machine-local set plugin.mirrors.<name>.reverse_drift_cmd '<invocation>'. See docs/wiki/machine-local-registry.md § reverse_drift_cmd."
-  [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
-elif [[ $REVDRIFT_RC -ne 0 ]]; then
-  echo "Reverse-drift gate: reader exited with an unexpected code (rc=$REVDRIFT_RC) — e.g. a registry-read or invocation error. Check the reader output above before merging."
-  [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
-else
-  # rc==0: run each registered command from its source_path. Empty rows = no
-  # copy_install plugins on this machine = genuinely N/A (clean pass).
-  REVERSE_DRIFT_FAIL=0
-  while IFS='|' read -r PLUGIN SRC CMD; do
-    [[ -z "$PLUGIN" ]] && continue
-    # bash -euo pipefail -c (not plain bash -c) so a pipeline failure inside the
-    # registered reverse_drift_cmd fails-fast rather than being masked — matches the
-    # hardened refresh_cmd invocation (refresh-plugin-live-install.sh:393, code-reviewer F7).
-    if ! ( cd "$SRC" && bash -euo pipefail -c "$CMD" ); then
-      REVERSE_DRIFT_FAIL=1
-    fi
-  done <<< "$REVDRIFT_ROWS"
-  if [[ $REVERSE_DRIFT_FAIL -ne 0 ]]; then
-    echo "Reverse-drift gate FAILED. Remediation: run \`example_game_repo_recover --step reverse-drift\` to back-propagate live→source, or override with COORDINATOR_OVERRIDE_REVERSE_DRIFT=1."
-    [[ "${COORDINATOR_OVERRIDE_REVERSE_DRIFT:-0}" == "1" ]] || exit 1
-  fi
-fi
-```
-
-Do NOT proceed to Step 5 until the gate passes or PM grants override. Note `reverse_drift_cmd` is registry-supplied and shell-evaluated once by `bash -c` — operators MUST single-quote the value in `registry.local.toml` (same idiom as `refresh_cmd`). Detection logic remains example-game-repo-owned (`X:/example-game-workbench-repo/bin/check-reverse-drift.sh`; `docs/plans/2026-05-26-game-dev-ownership-and-bidirectional-install-drift.md` AC7); this gate only routes to it via the registry.
+**Guard-sweep results (hard-blocking three).** UBT pending-record merge, reverse-drift, and
+version-consistency/schema-drift — see § Step 0.95's hard-block-set paragraph. On a FAIL: halt
+and surface before Step 8; UBT names `sha_range` and the `COORDINATOR_OVERRIDE_UBT_GATE=1`
+escape; reverse-drift names `COORDINATOR_OVERRIDE_REVERSE_DRIFT=1`; version-consistency/schema-drift
+names the drifted schema and direction (we-ahead/we-behind/both) or `COORDINATOR_OVERRIDE_UBT_GATE`-
+class remediation per its own stderr. Non-UE repos no-op silently on the UBT check.
 
 ---
 
-## Step 4h: CVE Recheck (change-aware)
+## Step 6: scc Snapshot
 
-Weekly dependency-CVE audit. **Change-aware:** dispatch the auditor only when a tracked manifest has changed in the last week — otherwise skip silently with a one-line note.
-
-```bash
-# Tracked manifest globs (subset of dep-cve-auditor's detection table).
-_MANIFESTS=(package.json package-lock.json yarn.lock pnpm-lock.yaml \
-            requirements.txt requirements.lock pyproject.toml uv.lock \
-            Cargo.toml Cargo.lock go.mod go.sum)
-
-# Any tracked manifest present at all? If none, the repo has no dep surface — skip.
-_PRESENT=$(git ls-files -- "${_MANIFESTS[@]}" 2>/dev/null | head -1)
-if [[ -z "$_PRESENT" ]]; then
-  echo "CVE recheck: no tracked dependency manifests in this repo — skipped."
-else
-  # Did any change in the last two weeks? (14-day window — covers slipped workweeks;
-  # double-audit is a cheap no-op report, missed-audit is a silently-unscanned CVE.)
-  _CHANGED=$(git log --since="14 days ago" --name-only --pretty=format: -- \
-             "${_MANIFESTS[@]}" 2>/dev/null | sort -u | grep -v '^$' || true)
-  if [[ -z "$_CHANGED" ]]; then
-    echo "CVE recheck: dependency manifests unchanged in the last 14 days — skipped."
-  else
-    echo "CVE recheck: manifests changed this week — dispatching dep-cve-auditor:"
-    echo "$_CHANGED" | sed 's/^/  - /'
-    # EM dispatches dep-cve-auditor with output path state/review-findings/<week>-cve/deps.md
-  fi
-fi
-```
-
-- **Skip cases** (no dispatch, one-line note in summary): no tracked manifests present, OR manifests present but none changed in the last 14 days.
-- **Dispatch case:** at least one manifest changed → dispatch `dep-cve-auditor` (Sonnet worker) with output path `state/review-findings/<week-starting>-cve/deps.md`. Surface its verdict alongside Step 7's gate verdict in Step 9 release notes if any findings warrant it.
-
-**Windows spawn discipline — include this in every `dep-cve-auditor` dispatch prompt:**
-
-> Cross-platform shell — Windows console-flash discipline: Do NOT use bare `python3 -c "…"` or `python -c "…"` for any ad-hoc Python. On Windows these resolve to the venv's console-subsystem `python.exe` and trigger focus-stealing popup windows (~20+ per audit run). If you need an ad-hoc Python one-liner, first check for a project-local quiet wrapper: `project_rag_scripts/python-quiet.sh` (project-rag repos), `bin/python-quiet.sh`, or `bin/python-quiet.ps1`. Route through it if found (`bash project_rag_scripts/python-quiet.sh -c "…"`). If no wrapper exists, document the limitation in the report rather than spawning bare Python. The audit tools themselves (pip-audit, npm audit, cargo audit, govulncheck) are exempt — they are invoked as first-class CLIs, not Python one-liners. References: `docs/wiki/intel-fortran-rtl-console-popup.md` (consuming repo), `docs/wiki/cross-platform-shell-portability.md` (coordinator plugin).
-
-Advisory step — does NOT block merge. The change-aware gate is what makes this cheap: ~/.claude meta-repo (scripts-only `package.json`) skips silently every week; a repo with active dep churn audits when there's something new to audit.
-
-<!-- spec: change-aware-cve-recheck — see commit history; replaces the dropped tasks/cve-recheck-due-*.md marker mechanism (2026-06-08) -->
+Not consumes-manifest (`scc` is third-party — see `narration`). If `scc` is available, run
+`scc --no-complexity --no-cocomo --no-duplicates --sort code` and record the compact summary
+(total lines, top 5 languages) in `state/code-stats-history.md` under a `## YYYY-MM-DD` heading.
+Not available → note _"scc not available — install for weekly code stats."_
 
 ---
 
-## Step 5: scc Snapshot
+## Step 7: ShellCheck Sweep + Console-Flash + Multi-Event-Hook Guards
 
-If `scc` is available (`which scc` or `~/bin/scc`):
-```bash
-scc --no-complexity --no-cocomo --no-duplicates --sort code
-```
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-drift-guards" shellcheck-sweep --repo-root .`. Issues found → report and fix straightforward mechanical
+ones, flag behavior-changing items for PM review. Clean → _"ShellCheck: all .sh files clean."_ Not
+installed → note.
 
-Record the compact summary (total lines, top 5 languages) in `state/code-stats-history.md` under a `## YYYY-MM-DD` heading (append; create the file if it doesn't exist). Weekly trend is the signal; daily delta is noise.
+Then the spawn-suppression guard: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-drift-guards" console-flash-guard --target "$HOME/.claude/plugins"`.
+Same report-and-offer shape; route bare spawns through claude-klabauter `coordinator/lib/spawn-hidden.sh`
+or add `# verify-no-console-flash: allow`. Clean → _"Console-flash guard: OK"_.
 
-If `scc` is not installed: note in summary — _"scc not available — install for weekly code stats."_
+Then the `hookEventName` guard: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-drift-guards" multi-event-hook-guard`. Fix is to echo the stdin payload's
+`hook_event_name` rather than a hardcoded literal — see `runtime-tripwire-em-check.py::_hook_event_name`.
+Clean → _"Multi-event hookEventName guard: OK"_.
 
----
-
-## Step 6: ShellCheck Sweep + Console-Flash Guard
-
-```bash
-git ls-files '*.sh' | while read -r f; do
-  tr -d '\r' < "$f" | shellcheck -f gcc -s bash - 2>&1 | sed "s|-:|$f:|g"
-done
-```
-
-- **Issues found:** report and offer to fix. Most findings are quick mechanical fixes; fix what's straightforward, flag behavior-changing items for PM review.
-- **Clean:** report _"ShellCheck: all .sh files clean."_
-- **Not installed:** note in summary.
-
-**Console-flash guard (CONSOLE-FLASH-GUARD):** After ShellCheck, run the spawn-suppression guard:
-
-```bash
-# Runs from the coordinator plugin root regardless of cwd.
-_GUARD="${CLAUDE_PLUGIN_ROOT}/bin/verify-no-console-flash.sh"
-if [[ -f "$_GUARD" ]]; then
-  bash "$_GUARD" "$HOME/.claude/plugins"
-  _FLASH_RC=$?
-  if [[ $_FLASH_RC -ne 0 ]]; then
-    echo "Console-flash guard: UNSUPPRESSED spawns found (see above). Fix before merging."
-  else
-    echo "Console-flash guard: OK"
-  fi
-else
-  echo "Console-flash guard: guard not found at $_GUARD — install or check CLAUDE_PLUGIN_ROOT"
-fi
-```
-
-- **Issues found:** report and offer to fix; same offer-and-fix shape as ShellCheck. Route bare python/node/powershell spawns through `lib/spawn-hidden.sh` or add `# verify-no-console-flash: allow` if the spawn is verifiably not on the Windows hot-path.
-- **Clean:** report _"Console-flash guard: OK"_.
-- **Guard missing:** note in summary — install or check `$CLAUDE_PLUGIN_ROOT`.
-
-<!-- spec: CONSOLE-FLASH-GUARD; see docs/wiki/coordinator-tripwires.md § Console-window flash and docs/plans/2026-05-29-windows-console-flash-elimination.md § Chunk 4 -->
+All three always exit 0 and are advisory — none block merge.
 
 ---
 
-## Step 7: Parallel Code-Review Gate
+## Step 8: Illegal-Path Backstop + Parallel Code-Review Gate
 
-> Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7`.
+`d_step5_7_illegal_path_backstop` scans all tracked and staged paths for NTFS-illegal characters
+before the parallel code-review. Non-zero → halt: rename or remove the offending path, re-commit,
+then re-run `/workweek-complete`.
 
-<!-- Review: code-reviewer F5 — plan D2 required this gate on BOTH /merge-to-main AND /workweek-complete;
-     an illegal path committed between merge-to-main runs would survive to the weekly merge without it. -->
+`d_step7_6_trail_scope` computes and writes the session-keyed scope shard
+(`state/review-trail/.weekly-reviewer-scopes-<TIMESTAMP>-<SID_SHORT>.json`). Select the newest
+shard whose `<SID_SHORT>` matches this session's own id, falling back to the newest shard overall.
 
-**Illegal-path backstop gate.**  Scan all tracked and staged paths for NTFS-illegal characters before
-the parallel code-review.
+Read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and
+execute its steps against the selected shard. The Staff Engineer is NOT in this gate — see Step 9.
 
-<!-- Spec backlink: docs/plans/2026-06-30-cross-platform-file-naming-helper.md § Wave D2 -->
-<!-- Belt-and-suspenders with the pre-commit hook: catches any NTFS-illegal path that slipped in
-     between /merge-to-main runs (which also runs this gate at Step 1.4). -->
+- **BLOCKED:** halt before Step 11; surface verdict line + findings-dir path to PM.
+- **WARN:** include verdict line in the release-notes draft (Step 13); proceed.
+- **OK:** proceed; verdict line goes into the release-notes draft for the record.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/check-no-illegal-paths.sh"
-```
-
-**Non-zero exit: halt.** Rename or remove the offending path, re-commit, then re-run `/workweek-complete`.
-
-**Compute scope.** Run the trail helper (fail-loud; reads `state/week-changelog/HEADER.md`, globs `state/review-trail/*.json`, writes a session-keyed shard `state/review-trail/.weekly-reviewer-scopes-<TIMESTAMP>-<SID_SHORT>.json` — never a singleton overwrite, so two concurrent weekly gates never clobber each other's computed scope):
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/lib/workweek-trail-scope.sh"
-```
-
-**Read the scope shard.** Select the shard for THIS session: glob `state/review-trail/.weekly-reviewer-scopes-*.json`, prefer the newest shard whose filename's `<SID_SHORT>` suffix matches this session's own session-id (first 8 chars, resolved the same way the helper resolves it — `CLAUDE_SESSION_ID` / `CLAUDE_CODE_SESSION_ID` / `cs_resolve_session_id`), falling back to the newest shard overall if no session-matching shard is found. Single-operator behavior is unchanged: with exactly one shard present, that shard is read.
-
-**Run gate.** After ShellCheck (Step 6) and before Tracker Reconciliation (Step 8), read `~/.claude/plugins/coordinator/skills/parallel-code-review/SKILL.md` and execute its steps. The brief references the selected scope shard (see "Read the scope shard" above). The Staff Engineer is NOT in this gate — see Step 7.5.
-
-- **BLOCKED:** halt before Step 8 and Step 9; surface verdict line + findings-dir path to PM. Do not proceed until fixed or `--force` granted.
-- **WARN:** include verdict line in release-notes draft (Step 9); proceed.
-- **OK:** proceed; verdict line goes into release-notes draft for the record.
-
-**Skip rules** (full detail in skill body): <10 lines or internal-only → skip entirely; doc-only week → skip code-semantics chunks (mechanical workers still run); plan-only week → skip entire gate; `--force` passes through.
+**Skip rules** (full detail in skill body): <10 lines or internal-only → skip; doc-only week →
+skip code-semantics chunks; plan-only week → skip entirely; `--force` passes through.
+**Already-reviewed-span (Rule 5, EM-judgment):** on a large catch-up span already verdicted at
+`/workstream-complete` time, the EM may skip the chunk gate (record `incrementally-reviewed`,
+naming this week's `state/review-trail/*.json` records as evidence) or narrow it to the
+un-reviewed commit subset. Deliberate EM call, not auto-fired.
 
 ---
 
-## Step 7.4: Codex Review Gate (default-ON, advisory, does NOT gate merge)
+## Step 9: the Staff Engineer Layer-2 — Architecture Pass (advisory, does NOT gate merge)
 
-> Architecture and rationale: `docs/plans/2026-06-14-codex-reviewer-integration-opt-in.md` (restoration of historical `codex-review-gate` skill, original ship `b31942c` 2026-04-01, distill-lost in `bb096b9e`, restored 2026-06-14).
+Skip (note "no arch-tier signal this week") if `arch_tier_candidates` empty AND
+`convergent_findings` empty AND seam-file set empty AND the daily strategic-observer trail carries
+no `for-weekly-arch-review` flags.
 
-Independent-model second opinion on the weekly diff. Codex sees the merge-gate diff (`origin/main..HEAD`) and flags anything the Sonnet chunk reviewers may share blind spots on. **Runs by default on every `/workweek-complete`**; when the `codex-review-gate` skill is absent (user never opted in at `/coordinator:install`), the Codex CLI is not installed/unauthed, or no diff exists against `origin/main`, the step gracefully skips (no-op, one log line).
+**`jp_step7_5_staff_eng_fire_discretion`** (Tier-2, no fixed recommendation — genuinely EM-discretion).
+On a large already-reviewed span (Step 8's Rule 5 condition), the seam-file trigger alone MUST NOT
+auto-fire this pass — seam count scales with span size, not architectural risk. Default OFF on
+such a span; fire only when cross-workstream drift is genuinely plausible.
 
-**Invoke** `skill:codex-review-gate` with:
-
-- `scope: workweek-merge-diff`
-- `base: origin/main`
-- `required: false`
-
-**Advisory only.** This step never blocks merge. Step 7's BLOCKED/WARN/OK synthesizer verdict remains the sole merge gate; Step 8 (Tracker Reconciliation) does NOT consume Step 7.4's output. Codex findings are reported in this step's body but are NOT fed into the merge-decision rollup. P0/P1 Codex findings are surfaced to the PM as a separate advisory line; P2 findings note in the week-changelog.
-
-**Graceful fallback contract:** skill absent → log `Codex review gate: skill not installed — skipped (run /coordinator:install to opt in)` and continue. CLI absent/unauthed → log the reason returned by the skill (`not installed` / `not authenticated` / connection error) and continue. No diff against `origin/main` → log `Codex review gate: no diff against origin/main — skipped` and continue. None of these are gate failures.
-
----
-
-## Step 7.5: the Staff Engineer Layer-2 — Architecture Pass (advisory, does NOT gate merge)
-
-> Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7.5`. Disposition ladder and accepted-loss reasoning are documented there.
-
-**Run condition:** skip (note "no arch-tier signal this week") if ALL of: `arch_tier_candidates` empty AND `convergent_findings` empty AND seam-file set empty AND daily strategic-observer trail carries no `for-weekly-arch-review` flags.
-
-**Otherwise** dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with five inputs: (1) changelog digest, (2) `arch_tier_candidates` from `$FINDINGS_DIR/synthesis.json`, (3) `convergent_findings` from `synthesis.json`, (4) `patrik_seam_files` from the scope shard selected in Step 7's "Read the scope shard" (glob `state/review-trail/.weekly-reviewer-scopes-*.json`, newest session-matching shard, else newest overall), (5) daily strategic-observer trail (`archive/daily-summaries/*.md` DSR rows tagged `for-weekly-arch-review`).
-
-The Staff Engineer produces candidates only — never auto-authors spinoffs. EM routes candidates down the disposition ladder (trivial+non-structural → immediate executor; mid-size cluster → bundled spinoff candidate; large/structural → standalone spinoff or `/plan`).
-
-**Surface the Staff Engineer's spinoff candidates to PM alongside the release-notes draft (Step 9).**
+Otherwise dispatch the Staff Engineer (`coordinator:staff-eng`, Opus) with: changelog digest,
+`arch_tier_candidates`/`convergent_findings` from `$FINDINGS_DIR/synthesis.json`,
+`staff_eng_seam_files` from Step 8's scope shard, and the DSR trail. Inputs 2/3 are omitted when
+Step 8 took the Rule 5 skip. The Staff Engineer produces candidates only — EM routes them down the disposition
+ladder (trivial → immediate executor; mid-size → bundled spinoff candidate; large/structural →
+standalone spinoff or `/plan`). Surface alongside the release-notes draft (Step 13).
 
 ---
 
-## Step 7.6: Architecture Audit Staleness Fold
+## Step 10: Architecture Audit Fold + Atlas Drift Walk
 
-> Architecture and rationale: `docs/wiki/weekly-gate-architecture.md § Step 7.6`. Scope (DECISION D6) and disposition ladder documented there.
+`d_step4b_4k_arch_audit_staleness` and `d_step4b_4k_atlas_watch_drift` resolve both reads.
 
-**Run the staleness check:**
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/check-arch-audit-staleness.sh"
-```
+**Staleness fold.** `STALE` (>10 days or never targeted-audited) → auto-fold a targeted-on-diff
+audit: read `${CLAUDE_PLUGIN_ROOT}/skills/architecture-audit/SKILL.md` scoped to diff-touched
+systems. `FRESH` → no fold (EM may still trigger on heavy churn). `UNKNOWN` → note, move on. Never
+edits code — packages findings as spinoff candidates. Surface alongside Step 9's candidates.
+FRESH-and-no-churn → note "fresh (Last targeted audit within 10d) — no fold."
 
-- `STALE` (>10 days or never targeted-audited) → auto-fold a targeted-on-diff audit: read `${CLAUDE_PLUGIN_ROOT}/skills/architecture-audit/SKILL.md` and run it scoped to diff-touched systems only.
-- `FRESH` → no fold (EM may still trigger on heavy multi-system churn).
-- `UNKNOWN` → do NOT auto-fold; note and move on.
-
-The folded audit never edits code — packages findings as spinoff candidates; writes only `Last targeted audit` clock + atlas metadata. Surface candidates alongside the Staff Engineer's Step 7.5 candidates and the release-notes draft (Step 9). Does NOT block merge.
-
-If skipped (FRESH and no EM churn trigger): note _"Architecture audit: fresh (Last targeted audit within 10d) — no fold."_ in the summary.
-
----
-
-## Step 7.7: Weekly Atlas Drift Walk
-
-> Complement to Step 7.6 — Step 7.6 reads the rotation clock (`Last targeted audit`); this sub-step walks the per-system `<name>.watch.sh` scripts and the atlas `last_mapped` frontmatter to surface decay between rotations.
-
-**Run the drift walk** (STALE walk default-on at 30 days):
-
-```bash
-bash "${CLAUDE_PLUGIN_ROOT}/bin/check-atlas-watch-drift.sh"
-```
-
-Surface in the weekly report:
-
-- Any `DRIFT` / `MISSING` line → structural finding; folds into the weekly architecture-audit pipeline (Step 7.6) alongside the Staff Engineer's Step 7.5 candidates.
-- Any `ERROR` / `MALFORMED` line → helper-script issue requiring author attention (the `<name>.watch.sh` broke or its stdout is garbage; never silently treated as FRESH).
-- Any `STALE` line (atlas `last_mapped` >30d) → EM-judgment surface: either ratify the atlas as still-current (commit-message `atlas-current-as-of:<date>` token on a no-op `last_mapped` bump per the Step 6.5 closeout gate) or schedule a refresh pass via `/architecture-audit`.
-
-Does NOT block merge; does NOT auto-dispatch refresh executors — the surface IS the gate. Note in the weekly summary: _"Atlas drift walk: N DRIFT, N STALE, N ERROR — [folded into Step 7.6 / surfaced for EM judgment]."_
+**Atlas drift walk.** `DRIFT`/`MISSING` → folds into the staleness pass above. `ERROR`/`MALFORMED`
+→ helper-script issue for author attention, never treated as FRESH. `STALE` (>30d) → EM-judgment:
+ratify current (`atlas-current-as-of:<date>` no-op commit token) or schedule `/architecture-audit`.
+Never auto-dispatches a refresh — the surface IS the gate. Note: _"Atlas drift walk: N DRIFT, N
+STALE, N ERROR — [folded / surfaced for EM judgment]."_
 
 ---
 
-## Step 8: Tracker Reconciliation
+## Step 11: Tracker Reconciliation
 
-Read `docs/project-tracker.md` (if it exists). For each workstream that appears in the week's `Plans touched: implemented` fields, verify the tracker status is updated to reflect completion. Fix in place.
-
-Report: _"Tracker reconciliation: N workstreams updated."_
+Read `docs/project-tracker.md` (if it exists). For each workstream in the week's `Plans touched:
+implemented` fields, verify tracker status reflects completion; fix in place. Report: _"Tracker
+reconciliation: N workstreams updated."_
 
 ---
 
-## Step 8.5: LoE High-Water Check — MANDATORY Before Step 9
+## Step 12: LoE High-Water Check — MANDATORY Before Step 13
 
-> **MANDATORY.** Do NOT proceed to Step 9 without completing it. Surfaces XL chain-terminal completion entries so large chains are explicitly acknowledged in the weekly summary, not silently folded into Other bucket prose.
+`d_step6_query_completions` resolves the chain-terminal XL query
+(`--where "chain_terminal=true" --where "chain_loe.tshirt=XL"`) plus the single-session XL query
+(`--where "loe.tshirt=XL AND chain_terminal=true"`, no `chain_loe`) — union both sets.
 
-### 8.5.1 Query chain-terminal XL entries
-
-```bash
-bin/query-completions --since "7d" \
-  --where "chain_terminal=true" \
-  --where "chain_loe.tshirt=XL" \
-  --format json
-```
-
-Run a second time with `--where "loe.tshirt=XL AND chain_terminal=true"` to surface single-session XL entries (no `chain_loe`). Union both result sets in the PM summary.
-
-### 8.5.2 Surface to PM
-
-For each returned entry include: `title`, `chain` slug, `chain_loe.sessions`, `chain_loe.tshirt` (or `loe.tshirt` for single-session XL), date span. Format:
+**`jp_step8_5_loe_high_water`** (Tier-2, no fixed recommendation). For each entry surface `title`,
+`chain` slug, `chain_loe.sessions`/`chain_loe.tshirt` (or `loe.tshirt`), date span:
 
 ```
 **XL chain-terminal entries this week:**
@@ -713,102 +390,33 @@ For each returned entry include: `title`, `chain` slug, `chain_loe.sessions`, `c
 - "<title>" — single-session XL, <date>
 ```
 
-**If zero entries:** note explicitly _"No XL chain-terminal entries this week."_ — do NOT silently omit (absence is indistinguishable from a skipped step).
-
-No PM gate required — informational surfacing only. PM may promote an XL entry to Highlights in Step 9 editorial bucketing.
+Zero entries → note explicitly _"No XL chain-terminal entries this week."_ — never silently omit.
+No PM gate required; PM may promote an entry to Highlights at Step 13.
 
 ---
 
-## Step 9: Editorial Bucketing + Release Notes Draft — PM Review Gate
+## Step 13: Editorial Bucketing + Release Notes Draft — PM Review Gate
 
-### 9.0 Ensure output directory exists
+`mkdir -p state/week-changelog/`. Derive the week-start date from `state/week-changelog/HEADER.md`
+(`**Week starting:**` line) and query
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --since "<week-start>" --where "status=pending-release" --format json --limit 1000`. Zero entries →
+skip to the empty-week note below.
 
-```bash
-mkdir -p state/week-changelog/
-```
+**Main-membership is not the "already announced" signal.** A returned `pending-release` entry
+already on `origin/main` is the catch-up target for this release, not a double-count risk —
+`main` routinely runs ahead of the changelog. The double-count check that matters: whether an
+entry was already covered in a *prior* release's notes — check `archive/release-notes/`, not
+`git log --contains`.
 
-### 9.1 Query the week's completion entries
+**Detect-only reconcile pass (pre-release backstop).** Before handing the corpus to the editorial
+worker, run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-close" reconcile-sweep`. Advisory — does NOT hard-fail on unaccounted commits. Any warning →
+fold the missing SHAs via `reconcile-completion-commits.py --append` before dispatching the
+editorial worker.
 
-Derive the week-start date from the changelog header so the query covers the full actual week —
-a hardcoded `7d` window misses entries on a longer-than-7-day week, and the default `--limit 50`
-silently truncates busy weeks (50 of 173 entries kept in the 2026-06-27 run, dropping the
-entire release headline). Extract the date from `state/week-changelog/HEADER.md` and always
-pass `--limit 1000` to prevent silent corpus truncation.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Derive week-start from HEADER.md line: **Week starting:** YYYY-MM-DD
-week_start=$(grep -m1 '\*\*Week starting:\*\*' state/week-changelog/HEADER.md \
-  | sed 's/.*\*\*Week starting:\*\*[[:space:]]*//')
-"$_cc_root/bin/query-completions.sh" \
-  --since "$week_start" --where "status=pending-release" --format json --limit 1000
-```
-
-Zero entries → skip to Step 9.4 with an empty-week note.
-
-### 9.1.5 Detect-only reconcile pass (pre-release backstop)
-
-<!-- spec-backlink: docs/plans/2026-06-27-post-summary-completion-loop-closure.md § C5b -->
-<!-- purpose: guaranteed-complete backstop — iterates ALL pending-release entries before the
-     accounting index freezes; advisory/non-blocking; detect-only (no --append) because this
-     is a cross-session bulk over entries not necessarily authored by the current session. -->
-
-Before handing the corpus to the editorial worker, run a detect-only pass to surface any
-completion entry whose `commits:` list is missing session commits. This is the last mutable
-moment before entries are stamped `released` — advisory warnings here are still actionable.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-RECONCILE_PATHS=$(
-  "$_cc_root/bin/query-completions.sh" \
-    --since "$week_start" --where "status=pending-release" --format paths --limit 1000
-)
-# DETECT-ONLY — do NOT pass --append; release is a cross-session bulk over entries
-# this session did not necessarily author. reconcile-completion-commits.sh is the helper.
-for ENTRY in $RECONCILE_PATHS; do
-  AUTHORED_BY=$(grep -m1 '^authored_by:' "$ENTRY" | awk -F': *' '{v=$2; sub(/[[:space:]]*#.*$/,"",v); gsub(/^"|"$/,"",v); print v}')
-  # Skip entries where authored_by is absent, empty, or the literal string "null".
-  if [ -z "$AUTHORED_BY" ] || [ "$AUTHORED_BY" = "null" ]; then continue; fi
-  # Review: code-reviewer Slice-B F1 — bare call masked by 2>/dev/null → silent false-clean; use full path
-  DELTA=$(${CLAUDE_PLUGIN_ROOT}/bin/reconcile-completion-commits.sh --session-id "$AUTHORED_BY" "$ENTRY" 2>/dev/null \
-    | grep -o 'delta=[0-9]*' | cut -d= -f2)
-  if [ "${DELTA:-0}" -gt 0 ]; then
-    echo "⚠ entry $(basename "$ENTRY"): $DELTA session commit(s) unaccounted — reconcile before release"
-  fi
-done
-```
-
-Advisory only — the ceremony does NOT hard-fail on unaccounted commits. If any warnings appear,
-fold the missing SHAs into the relevant entry (via `reconcile-completion-commits.sh --append`)
-before proceeding to Step 9.2.
-
-### 9.2 Dispatch Sonnet editorial worker
-
-Dispatch a Sonnet worker with the entry corpus. Worker assigns each entry to one bucket, writes `state/week-changelog/YYYY-MM-DD-pending-release.md`.
-
-**Default bucket rules** (primary key: `nature`; refined by `loe.tshirt` when present):
+**`jp_step9_editorial_bucketing`** (Tier-2, no fixed recommendation). Dispatch a Sonnet worker with
+the entry corpus; it assigns each entry to a bucket and writes
+`state/week-changelog/YYYY-MM-DD-pending-release.md`. Default bucket rules (primary key `nature`,
+refined by `loe.tshirt`):
 
 | nature | tshirt | Bucket |
 |--------|--------|--------|
@@ -821,250 +429,214 @@ Dispatch a Sonnet worker with the entry corpus. Worker assigns each entry to one
 | tech-debt / infra | non-XL | **Other** |
 | tech-debt / infra | XL | **Notable** (EM call) |
 
-EM override permitted — state explicitly in the dispatch. **Worker output format:**
+EM override permitted — state explicitly in the dispatch. Empty buckets read `_none this week_`;
+long tails (≥5 similar entries, Other only) collapse to "... and assorted fixes". Each entry cites
+its source file. Step 8's WARN verdict (or Rule-5 `incrementally-reviewed` + trail-record
+evidence) goes verbatim under `_Code-review gate verdict:_`. Verify the file exists and is
+non-trivial before proceeding.
 
-```markdown
-# Pending Release — YYYY-MM-DD
+Read the pending-release file and write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` as a thin
+formatting wrapper — do NOT re-author. Version is a placeholder until Step 14 confirms it.
 
-_Source entries queried: N_
-_Code-review gate verdict: [OK | WARN <verdict-line> | not-run]_
-
-## Highlights
-- <summary> — [source](relative/path/to/per-entry-file.md)
-
-## Notable
-- <summary> — [source](relative/path/to/per-entry-file.md)
-
-## Other
-- <summary> — [source](relative/path/to/per-entry-file.md)
-- ... and assorted fixes  _(collapse long tails ≥5 similar entries; not for Highlights/Notable)_
-```
-
-Empty buckets: `## Heading` with `_none this week_`. Each entry cites its source file. WARN verdict from Step 7 goes verbatim under `_Code-review gate verdict:_`. Verify file exists and is non-trivial before proceeding.
-
-### 9.4 Draft release notes as thin wrapper
-
-Read pending-release file. Write `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md` — do NOT re-author; format for the reader:
-
-```markdown
-# Release Notes — vX.Y.Z (YYYY-MM-DD)
-
-## Highlights
-<paste Highlights bucket, reformatted for prose if desired>
-
-## Notable Changes
-<paste Notable bucket>
-
-## Other Changes
-<paste Other bucket>
-
----
-_Code-review gate: [verdict]_
-```
-
-Version is a placeholder until Step 10 confirms it.
-
-Present to PM: _"Release notes drafted at `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md`. Bucketed: N Highlights, N Notable, N Other. Does this capture the week accurately?"_
-
-**Wait for PM review.** Update both files to reflect any reclassifications.
+**`jp_step9_pm_release_notes_gate`** (Tier-3, your-call — no recommendation; reason: pm-authority).
+Present: _"Release notes drafted at `archive/release-notes/YYYY-MM-DD-vX.Y.Z.md`. Bucketed: N
+Highlights, N Notable, N Other. Does this capture the week accurately?"_ **Wait for PM review.**
+Update both files to reflect any reclassifications.
 
 ---
 
-## Step 10: Version Bump — PM Confirmation Gate
+## Step 14: Version Bump — PM Confirmation Gate
 
-**Consumer convention takes precedence.** If the repo has `docs/wiki/versioning-convention.md`, that doc is the authority for *which* number/artifact is the canonical product version and *how* to bump it — read it first and follow it. The repo-agnostic semver heuristic below is the fallback for repos with no convention doc. (A repo with multiple version namespaces — pyproject, package.json, `.uplugin`, git tags — should not have its scheme guessed here; the convention doc exists precisely to name the one that ships.)
+**Consumer convention takes precedence.** If `docs/wiki/versioning-convention.md` exists, it is
+the authority for which number/artifact is canonical and how to bump it. The semver heuristic
+below is the fallback: **Major** — breaking change in any `Decisions:` field. **Minor** — new
+feature/command shipped. **Patch** — fixes, docs, refactors only. Either way, one bump
+consolidates the delta since the last user-visible release.
 
-Fallback heuristic (no convention doc present) — propose a semver increment based on changelog content:
-- **Major:** breaking change noted in any `Decisions:` field.
-- **Minor:** new feature or new command shipped (`Plans touched: implemented` with new commands/skills).
-- **Patch:** fixes, doc updates, refactors only.
+**`jp_step10_semver_judgment`** (Tier-2, no fixed recommendation). Present: _"Proposed: vX.Y.Z
+(rationale: [one line]). Confirm or adjust."_ **Wait for PM confirmation.** Update the
+release-notes filename and HEADER.md `Prior week released:` to the confirmed version.
 
-Either way the governing principle is the same: a version bump communicates user-noticeable change — consolidate the delta since the last user-visible release into ONE bump.
+**Stamp version surfaces atomically.** In the same commit that stamps the CHANGELOG
+`[Unreleased] → [X.Y.Z] — <date>` (Step 13): `coordinator/.claude-plugin/plugin.json` `.version`
+and `.claude-plugin/marketplace.json` `.metadata.version` both move to `X.Y.Z`.
+`d_step4b_4k_version_consistency` then gates: run
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-version-consistency"`
+before Step 16 — non-zero means a surface was missed; fix it before proceeding.
 
-Present to PM: _"Proposed: vX.Y.Z (rationale: [one line]). Confirm or adjust."_
+---
 
-**Wait for PM confirmation.** Update the release-notes filename and HEADER.md `Prior week released:` value to the confirmed version.
+## Step 15: Release Publish — Backstop Un-Draft
 
-**Stamp ALL version surfaces together (coordinator-claude).** A version bump is one atomic move across every surface — `docs/wiki/versioning-convention.md` names the SSOT (`coordinator/.claude-plugin/plugin.json` `.version`) and the invariant. In the same commit that stamps the CHANGELOG `[Unreleased] → [X.Y.Z] — <date>` (Step 9):
 
-1. `coordinator/.claude-plugin/plugin.json` `.version` → `X.Y.Z`
-2. `.claude-plugin/marketplace.json` `.metadata.version` → `X.Y.Z`
+Catch-all for non-trivial work that reached main via direct daily-branch commits that bypassed
+`/merge-to-main`'s per-merge tagged-publish leg. Precondition: PM confirmed the version at Step 14
+(`$VERSION_TAG` set, e.g. `v2.7.0`).
 
-Then **run the consistency gate before proceeding to merge** — it fails loud if any surface lags. Resolve the gate path layout-agnostically (meta-repo source layout vs flat OSS publish layout):
+Verify via `gh release view "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --json isDraft,isLatest`:
+`isDraft=false, isLatest=true` → already published, note and skip. Draft exists or no release for
+the tag → proceed. Tag doesn't exist → create it.
+
+**`jp_step10_5_gh_release_publish`** (Tier-3, your-call — no recommendation; reason:
+irreversible-external-action). Un-draft via
+`gh release edit "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --draft=false --latest`, or
+create via `gh release create "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --title "$VERSION_TAG" --notes-file "archive/release-notes/<date>-$VERSION_TAG.md" --latest` using the
+Step 13 release-notes file as the body.
+
+**Scope:** coordinator-claude only. Deep-research-claude release publishing is owned by the
+deep-research-currency-notification spinoff. **Claude Prime
+(`source_is_live`) is never tagged** — skip silently when the active repo is the `~/.claude`
+meta-repo. Surface to PM: _"Release $VERSION_TAG published on coordinator-claude (or already
+published — no action)."_
+
+---
+
+## Step 16: `/merge-to-main`
+
+Invoke `/merge-to-main` only after PM has confirmed release notes (Step 13) and version
+(Step 14). Do NOT inline merge logic — the skill handles the pre-merge test suite, PR creation,
+and merge.
+
+---
+
+## Step 17: Health Survey
+
+Run the full health survey if available. Record output in `state/health-ledger.md` under today's
+date.
+
+---
+
+## Step 17b: Auto-Memory Drain (blocking gate, no consumes-manifest CLI)
+
+Auto-memory is ephemeral by definition — this ceremony drains it to zero every close. Run:
 
 ```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-gate="$_cc_root/bin/check-version-consistency.sh"
-[[ -f "$gate" ]] || gate="$(git rev-parse --show-toplevel)/coordinator/bin/check-version-consistency.sh"
-bash "$gate"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-auto-memory-drained" --root .
 ```
 
-A non-zero exit here means a surface was missed — fix it before Step 11. (This is the gate that would have caught the 2.7.1/2.1.1/2.8.1 drift surfaced on 2026-06-22.)
+Exit 0: nothing under the auto-memory store — skip to Step 18. Exit 1: it prints every residual
+`*.md` path (index and/or sibling body files) to stderr. For EACH one, resolve exactly one
+disposition — silence is not a disposition:
+
+- **PROMOTE** — write the fact to its durable home (doctrine, wiki, `docs/decisions/`,
+  `state/lessons/` via `/learn-lessons`, or the orientation cache — per C1's channel contract) and
+  note the target path. This is a real authoring act: most memory rows are private shorthand that
+  will not survive a reader who lacks the session, so restate the claim in the destination's own
+  voice rather than copying the row verbatim.
+- **DROP** — say so explicitly.
+
+Then delete every file the gate named (the gate itself never mutates — it only detects residue)
+and re-run the command above to confirm exit 0. Record the full disposition list — path,
+PROMOTE/DROP, and target path for each PROMOTE — in Step 19's final summary under **Auto-memory
+drain**; the memory dir carries no git history, so this ceremony's own output is the only record
+of what was destroyed.
+
+**On the first gate invocation this ceremony exiting 0 immediately (no residue ever printed):**
+the store was empty from the start — omit the `**Auto-memory drain:**` line entirely.
+**If the gate ever printed residue this run, even once:** the disposition list is mandatory in
+the final summary — even though the store is empty by the time you write it. Omitting the line
+at that point would erase the only record of what was destroyed.
+
+ZERO MEANS THE DIRECTORY, NOT THE INDEX — a drained `MEMORY.md` with surviving sibling body files
+still fails the gate and is not done. This complements the write-time size cap on the auto-memory
+store (a spatial bound), not a duplicate of it (a temporal bound); neither supersedes the other.
 
 ---
 
-## Step 10.5: Release Publish — Backstop Un-Draft (catch-all for non-merge-tagged work)
+## Step 18: Archive + Reset Week-Changelog
 
-<!-- spec-backlink: archive/specs/2026-06/2026-06-01-boot-currency-notification-hook.md § C1 — Release cadence -->
-<!-- purpose: belt-and-suspenders catch-all for non-trivial work that reached main via direct
-     daily-branch commits that bypassed /merge-to-main (and therefore bypassed the per-merge
-     tagged-publish leg in skills/merging-to-main/SKILL.md Step 1.5). -->
+`d_step13_archive_close` resolves the whole archive/reset — moves the daily files + priorities
+fragments to `archive/week-changelogs/<week-starting>/`, moves review-trail JSON to
+`archive/review-trail/<week-starting>/` (excluding `.gitkeep` and any
+`.weekly-reviewer-scopes-*.json` shard, which is deleted, not archived), rewrites `HEADER.md`, and
+commits + pushes. Run
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-close" archive --version vX.Y.Z --merge-sha <merge-sha>` (`--no-push` to commit without pushing,
+`--no-git` for file moves only). **Archival ordering matters:** must run AFTER Step 8 consumes the
+trail.
 
-**Precondition:** PM has confirmed the version at Step 10 (i.e., `$VERSION_TAG` is set, e.g. `v2.7.0`).
+### Multi-week precondition
 
-**Skip when:** the week's non-trivial work was ALREADY tagged and published per-merge via the `/merge-to-main` tagged-publish leg. Verify:
+The default archive is **unbounded by date** — every dated block goes to the single
+`<week-starting>` destination. Correct at a real week boundary; destructive when a week was skipped,
+collapsing several weeks into one directory under one week's label.
 
-```bash
-gh release view "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --json isDraft,isLatest 2>/dev/null
-```
+Before archiving, compare the block dates in `state/week-changelog/` against `**Week starting:**` in
+its `HEADER.md`. Dates outside that week mean multi-week — do not use the default path.
 
-- `isDraft=false, isLatest=true` → already published; skip this step and note _"Release already published at $VERSION_TAG — no backstop action needed."_
-- Draft exists (`isDraft=true`) OR no release for the tag → proceed with the backstop below.
-- Tag does not exist yet → create the release (see below).
+**Multi-week: archive one week at a time** via `archive --week-only`, which window-filters the
+sweep. Two traps:
 
-**Backstop action — un-draft or create the release:**
+1. `--week-only` alone strands the priorities fragments — their sweep is gated on
+   `not week_only or move_priorities`. Pair it with `--move-priorities` on the **fragment-owning
+   week only**.
+2. Out-of-window blocks are left in place, not archived. N weeks need N runs.
 
-If a draft release for `$VERSION_TAG` exists:
-```bash
-gh release edit "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude --draft=false --latest
-```
+`.weekly-reviewer-scopes-*.json` shards are skipped rather than deleted under `--week-only` (a shard
+cannot be attributed to a week, so it fails safe) and will accrue.
 
-If no release exists yet for `$VERSION_TAG` (e.g., the tag was never created):
-```bash
-# Use the release-notes file drafted in Step 9.4 as the body.
-gh release create "$VERSION_TAG" --repo dbc-oduffy/coordinator-claude \
-  --title "$VERSION_TAG" \
-  --notes-file "archive/release-notes/$(date +%Y-%m-%d)-${VERSION_TAG}.md" \
-  --latest
-```
+**Negative spec — the daily matcher `^\d{4}-\d{2}-\d{2}.*\.md$` is broader than daily-block naming,
+so `YYYY-MM-DD-pending-release.md` matches it.** That file is Step 13's editorial corpus and the
+input both Step 13 and `merging-to-main` read. An unbounded sweep archives it, and the next release
+draft finds nothing in the live directory. Check the dated-file list for non-daily entries before
+running.
 
-**Scope:** coordinator-claude only on this plan. Deep-research-claude release publishing is owned by the deep-research-currency-notification spinoff (`state/handoffs/2026-06-01_122922_deep-research-currency-notification.md`). **Claude Prime (`source_is_live`) is never tagged** — skip silently when the active repo is the `~/.claude` meta-repo.
+This guard is prose, and prose is a weak discharge. The durable fix is a driver that enumerates the
+weeks and runs each scoped pass with fragment-ownership computed rather than remembered — that
+belongs to whichever engine provides `workweek-complete-close`, not to this command.
 
-Surface to PM: _"Release $VERSION_TAG published on coordinator-claude (or already published — no action)."_
+The tail directives close the ceremony:
 
----
-
-## Step 11: `/merge-to-main`
-
-Invoke `/merge-to-main` only after PM has confirmed release notes (Step 9) and version (Step 10). Do NOT inline merge logic — the skill handles pre-merge test suite, PR creation, and merge.
-
----
-
-## Step 12: Health Survey
-
-Run the full health survey if available (e.g., `/health` or equivalent). Record output in `state/health-ledger.md` under today's date.
-
----
-
-## Step 13: Reset Week-Changelog
-
-Archive and reset the week's state:
-
-1. Determine the current `Week starting:` date from HEADER.md — this is the archive path key.
-2. Create `archive/week-changelogs/<week-starting>/`.
-3. Move all daily files (`state/week-changelog/YYYY-MM-DD-*.md`) to the archive path. HEADER.md is NOT moved — it gets rewritten in place.
-4. Move every priorities fragment (`state/week-changelog/HEADER.priorities.*.md`) to the same archive path — the merged priorities for the closing week become historical record alongside the daily files that satisfied (or didn't) them. The new week starts with zero fragments; `/workweek-start` re-creates them per-writer as priorities are set.
-5. Create `archive/review-trail/<week-starting>/` and move `state/review-trail/*.json` (excluding `.gitkeep` and any `.weekly-reviewer-scopes-*.json` shard) into it. `.gitkeep` stays so the dir remains tracked; transient `.weekly-reviewer-scopes-*.json` shards are deleted, not archived (`rm -f state/review-trail/.weekly-reviewer-scopes-*.json`). **Archival ordering matters:** must run AFTER Step 7 consumes the trail (Step 13 is correctly downstream).
-
-6. Write a fresh HEADER.md with the released version and a cleared `Last /workweek-start:` line:
-
-```markdown
-# Week Changelog
-
-<!-- Directory convention: [see HEADER.md comment block] -->
-
-**Week starting:** (not yet set — run /workweek-start to initialise)
-**Prior week released:** vX.Y.Z (commit <merge-sha>, YYYY-MM-DD)
-**Last /workweek-start:** (none)
-**Priorities (from /workweek-start):** see `HEADER.priorities.*.md` fragments — none yet; run /workweek-start to set priorities.
-```
-
-7. Commit everything (the fragment glob is covered by the `state/week-changelog/` directory add — no separate pathspec needed):
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-git add -- state/week-changelog/ archive/week-changelogs/<week-starting>/ \
-           state/review-trail/ archive/review-trail/<week-starting>/
-git commit -m "chore(workweek-complete): archive week <week-starting>, reset changelog + review-trail vX.Y.Z"
-git push origin "$("$_cc_root/bin/coordinator-current-branch")"
-```
+- `d_step13_5_post_command_hook` — the repo's own opt-in `workweek_complete_post_command:`
+  (declared in `coordinator.local.md`), via the shared `coordinator-ceremony-hook.py` helper.
+  Advisory, non-blocking — a failing or unconfigured hook never fails the ceremony; a non-zero
+  here means the helper itself couldn't be found/exec'd.
+- `d_step13_6_emit_cadence` — fires at ceremony completion so the emitted snapshot reflects
+  settled state. Best-effort per AC5 — a no-seam machine or transport hiccup is a note, not a
+  blocker.
 
 ---
 
-## Step 13.5: Project Post-Ceremony Command Hook
+## Step 19: Final Summary
 
-Advisory, non-blocking. Runs the repo's own opt-in `workweek_complete_post_command:` (declared in `coordinator.local.md`) via the shared `coordinator-ceremony-hook.sh` helper, so a consumer repo can publish its settled weekly state (analog of the daily publish at `/workday-complete` Step 10.5) without a bespoke terminal step. Placed after Step 13 (week-changelog + review-trail archived and reset — the weekly settled state) and before Step 14 (Final Summary), so the hook line is available to fold into the summary template.
-
-A failing or unconfigured hook NEVER fails the ceremony — see `docs/plans/2026-07-08-ceremony-post-command-hook-seam.md` § "The seam".
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-# Review: code-reviewer (F1) — guard is defensive-only against the helper-script-absent
-# (install-drift) case; the helper itself is contracted always-exit-0, so this `||` fires
-# only if `bash <path>` itself can't find/exec the script (e.g. exit 127).
-_HOOK_OUT="$(bash "$_cc_root/bin/coordinator-ceremony-hook.sh" workweek-complete)" \
-  || echo "[workweek-complete] WARN: ceremony-hook exited non-zero (non-blocking)" >&2
-if [ -n "$_HOOK_OUT" ]; then printf '%s\n' "$_HOOK_OUT"; fi
-```
-
----
-
-## Step 14: Final Summary
+**Report by exception.** Four lines always; everything else appears only when it is *not*
+clean. A ceremony summary is still an EM→PM reply and still owes the ≤200-word budget from
+global `CLAUDE.md § Communication Style` — a fixed block of all-clean status lines spends that
+budget on facts the PM can read off the commit, then gets measured as a verbosity violation by
+the Stop-hook altitude check. Print what needs a reader, not what needs a checkbox.
 
 ```
 ## Workweek Complete
 
-**Week:** YYYY-MM-DD to YYYY-MM-DD (D days, N commits)
-**Shipped:** [list of shipped workstreams]
+**Shipped:** N workstreams — one-line characterization (name only the workstreams that fit in that line)
 **Version:** vX.Y.Z
-**Release notes:** archive/release-notes/YYYY-MM-DD-vX.Y.Z.md
-**Validation:** [pass / failures described]
-**Docs updated:** [/update-docs completed]
-**Improvement queue:** [K entries processed / no triage needed]
-**Bug backlog:** [N open P1/P2 items — /bug-blitz proposed/deferred/not needed / file absent]
-**Code stats:** [summary or "scc not available"]
-**ShellCheck:** [clean / N issues fixed]
-**Code-review gate:** [BLOCKED|WARN|OK] — convergent: N — code-semantics (N chunks) / security / deps / tests summary
-**Arch pass (Step 7.5):** [N arch-tier candidates surfaced / no arch-tier signal this week]
-**Arch audit fold (Step 7.6):** [folded targeted-on-diff audit — N spinoff candidates surfaced / fresh — no fold / staleness UNKNOWN]
-**Tracker:** [N workstreams updated]
 **Merged to main:** [yes — PR #N / blocked: reason]
-**Week-changelog:** archived to archive/week-changelogs/<week-starting>/, HEADER.md reset
-**Post-ceremony hook:** [only rendered when Step 13.5's hook produced output, e.g. "ran <redacted-cmd> (exit 0)"]
 **Next:** run /workweek-start to set priorities for the new week
 ```
+
+Then append a line **only** if its condition holds:
+
+| Line | Include only when |
+|---|---|
+| `**Validation:**` | failures occurred — describe them (silent when all validation passed) |
+| `**ShellCheck:**` | the sweep found/fixed N issues (silent when clean) |
+| `**Code-review gate:**` | verdict is BLOCKED or WARN, or findings were fixed — [BLOCKED\|WARN] — convergent: N — code-semantics (N chunks) / security / deps / tests summary (silent when OK/not-run) |
+| `**Arch pass (Step 9):**` | N ≥ 1 arch-tier candidates surfaced this week |
+| `**Arch audit fold (Step 10):**` | Step 10 folded a stale targeted audit this run |
+| `**Improvement queue:**` | K ≥ 1 entries processed |
+| `**Bug backlog:**` | N ≥ 1 open P1/P2 items, or `/bug-blitz` was proposed/deferred |
+| `**Auto-memory drain:**` | the drain gate printed residue at any point this run — full `path -> PROMOTE(target)/DROP` list, one per line, mandatory even though the store is now empty |
+| `**Post-ceremony hook:**` | the tail hook produced output, e.g. "ran `<redacted-cmd>` (exit 0)" |
+
+**Negative-spec — these are gone, do not restore them.** `Week`, `Release notes`, `Docs
+updated`, `Code stats`, `Tracker`, and `Week-changelog` are no longer printed at all. Each was a
+count, date range, or file path the ceremony's own commit already records: the week span and
+commit count are derivable from `git log`; the release-notes path is written by the commit that
+drafts it (Step 12); `/update-docs` completion, `scc` output, and tracker-row counts are
+recorded by their own commits; the week-changelog archive path is recorded by Step 18's own
+commit. None of these carried a PM decision. Their absence is not a signal the step was skipped
+— the directives still run, and `git show`/`git log` is their record. A future reader must not
+re-add them "for completeness": completeness of the *ceremony* is the assembler's job,
+completeness of the *report* is not the same thing.
 
 ---
 
@@ -1072,17 +644,96 @@ if [ -n "$_HOOK_OUT" ]; then printf '%s\n' "$_HOOK_OUT"; fi
 
 - **Auto-fire.** PM-invoked; `/workday-complete` surfaces the staleness signal.
 - **Re-author from git log.** The week-changelog is the canonical record.
-- **Push directly to main.** Step 11 delegates to `/merge-to-main`.
+- **Push directly to main.** Step 16 delegates to `/merge-to-main`.
 - **Delete release notes or handoffs.** Only daily changelog files are archived.
-- **Touch trail records via `/distill` or `/update-docs/handoff-archival`.** Trail JSON is archived in Step 13 only — never by handoff archival.
+- **Touch trail records via `/distill` or `/update-docs`/handoff-archival.** Trail JSON is
+  archived in Step 18 only.
 
 ### Relationship to Other Commands
 
 - **`/workday-complete`** — daily wrap; feeds the changelog this command reads.
-- **`/workweek-start`** — weekly orient; detects Step 13's HEADER reset and re-inits.
-- **`/merge-to-main`** — invoked in Step 11.
-- **`/update-docs`** — invoked in Step 3.
-- **`check-weekly-staleness.sh`** — staleness nudge used by `/workday-complete`.
-- **`check-arch-audit-staleness.sh`** — reads `Last targeted audit` clock; consumed by Step 7.6 (STALE >10 days → auto-fold).
-- **`/architecture-audit`** — folded in by Step 7.6 when stale; writes `Last targeted audit`.
+- **`/workweek-start`** — weekly orient; detects Step 18's HEADER reset and re-inits.
+- **`/merge-to-main`** — invoked in Step 16.
+- **`/update-docs`** — invoked in Step 4.
+- **`check-weekly-staleness.py`** — staleness nudge used by `/workday-complete`.
+- **`check-arch-audit-staleness.py`** — reads `Last targeted audit` clock; consumed by Step 10
+  (STALE >10 days → auto-fold).
+- **`/architecture-audit`** — folded in by Step 10 when stale; writes `Last targeted audit`.
 - **`/architecture-survey`** — full breadth survey (PM-invoked only); writes `Last full audit`.
+
+---
+
+## Computed-conversion manifest (C4 census — precedes the C6 rewrite)
+
+
+This section is preparatory census output for the `workweek_complete` assembler (C5), landed
+before the evergreen rewrite above (C6). It records the manifest the assembler orchestrates and
+the guard-sweep hard-block/advisory census the rewrite's § Step 0.95/Step 5 render against.
+
+### Consumes-manifest
+
+Every existing coordinator_core capability / atomic CLI the `workweek_complete` assembler
+orchestrates — C5 imports these, none get reimplemented:
+
+`list-week-changelog`, `backfill-week-changelog-gaps`, `coordinator-resolve-validation-cmd`,
+`lint-frontmatter`, `workweek-complete-advisories`, `query-records`,
+`detect-initiative-candidates`, `coordinator-initiative`, `cruft-sweep`,
+`check-wsc-inline-budget`, `reassess-goal-krs`, `workweek-complete-drift-guards`,
+`workweek-complete-reverse-drift-gate`, `check-competitor-positioning-nudge`,
+`check-no-illegal-paths`, `workweek-trail-scope`, `check-arch-audit-staleness`,
+`check-atlas-watch-drift`, `query-completions`, `workweek-complete-close`,
+`check-version-consistency`, `coordinator-ceremony-hook`, `emit-cadence`, `scc`, `node run.js`,
+`gh release`.
+
+Contract↔emission test (skeleton, red until C5 lands) is authored in claude-klabauter —
+`coordinator_core/tests/test_workweek_complete_contract.py` — out of this repo's write scope; not
+delivered by this section.
+
+### Step 4b–4k guard-sweep census
+
+Steps 4b–4k are ten lettered advisory/drift gates that collapse to ONE "guard sweep" MECHANICAL
+block returning a JSON verdict array. Hard-blocking vs advisory granularity, confirmed against
+current step bodies:
+
+| Step | Gate | Disposition |
+|------|------|--------------|
+| 4b | Install OOM reproducer freshness | Advisory (blocking only in the narrow sub-case where the reproducer itself runs and fails) |
+| 4c | UBT pending-record merge gate | **Hard-blocking** |
+| 4d | Skill description-length | Advisory |
+| 4e | Owner-file invariant lint | Advisory |
+| 4f | enabledPlugins drift audit | Advisory |
+| 4g | Reverse-drift merge gate | **Hard-blocking** |
+| 4h | CVE recheck (change-aware) | Advisory |
+| 4i | Strategic self-description refresh nudge | Advisory |
+| 4j | Competitive positioning nudge | Advisory |
+| 4k | Vendored-schema drift gate | **Hard-blocking** |
+| — (new, no 4b–4k letter) | Human-facing doc health (staleness + content verification — doctrine: `docs/wiki/human-facing-doc-freshness.md`) | Advisory — non-blocking, but paired with a per-doc `judgment_points[]` entry requiring an explicit recorded disposition (never auto-resolved) |
+
+The rewritten (C6) body preserves this granularity — the assembler returns one verdict array, and
+the three hard-blocking rows (4c, 4g, 4k) still halt the ceremony while the eight advisory rows
+never do (the seven original 4b–4k advisory rows plus the human-facing doc-health row — no new
+class, no binary-split rewrite). **C6 note:**
+the assembler's own emitted `hard_block` field does not currently mark the 4c/UBT directive `true`
+(a gap surfaced during C6, not corrected here — see § Step 0.95) — the rewrite's guidance follows
+this table, not the field, until that's fixed upstream in claude-klabauter.
+
+### Axis-3 consolidation disposition (the Staff Engineer F6)
+
+A survey of consolidation candidates for the cluster rebuild, enumerated by baton
+(B7/B8/B9/B10), named none of `workweek-complete` or its surfaces. The B1 cluster row itself already directs the two
+consolidations that touch this file — share the cadence session-state resolver (backend-dedup,
+C5) and fold `/autonomous`'s sentinel toggle into a shared assembler verb (C7) — both already
+assigned to their respective chunks. **Disposition: keep-with-reason** — no further merge/fold
+candidate found naming this surface beyond what the B1 row and C5/C7 already carry.
+
+### Shared-tail resolution (the Staff Engineer F2, AC9)
+
+C4's preliminary characterization found the Step 13.5/13.6 tail NOT byte-identical to
+`workday-complete.md`'s Step 10.5/10.6 tail (differing invocation shape, a `--only-mode` skip with
+no workweek analog, differing exit-code granularity). C5's own AC9 identity check, run once both
+real shapes existed, reached the opposite conclusion once workweek's `hard_block` bookkeeping (a
+uniform post-build pass applied to every directive, tail included) was excluded from the
+comparison — every load-bearing field (both CLIs, empty args, `depends_on=None`) matched. Both
+assemblers now consume the shared `coordinator_core.ceremony_common.tail.build_ceremony_close_tail`.
+This section's earlier "not byte-identical" verdict is superseded by C5's own finding, not a
+contradiction to resolve — C4 measured a partial input, C5 measured both complete shapes.
