@@ -42,6 +42,32 @@
 
 ---
 
+## Tier is invocation shape, not a config key
+
+<!-- provenance: run 2026-08-06-14h38, nugget c7-051, c7-063 -->
+
+A tier is defined by *how a task gets invoked*, not by which config key happens to name it.
+Marker filtering (running a subset of tests via a marker/tag) is not the same thing as scope —
+they're independent axes. There are three legitimate exits, not two:
+
+- **Marker-filtered** — a named subset of tests selected by tag/marker.
+- **Genuinely-scoped** — a deliberately narrow slice, scoped to the files/module touched.
+- **Declared-unscoped fast tier** — the fast tier run with no scoping applied at all; this is a
+  legitimate third exit in its own right, not a degraded case of the other two.
+
+Classification of which exit applies is enforced **where the invocation happens** (in
+`/validate`), not merely documented in a wiki — if you're adding a new test-invocation path,
+wire its tier classification into `/validate` itself rather than relying on a comment or README
+note to keep it honest.
+
+`fast_test_cmd` is ratified as a **single command** (PM ruling) — the fast tier is one shell
+invocation, not a chain. If your fast tier genuinely needs multiple chained commands, that's a
+sign it belongs on the Tier-F (full/system) route instead of being force-fit into
+`fast_test_cmd` — don't chain commands with `&&`/`;` inside `fast_test_cmd` to route around the
+single-command rule.
+
+---
+
 ## Quick reference: which reviewer?
 
 | Work type | Reviewer |

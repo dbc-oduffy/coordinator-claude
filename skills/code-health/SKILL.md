@@ -1,6 +1,6 @@
 ---
 name: code-health
-description: Night-shift code health review — queries completion entries for today's surfaces, dispatches reviewer, applies findings, updates health tracking.
+description: "Night-shift code review — dispatch reviewer, apply findings, track."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: (no arguments needed)
 ---
@@ -29,15 +29,11 @@ Determine the scope of surfaces to review from today's completion log, not from 
 
 1. Query today's completion entries:
    ```bash
-   bin/query-completions --where "created=<YYYY-MM-DD>" --format json
+   "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --where "created=<YYYY-MM-DD>" --format json
    ```
    Substitute today's date for `<YYYY-MM-DD>`.
 2. Extract the file paths or subsystem names mentioned in the entries' `title`, `description`, and any `files` fields.
-3. **If no entries for today:** Read `state/health-ledger.md` header for the `Last daily check:` date and fall back to:
-   ```bash
-   git log --since="<last-check-date>" --oneline --stat
-   ```
-   Update the `Last daily check` timestamp in the health ledger, report "No completion entries for today — fell back to git log scope," and continue with the commit-based surface list.
+3. **If no entries for today:** Read `state/health-ledger.md` header for the `Last daily check:` date and fall back to `git log --since="<last-check-date>" --oneline --stat`. Update the `Last daily check` timestamp in the health ledger, report "No completion entries for today — fell back to git log scope," and continue with the commit-based surface list.
 
 The completion-entry approach reduces tokens spent re-reviewing unchanged code by scoping the review to only the surfaces that saw recorded work today.
 
@@ -45,17 +41,9 @@ The completion-entry approach reduces tokens spent re-reviewing unchanged code b
 
 ## Step 2: Generate Diff Scope
 
-Scope the diff to the surfaces identified in Step 1:
+Scope the diff to the surfaces identified in Step 1 (`git diff HEAD -- <file1> <file2> ...`).
 
-```bash
-git diff HEAD -- <file1> <file2> ...
-```
-
-If Step 1 yielded a subsystem or directory name rather than individual files, use the directory prefix (e.g., `skills/code-health/`). If the fallback git-log path was taken, use:
-
-```bash
-git diff <last-check-commit>..HEAD
-```
+If Step 1 yielded a subsystem or directory name rather than individual files, use the directory prefix (e.g., `skills/code-health/`). If the fallback git-log path was taken, diff from the last-check commit instead (`git diff <last-check-commit>..HEAD`).
 
 Summarize scope: which files changed, how many insertions/deletions, which systems are affected. This summary drives the Sonnet reviewer's emphasis (vocabulary/what-to-weight) in Step 3 — not reviewer selection (that's always `code-reviewer`).
 
@@ -76,9 +64,9 @@ Domain still matters — but for **vocabulary and emphasis**, not reviewer ident
 
 If multiple domains are present, weight toward the dominant one (most files changed / most critical path). A finding that genuinely needs persona/Opus judgment is **flagged for the weekly arch pass** (`/workweek-complete` Step 7.5), not escalated to an Opus dispatch here.
 
-**Dispatch (unattended — required):** `coordinator:code-reviewer` self-persists its findings; no EM ceremony needed.
+**Dispatch (unattended — required):** `coordinator:code-reviewer` writes to its spawn-provisioned sidecar; no EM ceremony needed.
 
-1. **Dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param), `run_in_background: true`, `--problems-only`. The reviewer scaffolds its own sidecar in `state/review-trail/findings/`, fills it with findings, and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. There is no EM pre-scaffold, no `cs_write_review_claim`, no claim-marker reap. _Spec backlink: `cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`._
+1. **Dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param), `run_in_background: true`, `--problems-only`. The sidecar is spawn-provisioned before the reviewer runs (`report_sidecar:`-eligible in `subagent-sandbox-policy.yaml`, provisioned by the `enforce-agent-dispatch-mode.py` hook) and arrives in the brief as `sidecar_path:` at the standard session-keyed home `state/subagent-share/<session-id>/<provision_key>.md`. The reviewer fills it with findings and returns `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. There is no EM pre-scaffold and no reviewer self-scaffold — a "no sidecar path in my brief" return is a provisioning defect for the EM to fix, not a gap to route around.
 2. Read the returned `DONE: <path>` line when notified of completion. Pass that path to the integrator in Step 4.
 
 ---
@@ -97,7 +85,7 @@ If no findings: skip to Step 6.
 
 ## Step 5: Update Debt Backlog
 
-For any findings not fixed inline, record each as a debt-backlog YAML entry using `coordinator-queue-append --schema debt-backlog`. This writes `state/debt-backlog/<date>-<slug>.yaml` (one file per finding; no markdown table).
+For any findings not fixed inline, record each as a debt-backlog YAML entry using `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-queue-append" --schema debt-backlog`. This writes `state/debt-backlog/<date>-<slug>.yaml` (one file per finding; no markdown table).
 
 Required fields per entry:
 - **`title`** — one-line noun-phrase summary of the finding
@@ -109,8 +97,6 @@ Required fields per entry:
 - **`created`** — today's date (YYYY-MM-DD)
 
 Stage each resulting YAML file: `git add state/debt-backlog/<date>-<slug>.yaml`
-
-See `docs/wiki/debt-backlog-schema.md` for the full field reference and an example entry.
 
 ---
 
@@ -166,10 +152,7 @@ See `docs/wiki/debt-backlog-schema.md` for the full field reference and an examp
 Scaffold a conformant health-status record, then fill the posture and body from the day's findings:
 
 ```bash
-DATE=$(date +%Y-%m-%d)
-coordinator-doc-new --type health-status \
-  --title "Health Summary ${DATE}" \
-  --out "state/health/${DATE}-health-summary.md"
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type health-status --title "Health Summary"
 ```
 
 Then, via Edit, fill:
@@ -201,8 +184,15 @@ Example filled body:
 
 ## Step 8: Commit and Update Timestamp
 
+Stage only the ledger and today's health summary — nothing else this run touched:
+
 ```bash
-git add state/health-ledger.md "state/health/${DATE}-health-summary.md"
+git add state/health-ledger.md "state/health/<YYYY-MM-DD>-health-summary.md"
+```
+
+Then commit; the staged set is already exactly these two files, so no pathspec is needed:
+
+```bash
 git commit -m "daily-code-health: review of surfaces from completion entries [date]"
 ```
 
@@ -216,7 +206,7 @@ The post-commit hook pushes automatically.
 |---|---|
 | No health ledger on first run | Create from template, use last 24 hours as scope |
 | No completion entries for today | Fall back to `git log --since=<last-check>` scope; report fallback in health summary |
-| `bin/query-completions` not found | Fall back to git-log scope; note missing binary in health summary |
+| `query-completions` CLI not found | Fall back to git-log scope; note missing binary in health summary |
 | No new commits since last check (fallback path) | Update timestamp, report, and exit — no reviewer dispatch |
 | Reviewer returns no findings | Skip Steps 4-5, proceed directly to Step 6 |
 | Debt backlog doesn't exist | Create from template before adding entries |
@@ -235,6 +225,6 @@ The post-commit hook pushes automatically.
 ## Relationship to Other Commands
 
 - **`/workday-complete`** — primary trigger for this command; runs code-health as part of its end-of-day health survey phase. The normal path is to let `/workday-complete` invoke this, not to run it standalone.
-- **`/workstream-start`** — the cockpit snapshot (produced by example-orchestration-hub's `artifact.emit`, the sole production emitter as of DR-208/DR-210; `bin/emit-cockpit-snapshot.sh` is now a fail-loud facade stub) and record queries (`bin/query-records.js`) read `state/health/*.md` to surface overnight findings at the top of the next session. The nested path `state/health/<date>-health-summary.md` is the conformant target (not a flat `state/health-summary.md` — that path is stale and does not exist).
+- **`/workstream-start`** — the cockpit snapshot (produced by claude-klabauter's `artifact.emit`, the sole production emitter; `bin/emit-cockpit-snapshot.py` is a thin native entry that dispatches the op via `cc_invoke.route_mutation()`, no bash) and record queries (`query-records`) read `state/health/*.md` to surface overnight findings at the top of the next session. The nested path `state/health/<date>-health-summary.md` is the conformant target (not a flat `state/health-summary.md` — that path is stale and does not exist).
 - **`/review-code`** — this command dispatches a reviewer directly with `--problems-only` for targeted code health assessment; it does not go through the full `/review-code` feature-review workflow. Don't substitute one for the other.
 - **`pipelines/daily-code-health/PIPELINE.md`** — the pipeline definition this command executes. If you need to customize routing or scope, read it directly.

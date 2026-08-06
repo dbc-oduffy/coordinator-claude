@@ -13,493 +13,151 @@ Orient this agent by verifying the environment, loading project context, and cho
 
 ---
 
-## Preflight
+## Setup-freshness probe
 
-Safety and environment checks. Order matters — each depends on the one before it.
+If `/coordinator:repo-setup` just ran in this session, `/workstream-start` is the orientation skill being applied to a session that already oriented itself by running setup. Detect this and emit a different one-liner — do NOT proceed through the rest of this skill, which would burn budget on re-orienting an already-oriented session.
 
-### Setup-freshness probe
+**Detection — sentinel file (`state/.repo-setup-just-ran`):** if it exists, delete it immediately
+— before printing anything, so a failure mid-output leaves the sentinel already cleared rather
+than re-firing the probe — then print the notice below and stop:
 
-If `/coordinator:repo-setup` just ran in this session, `/workstream-start` is the orientation skill being applied to a session that already oriented itself by running setup. Detect this and emit a different one-liner — do NOT proceed through the full Preflight + Context Load + Engage menu, which would burn budget on re-orienting an already-oriented session.
+> Setup just ran — your orientation is current. /workstream-start is the orientation skill for sibling EMs or post-restart sessions, not for the operator who just set the repo up. Use /workday-start tomorrow morning. To start work now, just describe what you want to do — the EM has full context from setup.
+>
+> Doctrine: docs/wiki/produce-not-prescribe.md — /coordinator:repo-setup produces the minimum-viable orientation substrate (orientation_cache.md); /workstream-start adds-to it when there's something to add.
 
-**Detection — sentinel file (`state/.repo-setup-just-ran`):**
-
-```bash
-if [ -f state/.repo-setup-just-ran ]; then
-  rm -f state/.repo-setup-just-ran  # consume the sentinel FIRST — if cat fails mid-output, sentinel is already cleared and probe won't re-fire
-  # Review: code-reviewer — consume before cat so a mid-output failure doesn't re-fire the probe.
-  # Known limitation: concurrent /workstream-start invocations in the same repo race on this consume.
-  # Single-user / single-machine scope makes the window tiny; both sessions exit-no-op rather than
-  # crash. Accepted as low-impact; do not "fix" with a lock — the file IS the lock.
-  cat <<'EOF'
-Setup just ran — your orientation is current. /workstream-start is the orientation skill for sibling EMs or post-restart sessions, not for the operator who just set the repo up. Use /workday-start tomorrow morning. To start work now, just describe what you want to do — the EM has full context from setup.
-
-Doctrine: docs/wiki/produce-not-prescribe.md — /coordinator:repo-setup produces the minimum-viable orientation substrate (orientation_cache.md); /workstream-start adds-to it when there's something to add.
-EOF
-  exit 0
-fi
-```
+**Known limitation:** concurrent `/workstream-start` invocations in the same repo race on this
+consume. Single-user / single-machine scope makes the window tiny; both sessions exit-no-op
+rather than crash. Accepted as low-impact — don't "fix" with a lock; the file IS the lock.
 
 The sentinel is single-shot: this probe consumes it. Subsequent `/workstream-start` invocations behave normally. The sentinel is `.gitignore`'d — it's a per-session transient marker, never committed.
 
-**Why a sentinel, not a time window:** a 60-min `git log --since='60 minutes ago' | grep repo-setup` window false-negatives on operator pause >60 min (original failure mode recurs) and false-positives on `/workday-start` reconciliation pulling a sibling repo-setup commit from another machine (a session that genuinely wants `/workstream-start`). The sentinel is session-scoped, deterministic, and immune to both.
-
-### Safety commit
-
-Secure any uncommitted work before touching branches:
-
-1. Run `git status` — if there are ANY uncommitted changes (staged, unstaged, or untracked), commit immediately:
-   ```
-   CLAUDE_INVOKING_COMMAND=workstream-start coordinator-safe-commit --blanket "chore: workstream-start sweep — pre-orientation capture"
-   ```
-2. This is crash insurance. If a previous session died mid-work, this captures its state. The auto-push hook will push to the remote.
-3. If nothing to commit, move on silently.
-
-**Do not ask permission.** Non-negotiable safety measure.
-
-### EM environment check
-
-Before load-bearing work, confirm the EM is on the right model and effort:
-
-- **Effort** — you cannot observe this yourself (it shows only in the CLI startup banner, never in your system prompt). Run the safety script and relay any banner it prints; silent output means clean (`medium` effort), so say nothing:
-  ```bash
-  _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-  _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-  _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-  _cc_trusted=0
-  case "$_cc_root" in
-    "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-  esac
-  [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-  case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-  [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-  [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-  [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-  bash "$_cc_root/bin/check-em-environment.sh"
-  ```
-- **Model** — your system prompt names your model. If it is not Opus, WARN the PM (`⚠ MODEL DRIFT — not Opus; toggle via /model`) and recommend switching before proceeding. (The script also reads the transcript model as a backstop.)
-
-### Setup-state self-heal (silent)
-
-On `source_is_live` machines, coordinator-claude's install IS the source — the operator is the author and never runs `/coordinator:install`, so the receipt at `~/.claude/coordinator-setup-state.yaml` (the cross-repo chaining gate read by sibling-repo setups) never gets written by the normal path. Self-heal by recording `setup_concluded` implicitly when the registry confirms `source_is_live`. Idempotent (first-write-wins), silent on every call, emits no orientation prompt.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/coordinator-setup-state.sh" auto-record-if-source-is-live
-```
-
-No output to surface. On non-`source_is_live` machines this is a no-op; on `source_is_live` machines it writes the receipt once and is a no-op thereafter.
-
-### Agent worktree check
-
-Detect-and-warn only — no auto-reap. Salvage belongs in `/workday-start` Step 0.6 (runs once per day); workstream-start fires many times per day and shouldn't move commits between branches as a side-effect of orientation.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/agent-worktree-sweep.sh" --format text
-```
-
-If any line is emitted (i.e. at least one `<repo>/.claude/worktrees/agent-*` exists), surface a one-liner:
-
-> _"{N} agent-isolation worktree(s) on disk — Claude Code auto-creates these for `Agent` dispatches and they persist locked until session deletion. Run `/workday-start` to sweep + salvage, or `agent-worktree-sweep.sh --reap` to act now."_
-
-If no output, skip silently — the common case.
-
-### Branch detection
-
-**main is read-only.** All work — including safety commits — must happen on a work branch. Never commit to main directly.
-
-Get on the right branch:
-
-1. **Push health check:** Run `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`.
-   If unpushed commits exist, warn: _"Found N unpushed commits — auto-push may have failed. Check .git/push-failures.log."_
-
-2. **If already on a non-main branch:** Report the branch name and continue. Don't switch.
-   _"Resuming work on {branch} ({N} commits ahead of main)."_
-
-3. **If on main — create a work branch immediately before doing anything else:**
-   - Check local: `git branch --list 'work/{machine}/*'`
-   - Check remote: `git branch -r --list 'origin/work/{machine}/*'`
-   - Cross-reference with any loaded handoff's `Branch:` field.
-
-   If a branch exists for today (not yet merged):
-   _"Found existing branch work/{machine}/{date}. Resuming."_
-   `git checkout {branch}`
-
-   If no branch for today (or today's was already merged):
-   Run sync-main invariant first:
-   ```bash
-   _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-   _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-   _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-   _cc_trusted=0
-   case "$_cc_root" in
-     "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-   esac
-   [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-   case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-   [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-   [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-   [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-   "$_cc_root/bin/sync-main.sh" --quiet
-   ```
-   If it exits non-zero, report the divergence to the PM before creating the branch.
-   Create: `git checkout -b work/{machine}/{date}`
-   If name collision: append suffix: `work/{machine}/{date}-2`
-
-   **Note:** `/workday-start` handles branch setup and open-branch consolidation at the start of each workday. If you're starting a new day and workday-start hasn't run yet, the workstream-start branch creation here is a safety fallback — recommend running `/workday-start` to also consolidate any open branches from previous days.
-
-### Branch staleness
-
-Check how long the branch has diverged from `main`:
-
-1. Find the merge base: `git merge-base HEAD origin/main`
-2. Get the date of that commit: `git log -1 --format=%ci <merge-base-hash>`
-3. Calculate the age in days.
-
-**If diverged more than 2 days:**
-
-_"This branch has been diverged from main for {N} days (since {date}). Long-lived branches accumulate merge risk. I'd recommend merging before new work — want me to run `/merge-to-main`?"_
-
-**Wait for the user's response.** Do not proceed until the user approves or declines.
-
-**If 2 days or fewer:** Continue silently.
-
----
-
-## Context Load
-
-Load project state into context. These checks are independent of each other.
-
-### Lessons
-
-Enumerate `state/lessons/*.yaml` (if the directory exists) — learned patterns from past corrections, one YAML file per entry. Review every entry. Alternatively: `bin/query-records --type lesson` for a structured listing.
-
-Read `CONTEXT.md` (if it exists at the project root) — domain glossary with canonical terms and `_Avoid_:` synonym lists. If absent, proceed silently — do not flag, suggest, or scaffold.
-
-Note: Project `CLAUDE.md` and global `~/.claude/CLAUDE.md` are already in system context — don't re-read them.
-
-**After reading:** Note the count. No need to recite principles — they're in CLAUDE.md.
-
-### Addon health (RED only + bootstrap notice)
-
-Plugins that ship a doctor skill may write a sentinel at `~/.claude/plugins/<plugin>/data/doctor-last-run.json`. Workstream-start surfaces RED verdicts only — stale-but-green is workday-start's beat, not every-session noise.
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/scan-addon-health.sh" --red-only
-"$_cc_root/bin/scan-addon-health.sh" --check-sentinel-presence
-```
-
-If any lines are emitted by either call, surface them verbatim under an **Addon Health** heading early in the orient output. The `--red-only` call flags active RED verdicts; the `--check-sentinel-presence` call emits a one-time bootstrap notice when plugins are installed but no doctor has been run yet (fresh install). The notice is silent on every subsequent session once any sentinel exists. If both calls produce empty output, skip the heading silently.
-
-- RED verdict: the corresponding doctor skill is the remediation surface (e.g. `/project-rag-ue-addon:doctor`); the EM may dispatch it directly when surfaced.
-- Bootstrap notice: prompts the operator to run `/coordinator:install` and plugin doctors to establish a health baseline.
-
-Schema and convention: `docs/wiki/addon-health-sentinel.md`.
-
-### Project-RAG Relevance
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/probe-cwd-project-rag-relevance.sh"
-```
-
-If it emits any lines, surface them verbatim under a **Project-RAG Relevance** heading (inline with the Context Load output, separate from Addon Health). If it emits nothing, skip silently — the probe is silent when no project-RAG binding exists for the current cwd.
-
-### Coordinator / project-rag binding spot-check
-
-Run an import probe, then branch on the result. Emit exactly one line into the Context Load output — choose the branch that matches the machine state.
-
-**Step 1 — probe import:**
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "whoami: coordinator root unresolved — re-run coordinator:install" >&2; exit 1; }
-source "${_cc_root}/lib/resolve-python.sh"
-"$PYTHON_BIN" -c "import coordinator_whoami"
-```
-
-- **Non-zero (import fails):** Emit:
-  `whoami: not installed (run /coordinator:install to install the introspection package)`
-  Skip Step 2.
-
-**Step 2 — read the live session envelope (import succeeded):**
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "whoami: coordinator root unresolved — re-run coordinator:install" >&2; exit 1; }
-# re-source: each Bash call is a new shell; PYTHON_BIN does not carry over from Step 1
-source "${_cc_root}/lib/resolve-python.sh"
-"$PYTHON_BIN" -m coordinator_whoami.session 2>/dev/null
-```
-
-Parse the JSON output and inspect `binding.kind` and `status.state`.
-
-- **`binding.kind == "unbound"`:** Emit:
-  `whoami: unbound (not in a coordinator-onboarded repo)`
-
-- **`binding.kind == "bound"`:** Emit:
-  `whoami: bound → <binding.target> (<status.state>)`
-  where `status.state` is `healthy`, `degraded`, or `error` — the freshness/reconcile gradient lives on `status.state`, not on `binding.kind`.
-
-- **CLI exits non-zero, or the output is not parseable JSON:** Emit:
-  `whoami: degraded (CLI failed; see coordinator-doctor.md probe P-6s)`
-
-Canonical full check: `docs/wiki/coordinator-doctor.md` probe P-6s (the session probe; P-6 remains the project-rag plugin-binding probe — distinct).
-
-Note: the session adopter is the **orientation spine** — daemon-independent, computed from git+fs. Plugin-specific binding (e.g. project-rag source registration) is surfaced separately and optionally; plugin whoamis are optional ribs, never the orientation spine.
-
-Note: workstream-start does NOT surface bound-but-cwd-mismatch — that is `/repo-setup`'s job. Workstream-start runs every session and would emit false positives for operators working in folders that are not the bound project root.
-
-### Handoffs
-
-Run two `bin/query-records` calls — sub-second by construction, no file walks.
-
-**Primary: actionable-now handoffs.**
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-records.sh" --type handoff \
-  --where "deployment_state=ready_to_fire AND status=active" \
-  --sort "-created" --format markdown-list
-```
-
-Report: _"Found {N} actionable handoffs (deployment_state=ready_to_fire). Run `/pickup <file>` to resume one."_ If empty, say so.
-
-**Gated handoffs (always surface count; list when stale).**
-
-Two queries — first counts everything `awaiting_gate`, second lists the stale subset:
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/query-records.sh" --type handoff \
-  --where "deployment_state=awaiting_gate AND status=active" \
-  --sort "-created" --format markdown-list
-
-"$_cc_root/bin/query-records.sh" --type handoff \
-  --where "deployment_state=awaiting_gate AND status=active" \
-  --older-than 6d --format markdown-list
-```
-
-Reporting rules:
-
-- **If any `awaiting_gate` exist:** surface the full list (titles + gate_dependency, not bodies). The PM may want to clear a gate, retarget, or pick one up even before staleness — silently filtering them is what buries actionable work.
-- **If any are >6 days old:** additionally flag _"{M} handoffs awaiting_gate >6 days — gate may be stuck; consider triage or PM clear-gate."_
-- **If none exist:** skip silently.
-
-Rationale: the prior >14-day threshold + "only emit if stale" pattern hid gated handoffs that the PM needed visibility on for cross-workstream planning. Six days is roughly one working week — long enough that a gate that hasn't cleared is worth a glance, short enough to catch drift before it ossifies.
-
-**Tracker shortcut.** A pre-rendered snapshot of the handoff queue is available at `state/handoff-tracker.md` (written by `/workstream-complete` and `/handoff`). Useful for a fast orientation glance; ad-hoc refresh: `render-handoff-tracker.js`. Always verify actionable items via the live queries above before acting — the tracker reflects state at the last session exit, not right now.
-
-**Stale advisory / call-note markdowns are not pendency.** Files in `state/handoffs/`, `tasks/`, or `archive/` that look like live work-items (advisories, call-notes, "next-up.md", deferred-action markdowns) may already be addressed by commits that landed after the file was authored. Before treating any markdown's body as a live action item — even if `query-records` surfaces it — run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. If commits exist on the cited paths since the file's authoring date, the advisory is likely stale; read those commits before re-surfacing the advisory's prescription as live work. Surfacing un-verified stale advisories to the PM as actionable wastes a question.
-
-**Do NOT load, summarize, or act on any handoff.** This applies even if there's only one. One handoff is not implicit selection — the PM may not want to pick it up this session, or may have other priorities first. **Do NOT set `HANDOFF_LOADED`.** That flag is set ONLY when the PM explicitly directs you to a handoff.
-
-**When the PM indicates they want a handoff picked up** — by dropping a link, naming it, or saying "pick up that handoff" — read the full file into context. This — and only this — sets `HANDOFF_LOADED=true` for the Engage section. Alternatively, the PM may use `/pickup` which is purpose-built for handoff resumption and skips the general orientation ceremony.
-
-**Archive lifecycle:** `/pickup` archives the handoff atomically (frontmatter mutation + `git mv` to `archive/handoffs/` + commit, in one operation). Supersession archival happens at `/update-docs` (chain-aware pass for explicit predecessors named via `Continuing from`).
-
-**Path convention:** Active handoffs in `state/handoffs/`, archived in `archive/handoffs/`. Both git-tracked.
-
-**Why query, not grep:** `deployment_state` filters out handoffs that aren't ready for execution — the prior per-file walk surfaced everything regardless of state, which is grep-shaped behavior. Sub-second queryability requires a clear filter; the stale-gate flag preserves the deferred-work signal for `awaiting_gate` items without forcing them through the primary list.
-
-**If `tasks/` or `archive/` is gitignored:** Warn the user — these directories must be tracked. `tasks/` contains handoffs and plan docs; `archive/` contains the completion history. `.claude/` contains only platform-managed files (settings, hooks) and need not be tracked.
-
-### Outstanding cross-repo memos
-
-Run `workday-start-cross-repo-memo-surface.sh`. Non-empty output → surface verbatim under heading `#### Outstanding cross-repo memos (DoE attention):`. Empty → skip silently.
-
-Same surface, same semantics, same helper as `/workday-start` Step 1.45 — cross-repo memos awaiting this repo's action (`status: open`) are pendency just like handoffs and deserve the same boot-time visibility. Receiver flips `status: open → actioned` in place after action. Details: `pipelines/workday-start-internals.md § Step 1.45`.
-
-Run `workday-start-cross-repo-memo-outbox-surface.sh`. Non-empty output → surface verbatim under heading `#### Outbox drafts awaiting send (DoE attention):`. Empty → skip silently.
-
-Outbox drafts are memos authored but not yet dispatched — stale drafts are a silent coordination gap. Same boot-time pendency treatment as inbox memos. Details: `pipelines/workday-start-internals.md § Step 1.46`.
-
-### Action items and roadmap
-
-**Conditional on workday-start:** If `state/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed these. If no marker or stale marker, read them as a graceful fallback.
-
-These are operational documents — they tell the EM what's immediately actionable and where the project is headed.
-
-Read each if it exists (first match wins per row), skip silently if not:
-
-| Document | Convention Paths |
-|----------|-----------------|
-| Action Items | `ACTION-ITEMS.md`, `docs/active/ACTION-ITEMS.md`, `docs/ACTION-ITEMS.md` |
-| Roadmap | `ROADMAP.md`, `docs/roadmap.md`, `docs/ROADMAP.md` |
-
-No summary needed — just load them into context. Their content speaks for itself.
-
-### Project tracker
-
-**Conditional on workday-start:** If `state/.workday-start-marker` contains today's date, skip this section — workday-start already reviewed the tracker. If no marker or stale marker, read as a graceful fallback.
-
-Read `docs/project-tracker.md` (if it exists). This is the strategic tracker that `/update-docs` maintains — active workstreams, their statuses, dependencies, and blockers.
-
-**If it exists:** Surface a brief summary:
-```
-## Project State
-- Active workstreams: [N] — [list names with statuses]
-- Blocked items: [N] — [brief description of blockers]
-- Ready for execution: [list any items with status Ready/Executing]
-```
-
-This gives the EM visibility into what the project is working on before choosing work in the Engage section. The tracker also informs the work menu — surface tracker items as concrete options alongside the generic categories.
-
-**If it doesn't exist:** Skip silently.
-
-### Orientation check
-
-The SessionStart hook already injected orientation context at boot (cache if fresh, pointers if stale). Do NOT re-read those files here — they're already in context.
-
-If the hook reported no fresh cache, note: _"No orientation cache — run `/workday-start` or `/update-docs` to generate one."_ Otherwise, move on silently.
-
-**Stale advisory markdowns ≠ pendency.** Before treating any `tasks/advisory/*.md`, `tasks/call-notes/*.md`, or similarly-named orientation note as a live work item: `git log --oneline -- <path>` to check authoring and last-touch dates. A markdown that hasn't been touched in >14 days is hypothesis until re-verified against current HEAD — it may describe a state already resolved by subsequent commits.
-
-- **Last workstream-complete review (informational):** if any review-trail records exist (live or archived), surface the most recent one (`list-review-trail-records.sh | tail -1`) so the EM picks up the chain knowing what was reviewed and where the un-reviewed gap begins.
-
-### Documentation index
-
-Check if `docs/README.md` exists. If it does, note briefly: _"Documentation index at docs/README.md — [N] wiki guides, [N] research files, [N] plans."_ (Count by globbing each directory.) This tells the agent and PM that accumulated project knowledge is available.
-
-If `docs/README.md` does not exist but `docs/guides/` or `docs/research/` does, note: _"Wiki content exists but no docs/README.md index — `/update-docs` will create one."_
-
-If neither exists, skip silently — the project hasn't adopted the wiki system yet.
-
-**Fan-out tooling available:** `fan-out-dispatch.sh` (overlap pass + scoped prompt compiler); follow the fan-out methodology to dispatch the compiled wave and hold the EM-serial commit (not a skill — there is no `/fan-out` command). Use instead of hand-authoring parallel executor prompts. → `docs/wiki/dispatching-parallel-agents.md` § Executing a Fan-Out Wave.
-
-### Delegation context (game-dev projects)
-
-**Conditional on project type:** Only for projects where `coordinator.local.md` declares `project_type: game-dev` AND `project_subtypes` contains `unreal`. Skip silently if either condition is absent.
-
-The capability-catalog (injected at boot) carries the general delegation argument. This section loads the operational routing knowledge needed to delegate effectively in game-dev projects:
-
-**Two-tier dispatch model:**
-
-| Tier | When | How |
-|------|------|-----|
-| 1. Direct | Verification, quick fact-finding, simple one-off mutations | Use your 8 visible tools directly |
-| 2. Dispatch | Any real work in a single domain | Agent(subagent_type='example-game-repo-control:ue-{domain}') |
-
-For multi-domain or underspecified tasks, decompose and dispatch domain agents sequentially with verification between steps.
-
-**Key constraints:**
-- Blueprint graph operations (nodes, pins, functions) cannot be done via Python — only ue-asset-author can do them
-- Domain agents have 40+ hidden tools with full schemas; your 8 are for oversight
-- Python (`execute_python_code`) is the escape hatch for quick one-liners, not the primary work tool
-
-After loading, note briefly: _"Loaded example-game-repo delegation context — Tier 2 (domain agents) is the default for real work."_
-
-### Project-RAG subsystem context
-
-**Conditional on MCP availability:** Only if `project-rag` MCP tools are available (check via ToolSearch for `mcp__project-rag__project_subsystem_profile`). Skip silently if unavailable.
-
-When available, call `project_subsystem_profile()` with no arguments (list mode) to discover the project's subsystem map. This returns subsystem names with file counts — enough for the EM to know what's available without loading full profiles.
-
-Report briefly: _"Project subsystems: {N} available via project_subsystem_profile."_
-
-**Key behavior change:** When you need to understand a subsystem before delegating work, call `project_subsystem_profile("<name>")` instead of dispatching an Explore agent. The profile returns C++ surface, BP surface, dependencies, and complexity signals — all deterministic SQL at <200ms, replacing 150-300K token Explore dispatches.
-
-**Freshness nudge:** Also invoke the staleness-survey script. Resolve the plugin CLI path and project root from `~/.claude.json` (same resolution as `commands/workday-start.md` Step 3.6 — do not duplicate threshold logic):
-
-```bash
-# Resolve plugin CLI path and project root from ~/.claude.json MCP server args
-_rag_cli=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); args=d['mcpServers']['project-rag']['args']; print(next(a for a in args if a.endswith('.py') or a.endswith('cli')))" 2>/dev/null)
-_rag_root=$(python3 -c "import json,os; d=json.load(open(os.path.expanduser('~/.claude.json'))); args=d['mcpServers']['project-rag']['args']; print(args[-1])" 2>/dev/null)
-python3 "$_rag_cli" staleness-survey --project-root "$_rag_root" --json
-```
-
-If verdict ≠ `current`, append one line to the orientation brief:
-
-> _"Project-RAG last scanned {age}. Verdict: {verdict}. Recommend: {recommendation_command}."_
-
-Skip silently if verdict is `current`, or if either path could not be resolved from `~/.claude.json`.
+## Orient
+
+The assembler computes the session-cadence orient spine — EM effort/model drift, addon/doctor
+health, inbound cross-repo memo staleness, project-RAG staleness, agent-worktree classification,
+handoff triage (ready-to-fire / awaiting-gate / stale-plan advisories), branch-day-span
+mismatch, and health-probe drift (exec-bit, claude-klabauter-bin sentinel, ceremony hook, marker
+freshness) — and returns one decision object: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/orient-assemble" brief --cadence session`. Read the JSON. Every
+`directives[]` entry names an existing atomic CLI to run when not `already_satisfied`; every
+`judgment_points[]` entry is an open human/EM branch the assembler could not resolve for
+you — present each with its `dispositions[]` and pick, don't silently drop any.
+
+**Don't re-derive what the assembler already computed.** The old per-check narration this skill
+used to carry (EM environment check, addon health scan, cross-repo memo surfacing, project-RAG
+staleness, agent-worktree sweep, handoff triage, branch-span assert) is now the assembler's job —
+reading its `directives[]`/`judgment_points[]` replaces running those checks by hand.
+
+**Do NOT load, summarize, or act on any handoff surfaced by the assembler.** A `ready-to-fire`
+directive naming a handoff is not implicit selection — the PM may not want to pick it up this
+session, or may have other priorities first. Surface it; don't load it. **When the PM indicates
+they want a handoff picked up** — by dropping a link, naming it, or saying "pick up that
+handoff" — read the full file into context. This — and only this — sets `HANDOFF_LOADED=true` for
+the Engage section below. Alternatively the PM may use `/pickup`, purpose-built for handoff
+resumption.
+
+**Stale advisory / call-note markdowns are not pendency.** Files in `state/handoffs/`, `tasks/`,
+or `archive/` that look like live work-items may already be addressed by commits that landed
+after the file was authored. Before treating any surfaced markdown's body as a live action item,
+run `git log --oneline --since="<file-mtime>" -- <cited-paths>` for the paths it cites. Surfacing
+un-verified stale advisories to the PM as actionable wastes a question.
+
+**Route-to-baton default:** any surfaced memo — likewise any review finding or triage item
+encountered during this ceremony — whose subject falls inside the scope of an active handoff
+(`state/handoffs/*.md`, `status: open|claimed`) gets a routing note appended into that handoff
+under a dated `## Routed from inbox triage (<YYYY-MM-DD>)` heading (source path cited, handoff
+frontmatter untouched), and that edit committed with pathspec, as a matter of course.
+
+**If `tasks/` or `archive/` is gitignored:** Warn the user — these directories must be tracked.
+
+### Session residue the assembler doesn't cover
+
+**Safety commit.** Secure any uncommitted work before touching branches — non-negotiable, don't
+ask permission:
+
+`CLAUDE_INVOKING_COMMAND=workstream-start "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "chore: workstream-start sweep — pre-orientation capture"`
+
+If nothing to commit, the CLI is a silent no-op.
+
+**Setup-state self-heal (silent).** On `source_is_live` machines the install-receipt path never
+fires normally — self-heal it idempotently:
+
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-setup-state" auto-record-if-source-is-live`
+
+No output to surface.
+
+**Branch detection.** main is read-only — all work happens on a work branch, never main directly.
+If already on a non-main branch, stay on it. If on main, create `work/{machine}/{date}` (append
+`-2` etc. on collision) after running `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/sync-main" --quiet` and reporting any divergence to the PM first. The assembler's
+branch-day-span directive (if surfaced above) supersedes hand-computing this — apply it, don't
+re-derive it.
+
+**Branch staleness.** If the branch has diverged from `main` more than 2 days
+(`git merge-base HEAD origin/main` → commit date → age), recommend `/merge-to-main` and wait for
+the PM's answer before proceeding. 2 days or fewer: continue silently.
+
+**Coordinator / project-rag binding spot-check (whoami).** Probe the session adopter directly —
+this is daemon-independent, computed from git+fs, and distinct from any plugin-specific binding:
+
+`"${COORDINATOR_PYTHON:-python3}" -m coordinator_whoami.session 2>/dev/null`
+
+Non-zero / unparseable JSON → `whoami: degraded (CLI failed)`. Otherwise report `binding.kind`
+(`unbound`, or `bound → <target> (<status.state>)`).
+Workstream-start does NOT surface
+bound-but-cwd-mismatch — that's `/repo-setup`'s job, and would false-positive for operators
+working outside the bound project root.
+
+**Outstanding cross-repo memo outbox drafts.** Inbound memo staleness is in the assembler's
+output above; outbox drafts awaiting send are not — surface them separately:
+
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-start-cross-repo-memo-outbox-surface"`
+
+Non-empty output → surface verbatim under `#### Outbox drafts awaiting send (DoE attention):`.
+Empty → skip silently. Details: `pipelines/workday-start-internals.md § Step 1.46`.
+
+### Context load — not part of the shared spine
+
+**Lessons.** Enumerate `state/lessons/*.yaml` (if present) — one YAML file per learned-pattern
+entry; review every entry (`bin/query-records --type lesson` for a structured listing). Read
+`CONTEXT.md` (if present) — domain glossary. Project `CLAUDE.md` and global `~/.claude/CLAUDE.md`
+are already in system context — don't re-read them. Note the count; principles are in CLAUDE.md,
+don't recite them.
+
+**Action items, roadmap, project tracker.** Conditional on `state/.workday-start-marker`
+containing today's date — if it does, `/workday-start` already reviewed these this cadence, skip.
+Otherwise read whichever of `ACTION-ITEMS.md`/`docs/active/ACTION-ITEMS.md`/`docs/ACTION-ITEMS.md`,
+`ROADMAP.md`/`docs/roadmap.md`/`docs/ROADMAP.md`, and `docs/project-tracker.md` exist (first match
+per row wins). Load silently; their content speaks for itself, except the tracker gets a brief
+active-workstreams/blocked/ready-for-execution summary — it also informs the Engage work menu
+below.
+
+**Orientation check.** The SessionStart hook already injected orientation context at boot — don't
+re-read those files here. If the hook reported no fresh cache, note it and point at
+`/workday-start` or `/update-docs`. Surface the most recent review-trail record if any exist
+(`python list-review-trail-records.py | tail -1`), so the EM knows where the un-reviewed gap
+begins.
+
+**Documentation index.** If `docs/README.md` exists, note the wiki/research/plan counts briefly.
+If `docs/guides/` or `docs/research/` exist without an index, note that `/update-docs` will build
+one. Neither → skip silently.
+
+**Fan-out tooling available:** `fan-out-dispatch.py` (overlap pass + scoped prompt compiler) —
+use instead of hand-authoring parallel executor prompts.
+
+**Delegation context (game-dev projects).** Conditional on `coordinator.local.md` declaring
+`project_type: game-dev` with `unreal` in `project_subtypes` — skip silently otherwise. Two-tier
+dispatch: direct (verification, quick fact-finding, one-off mutations) via your 8 visible tools;
+dispatch (any real work in a single domain) via `Agent(subagent_type='example-game-repo-control:ue-{domain}')`.
+Blueprint graph operations require ue-asset-author — Python can't do them. For multi-domain or
+underspecified tasks, decompose and dispatch domain agents sequentially with verification between
+steps.
+
+**Project-RAG subsystem context.** Conditional on `project-rag` MCP availability (ToolSearch for
+`mcp__project-rag__project_subsystem_profile`) — skip silently otherwise. Call
+`project_subsystem_profile()` with no arguments to discover the subsystem map; report the count.
+When you need to understand a subsystem before delegating, call
+`project_subsystem_profile("<name>")` instead of dispatching an Explore agent — deterministic SQL
+at <200ms, replacing 150-300K token Explore dispatches. (Staleness for this project-RAG binding
+is already covered by the assembler's session-cadence output above — don't re-check it here.)
 
 ---
 
@@ -513,7 +171,7 @@ Choose work and load task-specific context.
 
 > **The handoff IS the work order.** Do NOT present a menu. Do NOT ask "what should this agent work on?" Do NOT list the handoff's action items and wait for the user to pick one. Do NOT ask "want me to proceed?"
 >
-> Instead: read any files the handoff references that aren't yet in context, then **dispatch the first action item — dispatch IS running.** You're the next relay runner — the baton has been passed. Pick it up and run. "Run" = dispatch an executor by default (below the plan threshold, the common case); EM-inline only when `agent-dispatch-economics.md` § When to EM-Inline holds in full (in the `~/.claude` meta-repo, `coordinator/em-operating-model.md § Escalation tiers` tier-3 carve-out applies for 1-2 line infra edits). No PM round-trip, no plan ceremony for sub-T3 work — see also `skills/pickup/SKILL.md` § Dispatch routing default for the shared anchor.
+> Instead: read any files the handoff references that aren't yet in context, then **dispatch the first action item — dispatch IS running.** You're the next relay runner — the baton has been passed. Pick it up and run. "Run" = dispatch an executor by default (below the plan threshold, the common case); EM-inline only when ALL of the following conjunctive criteria hold: the fix locus is known and ≤3 files, estimated EM wall-clock is under 60s on a >30k-file repo, the fix is mechanical (rename, version bump, single-line tweak, import addition), the sub-agent would only re-read context the EM already has loaded, and the fix is in a file the EM is already editing (in the `~/.claude` meta-repo, `coordinator/em-operating-model.md § Escalation tiers` tier-3 carve-out applies for 1-2 line infra edits). No PM round-trip, no plan ceremony for sub-T3 work — see also `skills/pickup/SKILL.md` § Dispatch routing default for the shared anchor.
 >
 > If the handoff lists multiple next steps, execute them in order unless the PM redirects.
 
@@ -527,17 +185,11 @@ Choose work and load task-specific context.
 2. The fresh-install sentinel `~/.claude/.coordinator-fresh-install` exists on disk.
 3. (Implicit: the sentinel has not already been consumed — consuming it is the first act of this branch.)
 
-```bash
-test -f "$HOME/.claude/.coordinator-fresh-install" && echo "fresh-install" || echo "normal"
-```
+Check whether `$HOME/.claude/.coordinator-fresh-install` exists.
 
 **If the sentinel exists — fresh-install orientation:**
 
-Before doing anything else, consume (delete) the sentinel so this branch does NOT re-fire on subsequent no-handoff sessions:
-
-```bash
-rm -f "$HOME/.claude/.coordinator-fresh-install"
-```
+Before doing anything else, consume (delete) the sentinel file `$HOME/.claude/.coordinator-fresh-install` so this branch does NOT re-fire on subsequent no-handoff sessions.
 
 Then orient the operator toward their `~/.claude` meta-repo as the primary surface to evolve:
 
@@ -566,17 +218,52 @@ Then orient the operator toward their `~/.claude` meta-repo as the primary surfa
 3. **Reviewing code** — Code review of recent changes
 4. **Research / exploration** — No ceremony, just start
 5. **Maintenance** — Daily health check, weekly audit, or debt triage
-5a. **Strategy and ceremonies** — `/shape` (converge on a problem), `/goal-setting` (OKR goal-setting, initiative altitude), `/roadmap-planning` (week-scoped planning) <!-- Review: code-reviewer F13 — goal-setting moved out of Maintenance; it is a strategic top-rung ceremony, not a maintenance activity -->
-6. **Work the backlog** — Improvement queues, deferred items, recurring lessons. Central queue: `$(coordinator_state_root --central)/coordinator-improvement-queue.md` (central state lives in example-orchestration-hub — see `docs/wiki/state-placement-law.md`); local queue: `state/improvement-queue.md`. Surface current depth when framing this option (e.g., "Central: 17 entries, 3 with recurring ≥ 3. Local: 2 entries. Want to tackle some of these?"). Also check `state/bug-backlog.md` — if it exists and has ≥10 open items (P1 + P2 rows, excluding resolved), advocate `/bug-blitz` as a backlog-grinding option.
+5a. **Strategy and ceremonies** — `/shape` (converge on a problem), `/goal-setting` (OKR goal-setting, initiative altitude), `/roadmap-planning` (week-scoped planning), `/spike` (prove a mechanism is viable before a plan commits to it — bounded, binary-outcome derisking; gating detailed in the "`/spike` gating and pipeline position" paragraph immediately below)
+
+**`/spike` gating and pipeline position (skill body: `coordinator/skills/spike/SKILL.md`).** `coordinator:spike` sits in the pipeline graph as `shape → spike → plan → execute`, with a `plan⇄spike` back-edge — `coordinator:plan` Branch B can trampoline into a spike on an unproven mechanism gate (`coordinator/skills/plan/SKILL.md`), and a viable spike verdict resumes the trampolined plan or routes to a fresh `coordinator:plan`; a not-viable verdict routes to `coordinator:shape`/PM. `coordinator:pickup` also routes a `spike-before-plan` handoff body directive to `/spike` ahead of straight-to-plan (`coordinator/skills/pickup/SKILL.md`).
+
+The bare `/spike <mechanism>` invocation offered in the menu above is **PM-gated, never EM-initiated**, and **NEVER invoked from a subagent.** Gating is structural (DEC-4), not self-asserted — see `coordinator/skills/spike/SKILL.md` § Invoke Gating for the full discriminator (including the one EM-reachable `coordinator:plan` Branch B trampoline path).
+6. **Work the backlog** — Improvement queues, deferred items, recurring lessons. Central queue: resolved via `coordinator-state-root.py --central`'s `improvement-queue/*.yaml` (structured per-entry YAML; central state lives in claude-klabauter); local queue: `state/improvement-queue/*.yaml`. Surface current depth when framing this option (e.g., "Central: 17 entries, 3 with recurring ≥ 3. Local: 2 entries. Want to tackle some of these?"). Also check `state/bug-backlog/*.yaml` — if it exists and has ≥10 open P1/P2 entries, advocate `/bug-blitz` as a backlog-grinding option. Also check `state/cross-repo-commitments/` — a directory of YAML entries tracking loops we're owed by sibling repos (`status: open`); if any `status: open` entries exist, surface depth alongside the queues (e.g., "2 open sibling commitments — oldest 12d (computed from `observed`)"). Skip silently when the directory is absent or empty.
+
+   **Red-suite predicate — independent of backlog depth.** Resolve the machine token via
+   `machine-local get coordinator.machine_slug` (resolved the same way `/workday-start` Step 1.66
+   does — do not invent a divergent spelling), then read `state/test-red/<machine>.yaml` if
+   present — a mapping keyed by tier (e.g. `fast`, `plugin-ecosystem`), each tier evaluated
+   independently (schema, tri-state `failing`, delta vocabulary, and void-and-expiry rules per
+   below). Absent or malformed → skip this predicate silently, no
+   error, no narration. When present, for each tier compute the delta against the comparison
+   baseline (`acknowledged.baseline` when live and unexpired, else `previous.failing`) per that
+   schema, and advocate `/bug-blitz` — **naming the tier and surfacing the delta counts, never a
+   bare "the suite is red"** — on any of:
+   - `new` is non-empty → "{tier}: N new failures since the acknowledged baseline" (or "since the
+     last run", when unacknowledged).
+   - `acknowledged` is null or voided — **independent of whether `new` is also non-empty** — and
+     `failing[]` is non-empty:
+     - **void-on-doubt** (owner unresolvable/unparseable/missing baseline) → "{tier}:
+       acknowledgement void: owner `<path>` unresolvable — M failing, unacknowledged."
+     - **void-on-expiry** (`ran_at` past `expires_at`) → "{tier}: acknowledgement expired
+       `<date>`, owner `<path>` still open — M failing."
+     - **no acknowledgement at all** → "{tier}: M unacknowledged failures."
+   - the acknowledged owner artifact is closed/terminal while `failing[]` is still non-empty →
+     "{tier}: owning work `<path>` closed but M failures remain."
+   - `failing` is `null` → "{tier}: red, failing set unavailable" — never read as clean, never
+     folded into a `new`/`cleared`/`persistent` delta.
+
+   An acknowledged, unexpired red set whose delta is all-`persistent` advocates nothing from this
+   predicate — that is the correct silence, not a gap. This predicate never runs the test tier
+   itself and never blocks on its outcome — it only reads the record claude-klabauter's emitter already
+   wrote.
 7. **Other** — Something else (describe it)
 
 If `$ARGUMENTS` is provided, use it to identify the task directly and skip the menu.
 
 **Adapt this menu to the project:** If the project tracker was loaded, surface its ready/executing items as concrete options. If project-specific plan docs or priority lists exist (check `docs/`, `tasks/`, `tasks/plans/`), surface those too. The menu should reflect what's actually available, not just generic categories.
 
+**Unsized ask?** If the choose-work residue above surfaces a fresh backlog item or an ad-hoc PM ask with no sizing-object yet, `coordinator:sizing` is the entry point — a named cross-reference, not a dependency; no branch logic or schema coupling on its route.
+
 ### Load task context
 
-**If continuing from a handoff:** Read any files the handoff references that aren't yet in context, then dispatch the first action item — dispatch is the fast path below the plan threshold; EM-inline only per the `agent-dispatch-economics.md` § When to EM-Inline checklist.
+**If continuing from a handoff:** Read any files the handoff references that aren't yet in context, then dispatch the first action item — dispatch is the fast path below the plan threshold; EM-inline only per the same conjunctive EM-inline checklist above (§ Work selection).
 
 **If from the menu:** Based on the user's choice:
 

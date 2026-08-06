@@ -2,7 +2,7 @@
 """doctor-probe-select.py — manifest-driven probe selector for coordinator-doctor.
 
 Purpose: read bin/doctor-probes.toml and emit probe ids matching the given
-selection grammar. The sentinel (coordinator-doctor-sentinel.sh) calls this
+selection grammar. The sentinel (coordinator-doctor-sentinel.py) calls this
 to resolve ACTIVE_PROBES for each run mode; tests call it directly to verify
 selector invariants.
 

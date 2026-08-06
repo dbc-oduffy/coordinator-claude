@@ -1,6 +1,6 @@
 ---
 name: spinoff
-description: "PM-GATED. Fork a mid-session topic into its own pickup-able handoff (a spinoff). Never EM-initiated."
+description: "PM-GATED, never EM-initiated. Fork a mid-session topic into its own handoff."
 allowed-tools: ["Read", "Write", "Bash", "Grep", "Glob"]
 argument-hint: <slug> [optional one-line title]
 ---

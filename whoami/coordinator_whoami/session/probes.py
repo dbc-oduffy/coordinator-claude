@@ -213,15 +213,20 @@ def _resolve_query_records_path() -> Path | None:
     """Resolve the absolute path to query-records.js.
 
     Uses $HOME/.claude/plugins/coordinator/bin/query-records.js
-    — mirrors the absolute-path resolution in hooks/scripts/session-init.sh:172.
+    — mirrors the absolute-path resolution used elsewhere for this hook family.
     Returns None if the file does not exist.
     """
-    home = Path(os.environ.get("HOME", os.environ.get("USERPROFILE", "")))
-    if not home:
-        return None
     # review: F11 — honor CLAUDE_HOME env var before hardcoded ~/.claude fallback,
     # mirrors sentinel pattern `CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"` (reviewer: code-reviewer, P2)
-    base = Path(os.environ.get("CLAUDE_HOME") or (home / ".claude"))
+    # USERPROFILE rung: HOME is a POSIX convention -- native Windows shells
+    # (PowerShell, cmd.exe) set USERPROFILE instead, so a HOME-only fallback
+    # silently resolves home to "" there. Single boolop chain (not a
+    # separately-resolved `home` variable) so CLAUDE_HOME/HOME/USERPROFILE
+    # precedence is textually visible in one line.
+    home_str = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
+    if not home_str:
+        return None
+    base = Path(home_str) / ".claude"
     candidate = base / "plugins" / "coordinator-claude" / "coordinator" / "bin" / "query-records.js"
     return candidate if candidate.exists() else None
 
@@ -250,7 +255,7 @@ def probe_handoff_counts() -> dict[str, Any]:
     """Return ready_to_fire and awaiting_gate handoff counts.
 
     Invokes bin/query-records.js via node at an absolute path
-    (mirrors session-init.sh:172 resolution — NOT cwd-relative).
+    (NOT cwd-relative).
     Degrades to null counts on any error (node absent, qr script absent,
     no state/handoffs directory, parse failure).
     """

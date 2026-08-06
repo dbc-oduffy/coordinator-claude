@@ -1,168 +1,117 @@
-#!/usr/bin/env bash
-# coordinator-reap-stale-locks — reap orphaned git index/maintenance lock files.
-#
-# Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md (example-game-repo consult);
-#   docs/wiki/concurrent-em-hazards.md § H21.
-#
-# Purpose: self-heal the orphaned-`.git/index.lock` failure mode under concurrent-EM
-#   on Git-for-Windows. The root cause is NOT coordinator code (auto-push only pushes;
-#   safe-commit's lock is `.overlap-gate.lock`, never `index.lock`). It is a Windows
-#   file-sharing artifact: a foreground `git add`/`git commit` writes a full index copy
-#   to `index.lock`, and the final `rename(index.lock -> index)` / unlink can fail with a
-#   sharing violation when another process (a concurrent session's git, antivirus, the
-#   search indexer, or git's *detached* auto-maintenance child) holds a handle. The commit's
-#   objects+ref are already durable (commit "succeeds") but the orphan lock survives and
-#   blocks every subsequent commit in that worktree with:
-#     fatal: Unable to create '.../.git/index.lock': File exists.
-#
-# `.git/index.lock` carries NO holder PID, so liveness cannot be read from the lock itself
-# (unlike the PID-stamped `.overlap-gate.lock` that coordinator-safe-commit uses). This reaper
-# therefore gates on TWO conservative conditions, both of which must hold before any removal:
-#   1. AGE   — the lock is older than a threshold far beyond any legitimate commit
-#              (default 120s; gc/maintenance gets a larger threshold since it runs longer).
-#   2. STABLE — its mtime+size do not change across a short re-sample window, i.e. no
-#              process is actively writing it right now.
-# A fresh or actively-mutating lock is NEVER reaped — fail-safe, the caller proceeds (or
-# fails loud) rather than risk corrupting a genuinely in-flight commit's index.
-#
-# Exit codes:
-#   0 — clean: nothing to reap, or all stale locks reaped successfully.
-#   2 — a FRESH index.lock is present (a live commit may be in progress); not reaped.
-#       Informational for the caller — distinct from a hard error.
-#   1 — hard error (not in a git repo, or a reap was attempted and rm failed).
-#
-# Always safe to call repeatedly (idempotent) and from a hot path (commit pre-flight).
+#!/usr/bin/env python3
+"""
+coordinator-reap-stale-locks — CLI trampoline over claude-klabauter
+coordinator_core.ops.reap_stale_locks.
 
-set -uo pipefail
-# Deliberately NOT -e: a reap decision must report via exit code, never abort the caller.
+Purpose: conservative self-heal for the orphaned-`.git/index.lock` failure mode under
+concurrent-EM on Git-for-Windows. The root cause is NOT coordinator code (auto-push
+only pushes; safe-commit's lock is `.overlap-gate.lock`, never `index.lock`). It is a
+Windows file-sharing artifact: a foreground `git add`/`git commit` writes a full index
+copy to `index.lock`, and the final `rename(index.lock -> index)`/unlink can fail with
+a sharing violation when another process (a concurrent session's git, antivirus, the
+search indexer, or git's *detached* auto-maintenance child) holds a handle. The
+commit's objects+ref are already durable (commit "succeeds") but the orphan lock
+survives and blocks every subsequent commit in that worktree with:
+  fatal: Unable to create '.../.git/index.lock': File exists.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="${SCRIPT_DIR}/../lib/coordinator-session.sh"
-if [[ -f "$LIB" ]]; then
-  # shellcheck source=../lib/coordinator-session.sh
-  source "$LIB"
-else
-  # Standalone fallbacks so the reaper works even if the lib is absent (e.g. a
-  # publish-repo subset that ships bin/ without lib/). Mirror the lib semantics.
-  _cs_now_epoch() { date +%s 2>/dev/null || echo 0; }
-  _cs_mtime_epoch() {
-    local f="${1:?}"; [[ -f "$f" ]] || { echo 0; return; }
-    if [[ "${OSTYPE:-}" == darwin* ]]; then stat -f %m "$f" 2>/dev/null || echo 0
-    else stat -c %Y "$f" 2>/dev/null || echo 0; fi
-  }
-fi
+`.git/index.lock` carries NO holder PID, so liveness cannot be read from the lock
+itself. The reaper gates on TWO conservative conditions, both of which must hold
+before any removal: AGE (far beyond any legitimate commit; maintenance gets a larger
+floor) and STABLE (mtime+size unchanged across a short re-sample window). A fresh or
+actively-mutating lock is NEVER reaped — fail-safe, the caller proceeds (or fails
+loud) rather than risk corrupting a genuinely in-flight commit's index.
 
-# Tunables (env-overridable; test seams). Index/commit locks are never legitimately held
-# this long; maintenance/gc can run longer, so it gets a larger floor.
-AGE_SEC="${COORDINATOR_LOCK_REAP_AGE_SEC:-120}"
-MAINT_AGE_SEC="${COORDINATOR_LOCK_REAP_MAINT_AGE_SEC:-600}"
-STABILITY_SEC="${COORDINATOR_LOCK_REAP_STABILITY_SEC:-2}"
+Finish-strangler port: the bash implementation (age/stability gate, index.lock +
+next-index-*.lock + maintenance.lock coverage, reap-log emission) has been fully
+ported to coordinator_core/ops/reap_stale_locks.py (claude-klabauter), with its
+coordinator/lib/coordinator-session.sh sourcing severed entirely — that port needed
+none of that library's session/liveness/claim machinery, only portable stat helpers,
+which the port replaces with os.stat. This file is now a thin DoE-side trampoline over
+that claude-klabauter (engine) module, per DR-047 (DoE owns contract, claude-klabauter owns engine).
 
-_file_size() {
-  local f="${1:?}"; [[ -f "$f" ]] || { echo -1; return; }
-  if [[ "${OSTYPE:-}" == darwin* ]]; then stat -f %z "$f" 2>/dev/null || echo -1
-  else stat -c %s "$f" 2>/dev/null || echo -1; fi
-}
+This op is pure engine logic — no DoE-side input/output paths to resolve or hand over
+via env var (unlike emit-artifact-shape-contract's schemas/ dependency); it operates
+entirely on the CALLER's git worktree via `git rev-parse`, resolved from cwd. No
+sys.argv is consumed — the bash oracle never inspected `$@` either (see the claude-klabauter
+module's own docstring, Review: code-reviewer Finding 1).
 
-# Resolve git dirs absolutely so the reaper is cwd-independent (it may be invoked
-# via an absolute path from a boot hook). index.lock and next-index-*.lock are
-# PER-WORKTREE (live in --git-dir); maintenance.lock lives in the SHARED object
-# store (--git-common-dir), which differs from --git-dir inside a linked worktree —
-# resolving maintenance via --git-dir would silently never fire there, missing the
-# exact detached-gc case this reaper targets (the Staff Engineer F2/F3).
-GIT_DIR="$(git rev-parse --absolute-git-dir 2>/dev/null)" || {
-  echo "coordinator-reap-stale-locks: not a git repository" >&2
-  exit 1
-}
-GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null)" || GIT_COMMON_DIR="$GIT_DIR"
-# --git-common-dir may be relative (e.g. ".git"); make it absolute relative to cwd.
-case "$GIT_COMMON_DIR" in
-  /*|?:[/\\]*) ;;  # already absolute (POSIX or Windows drive path)
-  *) GIT_COMMON_DIR="$(cd "$GIT_COMMON_DIR" 2>/dev/null && pwd)" || GIT_COMMON_DIR="$GIT_DIR" ;;
-esac
-REAP_LOG="${GIT_DIR}/lock-reap.log"
+Exit codes (parity-critical — matches coordinator_core.ops.reap_stale_locks.main
+exactly; see that module's docstring for the full contract):
+  0 — clean: nothing to reap, or all stale locks reaped successfully.
+  2 — a FRESH index.lock is present (a live commit may be in progress); not reaped.
+      Informational for the caller — distinct from a hard error.
+  1 — hard error (not in a git repo, or a reap was attempted and unlink failed).
+  2 (also, transport code) — CLAUDE_KLABAUTER_ROOT resolution failed or
+      coordinator_core.ops.reap_stale_locks not importable. Shares the numeral with
+      the business "fresh index.lock" code above (both were already 2 under the bash
+      oracle's own contract — nothing new collides here) but is printed with a
+      distinct, greppable stderr remediation line so the two are never confused in
+      practice.
 
-# _stale_and_stable <lockfile> <age_floor>: returns 0 if the lock is older than
-# age_floor AND its (mtime,size) are unchanged across the stability window.
-# Returns 1 if absent, fresh, or actively mutating.
-_stale_and_stable() {
-  local lock="$1" floor="$2"
-  [[ -e "$lock" ]] || return 1
-  local now mtime age size1 size2 mtime2
-  now="$(_cs_now_epoch)"
-  mtime="$(_cs_mtime_epoch "$lock")"
-  # Fail-safe degradation: _cs_now_epoch/_cs_mtime_epoch echo 0 if `date`/`stat`
-  # fails. A 0 in either operand makes `age` <= 0 (or large-negative), which is
-  # < floor, so a degraded stat/date ALWAYS resolves to "too fresh -> preserve".
-  # The reaper can never over-reap on a tooling failure (the Staff Engineer F5).
-  age=$(( now - mtime ))
-  (( age < floor )) && return 1            # too fresh — a commit/gc may be live
-  size1="$(_file_size "$lock")"
-  if [[ -z "${COORDINATOR_LOCK_REAP_NO_SLEEP:-}" ]]; then
-    sleep "$STABILITY_SEC"
-  fi
-  [[ -e "$lock" ]] || return 1             # vanished on its own (owner released) — nothing to do
-  mtime2="$(_cs_mtime_epoch "$lock")"
-  size2="$(_file_size "$lock")"
-  [[ "$mtime" == "$mtime2" && "$size1" == "$size2" ]] || return 1  # actively mutating
-  return 0
-}
+Always safe to call repeatedly (idempotent) and from a hot path (commit pre-flight).
+coordinator-safe-commit:1146 subprocess-execs this file by co-located path, fail-open;
+this trampoline stays directly executable at the same path so that caller is unaffected.
 
-# Residual TOCTOU between the stability decision and `rm -f` is bounded and safe:
-# git creates index.lock with O_CREAT|O_EXCL, so a legitimate git index write can
-# NEVER target an already-existing orphan (it would fail "File exists" — the very
-# symptom we heal). The only writer that could lose data in the post-stability
-# window is a non-git process appending to an existing index.lock, which does not
-# occur in practice. The gate is therefore sound without holding the lock (the Staff Engineer F6).
-_reap() {
-  local lock="$1" age_floor="$2" label="$3"
-  if _stale_and_stable "$lock" "$age_floor"; then
-    if rm -f "$lock" 2>/dev/null; then
-      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] reaped stale ${label}: ${lock}" >> "$REAP_LOG"
-      echo "coordinator-reap-stale-locks: reaped stale ${label} (${lock})" >&2
-      return 0
-    fi
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] FAILED to reap ${label}: ${lock} (rm failed)" >> "$REAP_LOG"
-    echo "coordinator-reap-stale-locks: ERROR — rm failed on ${lock}" >&2
-    return 1
-  fi
-  return 2  # present-but-not-stale, or absent
-}
+Spec backlink: cross-repo/inbox/2026-05-30-index-lock-leak-concurrent-em.md (example-game-repo
+    consult); docs/wiki/concurrent-em-hazards.md § H21.
+"""
 
-rc=0
-fresh_index=0
+import os
+import sys
 
-# 1. index.lock — the reported blocker.
-if [[ -e "${GIT_DIR}/index.lock" ]]; then
-  _reap "${GIT_DIR}/index.lock" "$AGE_SEC" "index.lock"
-  case $? in
-    1) rc=1 ;;
-    2) fresh_index=1 ;;  # present but fresh/mutating — a live commit may hold it
-  esac
-fi
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
 
-# 2. next-index-*.lock — transient index-write companions cleaned by example-game-repo's manual
-#    workaround (`rm -f .git/next-index-*.lock`, per the consult memo § Ask). Per-worktree.
-#    The literal-glob-when-no-match case is handled by the `[[ -e ]]` guard (no nullglob).
-for nl in "${GIT_DIR}"/next-index-*.lock; do
-  [[ -e "$nl" ]] || continue
-  _reap "$nl" "$AGE_SEC" "next-index lock"
-  # return 2 (present but fresh/mutating) is intentionally NOT surfaced separately here — unlike
-  # index.lock's fresh-index signal, a fresh next-index lock just means "leave it, deferred".
-  [[ $? -eq 1 ]] && rc=1
-done
 
-# 3. objects/maintenance.lock — detached auto-gc/maintenance co-orphan; larger age floor.
-#    Lives in the SHARED object store (common dir), not the per-worktree git dir.
-if [[ -e "${GIT_COMMON_DIR}/objects/maintenance.lock" ]]; then
-  _reap "${GIT_COMMON_DIR}/objects/maintenance.lock" "$MAINT_AGE_SEC" "maintenance.lock"
-  [[ $? -eq 1 ]] && rc=1
-fi
+def _import_runner():
+    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the shared in-process
+    runner.
 
-if (( rc == 1 )); then
-  exit 1
-fi
-if (( fresh_index == 1 )); then
-  exit 2
-fi
-exit 0
+    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
+    re-deriving it — this is a plain in-process import, not an RPC invoke, so
+    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is deliberately
+    NOT used here (variant-#1 direct-import trampoline).
+
+    DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
+    rather than by importing and calling its `main` directly, so the reap-log
+    write it declares becomes a session scope-touch claim. Without that, the
+    reap log this reaper appends is an orphan at the `scoped_git_commit` sink.
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.cli_entry import run_op_main
+
+    return run_op_main
+
+
+def main() -> None:
+    try:
+        run_op_main = _import_runner()
+    except RuntimeError as exc:
+        print(f"coordinator-reap-stale-locks: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except ImportError as exc:
+        print(
+            f"coordinator-reap-stale-locks: coordinator_core.cli_entry not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    try:
+        code = run_op_main("coordinator_core.ops.reap_stale_locks", sys.argv[1:])
+    except ImportError as exc:
+        print(
+            f"coordinator-reap-stale-locks: coordinator_core.ops.reap_stale_locks not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    sys.exit(code)
+
+
+if __name__ == "__main__":
+    main()

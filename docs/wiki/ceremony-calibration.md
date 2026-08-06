@@ -22,7 +22,7 @@ The default failure mode is over-ceremony on surgical work and under-ceremony on
 
 ## Queue-clear classification — by edit-shape, not ceremony default
 
-*2026-05-18, claude-central.* Clearing a backlog of queued items (improvement-queue entries, lesson folds, small fixes) tempts a uniform ceremony default — "everything goes through plan-and-review." Most queue items don't need it. Classify each item by its **actual edit-shape**, and route the ceremony to the shape:
+Clearing a backlog of queued items (improvement-queue entries, lesson folds, small fixes) tempts a uniform ceremony default — "everything goes through plan-and-review." Most queue items don't need it. Classify each item by its **actual edit-shape**, and route the ceremony to the shape:
 
 - **Wiki append / single paragraph of doctrine** → direct edit, no plan, no review. The fold-target is named in the queue entry.
 - **Single-paragraph code change / single-file fix** → direct dispatch or EM-inline per `agent-dispatch-economics.md`.
@@ -33,11 +33,11 @@ The failure mode is applying the heaviest shape uniformly because "queue-clear" 
 
 ## Defuse-vs-spinoff — when a "small fix" hides a product/architectural fork
 
-*2026-05-29, project-rag.* A queue/handoff item framed as a "small fix" can conceal a product decision or an architectural fork — the conflicting ground-truth surfaces only once the EM starts coding. **Before dispatching a small-fix into an execution path, check whether the fix presupposes a decision that isn't actually settled.** When two sources of truth disagree about the desired end-state (the bug report wants X, the architecture implies not-X), that is a fork to *defuse* (surface to PM / route through `/shape` or `coordinator:plan`), not a fix to *code*. Never dispatch an executor onto a path whose ground-truth is internally contradictory — the executor will pick one side silently and ship a decision nobody made. Tell: the "fix" requires the executor to decide *which behaviour is correct*, not just *how to implement the agreed behaviour*. This is the calibration axis (§ TL;DR) applied to disguised forks — a product-decision wearing a small-fix costume earns ceremony, not direct dispatch.
+A queue/handoff item framed as a "small fix" can conceal a product decision or an architectural fork — the conflicting ground-truth surfaces only once the EM starts coding. **Before dispatching a small-fix into an execution path, check whether the fix presupposes a decision that isn't actually settled.** When two sources of truth disagree about the desired end-state (the bug report wants X, the architecture implies not-X), that is a fork to *defuse* (surface to PM / route through `/shape` or `coordinator:plan`), not a fix to *code*. Never dispatch an executor onto a path whose ground-truth is internally contradictory — the executor will pick one side silently and ship a decision nobody made. Tell: the "fix" requires the executor to decide *which behaviour is correct*, not just *how to implement the agreed behaviour*. This is the calibration axis (§ TL;DR) applied to disguised forks — a product-decision wearing a small-fix costume earns ceremony, not direct dispatch.
 
 ## Cross-repo memo ceremony — the receiver calibrates magnitude
 
-*2026-06-01, claude-central.* When you Accept an inbound cross-repo memo-ask, the ceremony it earns is the **receiver's** call, not a sender-declared field — magnitude is not knowable to the sender. **Default to mechanical-direct** (do the work, commit both sides where authorized, action the memo — no plan, no round-trip); **escalate to a plan only on a named weighty signal** per § TL;DR (novel decision / instance-#1 with downstream occupancy / vague framing). A plainly-worded ask is not therefore a weighty one: the sender states work plainly (the presume-action authoring rule), the receiver decides how big a deal it is — complementary halves, not one knob. This is the cross-repo-memo instance of the calibration axis; the canonical procedure lives in [`cross-repo-communication.md`](./cross-repo-communication.md) § Picking up a memo (adjudicate-and-own includes ceremony). Keep it distinct from the **channel** axis (`triad-roles-doctrine.md` §208 — *whether to use the memo channel at all*, keyed to governance **and change-class**: §208 direct-commit is the narrow exception for break-glass + DoE-structural seeding; everyday code/install/contract routes via memo+relay even in the triad): channel and ceremony are orthogonal, not nested. Conflating them is the over-ceremony failure mode this entry exists to prevent.
+When you accept an inbound cross-repo memo-ask, the ceremony it earns is the **receiver's** call, not a sender-declared field — magnitude is not knowable to the sender. **Default to mechanical-direct** (do the work, commit both sides where authorized, action the memo — no plan, no round-trip); **escalate to a plan only on a named weighty signal** per § TL;DR (novel decision / instance-#1 with downstream occupancy / vague framing). A plainly-worded ask is not therefore a weighty one: the sender states work plainly (the presume-action authoring rule), the receiver decides how big a deal it is — complementary halves, not one knob. This is the cross-repo-memo instance of the calibration axis; the canonical procedure lives in your cross-repo communication doctrine's "picking up a memo" guidance (adjudicate-and-own includes ceremony). Keep it distinct from the **channel** axis — *whether to use the memo channel at all*, a separate governance question keyed to change-class (a narrow direct-commit exception exists for break-glass cases; everyday code/install/contract work routes via memo+relay): channel and ceremony are orthogonal, not nested. Conflating them is the over-ceremony failure mode this entry exists to prevent.
 
 ## Vague-vs-concrete framing
 
@@ -47,13 +47,18 @@ The failure mode is applying the heaviest shape uniformly because "queue-clear" 
 
 ## Pattern-extraction calibration
 
-**Wait for instance #3 before extracting a pattern into a skill.** One-off looks like noise. Two might be coincidence. Three is a pattern. The cost of premature extraction is a skill that codifies the wrong invariant — and once codified, the wrong invariant is harder to correct than the original ad-hoc behavior. Hold instance-#1 and instance-#2 in `state/lessons.md` with a `recurring:` count; promote on the third surfacing. (Codified in `coordinator/CLAUDE.md` § Self-Improvement Loop.)
+**Wait for instance #3 before extracting a pattern into a skill.** One-off looks like noise. Two might be coincidence. Three is a pattern. The cost of premature extraction is a skill that codifies the wrong invariant — and once codified, the wrong invariant is harder to correct than the original ad-hoc behavior. Hold instance-#1 and instance-#2 as separate entries under `state/lessons/`, cross-referenced so the recurrence is visible; promote on the third surfacing.
 
-**Inventory existing piggybacks and vendored copies BEFORE applying the rule — they count as instance #2+ in disguise.** *(2026-05-19, claude-central.)* The wait-for-#3 count is wrong if it only counts *clean* instances. A convenience-coupling, a vendored copy, or a piggyback on an unrelated primitive (e.g. one plugin borrowing another's introspection call because no contract existed) is a *disguised* instance of the same need — it is the empirical proof the abstraction is overdue, not a separate one-off. Before reaching for "only one instance, wait," grep for the disguised forms: vendored/copied implementations, piggybacks on adjacent primitives, and inline re-implementations. Counting those in often moves a perceived instance-#1 to instance-#2-or-#3, and mis-applying the wait-rule to a piggyback case delays the abstraction and entrenches the wrong shape. (Connects to the misshapen-instance #2 override shape below — a misshapen piggyback IS the second instance.)
 
-**Exception — low-invariant-risk + high-magnitude (instance-#1 promotion justified).** The wait-for-#3 rule exists to prevent codifying the wrong invariant. That risk is substantially lower when (a) the invariant being codified is mechanical and low-misclassification-risk (the invariant is a structural cross-ref, not a judgment call), AND (b) the motivating incident magnitude is qualitatively distinct from typical near-miss noise — e.g., 36-of-50 items missed in a single artifact versus 1–2 items in a near-miss. When both conditions hold, the wait-for-#3 gate re-instantiates the EM-confidence failure mode the agent exists to prevent: the EM would judge each near-miss as "still not enough evidence," and the structural gap persists until the third incident. Instance-#1 promotion is warranted; override must be documented with explicit rationale at the extraction site. (the Staff Engineer review 2026-05-18, Conflict #15 update-prior-art follow-up.)
+**Fight-the-hook is an anti-pattern** — strip once, commit, file a paper-trail bug, surface to PM.
 
-**Second valid override shape — prospective-demand (instance-#1 with instances #2 and #3 named, structurally dependent, same producer surface):** <!-- Amendment 2026-05-19. Source: docs/plans/2026-05-19-coordinator-installer-redesign.md (the Director of Engineering review Conflict #2, direction: both). -->
+**Codify a stable pattern before running new instances under it, never before** — demote-don't-retire (see § Demote-don't-retire below) is the corollary once a pattern is codified and later goes stale.
+
+**Inventory existing piggybacks and vendored copies BEFORE applying the rule — they count as instance #2+ in disguise.** The wait-for-#3 count is wrong if it only counts *clean* instances. A convenience-coupling, a vendored copy, or a piggyback on an unrelated primitive (e.g. one plugin borrowing another's introspection call because no contract existed) is a *disguised* instance of the same need — it is the empirical proof the abstraction is overdue, not a separate one-off. Before reaching for "only one instance, wait," grep for the disguised forms: vendored/copied implementations, piggybacks on adjacent primitives, and inline re-implementations. Counting those in often moves a perceived instance-#1 to instance-#2-or-#3, and mis-applying the wait-rule to a piggyback case delays the abstraction and entrenches the wrong shape. (Connects to the misshapen-instance #2 override shape below — a misshapen piggyback IS the second instance.)
+
+**Exception — low-invariant-risk + high-magnitude (instance-#1 promotion justified).** The wait-for-#3 rule exists to prevent codifying the wrong invariant. That risk is substantially lower when (a) the invariant being codified is mechanical and low-misclassification-risk (the invariant is a structural cross-ref, not a judgment call), AND (b) the motivating incident magnitude is qualitatively distinct from typical near-miss noise — e.g., 36-of-50 items missed in a single artifact versus 1–2 items in a near-miss. When both conditions hold, the wait-for-#3 gate re-instantiates the EM-confidence failure mode the agent exists to prevent: the EM would judge each near-miss as "still not enough evidence," and the structural gap persists until the third incident. Instance-#1 promotion is warranted; override must be documented with explicit rationale at the extraction site. (the Staff Engineer review, Conflict #15 update-prior-art follow-up.)
+
+**Second valid override shape — prospective-demand (instance-#1 with instances #2 and #3 named, structurally dependent, same producer surface):**
 The retrospective-magnitude argument above is not the only valid exception shape. The prospective-demand argument substitutes for the retrospective-magnitude argument when:
 - **(i)** The named instances are not speculative — they live in handoff items, plans, or active workstreams, not in hypothetical future demand.
 - **(ii)** The structural dependence is on the **same producer surface**, making the duplicate cost concrete: three consumers of the same primitive with divergent implementations means bugs in one don't fix the others.
@@ -62,8 +67,8 @@ When both (i) and (ii) hold AND condition (a) is satisfied (mechanical, low-misc
 
 The key distinction from appetite-based override: prospective-demand requires the instances to be concretely named (not "probably more later") and structurally dependent on the same surface (not "similar category of need"). Speculative demand ("there might be more") does not qualify.
 
-**Third valid override shape — misshapen-instance #2 (two instances where the second is wrong-shaped because the abstraction never existed):** <!-- Amendment 2026-05-19. Source: docs/plans/2026-05-19-cross-plugin-whoami-contract.md (the Director of Engineering review finding #5). -->
-**Worked example — when the rule does NOT apply (2026-05-19, cross-plugin whoami contract).** The rule prevents premature abstraction when you have one instance and might guess wrong about the second. It does NOT apply when you already have **two** instances and one of them is in active **wrong-shape arrangement** because the abstraction never existed (e.g., example-game-repo-control piggybacking on project-rag's `project_whoami` for cross-plugin introspection — instance #2 misshapen specifically because there was no contract for it to conform to). In that case the abstraction is *retroactively justified*: extracting closes a doctrine gap that the wrong-shape arrangement is the empirical proof of. The "wait for #3" rule is about *information* — three instances let you infer the right shape; two instances + a misshapen arrangement give you the same information. Distinct from the prospective-demand override (second valid override shape in this same section): that one argues from concretely-named future instances structurally dependent on the same producer surface; this one argues from an existing misshapen arrangement that is itself the evidence the abstraction is overdue. See `cross-plugin-whoami-contract.md` for the consult chain that produced this clarification. <!-- Review: the Director of Engineering — disambiguating sentence added contrasting this (third) override shape from prospective-demand (finding #5) -->
+**Third valid override shape — misshapen-instance #2 (two instances where the second is wrong-shaped because the abstraction never existed):**
+**Worked example — when the rule does NOT apply.** The rule prevents premature abstraction when you have one instance and might guess wrong about the second. It does NOT apply when you already have **two** instances and one of them is in active **wrong-shape arrangement** because the abstraction never existed (e.g., one plugin piggybacking on a sibling plugin's introspection call for cross-plugin identity lookup — instance #2 misshapen specifically because there was no contract for it to conform to). In that case the abstraction is *retroactively justified*: extracting closes a doctrine gap that the wrong-shape arrangement is the empirical proof of. The "wait for #3" rule is about *information* — three instances let you infer the right shape; two instances + a misshapen arrangement give you the same information. Distinct from the prospective-demand override (second valid override shape in this same section): that one argues from concretely-named future instances structurally dependent on the same producer surface; this one argues from an existing misshapen arrangement that is itself the evidence the abstraction is overdue.
 
 **Null-result audits fold the rule into the producer skill, not just the report.** When an audit finds "this didn't happen because X," the producer-side surface (the skill that should have made X happen) is where the rule belongs — the audit report itself is read once and dies. Audit reports without producer-side fixes are observation theater.
 
@@ -97,7 +102,7 @@ The failure mode is importing enterprise-grade deprecation pacing into a two-con
 
 ## Small-workstream framing is not a discount lens
 
-"Mostly lift," "small," "mechanical substitution" — these describe effort, not integration complexity. Hidden complexity clusters at substitution seams, integration boundaries between workstreams, and concurrent-EM bleed-through (invisible to per-workstream review by construction). The doctrine table fires on "any executor dispatched OR shared schema seam touched," not LoC threshold. When a workstream feels small or mechanical, that is the signal to look harder at the seams — not less hard. (Surfaced 2026-05-08: an 80%-lift workstream had 6 Sonnet findings invisible to per-W' mechanical gates.)
+"Mostly lift," "small," "mechanical substitution" — these describe effort, not integration complexity. Hidden complexity clusters at substitution seams, integration boundaries between workstreams, and concurrent-EM bleed-through (invisible to per-workstream review by construction). The doctrine table fires on "any executor dispatched OR shared schema seam touched," not LoC threshold. When a workstream feels small or mechanical, that is the signal to look harder at the seams — not less hard. (Surfaced by an 80%-lift workstream that had 6 Sonnet findings invisible to per-W' mechanical gates.)
 
 Small framing is not a discount lens on review doctrine. A workstream may be small in line-count but lift-heavy (touches a load-bearing constant, refactors a hot seam) — review depth tracks lift, not size. Default sequential review still applies.
 
@@ -132,18 +137,24 @@ detection) reports zero unresolvable contradictions, Opus is never dispatched.
 correctness risk — when Opus handles cross-reference assembly AND dedup AND deletion manifest in
 one context window, it drops edge cases at the seam between tasks.
 
-**Distill rubric carve-out — delete-default for archived handoffs and cross-repo memos.** The `/distill` trim+archive rubric (DR-NEW-8: allowlist stays in place, denylist archives to `archive/`) applies to canonical specs and evergreen docs. Exception: archived handoffs (`archive/handoffs/`) and cross-repo memos (`cross-repo/`) are DELETED-after-extraction by default — their value is fully captured in the distillation output, and retention in `archive/` compounds file-count without benefit. This carve-out does NOT apply to decision records, plans, or research outputs, which follow the trim+archive default.
+**Distill rubric carve-out — delete-default for archived handoffs and cross-repo memos.** The `/distill` trim+archive rubric (allowlist stays in place, denylist archives to `archive/`) applies to canonical specs and evergreen docs. Exception: archived handoffs (`archive/handoffs/`) and cross-repo memos (`cross-repo/`) are DELETED-after-extraction by default — their value is fully captured in the distillation output, and retention in `archive/` compounds file-count without benefit. This carve-out does NOT apply to decision records, plans, or research outputs, which follow the trim+archive default.
 
 ## Daily-ceremony gate discipline
 
-Daily ceremony gates (gates in /workday-complete, /workstream-complete, /workday-start) MUST test
-TODAY'S WORK — the diff, the commits, the branch state. Machine-configuration diagnostics and
-pre-publish style lints do not belong in daily-ceremony gates.
+Daily ceremony gates (gates in /workday-complete, /workday-start) MUST test TODAY'S WORK — the
+diff, the commits, the branch state. Machine-configuration diagnostics and pre-publish style
+lints do not belong in daily-ceremony gates.
+
+`/workstream-complete` is deliberately excluded from this enumeration: it is work-boxed, not
+daily-cadence (see § The ceremony grid below) — it fires per workstream, which may happen several
+times in a day or not for a week. Its gates test *the workstream's* work, not today's diff; holding
+it to a daily-cadence gate would be a category error even though it is, like the two ceremonies
+above, a session terminator (§ Session terminators).
 
 **Wrong-cadence blocking validators anti-pattern:** A validator added under "while we're here,
 also check X" framing — when X is a machine-config diagnostic or a cross-repo UE override check —
 turns into a chronic daily blocker with no signal gain. When it breaks silently (grep no-match
-kills the loop under `set -euo pipefail`), it becomes gate-as-theater. (Motivating case 2026-05-15:
+kills the loop under `set -euo pipefail`), it becomes gate-as-theater. (Motivating case:
 /workday-complete Step 0a/0b burned ~20 minutes, had hardcoded peer-dir paths that had rotted, and
 one was broken under pipefail — all blocking daily wrap-up for work unrelated to what they checked.)
 
@@ -155,7 +166,7 @@ one was broken under pipefail — all blocking daily wrap-up for work unrelated 
 ## Negative space — what doesn't earn ceremony
 
 - **Naming, formatting, file location** — implementation discretion, EM acts.
-- **Tradeoff-free reviewer fixes** — apply via integrator, surface to PM only on real tradeoffs (`coordinator/CLAUDE.md` § Reviewer findings — apply, don't ratify).
+- **Tradeoff-free reviewer fixes** — apply via integrator, surface to PM only on real tradeoffs (`global-doctrine/CLAUDE.md` § Flag Severity, "Reviewer findings — apply, don't ratify").
 - **Tool choice within an established pattern** — direct dispatch unless cost/risk shifts materially.
 - **Whether to commit/branch/stash** — never ask.
 
@@ -171,15 +182,13 @@ Reviewer auto-dispatch surfaces accumulate triggers; calibrate against who actua
 
 ## Tier/Cost Rule Changes Leave Landmines in Pre-Existing Dispatch Sites
 
-*Source: self, 2026-05-27.*
+*Source: self.*
 
 When a tier or cost rule changes — e.g., Opus-only becomes the strict gate for persona dispatches — existing dispatch sites that named the old tier continue to run silently at the wrong tier until manually reconciled. The rule is updated; the call sites lag.
 
-**Rule.** Any tier/cost rule change must be paired with a grep across every dispatch site and a reconciliation pass. Reserve the expensive tier for low-frequency gates; recurring or pipeline passes get the cheaper worker. Failure to sweep leaves a class of dispatch violations that pass silently in all existing invocations. (See: `coordinator/CLAUDE.md` § Roster Doctrine.)
+**Rule.** Any tier/cost rule change must be paired with a grep across every dispatch site and a reconciliation pass. Reserve the expensive tier for low-frequency gates; recurring or pipeline passes get the cheaper worker. Failure to sweep leaves a class of dispatch violations that pass silently in all existing invocations.
 
 ## Handoff-Named Followup Scripts Need an Exists-Check Before Depending On Them
-
-*Source: project-rag-ue-addon, 2026-05-28.*
 
 A handoff that names a followup script ("run `promote-x-to-y.sh` next session") assumes that script was authored in the prior session. Deferred scripts that were planned but never materialized produce a silent gap: the succeeding session treats the script as present, wastes investigation time, or fabricates its absence as an environmental problem.
 
@@ -187,29 +196,22 @@ A handoff that names a followup script ("run `promote-x-to-y.sh` next session") 
 
 ## State the Stakes-vs-Ceremony Proportion Before Executing a Picked-Up Spinoff
 
-*Source: project-rag-ue-addon, 2026-05-29. [universal]*
-
 A spinoff handoff names a workstream but rarely names the cost/risk profile of its pickup ceremony. Before executing, the picking-up EM must state — for themselves, not for the PM — the stakes-vs-ceremony proportion: Is this a high-stakes architectural seam that warrants the full enrichment → review → execute pipeline? Or is it a low-stakes doc/config change where direct dispatch is the correct weight?
 
 **Rule.** At pickup of any spinoff, before opening the plan-pipeline, write (or state internally) one sentence: *"This workstream is [stakes level] because [reason]; the appropriate ceremony is [pipeline / direct dispatch / inline]."* Without that sentence, the EM defaults to whatever the handoff's narrative tone implies — which is routinely over-ceremony on small spinoffs and under-ceremony on high-risk ones. Composes with § Queue-clear classification: the spinoff is a queued workstream; classify by edit-shape, then route.
 
 ## Try empirical cuts before debating a budget target
 
-*Source: coord-meta, 2026-06-09.*
-
 When the PM questions a budget ceiling at pickup ("is N really the right limit? where does that number come from?"), the cheap move is to *cut first and measure*, not to open a debate about whether the target is correctly sourced. Empirical cuts answer the question the debate is circling: if the cuts land without hurting the artifact, the ceiling was achievable and the sourcing question is moot; if the cuts start to hurt, *that* is the real evidence to bring to a budget discussion. Debating "the rule isn't sourced" in the abstract is theoretical resistance — it produces no signal and defers the actual work.
 
-**Rule.** A questioned budget/ceiling at pickup is a cue to attempt the cuts, not to litigate the number. Cut to the target, observe whether anything load-bearing breaks, and surface to the PM *only* if the cuts hurt — with the specific hurt as the evidence. Theoretical "this rule isn't sourced" does not, on its own, qualify as resistance worth a round-trip; it qualifies as a reason to gather the empirical answer first. This is the ceremony-calibration axis applied to budget questions: cutting is the cheap direct action, debating-the-target is the over-ceremony failure mode. Composes with `coordinator/CLAUDE.md` § Challenging the PM — the empirical cut *is* the verification you do before asking.
+**Rule.** A questioned budget/ceiling at pickup is a cue to attempt the cuts, not to litigate the number. Cut to the target, observe whether anything load-bearing breaks, and surface to the PM *only* if the cuts hurt — with the specific hurt as the evidence. Theoretical "this rule isn't sourced" does not, on its own, qualify as resistance worth a round-trip; it qualifies as a reason to gather the empirical answer first. This is the ceremony-calibration axis applied to budget questions: cutting is the cheap direct action, debating-the-target is the over-ceremony failure mode. Composes with `coordinator/snippets/em-operating-doctrine.md` § How to Decide — the empirical cut *is* the verification you do before asking.
 
 ## Companion doctrine
 
 - `docs/wiki/writing-plans.md` — plan-pipeline mechanics
-- `docs/wiki/writing-skills.md` — skill-extraction mechanics
-- `docs/wiki/document-bloat-trim.md` — when CLAUDE.md vs wiki is the right surface
-- `coordinator/CLAUDE.md` § Self-Improvement Loop — instance-#3 rule, lessons cadence
-- `coordinator/CLAUDE.md` § Plan-First Workflow — plan-skill invocation discipline
-- `coordinator/CLAUDE.md` § Challenging the PM — what to ask vs what to act on
-- `coordinator/PIPELINE.md` — distill + update-docs pipeline internals (phase sub-structure, timeout strategies, parallel fan-out shapes)
+- This wiki's own § Pattern-extraction calibration — instance-#3 rule, lessons cadence
+- `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off — plan-skill invocation discipline
+- `coordinator/snippets/em-operating-doctrine.md` § How to Decide — what to ask vs what to act on
 
 ## Platform Vocabulary vs Local Coinage
 
@@ -228,16 +230,30 @@ hope the glossary catches every confabulation.
 
 **The ceremony grid:**
 
-| Axis | start | complete |
-|---|---|---|
-| `workstream` | `/workstream-start` | `/workstream-complete` |
-| `workday` | `/workday-start` | `/workday-complete` |
-| `workweek` | `/workweek-start` | `/workweek-complete` |
+| Axis | Boxing | start | complete |
+|---|---|---|---|
+| `workstream` | work-boxed | `/workstream-start` | `/workstream-complete` |
+| `workday` | time-boxed | `/workday-start` | `/workday-complete` |
+| `workweek` | time-boxed | `/workweek-start` | `/workweek-complete` |
 
-The 2026-06-01 unified rename swept `/session-start → /workstream-start` and
+**Time-boxed vs work-boxed — not a magnitude ordering.** `workday` and `workweek` fire on a
+calendar; `workstream` fires when a unit of work finishes, which may happen several times a day or
+not for a week. The shared `work*` prefix invites reading these three as points on one scale
+(stream < day < week, small to large) — they are not. `/workstream-complete` is the lightest of
+the three in step count, but that is incidental to the axis, not derived from it: it is
+work-boxed, full stop, and must not be sized or gated as a smaller version of the time-boxed pair.
+
+**Session terminators.** `/workstream-complete`, `/handoff`, and `/workday-complete` are the three
+*session terminators* — the canonical term for this set (`coordinator/commands/workday-complete.md:101`).
+A ceremony is a session terminator if it ends a session and carries a dirty-tree gate; membership
+is about ending a session, not about cadence, so it cuts across the time-boxed/work-boxed axis
+above (`/workstream-complete` is work-boxed and still a session terminator; `/workweek-complete` is
+time-boxed and not one — it does not end a single session's work). Do not use "session terminator"
+as a synonym for "daily ceremony" or for the heavy validate/consolidate/merge shape — see
+§ Daily-ceremony gate discipline above for why conflating the two misroutes `/workstream-complete`.
+
+A prior unified rename swept `/session-start → /workstream-start` and
 `/session-end → /workstream-complete` for exactly this reason: `SessionStart` is a
 platform hook identifier; the prior skill names were colliding with platform
-vocabulary. An interim "session boot" coinage (commit `cadb320b`) was reverted as
+vocabulary. An interim "session boot" coinage was reverted as
 soon as the collision shape was named.
-
-→ DR-154.

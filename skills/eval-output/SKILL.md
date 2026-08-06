@@ -1,6 +1,6 @@
 ---
 name: coordinator:eval-output
-description: Score a research output against the 5-criteria eval rubric. Dispatches a Sonnet evaluator.
+description: "Scores a research output against the 5-criteria rubric via Sonnet."
 ---
 
 # Evaluate Research Output
@@ -10,7 +10,6 @@ description: Score a research output against the 5-criteria eval rubric. Dispatc
 
 ## Process
 1. Read the eval rubric at `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/eval-rubric.md`
-<!-- Review: code-reviewer — F3: eval-rubric.md is at pipelines/deep-research/ post-C4 merge; old flat path was dead -->
 2. Read the research output at the provided path
 3. Dispatch a Sonnet agent (model: sonnet, tools: Read, WebFetch, Write) with:
    - The rubric

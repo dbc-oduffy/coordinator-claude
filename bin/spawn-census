@@ -1,0 +1,396 @@
+#!/usr/bin/env python3
+#
+# spawn-census — on-demand query surface over coordinator_core.spawn_policy.
+#
+# Purpose: the PM-requested read-only sibling of `test_no_unsanctioned_shell_
+# spawn.py`'s gate (coordinator_core/tests/) — CI and a human ask a THE SAME
+# question ("what shell-spawn sites exist, and which are unsanctioned?")
+# through one detector, never two. Two modes on that one detector:
+#
+#   report (default) — whole-repo census, grouped by kind and by file, with
+#       allowlist status per site. Emits a human-readable table; `--json`
+#       swaps that for machine-readable JSON with the identical fields.
+#   assert  — same detector, non-zero exit when any unsanctioned site
+#       exists. This is what a pre-commit/CI hook and a human `spawn-census
+#       assert` share.
+#
+# Exclusions come from spawn_policy.detect.DEFAULT_EXCLUDE, never a second
+# list here — snapshot copies (scratch/, scratchpad/) plus vendored and
+# generated trees. Discovery is shared with walk_repo for the same reason. The
+# excluded paths AND their suppressed hit count are surfaced in BOTH output
+# shapes, deliberately — an exclusion invisible in the output is exactly how
+# one census run disagrees with the next and nobody can tell why.
+#
+# The register's argv_digest backfill is complete (C2b) — every entry is
+# pinned. The `unpinned_entries()` count stays in both output shapes anyway:
+# it is the surface that would make a future unpinned entry visible on the
+# day it is added, rather than a transitional readout to delete now.
+#
+# NEGATIVE-SPEC: this tool reports CALL-SITES, never live costs. No column,
+# field, or heading here may describe a site as a hot path, a cost, or a
+# latency contributor — syntactic presence says nothing about reachability.
+#
+# DR-276 note: this CLI is entirely self-contained (no separate
+# coordinator_core.ops.* module backs it — the detector it queries,
+# coordinator_core.spawn_policy, already lives outside coordinator/bin/ and
+# is the thing under census, not a fresh op to add). It is read-only and
+# declares no writes, so it is routed through `cli_entry.recording_declared_
+# writes()` — the sanctioned DR-276 path documented for exactly this shape
+# ("operator CLIs whose own main() cannot route through run_op_main at all")
+# rather than run_op_main's dotted-module-import path, which has no module
+# to point at here. Declaring nothing, the two paths are behaviourally
+# identical; this one avoids inventing an ops module with no other caller.
+#
+# Usage:
+#   spawn-census [report] [--json] [--root <path>]
+#   spawn-census assert [--root <path>]
+#
+# Exit codes:
+#   report mode: always 0 (informational).
+#   assert mode: 0 — no unsanctioned sites found.
+#                1 — one or more unsanctioned sites found.
+#   2 — CLI usage error.
+#   3 — the census could not complete: CLAUDE_KLABAUTER_ROOT resolution failure,
+#       coordinator_core import failure, or a SpawnParseError on a file it was
+#       asked to scan. All transport-class, deliberately NOT folded into 1 —
+#       in assert mode 1 is a business verdict ("unsanctioned sites found")
+#       that CI acts on, and a crash reported as 1 would tell CI it found
+#       violations when it never finished looking.
+#
+# Spec backlink: docs/plans/2026-08-06-shell-spawn-regrowth-gate.md § C4
+# Pinned API: tasks/shell-spawn-regrowth-gate/PINNED-API.md
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+
+# AC3 budget lever: below this file count, ProcessPoolExecutor's per-task
+# fork/pickle overhead exceeds the win, so small repos (and every fixture
+# test in test_spawn_census.py) stay on the serial path unconditionally.
+_PARALLEL_FILE_THRESHOLD = 24
+
+
+def default_worker_cap() -> int:
+    """Bounded default for the census's process-pool fan-out.
+
+    A short-lived AST-parsing pass doesn't need this repo's full RAM-aware
+    doctrine formula (min(physical_cores/2, usable_RAM_GB*1024/150MB)), but
+    the unbounded-fanout half of it stands: never a bare `os.cpu_count()`
+    worker count. Exposed as `--workers` for anyone who wants to override it.
+    """
+    cpu = os.cpu_count() or 1
+    return max(1, min(cpu // 2, 8))
+
+
+class _ExcludedLike:
+    """Duck-types ExcludedReport's two fields (`.paths`,
+    `.suppressed_site_count`) so the parallel path can return the same shape
+    the serial one does. Discovery and exclusion themselves come from
+    spawn_policy.detect.discover_source_files — this class carries the result,
+    it does not re-derive it.
+    """
+
+    def __init__(self, paths: list[str], suppressed_site_count: int) -> None:
+        self.paths = paths
+        self.suppressed_site_count = suppressed_site_count
+
+
+def _discover_files(
+    root: Path, exclude: tuple[str, ...], discover
+) -> tuple[list[tuple[str, Path]], list[str], int]:
+    """Thin adapter over spawn_policy.detect.discover_source_files.
+
+    This used to mirror walk_repo's traversal inline. That mirror is how the
+    census and the gate came to disagree about scope twice — once on which
+    directories are excluded, once on shebang-dispatched extensionless scripts
+    (65 of them under coordinator/bin/, invisible to a `*.py` glob). The rule
+    has one definition; so does the traversal. Only the CPU-bound per-file
+    parse below is this file's own business.
+    """
+    discovered, excluded = discover(root, exclude=exclude)
+    return discovered, list(excluded.paths), excluded.suppressed_site_count
+
+
+def _chunk_evenly(items: list, n_chunks: int) -> list[list]:
+    n_chunks = max(1, min(n_chunks, len(items)))
+    size = -(-len(items) // n_chunks)  # ceil division
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
+def _parse_chunk(claude_klabauter_root: str, chunk: list[tuple[str, str]]) -> list:
+    """ProcessPoolExecutor worker entry point: read + AST-parse one chunk of
+    files. Top-level (picklable) and self-sufficient — a fresh worker
+    interpreter under the default 'spawn' start method does not inherit the
+    parent process's sys.path mutation, so it is redone here before import.
+    """
+    import sys as _sys
+
+    if claude_klabauter_root not in _sys.path:
+        _sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.spawn_policy import sites_in_source
+
+    sites = []
+    for rel_posix, abs_path in chunk:
+        text = Path(abs_path).read_text(encoding="utf-8")
+        sites.extend(sites_in_source(text, rel_posix))
+    return sites
+
+
+def _walk_repo_parallel(
+    root: Path,
+    *,
+    exclude: tuple[str, ...],
+    workers: int,
+    claude_klabauter_root: str,
+    discover,
+) -> tuple[list, _ExcludedLike]:
+    """CLI-level replacement for spawn_policy.walk_repo: identical file
+    discovery/exclusion (see _discover_files), but the CPU-bound per-file
+    AST parse fans out over a bounded ProcessPoolExecutor pool instead of
+    running single-threaded. Falls back to the serial path (same code
+    spawn_policy.sites_in_source would run inline) below the parallel
+    threshold or when workers<=1, so small repos and fixture tests never pay
+    process-pool overhead.
+    """
+    included, excluded_paths, suppressed_count = _discover_files(root, exclude, discover)
+    excluded = _ExcludedLike(excluded_paths, suppressed_count)
+
+    if workers <= 1 or len(included) < _PARALLEL_FILE_THRESHOLD:
+        from coordinator_core.spawn_policy import sites_in_source
+
+        sites = []
+        for rel_posix, abs_path in included:
+            text = abs_path.read_text(encoding="utf-8")
+            sites.extend(sites_in_source(text, rel_posix))
+        return sites, excluded
+
+    chunks = _chunk_evenly([(rel, str(p)) for rel, p in included], workers)
+    sites = []
+    with concurrent.futures.ProcessPoolExecutor(max_workers=workers) as pool:
+        for result in pool.map(_parse_chunk, [claude_klabauter_root] * len(chunks), chunks):
+            sites.extend(result)
+    return sites, excluded
+
+
+def _import_deps():
+    """Resolve CLAUDE_KLABAUTER_ROOT and import the pinned spawn_policy + cli_entry API.
+
+    Raises RuntimeError (root resolution) or ImportError (module missing) —
+    both are caught by `main()` and turned into exit code 3.
+    """
+    claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+
+    from coordinator_core.cli_entry import recording_declared_writes
+    from coordinator_core.spawn_policy import (
+        SpawnParseError,
+        is_sanctioned,
+        load_allowlist,
+        site_key,
+        unpinned_entries,
+        walk_repo,
+    )
+    from coordinator_core.spawn_policy.detect import (
+        DEFAULT_EXCLUDE,
+        discover_source_files,
+    )
+
+    return {
+        "recording_declared_writes": recording_declared_writes,
+        "SpawnParseError": SpawnParseError,
+        "is_sanctioned": is_sanctioned,
+        "load_allowlist": load_allowlist,
+        "site_key": site_key,
+        "unpinned_entries": unpinned_entries,
+        "walk_repo": walk_repo,
+        "DEFAULT_EXCLUDE": DEFAULT_EXCLUDE,
+        "discover_source_files": discover_source_files,
+    }
+
+
+def _run_census(deps: dict, root: Path, *, workers: int, claude_klabauter_root: str) -> dict:
+    """Pure(ish) census: walk `root`, classify every site against the
+    register, and return the one dict both output shapes render from.
+
+    Uses _walk_repo_parallel (this file) rather than spawn_policy.walk_repo
+    directly — same file discovery/exclusion, same sites_in_source detector,
+    but the CPU-bound per-file parse fans out over a process pool. See
+    _walk_repo_parallel's docstring.
+    """
+    load_allowlist = deps["load_allowlist"]
+    is_sanctioned = deps["is_sanctioned"]
+    unpinned_entries = deps["unpinned_entries"]
+
+    started = time.monotonic()
+    sites, excluded = _walk_repo_parallel(
+        root,
+        exclude=deps["DEFAULT_EXCLUDE"],
+        workers=workers,
+        claude_klabauter_root=claude_klabauter_root,
+        discover=deps["discover_source_files"],
+    )
+    allowlist = load_allowlist(root / "docs" / "reference" / "shell-out-carve-outs.md")
+    elapsed = time.monotonic() - started
+
+    counts_by_kind: dict[str, int] = {}
+    site_rows = []
+    unsanctioned_rows = []
+    for site in sites:
+        kind = site.kind.value
+        counts_by_kind[kind] = counts_by_kind.get(kind, 0) + 1
+        sanctioned = is_sanctioned(site, allowlist)
+        row = {
+            "path": site.path,
+            "enclosing": site.enclosing,
+            "argv0": site.argv0,
+            "ordinal": site.ordinal,
+            "kind": kind,
+            "lineno": site.lineno,
+            "sanctioned": sanctioned,
+        }
+        site_rows.append(row)
+        if not sanctioned:
+            unsanctioned_rows.append(row)
+
+    site_rows.sort(key=lambda r: (r["path"], r["enclosing"], r["ordinal"]))
+    unsanctioned_rows.sort(key=lambda r: (r["path"], r["enclosing"], r["ordinal"]))
+
+    return {
+        "elapsed_seconds": elapsed,
+        "total_sites": len(sites),
+        "counts_by_kind": dict(sorted(counts_by_kind.items())),
+        "sites": site_rows,
+        "excluded": {
+            "paths": list(excluded.paths),
+            "suppressed_site_count": excluded.suppressed_site_count,
+        },
+        "unpinned_count": len(unpinned_entries(allowlist)),
+        "unsanctioned_count": len(unsanctioned_rows),
+        "unsanctioned_sites": unsanctioned_rows,
+    }
+
+
+def _render_human(census: dict) -> str:
+    lines = []
+    lines.append(f"spawn-census: {census['total_sites']} site(s) in {census['elapsed_seconds']:.3f}s")
+    lines.append("")
+    lines.append("By kind:")
+    for kind, count in census["counts_by_kind"].items():
+        lines.append(f"  {kind:14s} {count}")
+    lines.append("")
+
+    by_file: dict[str, list[dict]] = {}
+    for row in census["sites"]:
+        by_file.setdefault(row["path"], []).append(row)
+
+    lines.append("By file:")
+    for path in sorted(by_file):
+        lines.append(f"  {path}")
+        for row in by_file[path]:
+            status = "sanctioned" if row["sanctioned"] else "UNSANCTIONED"
+            lines.append(
+                f"    [{row['kind']}] {row['enclosing']}#{row['ordinal']} "
+                f"argv0={row['argv0']!r} line={row['lineno']} -- {status}"
+            )
+    lines.append("")
+
+    excl = census["excluded"]
+    excl_paths = ", ".join(excl["paths"]) if excl["paths"] else "(none)"
+    lines.append(
+        f"Excluded paths: {excl_paths} "
+        f"(suppressed_site_count={excl['suppressed_site_count']})"
+    )
+    lines.append(f"Unpinned register entries (argv_digest: null): {census['unpinned_count']}")
+    lines.append(f"Unsanctioned sites: {census['unsanctioned_count']}")
+    return "\n".join(lines)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="spawn-census")
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        default="report",
+        choices=("report", "assert"),
+        help="report (default): human table + optional --json. "
+        "assert: same detector, non-zero exit on any unsanctioned site.",
+    )
+    parser.add_argument("--json", action="store_true", help="report mode: emit JSON instead of a table.")
+    parser.add_argument("--root", default=None, help="repo root to census (default: this checkout's root).")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="process-pool fan-out for the per-file AST parse "
+        f"(default: {default_worker_cap()!r} on this machine; bounded, never bare os.cpu_count()). "
+        "1 forces the serial path.",
+    )
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    parser = build_parser()
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit as exc:
+        return exc.code if isinstance(exc.code, int) else 2
+
+    try:
+        deps = _import_deps()
+    except RuntimeError as exc:
+        print(f"spawn-census: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        return 3
+    except ImportError as exc:
+        print(f"spawn-census: coordinator_core.spawn_policy not importable: {exc}", file=sys.stderr)
+        return 3
+
+    claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
+    root = Path(args.root).resolve() if args.root else Path(claude_klabauter_root)
+    workers = args.workers if args.workers is not None else default_worker_cap()
+    if workers < 1:
+        print(f"spawn-census: --workers must be >= 1, got {workers}", file=sys.stderr)
+        return 2
+
+    try:
+        with deps["recording_declared_writes"]():
+            census = _run_census(deps, root, workers=workers, claude_klabauter_root=claude_klabauter_root)
+    except deps["SpawnParseError"] as exc:
+        # Exit 3, never 1. In assert mode 1 means "unsanctioned sites found" —
+        # a business verdict a CI job acts on. A file this census was asked to
+        # scan and could not parse is not that verdict, and letting the
+        # exception fall through would surface it as 1 via the interpreter's
+        # own exit code, telling CI "violations found" when the truth is "the
+        # census never finished". Distinguishable is the whole point: the
+        # detector fails loud on an unparseable file precisely so it is not
+        # silently reported clean, and collapsing that into the violation code
+        # would undo it at the CLI boundary.
+        print(f"spawn-census: census aborted — {exc}", file=sys.stderr)
+        return 3
+
+    if args.mode == "assert":
+        if census["unsanctioned_count"]:
+            print(_render_human(census), file=sys.stderr)
+            return 1
+        return 0
+
+    if args.json:
+        print(json.dumps(census, ensure_ascii=False, indent=2))
+    else:
+        print(_render_human(census))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

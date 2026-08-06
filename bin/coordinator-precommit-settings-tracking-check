@@ -1,0 +1,211 @@
+"""
+coordinator-precommit-settings-tracking-check — pre-commit gate for the
+~/.claude meta-repo: refuse a commit that (re-)stages any of the tracked
+machine-local settings sidecars/markers named in `_TRACKED_SIDECAR_PATHS`
+below, regardless of what those files contain.
+
+Why content-blind, unlike the sibling foreign-platform check: those three
+paths were untracked and `.gitignore`d (`settings.json` in `0966c14`;
+`.settings-last-good.json` / `.coordinator-settings-hooks.hash` in the
+2026-07-28 settings-tracking-leak cleanup) precisely BECAUSE they are
+machine-local and carry machine-absolute paths — the untrack is the fix, and
+`.gitignore` alone does not hold: `git add -f` bypasses it outright, and this
+repo's history is full of blind `safety-commit`/`safety` sweeps that don't
+distinguish tracked-on-purpose from tracked-by-accident (`ed0b972`, "safety",
+is the commit that landed the 2026-07-28 corruption). A losing machine that
+re-tracks `.settings-last-good.json` specifically doesn't just inherit a
+foreign `settings.json` on its next pull — the clobber-guard's own
+AUTO-RESTORE path (`coordinator_core.ops.session.guard_settings_integrity`)
+will then install that foreign snapshot BACK OVER a healthy local
+`settings.json` the next time this guard's clobber lens fires, so a tracked
+snapshot is a strictly worse leak vector than a tracked `settings.json`
+itself. `.coordinator-settings-hooks.hash` is a digest of that same
+machine-local content and leaks the same shape of information.
+
+This is a STAGING-time gate, not a content-inspection one: it fires on the
+mere presence of any of the three basenames in the staged file list, with no
+attempt to parse or shape-check their content — unlike
+`coordinator-precommit-foreign-platform-check`, which inspects staged
+`settings.json` content for foreign-platform-shaped paths. That check still
+matters for any residual settings.json history/edge case; this one is the
+structural backstop that makes "was it ever staged at all" the question,
+because content-shape detection cannot see a `git add -f` coming.
+
+Scope: only fires inside the meta-repo (git root == CLAUDE_HOME/.claude), same
+discriminator as the sibling `coordinator-precommit-foreign-platform-check`
+and `coordinator-precommit-exec-bit-check`. Elsewhere it exits 0 immediately.
+
+DETECT-ONLY, never auto-fixes: unstaging a file the operator explicitly
+`git add -f`'d is a policy call (did they mean it?), not something this gate
+should silently override. A human/PM call picks the remedy.
+
+Exit contract:
+  0 — clean (none of `_TRACKED_SIDECAR_PATHS` staged), or not the meta-repo,
+      or override set.
+  1 — one or more of `_TRACKED_SIDECAR_PATHS` is staged. Blocks the commit;
+      loud stderr banner naming each offending path + the `git rm --cached`
+      remedy + override hint.
+
+Spec backlink: docs/plans (DoE-claude) state/subagent-share/
+  f2de80af-e8ff-4401-9970-df82761d913e/coordinatorexecutor-fc9a7a0a.md
+Sibling: coordinator-precommit-foreign-platform-check,
+  coordinator-precommit-exec-bit-check (same meta-repo-scoping shape).
+
+Invocation (2026-07-28): carries no shebang and no exec bit. It is invoked
+ONLY via an explicit interpreter (`coordinator_core.ops.
+install_meta_repo_precommit_hook`'s generated hook body runs
+`"$_py" "$_gate_script"`, never bare-name/shebang-exec) — POSIX-only
+execution assumptions are a portability defect class per the 2026-07-28 PM
+ruling (Windows is the P0 primary platform), enforced by
+`coordinator_core.ops.check_posix_exec_assumptions`.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+_OVERRIDE_ENV = "COORDINATOR_OVERRIDE_PRECOMMIT_SETTINGS_TRACKING"
+
+# Root-level basenames only (mirrors the .gitignore anchoring: leading `/`
+# anchors to repo root in gitignore syntax; `git diff --name-only` paths are
+# already repo-root-relative with no leading slash, so the bare basename is
+# the correct staged-path form to match against here).
+#
+# 2026-07-28 addition: the two `.coordinator-hooks-*` kill-switch markers and
+# the self-probe sentinel are added here for the SAME reason as the original
+# three — all three are per-machine, gitignored, and their entire safety
+# property depends on staying that way. `~/.claude` is the repo that was
+# ACTUALLY corrupted in the 2026-07-28 incident, is not onboarded via
+# repo-setup, and so is structurally excluded from every OTHER provisioning
+# path that covers a normal repo — this pre-commit gate chain is the only
+# mechanism that reaches it at all. A tracked `.coordinator-hooks-enabled`
+# (the positive consent marker, `coordinator_core.install.gen_settings_hooks`)
+# is the exact transmission vector the polarity inversion was built to
+# resist: syncing it to a peer would silently opt that peer's machine INTO
+# hook generation regardless of its own local state. A tracked
+# `.coordinator-hooks-disabled` or `.coordinator-content-root-last-seen`
+# (the self-probe sentinel, `coordinator_core.ops.session.
+# guard_hook_generation_self_probe`) leaks one machine's kill-switch/content-
+# root state onto another's, which is either a false-negative (peer's real
+# kill-switch state gets silently overwritten) or a confusing false report
+# (sentinel content that never reflected this machine at all).
+_TRACKED_SIDECAR_PATHS = (
+    "settings.json",
+    ".settings-last-good.json",
+    ".coordinator-settings-hooks.hash",
+    ".coordinator-hooks-disabled",
+    ".coordinator-hooks-enabled",
+    ".coordinator-content-root-last-seen",
+)
+
+
+def _git_out(args: list, cwd: str = None) -> str:
+    try:
+        out = subprocess.run(
+            ["git", *args],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=cwd,
+        )
+    except Exception:
+        return ""
+    if out.returncode != 0:
+        return ""
+    return out.stdout or ""
+
+
+def _resolve_meta_repo() -> str:
+    """Meta-repo root via the canonical CLAUDE_HOME-aware claude-home resolver
+    (same seam as the sibling precommit checks)."""
+    claude_home_lib = os.path.join(_BIN_DIR, "..", "lib", "claude-home")
+    try:
+        if claude_home_lib not in sys.path:
+            sys.path.insert(0, os.path.abspath(claude_home_lib))
+        import _claude_home  # noqa: E402
+
+        return str(_claude_home.claude_home_dir())
+    except Exception:
+        base = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+        return os.path.join(base, ".claude")
+
+
+def _canon(path: str) -> str:
+    try:
+        return os.path.realpath(path)
+    except OSError:
+        return path
+
+
+def main() -> int:
+    repo_root = _git_out(["rev-parse", "--show-toplevel"]).strip()
+    if not repo_root:
+        return 0
+
+    meta_repo = _resolve_meta_repo()
+    if not meta_repo:
+        return 0
+
+    if _canon(repo_root) != _canon(meta_repo):
+        return 0
+
+    if os.environ.get(_OVERRIDE_ENV) == "1":
+        print(
+            f"pre-commit: settings-tracking check skipped ({_OVERRIDE_ENV}=1).",
+            file=sys.stderr,
+        )
+        return 0
+
+    staged_files = [
+        ln
+        for ln in _git_out(
+            ["-C", meta_repo, "diff", "--cached", "--name-only", "--diff-filter=d"]
+        ).splitlines()
+        if ln
+    ]
+
+    offenders = [p for p in _TRACKED_SIDECAR_PATHS if p in staged_files]
+    if not offenders:
+        return 0
+
+    top = "=" * 70
+    print(top, file=sys.stderr)
+    print(
+        "pre-commit: BLOCKED — this commit re-tracks a machine-local settings "
+        "sidecar in the ~/.claude meta-repo:",
+        file=sys.stderr,
+    )
+    for p in offenders:
+        print(f"    {p}", file=sys.stderr)
+    print("", file=sys.stderr)
+    print(
+        "  Why this is blocked: these files carry machine-absolute paths and "
+        "are gitignored on purpose (settings.json in 0966c14; its sidecars in "
+        "the 2026-07-28 cleanup). `.settings-last-good.json` specifically is "
+        "the snapshot the clobber-guard AUTO-RESTORES FROM — a tracked copy "
+        "doesn't just leak a foreign settings.json to the next machine that "
+        "pulls it, that machine's own repair mechanism then installs the "
+        "foreign snapshot over its own healthy settings.json.",
+        file=sys.stderr,
+    )
+    print("", file=sys.stderr)
+    print("  Remedy: unstage, then commit without them:", file=sys.stderr)
+    for p in offenders:
+        print(f'    git rm --cached "{p}"', file=sys.stderr)
+    print("", file=sys.stderr)
+    print(
+        f"  Override (PM-authorized only): {_OVERRIDE_ENV}=1 git commit ...",
+        file=sys.stderr,
+    )
+    print(top, file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

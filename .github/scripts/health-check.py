@@ -176,7 +176,7 @@ def main():
     # Set GitHub Actions output
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
-        with open(github_output, "a") as f:
+        with open(github_output, "a", encoding="utf-8") as f:
             f.write(f"has_findings={'true' if has_findings else 'false'}\n")
 
     # Always exit 0 — health checks are advisory, not blocking

@@ -1,22 +1,36 @@
-#!/usr/bin/env bash
-# coordinator-settings-home — bare-name forwarder. The real resolver installs to
-# ~/.claude/bin (CLAUDE_HOME-aware, retained compat forwarder that itself resolves
-# the settings home); this forwarder lives in the harness-injected plugin bin so
-# bare `coordinator-settings-home` resolves on POSIX tool shells where ~/.claude/bin
-# is NOT on PATH — parity with the machine-local / claude-home forwarders.
-#
-# WHY THIS EXISTS: shape-(iv) install-chain consumers bind to
-# $(coordinator-settings-home)/<repo-id>/ per the agent-install-contract. Without
-# this forwarder the seam CLI resolves only by absolute path (~/.claude/bin or the
-# settings-home bin, neither reliably on PATH), so consumers cannot bind bare — the
-# exact gap example-game-repo-em flagged on 2026-07-06 (settings-home seam grep-confirm).
-# Spec: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1/C9
-set -euo pipefail
-# CLAUDE_HOME is a $HOME-substitute per machine-local-registry.md §4a (CLAUDE_HOME=/x → install
-# at /x/.claude/), so the .claude suffix is correct here — same as the machine-local forwarder.
-_real="${CLAUDE_HOME:-$HOME}/.claude/bin/coordinator-settings-home"
-if [ ! -x "$_real" ]; then
-  echo "coordinator-settings-home: resolver not installed at $_real — run /coordinator:setup (Phase 3)." >&2
-  exit 127
-fi
-exec "$_real" "$@"
+#!/usr/bin/env python3
+"""coordinator-settings-home — bare-name forwarder. Forwards to the
+CLAUDE_HOME-resolved ~/.claude/bin/coordinator-settings-home. Lives in the
+harness-injected plugin bin so bare `coordinator-settings-home` resolves on
+POSIX tool shells where ~/.claude/bin is NOT on PATH — parity with the
+machine-local / claude-home forwarders.
+
+WHY THIS EXISTS: shape-(iv) install-chain consumers bind to
+$(coordinator-settings-home)/<repo-id>/ per the agent-install-contract.
+Without this forwarder the seam CLI resolves only by absolute path
+(~/.claude/bin or the settings-home bin, neither reliably on PATH), so
+consumers cannot bind bare.
+Spec: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1/C9
+Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+    (T1b chunk B2 — bare forwarders)
+"""
+from __future__ import annotations
+import sys
+from pathlib import Path
+
+_BIN_DIR = Path(__file__).resolve().parent
+_LIB_DIR = _BIN_DIR / "lib"
+if str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
+# Reuse the already-established CLAUDE_KLABAUTER_ROOT resolution ladder (rung 1 env var,
+# rung 1.5 settings-home pointer file, rung 2 machine-local subprocess) rather
+# than hand-rolling a second copy of it here.
+from cc_invoke import _resolve_claude_klabauter_root  # type: ignore
+
+_claude_klabauter_root = _resolve_claude_klabauter_root()
+if _claude_klabauter_root not in sys.path:
+    sys.path.insert(0, _claude_klabauter_root)
+from coordinator_core.bare_forwarder import forward  # type: ignore
+
+if __name__ == "__main__":
+    forward("coordinator-settings-home")

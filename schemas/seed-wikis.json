@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "seed_wikis": [
+    "agent-dispatch-economics.md",
+    "agent-tier-measurement.md",
+    "ceremony-calibration.md",
+    "daily-branch-discipline.md",
+    "delegate-execution.md",
+    "dispatching-parallel-agents.md",
+    "docs-checker-pre-review.md",
+    "goals-okr-system.md",
+    "guard-message-concision.md",
+    "human-facing-doc-freshness.md",
+    "plan-execute-session-split.md",
+    "pre-dispatch-verification.md",
+    "prior-art-checker.md",
+    "produce-not-prescribe.md",
+    "rag-bait-conventions.md",
+    "review-integration-doctrine.md",
+    "scoped-safety-commits.md",
+    "sizing-lobby.md",
+    "spinoff-handoffs.md",
+    "stuck-detection.md",
+    "systematic-debugging.md",
+    "task-tier-guidance.md",
+    "test-design-discipline.md",
+    "tiered-context-loading.md",
+    "verification-before-completion.md",
+    "workday-workweek-cadence.md",
+    "workflow-orchestration.md",
+    "writing-plans.md"
+  ]
+}

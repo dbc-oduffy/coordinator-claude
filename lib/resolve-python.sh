@@ -212,7 +212,7 @@ if [[ -n "$_resolve_python_pin_candidate" ]]; then
     PYTHON_BIN="$_resolve_python_pin_candidate"
     PYTHON_ARGS=()
   else
-    echo "resolve-python: pinned interpreter '$_resolve_python_pin_candidate' is invalid (exists but cannot run 'import sys'). Run bin/ensure-coordinator-venv.sh to rebuild the coordinator venv." >&2
+    echo "resolve-python: pinned interpreter '$_resolve_python_pin_candidate' is invalid (exists but cannot run 'import sys'). Re-run /coordinator:install to rebuild the coordinator venv." >&2
     unset _resolve_python_pin_candidate
     return 1
   fi

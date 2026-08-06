@@ -1,15 +1,13 @@
 ---
 name: setup
-description: "coordinator-claude install-chain walker (chain step 5 of 5 — DAG root; no upstream deps to walk). Reads the install manifest, observes empty direct_deps, emits the DAG-root terminal banner, and exits 0. Not to be confused with coordinator:install (OSS plugin install of the coordinator package) or coordinator:repo-setup (consumer-project first-time setup of the coordinator integration). Trigger phrases: /coordinator:setup, set up coordinator-claude, run the install chain for coordinator."
+description: "Install-chain walker (step 5/5) — verifies claude-klabauter, finishes install."
 allowed-tools: ["Read", "Bash"]
 argument-hint: "[--skip-dep-check --accept-missing-deps-risk]"
 ---
 
-<!-- spec-backlink: archive/specs/2026-06/2026-06-15-coordinator-install-chain-application-phase-b.md § C4 -->
-
 # /coordinator:setup
 
-Chain-walker skill for coordinator-claude (chain position 5 of 5 — DAG root). This skill is the agentic entry-point for the install-chain contract for the coordinator plugin. It reads the install manifest, walks the `direct_deps` list (which is empty for coordinator-claude — it is the DAG root), and emits the DAG-root terminal banner. It does NOT replace `coordinator:install` (the OSS plugin bootstrap for the coordinator package) or `coordinator:repo-setup` (the consumer-project first-time integration setup) — those concerns belong to their respective skills.
+Chain-walker skill for coordinator-claude (chain position 5 of 5 — root of the OSS plugin-adoption chain). This skill is the agentic entry-point for the install-chain contract for the coordinator plugin. It reads the install manifest, walks the `direct_deps` list (ONE hard entry — `claude-klabauter`, the engine), and emits the chain-complete terminal banner once satisfied — or fails loud with remediation if claude-klabauter is unresolvable. It does NOT replace `coordinator:install` (the OSS plugin bootstrap for the coordinator package) or `coordinator:repo-setup` (the consumer-project first-time integration setup) — those concerns belong to their respective skills.
 
 **Disambiguation — three coexisting `/coordinator:*` verbs:**
 
@@ -19,13 +17,21 @@ Chain-walker skill for coordinator-claude (chain position 5 of 5 — DAG root). 
 
 These three verbs coexist without collision. The `:setup` verb is the established cross-plugin convention across DR, project-rag, ue-addon, and now coordinator-claude.
 
-**IMPORTANT — `setup_skill` is informational metadata, not the dispatch primitive.** The manifest field `setup_skill: /coordinator:setup` tells humans what to type. Dispatched subagents cannot expand slash commands; this skill uses direct Bash calls instead of subagent dispatch (no deps to walk — no subagent is needed).
+**IMPORTANT — `setup_skill` is informational metadata, not the dispatch primitive.** The manifest field `setup_skill: /coordinator:setup` tells humans what to type. Dispatched subagents cannot expand slash commands; this skill uses direct Bash calls instead of subagent dispatch (the single claude-klabauter dep self-confirms via the `claude_klabauter_seam_resolvable` probe kind — no recursive chain-walk, no subagent is needed).
+
+**Naming note — internal registry key vs OSS-published name.** The `repos.claude_klabauter`/
+`REPO_CLAUDE_KLABAUTER` lookups throughout this skill are the correct sibling-registry resolution
+path for a dev-tree session that has that registry entry, and stay as written. An OSS installer has
+no such registry entry and will not resolve the engine that way; for that audience the same engine
+is the dependency described in `docs/install/AGENT.md` (published under its own OSS-facing name,
+private and access-on-request until its publish goes live). Both paths resolve the identical
+engine — the registry key is internal plumbing, not a second dependency.
 
 ---
 
 ## Out-of-scope actions for all dispatched agents in this skill
 
-**Destructive-action prohibition (verbatim from `coordinator-tripwires.md` § Destructive-action prohibition):**
+**Destructive-action prohibition (verbatim from the coordinator tripwires doctrine):**
 
 DO NOT run `gh pr create`, `gh pr merge`, `git push origin main`, `gh release create`, or any `gh` command that mutates GitHub state beyond pushing the current branch. DO NOT commit to `main` directly. If you find yourself reaching for a merge, STOP and surface the question to the EM in your final reply.
 
@@ -53,49 +59,23 @@ This skill announces itself via its `description:` frontmatter field. The descri
 
 Determine whether this skill is running inside the nested working-repo (under `~/.claude/plugins/coordinator/`) or the flat publish-repo (a standalone `coordinator-claude/` checkout).
 
-```bash
-# Heuristic mirrors setup.sh layout detection.
-# AGENT.md lives at docs/install/AGENT.md relative to the plugin root.
+`PLUGIN_ROOT` is the directory two levels up from this skill file (`coordinator/skills/setup/SKILL.md` → `coordinator/`) — resolve it relative to wherever this skill file itself lives on disk. AGENT.md lives at `docs/install/AGENT.md` relative to the plugin root when the layout is flat.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-# Skills live at <plugin-root>/skills/setup/SKILL.md; plugin root is two levels up
-PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" layout --plugin-root "<PLUGIN_ROOT>"` (substituting the resolved path). It prints `Layout: <flat|nested>` and `Manifest path: <path>`, and exits 1 with a "Manifest not found" remediation message if `docs/install/agent-install-manifest.json` is absent under the resolved repo root.
 
-FLAT_AGENT_MD="${PLUGIN_ROOT}/docs/install/AGENT.md"
-
-if [ -f "${FLAT_AGENT_MD}" ]; then
-  LAYOUT="flat"
-  REPO_ROOT="${PLUGIN_ROOT}"
-else
-  # Nested working-repo layout; PLUGIN_ROOT is plugins/coordinator-claude/coordinator
-  LAYOUT="nested"
-  REPO_ROOT="${PLUGIN_ROOT}"
-fi
-
-MANIFEST="${REPO_ROOT}/docs/install/agent-install-manifest.json"
-echo "Layout: ${LAYOUT}"
-echo "Manifest path: ${MANIFEST}"
-```
-
-Report the detected layout. If the manifest does not exist, surface the error with remediation:
-`"Manifest not found at ${MANIFEST}. Re-run after the install surface has been committed (plugins/coordinator/docs/install/agent-install-manifest.json)."`
+Report the detected layout. On the exit-1 remediation case, surface the printed error verbatim:
+`"Manifest not found at <manifest>. Re-run after the install surface has been committed (plugins/coordinator/docs/install/agent-install-manifest.json)."`
 
 ---
 
 ## Step 2 — Read the install manifest
 
-```bash
-if [ ! -f "${MANIFEST}" ]; then
-  echo "ERROR: manifest not found at ${MANIFEST}" >&2
-  exit 1
-fi
-cat "${MANIFEST}"
-```
+Verify `${MANIFEST}` exists (error and exit if missing), then read its contents.
 
 Parse the manifest to extract:
 - `agent_install_contract_version` — must be 1, 2, or 3 (reject anything outside `{1, 2, 3}` with a remediation message)
 - `repo_id` — should be `"coordinator-claude"`
-- `direct_deps` — the list to walk (coordinator-claude declares `[]` — empty by design; it is the DAG root)
+- `direct_deps` — the list to walk (coordinator-claude declares ONE hard entry: the control-plane engine)
 - `override_flags` — the flag pair names for consent-gate invocations
 
 If the manifest fails JSON parsing, surface the parse error and exit. Do not continue with a corrupt manifest.
@@ -110,88 +90,35 @@ The visited-set is a disk-resident file used for diamond-DAG and cycle detection
 <settings-home>/coordinator-claude/chain-walk-<session-id>.json
 ```
 
-where `<settings-home>` = `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}` (relocated 2026-07-06 off `~/.claude/` — see agent-install-contract.md § Visited-set protocol).
+where `<settings-home>` = `${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}` (relocated off `~/.claude/` so the visited-set survives independently of the harness config tree).
 
-```bash
-SESSION_ID="$(python3 -c 'import uuid; print(str(uuid.uuid4()))')"
-
-# Compute settings-home inline — cold-safe, no bin dependency.
-# Matches the canonical expression in agent-install-contract.md § Visited-set protocol.
-VISITED_DIR="${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/coordinator-claude"
-VISITED_FILE="${VISITED_DIR}/chain-walk-${SESSION_ID}.json"
-
-# Stale-cleanup: delete chain-walk-*.json files older than 1 hour
-mkdir -p "${VISITED_DIR}"
-find "${VISITED_DIR}" -name 'chain-walk-*.json' -mmin +60 -exec rm -f {} + 2>/dev/null || true
-
-# Create the new visited-set file with empty visited array
-python3 -c "
-import json, sys
-data = {'session_id': sys.argv[1], 'started_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z', 'visited': []}
-open(sys.argv[2], 'w').write(json.dumps(data, indent=2))
-" "${SESSION_ID}" "${VISITED_FILE}"
-
-echo "Session ID: ${SESSION_ID}"
-echo "Visited-set: ${VISITED_FILE}"
-```
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" visited-init` — it generates a fresh session id, prunes `chain-walk-*.json` files older than 60 minutes from the visited-set directory, writes the new file with an empty `visited` array, and prints `Session ID: <uuid>` and `Visited-set: <path>`.
 
 ---
 
 ## Step 4 — Walk direct_deps AND resolve system prerequisites (DAG-root path)
 
-For coordinator-claude, `direct_deps` is `[]` — the manifest declares no upstream dependencies because coordinator-claude IS the DAG root. As of C3 (2026-06-23), the chain-walk default body also runs the system-prerequisite gate (`_co_run_prereq_gate post-consumer`) so that the DAG-root node reports its own machine-level prerequisites alongside the (empty) dep list.
+For coordinator-claude, `direct_deps` declares ONE hard entry — `claude-klabauter`. "DAG root" means root of the OSS plugin-adoption chain, not zero dependencies. The chain-walk default body also runs the system-prerequisite gate (`_co_run_prereq_gate post-consumer`) so that the DAG-root node reports its own machine-level prerequisites alongside the dep-probe row.
 
 The walk proceeds as follows:
 
-```bash
-# Python is pre-verified (hard exit if absent — the existing hard gate).
-# This is the SOLE hard gate on the chain-walk path (post-consumer mode).
+Python is pre-verified (hard exit if absent — the existing hard gate); this is the SOLE hard gate on the chain-walk path (post-consumer mode). Run the install-chain DAG walker's default body — `python3 <claude-klabauter-root>/coordinator/scripts/setup.py` (resolve `<claude-klabauter-root>` via `machine-local get repos.claude_klabauter`, or the `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT` env override) — which calls `_co_run_prereq_gate post-consumer`. Severity demotion applied inside that gate: `python` stays hard (unchanged — pre-existing hard gate); `gh`, `node`, `git` are demoted from hard to advisory (no exit-code regression); `clone_auth` is demoted from semi-hard to advisory (no exit-code regression); all other probes were already advisory in `--preflight` (no change). Advisory failures emit `[WARN]` rows to stderr but do NOT block exit 0.
 
-# System-prerequisite gate (post-consumer mode).
-# Severity demotion applied inside the gate:
-#   python     → hard     (unchanged — pre-existing hard gate)
-#   gh         → advisory (demoted from hard, no exit-code regression)
-#   node       → advisory (demoted from hard, no exit-code regression)
-#   git        → advisory (demoted from hard, no exit-code regression)
-#   clone_auth → advisory (demoted from semi-hard, no exit-code regression)
-#   all others → advisory (already advisory in --preflight; no change)
-# Advisory failures emit [WARN] rows to stderr but do NOT block exit 0.
-bash scripts/setup.sh       # default body — calls _co_run_prereq_gate post-consumer
-```
+The dep-probe loop inside the gate emits one dep row (`claude-klabauter`, hard). A missing/broken claude-klabauter triggers the [FAIL] hard-fail path — exit 1 (`--preflight`/`--check`) or the consent-gate 90/91/92 codes (full install), with remediation pointing at the four-rung CLAUDE_KLABAUTER_ROOT resolution ladder. The prereq probe rows (git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs) ARE also emitted; their advisory failures print WARN but do not change the exit code.
 
-Because `direct_deps` is empty, the dep-probe loop inside the gate emits zero dep rows. The prereq probe rows (git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs) ARE emitted; advisory failures print WARN but do not change the exit code.
-
-**Override flags** — both flags must be passed TOGETHER to skip dep checking. Since there are no deps, the override flags are accepted but have no effect on the walk outcome. Passing only one of the two override flags still produces an error per contract exit-code 93 semantics (schema-conformance, even though no dep triggers the gate):
-
-```bash
-# Override flag validation (schema-conformance — even for empty direct_deps)
-HAS_SKIP=0; HAS_RISK=0
-for arg in "$@"; do
-  [ "$arg" = "--skip-dep-check" ] && HAS_SKIP=1
-  [ "$arg" = "--accept-missing-deps-risk" ] && HAS_RISK=1
-done
-
-if [ "${HAS_SKIP}" -eq 1 ] && [ "${HAS_RISK}" -eq 0 ]; then
-  echo "ERROR (exit 93): Both --skip-dep-check AND --accept-missing-deps-risk must be passed together. Passing only one is not valid." >&2
-  exit 93
-fi
-if [ "${HAS_SKIP}" -eq 0 ] && [ "${HAS_RISK}" -eq 1 ]; then
-  echo "ERROR (exit 93): Both --skip-dep-check AND --accept-missing-deps-risk must be passed together. Passing only one is not valid." >&2
-  exit 93
-fi
-```
+**Override flags** — both flags must be passed TOGETHER to skip dep checking. If claude-klabauter genuinely cannot be resolved and you understand the degraded posture (most mutating coordinator operations hard-fail without it — no legacy bash fallback under the big-bang cutover), both override flags bypass the consent gate. Validate the pairing by running `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-override-flags -- "$@"` — it exits 93 with the contract-exit-code-93 remediation message ("Both --skip-dep-check AND --accept-missing-deps-risk must be passed together. Passing only one is not valid.") when exactly one of `--skip-dep-check`/`--accept-missing-deps-risk` is present, and exits 0 (printing which of the two paths applies) otherwise.
 
 ---
 
 ## Step 5 — Terminal report
 
-After walking all deps (the empty list) and resolving system prerequisites, print a structured summary:
+After walking direct_deps (the one claude-klabauter entry) and resolving system prerequisites, print a structured summary:
 
 ```
 ## /coordinator:setup — chain step 5 of 5
 
 Manifest: plugins/coordinator/docs/install/agent-install-manifest.json
-Contract version: 2
+Contract version: <agent_install_contract_version from manifest>
 Layout: <flat | nested>
 Session ID: <uuid>
 
@@ -210,13 +137,13 @@ Session ID: <uuid>
 
 | Dep | Severity | Probe | Action |
 |-----|----------|-------|--------|
-| (none) | — | — | direct_deps is empty — coordinator-claude is DAG root |
+| claude-klabauter | hard | PASS/FAIL | claude_klabauter_seam_resolvable — self-confirming (this walker code only runs once claude-klabauter is already resolved) |
 
 ### Result
 
-chain walk complete — coordinator-claude is DAG root
+coordinator install-chain walker — chain step 5 of 5: all deps satisfied.
 
-All deps satisfied (no deps declared). coordinator-claude install chain complete.
+coordinator-claude install chain complete.
 ```
 
 Exit 0 (advisory WARN rows from post-consumer gate do not affect exit code).
@@ -225,9 +152,7 @@ Exit 0 (advisory WARN rows from post-consumer gate do not affect exit code).
 
 ## Step 6 — Live Claude-Code-integration validation
 
-<!-- spec-backlink: docs/plans/2026-06-24-install-baton-completeness-claude-code-validation.md § C5 -->
-
-This step asserts that the coordinator plugin is **running-in-Claude-Code** — not just present on disk, but active as a live integration. See `docs/wiki/install-surface-completeness.md` § "Running-in-Claude-Code" for the canonical definition of "live integration" that this step validates against.
+This step asserts that the coordinator plugin is **running-in-Claude-Code** — not just present on disk, but active as a live integration, per the three testable surfaces below.
 
 **What "running-in-Claude-Code" means for coordinator-claude** (no MCP server — three testable surfaces):
 
@@ -256,7 +181,7 @@ Emit the restart-batch block **before** the per-item probe table. An empty resta
 
 ### Restart discriminator
 
-Classify each failing probe using the settle-window + restart-occurred axis (defined in `docs/wiki/install-surface-completeness.md` § "Running-in-Claude-Code"):
+Classify each failing probe using the settle-window + restart-occurred axis:
 
 - **restart-gated-expected** — probe fails AND no load-bearing restart has occurred since the relevant config was written → emit in the restart-batch block above; NOT a hard failure.
 - **configured-but-broken** — probe fails AND a restart has already occurred (or settle window has elapsed post-restart) → fail loud (see below).
@@ -266,138 +191,37 @@ Classify each failing probe using the settle-window + restart-occurred axis (def
 
 Run the following probes via Bash:
 
+**Probe 0 — Plugin reachable (not just enablement-membership)**
+
+Re-derive `PLUGIN_ROOT` if it is not already in scope from Step 1 — the plugin root is two levels up from this skill file (`coordinator/skills/setup/SKILL.md` → `coordinator/`).
+
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`.
+
+This probe runs BEFORE Probe 1 deliberately. `enabledPlugins` membership (Probe 1) can read `true` while the plugin was never registered at all — a repo can ship a plugin, register its MCP server, and never register the plugin itself, leaving a `~/.claude/plugins/<name>/` directory that holds only runtime data (session state, caches) with no manifest, no commands, and no hooks. Every weaker check — enablement membership, hook-file presence, skill-file presence — still reads as "installed" against that state, so the plugin's `SessionStart` hook never fires and nothing reports a problem. Checking enablement first yields a false pass on exactly this state.
+
+What the probe asserts is **reachability**, not marketplace registration specifically, because there are two legitimate routes to it: a marketplace install (present in both `installed_plugins.json` and `known_marketplaces.json`), or live resolution from a source checkout via `--plugin-dir`. Passing `--plugin-dir` is what lets the second route pass — it reports `PASS (live-resolved)` when a plugin manifest plus commands or hooks are actually present at that path. Omit it and an unregistered plugin fails, which is correct for an install that was meant to go through a marketplace. Positive evidence is required either way: a bare directory never passes.
+
+Unlike the probes below it, a FAIL here is **never restart-gated**. Registration writes the plugin registry immediately, so an unregistered plugin is unregistered now and will still be unregistered after a restart — classifying this FAIL as restart-gated-expected would wave through the exact state the probe exists to catch. Always **configured-but-broken**; fail loud.
+
 **Probe 1 — Plugin enabled in settings.json**
 
-```bash
-# Locate settings.json (Claude Code user settings — ~/.claude/settings.json is the canonical path)
-SETTINGS="${HOME}/.claude/settings.json"
-if [ ! -f "${SETTINGS}" ]; then
-  echo "[WARN] settings.json not found at ${SETTINGS} — cannot verify plugin enablement" >&2
-else
-  # Check that coordinator-claude appears in enabledPlugins (or equivalent field)
-  python3 -c "
-import json, sys
-d = json.load(open('${SETTINGS}'))
-plugins = d.get('enabledPlugins', d.get('plugins', []))
-enabled = any('coordinator' in str(p) for p in plugins)
-print('PASS — coordinator plugin found in enabledPlugins' if enabled else 'FAIL — coordinator plugin NOT found in enabledPlugins')
-sys.exit(0 if enabled else 1)
-"
-fi
-```
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-settings-membership` (optionally `--settings <path>` to override the default `~/.claude/settings.json` — the canonical Claude Code user-settings path). It checks that `coordinator` appears in `enabledPlugins` (or the legacy `plugins` field), printing `PASS — coordinator plugin found in enabledPlugins` and exiting 0, `[WARN] settings.json not found ... — cannot verify plugin enablement` and exiting 0 if the file is missing/unparseable, or `FAIL — coordinator plugin NOT found in enabledPlugins` and exiting 1.
 
 A FAIL here that follows a config-write without a subsequent restart is **restart-gated-expected** — add to the restart-batch block. A FAIL after a restart is **configured-but-broken** — fail loud.
 
 **Probe 2 — Hooks registered and live on disk**
 
-```bash
-# Review: code-reviewer — F4: re-derive PLUGIN_ROOT here so this block is self-contained
-# when run independently (PLUGIN_ROOT is set in Step 1 but may not be in scope here).
-# Skills live at <plugin-root>/skills/setup/SKILL.md; plugin root is two levels up from __this file__.
-if [[ -z "${PLUGIN_ROOT:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-  PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-fi
+Re-derive `PLUGIN_ROOT` if it is not already in scope from Step 1 (code-reviewer F4: this probe must be self-contained when run independently) — the plugin root is two levels up from this skill file (`coordinator/skills/setup/SKILL.md` → `coordinator/`).
 
-# Hooks live under ~/.claude/hooks/ or at the plugin-root hooks path.
-# Check that at least one coordinator-owned hook file exists and is executable.
-HOOKS_DIR="${HOME}/.claude/hooks"
-PLUGIN_HOOKS_DIR="${PLUGIN_ROOT}/hooks"
-
-# Review: code-reviewer — F6: check for specific coordinator-owned hooks named in
-# hooks/hooks.json by path, not a blanket *.sh count (blanket passes vacuously when
-# coordinator's hooks are absent but other *.sh files happen to exist).
-HOOKS_JSON="${PLUGIN_HOOKS_DIR}/hooks.json"
-COORDINATOR_HOOKS_MISSING=()
-COORDINATOR_HOOKS_PRESENT=()
-
-# Extract coordinator-owned hook script paths from hooks.json (scripts under hooks/scripts/ or hooks/ directly)
-if [ -f "${HOOKS_JSON}" ]; then
-  # Pull paths from "command" fields that reference ${CLAUDE_PLUGIN_ROOT}/hooks/
-  HOOK_SCRIPTS=$(python3 -c "
-import json, re, sys
-data = json.load(open(sys.argv[1]))
-paths = set()
-def walk(obj):
-    if isinstance(obj, dict):
-        if 'command' in obj:
-            m = re.search(r'\\\${CLAUDE_PLUGIN_ROOT}/hooks/(\S+\.sh)', obj['command'])
-            if m: paths.add(m.group(1))
-        for v in obj.values(): walk(v)
-    elif isinstance(obj, list):
-        for v in obj: walk(v)
-walk(data)
-for p in sorted(paths): print(p)
-" "${HOOKS_JSON}" 2>/dev/null)
-  while IFS= read -r rel_path; do
-    [ -z "$rel_path" ] && continue
-    full_path="${PLUGIN_HOOKS_DIR}/${rel_path}"
-    if [ -f "${full_path}" ]; then
-      COORDINATOR_HOOKS_PRESENT+=("${rel_path}")
-    else
-      COORDINATOR_HOOKS_MISSING+=("${rel_path}")
-    fi
-  done <<< "${HOOK_SCRIPTS}"
-else
-  echo "[WARN] hooks.json not found at ${HOOKS_JSON} — cannot verify coordinator-specific hooks" >&2
-fi
-
-if [ "${#COORDINATOR_HOOKS_MISSING[@]}" -gt 0 ]; then
-  echo "FAIL — coordinator hook(s) named in hooks.json are missing from disk:" >&2
-  for h in "${COORDINATOR_HOOKS_MISSING[@]}"; do echo "  missing: ${PLUGIN_HOOKS_DIR}/${h}" >&2; done
-  exit 1
-elif [ "${#COORDINATOR_HOOKS_PRESENT[@]}" -gt 0 ]; then
-  echo "PASS — ${#COORDINATOR_HOOKS_PRESENT[@]} coordinator-owned hook file(s) verified present on disk"
-else
-  echo "[WARN] No coordinator-owned hook scripts detected in hooks.json" >&2
-fi
-```
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-hooks --plugin-root "<PLUGIN_ROOT>"`. It parses `<PLUGIN_ROOT>/hooks/hooks.json`, extracts coordinator-owned hook script paths referenced via `${CLAUDE_PLUGIN_ROOT}/hooks/...` `command` fields, and verifies each exists on disk — checking specific hooks named in hooks.json by path, not a blanket `*.sh` count (code-reviewer F6: a blanket count passes vacuously when coordinator's hooks are absent but other `*.sh` files happen to exist). It prints `PASS — N coordinator-owned hook file(s) verified present on disk` and exits 0 when all named hooks are present, `FAIL — coordinator hook(s) named in hooks.json are missing from disk` (listing each missing path) and exits 1 on any gap, or `[WARN]` (hooks.json absent/unparseable, or no coordinator-owned hooks detected) and exits 0.
 
 Coordinator-owned hook files absent from disk → **configured-but-broken** (fail loud). Hook files present but not yet loaded by a running Claude Code session → **restart-gated-expected** (emit in restart-batch; advisory WARN).
 
 **Probe 3 — Skill discovery preconditions (representative skill)**
 
-```bash
-# Review: code-reviewer — F4: re-derive PLUGIN_ROOT here so this block is self-contained
-# when run independently (PLUGIN_ROOT is set in Step 1 but may not be in scope here).
-if [[ -z "${PLUGIN_ROOT:-}" ]]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-  PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-fi
+Re-derive `PLUGIN_ROOT` if it is not already in scope from Step 1 (code-reviewer F4: this probe must be self-contained when run independently). Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.md`.
 
-# Use this skill itself as the representative: skills/setup/SKILL.md
-SKILL_FILE="${PLUGIN_ROOT}/skills/setup/SKILL.md"
-
-if [ ! -f "${SKILL_FILE}" ]; then
-  echo "FAIL — representative skill file missing: ${SKILL_FILE}" >&2
-  exit 1
-fi
-
-# Verify the file is parseable and has a description: field with trigger phrases
-python3 -c "
-import re, sys
-content = open('${SKILL_FILE}').read()
-# Extract YAML frontmatter (between first two --- markers)
-m = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
-if not m:
-    print('FAIL — skill file has no YAML frontmatter')
-    sys.exit(1)
-fm = m.group(1)
-desc_match = re.search(r'description:\s*[\"\'](.*?)[\"\']', fm, re.DOTALL)
-if not desc_match:
-    desc_match = re.search(r'description:\s*(.+)', fm)
-if not desc_match:
-    print('FAIL — no description: field found in frontmatter')
-    sys.exit(1)
-desc = desc_match.group(1).strip()
-if not desc:
-    print('FAIL — description: field is empty')
-    sys.exit(1)
-# Check for at least one trigger phrase (non-empty description is sufficient)
-print(f'PASS — description field present with trigger phrases ({len(desc)} chars)')
-sys.exit(0)
-"
-```
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`. It confirms the file exists, parses its YAML frontmatter, and validates a non-empty `description:` field is present — printing `PASS — description field present with trigger phrases (N chars)` and exiting 0 on success, or a `FAIL —` message (missing file, no frontmatter, no `description:` field, or an empty one) and exiting 1 on any of those gaps.
 
 A missing or unparseable skill file is always **configured-but-broken** (fail loud — a skill file cannot be restart-gated, it either exists on disk or it doesn't). The plugin being enabled (Probe 1) is a precondition for the model to reach this skill; an advisory WARN from Probe 1 propagates here.
 
@@ -410,13 +234,13 @@ After running all probes, emit a summary table:
 
 | Probe | Surface | Result | Classification |
 |-------|---------|--------|----------------|
+| Plugin reachable | marketplace registration OR `--plugin-dir` live resolution | PASS/FAIL | live / configured-but-broken (never restart-gated) |
 | Plugin enabled | settings.json enabledPlugins | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
 | Hooks live on disk | ~/.claude/hooks/ | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
 | Skill discovery preconditions | skills/setup/SKILL.md | PASS/WARN | live / configured-but-broken |
 ```
 
 **Exit-code semantics (extends, but is NOT identical to, the Step 4/5 advisory-WARN model — `configured-but-broken` is the exception):**
-<!-- Review: code-reviewer — F8: reworded to clarify this step is NOT fully consistent with Steps 4/5; configured-but-broken exits non-zero here, which is an exception to the advisory model -->
 
 - `configured-but-broken` findings → emit `[ERROR]` to stderr and exit non-zero. The install is incomplete; the chain-walk result is NOT valid. **This is the exception to the advisory model — it exits non-zero.**
 - `restart-gated-expected` findings → emit as WARN rows in the summary table and in the restart-batch block above; do NOT change the exit code (advisory, per § Post-Consumer Gates).
@@ -438,7 +262,7 @@ Passing only one produces an error and exits (mirrors contract exit-code 93 beha
 
 ## Negative-spec
 
-<!-- negative-spec: this skill does NOT dispatch subagents. coordinator-claude has no direct_deps; there is nothing to walk recursively. The visited-set is initialised for contract-conformance only. -->
-<!-- negative-spec: this skill does NOT replace coordinator:install (OSS plugin install of the coordinator package) or coordinator:repo-setup (consumer-project first-time setup). Three distinct verbs, three distinct concerns — see disambiguation prose above. -->
-<!-- negative-spec: this skill does NOT seed install-leg spinoffs into the install-baton rendezvous (`$(coordinator-settings-home)/state/handoffs/`, formerly `~/.claude/state/handoffs/` pre-2026-07-08 relocation). Spinoffs are PM-authorized via /spinoff only. -->
-<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> = ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}. The ~/.claude/ prefix was retired 2026-07-06 (durable-substrate-to-settings-home plan); the settings-home prefix is now canonical per agent-install-contract.md § Visited-set protocol. -->
+<!-- negative-spec: this skill does NOT dispatch subagents. coordinator-claude's one direct_dep (claude-klabauter) self-confirms via the claude_klabauter_seam_resolvable probe kind — there is no recursive chain-walk into claude-klabauter's own manifest. The visited-set is initialised for contract-conformance only. -->
+<!-- negative-spec: this skill does NOT replace coordinator:install (OSS plugin install of the coordinator package) or coordinator:repo-setup (consumer-project first-time setup). Three distinct verbs, three distinct concerns — see disambiguation prose above. This skill DOES assert, via Probe 0 above, that the plugin is actually reachable — by marketplace registration or by live --plugin-dir resolution — rather than merely enabled by membership; that assertion is in scope here even though performing the registration itself remains coordinator:install's job. -->
+<!-- negative-spec: this skill does NOT seed install-leg spinoffs into the install-baton rendezvous (`$(coordinator-settings-home)/state/handoffs/`). Spinoffs are PM-authorized via /spinoff only. -->
+<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> = ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings} — the settings-home prefix is canonical per agent-install-contract.md § Visited-set protocol. -->

@@ -1,6 +1,4 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
+#!/usr/bin/env python3
 """
 migrate-central-improvement-queue.py — one-shot migration of the universal central
 improvement queue from prose (state/coordinator-improvement-queue.md) into structured

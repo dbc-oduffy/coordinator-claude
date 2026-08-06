@@ -1,6 +1,6 @@
 ---
 name: plan-delivery-audit
-description: "Triangulate plan-claim / code-reality / review oracles to classify each plan into DELIVERED+REVIEWED / DELIVERED-UNREVIEWED / PARTIAL / IN-FLIGHT / ABANDONED. Run after any crash or 'did we actually finish what we think we finished?' moment."
+description: "Triangulate plan claims against code and reviews for delivery status."
 allowed-tools: ["Read", "Grep", "Glob", "Bash", "Agent"]
 argument-hint: [plan-glob — default: docs/plans/*.md]
 ---

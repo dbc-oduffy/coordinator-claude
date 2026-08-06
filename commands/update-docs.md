@@ -1,6 +1,6 @@
 ---
 name: update-docs
-description: Repo-wide documentation maintenance and sync
+description: "Sync all documentation artifacts to the current codebase state."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent"]
 argument-hint: "[--no-distill]"
 ---
@@ -13,7 +13,7 @@ Repo-wide maintenance — syncs all documentation artifacts to match the current
 
 **Arguments:** `--no-distill` — skip Phase 13 distillation check (use for overnight/unattended runs).
 
-**Execution model:** Dispatch Phases 1–11d to a **Sonnet doc-maintenance agent** (`model: "sonnet"`). The coordinator (EM) handles Phase 0, **Phase 12 (Agent dispatch — EM only)**, Phases 11f / 11g / 11h / 11h2 / 11i, and Phases 13 / 14 / 15, plus any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly.
+**Execution model:** Dispatch Phases 1–11d to a **Sonnet doc-maintenance agent** (`model: "sonnet"`), **dispatched UNNAMED** — you do not need mid-flight contact with it, and a named teammate's report is not delivered to the dispatcher (a named dispatch becomes an Agent-teams teammate; recovering from that costs a corrective `SendMessage` round trip plus stray idle notifications after stand-down). The coordinator (EM) handles Phase 0, **Phase 12 (Agent dispatch — EM only)**, Phases 11f / 11g / 11h / 11h2 / 11i, and Phases 13 / 14 / 15, plus any escalations. When the Sonnet agent encounters a skill invocation stub (Phases 5, 6, 8, 11), it executes that skill's content directly.
 
 > **EM/subagent boundary — read this before dispatching the Sonnet agent.** The Sonnet doc-maintenance agent's scope ENDS at Phase 11d. It MUST NOT attempt Phase 12: subagents cannot dispatch other subagents via `Agent`, and a Sonnet worker reaching for `doc-link-checker` will fail. Phase 12 is structurally EM-led and is the explicit hand-back point — when the Sonnet agent returns, the EM resumes execution at Phase 12 and runs everything from there onward (the 11f / 11g / 11h* / 11i bash checks plus the Phase 13+ tail).
 
@@ -27,53 +27,16 @@ Applies the **produce-not-prescribe** principle (`docs/wiki/produce-not-prescrib
 
 **Threshold (conjunctive AND — all three must be true for the no-op to fire):**
 
-```bash
-# cwd guard — the probe's relative paths assume repo root.
-if [ ! -f CLAUDE.md ] && [ ! -f .git/HEAD ]; then
-  # Not at repo root — fall through to the normal pipeline; safer to run than to silently no-op
-  : # explicit no-op; skip the probe entirely
-else
+Run the probe: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/update-docs-probes" fresh-scaffold-probe`
 
-# Axis 1 — source-file surface: no DIRECTORY.md anywhere (no source indexed)
-# Check BOTH the documented default (root ./DIRECTORY.md, per Phase 2) and docs/DIRECTORY.md.
-# Either present ⇒ source is indexed ⇒ axis1=0. Keying on docs/ alone false-flagged
-# repos using the documented root convention as "freshly-scaffolded" (false no-op).
-axis1=0
-[ ! -f docs/DIRECTORY.md ] && [ ! -f DIRECTORY.md ] && axis1=1
-
-# Axis 2 — completed-work archive: empty
-# Note: archive/completed/ containing only .gitkeep will set axis2=0 (probe falls through to pipeline — intentional false-negative-NEVER bias)
-axis2=0
-if [ ! -d archive/completed ] || [ -z "$(ls -A archive/completed 2>/dev/null)" ]; then
-  axis2=1
-fi
-
-# Axis 3 — distillable artifacts in tasks/: none
-axis3=0
-if [ ! -d tasks ] || [ -z "$(find tasks -name '*.md' -type f 2>/dev/null)" ]; then
-  axis3=1
-fi
-
-if [ "$axis1" -eq 1 ] && [ "$axis2" -eq 1 ] && [ "$axis3" -eq 1 ]; then
-  cat <<'EOF'
-Nothing material to update — the repo is freshly-scaffolded (no DIRECTORY.md, no completed work, no distillable artifacts in tasks/). /coordinator:repo-setup already produced the minimum-viable substrate (orientation_cache.md, project-tracker.md, README.md, CLAUDE.md). Re-run /update-docs after the first workstream lands real content.
-
-Doctrine: docs/wiki/produce-not-prescribe.md — setup-class skills produce minimum-viable downstream artifacts; downstream skills add-to them as content accumulates.
-EOF
-  exit 0
-fi
-
-fi
-```
-
-**Portability note (per DR-148):** Uses portable idioms only — no `grep -P`, no `realpath`, no GNU-only `find` flags. See `docs/wiki/cross-platform-shell-portability.md`.
+The CLI owns the cwd guard (falls through silently if neither `CLAUDE.md` nor `.git/HEAD` is present at repo root) and the 3-axis AND (source-file surface via `DIRECTORY.md`/`docs/DIRECTORY.md`, completed-work archive, distillable `tasks/*.md`). **Exit 0** means all three axes fired — the no-op-loud message is already on stdout; relay it verbatim and EXIT before dispatching the doc-maintenance agent. **Exit 1** means at least one axis has real content (or the cwd guard fired) — nothing is printed; fall through to the normal pipeline.
 
 **Bias:** false-negative-NEVER. If even ONE axis suggests maintenance is due, the probe falls through and the full pipeline runs.
 
 #### Phase 0: Quick-Save Before Docs
 
 1. **Branch guard:** If on `main`, create a work branch (`work/{machine}/{date}`) and switch. Never commit to main directly.
-2. `CLAUDE_INVOKING_COMMAND=update-docs coordinator-safe-commit --blanket "pre-docs quick-save"`
+2. Run `CLAUDE_INVOKING_COMMAND=update-docs "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "pre-docs quick-save"`
 3. If nothing to commit, move on
 4. Do not push yet — push happens in Phase 9
 
@@ -100,10 +63,14 @@ fi
    - Any plans with items that appear completed in code?
    - Any plans marked in-progress that are now done?
 
-4. **Recent git context** (supplementary — shows what's happened since last push/docs update):
-   ```
+4. **Recent git context** (supplementary — shows what's happened since last push/docs update).
+   Recent commit history:
+   ```bash
    git log --oneline -15
-   git log --oneline origin/HEAD..HEAD 2>/dev/null  # committed but not pushed
+   ```
+   Commits made but not yet pushed:
+   ```bash
+   git log --oneline origin/HEAD..HEAD 2>/dev/null
    ```
 
 #### Phase 2: Update Source Indexes (or Create Them)
@@ -120,6 +87,8 @@ fi
    > - Dependencies on other directories in this project
    >
    > Write a `DIRECTORY.md` in `[directory]/` with this information. Use a table or structured list. Include a file count and "Last refreshed: YYYY-MM-DD" timestamp.
+
+   This is a clean fit for a background `Workflow` — one directory-scout per top-level source dir, all running in one context-cheap wave instead of holding N agent-dumps in your own context. Worth stamping with `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type workflow` if there are more than a couple of directories.
 3. After all agents complete, write a top-level `DIRECTORY.md` (at the source root) that:
    - Lists each directory with a one-line summary
    - Shows file counts per directory
@@ -166,7 +135,7 @@ For each plan doc related to current codebase state: read it, update status mark
 
 **Do NOT add:** phase/milestone status → `git log` / tracker; completion logs → git log; key-files tables → DIRECTORY.md; architectural decisions inline → DR or wiki; system health stats → CI / atlas; active priorities → `tasks/`; anything that duplicates CLAUDE.md; session-specific details; speculative conclusions from one file.
 
-**Periodic hygiene:** When MEMORY.md exceeds ~80 lines or contains tables, audit it — promote architectural facts to wiki/DRs, delete completion logs, replace state-mirror tables with pointers. Lessons-style content (behavior corrections, anti-patterns) routes via `/learn-lessons` to `state/lessons.md`, not here.
+**Hygiene is enforced, not advisory.** A write-time guard caps `MEMORY.md` (≤2,000 B, ≤20 index rows, ≤100 chars/row) and each sibling body file (≤1,500 B) — a write that would exceed any of these is denied outright, not merely flagged. Separately, every closure ceremony (`/workday-complete`, `/workweek-complete`, `/workstream-complete`, `/merging-to-main`) runs a blocking drain gate that fails while any `*.md` survives under the auto-memory store at all — the size cap bounds a single day, the drain bounds how long anything persists between closes, and the two are complementary rather than either superseding the other. Lessons-style content (behavior corrections, anti-patterns) routes via `/learn-lessons` to `state/lessons/` (one per-entry YAML file), not here.
 
 #### Phase 5: Maintain Project Tracker + Archive Completed Work
 
@@ -188,9 +157,7 @@ Inline the handoff-archival routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
 
 #### tasks/ vs state/ — sweep scope for Phases 8b and 13
 
-Spec backlink: `archive/specs/2026-06/2026-06-08-tasks-state-folder-split.md` § C5.
-
-**`state/`** is load-bearing session substrate (queues, trackers, ledgers, handoffs, recheck markers, etc.). **`/update-docs` never archives, prunes, or deletes any path under `state/`.** Only surgical named sweeps apply (e.g., Phase 11i queue pruner on named queue files; Phase 10 orientation-cache regenerator on its own schema).
+**`state/`** is load-bearing session substrate (queues, trackers, ledgers, handoffs, recheck markers, etc.). **`/update-docs` never archives, prunes, or deletes any path under `state/`.** Only surgical named sweeps apply (e.g., Phase 11i queue pruner on named queue files; Phase 11j `state/subagent-share/` sidecar reaper, liveness-and-age-floor gated per its own named exception; Phase 10 orientation-cache regenerator on its own schema).
 
 **`tasks/`** is the aggressive sweep target: UUID flight-recorder dirs, dated reports, dated topic dirs, and loose scratch. Phases 8b and 13 may archive or delete from `tasks/` under the thresholds defined in their respective sub-routines. Specific rules:
 
@@ -204,15 +171,11 @@ Spec backlink: `archive/specs/2026-06/2026-06-08-tasks-state-folder-split.md` §
 
 #### Phase 8b: Prune Accumulated Artifacts
 
-Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/artifact-pruning.md` and follow all steps exactly. Conservative thresholds make most runs no-ops; the safety commit makes any deletion `git revert`-able.
+Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/update-docs/artifact-pruning.md` and follow all steps exactly. Conservative thresholds make most runs no-ops; the safety commit makes any deletion `git revert`-able. **The `git rm` leg is EM-scope**, same as the Phase 9 commit below — the doc-maintenance agent identifies and stages nothing; it inventories the prune candidates for the report and leaves deletion to the EM at hand-back. A subagent-scope `git rm` will be blocked by the same guard that blocks Phase 9's commit.
 
 #### Phase 9: Commit + Verify Remote
 
-1. `CLAUDE_INVOKING_COMMAND=update-docs coordinator-safe-commit --blanket "docs maintenance"`
-   (The post-commit hook will auto-push on work/feature branches.)
-2. **Verify remote is synced:** `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
-   If unpushed commits remain, push explicitly.
-3. If push fails, **warn the PM explicitly**
+> **EM-scope, same as Phase 12 — the doc-maintenance agent MUST NOT run this.** Subagents cannot commit; the caller-identity guard blocks it with no cooperative override, correctly, per "only the EM or `git-commit-agent` commits." The doc-maintenance agent's job through Phase 11d is to leave every file written and nothing committed — the EM performs Phase 9 itself as the first action after the Sonnet agent hands back, before dispatching Phase 12. See the full step under "EM resumes here" below; this heading exists here only to hold the phase number in sequence.
 
 **Note:** Pushes to the current branch only — getting to main is the caller's responsibility (`/workday-complete` or `/merge-to-main`). If on main here, Phase 0 failed.
 
@@ -220,49 +183,20 @@ Inline the artifact-pruning routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/updat
 
 All "when RAG present" gates in this command use the same detection mechanism: check whether any MCP tool matching `mcp__*project-rag*` (case-insensitive substring) is available in the current session. A positive match sets the logical `RAG_PRESENT` flag for this run. Future maintainers: the same detection is used by `coordinator/hooks/project-rag-detect.*` (W1 hook) — keep them in sync.
 
-**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):** See `docs/wiki/repomap-rag-gating.md`. Summary:
+**Three-tier repomap behavior (applies to Phase 9b and Phase 10b):**
 - **RAG absent:** generate unconditionally.
 - **RAG present + stale or uninitialized:** generate as fallback stopgap; emit audit log entry (Phase 10b).
 - **RAG present + fresh:** skip entirely.
 
 #### Phase 9b: Repomap Regeneration (RAG-gated)
 
-Gate via `check-rag-state.sh`, then invoke `generate-repomap.sh`. Full gating pattern in `docs/wiki/repomap-rag-gating.md § Caller Pattern`.
+Gate via `check-rag-state.py`, then invoke `generate-repomap.py`. Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/update-docs-probes" repomap-gate`
 
-```bash
-RAG_STATE=$(bash "${CLAUDE_PLUGIN_ROOT}/bin/check-rag-state.sh" 2>/dev/null || echo "unknown")
-case "$RAG_STATE" in
-  fresh)
-    # Note in Phase 14 report: "Repomap: skipped (RAG present + fresh)."
-    ;;
-  absent|stale|unknown)
-    bash "${CLAUDE_PLUGIN_ROOT}/bin/generate-repomap.sh"
-    if [ "$RAG_STATE" != "absent" ]; then
-      # Note in Phase 14 report: "Repomap: generated as RAG-fallback (RAG state: ${RAG_STATE})."
-    fi
-    ;;
-esac
-```
+The CLI resolves `check-rag-state.py`, applies the three-tier case (fresh → skip; absent → generate unconditionally; stale/unknown → generate as fallback), and prints the matching Phase 14 note (skip note, or the RAG-fallback note, or a stderr warning if `generate-repomap.py` is unresolvable). Exit 0 covers the skip/success/missing-generator cases; exit 1 means the generator ran and failed.
 
 #### Phase 10: Refresh Orientation Cache
 
-If `state/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `regenerate-orientation-cache.sh`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file):
-
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-bash "$_cc_root/bin/regenerate-orientation-cache.sh" --invoker update-docs
-```
+If `state/orientation_cache.md` exists, regenerate it from spec via the shared routine. **Do not author the cache directly here. Do not patch sections. Do not re-derive content section-by-section.** The schema (`pipelines/workday-start-internals.md` § 5.5) is owned by `regenerate-orientation-cache`; this phase's job is to invoke that routine in ceremony mode (which clears the mid-session pinboard and discards any out-of-schema sections present in the file): `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/regenerate-orientation-cache" --invoker update-docs`
 
 This phase is **where bloat dies.** Any section accreted outside `## Pinboard` is discarded — only schema-conformant sections regenerate. The verifier (Phase 11b) catches any drift introduced after this phase.
 
@@ -290,45 +224,15 @@ Inline the atlas-integrity-check routine. Read `${CLAUDE_PLUGIN_ROOT}/pipelines/
 
 **Quarterly atlas re-read reminder (the Data Science Reviewer F7 — narrative drift mitigation):** Check `docs/architecture/systems-index.md` for `last_mapped`. If any system's `last_mapped` is >90 days ago, note in Phase 14: *"Atlas drift risk: system [X] last mapped [date] — schedule a quarterly re-read sweep."* Informational only — no auto-audit.
 
-#### Phase 11b: Snippet Sync Check
+#### Phase 11b: Snippet Sync Check — retired, no-op
 
-Run every snippet-sync verifier across all installed plugins (`bin/verify-*-sync.sh` convention, covers current and future verifiers).
-
-```bash
-set +e
-fail=0
-for verifier in ~/.claude/plugins/*/*/bin/verify-*-sync.sh; do
-  [ -x "$verifier" ] || continue
-  echo "=== $verifier ==="
-  "$verifier" || fail=1
-done
-exit $fail
-```
-
-**If any verifier exits non-zero:** Surface to PM with the offending verifier name + diff output — do NOT auto-fix. Investigate which consumer drifted from its canonical snippet.
-
-**If all verifiers exit 0:** Note in Phase 14 report: "Snippet sync: all N verifiers in sync."
+Retired: `snippet-sync-sweep retired — no-op` (used to run every `bin/verify-*-sync.sh` snippet-sync verifier across installed plugins). Kept as a numbered placeholder so downstream phase numbers don't shift.
 
 #### Phase 11g: Plugin-bundled wiki validate
 
-> Spec backlink: `archive/specs/2026-05/2026-05-15-plugin-wiki-write-direction-trap.md` § Phase 4
-> Semantics changed 2026-05-15 (Option B): verifies no plugin-cited wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator/docs/wiki/<name>.md`.
+Verifies no plugin-cited wiki has a dev-side mirror at `~/.claude/docs/wiki/`. Plugin-doctrine wikis live ONLY at `plugins/coordinator/docs/wiki/<name>.md`.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/sync-plugin-wiki.sh"
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/sync-plugin-wiki"`
 
 **If the script exits 0:** log in the Phase 14 report: "Plugin-bundled wiki: clean (N validated)."
 
@@ -338,53 +242,28 @@ case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal ch
 
 #### Phase 11c: Query Callout Refresh
 
-Regenerate `<!-- BEGIN query: ... -->` blocks in tracked markdown files:
+Regenerate `<!-- BEGIN query: ... -->` blocks in tracked markdown files: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/refresh-queries"`
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/refresh-queries.sh"
-```
-
-**If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). Log in the Phase 14 report: "Query callouts: N file(s) updated."
+**If the script reports changes:** include the updated files in the Phase 9 commit (or a follow-up commit in this phase). No separate Phase 14 line — folds into the always-print `**Synced:**` rollup (Phase 14 § Negative-spec: `Preamble Sync, Query Callouts` is dropped outright).
 
 **If the script exits non-zero** (parse error or query failure): surface the error to PM. Do NOT abort the rest of `/update-docs` — log the failure and continue.
 
-**If the script reports no changes:** note in the Phase 14 report: "Query callouts: up to date."
+**If the script reports no changes:** no Phase 14 line — folds into the always-print `**Synced:**` rollup.
 
 #### Phase 11d: Frontmatter Schema Drift Sweep
 
-The W1 PreToolUse validator runs in WARN mode — violations do NOT block writes. This phase surfaces accumulated drift counts at every `/update-docs` run.
+The W1 PreToolUse validator runs in WARN mode — violations do NOT block writes. This phase surfaces accumulated drift counts at every `/update-docs` run: run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/lint-frontmatter" --json`.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/lint-frontmatter.sh" --json
-```
+**Native op replacement:** the underlying validation now also lives at
+`coordinator_core/frontmatter/schema_cli.py`, `@register_op("schema.validate")` — a native
+Python frontmatter validation seam needing no Node runtime. `schema.validate` is the op-surface
+replacement to cite here, not a guaranteed 1:1 CLI swap for `lint-frontmatter.js` (which still
+exists in `coordinator/bin/` as a legacy artifact); if this step needs a specific check
+`schema.validate` doesn't yet cover, diff the two and flag back to claude-klabauter-em.
 
 Parse the JSON. Three behaviors:
 
-1. **`ok: true` (zero violations):** Note in Phase 14 report: *"Frontmatter schema drift: 0 violations."*
+1. **`ok: true` (zero violations):** No Phase 14 line — the `**Frontmatter Schema Drift:**` exception line is omitted at 0 violations.
 2. **`ok: false` with N violations:**
    - Group by schema. Identify the top 3 most-violated schemas with their counts.
    - List up to 5 specific offending files (path + schema name) in the Phase 14 report.
@@ -398,11 +277,19 @@ Parse the JSON. Three behaviors:
 
 ### ── EM resumes here (Sonnet doc-maintenance agent has returned) ──
 
-The EM owns every phase below. Phase 12 exists at this seam *specifically because* it requires `Agent` dispatch, which only the EM can perform.
+The EM owns every phase below. Phase 12 exists at this seam *specifically because* it requires `Agent` dispatch, which only the EM can perform — and Phase 9's commit exists at this seam *specifically because* only the EM can commit. Run Phase 9 first, before Phase 12.
+
+#### Phase 9 (executed here): Commit + Verify Remote
+
+1. Run `CLAUDE_INVOKING_COMMAND=update-docs "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "docs maintenance"`
+   (The post-commit hook will auto-push on work/feature branches.) This is the "Phase 9 commit" every phase from 9b through 11d refers to — it captures everything they wrote, since none of them committed on their own.
+2. **Verify remote is synced:** `git log origin/$(git branch --show-current)..HEAD 2>/dev/null`
+   If unpushed commits remain, push explicitly.
+3. If push fails, **warn the PM explicitly**
 
 #### Phase 12: Doc-link health check (plugin assets) — EM-LED
 
-> **EM-only phase. The Sonnet doc-maintenance agent MUST NOT execute this — subagents cannot dispatch other subagents.** If you are the Sonnet doc-maintenance agent reading this: STOP at the end of Phase 11d and return to the EM. The EM dispatches `doc-link-checker` here, then runs Phases 11f through 11i (mechanical bash) and the Phase 13+ tail itself.
+> **EM-only phase. The Sonnet doc-maintenance agent MUST NOT execute this — subagents cannot dispatch other subagents.** If you are the Sonnet doc-maintenance agent reading this: STOP at the end of Phase 11d and return to the EM. The EM dispatches `doc-link-checker` here, then runs Phases 11f through 11j (mechanical bash) and the Phase 13+ tail itself.
 
 After the worker returns, read the report and surface counts in the Phase 14 rollup:
 - Broken-link count (rows with `status: broken`)
@@ -414,127 +301,73 @@ If the dispatch returns zero broken/anchor-missing items: report "Plugin doc-lin
 
 The phase does NOT halt `/update-docs` on findings. Findings are informational; remediation is a separate workstream (queue entry or session-bound fix).
 
-**Dispatch prompt for doc-link-checker:**
+**Scope-path resolution (cwd-gated — do NOT hardcode `plugins/`).** The `plugins/` scope path below is a `~/.claude`-authoring assumption that does not hold in a consumer repo (no `plugins/` directory exists there). Resolve the scope path relative to the invoking repo before filling in the dispatch prompt:
+- If the invoking repo root contains a top-level `plugins/` directory (the coordinator-plugin-authoring shape — DoE-claude or a `~/.claude` install), scope to `plugins/`.
+- Otherwise (a consumer repo with no `plugins/` tree), scope to the invoking repo's own doc surface — e.g. the repo root, or its `docs/` + `coordinator.local.md`-declared doc paths if narrower scoping is warranted. Substitute the resolved path for `plugins/` in the dispatch prompt below.
+
+**Pre-count gate — cheap check before paying for the worker.** Before dispatching, count occurrences of `[text](url)`-shaped markdown links across the resolved scope path's `{skills,agents,commands}/*.md` file filter. Below a low single-digit-per-file threshold (a handful of total hits across the whole scope), the corpus is not link-authoring in this form — this repo's house convention is prose-cited paths and `<path> § <section>` citations, already checked by the cheaper Phase 11h anchor-link check — so **skip the dispatch and report the skip**: "Plugin doc-link health: skipped — pre-count found N markdown-link occurrence(s) across the scope, below dispatch threshold; citations checked by Phase 11h instead." This is a gate, not a deletion — a consumer repo whose pre-count clears the threshold still gets the full worker dispatch below.
+
+**Sidecar provisioning (EM's step, dispatch path only — never on the pre-count-gate skip path above).** `doc-link-checker` carries `Edit` but not `Write`/`Bash`-redirect for its deliverable (`agents/doc-link-checker.md` § Tools Policy, § DONE-After-Write Protocol) — its report lands via a single `Edit` into a pre-provisioned sidecar, never a self-authored `tasks/` path. Dispatching it via `Agent` auto-provisions `state/subagent-share/<session-id>/<provision_key>.md` at spawn and injects it into the brief as `sidecar_path:` (`subagent-sandbox-policy.yaml` — `coordinator:doc-link-checker` carries `provisioned-scaffold-precedence`); confirm the path landed in the brief before filling in the dispatch prompt below. This is why the report target below is "your provisioned sidecar," never a literal path the EM invents — inventing one here would silently regress to the same Write-shaped contradiction this seam exists to prevent.
+
+**Dispatch prompt for doc-link-checker (only when the pre-count gate does not skip):**
 
 ```
 Tier 1-3 attempted: tier 1 (architecture atlas / wiki) and tier 2 (project-RAG / query-records) do not validate markdown link health; tier 3 (grep) cannot resolve anchor existence; insufficient because mechanical link validation across 150+ plugin assets requires a worker with rate-limited WebFetch and anchor-resolution logic.
 
 You are the doc-link-checker. Your scope for this dispatch:
 
-Scope path: `plugins/`
-File filter: `{skills,agents,commands}/*.md` (all 7 plugins; recursive into plugin subdirectories)
+Scope path: `<resolved scope path — see "Scope-path resolution" above; `plugins/` only when that directory exists at the invoking repo root, otherwise the invoking repo's own doc surface>`
+File filter: `{skills,agents,commands}/*.md` (all plugins under the resolved scope path; recursive into plugin subdirectories)
 
 Validate every internal markdown link (file existence + anchor existence) and every external URL (HEAD with redirect-follow, 1s sleep between requests, 100-URL cap). Use your standard output contract.
 
-Write the report to your default path: `tasks/doc-link-check-<timestamp>.md` (substitute your own timestamp; do NOT use the literal string "<timestamp>").
+Edit your provisioned sidecar (the `sidecar_path:` in this brief) with the Structured Output Contract body, per your own DONE-After-Write Protocol. Never Write or Bash a report file yourself.
 
 DO NOT run `gh pr merge`, `gh pr create` against main, or `git push origin main`.
 
-Reply with `DONE: <path>` ONLY after you have confirmed the file exists at the path above (use Read or Bash `ls` to verify). If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
+Reply with `DONE: <path>` ONLY after your single `Edit` has landed in the provisioned sidecar. If you find yourself about to summarize the deliverable inline in your reply, STOP — the coordinator reads from disk, not chat. Inline summary without a written file counts as task failure.
 ```
 
 #### Phase 11f: Parallel-review lens-orthogonality check
 
-Asserts the four reviewers in the parallel-code-review skill's lens-domain manifest exist as agent files and have non-overlapping `lens_domain` values.
+Asserts the four reviewers in the parallel-code-review skill's lens-domain manifest exist as agent files and have non-overlapping `lens_domain` values. Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/verify-parallel-review-lens-orthogonality"`
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/verify-parallel-review-lens-orthogonality.sh"
-```
-
-**On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. A collision means the parallel-review carve-out's preconditions no longer hold (`coordinator/CLAUDE.md` § Review Sequencing). Fix: rename the colliding lens domain or remove the reviewer from the parallel pool.
+**On non-zero exit:** Surface the diagnostic to PM — do NOT auto-fix. A collision means the parallel-review carve-out's preconditions no longer hold (`coordinator/snippets/em-operating-doctrine.md` § How to Review What Came Back). Fix: rename the colliding lens domain or remove the reviewer from the parallel pool.
 
 **On zero exit:** Report "Parallel-review lens-orthogonality: clean." Informational — does NOT halt `/update-docs`.
 
 #### Phase 11h: Super-skill anchor-link check
 
-Walks every super-skill SKILL.md and verifies each `CLAUDE.md § <section>` citation resolves against a heading in project-level `coordinator/CLAUDE.md`. Global citations (`~/.claude/CLAUDE.md` or "global" on the same line) are recorded as QUALIFIED and not failed.
+Checks each `<path>.md § <section>` citation in the super-skill SKILL.md files against the headings of the file it names. Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/verify-skill-anchor-links"`
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-"$_cc_root/bin/verify-skill-anchor-links.sh"
-```
+- **exit 0** — clean. Report "Super-skill anchor links: clean (N total, K qualified, U unresolved)." U is non-fatal by design but must be surfaced, not folded into "clean". Does NOT halt.
+- **exit 1** — DEAD anchors. Surface to PM, do NOT auto-fix: repoint the citation, lift the section into the named file, or qualify it as global.
+- **exit 2** — could not check; stderr names why. Surface as **coverage you do not have**, never as a finding or a clean run.
 
-**On non-zero exit (DEAD anchors found):** Surface to PM — do NOT auto-fix. Fix: lift the cited content into project-level `coordinator/CLAUDE.md` as a stub bullet, or qualify the citation as global.
+**Never collapse 1 into 2.** "Found nothing" and "looked at nothing" are different verdicts, and reading the second as the first is what let this gate no-op silently for a week in July 2026.
 
-**On zero exit:** Report "Super-skill anchor links: clean (N total, K qualified-global)." Informational — does NOT halt `/update-docs`.
+Exit 2 needs a *present and broken* `coordinator/doctrine-surfaces.json` (or an unresolvable root). **An absent manifest is NOT exit 2** — it is the normal mode, exiting 0/1 with alias citations recorded QUALIFIED. The manifest is a coverage upgrade, not a dependency; treating its absence as failure reintroduces the same incident from the other side.
 
 #### Phase 11h2: Cross-reference coverage sweep
 
 Walks the coordinator-claude plugin tree, extracts every `<plugin>:<name>` reference, `subagent_type:` assignment, and worker bullet under `## Worker Dispatch Recommendations` headers, and verifies each resolves to a real skill/agent/command on disk. External prefixes (`example-game-repo-control:*`, `superpowers:*`, etc.) are skipped.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-node "$_cc_root/bin/verify-coverage.js"
-```
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/verify-coverage" --sweep-root "$(pwd)"`.
 
-The script exits non-zero on any orphan reference. **This phase HALTS `/update-docs` on orphans** — retarget to the real artifact, add to `REF_ALLOWLIST` in `bin/verify-coverage.js` with a rationale, or create the missing artifact.
+**cwd-gated by design.** `--sweep-root "$(pwd)"` scopes the reference sweep to the invoking repo's own doc surface, not the coordinator plugin tree (`--root` above stays the plugin tree — that's where skills/agents/commands are discovered from). Without this gate, a consumer repo running `/update-docs` walks DoE-claude's entire tree and HALTs on that repo's unrelated archival drift — a defect confirmed independently by two consumer repos (market-intel, claude-klabauter). `verify-coverage` also excludes `archive/` from the sweep by default now (joins `dist/`, `review-trail/`) — archived docs are historical records, not live dispatch references.
+
+The script exits non-zero on any orphan reference. **This phase HALTS `/update-docs` on orphans** — retarget to the real artifact, add to `REF_ALLOWLIST` in claude-klabauter's `coordinator_core/ops/verify_coverage.py` with a rationale, or create the missing artifact.
 
 **On orphans:** Report `Cross-reference coverage: N orphan(s) — /update-docs HALTED.` and stop. **On zero orphans:** Report "Cross-reference coverage: clean."
 
 #### Phase 11i: Prune resolved-state bloat from queues
-
-Spec backlinks: `archive/specs/2026-05/2026-05-07-prune-resolved-state-bloat.md § S5`; `docs/decisions/DR-056-queue-delete-on-resolution.md` (amended 2026-05-17).
 
 Aggressively strip resolved-state bloat and schema ceremony from the three queue files:
 - Closure-log sections: `## Processed` / `## Resolved*` / `## History` / `## Closed` / `## Done` / `## Archive` / `## Closeout` — entire body stripped to next `##` heading.
 - Entry-shape closure annotations (queue files only): any entry whose `resolution:` is not `pending`/`in_progress`, or which carries a `**Closeout:**` sub-line — entire entry deleted.
 - Trivial schema ceremony (queue files only): `  recurring: 0`, `  resolution: pending`, `  resolution: in_progress` sub-lines — stripped, main line preserved.
 
-```bash
-_cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-_cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-_cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-_cc_trusted=0
-case "$_cc_root" in
-  "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-esac
-[ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-[ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-[ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-[ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-for queue in state/coordinator-improvement-queue.md state/improvement-queue.md state/bug-backlog.md; do
-  [[ -f "$queue" ]] || continue
-  before=$(wc -l < "$queue")
-  "$_cc_root/bin/prune-resolved-queue-entries.sh" "$queue"
-  after=$(wc -l < "$queue")
-  echo "Pruned $((before - after)) lines from $queue"
-done
-```
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/update-docs-probes" queue-prune-sweep`
 
 **On non-zero exit:** Surface the file path and error output to the PM — do NOT skip. The pruner fails loud on unexpected structure and must not be bypassed.
 
@@ -542,49 +375,61 @@ done
 
 **On zero exit with no lines pruned:** Note in the report: "Queue prune: clean (no resolved bloat found)."
 
+#### Phase 11j: Reap stale subagent-share sidecars
+
+Named exception to `state/`'s never-swept posture (see § tasks/ vs state/ above): `state/subagent-share/<session-id>/*.md` sidecars of every identity-typed kind (run-report, review-findings, staff-eng-review, assessment/prior-art-checker/docs-checker/plan-coverage-checker spawns) are tracked deliverable docs, not ephemera, so a "cadence sweep of a known folder" gate on `status:` alone is wrong. Reap gate is **session liveness AND an age floor, plus a status carve-out — never `status:` in isolation** — same op and same guard `/workweek-complete` invokes; canonical full three-clause definition lives at `coordinator/commands/distill.md` § tasks/ vs state/ — aggressive sweep boundary (named exception) — read that, not a re-derivation here.
+
+Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/reap-stale-subagent-sidecars"`
+
+**On non-zero exit:** Surface the file path and error output to the PM — do NOT skip.
+
+**On zero exit with sidecars reaped:** Include the `git rm` deletions in the docs-maintenance commit (or a separate `chore(subagent-share): reap stale sidecars` commit). Report the reaped count in the Phase 14 summary.
+
+**On zero exit with nothing reaped:** Note in the report: "Subagent-share sidecar reap: clean (nothing stale)."
+
 #### Phase 13: Artifact Distillation (Conditional)
 
 **Skip this phase if `--no-distill` was passed.**
 
 Check whether accumulated artifacts warrant distillation into wiki documents:
 
-1. **Count artifacts:**
-   ```bash
-   # Count across distillation source directories (state/ excluded by scope)
-   PLANS=$(find docs/plans/ -name "*.md" 2>/dev/null | wc -l)
-   HANDOFFS=$(find archive/handoffs/ -name "*.md" 2>/dev/null | wc -l)
-   COMPLETED=$(find archive/completed/ -name "*.md" 2>/dev/null | wc -l)
-   TASKS=$(find tasks/ -mindepth 2 -name "*.md" 2>/dev/null | wc -l)
-   TOTAL=$((PLANS + HANDOFFS + COMPLETED + TASKS))
-   ```
+1. **Count artifacts + check threshold:** run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/update-docs-probes" distill-threshold`
 
-2. **Check recency + threshold — fire if EITHER:** total count ≥ 50; OR last distillation >14 days ago (read from `docs/wiki/.distill-log.md`); OR no log exists and count ≥ 20.
+   The CLI counts artifacts across the distillation source directories (`docs/plans/`, `archive/handoffs/`, `archive/completed/`, `tasks/` at mindepth 2 — `state/` excluded by scope) and applies the fire/no-fire threshold — **fire if EITHER:** total count ≥ 50; OR last distillation >14 days ago (read from `state/distillation-log.md` — the canonical log per `schemas/distillation-log.schema.md § Path`; the formerly-cited `docs/wiki/.distill-log.md` never existed on disk); OR no log exists and count ≥ 20. Exit 1 means the threshold fired; exit 0 means not needed. The printed line already carries the count/reason.
 
-3. **If threshold met:** Announce to PM: *"Artifact count is [N] / last distillation was [N] days ago. Chaining into `/distill`."* Then invoke `/distill` via the Skill tool. `/distill` Phase 4 is the PM approval checkpoint.
+   **Native op backing this cadence check:** `update-docs-probes distill-threshold` reads the
+   same freshness signal claude-klabauter's `distill.curation_status --emit` op emits
+   (`coordinator_core/ops/distill_curation_status.py`, `@register_op("distill.curation_status")`)
+   — this is the op that killed the fictional `docs/wiki/.distill-log.md` read referenced above.
+   Cite `distill.curation_status` (not a hand-rolled freshness read) when describing what this
+   step consumes.
 
-4. **If threshold not met:** Note in report: "Distillation: not needed (N artifacts, last run M days ago)."
+2. **If threshold met (exit 1):** Announce to PM: *"Artifact count is [N] / last distillation was [N] days ago. Chaining into `/distill`."* Then invoke `/distill` via the Skill tool. `/distill` Phase 4 is the PM approval checkpoint.
+
+3. **If threshold not met:** Note in report: "Distillation: not needed (N artifacts, last run M days ago)."
 
 #### Phase 14: Report
 
-Present a concise `## Documentation Update Summary` with one `### <section>` heading per item below, status line drawn from the phase's own success/skip/failure outputs.
+**Report by exception.** A ceremony summary is still an EM→PM reply and still owes the ≤200-word budget from global `CLAUDE.md § Communication Style` — a fixed block of 17 per-item status lines spends that budget on facts the PM can read off the commit, then gets measured as a verbosity violation by the Stop-hook altitude check. Print what needs a reader, not what needs a checkbox.
 
-- **Project Tracker** — maintained / no tracker / no changes; include workstream count + dependency notes
-- **Source Indexes** — created / updated / no changes
-- **Plan Documents** — one line per file
-- **Memory** — updated / no changes (note what changed)
-- **Lessons** — trimmed N / merged M / no changes
-- **CLAUDE.md** — updated / no changes
-- **Handoffs Archived** — N moved / no cleanup
-- **Artifact Pruning (Phase 8b)** — N plans, M handoffs, K dirs (safety commit SHA) / no-op
-- **Plugin Doc-Link Health** — clean / N broken (path) / skipped (cap)
-- **Completion Archive** — N archived to YYYY-MM.md / none
-- **Architecture Atlas** — drift findings / clean / skipped; append RAG-staleness + quarterly drift-risk notes
-- **Repomap** — generated (primary) / fallback / skipped (RAG fresh); append audit-log line
-- **Preamble Sync, Query Callouts** — in-sync / N updated / failed
-- **Frontmatter Schema Drift** — 0 / N across S schemas with top offenders
-- **Distillation** — ran (N guides, M deleted) / not needed / skipped
-- **Pushed to Remote** — yes (branch) / no (reason)
-- **Cross-Repo Registry (Phase 15)** — N candidates / all verified / N unreachable / skipped
+```
+## Documentation Update Summary
+
+**Synced:** [N] doc(s) updated (tracker, indexes, plans, memory, lessons, CLAUDE.md, handoffs, artifact pruning, completion archive, repomap, preamble/callout sync) — see commit for detail
+**Pushed:** yes (branch) / no (reason)
+```
+
+Then append a line **only** if its condition holds:
+
+| Line | Include only when |
+|---|---|
+| `**Plugin Doc-Link Health:**` | N broken link(s) found (name the path(s)), or the check was skipped (cap) — omit when clean |
+| `**Architecture Atlas:**` | drift findings, a RAG-staleness banner, or a quarterly drift-risk note fired this run — omit when clean |
+| `**Frontmatter Schema Drift:**` | N ≥ 1 violations found (include top offenders per schema, per Phase 11d wording) or the sweep errored — omit at 0 violations |
+| `**Distillation:**` | the threshold fired and `/distill` was chained — omit when "not needed" |
+| `**Cross-Repo Registry:**` | N candidate(s) unreachable, or the phase was skipped (cwd-gated out) — omit when all verified |
+
+**Negative-spec — these are gone, do not restore them.** `Project Tracker`, `Source Indexes`, `Plan Documents`, `Memory`, `Lessons`, `CLAUDE.md`, `Handoffs Archived`, `Artifact Pruning (Phase 8b)`, `Completion Archive`, `Repomap`, and `Preamble Sync, Query Callouts` are no longer printed as their own lines at all. Each was a count or a file list of work the ceremony's own commit already records, with no PM decision attached; their absence is not a signal the corresponding phase was skipped — the phases still run, and `git show` is their record. A future reader must not re-add them "for completeness": completeness of the *ceremony* is the assembler's job, completeness of the *report* is not the same thing.
 
 #### Phase 15: Cross-Repo Registry Refresh (cwd-gated, EM-only)
 

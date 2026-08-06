@@ -3,13 +3,13 @@ kind: exec-summary
 repo: {{REPO}}
 project: {{PROJECT}}
 generated: {{GENERATED}}
-generator: bin/generate-exec-summary.sh
+generator: bin/generate-exec-summary.py
 ---
 
 # {{PROJECT}} — Executive Summary
 
 > One-screen "why this project matters" brief. The two MANAGED sections are refreshed by
-> `bin/generate-exec-summary.sh` from disk artifacts; the two HAND sections are yours to
+> `bin/generate-exec-summary.py` from disk artifacts; the two HAND sections are yours to
 > author once and are preserved verbatim on every regeneration.
 >
 > Spec backlink: docs/wiki/exec-summary-artifact.md
@@ -17,7 +17,7 @@ generator: bin/generate-exec-summary.sh
 ## What this project is
 
 <!-- BEGIN MANAGED: identity -->
-_Run `bin/generate-exec-summary.sh` to populate this section from README + project artifacts._
+_Run `bin/generate-exec-summary.py` to populate this section from README + project artifacts._
 <!-- END MANAGED: identity -->
 
 ## What makes it special
@@ -39,5 +39,5 @@ on every refresh — edit once, it survives regen._
 ## Progress
 
 <!-- BEGIN MANAGED: progress -->
-_Run `bin/generate-exec-summary.sh` to populate this section from week-changelog + git history._
+_Run `bin/generate-exec-summary.py` to populate this section from week-changelog + git history._
 <!-- END MANAGED: progress -->

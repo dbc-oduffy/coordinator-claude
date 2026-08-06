@@ -1,0 +1,87 @@
+{
+  "_readme": "Single source of truth for the coordinator doc-type registry AND the cross-repo identity registries. Read at load time by BOTH the Python CLIs (coordinator-doc-new, cross-repo-memo, coordinator-lesson-promote, coordinator-queue-append via bin/lib/coordinator_registry.py) AND the Python write-guard modules (formerly hooks/scripts/validate-frontmatter-schema.py; the live logic is claude-klabauter coordinator_core/write_guards/validate_frontmatter_schema_{deny,advisory}.py, evaluated in-process by coordinator/hooks/scripts/preuse-write-dispatch.py) [Review: code-reviewer — deleted file no longer a live consumer; live logic now the claude-klabauter write_guards port]. Replaces three former hand-maintained JS mirrors + the 3x _REPO_KEY_ALIASES Python triplication. NEVER rename to *.schema.json or *.yaml — the schema loader globs both and would parse this as a JSON-Schema record. The *.manifest.json suffix is a load-bearing glob-avoidance constraint. Spec: docs/plans/2026-07-02-shared-coordinator-registry-manifest.md.",
+  "schemaVersion": 1,
+
+  "docTypes": [
+    { "type": "plan",                "schemaName": "plan",                "isSidecar": false, "offerable": true },
+    { "type": "handoff",             "schemaName": "handoff",             "isSidecar": false, "offerable": true },
+    { "type": "decision",            "schemaName": "decision",            "isSidecar": false, "offerable": true },
+    { "type": "problem-set",         "schemaName": "problem-set",         "isSidecar": false, "offerable": true },
+    { "type": "completion",          "schemaName": "completion-entry",    "isSidecar": false, "offerable": true },
+    { "type": "goal",                 "schemaName": "goal",                "isSidecar": false, "offerable": true, "applies_to": "state/goals/*.yaml" },
+    { "type": "sizing-object",       "schemaName": "sizing-object",       "isSidecar": false, "offerable": true, "applies_to": "state/sizings/*.yaml" },
+    { "type": "health-status",       "schemaName": "health-status",       "isSidecar": false, "offerable": true },
+    { "type": "research-synthesis",  "schemaName": "research-synthesis",  "isSidecar": false, "offerable": true },
+    { "type": "prior-art-check",     "schemaName": "prior-art-check",     "isSidecar": true,  "offerable": true, "suffix": "prior-art-check" },
+    { "type": "review",              "schemaName": "review-sidecar",      "isSidecar": true,  "offerable": true, "suffix": "review" },
+    { "type": "plan-coverage-check", "schemaName": "plan-coverage-check", "isSidecar": true,  "offerable": true, "suffix": "plan-coverage-check" },
+    { "type": "docs-check",          "schemaName": "docs-check-sidecar",  "isSidecar": true,  "offerable": true, "suffix": "docs-check" },
+    { "type": "strategic-self-description", "schemaName": "strategic-self-description", "isSidecar": false, "offerable": true, "applies_to": "state/strategic/self-description.yaml" },
+
+    { "type": "spinoff",         "schemaName": "handoff", "isSidecar": false, "offerable": false,
+      "excludeReason": "PM-gated fork; shares the handoff schema but is offered via kindOfferOverride (kind-disambiguated), not the schemaName-keyed SCAFFOLD_OFFER_MAP" },
+    { "type": "roadmap-baton", "schemaName": "handoff", "isSidecar": false, "offerable": false,
+      "excludeReason": "PM-gated fork variant; shares the handoff schema but is offered via kindOfferOverride (requires --roadmap-id/--stub-id), not SCAFFOLD_OFFER_MAP. Canonical name as of the baton-kind-vocabulary migration — the flag now agrees with kind: roadmap-baton it scaffolds. Legacy spelling --type spinoff-roadmap is a permanent CLI-side alias (coordinator-doc-new), not represented as a second manifest row." },
+    { "type": "goal-seed",            "schemaName": "handoff", "isSidecar": false, "offerable": false,
+      "excludeReason": "PM-gated fork; goal-scoped session with no predecessor baton; authored via /spinoff-goal or coordinator:goal-setting. Canonical name as of the baton-kind-vocabulary migration — agrees with kind: goal-seed. Legacy spelling --type spinoff-goal is a permanent CLI-side alias (coordinator-doc-new)." },
+    { "type": "roadmap-seed", "schemaName": "handoff", "isSidecar": false, "offerable": false,
+      "excludeReason": "PM-gated fork; session that produces roadmap stubs (kind: roadmap-baton); no predecessor baton; authored via coordinator:roadmap-planning. Canonical name as of the baton-kind-vocabulary migration — agrees with kind: roadmap-seed. Legacy spelling --type spinoff-roadmap-creator is a permanent CLI-side alias (coordinator-doc-new)." },
+    { "type": "recovery", "schemaName": "handoff", "isSidecar": false, "offerable": false,
+      "excludeReason": "crash-recovery baton; shares the handoff schema but is offered via kindOfferOverride (kind-disambiguated), not the schemaName-keyed SCAFFOLD_OFFER_MAP" },
+    { "type": "spike-result", "schemaName": "spike-result", "isSidecar": false, "offerable": false,
+      "neverManuallyScaffoldable": true,
+      "excludeReason": "durable verdict record for coordinator:spike, homed at docs/research/spike-verdicts/ (not state/handoffs/ — DEC-3a's handoff reuse retired in favor of a dedicated schema); authored exclusively by coordinator:spike at end-of-run (no kindOfferOverride entry — never manually scaffolded), not the schemaName-keyed SCAFFOLD_OFFER_MAP" },
+    { "type": "tier-u-grant", "schemaName": "tier-u-grant", "isSidecar": false, "offerable": false,
+      "neverManuallyScaffoldable": true,
+      "excludeReason": "Tier-U test-invocation authority grant token stored at .git/coordinator-sessions/<sid>/tier-u-grant.json (DR-088 ladder enforcement layer 5); authored exclusively by the claude-klabauter-side grant writer at PM-authorization or ceremony-grant time, never hand-scaffolded" },
+    { "type": "memo",            "schemaName": null,      "isSidecar": false, "offerable": false,
+      "excludeReason": "local draft path has no stable schema glob; cross-repo memos use buildMemoOfferPayload, not the scaffold offer" },
+    { "type": "audit-record",    "schemaName": "audit-record", "isSidecar": false, "offerable": false,
+      "excludeReason": "requires --system <name>, which is not derivable from the output path" },
+    { "type": "run-report", "schemaName": "run-report", "isSidecar": false, "offerable": false,
+      "excludeReason": "requires --plan <full path> and --chunk <id> (when plan-scoped) or a provision_key/nonce (when ad-hoc), not path-derivable; written by the universal subagent run-report provisioning path, not hand-authored" },
+    { "type": "subagent-sidecar", "schemaName": null, "isSidecar": false, "offerable": false,
+      "excludeReason": "requires --plan/--chunk/--dispatched-at/--dispatched-by plus a caller-supplied --out (path is computed by coordinator_core.dispatch.provision at spawn time, not path-derivable here); schema-of-record is schemas/decision-object.schema.json $defs/subagent_sidecar (DoE-owned CONTRACT, not a standalone schemas/subagent-sidecar.schema.json file), so schemaName is null here the same way memo/review-findings/workflow are" },
+    { "type": "review-findings", "schemaName": null,      "isSidecar": false, "offerable": false,
+      "excludeReason": "requires --slice <id> and --scope <comma-paths>, not path-derivable; written by the code-reviewer self-persist agent" },
+    { "type": "lesson",          "schemaName": "lesson-entry", "isSidecar": false, "offerable": false,
+      "excludeReason": "delegates to coordinator-lesson-promote outbox, not coordinator-doc-new" },
+    { "type": "workflow",        "schemaName": null, "isSidecar": false, "offerable": false,
+      "excludeReason": "COMPUTE_ONLY claude-klabauter op (workflow.scaffold); delegates to coordinator-workflow-scaffold.py, no local schema — writes script text, not a frontmatter document" }
+  ],
+
+  "kindOfferOverride": {
+    "spinoff": {
+      "type": "spinoff",
+      "isSidecar": false,
+      "manualArgs": null,
+      "authoringHint": "Spinoffs are PM-gated forks — the canonical authoring path is the /spinoff skill (or coordinator:roadmap-planning)."
+    },
+    "spinoff-roadmap": {
+      "type": "roadmap-baton",
+      "isSidecar": false,
+      "manualArgs": "--roadmap-id <id> --stub-id <id>",
+      "authoringHint": "Roadmap stubs are authored by the coordinator:roadmap-planning skill, which supplies --roadmap-id / --stub-id."
+    },
+    "recovery": {
+      "type": "recovery",
+      "isSidecar": false,
+      "manualArgs": null,
+      "authoringHint": "Recovery handoffs reconstruct state after a crashed session — the canonical authoring path is `coordinator-doc-new --type recovery` directly (no dedicated skill)."
+    }
+  },
+
+  "queueTypes": ["improvement-queue", "bug-backlog", "debt-backlog"],
+
+  "_reconstruction": "KNOWN_TYPES = {d.type for d in docTypes} ∪ set(queueTypes). docTypes is complete over every non-queue type (offerable and excluded alike), so this union byte-equals the pre-refactor coordinator-doc-new._KNOWN_TYPES. It is also a superset-safe match for the plan's pinned formula {docTypes} ∪ {kindOfferOverride.values()} ∪ queueTypes ∪ {lesson}, since spinoff/roadmap-baton/lesson already appear as docTypes entries. SIDECAR_TYPES = {d.type for d in docTypes if d.isSidecar}. QUEUE_TYPES = queueTypes. The C2 golden-tuple test MUST assert byte-equality against the current tuples.",
+
+  "identity": {
+    "centralReceiverIds": ["doe-claude-em", "claude-central-em", "central-em", "central"],
+    "repoAliases": [
+      { "registryKey": "example_game_workbench_repo", "shortname": "example-game-repo", "dirBasename": "example-game-workbench-repo" }
+    ],
+    "redirectAliases": [".claude-em", "claude-home", "coordinator-claude", "coordinator-claude-em"],
+    "_aliasDirections": "repoAliases stores the canonical triple per divergent identity. Python REPO_ALIASES = {registryKey: shortname}. JS REPO_BASENAME_TO_EM_SHORTNAME = {dirBasename: shortname}. cross-repo-memo RECEIVER_EM_ALIASES = {shortname: registryKey} (inverse). dirBasename = registryKey with underscores→dashes, stored explicitly rather than derived so the convention is never silently assumed. Every OTHER fleet repo registers under its conventional key (shortname with dashes→underscores, per claude-klabauter's convention_repo_key); the one row present is a genuine divergence — the example-game-repo repo's working-tree basename is `example-game-workbench-repo`, not the conventional `example-game-repo`, so em_id_for_basename() cannot derive its shortname from the basename alone. NEGATIVE-SPEC: registryKey is the MACHINE-LOCAL registry key (`repos.example_game_workbench_repo`), never the shortname — claude-klabauter's coordinator_registry.py builds REPO_ALIASES = {registryKey: shortname} and RECEIVER_EM_ALIASES as its inverse, so a registryKey equal to the shortname degrades the row to a no-op identity mapping and breaks _receiver_repo_key, em_id_for_root, and the parent-folder-scan fallback (7 live claude-klabauter test failures, 2026-08-05). The key itself must stay present — coordinator_registry.py indexes identity.repoAliases under a required-key KeyError guard, so deleting it is an install-integrity failure. Adding a row is a last resort for a repo that genuinely cannot register conventionally; note that a row makes receiver_em_to_repo_key resolve THROUGH the alias, so the aliased repo's conventional key becomes unreachable while the row exists.",
+    "_redirectAliasesNote": "redirectAliases lists DoE-canonical home/mirror receiver ids that always redirect to the first entry of centralReceiverIds (doe-claude-em) — they are NOT distinct working trees, just this same central surface under another name (~/.claude / coordinator-claude are the live-install of THIS repo). Promoted from cross-repo-memo's former code-pinned _DOE_CANONICAL_REDIRECT_ALIASES literal (2026-07-21) so DoE and its downstream consumer share one declarative source instead of two copies that can drift. Cross-repo contract surface: claude-klabauter's coordinator_core/ops/fleet/_memo_resolver.py `read_redirect_aliases()` reads this field declaratively (their negative-spec forbids hardcoding it on their side) and degrades to an empty set if this field is ever removed — do not delete without checking that consumer."
+  }
+}

@@ -9,7 +9,7 @@
 | File | Role |
 |---|---|
 | `_claude_home.py` | The implementation. Stdlib-only Python module. Exposes both a Python API (`from _claude_home import claude_config_path, read_config, write_config`) and a CLI (`python _claude_home.py {home\|path\|dir\|machine-local\|plugins}`). |
-| `claude-home` | Bash shim. Resolves a Python interpreter and execs `_claude_home.py` with the caller's args. Installed `chmod +x` at `~/.claude/bin/claude-home`. |
+| `claude-home` | `python3`-shebang CLI trampoline. Extensionless (name is load-bearing for PATH lookups) — locates its co-located `_claude_home.py` and dispatches into its `_main()` directly (no interpreter-resolution step; Python is already running). Installed `chmod +x` at `~/.claude/bin/claude-home`. |
 | `claude-home.cmd` | Windows shim. Routes `claude-home <args>` through Git-for-Windows bash so the extensionless script is callable from native cmd.exe / PowerShell without triggering the "Select an app" picker. |
 | `tests/test_claude_home.py` | Stdlib `unittest` suite (no pytest dep). 16 tests covering path resolution precedence, sub-location helpers, sibling-not-nested layout invariant, JSON read/write/BOM/atomicity, CLI surface. |
 | `README.md` | This file. |

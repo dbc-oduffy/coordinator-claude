@@ -1,172 +1,49 @@
-#!/usr/bin/env bash
-# coordinator-ensure-post-commit-hook — idempotent install/repair of the
-# crash-insurance post-commit auto-push hook in the current git repo.
-#
-# Why: the auto-push doctrine ("Auto-push hook on every commit on work/*
-# branches — crash insurance") was install-time only via repo-setup § 3f.5.
-# Repos that pre-date the doctrine, repos whose `.git/hooks/` got wiped, and
-# OSS users who clone without running `/repo-setup` all inherit a silent
-# failure: commits succeed, no hook fires, work strands on local.
-#
-# This helper makes the install self-healing: it runs from session-init.sh on
-# every session boot inside any coordinator-aware repo. Idempotent and near-
-# zero cost — a stat plus a (comment-stripped) grep when already installed.
-#
-# Behavior (decoupled exec-bit + marker check — see review F4):
-#   - hook absent          → install canonical shim + chmod +x (atomic write).
-#   - hook present + marker (routed)
-#     ├─ current COORD_BIN form → exec-bit repair only (no-op when executable).
-#     └─ stale form (old bash-shebang exec, hand-patched SCRIPT=, .plugins path) →
-#          rewrite atomically to current COORD_BIN form + chmod +x.
-#   - hook present + marker absent
-#                          → append backgrounded helper invocation (preserves
-#                            existing Git-LFS / custom prefix), then chmod +x
-#                            (atomic copy+append+mv).
-#   - helper missing       → skip silently (broken coordinator install — a
-#                            different problem, not this script's to diagnose).
-#
-# Marker match (F3): comment lines stripped before grep, so a stray
-# "# TODO: replace with coordinator-auto-push" cannot false-positive as routed.
-# Idempotency invariant (C3): a hook already on the current COORD_BIN form never
-# re-matches the stale-rewrite arm — portable-shim shape (#!/bin/sh + bash guard)
-# + grep-qF on the baked SCRIPT= line matching current COORD_BIN is the gate.
-#
-# Always exits 0 — must never block a session start.
-#
-# Spec backlink: state/handoffs/2026-06-11_145955_auto-push-silent-failure-email-privacy.md
-# (now archived under archive/handoffs/).
+#!/usr/bin/env python3
+"""
+coordinator-ensure-post-commit-hook — idempotent install/repair of the
+crash-insurance post-commit auto-push hook in the current git repo.
 
-set +e
+Native-Python port (DR-059 de-bash, Windows-first). Logic lives in
+lib/git_hook_install.py; this is the thin entrypoint. The INSTALLED
+.git/hooks/post-commit body it writes is bash-free (probes python, invokes the
+polyglot coordinator-auto-push directly) so it fires on a Windows box that has
+sh + python but no bash — the case the bash predecessor silently no-op'd on.
 
-# DR-148: bash >= 4 required. On macOS stock 3.2: brew install bash + ensure
-# /usr/local/bin or /opt/homebrew/bin precedes /bin in PATH.
-# Review: code-reviewer — precautionary guard (no bash-4-only features used here),
-# keeps installer pair consistent with coordinator-ensure-prepare-commit-msg-hook (F6).
-# Never block on bash version — silently skip install on bash < 4.
-if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-  exit 0
-fi
+Runs from session-init on every session boot inside any coordinator-aware repo,
+and from /repo-setup § 3f.5. Idempotent and near-zero cost. Always exits 0 —
+must never block a session start.
 
-GIT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-[ -z "$GIT_ROOT" ] && exit 0
+Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § git-hook-installers-port
+Prior bash implementation: see git log (coordinator-ensure-post-commit-hook, retired on this cutover)
+"""
+from __future__ import annotations
 
-# Resolve coordinator bin dir from machine-local registry (DoE-first, OSS fallback).
-# At install time we bake the resolved path into the hook body, so each machine's
-# hook points at that machine's live coordinator bin.
-# Review: code-reviewer — dead spec backlink removed (F7); plan was never committed.
-_ML_BIN=""
-_THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
-if [ -x "$_THIS_DIR/machine-local" ]; then
-  _ML_BIN="$_THIS_DIR/machine-local"
-elif command -v machine-local >/dev/null 2>&1; then
-  _ML_BIN="$(command -v machine-local)"
-fi
-COORD_BIN=""
-if [ -n "$_ML_BIN" ]; then
-  _COORD_SRC="$("$_ML_BIN" get plugin.mirrors.coordinator-claude.source_path 2>/dev/null)"
-  # Review: code-reviewer — validate _COORD_SRC as a directory before use; a stale registry
-  # key (repo moved) would otherwise silently set COORD_BIN to a nonexistent path, causing the
-  # helper -f check to exit 0 with no output — indistinguishable from a broken install (F2).
-  if [ -n "$_COORD_SRC" ] && [ -d "$_COORD_SRC" ]; then
-    COORD_BIN="$_COORD_SRC/bin"
-  elif [ -n "$_COORD_SRC" ]; then
-    echo "[coordinator-ensure-post-commit-hook] WARNING: plugin.mirrors.coordinator-claude.source_path='$_COORD_SRC' is not a directory; using marketplace fallback" >&2
-  fi
-fi
-# Fall back to the .doe-root cold-readable pointer (source_is_live installs where
-# machine-local is broken/unset) before the marketplace path.
-if [ -z "$COORD_BIN" ] && [ -f "$HOME/.claude/.doe-root" ]; then
-  _DOE_ROOT="$(cat "$HOME/.claude/.doe-root" 2>/dev/null)"
-  if [ -n "$_DOE_ROOT" ] && [ -d "$_DOE_ROOT/coordinator/bin" ]; then
-    COORD_BIN="$_DOE_ROOT/coordinator/bin"
-  fi
-fi
-# Fall back to marketplace path for OSS/fresh installs where registry key is absent.
-[ -n "$COORD_BIN" ] || COORD_BIN="$HOME/.claude/plugins/coordinator/bin"
+import os
+import sys
 
-HOOK="$GIT_ROOT/.git/hooks/post-commit"
-HELPER="$COORD_BIN/coordinator-auto-push"
-MARKER="coordinator-auto-push"
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+# git_hook_install.py imports from the coordinator_core package (win_portability,
+# py_probe_sh) at module level -- that package is resolvable only from the repo
+# root, not from _LIB_DIR, so it must be on sys.path too or the import below
+# raises ModuleNotFoundError every time this entrypoint runs as a subprocess
+# (which is how it is invoked from session-init and from the test suite).
+_REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
-[ -f "$HELPER" ] || exit 0
+from git_hook_install import ensure_post_commit_hook  # noqa: E402
 
-# Hook absent → install canonical shim. coordinator-auto-push is contractually
-# exit-0, so `exec` here is safe (no risk of poisoning the commit's success
-# status). The append path below uses a backgrounded subshell instead, to
-# preserve a possibly-set-e custom prefix.
-if [ ! -e "$HOOK" ]; then
-  # $COORD_BIN is resolved at install time; $SCRIPT/$HOME expand at hook-run time.
-  # Atomic write: cat to temp then mv so a concurrent git-commit never reads a torn hook.
-  cat > "$HOOK.tmp.$$" <<SHIM
-#!/bin/sh
-# Auto-push to remote on work/* or feature/* branches — crash insurance.
-# Installed by coordinator-ensure-post-commit-hook. coordinator-auto-push is exit-0.
-# POSIX-sh + bash guard — GitHub Desktop's MinGit lacks bash; skip cleanly there.
-command -v bash >/dev/null 2>&1 || exit 0
-SCRIPT="$COORD_BIN/coordinator-auto-push"
-[ -x "\$SCRIPT" ] || { _dr="\$(cat "\$HOME/.claude/.doe-root" 2>/dev/null)"; [ -n "\$_dr" ] && [ -x "\$_dr/coordinator/bin/coordinator-auto-push" ] && SCRIPT="\$_dr/coordinator/bin/coordinator-auto-push"; }
-[ -x "\$SCRIPT" ] || SCRIPT="\$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push"
-[ -x "\$SCRIPT" ] || exit 0
-exec bash "\$SCRIPT"
-SHIM
-  mv -f "$HOOK.tmp.$$" "$HOOK"
-  chmod +x "$HOOK" 2>/dev/null
-  exit 0
-fi
 
-# Hook exists. Check for our routing marker (comment lines stripped — F3 anti-
-# false-positive). Broadened self-heal (C3): any marker-present hook that is NOT
-# already on the current COORD_BIN form is rewritten atomically. Covers old bash-
-# shebang single-exec, hand-patched 2-path SCRIPT=, stale abs-path SCRIPT=, and
-# any body exec'ing a stale .claude/plugins/coordinator-claude/coordinator path.
-# Idempotency invariant: portable-shim shape + grep-qF on the baked SCRIPT= line are the no-re-match gate.
-if grep -v '^[[:space:]]*#' "$HOOK" 2>/dev/null | grep -q "$MARKER"; then
-  # Idempotency: already-current guard — shape (#!/bin/sh shebang + bash guard) must
-  # match AND the baked SCRIPT= path must equal current COORD_BIN.  A portable-shim
-  # hook with a stale COORD_BIN (or no SCRIPT= line) falls through to the stale-rewrite
-  # arm below, as does any old bash-shebang form.
-  _first_line="$(head -n1 "$HOOK" 2>/dev/null)"
-  if [ "$_first_line" = '#!/bin/sh' ] && grep -q 'command -v bash' "$HOOK" 2>/dev/null; then
-    # Also verify the baked SCRIPT= path still matches current COORD_BIN.
-    if grep -qF "SCRIPT=\"$COORD_BIN/coordinator-auto-push\"" "$HOOK" 2>/dev/null; then
-      [ -x "$HOOK" ] || chmod +x "$HOOK" 2>/dev/null
-      exit 0
-    fi
-    # Falls through to stale-rewrite: correct shape but stale COORD_BIN.
-  fi
-  # Stale routing — rewrite atomically to current COORD_BIN form.
-  # $COORD_BIN resolved at install time; $SCRIPT/$HOME expand at hook-run time.
-  cat > "$HOOK.tmp.$$" <<SHIM
-#!/bin/sh
-# Auto-push to remote on work/* or feature/* branches — crash insurance.
-# Installed by coordinator-ensure-post-commit-hook. coordinator-auto-push is exit-0.
-# POSIX-sh + bash guard — GitHub Desktop's MinGit lacks bash; skip cleanly there.
-command -v bash >/dev/null 2>&1 || exit 0
-SCRIPT="$COORD_BIN/coordinator-auto-push"
-[ -x "\$SCRIPT" ] || { _dr="\$(cat "\$HOME/.claude/.doe-root" 2>/dev/null)"; [ -n "\$_dr" ] && [ -x "\$_dr/coordinator/bin/coordinator-auto-push" ] && SCRIPT="\$_dr/coordinator/bin/coordinator-auto-push"; }
-[ -x "\$SCRIPT" ] || SCRIPT="\$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push"
-[ -x "\$SCRIPT" ] || exit 0
-exec bash "\$SCRIPT"
-SHIM
-  mv -f "$HOOK.tmp.$$" "$HOOK"
-  chmod +x "$HOOK" 2>/dev/null
-  exit 0
-fi
+def main() -> int:
+    try:
+        return ensure_post_commit_hook(_BIN_DIR)
+    except Exception as exc:  # never block a session start
+        print(f"coordinator-ensure-post-commit-hook: {exc}", file=sys.stderr)
+        return 0
 
-# Hook exists, marker absent. Append a backgrounded invocation so we never
-# clobber an existing chain (Git-LFS, prepare-commit-msg pipelines, user
-# customizations). The `&` keeps the parent hook's success status intact even
-# if the auto-push subshell exits non-zero — though coordinator-auto-push
-# itself is contractually exit 0.
-# Atomic append: copy to temp, append, mv so a concurrent git-commit never reads a torn hook.
-cp "$HOOK" "$HOOK.tmp.$$" 2>/dev/null
-{
-  printf '\n%s\n' '# === coordinator auto-push (crash insurance) ==='
-  # Bake COORD_BIN at install time; $-prefixed vars below expand at hook-run time.
-  printf '%s\n' "{ _AP=\"$COORD_BIN/coordinator-auto-push\"; [ -x \"\$_AP\" ] || { _dr=\"\$(cat \"\$HOME/.claude/.doe-root\" 2>/dev/null)\"; [ -n \"\$_dr\" ] && [ -x \"\$_dr/coordinator/bin/coordinator-auto-push\" ] && _AP=\"\$_dr/coordinator/bin/coordinator-auto-push\"; }; [ -x \"\$_AP\" ] || _AP=\"\$HOME/.claude/plugins/coordinator/bin/coordinator-auto-push\"; command -v bash >/dev/null 2>&1 && [ -x \"\$_AP\" ] && bash \"\$_AP\"; } &"
-} >> "$HOOK.tmp.$$" 2>/dev/null
-mv -f "$HOOK.tmp.$$" "$HOOK" 2>/dev/null
 
-[ -x "$HOOK" ] || chmod +x "$HOOK" 2>/dev/null
-
-exit 0
+if __name__ == "__main__":
+    sys.exit(main())

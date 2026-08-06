@@ -89,7 +89,7 @@
       "plugin_version": "0.9.0",
       "binding": {
         "kind": "bound",
-        "target": "/home/user/projects/my-app"
+        "target": "~/my-app"
       },
       "status": {
         "state": "healthy",
@@ -113,7 +113,7 @@
       "plugin_version": null,
       "binding": {
         "kind": "bound",
-        "target": "X:/projects/MyExampleGameRepo/MyExampleGameRepo.uproject"
+        "target": "MyExample-game-repo/MyExampleGameRepo.uproject"
       },
       "status": {
         "state": "healthy",

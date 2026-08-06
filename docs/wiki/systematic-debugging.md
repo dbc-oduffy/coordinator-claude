@@ -103,7 +103,7 @@ If you cannot state the prediction — the hypothesis is a vibe. Discard it or s
 
 ### Phase 4: Implementation
 
-1. **Create a failing test case.** Simplest reproduction. Automated if possible. MUST have before fixing. Apply `docs/wiki/test-driven-development.md`.
+1. **Create a failing test case.** Simplest reproduction. Automated if possible. MUST have before fixing — write the test before the fix (test-driven-development).
 2. **Implement a single fix.** Address the root cause. ONE change. No "while I'm here" improvements.
 3. **Verify fix.** Test passes? Other tests still pass? Issue actually resolved?
 4. **If fix doesn't work — STOP.** Count attempts: <3 → return to Phase 1 with new info. ≥3 → question architecture (step 5). Don't attempt fix #4 without architectural discussion.
@@ -132,8 +132,6 @@ All of these mean: STOP. Return to Phase 1.
 **Do not author an implementation plan for a failure class whose root cause is still unknown. Sequence evidence collection before design.**
 **Why:** A plan drafted against a wrong premise (e.g., "VRAM saturation") becomes debt the moment real evidence lands. One session produced ~290 lines of "host-level VRAM guardrail" plan before a kernel-level event named a non-GPU Python process consuming 217 GB virtual — the plan was discarded unbuilt rather than retrofitted on wrong premises.
 **How to apply:** run WMI / log / kernel-event diagnostics first → identify the actual offender → THEN design the fix. Premature mitigation plans mislead future readers and waste reviewer cycles on a plan the facts already contradict.
-
-*Source: example-game-repo `state/lessons.md` (example-game-repo-L135, central-promoted 2026-05-28).*
 
 ## Common Rationalizations
 
@@ -198,6 +196,10 @@ When a workaround uses an *incidental* flag (a behaviour-adjacent toggle that ha
 
 A failing gate is one node in a chain. Disabling, bypassing, or whitelisting past it does not validate that the *next* gate accepts the input. After any bypass-style fix, re-run the full path from entry to terminal effect; the symptom often re-surfaces two layers downstream where a quieter assertion now fails. "The gate stopped complaining" is not "the operation succeeded."
 
+### A neutralizer/opt-out discriminator is blind to failures upstream of its own line
+
+Classifying a test failure by *"does setting the neutralizer env-var (e.g. `COORDINATOR_PLUGIN_ROOT_TRUSTED=1`) change the result?"* is **structurally blind to any failure that occurs before the neutralizer is consulted.** If a `set -e` guard aborts on its first line — upstream of the opt-out check — toggling the neutralizer changes nothing, and a real guard-caused failure gets misclassified "pre-existing." Whenever a discriminator relies on a neutralizer/opt-out toggle, first verify the neutralizer is actually *reached* on the failure path; an `origin/main` baseline diff (does this failure reproduce on the untouched baseline?) is the robust cross-check that doesn't depend on where the opt-out sits in the control flow.
+
 ### Structural refactor as bug-closing leverage
 
 When 3+ symptom fixes have failed in the same module, the cheapest *next* move is often a structural refactor — extracting the tangled state, narrowing the API, or splitting the responsibility — not a fourth symptom patch. The refactor closes whole classes of bugs (including the one you're chasing) by making the broken shape representable only as a compile/type error. Treat "we keep patching this" as a routing signal to refactor, not a count toward give-up.
@@ -212,9 +214,7 @@ Subprocess exit codes (and the structured-report fields they correspond to: `ret
 
 ### Large unsigned exit codes may be signed –1, not a native crash
 
-A subprocess that exits with code `4294967295` (0xFFFFFFFF) is reporting a signed –1 reinterpreted as an unsigned 32-bit value — not an SEH exception or native crash. Before concluding that a large unsigned exit code signals an unhandled structured exception, grep the subprocess's stdout/stderr logs for the real error: a Python traceback, a structured error message, or a logged exception will name the actual failure class. The OS surface (`returncode = 4294967295`) is accurate; the *interpretation* (crash vs. deliberate non-zero exit) requires the logs. Concrete example: UE Commandlet processes return `Commandlet->Main()` exit –1 as their error path; project-rag's F-NEW-5 was misclassified as an SEH crash for two release cycles before a debug-capture run surfaced a `TypeError` traceback at the Python layer.
-
-*Source: example-sim-repo `state/lessons.md` (L8, central-promoted 2026-05-29).*
+A subprocess that exits with code `4294967295` (0xFFFFFFFF) is reporting a signed –1 reinterpreted as an unsigned 32-bit value — not an SEH exception or native crash. Before concluding that a large unsigned exit code signals an unhandled structured exception, grep the subprocess's stdout/stderr logs for the real error: a Python traceback, a structured error message, or a logged exception will name the actual failure class. The OS surface (`returncode = 4294967295`) is accurate; the *interpretation* (crash vs. deliberate non-zero exit) requires the logs. Concrete example: a game-engine commandlet process returns its own `Main()` exit –1 as its error path; a subprocess integration was misclassified as an SEH crash for two release cycles before a debug-capture run surfaced a `TypeError` traceback at the underlying scripting layer.
 
 ### No live diagnostic tracers that harm the host
 
@@ -244,7 +244,7 @@ Bugs often manifest deep in the call stack (git init in wrong directory, file cr
 
 #### The Tracing Process
 
-1. **Observe the symptom** — `Error: git init failed in /home/dev/project/packages/core`.
+1. **Observe the symptom** — `Error: git init failed in project/packages/core`.
 2. **Find immediate cause.** What code directly causes this?
    ```typescript
    await execFileAsync('git', ['init'], { cwd: projectDir });
@@ -289,13 +289,13 @@ Analyze stack traces by looking for test file names, finding the line number tri
 
 #### Finding Which Test Causes Pollution
 
-If something appears during tests but you don't know which test, use the bisection script `find-polluter.sh`:
+If something appears during tests but you don't know which test, use a bisection script (`find-polluter.py`-shaped) that runs tests one-by-one and stops at the first polluter:
 
 ```bash
-~/.claude/plugins/coordinator/bin/find-polluter.sh '.git' 'src/**/*.test.ts'
+find-polluter.py '.git' 'src/**/*.test.ts'
 ```
 
-Runs tests one-by-one, stops at first polluter. See the script for usage.
+See the script for usage.
 
 #### Real Example — Empty `projectDir`
 
@@ -456,7 +456,7 @@ async function waitFor<T>(
 }
 ```
 
-See `~/.claude/plugins/coordinator/examples/condition-based-waiting-example.ts` for a complete implementation with domain-specific helpers (`waitForEvent`, `waitForEventCount`, `waitForEventMatch`) from an actual debugging session. The example uses generic, self-contained types (`Event`, `EventType`, `EventManager`) with no external imports — copy it directly into any project and substitute your own event type values.
+See `${CLAUDE_PLUGIN_ROOT}/examples/condition-based-waiting-example.ts` for a complete implementation with domain-specific helpers (`waitForEvent`, `waitForEventCount`, `waitForEventMatch`) from an actual debugging session. The example uses generic, self-contained types (`Event`, `EventType`, `EventManager`) with no external imports — copy it directly into any project and substitute your own event type values.
 
 #### Common Mistakes
 
@@ -485,27 +485,25 @@ Systematic approaches typically resolve issues in a single pass; guess-and-check
 
 **A performance diagnosis taken while zombie processes or competing daemons contend is contaminated — profile under a clean process environment before trusting the premise.**
 
-Concrete failure: two handoffs reported full-suite collection at 1230s (20.5 min) and prescribed a collection refactor; profiling found collection was actually ~4s — the 1230s was contention from 5 abandoned `pytest tests/` processes + a `tool_dogfood` test spawning the project-rag daemon (43 GB commit-leak). The real fixes were unrelated to the diagnosed cause (retry-storm fast-fail, IPv4, marker-deselecting heavy substrate tests).
+Concrete failure: two handoffs reported full-suite collection at 1230s (20.5 min) and prescribed a collection refactor; profiling found collection was actually ~4s — the 1230s was contention from 5 abandoned test processes plus an integration test spawning a background daemon (43 GB commit-leak). The real fixes were unrelated to the diagnosed cause (retry-storm fast-fail, IPv4, marker-deselecting heavy substrate tests).
 
-Rule: `ps`/process-list + a clean re-run BEFORE trusting any perf number in a handoff. A newly-runnable test tier surfaces pre-existing failures the prior avoidance was hiding — expect and triage them, don't assume they're your regression. (Source: project-rag-ue-addon L57)
+Rule: `ps`/process-list + a clean re-run BEFORE trusting any perf number in a handoff. A newly-runnable test tier surfaces pre-existing failures the prior avoidance was hiding — expect and triage them, don't assume they're your regression.
 
 ## Schema Migration and Dedup Patterns
 
 **Mixed-separator dedup is FK-aware, not a single REPLACE.**
 
-Two tables affected by the same root-cause bug need two different migrations: a no-collision column is a simple REPLACE; a TEXT PRIMARY KEY column is a collision-aware dedup-then-update because the key compresses rows that differ only in separator. Safe order: (1) inspect FK relationships, (2) DELETE loser rows from collision groups first, (3) UPDATE keepers to normalized form — never UPDATE before DELETE. (Source: example-game-repo L13)
+Two tables affected by the same root-cause bug need two different migrations: a no-collision column is a simple REPLACE; a TEXT PRIMARY KEY column is a collision-aware dedup-then-update because the key compresses rows that differ only in separator. Safe order: (1) inspect FK relationships, (2) DELETE loser rows from collision groups first, (3) UPDATE keepers to normalized form — never UPDATE before DELETE.
 
 **When normalizing one path column, inventory ALL path-typed columns across ALL tables before declaring done.**
 
-Patching one column without auditing siblings leaves live consumer join paths silently broken — the AC table can pass clean because it uses LIKE predicates that don't care about separators. Before closing any separator/normalization patch, run `SELECT name FROM sqlite_master WHERE type='table'` and for each table run `PRAGMA table_info(t)` to identify every TEXT column with path semantics; apply the same normalization in the same commit. (Source: example-game-repo L53)
+Patching one column without auditing siblings leaves live consumer join paths silently broken — the AC table can pass clean because it uses LIKE predicates that don't care about separators. Before closing any separator/normalization patch, run `SELECT name FROM sqlite_master WHERE type='table'` and for each table run `PRAGMA table_info(t)` to identify every TEXT column with path semantics; apply the same normalization in the same commit.
 
 ## Audit Your Own Fix for the Bug Class You Just Fixed
 
 **When fixing a cwd-relative or path-resolution bug, the fix's own path references are the first thing to check.** The failure mode of a fix reintroducing the bug it fixes is a recurring AI-authoring pattern — a replacement script that calls `bin/helper.sh` (cwd-relative) to eliminate a different cwd-relative call reproduces the identical silent no-op. Grep your replacement for the same relative-path shape you are removing; use authoritative absolute paths or `$(dirname "$0")`-anchored resolution in the fix itself.
 
 **How to apply:** before submitting any path-resolution fix for review, run `grep -nE '(^\./|^bin/|^scripts/)' <new-file>` (or equivalent) to enumerate relative path references in the replacement. Each hit is a candidate for the same bug. This self-audit is fastest and cheapest before a reviewer catches it.
-
-*Source: meta-repo `state/lessons.md` (central-promoted 2026-05-29).*
 
 ## flaky process crash resisting code-layer fixes — rate-measure then fix at gate layer
 
@@ -515,11 +513,9 @@ A flaky test-PROCESS crash (hard abort, no traceback) that resists code-layer fi
 
 When an audit or dogfood run reports a named probe or command as BROKEN, that names the **symptom surface**, not necessarily the code path that produces it. There may be multiple resolvers of that symptom, and the plan's cited helper may not be the one the symptom flows through.
 
-**Rule:** when a finding cites a failing probe/command, grep for ALL code paths that produce that symptom before pinning the fix-locus. Runtime-verify the *named* probe post-fix — a fix that targets a different resolver leaves the named probe still broken. Sister to the fix-locus-discrimination principle in CLAUDE.md § Pre-Dispatch Verification ("Audit symptom is correct; locus may be wrong").
+**Rule:** when a finding cites a failing probe/command, grep for ALL code paths that produce that symptom before pinning the fix-locus. Runtime-verify the *named* probe post-fix — a fix that targets a different resolver leaves the named probe still broken. Sister to the fix-locus-discrimination principle in `docs/wiki/pre-dispatch-verification.md` ("Audit symptom is correct; locus may be wrong").
 
-**Empirical basis (2026-06-18, example-game-workbench-repo):** macOS dogfood HF3 reported `check_machine_local_registry` BROKEN; the plan fixed `_machine_local_get` (a *different* machine-local resolver) and the symptom probe stayed broken — caught only by C5 runtime verification, not plan review.
-
-*(Source: example-game-repo-L120, central-promoted 2026-06-20.)*
+**Empirical basis:** a macOS dogfood reported a registry-check probe BROKEN; the plan fixed a *different* machine-local resolver, and the symptom probe stayed broken — caught only by a later runtime verification pass, not plan review.
 
 ## A Test/Reviewer Claim of "Code Exits 0 / Returns Wrong Value" Can Be a Test-Harness Artifact
 
@@ -527,9 +523,7 @@ Before editing production code to satisfy a failing test or reviewer's "it retur
 
 **Rule:** (1) before fixing production to satisfy a test or reviewer-claimed runtime value, run a direct 12-line repro outside the harness and compare. (2) Never communicate a result from a shell helper via a global when callers may use `$(...)` — return it, write it to a file (files survive subshells), or print it on a sentinel line.
 
-**Empirical basis (2026-06-19, example-game-workbench-repo):** a code-reviewer reported `example_game_repo_recover.sh --step reverse-drift` exiting 0 on a halt (spec: 1), diagnosed as two production bugs. Direct repro gave exit **1** — production was correct. Root cause: `run_recover_mock` set `_LAST_RC=$_rc` while every caller ran `out=$(run_recover_mock ...)`, so `_LAST_RC` was set in the subshell and the parent read the stale `0`. One of the reviewer's two findings was a phantom caused by the harness. Pairs with the P0/P1 verification gate and tool-output-flakiness ("don't infer from a single read").
-
-*(Source: example-game-repo-L174, central-promoted 2026-06-20.)*
+**Empirical basis:** a code-reviewer reported a recovery script exiting 0 on a halt (spec: 1), diagnosed as two production bugs. Direct repro gave exit **1** — production was correct. Root cause: the mock helper set a result via a global variable while every caller wrapped the call in `out=$(fn ...)`, so the global was set in the subshell and the parent read the stale `0`. One of the reviewer's two findings was a phantom caused by the harness. Pairs with the P0/P1 verification gate and tool-output-flakiness ("don't infer from a single read").
 
 ## Read the captured crash traceback before trusting a static file:line diagnosis of a daemon crash
 
@@ -537,18 +531,14 @@ For a won't-bind / crashloop daemon, a static source trace produces confident-bu
 
 **Rule:** for runtime crash diagnosis of a daemon or backgrounded process, get the **captured traceback first** — the giveup sentinel, the crashloop stderr log, the last-run capture. Static file:line tracing is a fallback, not the primary. This is the daemon-crash instance of § Ground Truth Beats Derived Signals: the traceback is the ground truth; the static trace is a derived signal.
 
-*Source: project-rag.*
-
 ## A NOT-NULL / schema-mismatch insert bug usually has SIBLING writer sites — grep every writer of the table
 
 When an insert bug is a schema-mismatch (omitting a NOT-NULL column, wrong column set), the site you fix is rarely the only one. Fixing the obvious per-row inserter leaves sibling writers — staging→output `INSERT-SELECT`s, band-swap copies, bulk migrators — with the identical omission, and they surface only later when a different test exercises that path.
 
-**Rule:** on any NOT-NULL / schema-mismatch insert fix, `grep` **every writer** of the affected table (every `INSERT`, `INSERT-SELECT`, and `REPLACE` naming it), not just the inserter the failure pointed at, and apply the fix to all of them in the same change. Sister to § Audit Your Own Fix for the Bug Class You Just Fixed and to the DB/indexer "inventory ALL path-typed columns" rule in `implementation-standards-by-domain.md`.
-
-*Source: project-rag.*
+**Rule:** on any NOT-NULL / schema-mismatch insert fix, `grep` **every writer** of the affected table (every `INSERT`, `INSERT-SELECT`, and `REPLACE` naming it), not just the inserter the failure pointed at, and apply the fix to all of them in the same change. Sister to § Audit Your Own Fix for the Bug Class You Just Fixed and to the same "inventory every column/writer of the same shape" discipline applied to DB/indexer path-typed columns.
 
 ## Reference
 
-- **Aux script:** `~/.claude/plugins/coordinator/bin/find-polluter.sh` — bisection-based test polluter finder.
-- **Aux example:** `~/.claude/plugins/coordinator/examples/condition-based-waiting-example.ts` — concrete `waitFor` helpers from a real debugging session.
-- **Related doctrine:** [test-driven-development](test-driven-development.md), [verification-before-completion](verification-before-completion.md), [stuck-detection](stuck-detection.md).
+- **Aux script:** `find-polluter.py` — bisection-based test polluter finder.
+- **Aux example:** `${CLAUDE_PLUGIN_ROOT}/examples/condition-based-waiting-example.ts` — concrete `waitFor` helpers from a real debugging session.
+- **Related doctrine:** [verification-before-completion](verification-before-completion.md), [stuck-detection](stuck-detection.md).

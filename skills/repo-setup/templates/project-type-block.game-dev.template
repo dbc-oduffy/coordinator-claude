@@ -1,0 +1,8 @@
+## Unreal Engine Conventions
+
+- **Engine version:** UE5.x (specify)
+- **Build command:** <!-- e.g., UnrealBuildTool invocation -->
+- **Cook command:** <!-- platform-specific cook -->
+- **Blueprint vs C++:** <!-- project policy on when to use each -->
+- **Naming conventions:** <!-- UE naming standards: A_ for assets, BP_ for blueprints, etc. -->
+- **Key modules:** <!-- list primary C++ modules -->

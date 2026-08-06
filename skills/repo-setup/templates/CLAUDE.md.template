@@ -21,7 +21,7 @@
 
 ## Runtime conventions
 
-<!-- Auto-populated from bin/detect-project-runtime.sh on first scaffold. PM should review and edit. -->
+<!-- Auto-populated from bin/detect-project-runtime.py on first scaffold. PM should review and edit. -->
 
 - <!-- runtime line -->
 - <!-- runtime line -->

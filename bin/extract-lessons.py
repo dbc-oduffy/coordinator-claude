@@ -17,9 +17,11 @@ Two responsibilities, two subcommands:
             is the only step that needs judgment, and it consumes these faithful records.
 
   verify    The mechanical gate on the judgment layer. Given an extraction file and
-            a routing-records file, assert every routing record cites a source line
-            that a real extracted entry occupies. Records whose `source` line matches
-            no extracted entry are fabrication suspects and are reported non-zero.
+            a routing-records file, assert every routing record's `id` matches a
+            real extracted entry (PRIMARY, hard failure). `source` is advisory
+            metadata (re-attached/warned, never fails the gate) — see A6 fix below.
+            Records whose `id` matches no extracted entry are fabrication suspects
+            and are reported non-zero.
 
 This is the deterministic backbone that lets Haiku stay in the loop for bounded
 routing classification: extraction can't be faked (no model runs it), and routing
@@ -63,10 +65,11 @@ def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[
     - title: value of `title` field
     - body: value of `body` field
 
-    The `{shortname}-L{N}` id convention preserves backward compatibility with the
-    verify-gate regex `re.match(r".+-L\\d+$", rid)` that gates the id-existence check.
-    N encodes sorted-file-position rather than a line number — the verify semantics
-    (cited N must map to a real entry) are identical.
+    The `{shortname}-L{N}` id convention is preserved for multi-repo shortname-routing
+    compatibility (`_shortname_from_id` extracts the `{shortname}` prefix to dispatch
+    a routing record to its matching extraction) — NOT for gating the id-existence
+    check, which is now unconditional per the A6 fix (see `verify()`'s docstring).
+    N encodes sorted-file-position rather than a line number.
 
     Negative-spec: do NOT read state/lessons.md — that path has been superseded.
     """
@@ -141,12 +144,16 @@ def _emit(records: list[dict], fmt: str, meta: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Verify gate — UNCHANGED from the markdown-parse version.
-# The grounding semantics are identical: routing records must cite a source :N
-# that exists in the extraction, the id must exist, and the summary must overlap
-# with the extracted entry title. Source format changes from
-# `state/lessons.md:N` to `state/lessons/<slug>.yaml:N` but the `:N` parsing
-# logic is identical — the synthetic index N satisfies the same uniqueness check.
+# Verify gate — id-primary / source-advisory grounding (A6 fix, 2026-07-23).
+# The gate now grounds on `id` (unconditional, hard failure on mismatch) as the
+# PRIMARY key; `source` is ADVISORY metadata — missing, stripped, or rewritten
+# `:N` is re-attached/noted, never a failure. A present-but-disagreeing `source`
+# is a warning. Title-overlap remains a hard failure (catches summary-swap).
+# Negative-spec: do NOT reinstate a hard failure on `source`'s `:N` shape — that
+# shape is a synthetic enumeration index, not a real line number, and treating
+# it as load-bearing produced a 29/29 false-failure on honest records whose
+# `source` had merely been reformatted by a routing LLM. See verify()'s
+# docstring for the full incident writeup.
 # ---------------------------------------------------------------------------
 
 _ID_LINE = re.compile(r'^\s*-\s+id:\s*["\']?([^"\']+?)["\']?\s*$')
@@ -224,7 +231,8 @@ def _title_overlap(title: str, summary: str) -> bool:
 
 def _parse_extraction_yaml_full(path: Path) -> list[dict]:
     """Reader for the extraction YAML this script emits — captures id, source_line,
-    and title (verify uses title for the overlap check). Tolerant of unknown fields."""
+    title, and source (verify uses title for the overlap check and source for the
+    A6 advisory re-attachment note). Tolerant of unknown fields."""
     records: list[dict] = []
     cur: dict | None = None
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -244,6 +252,8 @@ def _parse_extraction_yaml_full(path: Path) -> list[dict]:
             cur["source_line"] = int(v)
         elif k == "title" and "title" not in cur:
             cur["title"] = v
+        elif k == "source" and "source" not in cur:
+            cur["source"] = v
     if cur:
         records.append(cur)
     return records
@@ -259,7 +269,12 @@ def _load_extraction(extraction_path: Path) -> list[dict]:
 
 def _shortname_from_id(rid: str) -> str | None:
     """Extract shortname from a `<shortname>-L<N>` routing id. Returns None if the id
-    does not match the convention (caller decides whether to treat that as ungrounded)."""
+    does not match the convention (caller decides whether to treat that as ungrounded).
+
+    Negative-spec: this regex is unrelated to, and does not resurrect, the removed
+    id-existence-check carve-out documented in `verify()`'s docstring (A6) — that gate
+    exempted ids from existence-checking based on shape; this one only routes an
+    already-existence-checked id to its matching multi-repo extraction file."""
     m = re.match(r"(.+)-L\d+$", rid)
     return m.group(1) if m else None
 
@@ -292,19 +307,50 @@ def _discover_extractions(extraction_dir: Path) -> dict[str, Path]:
 
 
 def verify(extraction_path: Path, routing_path: Path) -> int:
-    """Three-check grounding gate on routing records against a trusted extraction.
+    """Grounding gate on routing records against a trusted extraction.
 
-    (1) source-line existence — cited :N must map to a real entry's source_line.
-        For YAML-backed extractions, source has the form `<yaml_path>:N` where N is
-        the 1-based sorted-file-index (unique per entry, not a real file line number).
-    (2) id existence — cited <shortname>-L<N> ids must match an extraction id.
-    (3) title overlap — routing `summary` must share >= _TITLE_OVERLAP_MIN consecutive
-        chars with the extracted entry's title (the Staff Engineer F2: catches summary-swap, the
-        sophisticated fabrication shape the line/id gate misses).
+    Grounding key is `id` (PRIMARY, unconditional, hard failure on mismatch) — `id`
+    is the machine-generated, unique field a router cannot honestly emit without an
+    extraction record backing it. `source` is ADVISORY metadata (SOFT — missing,
+    stripped, or rewritten `:N` never fails the gate; a present-but-disagreeing
+    `source` is a WARNING, not a failure).
+
+    Negative-spec / regression context (A6, 2026-07-23): `source`'s trailing `:N` is
+    a synthetic 1-based enumeration index across the extraction directory listing,
+    NOT a real file line number (see `extract()` docstring). It only *looks* like a
+    `path:line` citation, so LLM routers "helpfully" strip or rewrite it as a matter
+    of routine formatting cleanup — with zero fabrication involved. A prior version
+    of this gate treated `source`'s `:N` shape as load-bearing and failed 29/29
+    otherwise-honest routing records in one live run purely because every record's
+    `source` had been reformatted. Grounding on `id` primary / `source` advisory
+    fixes this while keeping the fabrication catch intact: a record whose `id` does
+    not exist in the extraction is real fabrication and still fails, unconditionally
+    (the prior `re.match(r".+-L\\d+$", rid)` gate on the id-existence check has been
+    removed — that regex silently exempted any id not matching the `-L<digits>`
+    shape from being checked for existence at all, which was its own fabrication
+    hole: a made-up id in a non-matching shape, paired with a title that happened to
+    overlap, previously sailed through un-checked).
+
+    Three checks per routing record:
+
+    (1) id existence — PRIMARY, HARD failure. Cited `id` must match an extraction
+        `id`, unconditionally (no shape carve-out).
+    (2) source cross-check — ADVISORY. If `source` is absent/malformed (`:N`
+        missing or non-numeric), the canonical `source` is re-attached from the
+        extraction by `id` and reported as an informational note — NOT a failure.
+        If `source` is present, well-formed, but disagrees with the extraction's
+        recorded `source_line` for that `id`, that is a WARNING (possible content
+        drift / stale extraction) — NOT a failure.
+    (3) title overlap — HARD failure. Routing `summary` must share
+        >= _TITLE_OVERLAP_MIN consecutive chars with the extracted entry's title
+        (the Staff Engineer F2: catches summary-swap, the sophisticated fabrication shape the
+        id/source gate misses — an honest id+source paired with a description of a
+        *different* entry).
 
     Extraction is the trusted oracle (script produced it); routing is the untrusted
-    input (a model or hand-author produced it). Exit 1 on any failure; exit 0 if all
-    routing records pass all three checks.
+    input (a model or hand-author produced it). Exit 1 if any record fails checks
+    (1) or (3); exit 0 otherwise — advisory notes/warnings from check (2) never
+    change the exit code.
 
     **Multi-repo mode (auto-engaged when `extraction_path` is a directory):** discovers
     every `<shortname>-extracted-full.{yaml,json}` in the directory and dispatches each
@@ -316,6 +362,7 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
 
     routing_records = _parse_records_file(routing_path)
     suspects: list[str] = []
+    notes: list[str] = []
 
     if extraction_path.is_dir():
         # Multi-repo mode: discover extractions and route each routing record by shortname.
@@ -350,9 +397,6 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         rid = r.get("id", "(no id)")
         src = r.get("source", "")
         ln = _line_from_source(src)
-        if ln is None:
-            suspects.append(f"  {rid}: source `{src}` does not end in `:N` — cannot ground")
-            continue
 
         # Pick which (by_line, by_id) maps to use.
         if extraction_path.is_dir():
@@ -373,35 +417,62 @@ def verify(extraction_path: Path, routing_path: Path) -> int:
         else:
             by_line, by_id = per_shortname["__single__"]
 
-        if ln not in by_line:
-            suspects.append(f"  {rid}: cites source line {ln} — no extracted entry starts there")
+        # (1) PRIMARY, HARD — id must exist in the extraction, unconditionally.
+        # No shape carve-out: a fabricated id in ANY shape is real fabrication.
+        if rid not in by_id:
+            suspects.append(f"  {rid}: id not in extraction — fabricated id "
+                            f"(cited source was `{src}`)")
             continue
-        ext_rec = by_line[ln]
-        # id check (only when the routing id follows our `<name>-L<n>` scheme).
-        if re.match(r".+-L\d+$", rid) and rid not in by_id:
-            suspects.append(f"  {rid}: id not in extraction (line cite was {ln}; "
-                            f"extraction has {ext_rec['id']} at that line)")
-            continue
+        ext_rec = by_id[rid]
+
+        # (2) ADVISORY, SOFT — source is re-attached/note-only when missing or
+        # malformed; a present-but-disagreeing source is a warning, never a failure.
+        if ln is None:
+            canonical_source = ext_rec.get("source", "(none in extraction)")
+            notes.append(
+                f"  {rid}: source `{src}` missing/malformed `:N` suffix — re-attached "
+                f"canonical source `{canonical_source}` from extraction by id "
+                f"(advisory note, not a grounding failure)"
+            )
+        else:
+            ext_source_line = ext_rec.get("source_line")
+            if ln != ext_source_line:
+                notes.append(
+                    f"  {rid}: WARNING — cited source line {ln} disagrees with "
+                    f"extraction's source_line {ext_source_line} for this id "
+                    f"(possible content drift; not a grounding failure)"
+                )
+
+        # (3) HARD — title overlap catches the summary-swap fabrication shape that
+        # an honest id+source pair does not.
         summary = r.get("summary", "")
         if summary and not _title_overlap(ext_rec.get("title", ""), summary):
             suspects.append(
                 f"  {rid}: summary shares <{_TITLE_OVERLAP_MIN} consecutive chars with "
-                f"extraction title — possible summary-swap (id+line cite OK, content drift)"
+                f"extraction title — possible summary-swap (id+source OK, content drift)"
             )
 
+    if notes:
+        print(f"GROUNDING GATE: {len(notes)} advisory note(s) (informational — do NOT "
+              f"affect the exit code):", file=sys.stderr)
+        for n in notes:
+            print(n, file=sys.stderr)
+
     if suspects:
-        print(f"GROUNDING GATE: {len(suspects)} routing record(s) failed grounding checks "
-              f"(line / id / title-overlap):", file=sys.stderr)
+        print(f"GROUNDING GATE VERDICT: FAIL (exit 1) — {len(suspects)} routing record(s) "
+              f"failed grounding checks (id-existence / title-overlap):", file=sys.stderr)
         for s in suspects:
             print(s, file=sys.stderr)
         return 1
     if extraction_path.is_dir():
-        print(f"OK: {len(routing_records)} routing records all grounded against "
-              f"{len(per_shortname)} extraction(s) in {extraction_path.name}/ "
-              f"({total_entries} entries with valid source_line, summed across extractions).")
+        print(f"GROUNDING GATE VERDICT: PASS (exit 0) — {len(routing_records)} routing "
+              f"records all grounded against {len(per_shortname)} extraction(s) in "
+              f"{extraction_path.name}/ ({total_entries} entries with valid source_line, "
+              f"summed across extractions).")
     else:
-        print(f"OK: {len(routing_records)} routing records all grounded against "
-              f"{extraction_path.name} ({total_entries} entries with valid source_line).")
+        print(f"GROUNDING GATE VERDICT: PASS (exit 0) — {len(routing_records)} routing "
+              f"records all grounded against {extraction_path.name} "
+              f"({total_entries} entries with valid source_line).")
     return 0
 
 
@@ -425,10 +496,22 @@ def main(argv: list[str]) -> int:
 
     pv = sub.add_parser(
         "verify",
-        help="gate: every routing record must cite a real extracted entry. "
+        help="gate: every routing record's `id` must match a real extracted entry "
+             "(`source` is advisory only — see A6 note below). "
              "If `extraction` is a directory, multi-repo mode auto-engages: every "
              "<shortname>-extracted-full.{yaml,json} in the dir is loaded, and each "
              "routing record is dispatched to its matching extraction by id-prefix.",
+        description=(
+            "Grounds routing records against a trusted extraction. Prints a "
+            "`GROUNDING GATE VERDICT: PASS (exit 0)` or `GROUNDING GATE VERDICT: "
+            "FAIL (exit 1)` line to stderr on every invocation.\n\n"
+            "WARNING — piping to `| tail` (or any pager) hides the real exit code: "
+            "`$?` after a pipeline reflects the LAST command in the pipe (`tail`), "
+            "not `verify` itself. Check `$?` on an unpiped invocation, or use "
+            "`set -o pipefail` (bash) first, or grep the printed VERDICT line — "
+            "never infer pass/fail from a piped `$?`."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     pv.add_argument("extraction", type=Path,
                     help="extraction file OR directory of <shortname>-extracted-full.* files")

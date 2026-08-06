@@ -1,73 +1,105 @@
-#!/usr/bin/env bash
-# seed-skill-overrides.sh — install-health drop-in: seed bundled-skill skillOverrides.
-#
-# Why this exists:
-#   The coordinator ships bundled skills (e.g. /plan, /review) whose command names
-#   must be registered in Claude Code's settings.json as skillOverrides so the harness
-#   can route them. Registering manually is error-prone; this drop-in ensures the seed
-#   is applied idempotently on every install/re-install via install-health-run.sh.
-#
-# Deep-research override:
-#   Post-merge (coordinator consolidation Wave C4), deep-research is ALWAYS bundled
-#   inside the coordinator plugin. The old standalone detection (checking for
-#   ~/.claude/plugins/deep-research/commands/web.md) can never return true — that path
-#   no longer exists. The "deep-research": "off" skillOverride is now always seeded
-#   unconditionally to suppress the Claude Code built-in /deep-research skill in favour
-#   of /coordinator:research.
-# Review: code-reviewer — F2: removed dead presence-detection; always pass --with-deep-research
-#
-# CHECK_ONLY mode:
-#   When the CHECK_ONLY environment variable is non-empty (exported by
-#   coordinator:install --check-only at Step 1b), passes --check-only to the helper
-#   so no writes are performed — only a delta report is printed.
-#
-# Idempotent: safe to run repeatedly. The Python helper is idempotent internally
-# (it writes only when the current settings differ from the target state).
-#
-# Spec backlink: parallel chunk in the install-health drop-in plan (2026-06-27);
-# contract pinned to seed-skill-overrides.py helper interface.
+#!/usr/bin/env python3
+# The `.sh` suffix is kept (not dropped, unlike coordinator-auto-push /
+# handoff-gate-aging) so the install-health-run.py orchestrator's
+# `bin/install-health/*.sh` glob still finds this drop-in unchanged — dropping
+# the suffix would silently remove it from the orchestrator's iteration.
+from __future__ import annotations
+"""
+seed-skill-overrides.sh — CLI trampoline over claude-klabauter
+coordinator_core.ops.seed_skill_overrides.
 
-set -euo pipefail
+install-health drop-in: seed bundled-skill skillOverrides. The coordinator
+ships bundled skills (e.g. /plan, /review) whose command names must be
+registered in Claude Code's settings.json as skillOverrides so the harness
+can route them. Registering manually is error-prone; this drop-in ensures the
+seed is applied idempotently on every install/re-install via
+install-health-run.py.
 
-# ---------------------------------------------------------------------------
-# Root resolution — prefer CLAUDE_PLUGIN_ROOT (set by skill/command invocations)
-# over BASH_SOURCE derivation. This script lives at bin/install-health/, so the
-# plugin root is two levels up from its own directory.
-# ---------------------------------------------------------------------------
-_plugin_root="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-# shellcheck source=../../lib/coordinator-trusted-root-guard.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" && pwd)/coordinator-trusted-root-guard.sh"
-coordinator_trusted_root_guard --mode=fail-loud --root="$_plugin_root" --site="$0"
+Deep-research override: Post-merge (coordinator consolidation Wave C4),
+deep-research is ALWAYS bundled inside the coordinator plugin — the
+"deep-research": "off" skillOverride is unconditionally seeded to suppress
+the Claude Code built-in /deep-research skill in favour of
+/coordinator:research.
 
-# ---------------------------------------------------------------------------
-# Helper presence check — degrade gracefully if the helper is absent (e.g. a
-# partial publish or a future refactor that moved it). Do NOT fail the whole
-# orchestrator.
-# ---------------------------------------------------------------------------
-_helper="${_plugin_root}/bin/seed-skill-overrides.py"
+CHECK_ONLY mode: when the CHECK_ONLY environment variable is non-empty
+(exported by coordinator:install --check-only at Step 1b), passes
+--check-only to the DoE-resident bin/seed-skill-overrides.py helper so no
+writes are performed — only a delta report is printed.
 
-if [[ ! -f "$_helper" ]]; then
-  echo "[seed-skill-overrides] WARNING: helper not found at ${_helper}; skipping" >&2
-  exit 0
-fi
+The actual settings.json merge logic lives in bin/seed-skill-overrides.py
+(DoE-resident, NOT ported — this trampoline only replaces the bash
+trust-guard/arg-building/subprocess-invoke shell, not the helper itself).
 
-# ---------------------------------------------------------------------------
-# Build arg list safely for bash 3.2 (no declare -A, no mapfile).
-# The "${args[@]+"${args[@]}"}" form is POSIX and avoids "unbound variable"
-# under set -u when the array is empty.
-# ---------------------------------------------------------------------------
-args=()
+Exit codes:
+  0 — helper ran successfully, OR the helper script was not found (degrades
+      gracefully — does not fail the whole install-health orchestrator)
+  1 — the resolved plugin root failed the trusted-root-guard check, OR
+      CLAUDE_KLABAUTER_ROOT resolution / the claude-klabauter module import itself failed
+  N — helper's own exit code on failure
 
-if [[ -n "${CHECK_ONLY:-}" ]]; then
-  args+=(--check-only)
-fi
+Fail-loud convention: matches coordinator/bin/generate-repomap.py — the
+untrusted-root and claude-klabauter-link-failure branches exit 1 (gate/config-writer
+shape), while the missing-helper branch is the ONE deliberate exit-0
+degrade, preserved verbatim from the original bash body.
 
-# Deep-research is always bundled in coordinator post-C4 — always seed the override.
-args+=(--with-deep-research)
+Spec backlink: docs/plans/2026-06-27-ccos-1-dual-context-validator.md
+    (seed-skill-overrides chunk); install-health drop-in plan (2026-06-27);
+    contract pinned to seed-skill-overrides.py helper interface.
+Port source: coordinator/bin/install-health/seed-skill-overrides.sh (this
+    file, retired bash body on this cutover; see git log for the prior
+    74-line implementation)
+"""
 
-# ---------------------------------------------------------------------------
-# Invoke the helper. Surface its stdout directly (the helper prints a status
-# line describing what it did or would do). Any non-zero exit propagates to
-# the orchestrator, which marks this drop-in FAIL and continues the loop.
-# ---------------------------------------------------------------------------
-python3 "$_helper" "${args[@]+"${args[@]}"}"
+import os
+import sys
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+
+def _import_main():
+    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
+
+    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
+    re-deriving it -- this is a plain in-process import, not an RPC invoke, so
+    cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
+    deliberately NOT used here.
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.ops.seed_skill_overrides import main as _op_main
+
+    return _op_main
+
+
+def main() -> None:
+    try:
+        op_main = _import_main()
+    except RuntimeError as exc:
+        print(f"seed-skill-overrides.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except ImportError as exc:
+        print(
+            f"seed-skill-overrides.sh: coordinator_core.ops.seed_skill_overrides not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # plugin_root mirrors the original .sh's own resolution:
+    # ${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)} —
+    # env override first, else this file's own grandparent directory
+    # (coordinator/bin/install-health/seed-skill-overrides.sh -> coordinator/).
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    # site mirrors the original .sh's own $0 in its ERROR line — whatever
+    # invocation-time path/argv[0] the caller used, not a fixed basename.
+    sys.exit(op_main(sys.argv[1:], plugin_root=plugin_root, site=sys.argv[0]))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,6 +1,6 @@
 ---
 name: staff-session
-description: "PM-GATED: ask first; never from subagent. Agent Teams collaborative planning/review for architectural decisions only. Modes: plan, review."
+description: "PM-GATED, never from a subagent. Agent Teams review for architecture calls."
 allowed-tools: ["Agent", "Read", "Write", "Bash", "Glob", "Grep", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "SendMessage"]
 argument-hint: --mode plan|review --tier standard|full [--members \"the Staff Engineer,the Director of Engineering,...\"] <input>
 ---

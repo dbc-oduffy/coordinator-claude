@@ -1,6 +1,6 @@
 ---
 name: execute-plan
-description: "Execute a PM-approved implementation plan directly in the coordinator session"
+description: "Executes a PM-approved plan via dispatched per-chunk executor waves."
 allowed-tools: ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent", "Skill"]
 argument-hint: <plan-path>
 ---

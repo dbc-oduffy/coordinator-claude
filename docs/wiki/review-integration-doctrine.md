@@ -3,8 +3,6 @@ title: Review integration doctrine
 created: 2026-05-17
 type: doctrine
 related:
-  - plugins/coordinator/docs/wiki/receiving-code-review.md
-  - plugins/coordinator/docs/wiki/reviewer-premise-challenge.md
   - plugins/coordinator/docs/wiki/prior-art-checker.md
   - plugins/coordinator/docs/wiki/docs-checker-pre-review.md
 ---
@@ -21,7 +19,7 @@ The review-integrator's primary value is *not* that it costs a fraction of an EM
 
 So the cost framing actively *misleads*: an EM who believes the integrator is just a token-saver will rationalize "this finding is one line, dispatching a whole agent is wasteful — I'll just type it" and in doing so discards exactly the verification the dispatch exists to provide. **Finding size is not a license to self-author.** The smaller and more obvious a finding looks, the cheaper the integrator pass is — and the easier it is to skip the check that occasionally catches the obvious-looking finding that was actually stale.
 
-Mechanics of the mandatory pass: EM dispatches `coordinator:review-integrator` (mode `auto`), reviews the returned escalation list, spot-checks the diff. Tradeoff-free fixes the integrator folds silently; real tradeoffs it escalates as ASK for the EM to carry to the PM (§ Apply tradeoff-free fixes silently). The EM's job is to *route and verify*, never to *author*. → `coordinator/CLAUDE.md § Review Sequencing` ("never hand-author the reviewer's stated changes yourself"); global `CLAUDE.md § Acting on review findings`.
+Mechanics of the mandatory pass: EM dispatches `coordinator:review-integrator` (mode `auto`), reviews the returned escalation list, spot-checks the diff. Tradeoff-free fixes the integrator folds silently; real tradeoffs it escalates as ASK for the EM to carry to the PM (§ Apply tradeoff-free fixes silently). The EM's job is to *route and verify*, never to *author*. → `coordinator/snippets/em-operating-doctrine.md` § How to Decide ("Acting on review findings means dispatching the review-integrator … never hand-authoring").
 
 ## Re-verify reviewer premises against artifacts landing after review
 
@@ -31,21 +29,17 @@ Integrator discipline: before accepting any finding that contains "TBD," "confir
 
 This is structural at concurrent-EM cadence. On shared branches, an executor may have landed changes while the review was in flight. The reviewer's frame is a snapshot; the integrator works against HEAD.
 
-**Sidecar `<file>.md § <section>` citations need a two-part verification before integrating.** Prior-art-checker, docs-checker, and plan-coverage-checker sidecars routinely cite a wiki by name and section (`<file>.md § <section>`). Before acting on such a citation, verify BOTH that (a) the cited path exists (check `archive/` for relocated wikis — spec backlinks outlive their cited spec) AND (b) the section's scope actually maps to the plan's deliverable. A citation can resolve to a real file and a real section that nonetheless addresses a different concern than the sidecar implies — integrating against it imports a mismatched constraint. Path-exists is necessary but not sufficient; section-scope-maps-to-deliverable is the second leg. *Source: project-rag-ue-addon, 2026-06-14.*
+**Sidecar `<file>.md § <section>` citations need a two-part verification before integrating.** Prior-art-checker, docs-checker, and plan-coverage-checker sidecars routinely cite a wiki by name and section (`<file>.md § <section>`). Before acting on such a citation, verify BOTH that (a) the cited path exists (check `archive/` for relocated wikis — spec backlinks outlive their cited spec) AND (b) the section's scope actually maps to the plan's deliverable. A citation can resolve to a real file and a real section that nonetheless addresses a different concern than the sidecar implies — integrating against it imports a mismatched constraint. Path-exists is necessary but not sufficient; section-scope-maps-to-deliverable is the second leg.
 
-**Worked variant: post-review schema-pinning.** A the Staff Engineer finding directed a renamed CLI flag (`--foo` → `--bar`); the schema then landed with `additionalProperties: false` pinning the original JSON key. Applying the rename verbatim would have broken the schema constraint that landed after the review. The resolution: keep the JSON key canonical to the schema, localize the rename to the user-facing CLI flag and banner text. Pattern: any reviewer finding that prescribes a rename must be re-verified against schemas, fixtures, and external-API contracts that may have landed since the review — the rename's scope is bounded by what landed after, not by the reviewer's frame at the time. (Source: 2026-05-28 apply-packet-cluster-4.)
+**Worked variant: post-review schema-pinning.** A the Staff Engineer finding directed a renamed CLI flag (`--foo` → `--bar`); the schema then landed with `additionalProperties: false` pinning the original JSON key. Applying the rename verbatim would have broken the schema constraint that landed after the review. The resolution: keep the JSON key canonical to the schema, localize the rename to the user-facing CLI flag and banner text. Pattern: any reviewer finding that prescribes a rename must be re-verified against schemas, fixtures, and external-API contracts that may have landed since the review — the rename's scope is bounded by what landed after, not by the reviewer's frame at the time.
 
 ## Adopt-with-receipts — document-the-tradeoff is a valid integrator outcome
 
 A reviewer (the canonical case is the Staff Engineer) flagging a bounded UX or design cost does not always mandate a restructure. **"Document the tradeoff, don't restructure" is a legitimate integrator disposition for bounded costs** — and it is not the same as dismissing the finding. The adopt-with-receipts shape: (1) name the cost explicitly in the artifact, (2) name the larger restructure that would eliminate it, (3) record PM-acceptance of the bounded cost, (4) name the revisit trigger (the condition under which the cost stops being acceptable and the restructure becomes warranted).
 
-This sits between "fold silently" (§ Apply tradeoff-free fixes silently) and "escalate as ASK." The finding is real and accepted; the resolution is to carry the cost with a documented escape hatch rather than pay the restructure now. The receipts (named cost + named alternative + PM-acceptance + revisit trigger) are what distinguish adopt-with-receipts from the appetite-based "not now / follow-up" hedging that `coordinator/CLAUDE.md § Implementation Standards` bans — the four elements make the deferral architectural, not an excuse.
-
-*Source: example-league-data-repo, 2026-06-08 (the Staff Engineer bounded-UX-cost pattern).*
+This sits between "fold silently" (§ Apply tradeoff-free fixes silently) and "escalate as ASK." The finding is real and accepted; the resolution is to carry the cost with a documented escape hatch rather than pay the restructure now. The receipts (named cost + named alternative + PM-acceptance + revisit trigger) are what distinguish adopt-with-receipts from appetite-based "not now / follow-up" hedging — the four elements make the deferral architectural, not an excuse.
 
 ## Apply tradeoff-free fixes silently; surface tradeoffs to PM
-
-→ coordinator/CLAUDE.md § Reviewer findings — apply, don't ratify
 
 Correctness fixes (wrong API name, missing import, factual error, precedence) fold into the artifact via the integrator without EM narration or PM escalation. These have no tradeoff; the finding is simply correct.
 
@@ -67,7 +61,7 @@ Chain-end review (workstream-complete `code-reviewer` or `code-reviewer`+the Sta
 
 Running only plan-time review and skipping chain-end review is not "sufficient review" — it is review that structurally cannot see the defect class that most commonly survives execution.
 
-→ coordinator/CLAUDE.md § Workstream-complete / weekly marker trail (under Review Sequencing) for the chain-end review procedure.
+→ `coordinator/snippets/em-operating-doctrine.md` § How to Review What Came Back ("exceptions: merge-gate, workstream-complete slices") for the chain-end review procedure.
 
 ## Single-agent math and precedence findings need verification
 
@@ -75,8 +69,16 @@ A single reviewer flagging a logic error, arithmetic mistake, or operator-preced
 
 The confidence threshold is convergence: two or more independent agents flagging the same issue from different entry points. One agent with high-confidence framing is not the same as convergence.
 
-→ coordinator/CLAUDE.md § Convergence as Confidence  
-→ coordinator/CLAUDE.md § P0/P1 Verification Gate
+→ § Convergence as Confidence (below)
+→ § P0/P1 Verification Gate (below)
+
+## Convergence as Confidence
+
+When ≥2 independent agents flag the same issue from different entry points, treat as high-confidence and fix. Single-agent findings — especially math/logic/precedence — require verification first (threshold is independence + distinct entry points, not raw count). Reviewer divergence → read source, don't tiebreak.
+
+## P0/P1 Verification Gate
+
+P0/P1 claims from sweep agents have poor track records. Before acting, EM or a verifier reads the cited code and confirms against current source — not the agent's paraphrase. High-confidence framing inverts the hit rate.
 
 ## Pre-flight sidecars do not require integration before the first reviewer
 
@@ -92,7 +94,7 @@ What this means in practice:
 
 What still requires integration between artifacts: every pass between two named persona reviewers. If the Staff Engineer runs first and recommends changes, the integrator lands them before the Game Dev Reviewer sees the artifact. That's the rule the HARD RULE was written to enforce, and it's unaffected.
 
-→ coordinator/CLAUDE.md § Review Sequencing (pre-flight carve-out bullet)  
+→ `coordinator/snippets/em-operating-doctrine.md` § How to Review What Came Back ("Two Sonnet pre-flights gate before an Opus reviewer") for the pre-flight carve-out  
 → `docs/wiki/prior-art-checker.md § Bidirectional resolution`  
 → `agents/review-integrator.md § Prior-Art Conflict Resolution`
 
@@ -102,19 +104,21 @@ Pre-flights (path scout, prior-art-checker, docs-checker) are point-in-time. A m
 
 The rule: after any material amendment, re-run the relevant pre-flights before dispatching the next reviewer. "Material" means any change that alters paths, APIs, schema fields, or architectural approach. Prose clarifications and wording changes do not require re-run.
 
-→ coordinator/CLAUDE.md § Plan-First Workflow → Pre-Dispatch Verification ("Re-run mechanical pre-flights after material plan amendments")  
+→ `coordinator/docs/wiki/pre-dispatch-verification.md` ("Re-run mechanical pre-flights after material plan amendments")  
 → `docs/wiki/prior-art-checker.md` for prior-art-checker procedure  
 → `docs/wiki/docs-checker-pre-review.md` for docs-checker procedure
 
 ## Reviewer self-persists; EM reads the returned path — no transcription
 
 `coordinator:code-reviewer` self-persists by default. There is no inline-return mode and no `-selfpersist`
-variant — there is one reviewer, and it always writes its findings to disk. Spec backlink:
-`cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`.
+variant — there is one reviewer, and it always writes its findings to disk.
 
-**How it works.** The reviewer scaffolds its own sidecar in `state/review-trail/findings/` via
-`coordinator-doc-new --type review-findings` (the Bash allowlist permits this one command), edits the
-`<!-- FINDINGS -->` sentinel with its findings, and returns only a pointer+verdict line:
+**How it works.** The reviewer writes to its pre-provisioned sidecar —
+`state/subagent-share/<session>/<provision_key>.md` — pre-provisioned by the dispatching EM in the
+common case (claude-klabauter's `provision_report` engine creates it at spawn), or self-scaffolded into that
+same home via `coordinator-doc-new --type review-findings` (the Bash allowlist permits this one
+command) only when no path arrived pre-provisioned. Either way, the reviewer edits the
+`<!-- FINDINGS -->` sentinel with its findings and returns only a pointer+verdict line:
 
 ```
 DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>
@@ -124,28 +128,47 @@ No EM pre-scaffold. No `cs_write_review_claim` call. No claim-marker ceremony. N
 The EM reads the returned path and passes it to `coordinator:review-integrator`.
 
 **Personas (the Staff Engineer, the Game Dev Reviewer, the Data Science Reviewer, the Front-End Reviewer, the UX Reviewer, the Director of Engineering)** are dual-use (advisory OR sidecar-review).
-When dispatched for a review that feeds an integrator, the invoking skill appends the
-`snippets/findings-self-persist-sentinel.md` protocol to the brief — the persona then scaffolds its
-own sidecar in `state/review-trail/findings/` and returns the pointer line. No pre-scaffold by the EM;
-no claim marker. Same zero-ceremony pattern as `code-reviewer`.
+When dispatched for a review that feeds an integrator, the invoking skill injects the
+pre-provisioned `state/subagent-share/<session>/<provision_key>.md` path into the dispatch brief —
+Claude-klabauter's `provision_report` engine has already created the sidecar at spawn — and the persona
+writes its findings into that path and returns the pointer line. No sentinel-append self-scaffold,
+no EM pre-scaffold, no claim marker. Same zero-ceremony pattern as `code-reviewer`. The
+review-integrator intake fails loud (BLOCKED) if the returned sidecar is a trivial/unfilled
+scaffold — the intake fill-guard, not a per-dispatch-site check.
 
 **If a reviewer returns inline despite this contract**, it is a dispatch failure — re-dispatch
 `coordinator:code-reviewer`. Do NOT transcribe inline output manually; the transcription path is
 what the self-persist contract exists to eliminate.
 
+**Invariant — the sidecar-write belongs to the review-PRODUCING agent, not the consumer, and this
+covers ad-hoc reviewers too.** Any agent that produces review findings — the named reviewers
+(`code-reviewer`, personas) AND an ad-hoc reviewer an EM spins up outside them (most commonly a
+`Verify`/review phase authored *inside a background Workflow* as a bare `agent(prompt, {schema})`
+call) — MUST write its findings to its `state/subagent-share/<session>/<provision_key>.md` sidecar and return ONLY a pointer
+(path + verdict + count). **Inline findings are never a valid handoff format to a downstream
+consumer.** The EM's job is to pass the pointer to `review-integrator`, never to relay findings inline;
+the integrator's intake hard-stop (`agents/review-integrator.md` § Intake precondition — hard stop)
+BLOCKS on inline input unconditionally and does not soft-proceed. The trap is structural, not an EM
+slip: a Workflow `schema:` return IS an inline-return mechanism — correct for an *executor* stage
+(structured data the EM consumes), wrong for a *review* stage (findings that must land on disk). The
+workflow-authoring carve-out that closes the pit lives in `workflow-orchestration.md` § Notes on the
+shape (review/verify stages dispatch `agentType: 'coordinator:code-reviewer'`, or instruct a bare
+`agent()` to self-persist and return the path — never a findings array).
+
 → `agents/code-reviewer.md` — the one self-persisting reviewer
+→ `workflow-orchestration.md` § Notes on the shape — the workflow review-stage carve-out
 
 ### Runtime-only findings need an explicit pass-through channel — disk-observing writers cannot reconstruct runtime facts
 
 A reviewer finding of the shape *"record runtime-only X distinctly"* (a value observed only at execution time — a live error string, a timing-dependent state, an actual emitted token, an environment-resolved path) has no on-disk source for the integrator to read. The `review-integrator` is a disk-observing writer: it reads the cited code and the sidecar, then edits the artifact. It physically cannot reconstruct a runtime fact that exists only in the reviewer's execution context — if that fact is not handed across explicitly, it is lost in the integration pass.
 
-**Rule:** when a reviewer surfaces a runtime-observed fact that must survive into the artifact, the EM captures the verbatim runtime value into the persisted sidecar (same persistence-layer discipline as inline reviewer output, above) so the integrator has an on-disk source. Do not assume the integrator will re-derive it — it observes disk, not the reviewer's runtime. The companion wiring (an explicit runtime-fact pass-through field in the integrator dispatch brief) lands in `agents/review-integrator.md` and `coordinator:review` Branch B. *Source: example-game-workbench-repo, 2026-06-18.*
+**Rule:** when a reviewer surfaces a runtime-observed fact that must survive into the artifact, the EM captures the verbatim runtime value into the persisted sidecar (same persistence-layer discipline as inline reviewer output, above) so the integrator has an on-disk source. Do not assume the integrator will re-derive it — it observes disk, not the reviewer's runtime. The companion wiring (an explicit runtime-fact pass-through field in the integrator dispatch brief) lands in `agents/review-integrator.md` and `coordinator:review` Branch B.
 
 ## Brightline PARTITION-MANDATORY over-counts memo/doc-only commits — partition the CODE surface
 
-The `≥5-commits` brightline (`review-brightline-gate.sh`, → `workstream-complete-review.md § Diff-shape decision table`) fires on raw commit count, but the partition decision is about **reviewable code surface**, not commit count. When the brightline trips, check how many of those commits actually *touch code*: if the reviewable surface is one coherent code slice — several of the commits being memo/doc/lesson-only — then a **single `code-reviewer` is correct**, and the right move is to `git show --stat` the code commits, confirm the coherent slice, and **record the disposition** ("gate over-counted N non-code commits; reviewable surface is one slice") rather than spawning empty partition reviewers over doc commits with nothing to review.
+The `≥5-commits` brightline (a diff-shape gate deciding whether a review must be partitioned) fires on raw commit count, but the partition decision is about **reviewable code surface**, not commit count. When the brightline trips, check how many of those commits actually *touch code*: if the reviewable surface is one coherent code slice — several of the commits being memo/doc/lesson-only — then a **single `code-reviewer` is correct**, and the right move is to `git show --stat` the code commits, confirm the coherent slice, and **record the disposition** ("gate over-counted N non-code commits; reviewable surface is one slice") rather than spawning empty partition reviewers over doc commits with nothing to review.
 
-**`--session-id` scoping fixes cross-EM noise but NOT the doc-vs-code mix within one session.** The session-scope flag (→ `workstream-complete-review.md § Session-scoped diff via --session-id`) removes *other* EMs' commits from the count; it does nothing about *your own* session's memo + doc + lesson commits inflating the code-commit count past the brightline. That mix is disposed of by the code-surface check above, at disposition time, not by the gate.
+**`--session-id` scoping fixes cross-EM noise but NOT the doc-vs-code mix within one session.** The session-scope flag removes *other* EMs' commits from the count; it does nothing about *your own* session's memo + doc + lesson commits inflating the code-commit count past the brightline. That mix is disposed of by the code-surface check above, at disposition time, not by the gate.
 
 ## Integrator dispatches are 1:1 with reviewer slices
 
@@ -157,10 +180,10 @@ When a code review is partitioned across N parallel `code-reviewer` slices (per 
 
 **Mechanics.**
 
-1. Each `coordinator:code-reviewer` dispatch scaffolds its own per-slice sidecar in `state/review-trail/findings/` and writes its findings there. No EM pre-scaffold; no claim marker. The reviewer returns a pointer+verdict line: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. The EM reads the returned path. The sidecar must exist on disk before the integrator is dispatched (the reviewer's self-persist guarantees this on a clean return). The self-persist flow is an explicit step in `skills/workstream-complete/SKILL.md` § Partitioning (step 2), and the integrator's hard-stop is in `agents/review-integrator.md` § Intake precondition — hard stop.
+1. Each `coordinator:code-reviewer` dispatch writes its findings to its own per-slice sidecar at `state/subagent-share/<session>/<provision_key>.md` — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home otherwise. No EM pre-scaffold in the common case; no claim marker either way. The reviewer returns a pointer+verdict line: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. The EM reads the returned path. The sidecar must exist on disk before the integrator is dispatched (the reviewer's self-persist guarantees this on a clean return). The self-persist flow is an explicit step in `skills/workstream-complete/SKILL.md` § Partitioning (step 2), and the integrator's hard-stop is in `agents/review-integrator.md` § Intake precondition — hard stop.
 2. EM dispatches N integrators in parallel, each pointing at one slice's sidecar + the same slice's artifact paths.
 3. Each integrator writes its own disposition block to its own sidecar (§ Sidecar Disposition Annotation) and its own completion report.
-4. EM reads the N reports in aggregate, applies the standard tradeoff-vs-correctness routing (`coordinator/CLAUDE.md` § Reviewer findings — apply, don't ratify), and stages the union of integrator-edited files in the workstream-complete commit (`skills/workstream-complete/SKILL.md` Step 3 staging discipline already handles fan-in).
+4. EM reads the N reports in aggregate, applies the standard tradeoff-vs-correctness routing (§ Apply tradeoff-free fixes silently; surface tradeoffs to PM, above), and stages the union of integrator-edited files in the workstream-complete commit (`skills/workstream-complete/SKILL.md` Step 3 staging discipline already handles fan-in).
 
 **Tripwire.** A single `coordinator:review-integrator` dispatch handed N reviewers' findings against N disjoint slice paths is a doctrine violation — the integrator agent prompt rejects this shape as a broken intake (`agents/review-integrator.md` § Intake precondition, "One reviewer slice per integrator dispatch"). The recovery is to re-dispatch 1:1.
 
@@ -168,21 +191,17 @@ When a code review is partitioned across N parallel `code-reviewer` slices (per 
 
 ## Cross-session review convergence routes through the integrator, not SUPERSEDED prose
 
+**Cross-session review outputs flow through the review-integrator on a single canonical artifact — "SUPERSEDED" prose is not review provenance.**
+**Why:** When concurrent EM sessions independently produce review outputs against parallel artifacts, marking the loser SUPERSEDED with a "findings carry forward" assertion is structurally unverifiable — Session B's enrichment may never have seen Session A's reviewer pass.
+**How to apply:** at convergence time, the EM that supersedes MUST dispatch the review-integrator with the loser's findings as input and the winner artifact as target — same as a normal integrator pass. Review provenance is not transitive across artifact splits; an asserted carry-forward is just prose. Cross-session reviews converge on one canonical artifact — this rule is what makes that convergence enforceable rather than aspirational.
+
 ## Narrative-Shape Review — Frame-Drift Lens Separate from Code-Review
 
 Narrative-shape review is a separate lens from code-review — frame-drift ships clean diffs. Code-review operates at the level of individual hunks; it cannot catch when the entire framing of a document (entry-point prose, stated purpose, scope claim) drifts from the intended narrative. Author an entry-point prose check at producer time as part of the producer skill. Apply: for any document with a stated purpose (skill, wiki, plan), add a "narrative-shape check" step in the producer: does the opening paragraph still match what the document actually does?
 
-**Cross-session review outputs flow through the review-integrator on a single canonical artifact — "SUPERSEDED" prose is not review provenance.**
-**Why:** When concurrent EM sessions independently produce review outputs against parallel artifacts, marking the loser SUPERSEDED with a "findings carry forward" assertion is structurally unverifiable — Session B's enrichment may never have seen Session A's reviewer pass.
-**How to apply:** at convergence time, the EM that supersedes MUST dispatch the review-integrator with the loser's findings as input and the winner artifact as target — same as a normal integrator pass. Review provenance is not transitive across artifact splits; an asserted carry-forward is just prose. Pairs with `coordinator/CLAUDE.md` § Cross-session reviews converge on one canonical artifact.
+## review-integrator does not commit — full stop
 
-*Source: example-game-repo `state/lessons.md` (example-game-repo-L121, central-promoted 2026-05-28).*
-
-## review-integrator commits by default — align the brief with the agent's behavior
-
-**The `review-integrator` agent commits on completion as part of its executor-class script (Co-Authored-By attribution and all); "No commits — EM will commit after spot-check" in the dispatch brief is overridden by that hardwired behavior.** A /plan→/review pipeline returned with both the plan and a prior-art sidecar committed despite the brief explicitly forbidding commits; the integrator also picked up a previously-untracked sidecar at the same SHA, which was arguably the right call for the audit trail. The violation was constraint-shape, not work-shape. Discipline: phrase the brief around the expected commit shape (paths, subject, what should be staged together) rather than "do not commit" — or escalate to a different agent type that does not auto-commit. Briefs that fight the agent's hardwired completion behavior produce a constraint-shape violation every time. (case: example-game-repo 2026-06-09)
-
-<!-- DoE resolved: 2026-06-15 — review-integrator agent prompt § Commit Discipline now carries an explicit brief-overrides-defaults precedence rule -->
+**The `review-integrator` agent never creates git commits, in any category — doctrine files, integrated plans, or anything else.** The agent's § Commit Discipline is a single non-committing rule with no doctrine/plan exception, mirroring the executor's "subagents apply, EM commits" model. A brief no longer needs to be phrased around expected commit shape to be honored — "write and report back" is the agent's only behavior, so there is nothing for brief-shape to fight.
 
 ## A write-tool reviewer may self-integrate against a read-only brief — diff the artifact before trusting findings
 
@@ -192,15 +211,13 @@ A reviewer whose agent-type carries `Edit`/`Write` (the canonical case is `coord
 
 ## Integrator-modifies-sidecar — promote to baseline-prompt rule, not per-dispatch reminder
 
-The `review-integrator` modifying the sidecar it was told to read-from has recurred 4× in a single observation window (2026-05-27 cluster). Per-dispatch "DO NOT modify the sidecar" briefs are empirically unreliable — the same constraint-shape failure recurs across distinct EMs and distinct artifacts.
+The `review-integrator` modifying the sidecar it was told to read-from has recurred 4× in a single observation window. Per-dispatch "DO NOT modify the sidecar" briefs are empirically unreliable — the same constraint-shape failure recurs across distinct EMs and distinct artifacts.
 
 **Rule:** the sidecar-immutability constraint belongs in the integrator's baseline agent prompt (`agents/review-integrator.md`), not in every dispatch brief. Brief-level reminders are reasonable belt-and-braces, but they are not the primary enforcement surface — the agent-prompt is.
 
 This is the same shape as the executor-writes-to-archive/ recurrence: when a constraint fails 3+ times across independent dispatches, the fix is to make the constraint load-bearing in the agent's own prompt, not to keep refining the dispatch brief. EM-side: when surfacing a recurring constraint failure to PM, propose the agent-prompt edit, not a brief-template revision.
 
 A hook-level tripwire (e.g. `block-write-to-sidecar-during-integration`) is the next escalation if the baseline-prompt rule still fails.
-
-Source: 2026-05-27 learn-lessons pass-2 cluster decomposition (b2g-034).
 
 ## Opus coherent-voice prose work — amendment pass to restore load-bearing specifics
 
@@ -213,4 +230,50 @@ Apply: after any Opus coherent-voice pass (a persona review whose mandate includ
 2. Negative-spec blocks ("NOT `git add -A` — use explicit paths") that softened to affirmative suggestions ("prefer explicit paths").
 3. Empirical citations or "concrete failure" examples that were removed as repetitive.
 
-The amendment pass is EM-side, not a re-dispatch to the Opus reviewer — the reviewer did its job correctly; the EM's job is to audit the specificity delta and restore load-bearing content the generic voice dropped. *Source: 2026-06-02 central-improvement-queue #50.*
+The amendment pass is EM-side, not a re-dispatch to the Opus reviewer — the reviewer did its job correctly; the EM's job is to audit the specificity delta and restore load-bearing content the generic voice dropped.
+
+## Why sequential-with-fix-gates beats parallel+aggregate
+
+The coordinator review pipeline's sequential-with-mandatory-fix-gates shape (domain-expert
+reviewer reviews first → **all** findings from that pass are applied, not triaged, before the
+next reviewer sees the artifact → generalist reviewer(s) review the now-clean artifact) is a
+genuinely novel pattern, not merely "parallel review with extra steps": it optimizes for
+**compounding insight** — each reviewer builds on a progressively cleaner artifact, rather than
+everyone independently reviewing the same messy draft and requiring a separate aggregation step
+to reconcile overlapping or contradictory findings. Parallel+aggregate trades reviewer
+independence for reconciliation cost; sequential-with-fix-gates trades a longer pipeline for a
+monotonically improving artifact at each stage.
+
+**Parallel+aggregate is the tempting default — resist it for domain-expert-then-generalist
+review.** It looks cheaper (dispatch N reviewers at once, merge results) but it loses the
+compounding-insight property: a generalist reviewing a messy draft in parallel with the domain
+expert will re-raise issues the domain expert would have already caught and fixed, and true
+reconciliation of conflicting findings becomes a manual, ad-hoc step instead of a designed
+pipeline stage.
+
+**A synthesis/adjudication pass, where run, is what turns "N reviewers each said something"
+into "here is what the reviewers collectively found, and where they diverge."** Without this
+layer, disagreement between personas is silently dropped or requires the consuming EM to
+manually reconcile N separate review documents — read every persona's output, consolidate the
+findings, and flag agreement/disagreement across personas explicitly rather than leaving it
+implicit in the raw output.
+
+## Analysis-before-build with EM adjudication — case study
+
+Pre-execution analysis — reviewing a recipe or plan step's `gives_pause` flags with EM
+adjudication *before* building — has empirically earned its keep. On one migration workstream,
+recipe analysis surfaced three scope corrections that would otherwise have shipped wrong:
+
+- Deferred a step whose dependency hadn't actually resolved yet, even though the recipe listed it
+  as ready.
+- NO-OP'd a step that, on inspection, wasn't needed at all — its precondition no longer held.
+- Gated a later step to run only after an earlier one had actually produced the artifact it
+  depended on, instead of running them in the recipe's stated order.
+
+None of these corrections were visible from the recipe text alone — each required an adjudicator
+to ask "does this step's stated precondition actually hold right now?" **`gives_pause` flags are
+not self-resolving** — a recipe or plan step can carry a flag that reads as boilerplate caution,
+and still hide a real scope correction behind that framing. Treat every such flag as requiring an
+explicit adjudication decision (defer / no-op / gate / proceed), not a pass-through — the standing
+lesson is to keep the same adjudication discipline for every remaining recipe's `gives_pause`
+flag, not just the ones that happened to surface problems first.

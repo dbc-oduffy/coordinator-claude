@@ -8,7 +8,9 @@ What this checks:
     truth; the legacy setup/install.sh::PLUGIN_REGISTRY no longer ships).
   - Verifies docs/agent-install.md fenced-code-block + --plugins + table-row contexts
     mention the default-on set and no ghost plugins.
-  - Verifies docs/safety.md "Default-on plugins copied:" enumeration matches the default-on set.
+  - Verifies docs/safety.md names every default-on plugin somewhere in its body (single-plugin,
+    native-CLI install shape — nothing is "copied" any more, so there is no fixed enumeration
+    marker to anchor on).
   - Verifies README.md fenced code blocks and table rows reference no ghost plugin names.
 
 Note: marketplace.json carries plugin names + sources but no install-default state, so the
@@ -20,8 +22,6 @@ What this does NOT check:
     words like "coordinator" and "data-science" appear in prose legitimately.
   - marketplace.json plugin list — that is validated by validate-json-schemas.py.
   - The content of each plugin, only the names.
-
-Spec backlink: docs/plans/2026-05-08-coordinator-claude-feedback-resolution.md § Task 7
 """
 
 from __future__ import annotations
@@ -186,49 +186,37 @@ def check_agent_install(path: Path, plugins: dict[str, dict], errors: list[str])
 
 def check_safety_md(path: Path, plugins: dict[str, dict], errors: list[str]) -> None:
     """
-    docs/safety.md check:
-      The "Default-on plugins copied:" enumeration must match the default-on set.
-    Locates the enumeration by the literal phrase rather than line number.
+    docs/safety.md check (single-plugin, native-CLI install shape):
+      Every default-on plugin from marketplace.json must be named somewhere in the
+      document body. Under today's manifest this is just 'coordinator', so the check
+      passes now — and would still fail if a future plugin were added to the manifest's
+      default-on set and never mentioned in safety.md.
+    There is no fixed "copied" enumeration to anchor on any more (nothing is copied
+    under the native `claude plugin install` flow), so this checks the whole document
+    rather than a snippet after a literal marker.
     """
     text = path.read_text(encoding="utf-8")
-    marker = "Default-on plugins copied:"
-    idx = text.find(marker)
-    if idx == -1:
-        errors.append(
-            f"{path}: could not find literal phrase '{marker}' — "
-            "safety.md enumeration check skipped; update the script if the heading changed."
-        )
-        return
-
-    # The enumeration is on the same line (or the same paragraph) as the marker.
-    # Extract everything from the marker to the end of the paragraph (next blank line or period).
-    snippet_start = idx + len(marker)
-    # Take up to 200 chars as the enumeration context
-    snippet = text[snippet_start : snippet_start + 200]
-
     default_on = {n for n, m in plugins.items() if m["default"] == "on"}
-    all_names = set(plugins.keys())
 
-    found_in_snippet: set[str] = set()
-    for name in all_names:
-        if re.search(r'(?<![a-z0-9_-])' + re.escape(name) + r'(?![a-z0-9_-])', snippet):
-            found_in_snippet.add(name)
+    found: set[str] = set()
+    for name in default_on:
+        if re.search(r'(?<![a-z0-9_-])' + re.escape(name) + r'(?![a-z0-9_-])', text):
+            found.add(name)
 
-    missing = default_on - found_in_snippet
+    missing = default_on - found
     if missing:
         errors.append(
-            f"{path}: default-on plugins not listed after '{marker}': {sorted(missing)}. "
-            f"Found: {sorted(found_in_snippet & default_on)}. "
-            f"Expected: {sorted(default_on)}."
+            f"{path}: default-on plugin(s) not mentioned anywhere in the document: "
+            f"{sorted(missing)}. Expected: {sorted(default_on)}."
         )
 
-    # Ghost check in enumeration snippet
+    # Ghost check across the whole document body
     known_ghosts = {"remember", "example-game-repo", "example-game-repo-control", "example-game-repo-docs"}
     for ghost in known_ghosts:
-        if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', snippet):
+        if re.search(r'(?<![a-z0-9_-])' + re.escape(ghost) + r'(?![a-z0-9_-])', text):
             errors.append(
-                f"{path}: ghost plugin '{ghost}' found in default-on enumeration "
-                f"near '{marker}'."
+                f"{path}: ghost plugin '{ghost}' found in safety.md but is not in the "
+                "marketplace registry."
             )
 
 

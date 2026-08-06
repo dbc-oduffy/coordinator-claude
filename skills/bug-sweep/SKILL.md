@@ -1,10 +1,9 @@
 ---
 name: bug-sweep
-description: Systematic codebase bug hunt — find and fix all AI-fixable bugs in-session, defer blocked ones to backlog
+description: "Codebase bug hunt — find and fix AI-fixable bugs, defer the rest."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: "[path]"
 ---
-<!-- Updated 2026-06-15 by structured-queue-medium-rollout C11: state/bug-backlog.md → state/bug-backlog/*.yaml; capture via coordinator-queue-append --schema bug-backlog -->
 
 # Bug Sweep — Systematic Codebase Bug Hunt
 
@@ -18,82 +17,37 @@ Sweep the codebase for bug patterns, fix everything AI-fixable in-session, defer
 
 `$ARGUMENTS` is an optional path to scope the sweep. If omitted, the full codebase is scanned.
 
-Recognized flags:
-- `--codex-verify` — after Phase 3 fixes land, invoke `skill:codex-review-gate` for an independent-model second opinion on the fix diff (graceful no-op when the codex-review-gate skill or Codex CLI is absent). Opt-in only; default off.
-
-Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase][, with --codex-verify second-opinion pass]."
+Announce: "I'm running `/bug-sweep` — systematic bug hunt [scoped to X / across the full codebase]."
 
 ## Phase 0: Scope and Pattern Selection (~5 min, YOU do this)
 
-1. **Detect project stack:**
-   ```bash
-   # Language detection
-   find . -name "*.py" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.cpp" -o -name "*.h" | head -20
-   # Test framework detection
-   ls -d tests/ __tests__/ spec/ test/ 2>/dev/null
-   # Config files
-   ls pytest.ini pyproject.toml jest.config.* tsconfig.json CMakeLists.txt 2>/dev/null
-   ```
+1. **Detect stack:** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/bug-sweep-probes" detect-stack [path]` (defaults to cwd; scope to `$ARGUMENTS` when path-scoped). Returns `language_files`, `test_dirs`, `config_files`.
 
-   **Docs verification flag:** Set `DOCS_VERIFY = true` when the stack is a compiled language or large opinionated framework where Claude's API knowledge is imperfect and "compiles" does not imply "as documented". Canonical examples: Unreal Engine, C++, C#, Unity, Godot, Java/Spring, Rust. Canonical non-examples: TypeScript, JavaScript, Python — training data is dense and hallucinations rare for common APIs. When in doubt, lean toward enabling it: the cost is a few extra agents, the cost of a missed hallucinated API is a confusing compile failure or silent wrong behavior. This flag enables Track C in Phase 1 and makes Phase 3.5 mandatory.
+   **`DOCS_VERIFY` judgment call:** set `true` when the stack is a compiled language or large opinionated framework where "compiles" doesn't imply "as documented" (UE, C++, C#, Unity, Godot, Java/Spring, Rust). Leave `false` for TypeScript/JavaScript/Python — dense training data, rare hallucinations. When in doubt, enable it: the downside of a false positive is a few extra agents, the downside of a false negative is a silent wrong API. Enables Track C below and makes Phase 3.5 mandatory.
 
-2. **Select patterns** from the Pattern Library (end of this document) based on detected stack. Universal patterns always apply. Language-specific patterns apply per detected language.
+2. **Select patterns** from the Pattern Library (end of this document) per detected stack. Universal patterns always apply.
 
-3. **Define search chunks** — split codebase into 3-6 chunks by directory/system. If architecture atlas exists (`docs/architecture/systems-index.md`), use its system boundaries. Otherwise, derive from `DIRECTORY.md` or directory structure.
+3. **Define search chunks** — 3-6 chunks by directory/system, from the architecture atlas (`docs/architecture/systems-index.md`) if it exists, else `DIRECTORY.md` or directory structure.
 
-4. **Hot-zone identification — rank chunks by recent bugfix density (YOU do this):**
+4. **Hot-zone rank:** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --since "30d" --where "nature=bugfix" --format json`. Aggregate by file-path-prefix; chunks over high-density paths dispatch first. Cooldown: paths with a bugfix completion in the last 7 days deprioritize — a path that is both hot-zone and cooled is a real conflict, surface it explicitly rather than picking silently. Record the ranking to `tasks/scratch/bug-sweep/{run-id}/hot-zone-ranking.md`; skip ranking (default directory order) if `query-completions` returns nothing.
 
-   ```bash
-   _cc_root="${CLAUDE_PLUGIN_ROOT:-$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null)/coordinator}"
-   _cc_doe="$(cat "${CLAUDE_HOME:-$HOME}/.claude/.doe-root" 2>/dev/null || true)"
-   _cc_doe="${_cc_doe%/}"   # trailing-slash normalization: prevents //* false-reject on stale/hand-edited .doe-root
-   _cc_trusted=0
-   case "$_cc_root" in
-     "${CLAUDE_HOME:-$HOME}/.claude/"*) _cc_trusted=1 ;;
-   esac
-   [ -n "$_cc_doe" ] && case "$_cc_root" in "$_cc_doe"/*) _cc_trusted=1 ;; esac
-   case "$_cc_root" in *"/.."*) _cc_trusted=0 ;; esac   # load-bearing traversal check; dotdot-prefixed name (e.g. ..cache) is accepted false-reject edge
-   [ "${COORDINATOR_PLUGIN_ROOT_TRUSTED:-}" = 1 ] && _cc_trusted=1   # sanctioned --plugin-dir spike opt-out
-   [ "$_cc_trusted" = 1 ] || { echo "ERROR: coordinator root '$_cc_root' outside trusted prefix — refusing to source; re-run coordinator:install (or set COORDINATOR_PLUGIN_ROOT_TRUSTED=1 for a sanctioned --plugin-dir spike)" >&2; exit 1; }
-   [ -d "$_cc_root" ] || { echo "ERROR: coordinator root unresolved — ~/.claude/.doe-root missing/invalid; re-run coordinator:install" >&2; exit 1; }
-   "$_cc_root/bin/query-completions.sh" --since "30d" --where "nature=bugfix" --format json
-   ```
+5. **Check test suite** — identify the runner for Phase 1 Track B.
 
-   Aggregate results by file-path-prefix or chain to identify which subsystems have the highest recent bugfix traffic. Chunks covering high-density paths rank first in Phase 1 dispatch order — they are statistically more likely to contain latent follow-on bugs.
+6. **Read `state/lessons/`** (directory of per-entry YAML, if it exists) for project-specific patterns to add.
 
-   **Cooldown filter:** also note any paths with a `nature: bugfix` completion in the last 7 days. These areas were just touched; deprioritize them in the dispatch queue to avoid redundant re-sweep of freshly-fixed ground. When cooldown paths overlap with hot-zone paths, surface the conflict explicitly: "Path X is both a hot zone (N bugfixes/30d) and recently cooled (fixed Y days ago) — sweep at P2 priority."
+7. **Generate run ID** (`YYYY-MM-DD-HHhMM`) and create `tasks/scratch/bug-sweep/{run-id}/`.
 
-   Record the ranked chunk order and any cooldown exclusions in the run scratch directory: `tasks/scratch/bug-sweep/{run-id}/hot-zone-ranking.md`. Phase 1 agent dispatch brief cites this file for ordering rationale.
+8. **Output:** chunk table with pattern assignments, hot-zone ranking, test runner command.
 
-   If `query-completions` returns no results (empty log or Phase 1 not yet shipped), skip ranking and proceed with default directory-order chunks.
+## Pre-Dispatch: Verify Backlog Against Current Code
 
-5. **Check test suite** — identify the test runner and prepare to run it in Phase 1.
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" brief bug-sweep`. Against an empty (or all-closed) `state/bug-backlog/`, no judgment point surfaces — skip straight to Phase 1. Against open entries, the brief surfaces `j-bug-sweep-pre-dispatch-verification-due`: whether to re-verify cited items against current HEAD before dispatch is a semantic read the engine has no opinion on — decide it.
 
-6. **Read `state/lessons.md`** (if exists) for project-specific gotchas to add as patterns.
+If verifying, dispatch one Haiku agent per system, each checking its open items: read the cited `file:line` against HEAD, check `git log --oneline -5 {file}` for resolving commits, return `still-open` / `already-fixed` (with the resolving SHA, or `unattributed` if none is cleanly attributable). Drop `already-fixed` items from the dispatch queue and record the verified-fixed IDs + SHAs to `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` — Phase 4 prunes the backlog from this file.
 
-7. **Generate run ID** — format: `YYYY-MM-DD-HHhMM` (current timestamp). Create scratch directory: `tasks/scratch/bug-sweep/{run-id}/`
+**Concurrent-EM peers can invert a verdict mid-pipeline.** Before dispatching verifiers, run `git fetch --quiet` and check `git log --since="1 hour ago" --remotes='origin/work/*' --oneline` for commits not on the current branch — non-empty output means a peer EM is active. When detected, escalate the verifier from Haiku to Sonnet and re-verify at Phase 1 launch (`git log --oneline -- <file>` since the verifier's read SHA). See ~/.claude/CLAUDE.md § Concurrent-EM Git Operations for the underlying shared-bus discipline.
 
-8. **Output:** Chunk table with pattern assignments, hot-zone ranking (from step 4), and test runner command.
-
-## Pre-Dispatch: Verify Backlog Against Current Code (example-repo T1.1, single landing across 3 files)
-
-**Before dispatching any Phase 1 agents, verify that known backlog items are still applicable.**
-
-If this sweep is re-running against a prior bug backlog (`state/bug-backlog/`), dispatch one Haiku agent per system to check each open item before Phase 1 begins:
-
-1. Read each cited file:line — does the bug pattern still exist in HEAD?
-2. Check recent history — `git log --oneline -5 {file}` to see if recent commits addressed it
-3. Return a `still-open` / `already-fixed` verdict per item, **with the resolving commit SHA cited for each `already-fixed`** (from the `git log` check in step 2 — `--first-parent` on the cited file is enough; if no clear single SHA, cite the range or `unattributed`).
-
-Drop `already-fixed` items from the dispatch queue before any Phase 1 agents are launched. **Record the verified-fixed IDs + their resolving SHAs** to `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` — Phase 4 reads this file to prune the backlog.
-
-**Why verify first:** In one measured run, 11 of 20 backlog items were already fixed before dispatch — fixes landed through other workstreams without updating the tracker. Dispatching agents on ghost debt wastes time and produces false findings.
-
-**Concurrent-EM windows can invert stale/fixed mid-pipeline — escalate verifier to Sonnet.** *2026-05-18, example-game-workbench-repo.* When the verifier was a Haiku and the bug-sweep ran during active concurrent-EM activity, two failure shapes emerged: (a) a bug was verified `still-open` at Phase 0.5, fixed by a concurrent EM 90 seconds later, then a Phase 1 dispatcher fired a duplicate fix; (b) a bug was verified `already-fixed` citing SHA X, but SHA X had been reverted by a concurrent EM and the bug was live again at dispatch time. Defense: detect concurrent-EM activity via remote-tracking refs — each machine runs one daily branch (`work/{machine}/{date-or-span}`) and auto-push lands work on `origin/work/{machine}/*`, so peer EMs are visible only through remote refs. Use `git fetch --quiet && git log --since="1 hour ago" --remotes='origin/work/*' --oneline | grep -v "$(git rev-parse --abbrev-ref HEAD)"` to see commits from peer machines on their own daily branches; non-empty output = concurrent peer EM active. When detected, escalate the Pre-Dispatch verifier from Haiku to Sonnet, and add a re-verify step at Phase 1 launch (`git log --oneline -- <file>` since the verifier's read SHA). Cross-link: see CLAUDE.md § Concurrent-EM Git Operations for the shared-bus discipline this mitigates.
-
-**Why prune at Phase 4:** Without this, backlog rows accumulate forever — every sweep verifies-and-drops the same already-fixed items from its dispatch queue but leaves them sitting in the file. The next sweep re-verifies them at cost. Prune-on-detect breaks the cycle. The paper trail is the resolving commit SHA in the Phase 4 backlog-prune commit subject.
-
-**P0/P1 verification gate** (fifa T1.5, paired with E1.6): Before fixing any item that is or will be classified P0 or P1, the EM (or a verifier subagent) must read the cited code and confirm the claim against current source — not the agent's paraphrase. Bug-sweep Sonnet agents have a 100% false positive rate on P0 claims in their 2026-03-19 sweep. P2 and lower-confidence findings had a much better hit rate (~60%).
+**Before fixing any P0/P1 finding**, read the cited code yourself (or via a verifier subagent) and confirm the claim against current source — never trust the agent's paraphrase. P0 claims have measured a far higher false-positive rate than P2s; the higher the stated severity, the more the claim needs independent confirmation.
 
 ## Phase 1: Search + Test (dispatch leaf agents, parallel)
 
@@ -101,98 +55,67 @@ Drop `already-fixed` items from the dispatch queue before any Phase 1 agents are
 
 ### Track A1 — Mechanical Pattern Grep (YOU do this, fast)
 
-Run deterministic grep searches across all chunks via Bash. These are pattern-library entries found with regex — no LLM needed:
-- `TODO`, `FIXME`, `HACK`, `XXX`, `BUG` comments
-- Empty catch/except blocks
-- Language-specific mechanical patterns (bare `except:`, `== null`, etc.)
-
-This is fast (<30 seconds) and produces a grep findings list that feeds into Track A2 as context.
+Deterministic grep across all chunks: `TODO`/`FIXME`/`HACK`/`XXX`/`BUG` comments, empty catch/except blocks, language-specific mechanical patterns (bare `except:`, `== null`, etc.). <30 seconds; feeds Track A2 as context.
 
 ### Track A2 — Semantic Analysis (dispatch one Sonnet per chunk)
 
-Dispatch one agent per chunk with `model: "sonnet"`. Each agent receives its chunk's file list, assigned patterns, the Track A1 grep results for its chunk, AND the hot-zone ranking from `tasks/scratch/bug-sweep/{run-id}/hot-zone-ranking.md` (written in Phase 0 step 4). High-density chunks (top of the ranking) apply extra scrutiny; cooldown-flagged paths are noted in the brief with "recently fixed — deprioritized." For each file:
-- Review grep findings for false positives (intentional catch-and-ignore, etc.)
-- Run deeper semantic analysis (error handling gaps, potential null access, resource leaks, logic errors, dead code paths, race conditions)
-- For each finding: severity (P0/P1/P2), confidence (HIGH/MEDIUM/LOW), file:line, description, and whether it's AI-fixable or needs human verification
-- **Include code smells alongside bugs.** Confusing names, structural issues, dead code, mutation footguns — these are all findings worth reporting. Do NOT invent a P3 or "info" tier to downgrade them.
+This is the sweep's actual purpose and irreducibly a judgment call — no mechanical pattern set substitutes for it. Each agent gets its chunk's file list, assigned patterns, Track A1's grep results, and the hot-zone ranking (cooldown paths noted "recently fixed — deprioritized"). Per file: review grep findings for false positives, run deeper semantic analysis (error handling gaps, null access, resource leaks, logic errors, dead code, race conditions), and for each finding give severity (P0/P1/P2), confidence (HIGH/MEDIUM/LOW), file:line, description, AI-fixable-or-not. Include code smells alongside bugs — confusing names, structural issues, dead code, mutation footguns are all findings; do not invent a P3/"info" tier to downgrade them.
 
-**Agent prompt must instruct:** "Cast a wide net. Report bugs AND code smells — both are worth fixing. Err on the side of reporting — false positives are cheap, missed issues are expensive. Use P0/P1/P2 severity ONLY — do not invent P3, 'info', or 'defer' tiers. A code smell that can be fixed in under 5 minutes is P2, not 'informational'. Write your complete findings to `{scratch-path}` using the Write tool. Return only a brief summary (finding count, any blockers) — the coordinator reads full output from disk."
+**Agent prompt must instruct:** "Cast a wide net. Report bugs AND code smells — both are worth fixing. Err on the side of reporting — false positives are cheap, missed issues are expensive. Use P0/P1/P2 severity ONLY — do not invent P3, 'info', or 'defer' tiers. A code smell that can be fixed in under 5 minutes is P2, not 'informational'. Write your complete findings to `{scratch-path}` using the Write tool. Return only a brief summary — the coordinator reads full output from disk."
 
 **Scratch path:** `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1-sonnet.md`
 
-### Track B — Test Suite (dispatch one Haiku agent)
+### Track B — Test Suite (EM runs; a Haiku agent parses the output)
 
-Dispatch one agent with `model: "haiku"`. Run the test suite (`pytest`, `jest`, `npm test`, `cargo test`, etc.). Capture pass/fail/error counts. For each failure: extract the error, test file:line, and likely source.
+Running a suite is Tier-U (or Tier-F if fast-tier-scoped) — subagents never invoke it, and `/bug-sweep` holds no implicit grant. Ask the PM: *"This sweep wants to run the test suite to fold failures into the findings — authorize?"*
 
-If no test suite exists, report that fact and skip.
+**The ask is not the grant — write the token, don't just narrate the answer.** A grant is an explicit affirmative reply naming the suite/Tier-U as its subject ("yes, run the suite" / "authorized"), not adjacent approval of the sweep in general ("looks good, go ahead"). A terse "yes"/"authorized" alone still qualifies when it's a direct reply to this ask — the bar is a well-formed ask answered plainly, not a phrase to be repeated back verbatim. This disposition call is the PM's, not the engine's.
+
+Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" brief bug-sweep` for the exact ask text (judgment point `j-bug-sweep-tier-u-grant`) and its paired write directive. On grant, apply it — `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" apply bug-sweep --decisions '{"j-bug-sweep-tier-u-grant":"granted"}'` — which shells out to `tier-u-grant-cli grant pm <note>` for you; no manual CLI construction. On decline, apply nothing, skip Track B, and report the decline — never substitute a subagent invocation as a workaround.
+
+Immediately before firing (never on the strength of the conversation having happened earlier), recheck `tier-u-grant-cli check` — exit 0 grants, exit 1 halts. Then run the suite via `Bash` yourself and capture raw output; dispatch one `model: "haiku"` agent to parse it (never invoke it) into pass/fail/error counts and, per failure, error/file:line/likely source.
+
+If no test suite exists, report that and skip.
 
 **Scratch path:** `tasks/scratch/bug-sweep/{run-id}/tests-phase1-haiku.md`
 
 ### Track C — API Documentation Verification (`DOCS_VERIFY = true` stacks only)
 
-**Before dispatching each Track C docs-checker agent, scaffold the docs-check sidecar** — derive `<stem>` from `{run-id}-{chunk-name}`:
-```bash
-coordinator-doc-new --type docs-check --plan {run-id}-{chunk-name}
-```
-Pass the scaffolded path (`docs/plans/{run-id}-{chunk-name}.docs-check.md`) in the agent's dispatch brief: "fill the pre-scaffolded sidecar at `docs/plans/{run-id}-{chunk-name}.docs-check.md` with your verification report."
+Dispatch one `coordinator:docs-checker` agent per chunk (`model: "sonnet"`) against its chunk's source files. Its sidecar path is provisioned by claude-klabauter's `provision_report` and arrives in the dispatch brief — pass it through unchanged; do not compute or scaffold one. The agent scans external API references (class/function names, header includes, Blueprint nodes, UPROPERTY/UFUNCTION specifiers, enum values, SDK calls) against example-game-repo-docs (UE) or Context7 (non-UE) and returns a structured report.
 
-Dispatch one `coordinator:docs-checker` agent per chunk with `model: "sonnet"`. Each agent receives the source files for its chunk. The agent:
-- Scans all external API references (class names, function signatures, header includes, Blueprint nodes, UPROPERTY/UFUNCTION specifiers, enum values, SDK calls)
-- Verifies each against example-game-repo-docs (UE APIs) or Context7 (non-UE libraries)
-- Returns a structured Docs Verification Report
+**Rationale:** Claude's API knowledge is imperfect for compiled/opinionated stacks — wrong headers, nonexistent methods, wrong signatures can compile silently or fail only at link time. Track C surfaces these at the same triage priority as functional bugs.
 
-**Rationale:** For compiled languages and large opinionated frameworks (UE, Unity, C#, C++, etc.), Claude's API knowledge is imperfect — wrong header paths, nonexistent methods, and incorrect signatures can exist silently in codebases because they may still compile or because the error is deferred to link time. Unlike TypeScript/Python where training data is dense, these stacks are precisely where "looks right" and "is right per the docs" diverge. Track C surfaces API bugs at the same triage priority as functional bugs.
-
-**Feeding into triage:**
-- `INCORRECT` findings (docs contradict the code) → P1 bug finding: "API incorrect per example-game-repo-docs: [detail]"
-- `UNVERIFIED` findings where the symbol follows UE naming conventions but has zero RAG hits → P2 finding: "Possible hallucinated API — zero docs hits"
-- `UNVERIFIED` due to server unavailability → drop (not actionable)
+**Feeding into triage:** `INCORRECT` → P1 finding ("API incorrect per example-game-repo-docs: [detail]"). `UNVERIFIED` with zero RAG hits on a UE-naming-convention symbol → P2 ("possible hallucinated API"). `UNVERIFIED` from server unavailability → drop, not actionable.
 
 **Scratch path:** `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1-docschecker.md`
 
 ### Scratch Verification
 
-Before proceeding to Phase 2, verify all expected scratch files exist (`ls tasks/scratch/bug-sweep/{run-id}/`). If any chunk agent failed to write, re-dispatch once. If it fails again, proceed with available findings.
+Before Phase 2, confirm all expected scratch files exist (`ls tasks/scratch/bug-sweep/{run-id}/`). Re-dispatch once for any chunk agent that failed to write; if it fails again, proceed with what's available.
 
 ## Phase 1.5: Churn-Gated Findings Verification (conditional)
 
-**Gate:** Run Phase 1.5 iff commits-since-last-sweep > 200 on the swept paths. Cheap check: `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` against the SHA stored in `state/bug-backlog/.meta.yaml` under the `last_sweep_commit:` key. If `state/bug-backlog/.meta.yaml` does not exist, or `last_sweep_commit` is absent, or the count is ≤200, SKIP Phase 1.5 and go straight to Phase 2.
+**Gate:** run iff `git rev-list --count <last-sweep-sha>..HEAD -- <chunk-paths>` (SHA from `state/bug-backlog/.meta.yaml`'s `last_sweep_commit:`) exceeds 200. Missing `.meta.yaml`, missing key, or count ≤200 → skip straight to Phase 2. Under heavy churn the highest-confidence P1s carry the highest false-positive rate — the sweeper pattern-matches on a bug shape a concurrent EM already fixed; low-churn sweeps don't invert this way, which is why the gate exists rather than running every time.
 
-**Why gated on churn:** *2026-05-28, project-rag (809 commits since prior sweep).* Sonnet sweepers pattern-match on historical bug shapes. Under heavy churn, the highest-confidence P1 findings have the highest false-positive rate — concurrent EMs already fixed the loud bugs, but the sweeper still remembers their shape. Low-churn sweeps don't show this inversion; Phase 1.5 cost (4 Haiku, ~10K tokens each, <5 min) is not worth paying every run.
-
-**Procedure:** Dispatch one Haiku verifier per chunk. Each verifier receives the chunk's Phase 1 findings file (`{chunk-name}-phase1-sonnet.md`) and reads the cited file:line for every P0/P1 finding. For each, return one of:
-
-- `still-present` — current source matches the buggy state described
-- `already-fixed` — current source is in the fixed state (cite the resolving SHA from `git log -1 --format=%H -- <file>` filtered since the last-sweep SHA, or `unattributed`)
-- `pattern-shifted` — code at the cited location no longer resembles either the buggy or fixed shape (likely refactored away; finding is stale)
-
-Write verdicts to `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1.5-verification.md`. Phase 2 reads this file alongside the Phase 1 findings file for the same chunk and considers only `still-present` findings for triage; `already-fixed` and `pattern-shifted` drop out and are noted in the Phase 4 report.
+**Procedure:** dispatch one Haiku verifier per chunk against that chunk's `{chunk-name}-phase1-sonnet.md`, reading the cited `file:line` for every P0/P1 finding and returning `still-present` / `already-fixed` (resolving SHA or `unattributed`) / `pattern-shifted` (code no longer resembles either shape — finding is stale). Write to `tasks/scratch/bug-sweep/{run-id}/{chunk-name}-phase1.5-verification.md`. Phase 2 considers only `still-present` findings for triage; the rest drop out and are noted in the Phase 4 report.
 
 ## Phase 2: Triage (~5 min, YOU do this)
 
-Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_VERIFY = true`, this includes Track C docs-checker reports — merge their INCORRECT and suspicious-UNVERIFIED findings into the main finding list before categorizing.
+Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_VERIFY = true`, merge Track C's `INCORRECT` and suspicious-`UNVERIFIED` findings in before categorizing.
 
-### Step 2.1: Categorize
+### Step 2.1: Categorize (the sweep's other irreducible judgment call)
 
-1. **Fix now** — the default. If the bug OR smell is clear and the fix is clear, fix it:
-   - Missing error handling, dead code, swallowed exceptions, failed tests with obvious cause, straightforward TODO/FIXME items
-   - Code smells: confusing names, mid-file imports, in-place mutation footguns, O(n) where O(1) exists, per-call allocations that should be cached, double-checked locking bugs, dead parameters
+1. **Fix now** — the default. Clear bug or smell + clear fix → fix it: missing error handling, dead code, swallowed exceptions, obvious-cause failed tests, straightforward TODO/FIXME; confusing names, mid-file imports, in-place mutation footguns, O(n) where O(1) exists, uncached per-call allocations, double-checked locking bugs, dead parameters.
 
-2. **Backlog** — only for genuinely blocked bugs:
-   - Needs human verification, needs a plan session, logic that might be intentional and requires PM judgment
-   - **NOT for:** "low confidence" findings — verify them and either fix or drop. NOT for "code smells" — those are fixable. NOT for anything you could fix in under 10 minutes.
-   - **"Needs runtime test to confirm" + free+safe fix = FIXED, not backlogged.** Split bug-confirmation from fix-shape: if the only blocker is "I can't confirm the bug without running the system," but the fix is free (trivially correct by inspection) and safe (reverts cleanly, no schema migration, no user-visible behavior change), apply the fix NOW and note "fix applied; runtime confirmation deferred." Backlogs a symptom description without applying a known-safe fix wastes the next session's context. The fix going in is not contingent on confirming the bug was real — if the code was correct already, the fix is a no-op and costs nothing. Only backlog when the fix itself is unclear or risky, not merely because confirmation would require a runtime. [source: queue-triage-2026-06-21 chunk-1, queue line 34]
+2. **Backlog** — only genuinely blocked: needs human verification, needs a plan session, or intent-ambiguous logic needing PM judgment. Not for "low confidence" (verify and fix-or-drop), not for code smells (always fixable), not for anything under 10 minutes.
 
-3. **False positive** — pattern matched but not a bug:
-   - Intentional patterns, comments/docs that mention bug patterns
+   **"Needs runtime confirmation" is not itself a reason to backlog when the fix is free and safe** (trivially correct by inspection, reverts cleanly, no migration, no user-visible change) — apply it now and note "fix applied; runtime confirmation deferred." A no-op fix costs nothing even if the bug turns out not to have been real; only backlog when the fix itself, not the confirmation, is unclear or risky.
 
-**Bias toward fixing.** Same effort to fix a small bug as to document it. If you can fix it safely, fix it. **Code smells are fixable by definition** — they never belong in backlog. The only valid reasons to backlog are: (a) needs human judgment about intent, (b) fix requires a plan session due to scope, (c) blocked by external dependency.
+3. **False positive** — pattern matched, not a bug: intentional patterns, comments/docs mentioning bug patterns.
 
-**Deduplication:** Multiple agents may find the same cross-system issue. Merge duplicates.
+**Bias toward fixing** — same effort to fix as to document. Code smells are fixable by definition and never belong in backlog; valid backlog reasons are intent judgment, plan-session scope, or an external blocker only. Merge cross-agent duplicates.
 
-**Output:** Two lists — "Fix now" and "Backlog" — grouped by file for efficient executor dispatch.
-
-**Also write `tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json`** — machine-readable list of fix-now findings, consumed by the Phase 4 mechanical diff gate. Schema:
+**Output:** "Fix now" / "Backlog" lists grouped by file. Also write `tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json` (Phase 4's mechanical diff gate consumes it), minimum field `file`:
 
 ```json
 [
@@ -200,16 +123,9 @@ Read all Phase 1 findings from `tasks/scratch/bug-sweep/{run-id}/`. When `DOCS_V
 ]
 ```
 
-Minimum required field: `file` (the Phase 4 gate joins on this). `id`, `line`, `severity`, `description` improve the PM report.
-
 ## Phase 3: Fix (dispatch Sonnet executors, parallel)
 
-Dispatch Sonnet executors with `model: "sonnet"` to fix all "fix now" items. Group fixes by file/system to minimize conflicts.
-
-Each executor receives:
-- The finding list for its file group
-- The source files to modify
-- Clear acceptance criteria per fix
+Dispatch Sonnet executors, grouped by file/system to minimize conflicts. Each receives its finding group, the source files, and acceptance criteria per fix.
 
 **Agent prompt must instruct (verbatim — verify-first executor contract):**
 
@@ -223,131 +139,55 @@ Each executor receives:
 >
 > Write a brief summary of changes to `{scratch-path}` using the Write tool. The summary MUST distinguish `fixed` vs `no-op — already in HEAD` per finding.
 
-**Why verify-first:** *2026-05-28, project-rag.* After 800+ commits of intervening churn, Sonnet sweepers anchor on historical bug shapes; 11/11 fix-now P1s in one run were already fixed in HEAD. Executors honestly "fixed" them with byte-identical edits and reported DONE. The verify-first contract converts that silent-success failure mode into an explicit `no-op` per finding.
+This contract exists because sweepers anchor on historical bug shapes after heavy churn — without it, an executor "fixes" an already-fixed bug with a byte-identical edit and honestly reports DONE.
 
-**Post-fix:** Run the test suite again to verify fixes don't introduce regressions. If any test fails that wasn't failing before, revert that fix and move the finding to backlog with "regression introduced."
+**Post-fix:** re-run the test suite yourself to catch regressions — same Track B grant, no second ask; recheck it live via `tier-u-grant-cli check` rather than re-asking or re-applying. Any test failing that wasn't failing before → revert that fix, move the finding to backlog noting "regression introduced." Skip this re-run if Track B was declined or skipped.
 
 ## Phase 3.5: Post-Fix API Verification (YOU do this)
 
-Before committing any fixes, run docs-checker on the changed files to verify that the fixes themselves don't introduce hallucinated or incorrect API usage.
+Before committing, run docs-checker on the changed files to confirm the fixes themselves don't introduce hallucinated or incorrect API usage. **Mandatory when `DOCS_VERIFY = true`; recommended whenever fixes touch external library APIs.**
 
-**Mandatory when `DOCS_VERIFY = true` (compiled/framework-heavy stacks). Recommended for any project where fixes reference external library APIs.**
+1. `git diff --name-only` for the changed-file set.
+2. Dispatch one `coordinator:docs-checker` agent against that set, using the sidecar path provisioned in the brief (never scaffold one). Brief it: "verify all external API claims in these modified files; report INCORRECT and suspicious-UNVERIFIED only."
+3. **No INCORRECT findings** → Phase 4. **INCORRECT in a fix** → `git checkout -- {file}` to revert it, move the finding to backlog noting the docs-checker verdict; the original bug stays open. **UNVERIFIED, zero-hit UE-naming pattern** → flag to PM in the Phase 4 report, don't block.
 
-1. **Identify changed files:**
-   ```bash
-   git diff --name-only
-   ```
-
-**Scaffold the docs-check sidecar before dispatch** — derive `<stem>` from `{run-id}-postfix`:
-```bash
-coordinator-doc-new --type docs-check --plan {run-id}-postfix
-```
-Pass the scaffolded path (`docs/plans/{run-id}-postfix.docs-check.md`) in the agent's dispatch brief.
-
-2. **Dispatch docs-checker:**
-   Dispatch one `coordinator:docs-checker` agent against the set of changed files. Brief it: "fill the pre-scaffolded sidecar at `docs/plans/{run-id}-postfix.docs-check.md`; verify all external API claims in these modified files. Focus on claims that appear to be new or changed relative to common patterns. Report INCORRECT and suspicious-UNVERIFIED findings only — skip VERIFIED."
-
-3. **Assess the result:**
-   - **No INCORRECT findings:** Proceed to Phase 4.
-   - **INCORRECT findings in a fix:** Revert that specific fix (`git checkout -- {file}`) and move the finding to backlog with note `"docs-checker: incorrect API in proposed fix — [detail]"`. The original bug remains open; the fix needs rework.
-   - **UNVERIFIED with zero-hit UE naming pattern:** Flag to PM. Don't block — but note it in the Phase 4 report.
-
-**Phase 3.5 does NOT re-run the full sweep.** It reads only the changed files, verifying that executor agents didn't introduce new API errors while fixing existing bugs.
-
-## Phase 3.6: Codex Verification (opt-in via `--codex-verify`)
-
-Detection: `[[ "$ARGUMENTS" == *"--codex-verify"* ]]` — flag-present triggers the gate; flag-absent makes this phase a true no-op.
-
-If `--codex-verify` was passed at command invocation, invoke `skill:codex-review-gate` with:
-
-- `scope: bug-sweep-fixes`
-- `base: origin/main`
-- `required: false`
-
-Without the flag, this phase is a no-op (no skill invocation, no log line). With the flag, the gate skill handles graceful fallback when the `codex-review-gate` skill itself is absent (user never opted in at install), when the Codex CLI is not installed or unauthed, or when no diff exists against `origin/main`. Findings reported alongside the bug-sweep summary in Phase 4; never blocking — the gate is purely advisory.
+Phase 3.5 reads only the changed files — it is not a re-sweep.
 
 ## Phase 4: Report and Commit (YOU do this)
 
-0. **Mechanical diff gate — fail loud on zero-diff runs.** Before commit, assert that fix-now-claimed files actually changed on disk (requires bash — uses process substitution):
+0. **Mechanical diff gate — fail loud on zero-diff runs.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/bug-sweep-probes" verify-diff --fix-now tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json` prints `expected_count`/`actual_changed_count`/`missing` and, when `missing` is non-empty, an alert to stderr (exit 1, informational — the calling agent decides how to surface it, not a hard failure). A non-empty `missing` list is the loud-failure counterpart to Phase 3's verify-first contract: executor `no-op` responses that claimed a fix. List it in the report as **Zero-diff fixes**; it doesn't block committing the real fixes.
 
-   ```bash
-   EXPECTED_FILES=$(jq -r '.[].file' < tasks/scratch/bug-sweep/{run-id}/phase2-fix-now.json | sort -u)
-   ACTUAL_CHANGED=$(git diff --name-only | sort -u)
-   MISSING=$(comm -23 <(echo "$EXPECTED_FILES") <(echo "$ACTUAL_CHANGED"))
-   if [ -n "$MISSING" ]; then
-     echo "ALERT: fix-now files with no diff (likely false-positive cohort):"
-     echo "$MISSING"
-   fi
-   ```
+1. **Commit fixes** via the named op — never narrate the git sequence and never `coordinator-safe-commit` here (lessons.md:207; `docs/wiki/scoped-safety-commits.md § Current Doctrine`): pass each `git diff --name-only` path as a `--wave-path` to `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" apply bug-sweep --wave-path <path>... --granularity per-wave --message "bug-sweep: fixed N bugs across M files"` — one op, one commit, engine-staged and engine-scoped so a concurrent session's staged files stay untouched.
 
-   If `MISSING` is non-empty, surface each file in the Phase 4 PM report under a **Zero-diff fixes** line — these were executor `no-op` responses (finding already in HEAD). This is the loud-failure counterpart to the verify-first contract in Phase 3: it converts "executor reported DONE, no fixes landed" from a silent class into an explicit count. Do not block commit on a non-empty MISSING set — the remaining real fixes still ship — but the count goes in the report so the false-positive rate is visible.
+2. **Prune already-fixed backlog entries (paper-trail commit), separate from step 1.** Read `pre-dispatch-already-fixed.md`; for each, stamp `status: closed`, `closed_at: <ISO date>`, `closed_by: <resolving-sha or unattributed>` and `git mv` it to `archive/bug-backlog/<YYYY-MM>/` — the op above doesn't rename, only stage-and-commit. Then invoke the same apply op, one `--wave-path` per renamed file, `--granularity per-wave`, `--message` naming each closed ID paired with its resolving SHA — the greppable answer to "what happened to that bug?" without scanning history. Skip this sub-step if pre-dispatch found nothing already-fixed.
 
-1. **Commit fixes:**
-   ```bash
-   # Plain-git scoped commit — do NOT use coordinator-safe-commit here (lessons.md:207, SC-DR-008)
-   SWEEP_FILES=$(git diff --name-only)
-   git add -- $SWEEP_FILES && git commit -m "bug-sweep: fixed N bugs across M files" -- $SWEEP_FILES
-   ```
+3. **Append genuinely blocked items** via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-queue-append" --schema bug-backlog --surface <subsystem> --severity P1 --status open --title "<title>" --body "<description>" [--why-blocked "<reason>"] [--evidence <ref>]`, cross-referencing `state/debt-backlog/` overlap via `--evidence` where it exists. Creates `state/bug-backlog/<date>-<slug>.yaml` (filename is the canonical handle). Write/update `state/bug-backlog/.meta.yaml` with `last_sweep_commit:`/`last_sweep_at:` (zero counts too, if nothing appended), then invoke the same apply op scoped to the directory: `--wave-path state/bug-backlog/ --granularity per-wave --message "bug-sweep {run-id}: append <M> new blocked items, refresh .meta.yaml"`.
 
-2. **Prune already-fixed entries from the existing backlog (paper-trail commit).** Before appending new blocked items, read `tasks/scratch/bug-sweep/{run-id}/pre-dispatch-already-fixed.md` (written during Pre-Dispatch). For each already-fixed entry:
-   - Stamp the YAML file with `status: closed`, `closed_at: <ISO date>`, `closed_by: <resolving-sha>` (or `unattributed` when no single SHA is identifiable).
-   - Archive it: `git mv state/bug-backlog/<id>.yaml archive/bug-backlog/<YYYY-MM>/<id>.yaml`
+4. **Report to PM.**
 
-   Commit the prune (separate from the fixes commit in step 1):
-   ```bash
-   git add -- state/bug-backlog/ archive/bug-backlog/ && \
-     git commit -m "bug-sweep {run-id}: prune already-fixed — <BS-ID-1>→<sha1>, <BS-ID-2>→<sha2>, ..."
-   ```
-   The commit subject names each closed ID paired with the SHA that resolved it. This is the greppable record — `git log --all -- state/bug-backlog/ | grep BS-NNNN` answers "what happened to that bug?" without scanning backlog history.
+   **Report by exception.** A fixed block of ten status lines is still an EM→PM reply and still owes the ≤200-word budget — a clean sweep spends that budget on facts the PM can read off the commit, and the same Stop-hook citation detector (D2) fires independently of length on per-fix `file:line` refs, which belong in the commit message, not here. Print what needs a reader, not what needs a checkbox.
 
-   Skip this sub-step entirely if no already-fixed items were detected pre-dispatch.
-
-3. **Append genuinely blocked items to the bug backlog** (`state/bug-backlog/`) and refresh the queue metadata:
-
-   For each genuinely blocked finding, capture it via:
-   ```bash
-   coordinator-queue-append --schema bug-backlog \
-     --surface <subsystem> \
-     --severity P1 \
-     --status open \
-     --title "<title>" \
-     --body "<description>" \
-     [--why-blocked "<reason>"] \
-     [--evidence <ref>]
-   ```
-
-   This creates `state/bug-backlog/<date>-<slug>.yaml` (the filename is the canonical handle — the `id` field was dropped in example-initiative-tc-2 D2). Do NOT run this CLI as a smoke test inline during skill execution — the CLI surface integration tests live in `coordinator-queue-append.test.py` (C17).
-
-   **Cross-reference with `state/debt-backlog/`** if overlap exists — pass related handles via `--evidence` (the unified provenance field, example-initiative-tc-2 D1; e.g. `--evidence "DSR-2026-06-15-3"`). The legacy `--id BS-…` / `--system` / `--cross-ref` flags were renamed/removed in tc-2 (`--surface`, `--evidence`; id dropped).
-
-   **Update queue metadata** — write/update `state/bug-backlog/.meta.yaml` with `last_sweep_commit: <short-hash>` and `last_sweep_at: <YYYY-MM-DD>` after appending new entries. If no blocked items, still update `.meta.yaml` (last sweep commit + zero counts).
-
-   Commit this update separately from the prune in step 2:
-   ```bash
-   git add -- state/bug-backlog/ && \
-     git commit -m "bug-sweep {run-id}: append <M> new blocked items, refresh .meta.yaml"
-   ```
-
-4. **Report to PM:**
    ```markdown
    ## Bug Sweep Complete
 
-   **Scope:** [N] systems, [M] files scanned
-   **Patterns applied:** [list]
-   **Tests run:** [pass/fail/error counts]
    **Found:** [total] findings ([X] fixed, [Y] blocked, [Z] false positives)
-   **Fixes applied:** [list with file:line refs]
-   **Zero-diff fixes:** [N fix-now findings where executor reported no-op (finding already in HEAD) / none]
-   **Phase 1.5 verification:** [ran (churn=X commits): K still-present, L already-fixed, M pattern-shifted / skipped: <200 commits since last sweep / skipped: no prior sweep record]
-   **Backlog pruned:** [N already-fixed items removed with paper-trail commit / none]
-   **Blocked items:** [list with "why blocked" for each, or "none"]
-   **Docs verification (Phase 3.5):** [clean / N incorrect API claims in fixes reverted / skipped: not C++/UE and no external APIs touched]
-   **Track C API sweep:** [N INCORRECT API findings fixed, N suspicious-UNVERIFIED flagged / skipped: `DOCS_VERIFY` not set for this stack]
+   **Fixes applied:** [N] fixed — [one-line characterization, e.g. "error-handling gaps and dead code across 3 files"]. Full file:line list is in the commit message.
    ```
 
-5. **Clean scratch — defer past commit to workstream-complete or explicit PM signal.** Do NOT delete `tasks/scratch/bug-sweep/{run-id}/` immediately after commit. The scratch directory preserves `file:line` citations that downstream consumers may need: cross-repo memos citing specific findings, plan amendments referencing the triage output, or a follow-on session picking up blocked items from the backlog. Delete the scratch directory at `/workstream-complete` Step 2.67 (session self-clean) or on an explicit PM cleanup signal — whichever comes first. If the next step is a `/handoff`, note the scratch path in the handoff body so the receiving session knows it exists. [source: queue-triage-2026-06-21 chunk-3, queue line 95]
+   Then append a line **only** if its condition holds:
 
-   `rm -rf tasks/scratch/bug-sweep/{run-id}/` is the cleanup command when the time is right. After commit: leave it. At workstream-complete: sweep it.
+   | Line | Include only when |
+   |---|---|
+   | `**Tests run:**` | Track B ran and any test failed/errored — name the pass/fail/error counts |
+   | `**Zero-diff fixes:**` | the mechanical diff gate's `missing` list is non-empty — list the no-op findings |
+   | `**Phase 1.5 verification:**` | Phase 1.5 ran (churn gate tripped) — K still-present, L already-fixed, M pattern-shifted |
+   | `**Blocked items:**` | N ≥ 1 — list each with its "why blocked" reason |
+   | `**Docs verification (Phase 3.5):**` | `DOCS_VERIFY = true` and an INCORRECT finding was reverted from a fix |
+   | `**Track C API sweep:**` | `DOCS_VERIFY = true` and it found INCORRECT or suspicious-UNVERIFIED items |
+
+   **Negative-spec — these are gone, do not restore them.** `Scope`, `Patterns applied`, and `Backlog pruned` are no longer printed at all, in any form. Each was a count or file-list restatement of work the sweep's own commits already record, with no PM decision attached — `Scope`/`Patterns applied` duplicate Phase 0's own output, and `Backlog pruned`'s paper-trail commit (step 2) is its own record of what was pruned; there is no exception condition where the PM needs any of the three repeated in the reply. A clean Track B run, an untripped Phase 1.5 gate, and zero blocked items are likewise not printed — their absence is not a signal the phase was skipped, it is the reply narrowing to what needs a reader. A future reader must not re-add any of these "for completeness": completeness of the *sweep* is Phase 4's own job (the commits + backlog entries), completeness of the *report* is not the same thing.
+
+5. **Leave scratch in place after commit.** `tasks/scratch/bug-sweep/{run-id}/` carries `file:line` citations other consumers may still need (cross-repo memos, plan amendments, a follow-on session picking up blocked items). Delete it (`rm -rf tasks/scratch/bug-sweep/{run-id}/`) at `/workstream-complete`'s session self-clean step, or on an explicit PM cleanup signal — whichever comes first. If the next step is a `/handoff`, note the scratch path in the handoff body.
 
 ## Pattern Library, Cost Profile, Failure Modes
 

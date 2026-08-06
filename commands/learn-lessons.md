@@ -1,6 +1,6 @@
 ---
 name: learn-lessons
-description: "Processes state/lessons/ YAML entries as doctrine change-requests. 3 modes: local, central, recheck. Triggers on triage/trim/process lessons, promote universals."
+description: "Processes lessons/ entries as doctrine change-requests, local or central."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 
 ---

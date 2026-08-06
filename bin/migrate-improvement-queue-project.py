@@ -1,12 +1,4 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work:
-#   migrate-improvement-queue-project.py ...         # direct, via the shebang above
-#   python  migrate-improvement-queue-project.py ... # explicit interpreter
-#   bash    migrate-improvement-queue-project.py ... # re-execs under python
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 migrate-improvement-queue-project.py — one-shot migration of project-specific entries
 from the legacy pipe-delimited state/improvement-queue.md into structured YAML files
@@ -64,6 +56,8 @@ Negative-spec:
   - Do NOT touch sibling migrators (C7, C8).
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import re
@@ -73,6 +67,9 @@ import datetime
 import argparse
 import subprocess
 import glob as glob_module
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _queue_append_locator import find_queue_append_cmd  # noqa: E402
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -339,44 +336,6 @@ def _find_latest_dryrun() -> str | None:
     return matches[-1] if matches else None
 
 
-def _find_queue_append_bin() -> str | None:
-    """
-    Locate coordinator-queue-append on PATH.
-
-    Returns the usable invocation string, or None if not found.
-    Tries bare name first, then python-prefixed invocation against PATH siblings.
-    """
-    for candidate in ("coordinator-queue-append", "coordinator-queue-append.py"):
-        try:
-            result = subprocess.run(
-                [candidate, "--help"],
-                capture_output=True,
-                text=True,
-            )
-        except OSError:
-            continue
-        if result.returncode == 0:
-            return candidate
-
-    # Fallback: look for coordinator-queue-append next to this script.
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    local_path = os.path.join(script_dir, "coordinator-queue-append")
-    if os.path.isfile(local_path):
-        try:
-            result = subprocess.run(
-                [sys.executable, local_path, "--help"],
-                capture_output=True,
-                text=True,
-            )
-        except OSError:
-            pass
-        else:
-            if result.returncode == 0:
-                return f"{sys.executable} {local_path}"
-
-    return None
-
-
 def run_apply(
     dryrun_path: str | None,
     input_path: str,
@@ -414,8 +373,8 @@ def run_apply(
         return 1
 
     # Locate coordinator-queue-append.
-    append_bin = _find_queue_append_bin()
-    if append_bin is None:
+    cmd_prefix = find_queue_append_cmd(os.path.dirname(os.path.abspath(__file__)))
+    if cmd_prefix is None:
         print(
             "ERROR: coordinator-queue-append not found on PATH or next to this script. "
             "Ensure it is installed before running --apply.",
@@ -452,9 +411,7 @@ def run_apply(
         source_line = entry["source_line"]
 
         # Build coordinator-queue-append invocation.
-        # The bin may be a compound "python /path/to/script" string — split for subprocess.
-        cmd_base = append_bin.split() if " " in append_bin else [append_bin]
-        cmd = cmd_base + [
+        cmd = list(cmd_prefix) + [
             "--schema", "improvement-queue",
             "--title", entry["title"],
             "--body", entry["body"],

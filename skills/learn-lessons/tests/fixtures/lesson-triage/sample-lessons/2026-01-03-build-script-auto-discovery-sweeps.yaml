@@ -1,9 +1,0 @@
-# Fixture lesson — synthetic entry for lesson-triage schema test.
-# DO NOT process with /lesson-triage — fixture input only.
-created: 2026-01-03
-title: "Build script auto-discovery sweeps stale backups"
-scope: project
-body: |
-  Auto-discovery globs in build.sh sweep *backup* and *.bak* files unless
-  explicitly excluded. Land an exclude pattern in build.sh to prevent stale
-  artifacts from corrupting the build.

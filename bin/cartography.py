@@ -1,0 +1,254 @@
+"""
+coordinator/bin/cartography.py — operator CLI seam for the `cartography.*` op family
+(coordinator_core/ops/cartography_*.py).
+
+Purpose: A8 — the cartography ops (tree, file_index, churn, symbols, edges,
+count_references, stack, chunk_table, and any future addition) had no
+`coordinator/bin/<verb>` operator surface. Every caller had to re-derive the
+real invocation seam — `python3 -m coordinator_core.invoke <op> '<json>'
+--repo <path>` — by reading a DR-215 retirement stub (docs/wiki/dr-215.md),
+because the bash-era `coordinator/bin/` convention every other op family gets
+had no cartography member. This is that member: a thin CLI trampoline over
+`coordinator_core.invoke`'s command-type dispatch, reusing the shared
+`cc_invoke_bare` transport (coordinator/bin/lib/cc_invoke.py) — the same
+fail-closed timeout/nonzero-exit/empty-stdout ladder every other native
+facade in this tree shares, not a bespoke reimplementation.
+
+Op enumeration is NOT hardcoded: `_cartography_ops()` reads
+`coordinator_core.ops._registry_map.OP_MODULE_MAP` at call time and filters
+for the `cartography.` prefix, so a ninth op (or a tenth, ...) added to that
+map needs zero edits here. This directly answers the brief's stated failure
+mode — a hand-maintained op list (the budget-manifest gate) silently drifted
+to five entries while the real family grew to eight, and a ninth
+(`cartography.op_edges`) was mid-flight the same wave this verb was written.
+
+Every `cartography.*` op is scope `"none"` (COMPUTE_ONLY, no implicit
+repo-specific state — see e.g. cartography_file_index.py's classification
+block) and is entirely targeted via its own `target_root` wire param, NOT via
+`--repo`. `--repo` here is transport-only: it tells `cc_invoke_bare` which
+checkout to spawn `python3 -m coordinator_core.invoke` from (defaults to the
+git repo root of $PWD, same resolution every other native facade in this
+directory uses). `--target-root` is the actual per-op targeting knob and is
+wired straight into the op's `target_root` param — the prior state of the
+world (no verb at all) meant `--repo`-shaped confusion was the only trap
+available; this verb does not reproduce it by giving `--repo` any targeting
+meaning.
+
+Usage:
+    cartography.py <op> --target-root <path> [--params '<json>'] [--repo <path>]
+    cartography.py --list
+
+    <op> accepts either the bare op suffix (e.g. "file_index") or the fully
+    qualified wire name ("cartography.file_index"); both resolve to the same
+    dispatch. `--list` prints every currently-registered `cartography.*` op
+    name (one per line) and exits 0, taking priority over a positional <op>.
+
+    `--params` carries any wire params beyond `target_root` (e.g. `since` for
+    churn, `files` for symbols/edges, `run_id`/`systems`/`chunk_size`/`emit`
+    for chunk_table) as a single JSON object string, merged with
+    `--target-root` (an explicit `target_root` key inside `--params` is
+    overridden by `--target-root` when both are given). This file does not
+    special-case any op's own params beyond `target_root` — that duplication
+    lives in each op module already; a generic passthrough avoids a second,
+    driftable copy of each op's params contract here.
+
+Exit codes:
+    0 — success; the op's bare JSON-RPC result printed to stdout via
+        `json.dumps(result, ensure_ascii=False)` (bare, unindented, matching
+        `cc_invoke_bare`'s own --bare/--params-file parse of
+        `coordinator_core.invoke`'s bare success-path serialization).
+    1 — client-side usage error (unknown op, missing --target-root, malformed
+        --params JSON, no <op> and no --list).
+    2 — cc_invoke_bare transport/op failure (unresolvable repo root, engine
+        timeout, nonzero engine exit, malformed envelope) — see
+        coordinator/bin/lib/cc_invoke.py's `cc_invoke_bare` docstring for the
+        full fail-closed ladder this reuses verbatim.
+
+Spec backlink: A8 (cartography operator-seam spinoff, 2026-08-06 wave)
+DR-215 ref: docs/wiki/dr-215.md, docs/decisions/DR-215-coordinator-core-command-type-execution-model.md
+
+Negative-spec: does NOT hand-maintain a list of cartography op names anywhere
+in this file (see `_cartography_ops()`); does NOT change `--repo`'s
+resolve-and-ignore behavior inside `coordinator_core/invoke` itself (an open
+question with the PM per the dispatching brief, out of this file's scope) —
+this verb instead gives `--target-root` the targeting meaning `--repo` does
+not have for this scope="none" op family, entirely at the CLI-trampoline
+layer.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import cc_invoke_bare, resolve_colocated_claude_klabauter_root  # noqa: E402
+
+
+def _cartography_ops() -> list[str]:
+    """Return every registered `cartography.*` op name, sorted.
+
+    Reads `coordinator_core.ops._registry_map.OP_MODULE_MAP` fresh on every
+    call rather than caching a copy in this module — the whole point is that
+    a newly-added op is visible here with zero edits to this file.
+    """
+    claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.ops._registry_map import OP_MODULE_MAP
+
+    return sorted(op for op in OP_MODULE_MAP if op.startswith("cartography."))
+
+
+def _resolve_op_name(raw: str, known_ops: list[str]) -> str:
+    """Accept either a bare op suffix ("file_index") or the full wire name
+    ("cartography.file_index"); exits 1 with the known-op list on a miss.
+    """
+    if raw in known_ops:
+        return raw
+    qualified = f"cartography.{raw}"
+    if qualified in known_ops:
+        return qualified
+    suffixes = ", ".join(op.split(".", 1)[1] for op in known_ops)
+    print(
+        f"cartography: unknown op {raw!r}. Known cartography ops: {suffixes}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _resolve_repo_root(explicit: str | None) -> str:
+    """Resolve the transport repo root: --repo verbatim, else the git repo
+    root of $PWD (mirrors coordinator/bin/append-goal-event.py's own
+    `_resolve_repo_root`). This is NOT the cartography target — see the
+    module docstring's `--target-root` vs `--repo` note.
+    """
+    if explicit:
+        return explicit
+    try:
+        proc = subprocess.run(
+            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        proc = None
+    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
+        print(
+            f"cartography: cannot resolve git repo root from {os.getcwd()} "
+            "(pass --repo explicitly)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return proc.stdout.strip()
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="cartography",
+        description=(
+            "Operator CLI seam for the cartography.* op family "
+            "(coordinator_core.invoke command-type dispatch)."
+        ),
+    )
+    parser.add_argument(
+        "op",
+        nargs="?",
+        help=(
+            "cartography op name — bare suffix (e.g. file_index) or fully "
+            "qualified (cartography.file_index). Not required with --list."
+        ),
+    )
+    parser.add_argument(
+        "--target-root",
+        help=(
+            "Root of the tree the op targets — wired verbatim into the op's "
+            "own target_root wire param. This is the real per-op targeting "
+            "knob; --repo below is transport-only."
+        ),
+    )
+    parser.add_argument(
+        "--params",
+        default="{}",
+        help=(
+            "Extra op params beyond target_root, as a JSON object string "
+            "(e.g. '{\"since\": \"7 days ago\"}' for churn). Merged with "
+            "--target-root; --target-root wins on key collision."
+        ),
+    )
+    parser.add_argument(
+        "--repo",
+        help=(
+            "Repo root to spawn `python3 -m coordinator_core.invoke` from "
+            "(transport only — every cartography.* op is scope \"none\" and "
+            "ignores --repo for targeting; use --target-root for that). "
+            "Defaults to the git repo root of the current directory."
+        ),
+    )
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List every registered cartography.* op name and exit 0.",
+    )
+    return parser
+
+
+def main(argv: list[str]) -> int:
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+
+    known_ops = _cartography_ops()
+
+    if args.list:
+        for op in known_ops:
+            print(op)
+        return 0
+
+    if not args.op:
+        parser.print_usage(sys.stderr)
+        print("cartography: an <op> is required (or pass --list)", file=sys.stderr)
+        return 1
+
+    op = _resolve_op_name(args.op, known_ops)
+
+    try:
+        extra_params = json.loads(args.params)
+    except json.JSONDecodeError as exc:
+        print(f"cartography: --params must be valid JSON: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(extra_params, dict):
+        print("cartography: --params must decode to a JSON object", file=sys.stderr)
+        return 1
+
+    params: dict[str, object] = dict(extra_params)
+    if args.target_root:
+        params["target_root"] = args.target_root
+    if "target_root" not in params or not params["target_root"]:
+        print(
+            "cartography: --target-root is required (or supply target_root "
+            "inside --params)",
+            file=sys.stderr,
+        )
+        return 1
+
+    repo_root = _resolve_repo_root(args.repo)
+
+    try:
+        result = cc_invoke_bare(op, params, repo_root)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

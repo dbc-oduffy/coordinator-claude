@@ -1,4 +1,4 @@
-"""User marker directory resolution — inlined from X:/project-rag/core/marker_dir.py.
+"""User marker directory resolution — inlined from project-rag/core/marker_dir.py.
 
 Only `resolve_user_marker_dir` is needed by the whoami probe; the broader marker_dir
 module (notably `resolve_project_marker_dir`) stays at project-rag, where multiple
@@ -15,7 +15,7 @@ This copy previously lagged that fix — it was inlined at pre-fix SHA bfb57533 
 still carried the retired legacy name — and has been re-synced to the
 post-retirement source. See project-rag core/marker_dir.py resolve_user_marker_dir.
 
-Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at X:/project-rag (not imported; preserved at source).
+Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at project-rag (not imported; preserved at source).
 Re-anchored backlink (this repo): docs/plans/2026-05-19-whoami-substrate-migration.md § 8 Task 2
 """
 from __future__ import annotations

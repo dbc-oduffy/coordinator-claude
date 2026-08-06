@@ -1,12 +1,4 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work:
-#   migrate-bug-backlog.py ...         # direct, via the shebang above
-#   python  migrate-bug-backlog.py ... # explicit interpreter
-#   bash    migrate-bug-backlog.py ... # re-execs under python
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 migrate-bug-backlog.py — one-shot migration of open bug entries from the
 state/bug-backlog.md markdown table into structured per-entry YAML files via
@@ -45,6 +37,8 @@ Negative-spec:
   - Do NOT commit; do NOT touch sibling migrators (C7, C9).
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import re
@@ -54,6 +48,9 @@ import datetime
 import argparse
 import subprocess
 import glob as glob_module
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _queue_append_locator import find_queue_append_cmd  # noqa: E402
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -337,71 +334,6 @@ def run_dryrun(input_path: str, output_path: str | None) -> int:
 # ── Apply ──────────────────────────────────────────────────────────────────────
 
 
-def _find_queue_append() -> str | None:
-    """
-    Locate the coordinator-queue-append binary on PATH or as a sibling script.
-
-    Tries bare name (Unix) and .py suffix variant first.  Falls back to the
-    sibling-path check so that Windows Python (which uses Windows PATH, not
-    bash PATH) can still find the CLI when it lives next to this script but
-    is not on the Windows system PATH.
-
-    Returns the working invocation string or None if not found.
-    The return value may be "python /abs/path/to/coordinator-queue-append"
-    when the sibling fallback fires — callers must split on the first space
-    to build a correct subprocess cmd list (see _build_cmd_from_invocation).
-    """
-    candidates = ["coordinator-queue-append", "coordinator-queue-append.py"]
-    for candidate in candidates:
-        try:
-            result = subprocess.run(
-                [candidate, "--help"],
-                capture_output=True,
-                text=True,
-            )
-        except OSError:
-            continue
-        if result.returncode == 0:
-            return candidate
-
-    # Sibling-path fallback: check the directory containing this script.
-    # Covers Windows Python where the bash-installed bin/ dir is not on PATH.
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    sibling = os.path.join(script_dir, "coordinator-queue-append")
-    if os.path.exists(sibling):
-        try:
-            result = subprocess.run(
-                [sys.executable, sibling, "--help"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return f"{sys.executable} {sibling}"
-        except OSError:
-            pass
-
-    return None
-
-
-def _build_cmd_from_invocation(append_bin: str, extra_args: list) -> list:
-    """
-    Build a subprocess cmd list from the append_bin invocation string.
-
-    append_bin may be:
-      "coordinator-queue-append"          — bare name (PATH-found)
-      "coordinator-queue-append.py"       — .py suffix (PATH-found)
-      "python /abs/path/to/coordinator-queue-append"  — sibling fallback
-
-    Splits on the first space when append_bin starts with the current Python
-    executable path, otherwise treats it as a single token.
-    """
-    if append_bin.startswith(sys.executable):
-        # Split off the interpreter prefix.
-        parts = append_bin.split(" ", 1)
-        return [parts[0], parts[1]] + extra_args
-    return [append_bin] + extra_args
-
-
 def _find_latest_dryrun() -> str | None:
     """Return the path to the most recent dry-run output file, or None."""
     matches = sorted(glob_module.glob(DRYRUN_GLOB))
@@ -451,8 +383,8 @@ def run_apply(
         return 1
 
     # Check coordinator-queue-append is on PATH.
-    append_bin = _find_queue_append()
-    if append_bin is None:
+    cmd_prefix = find_queue_append_cmd(os.path.dirname(os.path.abspath(__file__)))
+    if cmd_prefix is None:
         print(
             "ERROR: coordinator-queue-append not found on PATH. "
             "Ensure the CLI is installed before running --apply.",
@@ -514,7 +446,7 @@ def run_apply(
             extra_args += ["--why-blocked", why_blocked]
         if cross_ref:
             extra_args += ["--cross-ref", cross_ref]
-        cmd = _build_cmd_from_invocation(append_bin, extra_args)
+        cmd = cmd_prefix + extra_args
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:

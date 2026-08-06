@@ -1,7 +1,6 @@
 ---
 name: systematic-debugging
-description: "Root-cause discipline for ONE identified bug, test failure, or unexpected behavior — pin the premise, reproduce, trace to source, fix at source, verify. For a single known issue, not a codebase sweep."
-description-budget: 250
+description: "Root-cause one known bug — reproduce, trace to source, fix, verify."
 triggers:
   - /systematic-debugging
   - debug this
@@ -15,8 +14,6 @@ argument-hint: "<the symptom, or a path/error to start from>"
 ---
 
 # /systematic-debugging — Root-Cause Discipline for a Single Issue
-
-<!-- provenance: authored 2026-05-30 to replace the retired superpowers:systematic-debugging skill (D-032 conscious uncoupling). Philosophy: docs/wiki/eager-agent-calibration.md — redirection not friction. -->
 
 Walk one identified failure to its root cause and fix it there. The skill exists because the fastest fix that *actually holds* starts by finding the cause: guessing averages slower, because every wrong patch adds a new variable and can mask the real one. This isn't a discipline tax — it's the shortest path to a fix that survives the next run.
 
@@ -40,9 +37,9 @@ Skip it when the cause is already proven (just fix it), or when you have a *pile
 
 Before reproducing anything, confirm the bug you're chasing is the bug that exists. This phase is ~2 minutes and saves hours of debugging a symptom that was already fixed, or fixing in your repo on a cause that lives in someone else's.
 
-1. **Is it still broken on HEAD?** Stale dogfood logs, predecessor handoffs, and backlog entries describe state that may already be fixed. `git log --oneline -- <cited-paths>` since the report's date, then re-run the failing case on current HEAD. An unverified "broken today" is a hypothesis, not a signal. → coordinator CLAUDE.md § Verifying Handoff Premises ("Broken today" claims).
-2. **Is the root cause borrowed?** If the cause came from a handoff, a cross-repo memo, or another repo's diagnosis, that framing is *hypothesis, not ground truth*. Confirm the same shape exists **here** — read the cited code on your own disk before acting on a diagnosis made elsewhere. The discrimination trap is assuming a matching symptom implies a matching cause. → coordinator CLAUDE.md § Verifying Handoff Premises.
-3. **Is the signal real?** If the symptom surfaced through tool output that was empty, garbled, or contradictory, the channel may have failed rather than the code. Re-read once, solo. Two reads disagreeing → read a third way before treating it as a bug. → `docs/wiki/tool-output-flakiness-protocol.md`.
+1. **Is it still broken on HEAD?** Stale dogfood logs, predecessor handoffs, and backlog entries describe state that may already be fixed. `git log --oneline -- <cited-paths>` since the report's date, then re-run the failing case on current HEAD. An unverified "broken today" is a hypothesis, not a signal.
+2. **Is the root cause borrowed?** If the cause came from a handoff, a cross-repo memo, or another repo's diagnosis, that framing is *hypothesis, not ground truth*. Confirm the same shape exists **here** — read the cited code on your own disk before acting on a diagnosis made elsewhere. The discrimination trap is assuming a matching symptom implies a matching cause.
+3. **Is the signal real?** If the symptom surfaced through tool output that was empty, garbled, or contradictory, the channel may have failed rather than the code. Re-read once, solo. Two reads disagreeing → read a third way before treating it as a bug.
 
 If Phase 0 dissolves the bug (already fixed / not reproducible here / phantom signal), you're done — say so and stop. That *is* the systematic outcome.
 
@@ -78,7 +75,7 @@ The bug usually *appears* far from where it *originates*. Fixing where the error
 A patch that doesn't work is information, not a prompt to pile on another patch.
 
 - **< 3 attempts:** return to Phase 1 with what the failed attempt taught you, and form a *new* hypothesis. Don't stack fixes on top of an unconfirmed one.
-- **≥ 3 attempts, each surfacing a new problem somewhere else:** stop debugging and question the architecture. When every fix requires "massive refactoring" or spawns a new symptom elsewhere, that pattern is the signal that the shape is wrong, not the patch. Surface it to the PM as an architectural call — this is a different conversation, not a fourth attempt. → coordinator CLAUDE.md § Core Principles (refactor over patch).
+- **≥ 3 attempts, each surfacing a new problem somewhere else:** stop debugging and question the architecture. When every fix requires "massive refactoring" or spawns a new symptom elsewhere, that pattern is the signal that the shape is wrong, not the patch. Surface it to the PM as an architectural call — this is a different conversation, not a fourth attempt. → coordinator ~/.claude/CLAUDE.md § Engineering Defaults (refactor over patch).
 
 ## A note on tempo
 
@@ -86,7 +83,5 @@ If you catch yourself reaching for a quick patch under pressure — that instinc
 
 ## Related doctrine
 
-- `docs/wiki/eager-agent-calibration.md` — why this skill is shaped as an offer, not an Iron Law.
 - coordinator CLAUDE.md §§ Investigation funnel, Verifying Handoff Premises, Verification Before Done, P0/P1 Verification Gate, Convergence as Confidence.
-- `docs/wiki/tool-output-flakiness-protocol.md` — when the symptom might be a failed channel, not a bug.
 - Siblings: `/bug-sweep`, `/bug-blitz`, `/dogfood`, `/code-health`.

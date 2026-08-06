@@ -1,24 +1,5 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash,
-# so `bash install-sentinel-write ...`, `python install-sentinel-write ...`, and
-# direct shebang invocation all re-exec under python identically. Under sh/bash
-# the line resolves the interpreter as `python3 || python || py` (modern Linux,
-# e.g. Ubuntu 22.04+, ships only python3; clean Windows ships only python/py),
-# then execs it; under Python it is a no-op string.
-# Shebang stays `python` (NOT python3 — python3 is absent on a clean Windows install
-# and exec-127s; only python/py are present). Downstream install ceremonies are
-# told to invoke this CLI directly (see agentic-install-integrity.md § Writer
-# Location), so the shebang must resolve on clean Windows. publish.sh invokes it
-# via its own $PY interpreter array and does not depend on this line.
+#!/usr/bin/env python3
 # coordinator/bin/install-sentinel-write
-#
-# (Doc is a comment block, not a docstring: `from __future__ import annotations`
-# below must be the first statement, and the only string literal permitted before
-# it is the module docstring. The trampoline line below (just above `from
-# __future__`) IS that single leading string — so a second string literal here
-# would push the future-import past the first-string rule and raise SyntaxError.
-# argparse carries its own --help description, so nothing reads __doc__ here.)
 #
 # Separable sentinel-writer for the agentic install integrity primitive.
 # Writes <path>/version.txt containing one line of 40-hex git SHA + LF.
@@ -41,13 +22,6 @@
 #   0  success
 #   1  validation failure (non-hex --sha, malformed git HEAD), bad path, or git error
 
-# Trampoline line (see comment block at top). Bash resolves+execs the interpreter
-# (python3||python||py); Python sees a no-op string. The leading sh token MUST be a
-# command (exec) — a `var=...` assignment here is mis-parsed as a command name, so
-# fail-loud-on-no-interpreter can't be inlined without breaking the polyglot. It is
-# the sole string literal before `from __future__`, so it occupies
-# the module-docstring slot the future-import rule reserves — nothing reads __doc__.
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
 from __future__ import annotations
 
 import argparse

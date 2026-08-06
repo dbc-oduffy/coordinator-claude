@@ -93,9 +93,14 @@ def main():
             for path in sorted(plugin_dir.glob(pattern)):
                 validate_file(path, required, errors)
 
-    # Memory file validation omitted — coordinator-claude is a distribution package,
-    # not a repo with live memory files. Projects using this repo may add their
-    # own memory validation by extending this script.
+    # Review: code-reviewer — validate_memory_file() previously had no call site (dead
+    # code next to a comment excusing it). Wired in behind a glob guard mirroring
+    # health-check.py's check_memory_consistency(): coordinator-claude itself ships no
+    # memory files, but a consumer project layered on top of this repo may add
+    # `projects/*/memory/*.md`, and this makes that case validated rather than silently
+    # unchecked.
+    for memory_file in sorted(pathlib.Path("projects").glob("*/memory/*.md")):
+        validate_memory_file(memory_file, errors)
 
     if errors:
         print("Frontmatter validation FAILED:")

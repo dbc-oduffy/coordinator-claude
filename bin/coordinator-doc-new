@@ -1,29 +1,7 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work, so the habitual
-# `bash <script>` reach no longer exec-fails by feeding Python to bash:
-#   coordinator-doc-new ...          # direct, via the shebang above — canonical form
-#   python  coordinator-doc-new ...  # explicit interpreter
-#   bash    coordinator-doc-new ...  # re-execs under python instead of erroring
-# Under sh/bash the line resolves the interpreter as `python3 || python || py`
-# (macOS 12.3+ and modern Linux ship only `python3` — Apple dropped the `python`
-# symlink; clean Windows python.org installs ship only `python`/`py`), captures
-# its path via command substitution, then execs it; under Python the whole line
-# is a no-op string. One `exec`, three-way probe — the canonical pattern.
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
-coordinator-doc-new — scaffold a conformant coordinator document (handoff, spinoff, memo, plan, decision, audit-record, completion, sidecar, flight-recorder, research-synthesis, review-findings) or delegate to a typed writer for queue/lesson types.
+coordinator-doc-new — scaffold a conformant coordinator document (handoff, spinoff, memo, plan, decision, audit-record, completion, sidecar, run-report [alias: flight-recorder], research-synthesis, review-findings) or delegate to a typed writer for queue/lesson/workflow types.
 # Review: code-reviewer slice-B F7 — module docstring updated to list all supported types.
-
-Shebang note: the SHEBANG line above is `python`, NOT `python3` — `python3` is
-not on PATH on a clean Windows install (only `python`/`py` are), so a `python3`
-shebang exec-127s there. This is the documented rule for coordinator CLIs:
-docs/wiki/bash-on-windows-gotchas.md § Windows exception. The TRAMPOLINE line
-above is a separate concern: it probes `python3 || python || py` so
-`bash coordinator-doc-new …` works on macOS, Linux, AND Windows.
-Do not flatten the trampoline back to a single name.
 
 Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-shape.md § C4 (D3)
 Spec backlink (A4): docs/plans/2026-06-25-example-initiative-tc-4-fleet-machinery-contract-emit.md § A4
@@ -36,29 +14,62 @@ the source by making the schema the production template, not just the validation
 
 Supported types:
   handoff            — session continuation baton (kind: session-handoff)
+                       handoff_phase: continuation is scaffolded unconditionally;
+                       execution_authorized_* fields are deliberately NOT scaffolded
+                       (stamped only at execution-authorization time — see
+                       docs/plans/2026-07-17-execution-handoff-phase-doe-contract.md § C4)
   recovery           — crash-recovery baton (kind: recovery); predecessor is a crashed
                        commit SHA or null (NOT a predecessor handoff path);
                        recovers_session names the crashed session id
   spinoff            — workstream-fork baton (kind: spinoff)
-  spinoff-roadmap    — roadmap stub baton (kind: spinoff-roadmap)  requires --roadmap-id --stub-id
+  roadmap-baton      — roadmap stub baton (kind: roadmap-baton)  requires --roadmap-id --stub-id
+                       BACKWARD-COMPAT ALIAS: --type spinoff-roadmap (same emitter, same
+                       output shape) — the flag now agrees with the kind it scaffolds.
+  goal-seed          — goal-scoped fork baton (kind: goal-seed), no predecessor baton
+                       BACKWARD-COMPAT ALIAS: --type spinoff-goal
+  roadmap-seed       — roadmap-stub-producing fork baton (kind: roadmap-seed), no predecessor baton
+                       BACKWARD-COMPAT ALIAS: --type spinoff-roadmap-creator
   memo               — cross-repo memo LOCAL skeleton (not delivered; send via cross-repo-memo)
   plan               — plan document (docs/plans/YYYY-MM-DD-<slug>.md)
-  decision           — architecture decision record (docs/decisions/DR-XXX-<slug>.md)
+                       REQUIRES an explicit sizing answer: --sizing-object PATH, or
+                       --no-sizing-object to declare the plan genuinely has none
+  decision           — architecture decision record (docs/decisions/DR-NNN-<slug>.md,
+                       DR number allocated + collision-checked; optional --dr-prefix)
   audit-record       — architecture audit record (docs/architecture/audit-records/YYYY-MM-DD-<system>.md)  requires --system <name>
   completion         — workstream completion log entry (archive/completed/YYYY-MM/YYYY-MM-DD-<slug>.md)  optional --nature, --chain
-  goal               — goal artifact with OKR frontmatter (state/goals/YYYY-MM-DD-<slug>.md)
+  goal               — goal artifact with OKR frontmatter (state/goals/YYYY-MM-DD-<slug>.yaml)
+  sizing-object      — fleet routing-lobby sizing record (state/sizings/YYYY-MM-DD-<slug>.yaml)
   health-status      — daily health summary record (state/health/YYYY-MM-DD-health-summary.md)
+  strategic-self-description — per-repo strategic self-description, whole-document-YAML
+                       (state/strategic/self-description.yaml); one-per-repo, not date/slug-derived
   review             — review sidecar (docs/plans/<stem>.review.md)  requires --plan <stem>
   prior-art-check    — prior-art-check sidecar               requires --plan <stem>
   plan-coverage-check — plan-coverage-check sidecar          requires --plan <stem>
   docs-check         — docs-check sidecar                    requires --plan <stem>
-  flight-recorder    — executor flight-recorder sidecar      requires --plan <path> --chunk <id>
-                       outputs to tasks/<plan-slug>/flight/<chunk-id>.md
+  run-report         — universal subagent run-report sidecar requires --plan <path> --chunk <id> --out <path>
+                       --out is REQUIRED (no default path); the live output location is
+                       state/subagent-share/<session-id>/<key>.md, path owned and computed
+                       by claude-klabauter's provision_report engine at spawn time
+                       (superset schema — subsumes flight-recorder; DEC-3, plan
+                       2026-07-13-subagent-run-report-subsume.md § C4)
+  flight-recorder    — BACKWARD-COMPAT ALIAS for --type run-report (same emitter,
+                       same output path/shape). Kept so in-flight callers do not break.
   research-synthesis — deep-research synthesis record (docs/research/YYYY-MM-DD-<slug>.md)
                        frontmatter index over a PROTECTED expressive prose body (HEADERS ONLY in scaffold)
   review-findings    — code-reviewer self-persist findings sidecar  requires --slice <id> --scope <comma-paths>
-                       outputs to state/review-trail/findings/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
-                       (SLUG is sanitized from --scope; the <!-- FINDINGS --> sentinel is the Edit anchor)
+                       outputs to state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
+                       (the DR-091 home -- same session-scoped root provision_report uses; SLUG is
+                       sanitized from --scope; the <!-- FINDINGS --> sentinel is the Edit anchor)
+  subagent-sidecar   — agent-side decision-object container (schemas/decision-object.schema.json
+                       $defs/subagent_sidecar)  requires --plan <path> --chunk <id> --out <path>
+                       --out is REQUIRED (no default); the LIVE sidecar path is computed by
+                       coordinator_core.dispatch.provision at spawn time under
+                       state/subagent-share/<session-id>/<key>.md. This CLI branch is the
+                       manual/test scaffold path only. Carries completion_status (backlinks the
+                       existing query-completions surface, not a fourth store),
+                       divergence_from_plan, and tell_the_EM (freeform exit interview) --
+                       distinct from --type run-report's lifecycle-tracker shape.
+                       (docs/plans/2026-07-24-canonical-resolution-engine.md § W2-B3, R7 Addendum)
 
   Queue types (A4 — delegate to coordinator-queue-append, do NOT re-implement schema):
   improvement-queue  — DELEGATES to coordinator-queue-append --schema improvement-queue
@@ -68,6 +79,12 @@ Supported types:
   Lesson type (A4 — delegate to coordinator-lesson-promote, outbox/promote altitude):
   lesson             — DELEGATES to coordinator-lesson-promote
                        (lessons-outbox YAML, NOT a lessons.md capture line — per tc-2 D3)
+
+  Workflow type (delegate to coordinator-workflow-scaffold.py, claude-klabauter workflow.scaffold op):
+  workflow           — DELEGATES to coordinator-workflow-scaffold.py
+                       requires --name (or --title) --description (or --title)
+                       COMPUTE_ONLY op: returns Workflow-skeleton script text, not a
+                       frontmatter document; writes to --out (or stdout when omitted)
 
 Fail-loud on unknown --type: exits non-zero and lists the known type set.
 
@@ -91,15 +108,18 @@ surfaces belong wholly to bin/cross-repo-memo. This tool creates the LOCAL skele
 Negative-spec: does not modify any schema, skill, or hook — it reads schemas at
 runtime to derive section vocabulary but does not write to any registry file.
 """
+from __future__ import annotations
 
 import argparse
 import datetime
 import hashlib
+import json
 import os
 import random
 import re
 import subprocess
 import sys
+import tempfile
 
 # ---------------------------------------------------------------------------
 # Shared memo composer — bin/lib/memo_compose.py (example-initiative tc-0 C4)
@@ -114,6 +134,15 @@ from memo_compose import (  # noqa: E402
     _yaml_quote,
     _SUMMARY_MAX_CHARS,
 )
+from machine_local_impl_resolve import (  # noqa: E402
+    claude_home as _mlir_claude_home,
+    settings_home as _mlir_settings_home,
+)
+from dr_allocator import (  # noqa: E402
+    allocate_dr_number as _allocate_dr_number,
+    assert_dr_id_unique as _assert_dr_id_unique,
+    DrAllocatorError as _DrAllocatorError,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -123,6 +152,7 @@ from memo_compose import (  # noqa: E402
 # Do not add literal type lists here; update the manifest instead.
 from coordinator_registry import (  # noqa: E402
     KNOWN_TYPES as _KNOWN_TYPES,
+    DOC_TYPES as _DOC_TYPES,                 # raw docTypes tuple — offerable/excludeReason for the non-scaffoldable guard
     SIDECAR_TYPES as _SIDECAR_TYPES,
     SIDECAR_SUFFIXES as _SIDECAR_SUFFIXES,  # review F3 — replaces local _SIDECAR_SUFFIX dict
     QUEUE_TYPES as _QUEUE_TYPES,
@@ -130,10 +160,32 @@ from coordinator_registry import (  # noqa: E402
     em_id_for_root as _em_id_for_root,      # C2b — shared resolver; no home param
 )  # Review: code-reviewer — F2: removed dead import repo_key_to_em_id; only _em_id_for_root is called here
 
+# --type run-report — LOCAL shim, not yet manifest-registered.
+#
+# coordinator-registry.manifest.json's docTypes/kindOfferOverride entries for
+# "run-report" (replacing "flight-recorder") are C8a's write-target in the
+# subagent-run-report-subsume plan (schema/registry retirement chunk, gated on
+# this chunk (C4) + C2/C5 landing first). Until C8a lands, "run-report" is
+# unknown to the manifest-derived _KNOWN_TYPES import above, so it is unioned
+# in locally here — a minimal, additive shim scoped to THIS file only. C8a's
+# manifest edit will make this shim redundant (harmless to keep; the union is
+# idempotent), not conflicting — do not pre-empt C8a's surface from here.
+#
+# Spec backlink: docs/plans/2026-07-13-subagent-run-report-subsume.md § C4, C8a
+_KNOWN_TYPES = _KNOWN_TYPES | frozenset({"run-report"})
+
+# subagent-sidecar formerly carried a LOCAL shim here identical in shape to
+# the run-report one above (docs/plans/2026-07-24-canonical-resolution-
+# engine.md § W2-B3). coordinator-registry.manifest.json now carries a
+# "subagent-sidecar" docTypes entry (offerable: false — the agent-side
+# decision-object container is always caller-scaffolded via --out, never
+# offered), so _KNOWN_TYPES already includes it via the import above and the
+# local union was retired rather than kept as a harmless-idempotent no-op.
+
 # Slug regex — mirrors cross-repo-memo's _TOPIC_SLUG_RE.
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 
-# Slice ID regex — allows uppercase because slice IDs like "Z", "A", "B1" are common in dispatch ledgers.
+# Slice ID regex — allows uppercase because slice IDs like "Z", "A", "B1" are common in wave-maps.
 _SLICE_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*$")
 
 
@@ -155,6 +207,60 @@ def _slug_from_scope(scope: str) -> str:
     # fall back to a placeholder so the output path is never malformed with a trailing dash.
     return slug[:40] or "unknown-scope"
 
+
+# Session-id segment whitelist — mirrors coordinator_core.subagent_sandbox.provision_report
+# ._sanitize_segment's character set exactly ([A-Za-z0-9._-], reject '', '.', '..' after
+# whitelisting) so a self-scaffolded review-findings sidecar's session directory leaf gets
+# the identical sanitization discipline as the engine's spawn-time provisioning. Duplicated
+# rather than imported: this CLI is invoked from an arbitrary consumer repo's cwd (the
+# reviewer's own confined Bash call), and must keep working even when claude-klabauter's own
+# package tree is not importable from there — see _resolve_session_id's docstring.
+_SESSION_SEGMENT_WHITELIST_RE = re.compile(r"[^A-Za-z0-9._-]")
+_REJECTED_SESSION_SEGMENTS = {"", ".", ".."}
+
+
+def _resolve_session_id() -> str:
+    """Resolve the current harness session id for session-scoped self-scaffolds
+    (currently: --type review-findings's fallback path, when no sidecar arrived
+    pre-provisioned).
+
+    Same env var + precedence chain this file already uses for --type run-report
+    and --type subagent-sidecar's `dispatched_by` field (COORDINATOR_SESSION_ID >
+    CLAUDE_SESSION_ID > CLAUDE_CODE_SESSION_ID) -- and the same overall harness
+    session identity coordinator_core.subagent_sandbox.provision_report reads via
+    its spawn-time hook payload's `session_id` field (see that module's
+    _provision()). The EM and every subagent it spawns via the Task tool share
+    ONE harness session; provision_report captures that identity from the
+    EM-side spawn hook's payload, while this self-scaffold path reads it directly
+    from the running process's own environment -- same identity, two different
+    capture points, not two mechanisms. Falls back to the literal 'em-unknown'
+    when unset, matching this file's existing dispatched_by fallback.
+    """
+    return (
+        os.environ.get("COORDINATOR_SESSION_ID")
+        or os.environ.get("CLAUDE_SESSION_ID")
+        or os.environ.get("CLAUDE_CODE_SESSION_ID")
+        or "em-unknown"
+    )
+
+
+def _sanitize_session_segment(seg: str) -> str:
+    """Reduce ``seg`` to a single safe path segment for the subagent-share
+    session directory leaf, or 'em-unknown' if sanitizing empties it out.
+
+    Whitelists [A-Za-z0-9._-] (dropping '/', '\\', and everything else that
+    could smuggle a directory separator), then rejects the degenerate
+    '.'/'..'/empty results the whitelist alone would let through -- mirrors
+    provision_report._sanitize_segment's contract (see module comment above),
+    except this fails CLOSED to a safe placeholder rather than None, since the
+    scaffolder has no eligibility gate to fail open through: --type
+    review-findings always needs a directory to write into.
+    """
+    sanitized = _SESSION_SEGMENT_WHITELIST_RE.sub("", seg)
+    if sanitized in _REJECTED_SESSION_SEGMENTS:
+        return "em-unknown"
+    return sanitized
+
 # ---------------------------------------------------------------------------
 # from_repo resolution — mirrors coordinator-queue-append._resolve_from_repo
 #
@@ -173,11 +279,11 @@ def _slug_from_scope(scope: str) -> str:
 
 
 def _claude_home() -> str:
-    """Return the ~/.claude root, honouring CLAUDE_HOME env var for test isolation."""
-    override = os.environ.get("CLAUDE_HOME")
-    if override:
-        return override
-    return os.path.join(os.path.expanduser("~"), ".claude")
+    """Return the ~/.claude root, honouring CLAUDE_HOME env var for test isolation.
+
+    Delegates to machine_local_impl_resolve.claude_home() (shared resolver).
+    """
+    return _mlir_claude_home()
 
 
 def _machine_local_impl() -> str:
@@ -194,6 +300,11 @@ def _machine_local_impl() -> str:
     an existing .py file. An unvalidated env var reaching subprocess.run as an arg is an
     arbitrary-code-execution vector if a caller can control the env. Invalid values fall
     back to the default impl with a stderr warning rather than executing the supplied path.
+
+    Settings-home first (DR-210 Amendment 2026-07-24: "resolves nothing
+    through ~/.claude/bin") once past the (unchanged) MACHINE_LOCAL_IMPL
+    validation above — falls back to the retired compat mirror only when the
+    settings-home candidate is absent on disk.
     """
     override = os.environ.get("MACHINE_LOCAL_IMPL")
     if override:
@@ -205,6 +316,9 @@ def _machine_local_impl() -> str:
             "falling back to default _machine_local.py.",
             file=sys.stderr,
         )
+    settings_home_impl = os.path.join(_mlir_settings_home(), "bin", "_machine_local.py")
+    if os.path.exists(settings_home_impl):
+        return settings_home_impl
     return os.path.join(_claude_home(), "bin", "_machine_local.py")
 
 
@@ -260,19 +374,186 @@ def _current_repo_root() -> str | None:
     return result.stdout.strip()
 
 
-def _resolve_state_root(central: bool = False) -> str | None:
-    """Resolve the coordinator state root via the coordinator_state_root shell seam.
+def _stamp_completion_scaffold_liveness(repo_root: str | None) -> None:
+    """Best-effort stamp the shared `completion_scaffold` housekeeping-liveness key.
 
-    Sources coordinator-state-root.sh from the sibling lib/ directory (relative to
-    this script's bin/ location) and captures the output of coordinator_state_root.
-    Returns None on any failure (EXAMPLE_ORCHESTRATION_HUB_ROOT not configured, git unavailable, lib absent).
+    Called from the success path only (immediately after a genuinely NEW completion
+    entry has been written to disk — never on a write failure, and never for any
+    other `--type`). Mirrors `sweep-terminal-plans.py::_import_housekeeping_seam` /
+    `_stamp_archive_sweeps_liveness` verbatim: this trampoline's own `__file__` lives
+    inside the claude-klabauter checkout, but `repo_root` here is the CALLER's repo (may be a
+    sibling repo), so the seam is imported via the resolved CLAUDE_KLABAUTER_ROOT rather than a
+    relative import. Never raises -- a liveness-stamp failure must not surface as a
+    scaffold failure.
+
+    Spec backlink: docs/plans/2026-07-23-wsc-tail-slim-down.md § C17b (four missing
+    stamp_liveness call sites -- completion_scaffold leg).
+    """
+    if not repo_root:
+        return
+    try:
+        _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if _lib_dir not in sys.path:
+            sys.path.insert(0, _lib_dir)
+        import cc_invoke  # noqa: PLC0415
+
+        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.ops.ceremony.housekeeping_liveness import (
+            COMPLETION_SCAFFOLD,
+            stamp_liveness,
+        )
+
+        stamp_liveness(repo_root, COMPLETION_SCAFFOLD)
+    except Exception:  # noqa: BLE001 -- best-effort; never let seam-import/stamp failure mask the real scaffold outcome
+        pass
+
+
+def _assert_no_archived_handoff_twin(out_path: str, handoff_id: str | None, repo_root: str | None) -> None:
+    """Fail loud (sys.exit 1) if ``out_path`` (about to be created) shares a
+    filename or ``handoff_id`` with an already-archived ``archive/handoffs/`` record.
+
+    Scoped by CALL SITE, not by ``doc_type``: only invoked from the one write
+    site (just before ``open(out_path, "w")``) and only when the resolved
+    output path's parent directory is literally named ``handoffs`` — this
+    covers every handoff-schema-family ``--type`` (handoff, recovery, spinoff,
+    goal-seed, roadmap-baton, roadmap-seed) AND an explicit
+    ``--out state/handoffs/...`` override for any doc_type, since the
+    invariant is about the DESTINATION directory, not the type label.
+
+    Degrades gracefully (skips the check, no exit) when ``repo_root`` cannot
+    be resolved (no git repo, CLAUDE_KLABAUTER_ROOT unconfigured) or when
+    ``coordinator_core`` cannot be imported — matches this file's existing
+    graceful-skip convention for un-migrated installs (see
+    ``_resolve_state_root``'s docstring) rather than hard-failing every
+    scaffold on an environment this tool already tolerates elsewhere.
+
+    Spec backlink: docs/audits/2026-07-26-handoff-live-archive-duplication-origin.md
+    (DoE-claude); coordinator_core.handoff_creation_guard (claude-klabauter) — the
+    shared guard this call delegates to, also enforced at the two engine-side
+    handoff-creation ops (handoff.author_fork, handoff.scaffold_from_queue).
+    """
+    if not repo_root:
+        return
+    if os.path.basename(os.path.dirname(out_path)) != "handoffs":
+        return
+    try:
+        _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if _lib_dir not in sys.path:
+            sys.path.insert(0, _lib_dir)
+        import cc_invoke  # noqa: PLC0415
+
+        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.handoff_creation_guard import (
+            HandoffArchivedTwinError,
+            assert_no_archived_twin,
+        )
+    except Exception:  # noqa: BLE001 -- best-effort import; unresolvable seam degrades to no-check
+        return
+    try:
+        assert_no_archived_twin(out_path, repo_root, handoff_id=handoff_id)
+    except HandoffArchivedTwinError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str | None) -> None:
+    """Fail loud (sys.exit 1) if the freshly-generated ``content`` fails the
+    schema its own kind/path resolves to in this repo's vendored corpus
+    (``coordinator_core/frontmatter/schemas/``), so the emitter cannot mint a
+    record its own repo's validator would reject.
+
+    Scoped to doc types whose kind or output path resolves to a schema in
+    that corpus (``match_schema``/``match_schema_for_path``) — most doc
+    types this CLI scaffolds (memo, plan, decision, completion, goal,
+    review sidecars, etc.) have no schema in claude-klabauter's own ~14-schema corpus
+    and resolve to no match, so this check is a no-op for them rather than
+    a weakened warning: only doc types WITH a schema are actually enforced.
+    Content with no parseable frontmatter is likewise left alone here (this
+    is a self-check on the emitter's own output shape, not a general
+    frontmatter-presence gate).
+
+    Degrades gracefully (skips the check, no exit) when ``repo_root`` cannot
+    be resolved or when ``coordinator_core`` cannot be imported — mirrors
+    ``_assert_no_archived_handoff_twin``'s existing graceful-skip convention
+    for un-migrated installs, rather than hard-failing every scaffold on an
+    environment this tool already tolerates elsewhere. A schema-corpus load
+    or frontmatter-parse failure degrades the same way (fail-open — never
+    block a write on the self-check's own infra trouble); only an actual
+    schema-shape violation on the generated content triggers the hard exit.
+
+    Spec backlink: cross-repo memo
+    2026-08-01-doe-claude-em-roadmap-baton-write-guard-warns-where-claim-gate-denies.md
+    § "Also worth noting regardless of the above".
+    """
+    if not repo_root:
+        return
+    try:
+        _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if _lib_dir not in sys.path:
+            sys.path.insert(0, _lib_dir)
+        import cc_invoke  # noqa: PLC0415
+
+        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.frontmatter.schema_validate import (
+            _SCHEMAS_DIR,
+            load_schemas,
+            match_schema,
+            parse_frontmatter,
+            validate_frontmatter_obj,
+        )
+    except Exception:  # noqa: BLE001 -- best-effort import; unresolvable seam degrades to no-check
+        return
+
+    try:
+        repo_rel = os.path.relpath(out_path, repo_root).replace(os.sep, "/")
+        frontmatter = parse_frontmatter(content).get("frontmatter")
+        schemas = load_schemas(_SCHEMAS_DIR)
+        match = match_schema(repo_rel, frontmatter, schemas)
+    except Exception:  # noqa: BLE001 -- fail-open on corpus-load/parse trouble, never block on infra
+        return
+
+    if not match or frontmatter is None:
+        return
+
+    result = validate_frontmatter_obj(frontmatter, match["schema"])
+    if result.get("ok"):
+        return
+
+    schema_name = match.get("schemaName", "(unknown schema)")
+    lines = [
+        f"error: refusing to write {out_path} — generated frontmatter fails "
+        f"its own schema ({schema_name}). The emitter refused to write:",
+    ]
+    for e in result.get("errors") or []:
+        field = e.get("field") or "(unknown)"
+        hint = f" (hint: {e['hint']})" if e.get("hint") else ""
+        lines.append(f"  {field}: {e.get('error')}{hint}")
+    print("\n".join(lines), file=sys.stderr)
+    sys.exit(1)
+
+
+def _resolve_state_root(central: bool = False) -> str | None:
+    """Resolve the coordinator state root via the coordinator_state_root seam.
+
+    Invokes coordinator-state-root.py (a Python CLI trampoline over claude-klabauter's
+    native coordinator_core.state_root — de-bash campaign,
+    docs/plans/2026-07-16-bash-clean-slate-residual-migration.md) from the
+    sibling lib/ directory (relative to this script's bin/ location) as a
+    subprocess and captures its stdout. Returns None on any failure
+    (CLAUDE_KLABAUTER_ROOT not configured, git unavailable, lib absent).
 
     Placement law spec backlink:
-        docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § C10 / AC7
+        docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § C10 / AC7
 
     Taxonomy:
-        central=True  → coordinator_state_root --central → example-orchestration-hub/state (always)
-        central=False → coordinator_state_root            → example-orchestration-hub/state when meta-repo,
+        central=True  → coordinator_state_root --central → claude-klabauter/state (always)
+        central=False → coordinator_state_root            → claude-klabauter/state when meta-repo,
                                                             $GIT_ROOT/state for siblings
 
     Negative-spec: does NOT fall back silently — returns None on any failure so callers
@@ -282,14 +563,15 @@ def _resolve_state_root(central: bool = False) -> str | None:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     # This script lives in bin/; the lib is at bin/../lib/ = coordinator/lib/.
     lib_dir = os.path.join(script_dir, "..", "lib")
-    state_root_sh = os.path.realpath(os.path.join(lib_dir, "coordinator-state-root.sh"))
-    if not os.path.isfile(state_root_sh):
+    state_root_py = os.path.realpath(os.path.join(lib_dir, "coordinator-state-root.py"))
+    if not os.path.isfile(state_root_py):
         return None
-    flag = "--central" if central else ""
-    cmd = '. "{sh}" && coordinator_state_root {flag}'.format(sh=state_root_sh, flag=flag).strip()
+    cmd = [sys.executable, state_root_py]
+    if central:
+        cmd.append("--central")
     try:
         result = subprocess.run(
-            ["bash", "-c", cmd],
+            cmd,
             capture_output=True,
             text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -305,26 +587,47 @@ def _mint_deliverable_id(
     deliverable_id: str | None = None,
     stub_id: str | None = None,
     slug: str | None = None,
+    carry_source: str | None = None,
 ) -> str | None:
-    """Carry or mint a deliverable_id via bin/mint-deliverable-id.sh.
+    """Carry or mint a deliverable_id via bin/mint-deliverable-id.py.
 
     Three paths (matching the mint helper — C3a):
       carry      — deliverable_id supplied → return unchanged (never re-mint)
-      stub       — stub_id supplied → bash mint-deliverable-id.sh --stub-id <stub_id>
-      slug       — slug supplied   → bash mint-deliverable-id.sh --slug <slug>
+      stub       — stub_id supplied → python3 mint-deliverable-id.py --stub-id <stub_id>
+      slug       — slug supplied   → python3 mint-deliverable-id.py --slug <slug>
 
-    Logs which path was taken to stderr via the mint helper's own stderr output.
+    Logs which path was taken to stderr — the stub/slug paths via the mint
+    helper's own stderr output; the carry path via its own stderr echo here
+    (AC2, C1 — this branch used to return silently with no shell-out and no
+    log line; DR-207 D1 requires the carry-vs-mint path be logged on EVERY
+    invocation, not only the new session-state tier's). ``carry_source`` names
+    which rung supplied the carried id for the log line (e.g. "explicit
+    --deliverable-id", "DELIVERABLE_ID env", "session-state parent
+    (roadmap stub)"); defaults to the generic "carry" label when a
+    caller doesn't pass one.
     Returns None on any failure (graceful — callers emit 'null' in that case).
 
     Spec backlink: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1, C3b
+    Spec backlink (AC2 carry-path logging): docs/plans/2026-08-01-deliverable-id-fork-remediation.md § C1
     Negative-spec: does NOT re-mint when deliverable_id is supplied — carry path only.
     Negative-spec: does NOT write to disk — pure identity computation.
     """
     if deliverable_id:
         # carry — return directly; no shell-out needed (no hash computation)
+        # Intentionally logs alongside deliverable_carry.py's own carry-path
+        # print (handoff-deliverable-carry:) on the handoff arm's cascade —
+        # two independently-owned layers (this CLI-local mint helper, and
+        # the shared deliverable_carry cascade) each naming their own
+        # decision. Do not collapse to one call; each layer must remain
+        # able to log its own resolution in isolation.
+        print(
+            f"coordinator-doc-new: {carry_source or 'carry'} path — "
+            f"using existing id: {deliverable_id}",
+            file=sys.stderr,
+        )
         return deliverable_id
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    mint_script = os.path.join(script_dir, "mint-deliverable-id.sh")
+    mint_script = os.path.join(script_dir, "mint-deliverable-id.py")
     if not os.path.isfile(mint_script):
         return None
     if stub_id:
@@ -335,7 +638,7 @@ def _mint_deliverable_id(
         return None
     try:
         result = subprocess.run(
-            ["bash", mint_script] + cmd_args,
+            [sys.executable, mint_script] + cmd_args,
             capture_output=True,
             text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -350,6 +653,94 @@ def _mint_deliverable_id(
     return None
 
 
+def _resolve_session_held_spinoff_roadmap_stub_path(repo_root: str | None) -> str | None:
+    """Resolve the path of a `handoff`-class artifact the RUNNING SESSION holds a
+    claim on, for the C1/AC1 session-state parent tier.
+
+    Reads SESSION STATE only (`coordinator_core.session.claims` /
+    `coordinator_core.session.core`) — never the file being scaffolded (that file
+    has no session-state claim on itself yet, and its own `predecessor_handoff`
+    field is emitted commented out; see
+    `coordinator_core.ops.deliverable_carry.resolve_session_state_parent_
+    deliverable_id`'s docstring for why a scaffold-time read of that field is
+    always empty).
+
+    Scans only `handoff-claims` (the class roadmap stubs — `kind: roadmap-
+    baton`, or the retired `kind: spinoff-roadmap` still found on archived
+    stubs — are claimed under; memo/plan claims cannot carry such a stub) and
+    resolves each claimed basename against `state/handoffs/<basename>` first,
+    falling back to `archive/handoffs/**/<basename>` (a handoff claim survives
+    both ship and archive) — the FIRST resolvable file wins, where "first" is
+    ALPHABETICAL by basename (this caller uses the unchecked
+    `list_claims_by_session` wrapper, which iterates claims in the same
+    `sorted(class_dir.iterdir())` order as `list_claims_by_session_checked` —
+    see that function's docstring for the underlying read semantics — but
+    discards its `errors` arm; an unresolvable session-state store is treated
+    identically to "holds nothing", which is the intended degrade-to-empty
+    behaviour for this advisory resolution, not a bug). Ordering is NOT
+    chronological, so under multiple concurrent roadmap stubs in one
+    session the earliest-alphabetical basename wins regardless of claim
+    recency (mirrors this file's existing graceful, no-detector-for-concurrent-
+    stubs posture; see the plan's Critical-1 review note for the known
+    residual gap).
+
+    The actual `kind` gate (which values count as a roadmap stub) lives in
+    `coordinator_core.ops.deliverable_carry._ROADMAP_STUB_KINDS`, applied by
+    `resolve_session_state_parent_deliverable_id` — this function only
+    resolves a candidate PATH from session state; it does not itself inspect
+    `kind`.
+
+    Degrades to `None` (never raises) when `coordinator_core` cannot be
+    imported, no repo root is resolvable, no session id resolves, the session
+    holds no handoff-class claim, or no claimed basename resolves to a real
+    file — every one of those falls through to mint-from-slug exactly as
+    before this tier existed (AC3).
+    """
+    if not repo_root:
+        return None
+    try:
+        _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if _lib_dir not in sys.path:
+            sys.path.insert(0, _lib_dir)
+        import cc_invoke  # noqa: PLC0415
+
+        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.session import claims as _claims
+        from coordinator_core.session import core as _session_core
+    except Exception:  # noqa: BLE001 -- best-effort import; unresolvable seam degrades to no-carry
+        return None
+
+    try:
+        sid = _session_core.resolve_session_id(repo_root)
+    except Exception:  # noqa: BLE001 -- session-state resolution is advisory here; degrade to no-carry
+        return None
+    if not sid:
+        return None
+
+    try:
+        held_claims = _claims.list_claims_by_session(sid, repo_root)
+    except Exception:  # noqa: BLE001 -- degrade to no-carry on any session-state read failure
+        return None
+
+    for class_, basename in held_claims:
+        if class_ != "handoff-claims":
+            continue
+        live_path = os.path.join(repo_root, "state", "handoffs", basename)
+        if os.path.isfile(live_path):
+            return live_path
+        try:
+            for dirpath, _dirnames, filenames in os.walk(
+                os.path.join(repo_root, "archive", "handoffs")
+            ):
+                if basename in filenames:
+                    return os.path.join(dirpath, basename)
+        except OSError:
+            continue
+    return None
+
+
 def _mint_artifact_id(prefix: str, slug: str) -> str:
     """Mint a stable artifact id: <prefix>-<slug>-<6hex>.
 
@@ -358,10 +749,10 @@ def _mint_artifact_id(prefix: str, slug: str) -> str:
     sha1(slug|epoch-SECONDS|pid|random)[:6]. Before this reconciliation,
     two DIFFERENT bases had already diverged on disk: this function's predecessor
     (_mint_plan_id) used epoch-MICROSECONDS with NO random component, while
-    bin/mint-deliverable-id.sh (the cross-language seam also mirrored in
+    bin/mint-deliverable-id.py (the cross-language seam also mirrored in
     bin/normalize-handoff-frontmatter.js's mintDeliverableIdFromSlug) used
     epoch-seconds + pid + $RANDOM. The shell/JS basis is canonical because it is
-    the one with real cross-language callers (mint-deliverable-id.sh is invoked
+    the one with real cross-language callers (mint-deliverable-id.py is invoked
     from skills/handoff, skills/spinoff, skills/roadmap-planning, and mirrored
     independently in JS) — this function now matches that formula instead of
     adding a third divergent variant. Slug truncated to 30 chars so the id stays
@@ -379,13 +770,25 @@ def _mint_artifact_id(prefix: str, slug: str) -> str:
     Not a correctness issue (collision odds remain comfortably low either
     way); flagging so a future reader doesn't assume bit-for-bit parity.
 
+    Provenance note (review finding, corpus-sweep F2): a hand-cured or swept
+    id's 6-hex suffix (e.g. an archived record whose handoff_id was rewritten
+    to fix a stale/placeholder slug while preserving the original hex) is NOT
+    reproducible from that record's current slug — the hex above is only ever
+    computed from the slug at the moment of a fresh mint. Do not infer
+    slug-hex provenance for an id that could have been hand-cured after mint.
+
     Spec backlink: docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C1
-    Negative-spec: does NOT shell out to mint-deliverable-id.sh — the formula is
+    Negative-spec: does NOT shell out to mint-deliverable-id.py — the formula is
     replicated in-process (same pattern normalize-handoff-frontmatter.js already
     uses in JS) so this stays a pure, dependency-free computation like its
     _mint_plan_id predecessor; only the FORMULA changed, not the call shape.
     """
-    slug_part = slug[:30]
+    # Re-strip after truncation (review finding, corpus-sweep F1): if the 30-char
+    # clamp lands exactly on a separator, a trailing dash here would produce a
+    # double-dash id (<prefix>-<slug>--<hex>) at the hex boundary — schema-valid
+    # under [a-z0-9-]+ but not what a slug/hex reader would expect. Mirrors the
+    # equivalent re-strip added to _slug_from_title for the same boundary.
+    slug_part = slug[:30].strip("-")
     epoch_seconds = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     rand_component = random.randint(0, 65535)
     # hash_input uses the FULL slug (not slug_part) so long, similar titles
@@ -449,7 +852,89 @@ def _slug_from_title(title: str) -> str:
     slug = title.lower()
     slug = re.sub(r"[^a-z0-9]+", "-", slug)
     slug = slug.strip("-")
-    return slug[:40]
+    slug = slug[:40]
+    # Re-strip after truncation (review finding, corpus-sweep F1): a 40-char cut
+    # landing exactly on a separator would otherwise leave a trailing dash, which
+    # _mint_artifact_id/_mint_deliverable_id would then carry into a double-dash
+    # id (...-a--<hex>) at the prefix boundary. Real example: "Execute the
+    # Tier-F grant gate — a sibling repo is blocked on chunk one" truncates its
+    # _mint_artifact_id slug at char 30 exactly on "...grant-gate-|a...".
+    return slug.strip("-")
+
+
+def _is_placeholder_title(title: str) -> bool:
+    """True when `title` is still a scaffold placeholder, not an author-written title.
+
+    Every `--title`-less scaffold defaults `title` to a "PLACEHOLDER — replace with
+    …" string (see § Resolve title default). That string then flows into
+    _slug_from_title and on into the durable id mints, producing ids like
+    `hnd-placeholder-replace-with-one-l-5f04ba` that survive the author fixing the
+    title afterwards — the id is minted once, at scaffold time, and nothing re-mints
+    it. Callers use this predicate to REFUSE to mint rather than bake a
+    placeholder-derived value into a durable, cross-repo identifier.
+
+    Why refusal beats a placeholder id: a placeholder id is *well-formed*. It matches
+    gate_eval's `_HANDOFF_ID_PATTERN` (`^hnd-[a-z0-9-]+-[0-9a-f]{6}$`), so a
+    `blocked_by` pointing at one RESOLVES and silently clears instead of dangling —
+    every polluted record is a live false-clear edge. An absent id dangles honestly
+    and is trivially sweepable; a wrong one is indistinguishable from a right one.
+
+    Spec backlink: cross-repo/inbox/2026-08-05-doe-claude-em-placeholder-id-minting-fix-unfiled.md
+    Sizing: state/sizings/2026-08-05-placeholder-title-guard-at-artifact-id-m.yaml
+
+    Negative-spec: matches on the scaffold's own sentinel prefix, NOT on the word
+    "placeholder" appearing anywhere in a title — a legitimate handoff titled
+    "Placeholder ids leak into blocked_by" must mint normally. The check is
+    anchored at the start and case-sensitive for exactly that reason.
+    Negative-spec: does NOT guard _slug_from_title itself. That helper also derives
+    FILENAMES, and scaffolding an untitled doc is a supported workflow — a refusal
+    there would break it. The guard belongs at the mint sites, which are the only
+    places a placeholder becomes durable.
+    """
+    return title.startswith("PLACEHOLDER")
+
+
+def _warn_placeholder_id_skipped(field: str, doc_type: str) -> None:
+    """Tell the author why a durable id field is absent, and how to get one."""
+    print(
+        f"note: {field} not minted — the title is still the scaffold placeholder, and "
+        f"an id minted from it would be durable, wrong, and indistinguishable from a "
+        f"real one. Re-run with --title \"<the real title>\" to mint {field} for this "
+        f"{doc_type}, or fill it in when the title lands.",
+        file=sys.stderr,
+    )
+
+
+def _mint_deliverable_id_from_title(title: str, doc_type: str) -> str | None:
+    """Title-derived deliverable_id mint, refusing on a placeholder title.
+
+    Wraps the slug-basis _mint_deliverable_id call so the placeholder guard lives in
+    ONE place rather than being re-inlined at each of its four call sites. Carry-path
+    and stub_id-path mints are deliberately NOT routed through here — those derive
+    from a caller-supplied id or a real stub_id, never from the title, so the
+    placeholder failure mode cannot reach them.
+
+    See _is_placeholder_title for why refusal beats minting a placeholder-derived id.
+    """
+    if _is_placeholder_title(title):
+        _warn_placeholder_id_skipped("deliverable_id", doc_type)
+        return None
+    return _mint_deliverable_id(slug=_slug_from_title(title))
+
+
+def _mint_artifact_id_from_title(prefix: str, title: str, doc_type: str, field: str) -> str | None:
+    """Title-derived artifact-id mint (hnd-/cmp-), refusing on a placeholder title.
+
+    Review: coordinator:code-reviewer (913d6318) F2 — the hnd-/cmp- guard was
+    previously two inline if/else blocks in main(), untested independently of the
+    shared `_is_placeholder_title` predicate. Wrapping unifies the hnd-/cmp- call
+    sites with the same shape as `_mint_deliverable_id_from_title`, so all four id
+    spaces route through one pattern and this wrapper is directly unit-testable.
+    """
+    if _is_placeholder_title(title):
+        _warn_placeholder_id_skipped(field, doc_type)
+        return None
+    return _mint_artifact_id(prefix, _slug_from_title(title))
 
 
 def _plan_slug_from_path(plan_path: str) -> str:
@@ -459,7 +944,7 @@ def _plan_slug_from_path(plan_path: str) -> str:
     E.g.: docs/plans/2026-06-09-executor-sidecar-flight-recorder.md
           → executor-sidecar-flight-recorder
 
-    Spec backlink: plugins/coordinator/bin/fan-out-dispatch.sh § PLAN_SLUG
+    Port of: fan-out-dispatch.sh § PLAN_SLUG (DoE 65e5d199, 2026-07-19)
     Negative-spec: if the basename has no YYYY-MM-DD- prefix the full basename (minus .md)
     is used as-is — no error is raised, matching fan-out-dispatch.sh fallback behaviour.
     Negative-spec: if stripping the date prefix and .md suffix yields an empty string (e.g.
@@ -589,9 +1074,91 @@ def _delegate_to_lesson_promote() -> None:
     sys.exit(result.returncode)
 
 
+def _delegate_to_workflow_scaffold() -> None:
+    """Delegate --type workflow to coordinator-workflow-scaffold.py.
+
+    workflow.scaffold is a COMPUTE_ONLY claude-klabauter op — it returns Workflow-skeleton
+    text, it does not write a frontmatter document. There is no local schema to
+    scaffold; the veneer is a Python bin invoked via sys.executable (owns the
+    cc_invoke transport seam), not a schema-generating scaffold itself. All
+    sys.argv args (minus --type)
+    are forwarded verbatim to the veneer.
+
+    --repo is injected here (from _current_repo_root()) UNLESS the caller already
+    passed --repo explicitly — the veneer requires --repo but coordinator-doc-new's
+    other scaffolders resolve the repo root implicitly, so this delegate preserves
+    that ergonomic default rather than requiring every caller to pass --repo.
+
+    Spec backlink: docs/plans/2026-07-12-workflow-skeleton-stamper-claude-klabauter-engine.md
+    Negative-spec: does NOT parse or validate --name/--phase/--pattern here — the
+    veneer owns all flag parsing and the op contract. This function only forwards.
+    """
+    delegate = _find_sibling_binary("coordinator-workflow-scaffold.py")
+    passthrough = _argv_without_type()
+    # An empty-string --repo value ("--repo ""` or `--repo=`) is treated the same
+    # as absent: strip it before the presence check so it falls through to
+    # auto-resolution rather than passing an empty value to the veneer, which
+    # would then hit its own generic "--repo is required" error.
+    if "--repo" in passthrough:
+        _idx = passthrough.index("--repo")
+        if _idx + 1 < len(passthrough) and passthrough[_idx + 1] == "":
+            del passthrough[_idx : _idx + 2]
+    passthrough = [a for a in passthrough if a != "--repo="]
+    if "--repo" not in passthrough and not any(a.startswith("--repo=") for a in passthrough):
+        repo_root = _current_repo_root()
+        if repo_root is None:
+            print(
+                "error: --type workflow requires --repo (not inside a git repo; "
+                "could not auto-resolve).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        passthrough = passthrough + ["--repo", repo_root]
+    cmd = [sys.executable, delegate] + passthrough
+    result = subprocess.run(cmd, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    sys.exit(result.returncode)
+
+
 # ---------------------------------------------------------------------------
 # Scaffold generators
 # ---------------------------------------------------------------------------
+
+# Valid category enum values for handoff-schema-family records (handoff, recovery,
+# spinoff, roadmap-baton, goal-seed, roadmap-seed). Hand-copied from
+# coordinator_core/frontmatter/schemas/handoff.schema.json's category property — kept
+# honest by test_handoff_category_enum_parity.py, which fails loud on drift.
+#
+# Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+_HANDOFF_CATEGORY_ENUM = (
+    "roadmap",
+    "infra",
+    "bug",
+    "docs",
+    "research",
+    "refactor",
+    "uncategorized",
+    "queue-derived-baton",
+)
+
+
+def _validate_category(value: str) -> None:
+    """Fail loud (sys.exit 1) if value is not a legal handoff category:.
+
+    Called from every handoff-schema-family scaffolder, BEFORE the frontmatter is
+    written — this guards a hand-supplied --category value AND each scaffolder's own
+    hardcoded default alike, so a bad category can no longer be scaffolded and only
+    surface later at gate-recheck/claim-handoff stamp time in a different session.
+
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+    """
+    if value not in _HANDOFF_CATEGORY_ENUM:
+        print(
+            f"error: category '{value}' is not a valid handoff category. "
+            f"Must be one of: {', '.join(_HANDOFF_CATEGORY_ENUM)}.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 
 def _scaffold_handoff(
     title: str,
@@ -599,6 +1166,10 @@ def _scaffold_handoff(
     deliverable_id: str | None = None,
     initiative: str | None = None,
     handoff_id: str | None = None,
+    origin_handoff_id: str | None = None,
+    predecessor: str | None = None,
+    predecessor_id: str | None = None,
+    category: str | None = None,
 ) -> str:
     """Generate validator-clean handoff frontmatter + canonical section skeleton.
 
@@ -616,8 +1187,62 @@ def _scaffold_handoff(
     supplied, matching the schema's "optional, no migration" backfill policy for
     pre-existing artifacts that predate this field.
 
+    origin_handoff_id/predecessor_id (C2, ID-companions) are pure carry-through —
+    the calling skill resolves the value by reading handoff_id off the artifact
+    the companion's path field (origin_handoff/predecessor) names; this scaffolder
+    never resolves or mints them. Omitted entirely (not null) when not supplied,
+    matching handoff_id's optional-omit convention above.
+
+    predecessor (the path field predecessor_id companions) is carry-through on
+    the same terms — the caller supplies a repo-relative path to the baton this
+    handoff continues, and this scaffolder neither resolves nor validates it.
+    Defaults to the literal 'none' when not supplied, so a fork (and every
+    pre-existing caller) scaffolds byte-identically to before this parameter
+    existed. Only the session-handoff scaffolder takes it: the spinoff kinds are
+    predecessor:none-by-design (schema_validate.py Rule A3a-3
+    _cf_spinoff_predecessor_none) and the recovery baton's 'predecessor' means a
+    crashed commit SHA, not a baton path — neither may be threaded here.
+
+    Supplying predecessor_id WITHOUT predecessor is refused (fail-loud). The two
+    are the ID and path representations of one edge, and the referential-integrity
+    checker cannot catch the inconsistent pairing — it explicitly skips the
+    comparison when the path field is unset ('ID present, path absent — nothing to
+    compare', schema_validate.py _check_handoff_id_refs). A scaffold emitting
+    predecessor: none alongside a real predecessor_id is self-contradictory
+    frontmatter that validates clean, so the refusal has to live here, at the only
+    point that has both values in hand.
+
+    handoff_phase is emitted unconditionally as the literal 'continuation' —
+    a third emission pattern distinct from deliverable_id/initiative's
+    present-as-null and handoff_id's optional-omit above. execution_authorized_*
+    fields (by/at/sha/note) are deliberately NOT scaffolded here — they are
+    stamped only at execution-authorization time, not at generic scaffold.
+
+    authoring_session (2026-07-30, cross-authorship adoption gap) is stamped
+    from `_resolve_session_id()` — the SAME resolver + precedence chain this
+    file already uses for --type run-report and --type subagent-sidecar's
+    `dispatched_by` field. Omitted entirely (not null, not 'PLACEHOLDER') when
+    the resolver yields only its own 'em-unknown' fallback sentinel —
+    matching handoff_id's optional-omit convention above, not the literal
+    PLACEHOLDER string the OTHER scaffolders (spinoff/goal-seed/roadmap-seed)
+    emit for a human to fill in later via EM Edit. That distinction is
+    load-bearing, not cosmetic: `coordinator_core.baton_assemble
+    ._adopt_prior_attempt_scaffold_path` gates cross-authorship adoption on
+    this field being a machine-trustworthy fact, and a stray 'em-unknown' or
+    'PLACEHOLDER' string sitting in it would be exactly the operator-typed
+    prose that predicate's docstring says it must never gate on.
+
+    category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
+    frontmatter is written (fail-loud, naming all legal values on mismatch) —
+    defaults to 'infra' unchanged when not supplied (behavior-preserving default).
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+
     Spec backlink: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1, D2, C3b
     Spec backlink (handoff_id): docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C1
+    Spec backlink (handoff_phase): docs/plans/2026-07-17-execution-handoff-phase-doe-contract.md § C4
+    Spec backlink (origin_handoff_id/predecessor_id): cross-repo memo
+    2026-07-22-claude-klabauter-em-c2-id-companions (ask 1);
+    docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2
     Negative-spec: does NOT generate body prose — placeholder comments only.
     The EM authors the body; the scaffolder provides the shape.
     """
@@ -626,16 +1251,31 @@ def _scaffold_handoff(
     placeholder_summary = f"PLACEHOLDER — replace with one-line session summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
+    _category = category if category else "infra"
+    _validate_category(_category)
+    _predecessor = predecessor.strip() if predecessor and predecessor.strip() else "none"
+    if predecessor_id and _predecessor in ("none", "null"):
+        print(
+            "coordinator-doc-new: --predecessor-id was supplied without --predecessor. "
+            "They are the ID and path representations of the same continuation edge; "
+            "emitting predecessor_id alongside 'predecessor: none' produces "
+            "self-contradictory frontmatter that the referential-integrity checker "
+            "cannot catch (it skips the comparison when the path field is unset). "
+            "Pass --predecessor <repo-relative-path> as well, or drop --predecessor-id.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
         f"branch: {_yaml_quote(branch)}",
-        "status: active",
-        "predecessor: none",
+        "status: open",
+        f"predecessor: {_predecessor if _predecessor == 'none' else _yaml_quote(_predecessor)}",
         "kind: session-handoff",
+        "handoff_phase: continuation",
         "deployment_state: ready_to_fire",
-        "category: infra",
+        f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
         "pickup_ready: true",
         f"deliverable_id: {_dlv}",
@@ -643,6 +1283,13 @@ def _scaffold_handoff(
     ]
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    if origin_handoff_id:
+        lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
+    if predecessor_id:
+        lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
+    _authoring_session = _resolve_session_id()
+    if _authoring_session != "em-unknown":
+        lines.append(f"authoring_session: {_yaml_quote(_authoring_session)}")
     lines.extend([
         "---",
         "",
@@ -674,6 +1321,9 @@ def _scaffold_recovery(
     initiative: str | None = None,
     handoff_id: str | None = None,
     recovers_session: str | None = None,
+    origin_handoff_id: str | None = None,
+    predecessor_id: str | None = None,
+    category: str | None = None,
 ) -> str:
     """Generate validator-clean recovery-kind handoff frontmatter + canonical section skeleton.
 
@@ -703,25 +1353,35 @@ def _scaffold_recovery(
     Spec backlink: docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2
     (predecessor_id/origin_handoff_id ancestry); recovery-scaffold task (add --type recovery
     to coordinator-doc-new).
+
+    origin_handoff_id/predecessor_id are pure carry-through (see _scaffold_handoff's
+    docstring for the full carry-not-mint contract) — omitted entirely when not supplied.
+    Spec backlink: cross-repo memo 2026-07-22-claude-klabauter-em-c2-id-companions (ask 1).
     Negative-spec: does NOT generate body prose — placeholder comments only, same convention
     as _scaffold_handoff. Does NOT add a hard cross-field rule requiring recovers_session
     non-null when kind=recovery — left as a follow-up per CROSS_FIELD_RULES['handoff'] comment.
+
+    category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
+    frontmatter is written — defaults to 'infra' unchanged when not supplied.
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
     """
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line recovery summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
     _recovers = _yaml_quote(recovers_session) if recovers_session else "null"
+    _category = category if category else "infra"
+    _validate_category(_category)
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
         f"branch: {_yaml_quote(branch)}",
-        "status: active",
+        "status: open",
         "predecessor: null  # crashed commit SHA or null — NOT a predecessor handoff path",
         "kind: recovery",
         "deployment_state: ready_to_fire  # crash reconstruction clears the gate; ready_to_fire forbids gate_dependency",
-        "category: infra",
+        f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
         "pickup_ready: true",
         f"recovers_session: {_recovers}  # session-id of the crashed session being reconstructed",
@@ -731,6 +1391,10 @@ def _scaffold_recovery(
     ]
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    if origin_handoff_id:
+        lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
+    if predecessor_id:
+        lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
     lines.extend([
         "---",
         "",
@@ -757,6 +1421,9 @@ def _scaffold_spinoff(
     deliverable_id: str | None = None,
     initiative: str | None = None,
     handoff_id: str | None = None,
+    origin_handoff_id: str | None = None,
+    predecessor_id: str | None = None,
+    category: str | None = None,
 ) -> str:
     """Generate validator-clean spinoff frontmatter + canonical section skeleton.
 
@@ -772,23 +1439,36 @@ def _scaffold_spinoff(
     spinoffs share the handoff schema family, so they mint from the same hnd- prefix.
     OPTIONAL; omitted entirely (not emitted as null) when not supplied.
 
+    origin_handoff_id/predecessor_id are pure carry-through ID-companions (C2) —
+    see _scaffold_handoff's docstring for the full carry-not-mint contract.
+    Omitted entirely (not null) when not supplied.
+
     Spec backlink: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1, D2, C3b
     Spec backlink (handoff_id): docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C1
+    Spec backlink (origin_handoff_id/predecessor_id): cross-repo memo
+    2026-07-22-claude-klabauter-em-c2-id-companions (ask 1);
+    docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2
+
+    category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
+    frontmatter is written — defaults to 'infra' unchanged when not supplied.
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
     """
     today = _today()
     placeholder_summary = f"PLACEHOLDER — replace with one-line spinoff summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
+    _category = category if category else "infra"
+    _validate_category(_category)
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
         f"branch: {_yaml_quote(branch)}",
-        "status: active",
+        "status: open",
         "predecessor: none",
         "kind: spinoff",
         "deployment_state: ready_to_fire",
-        "category: infra",
+        f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
         "pickup_ready: true",
         "authoring_session: PLACEHOLDER",
@@ -798,6 +1478,10 @@ def _scaffold_spinoff(
     ]
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    if origin_handoff_id:
+        lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
+    if predecessor_id:
+        lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
     lines.extend([
         "---",
         "",
@@ -831,46 +1515,69 @@ def _scaffold_spinoff(
     return "\n".join(lines)
 
 
-def _scaffold_spinoff_roadmap(
+def _scaffold_roadmap_baton(
     title: str,
     branch: str,
     roadmap_id: str,
     stub_id: str,
     deliverable_id: str | None = None,
     initiative: str | None = None,
+    category: str | None = None,
+    handoff_id: str | None = None,
+    gate_dependency: str | None = None,
 ) -> str:
-    """Generate validator-clean spinoff-roadmap frontmatter + canonical section skeleton.
+    """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
-    Emits the full graph-field frontmatter set for kind: spinoff-roadmap, conformant
+    Emits the full graph-field frontmatter set for kind: roadmap-baton, conformant
     against the handoff schema + CROSS_FIELD_RULES (roadmap_id/stub_id/wave/blocks/
-    blocked_by required; deployment_state=awaiting_gate requires gate_dependency;
-    category/summary required post-2026-05-29).
+    blocked_by required; deployment_state=awaiting_gate requires at least one of
+    gate_dependency (deprecated), blocked_by, or blocking_notes; category/summary
+    required post-2026-05-29).
 
-    Graph field placeholders (sprint, wave, cost, blocks, blocked_by, gate_dependency,
-    scope) are best-effort stubs — the author fills them via Edit after the topo sort
-    via bin/roadmap-number-stubs.js (skills/roadmap-planning/SKILL.md § Step 2.1.5).
+    Graph field placeholders (sprint, wave, cost, blocks, blocked_by, scope) are
+    best-effort stubs — the author fills them via Edit after the topo sort via
+    bin/roadmap-number-stubs (skills/roadmap-planning/SKILL.md § Step 2.1.5).
+    gate_dependency is the deprecated single-string gate field (C2); when not
+    supplied a scaffolded stub instead gets a blocking_notes placeholder (C1 of
+    docs/plans/2026-08-03-gate-dependency-template-emission-spec.md) — the
+    non-deprecated field satisfies the same cross-field OR without writing the
+    field the template was deprecating it away from.
 
     pickup_ready is OMITTED per SKILL § Phase 2.1 note: absence triggers a non-blocking
-    /pickup warn; awaiting_gate + gate_dependency is the real sequencing gate.
+    /pickup warn; awaiting_gate + a named gate (blocking_notes, gate_dependency, or
+    blocked_by) is the real sequencing gate.
 
     deliverable_id is auto-minted from stub_id when not supplied (D1: roadmap stubs
     reuse stub identity → dlv-<stub_id>). initiative is D9 present-as-null.
 
+    handoff_id (lvv-01/C1) is the new durable-link stable ID (hnd-<slug>-<6hex>) —
+    roadmap-baton was excluded from the handoff-id-minting doc_type tuple at C1
+    (real asymmetry, not a documented exception; see AC13 backfill fix). Omitted
+    entirely (not null) when not supplied, matching every other handoff-family
+    scaffold's optional-omit convention above.
+
     Spec backlink: docs/plans/2026-06-29-cli-scaffold-deterministic-docs.md § C3c
     Spec backlink: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1, D2, C3b
+    Spec backlink (handoff_id): docs/plans/2026-08-01-baton-spine-information-integrity.md § A5 (AC13)
+
+    category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
+    frontmatter is written — defaults to 'roadmap' unchanged when not supplied.
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
     """
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line stub summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
+    _category = category if category else "roadmap"
+    _validate_category(_category)
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
         f"branch: {_yaml_quote(branch)}",
-        "status: active",
+        "status: open",
         "predecessor: none",
-        "kind: spinoff-roadmap",
+        "kind: roadmap-baton",
         f"roadmap_id: {_yaml_quote(roadmap_id)}",
         f"stub_id: {_yaml_quote(stub_id)}",
         # authoring_session is path-shaped so /pickup can deterministically Read origin context.
@@ -879,21 +1586,32 @@ def _scaffold_spinoff_roadmap(
         f"authoring_session: {_yaml_quote(f'state/roadmap/{roadmap_id}/')}  # path-shaped; /pickup reads origin context here",
         # Review: code-reviewer — F6: _yaml_quote applied to authoring_session interpolation (matches adjacent quoted fields)
         "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
-        "sprint: 1  # fill from roadmap-number-stubs.js topo output (Step 2.1.5)",
-        "wave: 1    # fill from roadmap-number-stubs.js topo output (Step 2.1.5)",
+        "sprint: 1  # fill from roadmap-number-stubs topo output (Step 2.1.5)",
+        "wave: 1    # fill from roadmap-number-stubs topo output (Step 2.1.5)",
         "cost: T1   # T0 trivial | T1 small (<1h) | T2 medium (1-4h) | T3 multi-day",
         "deployment_state: awaiting_gate",
-        # gate_dependency required (non-empty) when deployment_state=awaiting_gate (CROSS_FIELD_RULES).
-        # Placeholder satisfies the schema rule; author fills with a subsystem-named gate on Edit.
-        "gate_dependency: PLACEHOLDER  # one-line, subsystem-named; required when deployment_state=awaiting_gate",
         "blocks: []",
         "blocked_by: []",
         "scope:",
         "  - PLACEHOLDER  # replace with in-scope pathspecs (git pathspec syntax)",
-        "category: roadmap",
+        f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
+    ]
+    # awaiting_gate requires at least one of gate_dependency (deprecated),
+    # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
+    # --gate-dependency writes the deprecated field as before; otherwise the
+    # stub gets a blocking_notes placeholder — non-dominating scaffolding is
+    # not possible here (both fields dominate gate_eval rule 1/1a), but the
+    # placeholder at least stops parking the deprecated field by default.
+    if gate_dependency:
+        lines.append(f"gate_dependency: {_yaml_quote(gate_dependency)}  # deprecated; superseded by blocked_by/blocking_notes")
+    else:
+        lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
+    if handoff_id:
+        lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    lines += [
         "---",
         "",
         f"# {title}",
@@ -936,8 +1654,268 @@ def _scaffold_spinoff_roadmap(
         "",
         "- None identified at authoring time.",
         "",
-        f"<!-- spinoff-roadmap: {roadmap_id} {stub_id} by roadmap-planning -->",
+        f"<!-- roadmap-baton: {roadmap_id} {stub_id} by roadmap-planning -->",
     ]
+    return "\n".join(lines)
+
+
+def _scaffold_goal_seed(
+    title: str,
+    branch: str,
+    goals: list[str] | None = None,
+    gate_dependency: str | None = None,
+    handoff_id: str | None = None,
+    origin_handoff_id: str | None = None,
+    predecessor_id: str | None = None,
+    category: str | None = None,
+) -> str:
+    """Generate validator-clean goal-seed frontmatter + canonical section skeleton.
+
+    Produces a conformant fork (kind: goal-seed) against the handoff schema —
+    a deferred vision-slice captured for a future goal-setting invocation
+    (coordinator:goal-setting SKILL.md § Step 5b, "pickup-from-goal-seed" entry
+    point). Like spinoff/roadmap-seed, this is a PM-directive fork with
+    no baton branch-point: predecessor: none, no forked_from (CROSS_FIELD_RULES
+    Rule A3a-3, Negative-spec at bin/lib/schema.js:1404).
+
+    goals (origin_goal_id in the emitted frontmatter — schema field name, NOT the
+    SKILL's colloquial "goals:") is OPTIONAL for goal-seed: a deferred
+    vision-slice may not yet be tagged to a ratified goal (that's the whole point
+    of "deferred vision capture, not deferred goal-setting" — SKILL.md § 5b).
+    Emitted as an array per Rule C2-2b (bare scalar is validation-illegal);
+    omitted entirely (not null) when not supplied, matching handoff_id's
+    optional-omit convention.
+
+    deployment_state defaults to awaiting_gate — a vision-slice stub is dormant
+    until a PM picks it up via the goal-setting ceremony's second entry point.
+    An explicit gate_dependency writes the deprecated single-string gate field
+    (C2 of handoff.schema.json); when not supplied the stub instead gets a
+    blocking_notes placeholder, which satisfies the same cross-field OR
+    (handoff.schema.json § awaiting_gate needs at least one of gate_dependency
+    (deprecated), blocked_by, or blocking_notes) without scaffolding the
+    deprecated field by default (C1 of
+    docs/plans/2026-08-03-gate-dependency-template-emission-spec.md).
+
+    origin_handoff_id/predecessor_id are pure carry-through ID-companions (C2) —
+    see _scaffold_handoff's docstring for the full carry-not-mint contract.
+    Omitted entirely (not null) when not supplied.
+
+    Spec backlink: docs/plans/2026-07-07-spinoff-provenance-ancestry.md § Field shape
+    Spec backlink: coordinator/skills/goal-setting/SKILL.md § Step 5b
+    Spec backlink (origin_handoff_id/predecessor_id): cross-repo memo
+    2026-07-22-claude-klabauter-em-c2-id-companions (ask 1);
+    docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2
+
+    category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
+    frontmatter is written — defaults to 'infra' unchanged when not supplied.
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+
+    pickup_ready is OMITTED (not scaffolded as true) per the same convention as
+    _scaffold_roadmap_baton: absence triggers a non-blocking /pickup warn;
+    awaiting_gate + a named gate (blocking_notes or gate_dependency) is the real
+    sequencing gate. A deferred vision-slice under awaiting_gate must not also
+    advertise pickup-readiness — that pairing is now a CROSS_FIELD_RULES error.
+    Spec backlink: cross-repo/inbox/2026-08-06-example-market-data-repo-em-pickup-ready-true-under-unmet-gate.md
+    """
+    today = _today()
+    placeholder_summary = "PLACEHOLDER — replace with one-line vision-slice summary (≤140 chars)"
+    _category = category if category else "infra"
+    _validate_category(_category)
+    lines = [
+        "---",
+        f"title: {_yaml_quote(title)}",
+        f"created: {today}",
+        f"branch: {_yaml_quote(branch)}",
+        "status: open",
+        "predecessor: none",
+        "kind: goal-seed",
+        "deployment_state: awaiting_gate",
+        f"category: {_category}",
+        f"summary: {_yaml_quote(placeholder_summary)}",
+        "authoring_session: PLACEHOLDER",
+        "workstream: PLACEHOLDER",
+    ]
+    # awaiting_gate requires at least one of gate_dependency (deprecated),
+    # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
+    # --gate-dependency writes the deprecated field as before; otherwise the
+    # stub gets a blocking_notes placeholder instead of defaulting the
+    # deprecated field.
+    if gate_dependency:
+        lines.append(f"gate_dependency: {_yaml_quote(gate_dependency)}  # deprecated; superseded by blocked_by/blocking_notes")
+    else:
+        lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
+    if goals:
+        lines.append("origin_goal_id:")
+        lines.extend(f"  - {_yaml_quote(g)}" for g in goals)
+    if handoff_id:
+        lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    if origin_handoff_id:
+        lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
+    if predecessor_id:
+        lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
+    lines.extend([
+        "---",
+        "",
+        "## What this covers",
+        "",
+        "<!-- Capture the deferred vision-slice verbatim. Raw is fine — fidelity matters more than polish. -->",
+        "",
+        "## Reference materials (read first)",
+        "",
+        "<!-- List file paths the picking-up EM/goal-setting session will need. -->",
+        "",
+        "## Specification",
+        "",
+        "<!-- The vision-slice as stated by the PM. Not yet ratified into OKR form. -->",
+        "",
+        "## Acceptance criteria",
+        "",
+        "<!-- Filled at pickup, when this feeds a future goal-setting ceremony. -->",
+        "",
+        "## Recommended next steps for the picking-up EM",
+        "",
+        "<!-- Typically: re-invoke coordinator:goal-setting (pickup-from-goal-seed entry point). -->",
+        "",
+        "## Anti-scope",
+        "",
+        "<!-- This stub does NOT auto-flesh into a goal — PM re-entry via goal-setting is required. -->",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def _scaffold_roadmap_seed(
+    title: str,
+    branch: str,
+    goals: list[str] | None = None,
+    gate_dependency: str | None = None,
+    deliverable_id: str | None = None,
+    initiative: str | None = None,
+    handoff_id: str | None = None,
+    origin_handoff_id: str | None = None,
+    predecessor_id: str | None = None,
+    category: str | None = None,
+) -> str:
+    """Generate validator-clean roadmap-seed frontmatter + section skeleton.
+
+    Produces a conformant fork (kind: roadmap-seed) against the handoff
+    schema — the session that will produce roadmap stubs (kind: roadmap-baton)
+    against an already-ratified goal (coordinator:goal-setting SKILL.md § Step 5a).
+    Distinct from roadmap-baton (kind: roadmap-baton) itself: the -creator kind
+    is the PM-gated baton that FIRES a future coordinator:roadmap-planning
+    invocation; it does NOT carry the roadmap's graph-primitive fields (sprint,
+    wave, blocks, blocked_by) — CROSS_FIELD_RULES rejects graph primitives on
+    roadmap-seed (bin/lib/schema.js:1102-1105, negative-spec).
+
+    Like spinoff/goal-seed, this is a PM-directive fork with no baton
+    branch-point: predecessor: none, no forked_from (Rule A3a-3).
+
+    goals (origin_goal_id in the emitted frontmatter — schema field name; the
+    SKILL's "goals:" FK is the same concept, different vocabulary) is the FK to
+    the goal artifact ratified in Step 4 — SKILL.md § 5a requires every
+    roadmap-seed stub to carry this FK, so unlike goal-seed, an
+    empty goals list here is a SKILL-process gap, not a valid deferred state.
+    Emitted as an array per Rule C2-2b; caller (goal-setting ceremony) supplies it.
+
+    deployment_state defaults to awaiting_gate (PM fire required). An explicit
+    gate_dependency writes the deprecated single-string gate field (C2 of
+    handoff.schema.json); when not supplied the stub instead gets a
+    blocking_notes placeholder, which satisfies the same cross-field OR
+    (handoff.schema.json § awaiting_gate needs at least one of gate_dependency
+    (deprecated), blocked_by, or blocking_notes) without scaffolding the
+    deprecated field by default (C1 of
+    docs/plans/2026-08-03-gate-dependency-template-emission-spec.md).
+
+    origin_handoff_id/predecessor_id are pure carry-through ID-companions (C2) —
+    see _scaffold_handoff's docstring for the full carry-not-mint contract.
+    Omitted entirely (not null) when not supplied.
+
+    Spec backlink: docs/plans/2026-07-07-spinoff-provenance-ancestry.md § Field shape
+    Spec backlink: coordinator/skills/goal-setting/SKILL.md § Step 5a
+    Spec backlink (origin_handoff_id/predecessor_id): cross-repo memo
+    2026-07-22-claude-klabauter-em-c2-id-companions (ask 1);
+    docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2
+
+    category (--category) is validated against _HANDOFF_CATEGORY_ENUM before the
+    frontmatter is written — defaults to 'roadmap' unchanged when not supplied.
+    Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+
+    pickup_ready is OMITTED (not scaffolded as true) per the same convention as
+    _scaffold_roadmap_baton: absence triggers a non-blocking /pickup warn;
+    awaiting_gate + a named gate (blocking_notes or gate_dependency) is the real
+    sequencing gate. A roadmap-seed under awaiting_gate must not also advertise
+    pickup-readiness — that pairing is now a CROSS_FIELD_RULES error.
+    Spec backlink: cross-repo/inbox/2026-08-06-example-market-data-repo-em-pickup-ready-true-under-unmet-gate.md
+    """
+    today = _today()
+    placeholder_summary = "PLACEHOLDER — replace with one-line capability-arc summary (≤140 chars)"
+    _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
+    _ini = _yaml_quote(initiative) if initiative else "null"
+    _category = category if category else "roadmap"
+    _validate_category(_category)
+    lines = [
+        "---",
+        f"title: {_yaml_quote(title)}",
+        f"created: {today}",
+        f"branch: {_yaml_quote(branch)}",
+        "status: open",
+        "predecessor: none",
+        "kind: roadmap-seed",
+        "deployment_state: awaiting_gate",
+        f"category: {_category}",
+        f"summary: {_yaml_quote(placeholder_summary)}",
+        "authoring_session: PLACEHOLDER",
+        "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
+        f"deliverable_id: {_dlv}",
+        f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
+    ]
+    # awaiting_gate requires at least one of gate_dependency (deprecated),
+    # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
+    # --gate-dependency writes the deprecated field as before; otherwise the
+    # stub gets a blocking_notes placeholder instead of defaulting the
+    # deprecated field.
+    if gate_dependency:
+        lines.append(f"gate_dependency: {_yaml_quote(gate_dependency)}  # deprecated; superseded by blocked_by/blocking_notes")
+    else:
+        lines.append("blocking_notes: PLACEHOLDER — name the condition gating this baton, or delete this line once blocked_by names it")
+    if goals:
+        lines.append("origin_goal_id:")
+        lines.extend(f"  - {_yaml_quote(g)}" for g in goals)
+    if handoff_id:
+        lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
+    if origin_handoff_id:
+        lines.append(f"origin_handoff_id: {_yaml_quote(origin_handoff_id)}")
+    if predecessor_id:
+        lines.append(f"predecessor_id: {_yaml_quote(predecessor_id)}")
+    lines.extend([
+        "---",
+        "",
+        "## What this covers",
+        "",
+        "<!-- One paragraph: the roadmap-worth-of-work boundary this stub scaffolds — -->",
+        "<!-- one coherent domain/capability arc, one /roadmap-planning invocation. -->",
+        "",
+        "## Reference materials (read first)",
+        "",
+        "<!-- Cite the goal artifact (state/goals/<id>.yaml) this stub is tagged to. -->",
+        "",
+        "## Specification",
+        "",
+        "<!-- Concrete enough that a context-less EM can fire coordinator:roadmap-planning. -->",
+        "",
+        "## Acceptance criteria",
+        "",
+        "<!-- Checklist the picking-up EM gates completion against. -->",
+        "",
+        "## Recommended next steps for the picking-up EM",
+        "",
+        "<!-- Typically: invoke coordinator:roadmap-planning against the goal + this stub's scope. -->",
+        "",
+        "## Anti-scope",
+        "",
+        "<!-- This stub does NOT author the roadmap plan itself — roadmap-planning owns that. -->",
+        "",
+    ])
     return "\n".join(lines)
 
 
@@ -980,9 +1958,11 @@ def _scaffold_memo(title: str, to: str, topic: str, from_id: str) -> str:
 def _scaffold_plan(
     title: str,
     branch: str,
+    author: str,
     plan_id: str | None = None,
     deliverable_id: str | None = None,
     initiative: str | None = None,
+    sizing_object: str | None = None,
 ) -> str:
     """Generate validator-clean plan frontmatter + canonical section skeleton.
 
@@ -995,24 +1975,49 @@ def _scaffold_plan(
     deliverable_id is auto-inherited from DELIVERABLE_ID env var or minted fresh
     when no parent id is discoverable from session context (D1).
     initiative is D9 present-as-null (null when this plan has no named initiative).
+    sizing_object, when supplied, is emitted as a real frontmatter key (its
+    on-disk resolution is asserted by the caller before this function runs —
+    see main()'s --sizing-object validation block). When omitted, the existing
+    commented-optional-key skeleton is left unchanged (no behavior change).
 
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-1-records-consolidation.md § C5
     Spec backlink: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1, D3, C3b
+    Spec backlink: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC2
     """
     today = _today()
     _pid = _yaml_quote(plan_id) if plan_id else "null"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
     _ini = _yaml_quote(initiative) if initiative else "null"
+    _author_line = (
+        f"author: {author}  # replace with actual author"
+        if author == "unknown-sender-em"
+        else f"author: {author}"
+    )
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
-        "author: claude-central-em  # replace with actual author",
+        _author_line,
         "status: draft",
         f"branch: {_yaml_quote(branch)}",
         f"plan_id: {_pid}",
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
+    ]
+    if sizing_object:
+        # Real key, only when supplied — the caller (main()) has already
+        # asserted this path resolves on disk (AC3), or is threading the
+        # literal string "null" for --no-sizing-object (sizing-citation-
+        # absence-is-checkable § C1, AC2). The literal null is emitted
+        # UNQUOTED so it parses as YAML null, not the string "null" —
+        # _yaml_quote always double-quotes, which would otherwise turn the
+        # sanctioned absence-declaration into a dangling-looking citation
+        # the sweep can't distinguish from a real (wrong) path.
+        if sizing_object == "null":
+            lines.append("sizing_object: null")
+        else:
+            lines.append(f"sizing_object: {_yaml_quote(sizing_object)}")
+    lines += [
         "# Optional keys — uncomment and fill as needed (promoted de-facto keys, D1):",
         "# scope_mode: additive-only         # planning posture",
         "# problem_set: inline               # ratified problem-set slug or 'inline'",
@@ -1047,7 +2052,7 @@ def _scaffold_plan(
         "",
         "<!-- Machine-parseable task spine — the EM edits row values in place; the structure",
         "     below is a lay-up, not a from-scratch authoring task. Exactly ONE fenced",
-        "     ```yaml plan-tasks``` block belongs directly under this heading (parser-locate",
+        "     `yaml plan-tasks` block belongs directly under this heading (parser-locate",
         "     rule — zero or >1 blocks is a defined error). Each list item validates against",
         "     schemas/plan-tasks.schema.json. Delete the two sample rows below and replace with",
         "     real chunks; keep at least the shape (id/title/change_kind/surface required).",
@@ -1060,33 +2065,40 @@ def _scaffold_plan(
         "  change_kind: script-edit  # replace with the actual change kind for this row",
         "  surface: path/to/primary/target  # single path or subsystem, not the full write-files set",
         "  queue_scope: project  # project (default) | central",
-        "  deferred: false",
+        "  disposition: open  # open (default) | coded | spun_off | backlogged | wont_do",
+        "  # case_against: >",
+        "  #   Required when disposition is backlogged or wont_do (not spun_off — nothing",
+        "  #   leaves the corpus there). The strongest HONEST case for doing this work now,",
+        "  #   plus the EM's recommendation, confidence, and what would change it — not a",
+        "  #   token counter-argument to satisfy the schema.",
         "  body: |",
         "    Optional multi-line detail. Delete this key if not needed.",
-        "- id: D1",
-        "  title: PLACEHOLDER — one-line brief for a scope cut deferred out of this plan",
+        "- id: C2",
+        "  title: PLACEHOLDER — one-line brief for the second shipped chunk",
         "  change_kind: doc-edit  # replace with the actual change kind for this row",
-        "  surface: path/to/deferred/target",
+        "  surface: path/to/secondary/target",
         "  queue_scope: project",
-        "  deferred: true",
-        "  pm_approved: false  # PM must ratify the scope cut before this becomes a harvest candidate",
+        "  disposition: open",
         "  body: |",
-        "    Optional multi-line detail explaining why this was deferred.",
+        "    Optional multi-line detail.",
         "```",
         "",
     ]
     return "\n".join(lines)
 
 
-def _scaffold_decision(title: str) -> str:
+def _scaffold_decision(title: str, dr_id: str) -> str:
     """Generate validator-clean decision frontmatter + canonical section skeleton.
 
     Produces a conformant decision against schemas/decision.yaml: required
-    title/created/status:proposed/deciders (placeholder list) + id: placeholder
-    with instructions to replace from docs/decisions/INDEX.md. Uses canonical
-    `created` (NOT `date` — see D4). Canonical four-section body.
+    title/created/status:proposed/deciders (placeholder list) + a real, collision-
+    checked `id:` allocated by `_allocate_dr_number` (never a `DR-XXX` placeholder —
+    see the collision memo backlink below for why the placeholder scheme was
+    retired). Uses canonical `created` (NOT `date` — see D4). Canonical four-section
+    body.
 
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-1-records-consolidation.md § C5, D3, D4
+    Spec backlink: cross-repo/inbox/2026-07-20-example-game-repo-em-dr-number-allocator-collision.md
     """
     today = _today()
     lines = [
@@ -1094,7 +2106,7 @@ def _scaffold_decision(title: str) -> str:
         f"title: {_yaml_quote(title)}",
         f"created: {today}",
         "status: proposed",
-        "id: DR-XXX  # replace with next DR number from docs/decisions/INDEX.md",
+        f"id: {dr_id}",
         "deciders:",
         "  - PLACEHOLDER  # replace with decision-maker names",
         "---",
@@ -1266,13 +2278,13 @@ def _scaffold_completion(
     (false), commits (empty list), status (pending-release), chain_terminal (false), loe
     block (all null). Runtime-filled fields authored_by, chain, and loe values are emitted
     as commented-out lines or schema-valid nulls — the skill fills them via
-    coordinator-session-loe.sh (loe block, Step 2.6.5a) and reconcile-completion-commits.sh
+    coordinator-session-loe.py (loe block, Step 2.6.5a) and reconcile-completion-commits.py
     (commits list, Step 2.6.8).
 
     Design constraint: the scaffolder emits the SKELETON ONLY — it does NOT compute
     loe/commits. Those are filled at runtime by the existing sub-helpers the skill calls.
-    Negative-spec: does NOT shell out to coordinator-session-loe.sh or
-    reconcile-completion-commits.sh.
+    Negative-spec: does NOT shell out to coordinator-session-loe.py or
+    reconcile-completion-commits.py.
 
     completion_id (lvv-01/C1) is the new durable-link stable ID (cmp-<slug>-<6hex>).
     OPTIONAL — completion-entry.schema.json is a standalone JSON Schema with no
@@ -1301,7 +2313,7 @@ def _scaffold_completion(
     else:
         lines.append("# chain: null  # fill with chain slug; omit this line entirely for standalone (non-chain) entries")
     lines.extend([
-        "commits: []  # fill via reconcile-completion-commits.sh --append (Step 2.6.8)",
+        "commits: []  # fill via reconcile-completion-commits.py --append (Step 2.6.8)",
         "status: pending-release",
         "chain_terminal: false  # set to true on /pickup → /workstream-complete (chain-terminal entry)",
         "# authored_by: PLACEHOLDER  # fill with $em_sid at runtime (type: string; forensic tracing only)",
@@ -1378,33 +2390,41 @@ def _scaffold_health_status(title: str) -> str:
 
 
 def _scaffold_goal(title: str) -> str:
-    """Generate validator-clean goal frontmatter + canonical body skeleton.
+    """Generate validator-clean whole-document-YAML goal record.
 
     Produces a conformant goal record against schemas/goal.schema.json
-    (applies_to: state/goals/*.md). Goals are .md files with YAML frontmatter;
-    the prose markdown body is the retrieval surface and is NOT schema-validated.
+    (applies_to: state/goals/*.yaml). Goals are pure .yaml files — the
+    frontmatter IS the whole file; there is no markdown body (this scaffolder
+    reverses the prior .md-with-body shape per 2026-07-13 § C1, which
+    supersedes 2026-07-06 § C1's .md-over-.yaml decision).
 
-    Required fields: schema, id, title, status, objective, key_results, created, period, period_value.
-    Optional: owner.
+    Required fields: schema, id, title, status, objective, key_results,
+    created, period, period_value. Optional: owner, weekly_perceptible
+    (top-level), parent_goal_id, goal_id.
 
     The id field is derived from the title slug with a 'goal-' prefix so it is
-    stable and unique from inception. After scaffolding, replace the objective
-    placeholder and flesh out key_results items with real text and evidence sources
-    (see SKILL.md for the goal-authoring procedure).
+    stable and unique from inception. `period`/`period_value` are left as
+    generic placeholders here — this is the FOUNDATION scaffolder shape; the
+    weekly-authoring path (C2, workweek-start Step 5) populates period=week +
+    a derived period_value + weekly_perceptible:true + goal_id automatically
+    rather than requiring manual entry. After scaffolding, replace the
+    objective placeholder and flesh out key_results items with real text and
+    evidence sources (see SKILL.md for the goal-authoring procedure).
 
-    Output path: state/goals/YYYY-MM-DD-<slug>.md — routed through the
+    Output path: state/goals/YYYY-MM-DD-<slug>.yaml — routed through the
     coordinator_state_root seam (sibling repos → $GIT_ROOT/state/goals/;
-    meta-repo → example-orchestration-hub/state/goals/).
+    meta-repo → claude-klabauter/state/goals/).
 
     Spec backlink: docs/plans/2026-07-06-deliverable-rollup-render-and-fk-population.md § C1
-    Negative-spec: does NOT emit prose body content — section headers + HTML comments only.
-    The goal author fills the body; the scaffolder provides the shape.
+    Spec backlink: docs/plans/2026-07-13-close-weekly-goal-loop.md § C1 (.md→.yaml migration)
+    Negative-spec: does NOT emit prose body content or `---` frontmatter
+    fences — the entire file IS the YAML document (whole-document-yaml
+    match_mode). Fabricates NO goal content beyond structural placeholders.
     """
     today = _today()
     slug = _slug_from_title(title)
     goal_id = f"goal-{slug}"
     lines = [
-        "---",
         "schema: goal",
         f"id: {_yaml_quote(goal_id)}",  # Review: code-reviewer — use _yaml_quote for consistency with other emitted fields (F13)
         f"title: {_yaml_quote(title)}",
@@ -1419,29 +2439,116 @@ def _scaffold_goal(title: str) -> str:
         "    evidence_source: null",
         f"created: {today}",
         "# owner: PLACEHOLDER  # optional — EM or workstream identifier",
-        "period: week  # required by emitter — day | week | repo",
-        "period_value: \"PLACEHOLDER\"  # required: e.g. 2026-W28 (week), 2026-07-07 (day), DoE-2026 (repo)",
-        "---",
-        "",
-        f"# {title}",
-        "",
-        "<!-- Fill objective: and key_results: items in the frontmatter above. -->",
-        "<!-- Then author the prose body sections below. -->",
-        "",
-        "## Context",
-        "",
-        "<!-- Why this goal matters and what problem it addresses. -->",
-        "",
-        "## Key Results Detail",
-        "",
-        "<!-- Expand each key result with acceptance criteria, current baseline, and target. -->",
-        "",
-        "## Progress Notes",
-        "",
-        "<!-- Running log of progress, blockers, and weekly status signals. -->",
-        "",
+        "period: week  # required by emitter — day | week | repo | quarter | year",
+        "period_value: \"PLACEHOLDER\"  # required: e.g. 2026-W28 (week), 2026-07-07 (day), DoE-2026 (repo), Q3-2026 (quarter), 2026 (year)",
+        "# weekly_perceptible: true  # optional — TOP-LEVEL goal-scope flag, distinct from the per-KR field above",
+        "# parent_goal_id: null  # optional — FK to a parent quarter/repo OKR goal_id, or null",
+        f"# goal_id: {_yaml_quote(goal_id)}  # optional — deterministic sha1(repo|root|period|period_value|text); this is the structured-records (C15) facet key, DISTINCT from the wire goal_id (append-goal-event.py derives its own hash from id-prefixed text and currently ignores --goal-id); populate once period/period_value/objective are final",
     ]
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
+
+
+def _scaffold_sizing(title: str) -> str:
+    """Generate validator-clean whole-document-YAML sizing-object record.
+
+    Produces a conformant record against schemas/sizing-object.schema.json
+    (applies_to: state/sizings/*.yaml). Same whole-document-YAML shape as
+    _scaffold_goal — the entire file IS the record, no `---` frontmatter
+    fence and no markdown body.
+
+    Required fields: schema, intent, appetite, estimate (tshirt + provisional),
+    route, detents, fork, xl_exit, status, premise (provenance).
+    `title` is used only to seed the
+    `intent` placeholder (sizing-object has no `title` field of its own —
+    `intent` is the PM's verbatim ask). All enum-valued fields are
+    scaffolded with a real, schema-valid member (not a bare PLACEHOLDER
+    string) so the emitted skeleton validates as-is; the EM edits the
+    values, not the shape, before commit.
+
+    Output path: state/sizings/YYYY-MM-DD-<slug>.yaml.
+
+    Spec backlink: docs/plans/2026-07-24-sizing-lobby-core.md § C1/C3
+    Negative-spec: does NOT emit prose body content or `---` frontmatter
+    fences — whole-document-yaml match_mode, matching _scaffold_goal.
+    Does NOT resolve the appetite/estimate fork — `fork` scaffolds `null`;
+    only the sizing skill (operator judgment) ever sets it non-null. `xl_exit`
+    is the identical shape for the XL decision point: it scaffolds `null`, the
+    engine never sets it, and only the sizing skill fills it once the PM has
+    actually picked among split / shape / roadmap / accept_multi_session. A
+    `null` there means NOT YET CHOSEN — never that the multi-session exit was
+    accepted by default. Both fields are required-and-nullable in the schema,
+    so both must be emitted here even when null.
+    """
+    intent_placeholder = title if title else "PLACEHOLDER — replace with the PM's ask, verbatim"
+    lines = [
+        "schema: sizing-object",
+        f"intent: {_yaml_quote(intent_placeholder)}",
+        "appetite: small  # small | medium | large — the Shape-Up BUDGET, not a size estimate",
+        "estimate:",
+        "  tshirt: XS  # XS | S | M | L | XL — reuses loe.tshirt; coarse ROUTING estimate only",
+        "  provisional: true  # always true — never the committed plan-body LoE",
+        "route: dispatch  # dispatch | spec-dispatch | shape | plan | roadmap | pm-decision",
+        "detents: []  # boundary detents crossed while sizing (e.g. appetite_exceeded); [] if none",
+        "fork: null  # cut_to_fit | raise_appetite | null — set ONLY on genuine appetite/estimate divergence; never auto-resolved",
+        "xl_exit: null  # split | shape | roadmap | accept_multi_session | null — the PM's pick at a pm-decision route; null means NOT YET CHOSEN, never 'accepted'",
+        "status: draft  # draft | sized | routed | superseded",
+        "premise:",
+        "  provenance: unrecorded  # executed | read | not-applicable | unrecorded — how the premise was verified; ADVISORY, never blocks a route",
+        "  evidence: PLACEHOLDER — cite the file:line, test, or command output you actually looked at; answered in place, never spun into its own record",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _scaffold_strategic_self_description(title: str) -> str:
+    """Generate validator-clean whole-document-YAML strategic-self-description record.
+
+    Produces a conformant record against schemas/strategic-self-description.schema.json
+    (x-schema-version 1.1.0, applies_to: state/strategic/self-description.yaml). This is
+    a whole-document-YAML artifact — there is no `---` frontmatter fence and no markdown
+    body; the entire file IS the record (same shape as _scaffold_goal), and the schema is
+    additionalProperties:false at the top level, so no extra keys (no leading `schema:`
+    marker line, unlike the markdown-frontmatter scaffolders) may be emitted.
+
+    Required top-level fields: repo_identity, lifecycle, vision, version_highlights,
+    competitors, call_to_action, hero_asset. `version_highlights` and `competitors` are
+    emitted as empty arrays — both are documented as "may be empty" in the schema, and
+    this scaffolder does NOT fabricate real milestone/competitor data (that is squarely
+    human-authored editorial judgment). `call_to_action` uses the `none` branch (kind +
+    label only) since a real url/claude-session payload is likewise not something to
+    invent. `hero_asset` is emitted as an explicit `null` — the D9 typed-null read
+    contract requires the key present-with-null, never omitted.
+
+    `vision.value` and `call_to_action.label` are curated-provenance placeholder text
+    the human replaces; `repo_identity.repo` is seeded from the --title argument (the
+    scaffolding convention for this type is to title the document with the repo name),
+    and `repo_identity.coordinator_root_path` is emitted as an explicit `null` — it is a
+    machine-local location fact, not a member of the (owner, repo) join key, and is carried
+    present-as-null per the D9 typed-null read contract (DR-069), never a cwd-derived path.
+
+    Spec backlink: docs/plans/2026-07-11-strategic-self-description-standard.md § C1, C3
+    Negative-spec: does NOT invent competitor/version-highlight content, does NOT emit a
+    `schema:` marker key (additionalProperties:false forbids it), does NOT omit `hero_asset`.
+    """
+    repo_name = title.strip() if title and title.strip() else "PLACEHOLDER-repo"
+    lines = [
+        "repo_identity:",
+        "  owner: PLACEHOLDER-owner  # e.g. a github org/user, or local/<basename> when this repo has no git remote",
+        f"  repo: {_yaml_quote(repo_name)}",
+        "  coordinator_root_path: null  # machine-local location, NOT part of the (owner, repo) join key — present-as-null, never a cwd-derived path (DR-069)",
+        "lifecycle: prototype  # EDIT: prototype | vertical-slice | alpha | shipped | live-ops | sunset",
+        "vision:",
+        "  value: \"<one-paragraph statement of what this repo strategically is / is for>\"",
+        "  provenance: curated  # curated | generated | asserted",
+        "version_highlights: []  # optional; add {label, date, bullets, provenance} entries as dated milestones land",
+        "competitors: []  # optional; add {name, relationship, note, provenance} entries — note is present-as-null when a competitor entry has none",
+        "call_to_action:",
+        "  kind: none  # none | url | claude-session — see schema $defs for the required payload shape of the other two kinds",
+        "  label: \"<call-to-action label>\"",
+        "hero_asset: null  # OPTIONAL hero image/screenshot URI — present-as-null when absent, never omit this key",
+        "# maturity_axis: null  # OPTIONAL, consumer-set-only field — DoE schema does not interpret its value",
+        "# depends_on: []  # OPTIONAL, consumer-set-only field — repo_identity tuples this repo depends on",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def _scaffold_research_synthesis(title: str) -> str:
@@ -1501,22 +2608,33 @@ def _scaffold_research_synthesis(title: str) -> str:
     return "\n".join(lines)
 
 
-def _scaffold_flight_recorder(
+def _scaffold_run_report(
     plan_path: str,
     chunk_id: str,
     dispatched_at: str,
     dispatched_by: str,
+    agent_type: str | None = None,
 ) -> str:
-    """Generate validator-clean flight-recorder sidecar frontmatter + lifecycle body.
+    """Generate validator-clean run-report sidecar frontmatter + lifecycle body.
 
-    Emits the executor flight-recorder schema (schemas/flight-recorder.schema.json,
-    x-schema-version 1.1.0): plan, chunk, dispatched_at, dispatched_by,
-    status: dispatched, commits: [], sidecar_schema: v1, plus v1.1.0's optional
-    lifecycle-timestamp placeholders started_at/finished_at (null — executor-written)
-    and divergence (block-style `diverged: false` nested mapping — executor-written,
-    post-run). All required fields present; field shape matches the printf in
-    bin/fan-out-dispatch.sh so that script can be repointed to call this scaffolder
-    in a later chunk (same key order, same default values).
+    Emits the universal subagent run-report SUPERSET schema
+    (schemas/run-report.schema.json — DEC-3, subsumes flight-recorder.schema.json):
+    plan, chunk, dispatched_at, dispatched_by, status: dispatched, agent_type,
+    spawned_at, commits: [], sidecar_schema: v1, started_at/finished_at (null —
+    executor-written), divergence (block-style `diverged: false` nested mapping —
+    executor-written, post-run), and dispatch_feed: null (INERT placeholder — the
+    field is optional/claude-klabauter-emitter-written per pcli-04/C3, executor-READ-ONLY;
+    emitting it as `null` here — rather than omitting it — matches the landed
+    claude-klabauter CONTRACT.md scaffold shape byte-for-byte, easing the C10 scaffold-
+    round-trip comparison). Field shape matches the printf the retired
+    fan-out-dispatch.sh (DoE 65e5d199, 2026-07-19) used to emit (same key
+    order, same default values).
+
+    This function is the former _scaffold_flight_recorder, renamed and extended
+    for the run-report subsume (plan: 2026-07-13-subagent-run-report-subsume.md,
+    chunk C4). --type flight-recorder remains a caller-facing BACKWARD-COMPAT
+    ALIAS for --type run-report (see main()'s doc_type normalization) so in-flight
+    callers (fan-out-dispatch.sh, pre-C5 executors) do not break.
 
     divergence is emitted in BLOCK style (key on its own line, nested `diverged:`
     indented below), NOT flow style (`divergence: {diverged: false}`) — this
@@ -1524,24 +2642,28 @@ def _scaffold_flight_recorder(
     flow-style mappings and would parse a flow-style value as a raw string,
     failing the object-shaped schema check (divergence: type object, required
     [diverged], additionalProperties: false). Block style is the only shape
-    that parses correctly under the real validator.
+    that parses correctly under the real validator. This is the OBJECT form
+    mandated by DEC-3's reconcile — NEVER an array (a bare `divergence: []`
+    does not validate against the object-typed schema; see run-report.schema.json's
+    divergence property and the C10 retirement-gate assertion that guards this).
 
-    dispatch_feed is deliberately OMITTED (not even a null placeholder) — it is
-    optional, example-orchestration-hub-emitter-written (pcli-04/C3), pre-dispatch, and executor-READ-ONLY.
-    Scaffolding it here would misattribute write-ownership to fan-out-dispatch.sh/this
-    emitter; C3's emitter is the sole producer.
+    agent_type is OPTIONAL (defaults to the literal "executor" when omitted) —
+    the universal field naming which subagent kind was spawned (e.g. executor,
+    review-integrator, code-reviewer); flight-recorder-shaped callers (fan-out-
+    dispatch.sh chunk dispatch) always spawn an executor, so the default covers
+    that call shape without requiring every caller to pass --agent-type.
 
-    Body: brief lifecycle note from docs/plans/2026-06-09-executor-sidecar-flight-recorder.md
-    + ## Observations heading for the executor to fill.
-
-    Spec backlink: docs/plans/2026-06-09-executor-sidecar-flight-recorder.md § Sidecar shape
+    Spec backlink: docs/plans/2026-07-13-subagent-run-report-subsume.md § C4, DEC-3
+    Spec backlink (predecessor shape): docs/plans/2026-06-09-executor-sidecar-flight-recorder.md § Sidecar shape
     Spec backlink: docs/plans/2026-07-09-dispatch-sidecar-executor-confinement.md § C-DOC, D-SCHEMA, D-DIGRESSION
     Negative-spec: does NOT transition status beyond 'dispatched' — the executor updates
     the sidecar in-place as it progresses through the lifecycle.
     Negative-spec: sidecar_schema stays 'v1' here too — it is a frozen structural-family
-    sentinel (not a semver mirror); x-schema-version 1.1.0 is the version discriminator,
-    read via field presence downstream, not via this sentinel (the Staff Engineer Finding 0 / AC1c).
+    sentinel (not a semver mirror); the superset schema's version field is the version
+    discriminator, read via field presence downstream, not via this sentinel (the Staff Engineer
+    Finding 0 / AC1c, carried forward from flight-recorder).
     """
+    _agent_type = agent_type or "executor"
     lines = [
         "---",
         f"plan: {_yaml_quote(plan_path)}",
@@ -1549,19 +2671,30 @@ def _scaffold_flight_recorder(
         f"dispatched_at: {_yaml_quote(dispatched_at)}",  # Review: code-reviewer item-5 F2 — YAML 1.1 coerces bare ISO timestamps to datetime; schema declares string
         f"dispatched_by: {_yaml_quote(dispatched_by)}",  # Review: code-reviewer item-5 F2 — session ids may contain special chars; guard with _yaml_quote
         "status: dispatched",
+        f"agent_type: {_yaml_quote(_agent_type)}",
+        f"spawned_at: {_yaml_quote(dispatched_at)}",  # universal field mirrors dispatched_at at scaffold time
         "commits: []",
         "sidecar_schema: v1",
         "started_at: null",
         "finished_at: null",
         "divergence:",
         "  diverged: false",
+        "dispatch_feed: null",
         "---",
         "",
-        "<!-- Flight-recorder lifecycle: dispatched → in_flight → complete | blocked | thrashing.",
-        "     Lives at tasks/<plan-slug>/flight/<chunk-id>.md (applies_to: tasks/*/flight/*.md).",
+        "<!-- Run-report lifecycle: dispatched → in_flight → complete | blocked | thrashing.",
+        "     Lives at state/subagent-share/<session-id>/<key>.md (applies_to:",
+        "     state/subagent-share/*/*.md), path owned and computed by claude-klabauter's",
+        "     provision_report engine at spawn time (see CONTRACT.md). This scaffold's",
+        "     --out path is caller-supplied; there is no default path.",
         "     Swept at /workstream-complete: complete entries are folded-and-deleted.",
         "     blocked and thrashing terminal sidecars SURVIVE the sweep.",
-        "     See: docs/plans/2026-06-09-executor-sidecar-flight-recorder.md -->",
+        "     See: docs/plans/2026-07-13-subagent-run-report-subsume.md -->",
+        "",
+        "## Run notes",
+        "",
+        "<!-- Offer-shape prose channel back to the EM (DEC-4). Jot run notes and any",
+        "     divergence-from-instructions here — never a write mandate. -->",
         "",
         "## Observations",
         "",
@@ -1572,8 +2705,21 @@ def _scaffold_flight_recorder(
     return "\n".join(lines)
 
 
-def _scaffold_review_findings(slice_id: str, scope: str) -> str:
+def _scaffold_review_findings(slice_id: str, scope: str, spawned_at: str, lead_session_id: str) -> str:
     """Generate a pre-scaffolded code-reviewer findings sidecar with FINDINGS sentinel anchor.
+
+    FRONTMATTER-BEARING as of the run-report/review-findings schema unification (docs/plans/
+    2026-07-24-reviewer-sidecar-provisioning-reconciliation.md): mirrors coordinator_core.
+    subagent_sandbox.provision_report.py's ``_frontmatter()`` block byte-shape (same keys,
+    same order: status/agent_type/spawned_at/lead_session_id/divergence/commits/
+    dispatch_feed) so a self-scaffolded file is shape-identical to a provision_report-
+    provisioned one -- both now validate against the SAME superset ``run-report.schema.json``
+    (``applies_to: state/subagent-share/*/*.md``, ``required: ["status"]``), and the now-
+    retired ``review-findings.schema.json`` no-frontmatter special-case is gone. ``agent_type``
+    is stamped as the literal 'review-findings' (this scaffolder's doc TYPE, not a spawned
+    agent's role -- provision_report's own agent_type field records the SPAWNED agent's type
+    instead, e.g. 'code-reviewer'; the two producers diverge on this one field's semantic,
+    not its presence).
 
     Emits a lightweight markdown skeleton consumed by agents/code-reviewer.md:
     a heading, Reviewer/Scope/Diff-range metadata lines, and a ## Findings section whose
@@ -1582,23 +2728,61 @@ def _scaffold_review_findings(slice_id: str, scope: str) -> str:
     no-ops detectable (the sentinel survives an Edit that touched nothing meaningful) and
     bounding the reviewer to one write action per slice.
 
-    This is the SOLE self-persist scaffold path. Code-reviewer always scaffolds its own
-    sidecar here (never pre-scaffolded by the EM) and returns the path in its DONE line.
-    Confinement (block-reviewer-write-outside-sidecar.sh Mode A) restricts Edit to
-    state/review-trail/findings/ only, which is exactly where this scaffolder places the file.
+    Negative-spec: does NOT reuse provision_report's own review-findings sentinel text
+    (``<!-- One entry per finding: ... -->``) -- that producer's sentinel diverges from the
+    ``<!-- FINDINGS -->`` anchor agents/code-reviewer.md and this schema's description
+    document; this scaffolder keeps the documented ``<!-- FINDINGS -->`` anchor rather than
+    silently adopting the other producer's different sentinel text. Pre-existing divergence,
+    out of scope for this shape-unification fix.
 
-    Output path: state/review-trail/findings/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
-    Path formula is pinned here and in schemas/review-findings.yaml applies_to glob.
+    This is the SOLE self-persist scaffold path -- reached only when a code-reviewer
+    dispatch arrived with NO sidecar pre-provisioned by the dispatching EM (the common
+    case is engine-side spawn-time provisioning via coordinator_core.dispatch.provision /
+    coordinator_core.subagent_sandbox.provision_report, which this scaffolder never
+    duplicates). Code-reviewer returns the path in its DONE line either way.
+
+    Output path: state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
+    -- the DR-091 one-home (docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-
+    contract.md), the SAME state/subagent-share/<session>/ root provision_report.py's
+    _provision() already writes to for the pre-provisioned (common) path. <session-id> is
+    resolved by _resolve_session_id() below using the identical env var + precedence chain
+    coordinator-doc-new already uses for --type run-report/subagent-sidecar's
+    `dispatched_by` (COORDINATOR_SESSION_ID > CLAUDE_SESSION_ID > CLAUDE_CODE_SESSION_ID) --
+    this is the same overall harness session identity provision_report reads from its
+    spawn-time hook payload's `session_id` field, just resolved from the running process's
+    own environment instead of a payload, since a self-scaffold has no payload to read.
+    Path formula is pinned here and in schemas/review-findings.schema.json's description.
+
+    Confinement note: the Edit write-sandbox structural confinement (formerly "Mode A",
+    restricting Edit to a fixed directory) was removed 2026-07-15 (DR-058) -- writing ONLY
+    the findings sidecar is now a discipline the code-reviewer agent prompt upholds by
+    convention, not a structural guarantee enforced here.
 
     Spec backlink: docs/plans/2026-06-30-reviewer-findings-self-persist.md § D1
     Spec backlink (self-persist design): cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md
+    Spec backlink (subagent-share migration): docs/plans/2026-07-24-reviewer-sidecar-provisioning-reconciliation.md
     Negative-spec: does NOT contain prose findings — the reviewer authors those via Edit.
-    Negative-spec: no YAML frontmatter — this is a reviewer-filled prose artifact, not a
-    structured record. The JSON trail record at state/review-trail/*.json is a separate surface.
+    Negative-spec: frontmatter here is scaffolded structure (status/agent_type/spawned_at/
+    lead_session_id/divergence/commits/dispatch_feed), not reviewer-authored content — the
+    reviewer only fills the body's ## Findings section. The JSON trail record at
+    state/review-trail/*.json is a separate surface (unchanged by this scaffolder's move --
+    reap_integrated_findings.py / reap_unintegrated_findings.py still operate on that JSON
+    trail, not this markdown sidecar's frontmatter).
     Negative-spec: the retired 'code-reviewer-selfpersist' variant is gone; this scaffolder
     serves the one remaining code-reviewer agent (which self-persists by default).
     """
     lines = [
+        "---",
+        "status: open",
+        "agent_type: review-findings",
+        f"spawned_at: {spawned_at}",
+        f"lead_session_id: {lead_session_id}",
+        "divergence:",
+        "  diverged: false",
+        "commits: []",
+        "dispatch_feed: null  # forward-declared, INERT until pcli-04 emitter",
+        "---",
+        "",
         f"# Code Review: Slice {slice_id} -- {scope}",
         "",
         "Reviewer: code-reviewer",
@@ -1608,6 +2792,93 @@ def _scaffold_review_findings(slice_id: str, scope: str) -> str:
         "## Findings",
         "",
         "<!-- FINDINGS -->",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _scaffold_subagent_sidecar(
+    plan_path: str,
+    chunk_id: str,
+    dispatched_at: str,
+    dispatched_by: str,
+    agent_type: str | None = None,
+) -> str:
+    """Generate a subagent-sidecar decision-object container.
+
+    Schema-of-record: schemas/decision-object.schema.json $defs/subagent_sidecar
+    (DoE-owned CONTRACT artifact — this scaffolder is the claude-klabauter-side GENERATE
+    altitude, not a schema fork). Reuses the run-report dispatch frontmatter
+    shape (plan/chunk/dispatched_at/dispatched_by/status/agent_type/spawned_at/
+    commits/sidecar_schema — see _scaffold_run_report) and layers the THREE
+    decision-object fields on top: completion_status, divergence_from_plan,
+    tell_the_EM.
+
+    This is DISTINCT from --type run-report: run-report is the universal
+    lifecycle tracker (status/commits/divergence prose, freeform ## Run notes
+    / ## Observations sections); subagent-sidecar is the CURATED decision-
+    object container an agent fills as its ONLY structured write-back —
+    verdict-shaped, not lifecycle-shaped. Do not merge the two scaffolders;
+    they serve different consumers (run-report: EM dispatch tracking;
+    subagent-sidecar: the plan->wiki->prior-art divergence-truth pipeline).
+
+    completion_status: a durable, queryable "task done" marker that backlinks
+    the existing query-completions records surface (claude-klabauter work-state
+    emission) -- NOT a fourth store; defaults to the literal "pending" at
+    scaffold time, executor-written thereafter.
+    divergence_from_plan: block-style nested mapping (diverged/summary/detail)
+    -- untrusted narrative, never re-read as a directive by any automated
+    consumer (see divergence_from_plan's schema description).
+    tell_the_EM: freeform exit-interview channel, body section (not
+    frontmatter) so it can carry arbitrary prose/markdown.
+
+    Class-asymmetric behavior (R7 Addendum) is NOT encoded as a scaffolded
+    field here -- it is a confinement/tool-grant property of the DISPATCHING
+    side (generic executors: read-only-on-plan, sidecar is their only
+    structured write-back; named Opus personas: offered-not-imposed, may
+    also edit). This scaffolder emits the same container shape for both
+    classes; the asymmetry lives in what tool grant the dispatched agent
+    receives, never in this document's shape.
+
+    Negative-spec: this is NOT the harness's raw JSONL transcript -- no
+    duplication of that surface (AC-10). The curated container here is a
+    human/EM-legible verdict + findings + tell_the_EM record, not a replay
+    log.
+
+    Spec backlink: docs/plans/2026-07-24-canonical-resolution-engine.md § W2-B3, R7 Addendum
+    """
+    _agent_type = agent_type or "executor"
+    lines = [
+        "---",
+        f"plan: {_yaml_quote(plan_path)}",
+        f"chunk: {_yaml_quote(chunk_id)}",
+        f"dispatched_at: {_yaml_quote(dispatched_at)}",
+        f"dispatched_by: {_yaml_quote(dispatched_by)}",
+        "status: dispatched",
+        f"agent_type: {_yaml_quote(_agent_type)}",
+        f"spawned_at: {_yaml_quote(dispatched_at)}",
+        "commits: []",
+        "sidecar_schema: v1",
+        "completion_status: pending",
+        "divergence_from_plan:",
+        "  diverged: false",
+        "  summary: \"\"",
+        "  detail: \"\"",
+        "---",
+        "",
+        "<!-- Subagent-sidecar decision-object container (schemas/decision-",
+        "     object.schema.json $defs/subagent_sidecar). Lives at",
+        "     state/subagent-share/<session-id>/<key>.md, path owned and",
+        "     computed by coordinator_core.dispatch.provision at spawn time.",
+        "     This scaffold's --out path is caller-supplied; there is no",
+        "     default path. See docs/plans/2026-07-24-canonical-resolution-",
+        "     engine.md § W2-B3. -->",
+        "",
+        "## tell_the_EM",
+        "",
+        "<!-- Freeform exit-interview channel -- anything the executor wants",
+        "     the dispatching EM to know that doesn't fit completion_status",
+        "     or divergence_from_plan above. -->",
         "",
     ]
     return "\n".join(lines)
@@ -1822,29 +3093,38 @@ def _safe_output_roots() -> list:
 
     Safe roots:
       - Git repo root of cwd (allows repo-relative paths: docs/plans/..., state/handoffs/...).
-      - Coordinator state roots (per-repo and central) — may point to example-orchestration-hub sibling repo
+      - Coordinator state roots (per-repo and central) — may point to claude-klabauter sibling repo
         when the seam redirects state/ paths (placement law, AC7 / C10 stop-the-rot plan).
-      - $TMPDIR env var (macOS resolves to /var/folders/...).
-      - /tmp (may symlink to /private/tmp on macOS; realpath resolves it).
-      - /var/folders (macOS $TMPDIR target prefix; harmless if absent on other platforms).
+      - The platform temp dir (``tempfile.gettempdir()``) — resolves to $TMPDIR/
+        /var/folders/... on macOS, /tmp on Linux, and %TEMP%
+        (...\\AppData\\Local\\Temp) on Windows, so this one call is the
+        cross-platform source of truth rather than three POSIX-only env/path
+        checks that silently never matched a Windows temp path.
+      - $TMPDIR env var explicitly (kept alongside tempfile.gettempdir() in case
+        it's set to something tempfile itself wouldn't resolve to).
+      - /tmp and /var/folders (POSIX fixed paths; harmless no-ops on Windows).
 
-    Spec backlink: docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § C10 / AC7
+    Spec backlink: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § C10 / AC7
     """
     roots = []
     repo_root = _current_repo_root()
     if repo_root:
         roots.append(os.path.realpath(repo_root))
-    # Placement law (AC7): coordinator_state_root may redirect state/ paths to example-orchestration-hub.
+    # Placement law (AC7): coordinator_state_root may redirect state/ paths to claude-klabauter.
     # Add both the per-repo and central state roots so seam-routed paths pass containment.
     for _central in (False, True):
         _sr = _resolve_state_root(central=_central)
         if _sr:
             try:
-                # The state root is a subdirectory (e.g. /example-orchestration-hub/state); we want the
+                # The state root is a subdirectory (e.g. /claude-klabauter/state); we want the
                 # parent repo root as the allowed root so any subpath passes containment.
                 roots.append(os.path.realpath(os.path.dirname(_sr)))
             except OSError:
                 pass
+    try:
+        roots.append(os.path.realpath(tempfile.gettempdir()))
+    except OSError:
+        pass
     tmpdir = os.environ.get("TMPDIR", "")
     if tmpdir:
         try:
@@ -1884,7 +3164,7 @@ def _assert_output_safe(out_path: str) -> None:
     print(
         f"error: --out path '{out_path}' resolves to '{resolved}', "
         "which is outside all allowed write roots "
-        "(git repo root, $TMPDIR, /tmp, /var/folders). "
+        "(git repo root, platform temp dir, $TMPDIR, /tmp, /var/folders). "
         "Refusing to write.",
         file=sys.stderr,
     )
@@ -1905,29 +3185,42 @@ def _default_output_path(
     chunk_id: str | None = None,
     slice_id: str | None = None,
     scope: str | None = None,
+    dr_id: str | None = None,
 ) -> str:
     """Compute the default output path for a scaffolded document.
 
     Paths are repo-root-relative defaults, anchored to repo-root at write time
     in main() via _current_repo_root():
       handoff/spinoff/recovery -> state/handoffs/YYYY-MM-DD-<slug>.md
-      spinoff-roadmap  -> state/handoffs/YYYY-MM-DD_000000_roadmap-<stub_id>.md
+      roadmap-baton  -> state/handoffs/YYYY-MM-DD_000000_roadmap-<stub_id>.md
                          (HHMMSS=000000 fallback; use --out to supply the full path at runtime)
       memo             -> YYYY-MM-DD-<topic>.md  (local draft, not in cross-repo/inbox/)
       plan             -> docs/plans/YYYY-MM-DD-<slug>.md
-      decision         -> docs/decisions/DR-XXX-<slug>.md  (placeholder DR number)
+      decision         -> docs/decisions/<dr_id>-<slug>.md  (dr_id allocated by
+                          _allocate_dr_number before this call — never a DR-XXX
+                          placeholder; see docs/decisions/DR-XXX collision memo)
       audit-record     -> docs/architecture/audit-records/YYYY-MM-DD-<system>.md
       sidecar types    -> docs/plans/<plan_stem>.<suffix>.md  (single-.md canonical form, D5)
-      flight-recorder  -> tasks/<plan-slug>/flight/<chunk-id>.md
-                         (plan_stem is the full plan path; slug derived via _plan_slug_from_path)
-      review-findings  -> state/review-trail/findings/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
-                         (slice_id from --slice; SLUG from _slug_from_scope(scope))
+      run-report       -> NO DEFAULT. --out is REQUIRED for --type run-report (and its
+                          --type flight-recorder alias). The retired tasks/<plan-slug>/flight/
+                          guess was removed (DEC-3 subsume, docs/plans/2026-07-13-subagent-
+                          run-report-subsume.md § C4 defect3) — the universal sidecar now
+                          lives under state/subagent-share/, and the engine's provision_report
+                          owns real path computation at spawn time; a manual scaffold invocation
+                          must not silently guess a session-scoped path. main() enforces the
+                          --out requirement before this function is ever reached for run-report.
+      subagent-sidecar -> NO DEFAULT, same rationale as run-report — --out is REQUIRED
+                          (main() enforces this before this function is reached).
+      review-findings  -> state/subagent-share/<session-id>/YYYY-MM-DD-codereview-slice<ID>-<SLUG>.md
+                         (the DR-091 home; session-id from _resolve_session_id(), sanitized
+                         via _sanitize_session_segment(); slice_id from --slice; SLUG from
+                         _slug_from_scope(scope))
     """
     today = _today()
-    if doc_type in ("handoff", "spinoff", "recovery"):
+    if doc_type in ("handoff", "spinoff", "recovery", "goal-seed", "roadmap-seed"):
         slug = _slug_from_title(title)
         return os.path.join("state", "handoffs", f"{today}-{slug}.md")
-    elif doc_type == "spinoff-roadmap":
+    elif doc_type == "roadmap-baton":
         # Canonical path includes real HHMMSS (see SKILL.md § Step 2.1); 000000 is the
         # best-effort fallback when --out is omitted. Use --out to supply the full path.
         id_slug = stub_id if stub_id else _slug_from_title(title)
@@ -1940,7 +3233,8 @@ def _default_output_path(
         return os.path.join("docs", "plans", f"{today}-{slug}.md")
     elif doc_type == "decision":
         slug = _slug_from_title(title)
-        return os.path.join("docs", "decisions", f"DR-XXX-{slug}.md")
+        prefix = dr_id or "DR-XXX"  # dr_id always set by main() before this call; fallback is defensive only
+        return os.path.join("docs", "decisions", f"{prefix}-{slug}.md")
     elif doc_type == "audit-record":
         # Review: code-reviewer F7 — `or "SYSTEM"` fallback was dead; args.system is guaranteed
         # non-None for audit-record by the validation block in main() that exits 1 if absent.
@@ -1955,9 +3249,16 @@ def _default_output_path(
         return os.path.join("archive", "completed", month, f"{today}-{slug}.md")
     elif doc_type == "goal":
         slug = _slug_from_title(title)
-        return os.path.join("state", "goals", f"{today}-{slug}.md")
+        return os.path.join("state", "goals", f"{today}-{slug}.yaml")
+    elif doc_type == "sizing-object":
+        slug = _slug_from_title(title)
+        return os.path.join("state", "sizings", f"{today}-{slug}.yaml")
     elif doc_type == "health-status":
         return os.path.join("state", "health", f"{today}-health-summary.md")
+    elif doc_type == "strategic-self-description":
+        # Single canonical per-repo path (schema applies_to) — not date/slug-derived,
+        # this artifact class is one-per-repo, never one-per-day.
+        return os.path.join("state", "strategic", "self-description.yaml")
     elif doc_type == "research-synthesis":
         slug = _slug_from_title(title)
         return os.path.join("docs", "research", f"{today}-{slug}.md")
@@ -1967,16 +3268,13 @@ def _default_output_path(
         # in the manifest rather than requiring a matching edit to a local static dict here.
         suffix = _SIDECAR_SUFFIXES[doc_type]
         return os.path.join("docs", "plans", f"{stem}.{suffix}.md")
-    elif doc_type == "flight-recorder":
-        plan_slug = _plan_slug_from_path(plan_stem or "PLAN")
-        cid = chunk_id or "CHUNK"
-        return os.path.join("tasks", plan_slug, "flight", f"{cid}.md")
     elif doc_type == "review-findings":
         sid = slice_id or "SLICE"
         scp = scope or "SCOPE"
         scope_slug = _slug_from_scope(scp)
+        session_id = _sanitize_session_segment(_resolve_session_id())
         return os.path.join(
-            "state", "review-trail", "findings",
+            "state", "subagent-share", session_id,
             f"{today}-codereview-slice{sid}-{scope_slug}.md",
         )
     # Unknown type guarded upstream; unreachable.
@@ -2005,8 +3303,8 @@ Examples:
   coordinator-doc-new --type handoff --title "Ship coordinator-doc-new scaffolder"
 
   # Workstream-fork spinoff:
-  coordinator-doc-new --type spinoff --title "Migrate example-game-repo to new baton shape" \\
-      --out state/handoffs/2026-06-25-example-game-repo-baton-migration.md
+  coordinator-doc-new --type spinoff --title "Migrate consumers to new baton shape" \\
+      --out state/handoffs/2026-06-25-consumer-baton-migration.md
 
   # Local memo skeleton (fill body, then send via cross-repo-memo):
   coordinator-doc-new --type memo --to project-rag-em --topic rag-liveness-query \\
@@ -2016,7 +3314,17 @@ Examples:
   # Architecture audit record (requires --system):
   coordinator-doc-new --type audit-record --system coordinator-runtime
 
+  # Workflow skeleton (delegates to claude-klabauter's workflow.scaffold op via
+  # coordinator-workflow-scaffold.py):
+  coordinator-doc-new --type workflow --name migrate-baton-shape \\
+      --description "Migrate consumers to the new baton shape" \\
+      --phase "Survey::Enumerate every baton writer/reader" \\
+      --phase "Migrate::Land the new shape behind a flag" \\
+      --pattern disk-poll-fanout \\
+      --out state/scratch/migrate-baton-shape.workflow.js
+
 Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-shape.md § C4
+Spec backlink (workflow): docs/plans/2026-07-12-workflow-skeleton-stamper-claude-klabauter-engine.md
 """,
     )
 
@@ -2036,7 +3344,8 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         metavar="TEXT",
         help=(
             "Document title. Defaults to a placeholder when omitted. "
-            "Required conceptually for memo (used as summary fallback)."
+            "Required conceptually for memo (used as summary fallback). "
+            "(strategic-self-description: seeds repo_identity.repo)"
         ),
     )
     parser.add_argument(
@@ -2047,12 +3356,13 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
             "Output file path. Defaults to the canonical path for each type: "
             "state/handoffs/YYYY-MM-DD-<slug>.md (handoff/spinoff), "
             "YYYY-MM-DD-<topic>.md (memo), docs/plans/YYYY-MM-DD-<slug>.md (plan), "
-            "docs/decisions/DR-XXX-<slug>.md (decision), "
+            "docs/decisions/DR-NNN-<slug>.md (decision, DR-NNN allocated + collision-checked), "
             "docs/architecture/audit-records/YYYY-MM-DD-<system>.md (audit-record), "  # Review: code-reviewer F8 — added missing audit-record default path
             "docs/plans/<stem>.<suffix>.md (sidecar types), "
             "docs/research/YYYY-MM-DD-<slug>.md (research-synthesis), "  # Review: code-reviewer Slice-B F5 — research-synthesis default path
-            "tasks/<plan-slug>/flight/<chunk-id>.md (flight-recorder), "
-            "state/review-trail/findings/DATE-codereview-sliceID-SLUG.md (review-findings)."
+            "state/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md (review-findings), "
+            "state/strategic/self-description.yaml (strategic-self-description — single canonical per-repo path, not date/slug-derived). "
+            "run-report (and its flight-recorder alias) has NO default — --out is REQUIRED."
         ),
     )
 
@@ -2094,7 +3404,7 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         ),
     )
 
-    # Sidecar and flight-recorder fields.
+    # Sidecar and run-report fields.
     parser.add_argument(
         "--plan",
         default=None,
@@ -2105,10 +3415,12 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
             "frontmatter field. Example: '2026-06-25-my-plan' → output "
             "docs/plans/2026-06-25-my-plan.<suffix>.md, frontmatter plan: docs/plans/2026-06-25-my-plan.md. "
             "Required for all sidecar types. "
-            "(flight-recorder) Full repo-relative plan path (e.g. "
+            "(run-report, alias flight-recorder) Full repo-relative plan path (e.g. "
             "docs/plans/2026-06-09-foo.md). Used as the plan: frontmatter field; slug "
             "is derived by stripping the YYYY-MM-DD- prefix and .md suffix from the basename. "
-            "Required for --type flight-recorder."
+            "Required for --type run-report (or its --type flight-recorder alias). "
+            "(subagent-sidecar) Same usage as run-report above. Required for --type "
+            "subagent-sidecar."
         ),
     )
     parser.add_argument(
@@ -2116,10 +3428,28 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         default=None,
         metavar="ID",
         help=(
-            "(flight-recorder) Chunk identifier matching the dispatch ledger row "
-            "(e.g. C1-executor-prompt). Sets the chunk: frontmatter field and the output "
-            "filename: tasks/<plan-slug>/flight/<chunk-id>.md. "
-            "Required for --type flight-recorder."
+            "(run-report, alias flight-recorder) Chunk identifier matching the dispatch "
+            "ledger row (e.g. C1-executor-prompt). Sets the chunk: frontmatter field. "
+            "Output path has no default — pass --out explicitly (the live run-report "
+            "sidecar lives under state/subagent-share/, computed by claude-klabauter's "
+            "provision_report engine at spawn time). "
+            "Required for --type run-report (or its --type flight-recorder alias). "
+            "(subagent-sidecar) Same usage as run-report above. Required for --type "
+            "subagent-sidecar."
+        ),
+    )
+    parser.add_argument(
+        "--agent-type",
+        dest="agent_type",
+        default=None,
+        metavar="TYPE",
+        help=(
+            "(run-report, alias flight-recorder) Universal agent_type: frontmatter "
+            "field naming the spawned subagent kind (e.g. executor, review-integrator, "
+            "code-reviewer). Optional — defaults to 'executor', the shape every "
+            "flight-recorder-style /execute-plan chunk dispatch uses. "
+            "(subagent-sidecar) Same usage as run-report above. Optional for --type "
+            "subagent-sidecar."
         ),
     )
 
@@ -2132,6 +3462,21 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
             "(audit-record) System name slug for the audit record. Lowercase alphanumeric + dashes. "
             "Used as the system: frontmatter field and in the default output filename. "
             "Required for --type audit-record."
+        ),
+    )
+
+    # Decision fields.
+    parser.add_argument(
+        "--dr-prefix",
+        default=None,
+        metavar="PREFIX",
+        dest="dr_prefix",
+        help=(
+            "(decision) Explicit DR-number namespace prefix (e.g. 'PLATFORM' for "
+            "DR-PLATFORM-NNN). Uppercase alphanumeric only. When omitted, the prefix "
+            "is inferred from the shared prefix of existing docs/decisions/DR-*.md files "
+            "(no prefix, i.e. plain DR-NNN, when existing records are unprefixed or the "
+            "directory is empty/mixed)."
         ),
     )
 
@@ -2165,7 +3510,7 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         help=(
             "(review-findings) Slice identifier for this review (e.g. A, B, Z, 2a). "
             "Alphanumeric + dashes (uppercase allowed). Used in the output filename: "
-            "state/review-trail/findings/DATE-codereview-sliceID-SLUG.md. "
+            "state/subagent-share/<session-id>/YYYY-MM-DD-codereview-sliceID-SLUG.md. "
             "Required for --type review-findings."
         ),
     )
@@ -2181,14 +3526,14 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         ),
     )
 
-    # Deliverable-spine fields (handoff, spinoff, spinoff-roadmap, plan) — C3b.
+    # Deliverable-spine fields (handoff, spinoff, roadmap-baton, plan) — C3b.
     parser.add_argument(
         "--deliverable-id",
         dest="deliverable_id",
         default=None,
         metavar="ID",
         help=(
-            "(handoff, spinoff, spinoff-roadmap, plan) Existing deliverable_id to carry "
+            "(handoff, spinoff, roadmap-baton, plan) Existing deliverable_id to carry "
             "(never re-mint). When omitted, auto-inherited from the DELIVERABLE_ID env var "
             "(session context); if neither is set, a new id is minted. "
             "Spec: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1"
@@ -2200,10 +3545,56 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         default=None,
         metavar="INITIATIVE_ID",
         help=(
-            "(handoff, spinoff, spinoff-roadmap, plan) Initiative FK "
+            "(handoff, spinoff, roadmap-baton, plan) Initiative FK "
             "(state/initiatives/<id>.yaml). Nullable — omit or leave unset when this work "
             "does not belong to a named initiative. Also read from INITIATIVE_ID env var. "
             "Spec: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D2"
+        ),
+    )
+    parser.add_argument(
+        "--sizing-object",
+        dest="sizing_object",
+        default=None,
+        metavar="PATH",
+        help=(
+            "(plan) Path to the state/sizings/<id>.yaml this plan was sized against. "
+            "When supplied, must resolve on disk (relative to the repo root) — the "
+            "scaffolder fails loud and writes no file otherwise. When omitted, the "
+            "commented-optional-key skeleton is unchanged. Route a missing sizing "
+            "object through coordinator:sizing, never a hand-authored stub. "
+            "Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC2, AC3"
+        ),
+    )
+    parser.add_argument(
+        "--no-sizing-object",
+        dest="no_sizing_object",
+        action="store_true",
+        help=(
+            "(plan) The sanctioned declaration that this plan has no sizing object — "
+            "not a bypass. Emits an explicit sizing_object: null frontmatter key. "
+            "Exactly one of --sizing-object / --no-sizing-object is required for "
+            "--type plan; a missing sizing object is produced via coordinator:sizing, "
+            "never invented. "
+            "Spec: docs/plans/2026-08-06-sizing-citation-absence-is-checkable.md, chunk C1"
+        ),
+    )
+    parser.add_argument(
+        "--category",
+        dest="category",
+        default=None,
+        choices=_HANDOFF_CATEGORY_ENUM,
+        metavar="CATEGORY",
+        help=(
+            "(handoff, recovery, spinoff, roadmap-baton, goal-seed, "
+            "roadmap-seed) Workstream category: frontmatter field. "
+            f"One of: {', '.join(_HANDOFF_CATEGORY_ENUM)}. Validated against the "
+            "handoff schema's category enum before the file is written — fails "
+            "loud, naming all legal values, on an unknown value. Defaults to each "
+            "type's own established literal ('roadmap' for roadmap-baton and "
+            "roadmap-seed, 'infra' for the rest) when omitted — NOT "
+            "the same field as --nature (completion's work-category; a different "
+            "field on a different record family). "
+            "Spec: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md"
         ),
     )
     parser.add_argument(
@@ -2219,17 +3610,65 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
             # every other fill-after-scaffold optional field has a CLI override (Finding 1).
         ),
     )
+    parser.add_argument(
+        "--origin-handoff-id",
+        dest="origin_handoff_id",
+        default=None,
+        metavar="HND_ID",
+        help=(
+            "(handoff, recovery, spinoff, goal-seed, roadmap-seed) "
+            "ID-companion (C2) for origin_handoff: — the originating baton's handoff_id, "
+            "carried as-is (never resolved or minted here). The calling skill resolves "
+            "this by reading handoff_id off the artifact origin_handoff names. Omitted "
+            "entirely (not null) when not supplied. "
+            "Spec: cross-repo memo 2026-07-22-claude-klabauter-em-c2-id-companions (ask 1); "
+            "docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2"
+        ),
+    )
+    parser.add_argument(
+        "--predecessor",
+        dest="predecessor",
+        default=None,
+        metavar="PATH",
+        help=(
+            "(handoff ONLY) Repo-relative path to the baton this handoff continues "
+            "— the path field --predecessor-id companions. Carried as-is verbatim: "
+            "never resolved, validated, or minted here; the calling engine "
+            "(baton_assemble) decides which path this names. Omitted -> the field "
+            "stays the literal 'predecessor: none' scaffold default, byte-identical "
+            "to every existing caller that does not pass it. NOT accepted for the "
+            "spinoff kinds (predecessor:none-by-design, schema rule A3a-3) nor for "
+            "--type recovery, whose own 'predecessor:' means a crashed commit SHA "
+            "(or null) and never a baton path — see _scaffold_recovery's docstring. "
+            "Supplying --predecessor-id without this flag is refused."
+        ),
+    )
+    parser.add_argument(
+        "--predecessor-id",
+        dest="predecessor_id",
+        default=None,
+        metavar="HND_ID",
+        help=(
+            "(handoff, recovery, spinoff, goal-seed, roadmap-seed) "
+            "ID-companion (C2) for predecessor: — the predecessor's handoff_id, "
+            "carried as-is (never resolved or minted here). The calling skill resolves "
+            "this by reading handoff_id off the artifact predecessor names. Omitted "
+            "entirely (not null) when not supplied. "
+            "Spec: cross-repo memo 2026-07-22-claude-klabauter-em-c2-id-companions (ask 1); "
+            "docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C2"
+        ),
+    )
 
-    # Spinoff-roadmap fields.
+    # Roadmap-baton fields.
     parser.add_argument(
         "--roadmap-id",
         dest="roadmap_id",
         default=None,
         metavar="SLUG",
         help=(
-            "(spinoff-roadmap) Roadmap run identifier (roadmap_id: frontmatter field). "
+            "(roadmap-baton) Roadmap run identifier (roadmap_id: frontmatter field). "
             "Lowercase alphanumeric + dashes. Groups all stubs from one roadmap-planning "
-            "invocation. Defaults to PLACEHOLDER-RM when omitted."
+            "invocation. Defaults to placeholder-rm when omitted."
         ),
     )
     parser.add_argument(
@@ -2238,9 +3677,39 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-0-canonical-baton-sha
         default=None,
         metavar="SLUG",
         help=(
-            "(spinoff-roadmap) Globally-unique stub code (stub_id: frontmatter field). "
+            "(roadmap-baton) Globally-unique stub code (stub_id: frontmatter field). "
             "Format: <roadmap-prefix>-<N> (e.g. my-rm-1). Lowercase alphanumeric + dashes. "
-            "Defaults to PLACEHOLDER-stub-1 when omitted."
+            "Defaults to placeholder-stub-1 when omitted."
+        ),
+    )
+
+    # Goal-seed / roadmap-seed fields.
+    parser.add_argument(
+        "--goals",
+        dest="goals",
+        default=None,
+        metavar="GOAL_ID[,GOAL_ID...]",
+        help=(
+            "(goal-seed, roadmap-seed) Comma-separated goal-id FK(s) "
+            "(origin_goal_id: frontmatter field — array; each entry must be goal- "
+            "prefixed, e.g. goal-shipping-velocity). Required for "
+            "roadmap-seed (SKILL.md § Step 5a); optional for goal-seed "
+            "(deferred vision-slices may not yet be tagged to a ratified goal)."
+        ),
+    )
+    parser.add_argument(
+        "--gate-dependency",
+        dest="gate_dependency",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "(roadmap-baton, goal-seed, roadmap-seed) One-line, subsystem-named "
+            "gate_dependency: frontmatter field (deprecated; superseded by "
+            "blocked_by/blocking_notes). deployment_state=awaiting_gate (the "
+            "default for all three types) requires at least one of "
+            "gate_dependency, blocked_by, or blocking_notes. When omitted, the "
+            "scaffold writes a blocking_notes placeholder instead — fill via "
+            "Edit before the stub is pickup-ready."
         ),
     )
 
@@ -2264,11 +3733,49 @@ def main() -> None:
         _delegate_to_queue_append(_early_type)  # calls sys.exit() — does not return
     if _early_type == "lesson":
         _delegate_to_lesson_promote()  # calls sys.exit() — does not return
+    if _early_type == "workflow":
+        _delegate_to_workflow_scaffold()  # calls sys.exit() — does not return
 
     parser = _build_parser()
     args = parser.parse_args()
 
     doc_type = args.doc_type
+
+    # --type spinoff-goal / spinoff-roadmap / spinoff-roadmap-creator are
+    # BACKWARD-COMPAT ALIASES for --type goal-seed / roadmap-baton / roadmap-seed —
+    # the baton-kind-vocabulary migration renamed the `kind:` values these scaffold
+    # to goal-seed/roadmap-baton/roadmap-seed (the `spinoff-` prefix asserted a
+    # roadmap baton was a kind of spinoff, which is false); this CLI's --type enum
+    # is renamed to match. The legacy spellings are kept working permanently — not
+    # a deprecation timer — because this manifest is percolated to the OSS mirror
+    # and vendored into every fleet repo, and either side of that skew (newer skill
+    # + older manifest, or the reverse) needs both spellings to keep scaffolding.
+    # Normalize here, before the known-type gate and every doc_type branch below,
+    # mirroring the --type flight-recorder alias pattern immediately below.
+    # Spec backlink: docs/plans/2026-07-29-baton-kind-vocabulary-one-axis-per-field.md
+    _LEGACY_TYPE_ALIASES = {
+        "spinoff-goal": "goal-seed",
+        "spinoff-roadmap": "roadmap-baton",
+        "spinoff-roadmap-creator": "roadmap-seed",
+    }
+    if doc_type in _LEGACY_TYPE_ALIASES:
+        _canonical_type = _LEGACY_TYPE_ALIASES[doc_type]
+        print(
+            f"note: --type {doc_type} is a legacy alias — the canonical name is "
+            f"--type {_canonical_type}. Both keep working; consider updating the caller.",
+            file=sys.stderr,
+        )
+        doc_type = _canonical_type
+
+    # --type flight-recorder is a BACKWARD-COMPAT ALIAS for --type run-report (C4 —
+    # the run-report scaffolder is the superset emitter; flight-recorder is
+    # migrated onto it, not reimplemented separately). Normalize here, before the
+    # known-type gate and every doc_type branch below, so in-flight callers
+    # (fan-out-dispatch.sh, pre-C5 executors) that still pass --type flight-recorder
+    # keep working unchanged.
+    # Spec backlink: docs/plans/2026-07-13-subagent-run-report-subsume.md § C4
+    if doc_type == "flight-recorder":
+        doc_type = "run-report"
 
     # Fail-loud on unknown --type — emit the full known set.
     if doc_type not in _KNOWN_TYPES:
@@ -2289,8 +3796,8 @@ def main() -> None:
             title = "PLACEHOLDER — replace with one-line recovery handoff title"
         elif doc_type == "spinoff":
             title = "PLACEHOLDER — replace with one-line spinoff title"
-        elif doc_type == "spinoff-roadmap":
-            title = "PLACEHOLDER — replace with one-line spinoff-roadmap stub title"
+        elif doc_type == "roadmap-baton":
+            title = "PLACEHOLDER — replace with one-line roadmap-baton stub title"
         elif doc_type == "plan":
             title = "PLACEHOLDER — replace with one-line plan title"
         elif doc_type == "decision":
@@ -2303,12 +3810,24 @@ def main() -> None:
             title = "PLACEHOLDER — replace with past-tense workstream title"
         elif doc_type == "health-status":
             title = f"Health Summary {_today()}"
-        elif doc_type == "flight-recorder":
-            title = ""  # flight-recorder has no title field; placeholder unused
+        elif doc_type == "run-report":
+            title = ""  # run-report has no title field; placeholder unused
+        elif doc_type == "subagent-sidecar":
+            title = ""  # subagent-sidecar has no title field; placeholder unused
         elif doc_type == "review-findings":
             title = ""  # review-findings has no title field; heading derived from --slice/--scope
         elif doc_type == "research-synthesis":
             title = "PLACEHOLDER — replace with one-line research synthesis title"
+        elif doc_type == "goal":
+            title = "PLACEHOLDER — replace with one-line goal title"
+        elif doc_type == "sizing-object":
+            title = "PLACEHOLDER — replace with the PM's ask, verbatim"
+        elif doc_type == "strategic-self-description":
+            title = "PLACEHOLDER-repo"  # used as the repo_identity.repo placeholder value
+        elif doc_type == "goal-seed":
+            title = "PLACEHOLDER — replace with one-line goal-seed title"
+        elif doc_type == "roadmap-seed":
+            title = "PLACEHOLDER — replace with one-line roadmap-seed title"
         elif doc_type in _SIDECAR_TYPES:
             title = f"PLACEHOLDER — replace with {doc_type} sidecar title"
         else:
@@ -2365,13 +3884,14 @@ def main() -> None:
             )
             sys.exit(1)
 
-    # Validate flight-recorder-specific required fields.
-    if doc_type == "flight-recorder":
+    # Validate run-report-specific required fields (doc_type is already normalized
+    # from the flight-recorder alias by this point — see main()'s alias check above).
+    if doc_type == "run-report":
         if not args.plan:
-            print("error: --plan <path> is required for --type flight-recorder.", file=sys.stderr)
+            print("error: --plan <path> is required for --type run-report.", file=sys.stderr)
             sys.exit(1)
         if not args.chunk:
-            print("error: --chunk <id> is required for --type flight-recorder.", file=sys.stderr)
+            print("error: --chunk <id> is required for --type run-report.", file=sys.stderr)
             sys.exit(1)
         # Review: code-reviewer item-5 F1 — parse-time slug guard on --chunk mirrors the --plan guard for
         # sidecar types. Closes path-injection: without this, `--chunk ../../../x` reaches
@@ -2383,6 +3903,54 @@ def main() -> None:
                 f"error: --chunk '{args.chunk}' is not a valid chunk id. "
                 "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$). "
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # --out is REQUIRED for run-report — the retired tasks/<plan-slug>/flight/<chunk-id>.md
+        # default-path guess was removed (DEC-3 subsume, docs/plans/2026-07-13-subagent-run-
+        # report-subsume.md § C4 defect3). The universal sidecar now lives under
+        # state/subagent-share/, whose real path is computed by the engine's provision_report
+        # at spawn time — a manual scaffold invocation must not silently guess a session-scoped
+        # path. Fail loud instead of writing to a wrong/stale default.
+        if not args.out:
+            print(
+                "error: --out <path> is required for --type run-report "
+                "(and its --type flight-recorder alias). There is no default output path — "
+                "the universal subagent run-report sidecar lives under state/subagent-share/, "
+                "whose path is computed by the engine's provision_report at spawn time. "
+                "Pass --out explicitly.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    # Validate subagent-sidecar-specific required fields — mirrors the
+    # run-report validation block above (same slug-guard rationale: --plan
+    # and --chunk feed the frontmatter directly and must not carry path-
+    # traversal or YAML-breaking characters).
+    if doc_type == "subagent-sidecar":
+        if not args.plan:
+            print("error: --plan <path> is required for --type subagent-sidecar.", file=sys.stderr)
+            sys.exit(1)
+        if not args.chunk:
+            print("error: --chunk <id> is required for --type subagent-sidecar.", file=sys.stderr)
+            sys.exit(1)
+        if not _SLUG_RE.match(args.chunk):
+            print(
+                f"error: --chunk '{args.chunk}' is not a valid chunk id. "
+                "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$). "
+                "Path separators, dots, colons, and other metacharacters are not allowed.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        # --out is REQUIRED — the live sidecar path is computed by
+        # coordinator_core.dispatch.provision at spawn time, exactly the same
+        # rationale as --type run-report's --out requirement above.
+        if not args.out:
+            print(
+                "error: --out <path> is required for --type subagent-sidecar. "
+                "There is no default output path — the live subagent-sidecar lives under "
+                "state/subagent-share/, whose path is computed by "
+                "coordinator_core.dispatch.provision at spawn time. Pass --out explicitly.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -2422,6 +3990,47 @@ def main() -> None:
             )
             sys.exit(1)
 
+    # Validate plan-specific --sizing-object / --no-sizing-object: the write-time
+    # half of the plan sizing-citation gate. A supplied path that does not resolve
+    # on disk must fail loud and write no file — the scaffolder is the ergonomic
+    # locus where the correct path is cheaper than the wrong one. An explicit
+    # sizing answer (path or --no-sizing-object) is now REQUIRED for --type plan:
+    # omitting both is the ordinary failure mode the absence gate exists to close
+    # (assert_plan_sizing_citation's date-scoped absence check), so it is refused
+    # here, at write time, rather than left for the sweep to catch after the fact.
+    # Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC3
+    # Spec: docs/plans/2026-08-06-sizing-citation-absence-is-checkable.md, chunk C1
+    if doc_type == "plan":
+        if args.sizing_object and args.no_sizing_object:
+            print(
+                "error: --sizing-object and --no-sizing-object are mutually "
+                "exclusive — supply the resolving path, or declare absence "
+                "with --no-sizing-object, not both.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not args.sizing_object and not args.no_sizing_object:
+            print(
+                "error: --type plan requires an explicit sizing answer — neither "
+                "--sizing-object nor --no-sizing-object was supplied. Produce the "
+                "sizing object first via coordinator:sizing, then re-run with the "
+                "resolved path, or pass --no-sizing-object if this plan genuinely "
+                "has none.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if args.sizing_object:
+            _sizing_repo_root = _current_repo_root() or "."
+            _sizing_abs_path = os.path.join(_sizing_repo_root, args.sizing_object)
+            if not os.path.isfile(_sizing_abs_path):
+                print(
+                    f"error: --sizing-object '{args.sizing_object}' does not resolve "
+                    f"on disk (looked for {_sizing_abs_path}). Produce the sizing object "
+                    "first via coordinator:sizing, then re-run with the resolved path.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
     # Validate review-findings-specific required fields.
     if doc_type == "review-findings":
         if not args.slice_id:
@@ -2449,8 +4058,8 @@ def main() -> None:
             )
             sys.exit(1)
 
-    # Validate spinoff-roadmap-specific fields.
-    if doc_type == "spinoff-roadmap":
+    # Validate roadmap-baton-specific fields.
+    if doc_type == "roadmap-baton":
         if args.roadmap_id and not _SLUG_RE.match(args.roadmap_id):
             print(
                 f"error: --roadmap-id '{args.roadmap_id}' is not a valid slug. "
@@ -2474,42 +4083,244 @@ def main() -> None:
     if doc_type == "memo":
         from_id = args.from_repo if args.from_repo else _resolve_from_repo()
 
-    # Resolve deliverable-spine fields (handoff, spinoff, spinoff-roadmap, plan) — C3b.
+    # Resolve author (for plan) — repo identity, not a hardcoded central-EM literal (D1 authorship).
+    plan_author: str = ""
+    if doc_type == "plan":
+        plan_author = _resolve_from_repo()
+
+    # Resolve deliverable-spine fields (handoff, spinoff, roadmap-baton, plan) — C3b.
     # Session context inheritance: DELIVERABLE_ID env var is the mechanism by which the
     # skill layer (e.g. /handoff, /plan) propagates the parent deliverable_id so downstream
     # artifacts carry the same id without requiring author memory (D1, AC12).
-    _spine_types = {"handoff", "spinoff", "spinoff-roadmap", "plan", "recovery"}
+    _spine_types = {"handoff", "spinoff", "roadmap-baton", "roadmap-seed", "plan", "recovery"}
     _resolved_deliverable_id: str | None = None
     _resolved_plan_id: str | None = None
     _resolved_initiative: str | None = None
+    # Set only by the `handoff` arm's carry cascade below; stays None (a
+    # no-op in the explicit/env fallback line further down) for every other
+    # doc_type, preserving that line's prior behavior exactly.
+    _hnd_carried_initiative: str | None = None
     if doc_type in _spine_types:
         # Priority: explicit CLI arg → DELIVERABLE_ID env var → mint new
-        _explicit_dlv = getattr(args, "deliverable_id", None)
+        #
+        # AC5: `--deliverable-id` has default=None, so argparse already
+        # distinguishes flag-ABSENT (None) from flag-EMPTY (""), the latter
+        # being exactly what `baton_assemble._build_directives` emits for a
+        # null lineage (`f"--deliverable-id={lineage.get('deliverable_id') or
+        # ''}"`). An explicitly-empty flag now reads as "resolve via the
+        # cascade" — it must NOT fall through to DELIVERABLE_ID env (that
+        # would let session env silently override a deliberate empty
+        # signal); only a genuinely omitted flag consults env.
+        _explicit_dlv_raw = getattr(args, "deliverable_id", None)
+        _flag_explicitly_empty = _explicit_dlv_raw is not None and not _explicit_dlv_raw
+        _explicit_dlv = _explicit_dlv_raw or None
         _env_dlv = os.environ.get("DELIVERABLE_ID", "").strip() or None
-        _carry_dlv = _explicit_dlv or _env_dlv
+        _carry_dlv = (
+            _explicit_dlv if _explicit_dlv
+            else (None if _flag_explicitly_empty else _env_dlv)
+        )
+        _carry_dlv_source = (
+            "explicit --deliverable-id" if _explicit_dlv
+            else ("DELIVERABLE_ID env" if _env_dlv else None)
+        )
         if _carry_dlv:
             # carry path — caller or env supplied; log and carry unchanged
-            _resolved_deliverable_id = _mint_deliverable_id(deliverable_id=_carry_dlv)
-        elif doc_type == "spinoff-roadmap":
+            _resolved_deliverable_id = _mint_deliverable_id(
+                deliverable_id=_carry_dlv, carry_source=_carry_dlv_source
+            )
+        elif doc_type == "roadmap-baton":
             # stub path — roadmap stubs reuse stub_id as deliverable identity (D1)
             _sr_stub = args.stub_id if args.stub_id else None
             if _sr_stub:
                 _resolved_deliverable_id = _mint_deliverable_id(stub_id=_sr_stub)
             else:
                 # no stub_id yet (PLACEHOLDER) — mint from slug
-                _resolved_deliverable_id = _mint_deliverable_id(slug=_slug_from_title(title))
+                _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+        elif doc_type == "plan":
+            # Session-state parent tier (2026-08-01 deliverable-id-fork-remediation
+            # C1/AC1) — reachable for `plan` only, ordered after explicit/env carry
+            # and before mint-from-slug. Resolves the parent from SESSION STATE
+            # (never from this file's own commented-out predecessor_handoff — see
+            # _resolve_session_held_spinoff_roadmap_stub_path's docstring), and
+            # deliverable_carry.resolve_session_state_parent_deliverable_id gates
+            # the carry on the held claim's own `kind` being a roadmap stub kind
+            # (`roadmap-baton` or the retired `spinoff-roadmap` — see
+            # deliverable_carry._ROADMAP_STUB_KINDS), never on mere claim
+            # existence (AC1/AC4b false-merge guard).
+            _session_stub_path = _resolve_session_held_spinoff_roadmap_stub_path(
+                _current_repo_root()
+            )
+            _session_parent_dlv = None
+            if _session_stub_path:
+                try:
+                    _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+                    if _lib_dir not in sys.path:
+                        sys.path.insert(0, _lib_dir)
+                    import cc_invoke  # noqa: PLC0415
+
+                    _claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+                    if _claude_klabauter_root not in sys.path:
+                        sys.path.insert(0, _claude_klabauter_root)
+                    from coordinator_core.ops.deliverable_carry import (
+                        resolve_session_state_parent_deliverable_id,
+                    )
+                    from coordinator_core.ops.read_frontmatter_field import (
+                        read_frontmatter_field as _read_frontmatter_field,
+                    )
+
+                    _session_parent_dlv = resolve_session_state_parent_deliverable_id(
+                        _read_frontmatter_field, _session_stub_path
+                    )
+                except Exception:  # noqa: BLE001 -- best-effort; degrade to no-carry, never block scaffolding
+                    _session_parent_dlv = None
+            if _session_parent_dlv:
+                _resolved_deliverable_id = _mint_deliverable_id(
+                    deliverable_id=_session_parent_dlv,
+                    carry_source="session-state parent (roadmap stub)",
+                )
+            else:
+                _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+        elif doc_type == "handoff":
+            # Session-plan/predecessor carry tier (2026-08-03 deliverable-id-
+            # carry-plan-handoff-agree C1/AC1/AC2/AC6/AC19) — reachable for
+            # `handoff` only, ordered after explicit/env carry and before
+            # mint-from-slug, mirroring the `plan` arm's own session-state
+            # tier above but resolving through the ONE cascade
+            # implementation (`deliverable_carry.resolve_deliverable_and_
+            # initiative`) rather than re-deriving the plan/predecessor
+            # precedence here.
+            #
+            # Lazy mode is armed (cc_invoke import, before any
+            # coordinator_core.ops touch) unconditionally in this arm, unlike
+            # the `plan` arm's session-stub-gated preamble above: this arm
+            # runs on EVERY direct handoff scaffold with no explicit/env id,
+            # not behind a session-held roadmap-stub claim, so an unarmed
+            # import would pay the ops package's full eager-compile tax on
+            # every such invocation. See coordinator_core/ops/__init__.py's
+            # lazy-mode docstring.
+            _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+            if _lib_dir not in sys.path:
+                sys.path.insert(0, _lib_dir)
+            import cc_invoke  # noqa: PLC0415
+
+            _claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+            if _claude_klabauter_root not in sys.path:
+                sys.path.insert(0, _claude_klabauter_root)
+            from coordinator_core.session.claimed_plan import (
+                resolve_claimed_plan_path as _resolve_claimed_plan_path,
+            )
+            from coordinator_core.ops.deliverable_carry import (
+                DivergentDeliverableIdError,
+                DroppedDeliverableJoinError,
+                resolve_deliverable_and_initiative,
+            )
+            from coordinator_core.ops.read_frontmatter_field import (
+                read_frontmatter_field as _read_frontmatter_field,
+            )
+
+            _hnd_repo_root = _current_repo_root()
+            _claimed_plan_rel = _resolve_claimed_plan_path(_hnd_repo_root)
+            _claimed_plan_path = (
+                os.path.join(_hnd_repo_root, _claimed_plan_rel)
+                if _claimed_plan_rel and _hnd_repo_root
+                else _claimed_plan_rel
+            )
+            _predecessor_path = getattr(args, "predecessor", None) or None
+
+            def _hnd_mint_adapter(deliverable_id=None, slug=None):
+                # Bridges `_mint_deliverable_id`'s bare `str | None` return to
+                # `resolve_deliverable_and_initiative`'s `mint(...)` 2-tuple
+                # contract (verified against `deliverable_carry.py` source —
+                # it unpacks `result, path_label = mint(...)`). Local to this
+                # arm; `_mint_deliverable_id` itself keeps its bare-str
+                # return, which the `plan` arm and other callers depend on.
+                if deliverable_id:
+                    return (
+                        _mint_deliverable_id(
+                            deliverable_id=deliverable_id, carry_source="carry"
+                        ),
+                        "carry",
+                    )
+                return _mint_deliverable_id(slug=slug), "mint-from-slug"
+
+            try:
+                _resolved_deliverable_id, _hnd_carried_initiative = (
+                    resolve_deliverable_and_initiative(
+                        _read_frontmatter_field,
+                        _hnd_mint_adapter,
+                        _claimed_plan_path,
+                        _predecessor_path,
+                        slug_suffix="handoff",
+                    )
+                )
+            except (DroppedDeliverableJoinError, DivergentDeliverableIdError) as _hnd_carry_exc:
+                # NARROW catch — deliberate divergence from the `plan` arm's
+                # blanket `except Exception` above. A blanket catch here
+                # would also swallow a broken `_hnd_mint_adapter` wiring
+                # (TypeError/ImportError) and degrade silently to permanent
+                # no-carry — the exact defect this arm exists to prevent,
+                # reintroduced by masking it. Do not widen this to
+                # `except Exception` in a future tidying pass.
+                print(
+                    "coordinator-doc-new: handoff deliverable-carry degraded to "
+                    f"no-carry ({type(_hnd_carry_exc).__name__}): {_hnd_carry_exc}",
+                    file=sys.stderr,
+                )
+                _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+                _hnd_carried_initiative = None
+                if _hnd_repo_root:
+                    _hnd_audit_dir = os.path.join(_hnd_repo_root, "state", "audits")
+                    try:
+                        os.makedirs(_hnd_audit_dir, exist_ok=True)
+                        _hnd_audit_path = os.path.join(
+                            _hnd_audit_dir,
+                            f"{datetime.date.today().isoformat()}"
+                            "-handoff-deliverable-carry-degradation.jsonl",
+                        )
+                        with open(_hnd_audit_path, "a", encoding="utf-8") as _hnd_audit_fh:
+                            _hnd_audit_fh.write(
+                                json.dumps(
+                                    {
+                                        "timestamp": datetime.datetime.now(
+                                            datetime.timezone.utc
+                                        ).isoformat(),
+                                        "error_type": type(_hnd_carry_exc).__name__,
+                                        "error_message": str(_hnd_carry_exc),
+                                        "claimed_plan_path": _claimed_plan_path,
+                                        "predecessor_path": _predecessor_path,
+                                        "fallback_deliverable_id": _resolved_deliverable_id,
+                                        "scaffolded_title": title,
+                                    }
+                                )
+                                + "\n"
+                            )
+                    except OSError:
+                        print(
+                            "coordinator-doc-new: failed to write the durable audit "
+                            f"record to {_hnd_audit_dir!r} — the stderr warning above "
+                            "is the only surviving record of this degradation",
+                            file=sys.stderr,
+                        )
         else:
             # slug path — mint new id from title slug
-            _resolved_deliverable_id = _mint_deliverable_id(slug=_slug_from_title(title))
+            _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
 
-        # plan_id — always minted fresh for plan type (D3); never null
+        # plan_id — always minted fresh for plan type (D3); never null.
+        # Review: coordinator:code-reviewer (913d6318) F1 — pln- was never in the
+        # false-clear blast radius (gate_eval._HANDOFF_ID_PATTERN matches hnd- only),
+        # so the placeholder-title guard bought nothing here and cost the D3
+        # "always present, never null" contract baton_assemble's is_plan_input
+        # discriminator depends on. Restored to unconditional minting.
         if doc_type == "plan":
             _resolved_plan_id = _mint_plan_id(_slug_from_title(title))
 
         # initiative FK — explicit CLI arg or INITIATIVE_ID env var; null when neither set
         _explicit_ini = getattr(args, "initiative", None)
         _env_ini = os.environ.get("INITIATIVE_ID", "").strip() or None
-        _resolved_initiative = _explicit_ini or _env_ini  # None → emitted as 'null'
+        # AC19: explicit/env still wins; otherwise fall back to whatever the
+        # handoff carry-cascade resolved above (None for every other doc_type,
+        # preserving prior behavior exactly there).
+        _resolved_initiative = _explicit_ini or _env_ini or _hnd_carried_initiative
 
     # Resolve stable artifact ids (lvv-01/C1): hnd-<slug>-<6hex> for handoffs,
     # cmp-<slug>-<6hex> for completions. Optional fields — always minted fresh,
@@ -2517,10 +4328,26 @@ def main() -> None:
     # across a session lineage).
     _resolved_handoff_id: str | None = None
     _resolved_completion_id: str | None = None
-    if doc_type in ("handoff", "spinoff", "recovery"):
-        _resolved_handoff_id = _mint_artifact_id("hnd", _slug_from_title(title))
+    if doc_type in ("handoff", "spinoff", "recovery", "goal-seed", "roadmap-seed", "roadmap-baton"):
+        _resolved_handoff_id = _mint_artifact_id_from_title("hnd", title, doc_type, "handoff_id")
     elif doc_type == "completion":
-        _resolved_completion_id = _mint_artifact_id("cmp", _slug_from_title(title))
+        _resolved_completion_id = _mint_artifact_id_from_title("cmp", title, doc_type, "completion_id")
+
+    # Allocate a real, collision-checked DR number for decision records — never the
+    # retired DR-XXX placeholder. Scans the repo's canonical docs/decisions/
+    # directory regardless of --out, since allocation is about the shared
+    # numbering namespace, not the write target of this particular invocation.
+    # Spec backlink: cross-repo/inbox/2026-07-20-example-game-repo-em-dr-number-allocator-collision.md
+    _resolved_dr_id: str | None = None
+    if doc_type == "decision":
+        _dr_repo_root = _current_repo_root() or "."
+        _decisions_dir = os.path.join(_dr_repo_root, "docs", "decisions")
+        try:
+            _resolved_dr_id = _allocate_dr_number(_decisions_dir, explicit_prefix=args.dr_prefix)
+            _assert_dr_id_unique(_decisions_dir, _resolved_dr_id)
+        except _DrAllocatorError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            sys.exit(1)
 
     # Generate scaffold content.
     if doc_type == "handoff":
@@ -2530,6 +4357,10 @@ def main() -> None:
             deliverable_id=_resolved_deliverable_id,
             initiative=_resolved_initiative,
             handoff_id=_resolved_handoff_id,
+            origin_handoff_id=args.origin_handoff_id,
+            predecessor=args.predecessor,
+            predecessor_id=args.predecessor_id,
+            category=args.category,
         )
     elif doc_type == "recovery":
         content = _scaffold_recovery(
@@ -2539,6 +4370,9 @@ def main() -> None:
             initiative=_resolved_initiative,
             handoff_id=_resolved_handoff_id,
             recovers_session=args.recovers_session,
+            origin_handoff_id=args.origin_handoff_id,
+            predecessor_id=args.predecessor_id,
+            category=args.category,
         )
     elif doc_type == "spinoff":
         content = _scaffold_spinoff(
@@ -2547,17 +4381,49 @@ def main() -> None:
             deliverable_id=_resolved_deliverable_id,
             initiative=_resolved_initiative,
             handoff_id=_resolved_handoff_id,
+            origin_handoff_id=args.origin_handoff_id,
+            predecessor_id=args.predecessor_id,
+            category=args.category,
         )
-    elif doc_type == "spinoff-roadmap":
-        roadmap_id = args.roadmap_id if args.roadmap_id else "PLACEHOLDER-RM"
-        stub_id = args.stub_id if args.stub_id else "PLACEHOLDER-stub-1"
-        content = _scaffold_spinoff_roadmap(
+    elif doc_type == "roadmap-baton":
+        roadmap_id = args.roadmap_id if args.roadmap_id else "placeholder-rm"
+        stub_id = args.stub_id if args.stub_id else "placeholder-stub-1"
+        content = _scaffold_roadmap_baton(
             title=title,
             branch=branch,
             roadmap_id=roadmap_id,
             stub_id=stub_id,
             deliverable_id=_resolved_deliverable_id,
             initiative=_resolved_initiative,
+            category=args.category,
+            handoff_id=_resolved_handoff_id,
+            gate_dependency=args.gate_dependency,
+        )
+    elif doc_type == "goal-seed":
+        _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
+        content = _scaffold_goal_seed(
+            title=title,
+            branch=branch,
+            goals=_goals_list,
+            gate_dependency=args.gate_dependency,
+            handoff_id=_resolved_handoff_id,
+            origin_handoff_id=args.origin_handoff_id,
+            predecessor_id=args.predecessor_id,
+            category=args.category,
+        )
+    elif doc_type == "roadmap-seed":
+        _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
+        content = _scaffold_roadmap_seed(
+            title=title,
+            branch=branch,
+            goals=_goals_list,
+            gate_dependency=args.gate_dependency,
+            deliverable_id=_resolved_deliverable_id,
+            initiative=_resolved_initiative,
+            handoff_id=_resolved_handoff_id,
+            origin_handoff_id=args.origin_handoff_id,
+            predecessor_id=args.predecessor_id,
+            category=args.category,
         )
     elif doc_type == "memo":
         content = _scaffold_memo(
@@ -2570,12 +4436,14 @@ def main() -> None:
         content = _scaffold_plan(
             title=title,
             branch=branch,
+            author=plan_author,
             plan_id=_resolved_plan_id,
             deliverable_id=_resolved_deliverable_id,
             initiative=_resolved_initiative,
+            sizing_object="null" if args.no_sizing_object else args.sizing_object,
         )
     elif doc_type == "decision":
-        content = _scaffold_decision(title=title)
+        content = _scaffold_decision(title=title, dr_id=_resolved_dr_id)
     elif doc_type == "audit-record":
         content = _scaffold_audit_record(title=title, system=args.system)
     elif doc_type == "problem-set":
@@ -2589,28 +4457,77 @@ def main() -> None:
         )
     elif doc_type == "goal":
         content = _scaffold_goal(title=title)
+    elif doc_type == "sizing-object":
+        content = _scaffold_sizing(title=title)
     elif doc_type == "health-status":
         content = _scaffold_health_status(title=title)
+    elif doc_type == "strategic-self-description":
+        content = _scaffold_strategic_self_description(title=title)
     elif doc_type == "research-synthesis":
         content = _scaffold_research_synthesis(title=title)
     elif doc_type in _SIDECAR_TYPES:
         content = _scaffold_sidecar(doc_type=doc_type, plan_stem=args.plan)
-    elif doc_type == "flight-recorder":
+    elif doc_type == "run-report":
         # dispatched_at: current UTC time in ISO 8601 format (matches fan-out-dispatch.sh: date -u +%Y-%m-%dT%H:%M:%SZ).
         dispatched_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # Review: code-reviewer item-5 F4 — utcnow() deprecated Python 3.12+; now(tz) is identical output
         # dispatched_by: CLAUDE_CODE_SESSION_ID env var, falls back to 'em-unknown' (matches fan-out-dispatch.sh).
         dispatched_by = os.environ.get("CLAUDE_CODE_SESSION_ID", "em-unknown")
-        content = _scaffold_flight_recorder(
+        content = _scaffold_run_report(
             plan_path=args.plan,
             chunk_id=args.chunk,
             dispatched_at=dispatched_at,
             dispatched_by=dispatched_by,
+            agent_type=args.agent_type,
+        )
+    elif doc_type == "subagent-sidecar":
+        dispatched_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        dispatched_by = os.environ.get("CLAUDE_CODE_SESSION_ID", "em-unknown")
+        content = _scaffold_subagent_sidecar(
+            plan_path=args.plan,
+            chunk_id=args.chunk,
+            dispatched_at=dispatched_at,
+            dispatched_by=dispatched_by,
+            agent_type=args.agent_type,
         )
     elif doc_type == "review-findings":
-        content = _scaffold_review_findings(slice_id=args.slice_id, scope=args.scope)
+        _rf_spawned_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _rf_lead_session_id = _resolve_session_id()
+        content = _scaffold_review_findings(
+            slice_id=args.slice_id, scope=args.scope,
+            spawned_at=_rf_spawned_at, lead_session_id=_rf_lead_session_id,
+        )
     else:
-        # Review: code-reviewer S3-F2 — unreachable guard: a future doc_type added to _KNOWN_TYPES
-        # without a matching elif would silently produce NameError at fh.write(content) below.
+        # A doc_type reached the dispatch chain with no scaffold branch. Two cases,
+        # discriminated by the manifest's `neverManuallyScaffoldable` flag (DO NOT
+        # collapse them — the distinction preserves the missing-emitter bug signal
+        # that a green false-positive on strategic-self-description AC3 hid for 7
+        # days; see docs/plans/2026-07-11-strategic-self-description-standard.md
+        # Outcome correction):
+        #   (a) neverManuallyScaffoldable: true — a manifest-registered type
+        #       intentionally NOT manually scaffoldable via this CLI (e.g.
+        #       spike-result, authored by its owning skill). Clean fail-loud with
+        #       the excludeReason, no traceback.
+        #   (b) neverManuallyScaffoldable absent (or false), no emitter — a genuine
+        #       half-landed emitter BUG. This is the common case for `offerable: false`
+        #       types that DO have a real elif branch (spinoff, memo, audit-record,
+        #       run-report, review-findings, etc. — `offerable: false` there means
+        #       only "excluded from the generic offer surface", not "unscaffoldable").
+        #       Keep the loud AssertionError so it crashes visibly and the
+        #       known-types<->emitter parity test catches it.
+        # Review: code-reviewer Finding 1 — `offerable: false` conflated "never
+        # manually scaffoldable" with "excluded from the generic offer surface
+        # only"; the narrower `neverManuallyScaffoldable` field fixes the
+        # discrimination so a deleted branch on the latter population still hits
+        # the loud AssertionError below.
+        _entry = next((d for d in _DOC_TYPES if d.get("type") == doc_type), None)
+        if _entry is not None and _entry.get("neverManuallyScaffoldable") is True:
+            _reason = _entry.get("excludeReason") or "not manually scaffoldable"
+            print(
+                f"error: --type {doc_type} is registered but not manually scaffoldable "
+                f"via coordinator-doc-new (neverManuallyScaffoldable: true). {_reason}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
         raise AssertionError(f"unreachable doc_type: {doc_type!r}")
 
     # Resolve output path.
@@ -2618,14 +4535,14 @@ def main() -> None:
     _anchored_repo_root: str | None = None  # set when default path is re-anchored to repo root
     if not out_path:
         topic_for_path = args.topic if doc_type == "memo" else None
-        # For sidecar types, plan_stem is the bare stem. For flight-recorder, it's the full path.
-        plan_stem_for_path = args.plan if (doc_type in _SIDECAR_TYPES or doc_type == "flight-recorder") else None
+        # For sidecar types, plan_stem is the bare stem. For run-report, it's the full path.
+        plan_stem_for_path = args.plan if (doc_type in _SIDECAR_TYPES or doc_type in ("run-report", "subagent-sidecar")) else None
         system_for_path = args.system if doc_type == "audit-record" else None
         stub_id_for_path = (
-            args.stub_id if doc_type == "spinoff-roadmap" and args.stub_id
+            args.stub_id if doc_type == "roadmap-baton" and args.stub_id
             else None
         )
-        chunk_id_for_path = args.chunk if doc_type == "flight-recorder" else None
+        chunk_id_for_path = args.chunk if doc_type in ("run-report", "subagent-sidecar") else None
         slice_id_for_path = args.slice_id if doc_type == "review-findings" else None
         scope_for_path = args.scope if doc_type == "review-findings" else None
         out_path = _default_output_path(
@@ -2636,12 +4553,13 @@ def main() -> None:
             chunk_id=chunk_id_for_path,
             slice_id=slice_id_for_path,
             scope=scope_for_path,
+            dr_id=_resolved_dr_id,
         )
         # Anchor default relative paths to the correct root so the output lands in the
         # right location regardless of the caller's cwd.
         #
         # Placement law (AC7 / stop-the-rot): state/ paths route through the
-        # coordinator_state_root seam so new artifacts land in example-orchestration-hub (not ~/.claude/state)
+        # coordinator_state_root seam so new artifacts land in claude-klabauter (not ~/.claude/state)
         # when running from the coordinator meta-repo. Falls back to repo-root anchoring
         # on un-migrated installs where the seam is unresolvable.
         #
@@ -2649,7 +4567,7 @@ def main() -> None:
         #
         # Spec backlinks:
         #   docs/plans/2026-07-02-coordinator-doc-new-path-anchor-fix.md (original anchor fix)
-        #   docs/plans/2026-07-03-stop-the-rot-example-orchestration-hub-state-home-placement.md § C10 / AC7
+        #   docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § C10 / AC7
         if not os.path.isabs(out_path):
             # Detect state/ prefix (cross-platform: use os.path.join to get native separator).
             _state_prefix = "state" + os.sep
@@ -2664,9 +4582,9 @@ def main() -> None:
                     # For the printed output pointer: if the seam resolved to a path within the
                     # current repo root (non-meta-repo: seam returns $GIT_ROOT/state), keep the
                     # existing relative-path print behaviour by setting _anchored_repo_root.
-                    # When the seam redirects to example-orchestration-hub (a DIFFERENT repo), _anchored_repo_root
+                    # When the seam redirects to claude-klabauter (a DIFFERENT repo), _anchored_repo_root
                     # stays None and the absolute path is printed — callers need the absolute path
-                    # to commit to the correct (example-orchestration-hub) repo.
+                    # to commit to the correct (claude-klabauter) repo.
                     _repo_root_for_relpath = _current_repo_root()
                     if _repo_root_for_relpath:
                         _rr = os.path.realpath(_repo_root_for_relpath)
@@ -2674,7 +4592,7 @@ def main() -> None:
                         if _op.startswith(_rr + os.sep) or _op == _rr:
                             _anchored_repo_root = _repo_root_for_relpath
                 else:
-                    # Seam unresolvable (e.g. EXAMPLE_ORCHESTRATION_HUB_ROOT not configured on this machine).
+                    # Seam unresolvable (e.g. CLAUDE_KLABAUTER_ROOT not configured on this machine).
                     # Degrade gracefully: fall back to repo-root anchoring so the CLI keeps
                     # working on un-migrated installs. This matches AC13's graceful-skip pattern.
                     _repo_root = _current_repo_root()
@@ -2703,11 +4621,67 @@ def main() -> None:
     if parent:
         os.makedirs(parent, exist_ok=True)
 
+    # Guard: refuse to (re)create a live handoff sharing an already-archived
+    # record's filename or handoff_id. Scoped internally to state/handoffs/
+    # destinations only (no-op for every other doc_type/output path).
+    _assert_no_archived_handoff_twin(
+        out_path,
+        _resolved_handoff_id,
+        _anchored_repo_root or _current_repo_root(),
+    )
+
+    # Self-check: refuse to write content that fails this repo's own
+    # vendored schema for the doc type it resolves to (no-op for doc types
+    # with no schema in that corpus — see the function's own docstring).
+    _assert_scaffold_content_valid(
+        content,
+        out_path,
+        _anchored_repo_root or _current_repo_root(),
+    )
+
     # Write the scaffolded file.
-    with open(out_path, "w", encoding="utf-8") as fh:
-        fh.write(content)
-        if not content.endswith("\n"):
-            fh.write("\n")
+    #
+    # DR-276: this CLI owns its own main() (no single op module's main(argv) to
+    # route through via coordinator_core.cli_entry.run_op_main), so the write is
+    # wrapped in recording_declared_writes() directly, with declare_write() called
+    # AFTER the write lands — mirrors coordinator_core.ops.append_integrator_dispositions'
+    # own "declared after the write, never before" discipline. cwd is the repo the
+    # write actually landed in (may differ from the caller's process cwd when the
+    # placement-law state/ seam re-anchors to a different repo, e.g. Claude-klabauter).
+    _write_repo_root = _anchored_repo_root or _current_repo_root() or os.getcwd()
+    try:
+        _lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if _lib_dir not in sys.path:
+            sys.path.insert(0, _lib_dir)
+        import cc_invoke  # noqa: PLC0415
+
+        _claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+        if _claude_klabauter_root not in sys.path:
+            sys.path.insert(0, _claude_klabauter_root)
+        from coordinator_core.cli_entry import recording_declared_writes  # noqa: PLC0415
+        from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 -- fail-open: a seam-import failure must never block the scaffold write itself
+        recording_declared_writes = None
+        declare_write = None
+
+    if recording_declared_writes is not None:
+        with recording_declared_writes(cwd=_write_repo_root):
+            with open(out_path, "w", encoding="utf-8") as fh:
+                fh.write(content)
+                if not content.endswith("\n"):
+                    fh.write("\n")
+            declare_write(out_path)
+    else:
+        with open(out_path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            if not content.endswith("\n"):
+                fh.write("\n")
+
+    # Success-path-only liveness stamp (completion_scaffold): reached only after the
+    # write above completed without raising, and only for --type completion -- every
+    # other doc_type's scaffold-write is out of this housekeeping class' remit.
+    if doc_type == "completion":
+        _stamp_completion_scaffold_liveness(_anchored_repo_root or _current_repo_root())
 
     # Print a repo-root-relative pointer so callers (e.g. code-reviewer DONE: <path>)
     # get a stable path regardless of the cwd from which they invoked this tool.

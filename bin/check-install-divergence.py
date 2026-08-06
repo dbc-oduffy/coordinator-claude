@@ -53,7 +53,7 @@ PUBLIC CONTRACT (pinned — downstream consumers bind to these surfaces):
   Machine-readable contract anchor:
     setup/tests/contract/install_divergence_contract.json
 
-  Cross-tool discipline: this file and `coordinator/bin/check-plugin-drift.sh`
+  Cross-tool discipline: this file and `coordinator/bin/check-plugin-drift.py`
   share the `git hash-object --path <relpath>` blob-SHA idiom so that
   gitattributes apply symmetrically. If you change one, review the other.
 

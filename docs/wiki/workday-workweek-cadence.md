@@ -21,7 +21,7 @@ Sequential steps (each must complete before the next begins):
 | Step | Name | Gate | Notes |
 |------|------|------|-------|
 | 1 | `/validate` (+ UBT preamble) | blocking | UBT preamble: non-UE repos see silent skip |
-| 2 | RAG Staleness Nudge | informational | skip if no project-rag tool |
+| 2 | RAG Staleness Nudge | informational | skip if no RAG-index MCP tool is present |
 | 3 | Branch Consolidation | blocking on conflict | see conditional-skip note below |
 | 4 | Strategic Daily Review | — | writes `archive/daily-summaries/YYYY-MM-DD.md` |
 | 5 | Plugin Validation Suite | blocking on hook failures | non-hook failures: report and flag |
@@ -40,7 +40,7 @@ The skip fires when `git rev-list --count HEAD..origin/main` is `0` — meaning 
 
 A missing-ref guard precedes the skip: if `origin/main` is not present locally (fresh clone, network issue, renamed remote), the reconcile sub-step logs an informational skip rather than producing an opaque rebase failure.
 
-Step 3 sub-step 0 (`sync-main.sh`) MUST run before the rebase/skip check — it fetches `origin/main`, ensuring the rev-list count is computed against a fresh ref.
+Step 3 sub-step 0 (`sync-main.py`) MUST run before the rebase/skip check — it fetches `origin/main`, ensuring the rev-list count is computed against a fresh ref.
 
 ### Week-changelog `Validation:` schema
 
@@ -54,18 +54,29 @@ Both fields are auto-filled from ceremony exit codes; neither is LLM-authored pr
 `validate=` enum values:
 - `validate=<exit-code>` — the resolved command ran; value is its exit code (e.g. `validate=0`).
 - `validate=skipped` — the resolver found no command configured: `$COORDINATOR_FAST_TEST_CMD` was unset and `coordinator.local.md` had no `fast_test_cmd:` key. No test ran. Remediation: set `fast_test_cmd:` in `coordinator.local.md` or export `$COORDINATOR_FAST_TEST_CMD`.
+- `validate=not-run` — Step 1 never emitted `RC_VALIDATE` at all: the ceremony did not reach validation (aborted early, Step 9 invoked out-of-band, or a backfill composed without a Step 1 leg). This is the **unset default** and is a ceremony gap, not a configuration state. Distinct from `skipped`, which is a positive emission meaning validation ran and found nothing configured. Do not conflate the two — that collision is what this value exists to break.
 - `validate=N/A` — the step was explicitly skipped with PM authorization. Different cause from `skipped`: an authorized skip is a deliberate product call; a `skipped` result is a missing configuration that should be remediated.
+
+**Read-back surface.** `validate=<rc>` above is written into the changelog and, for a time,
+had no reader — a red exit code landed in a file nothing consumed. That gap is
+closed by a separate, richer record: `state/test-red/<machine>.yaml`, schema at
+`coordinator/docs/wiki/test-red-state-schema.md`. That record carries a fingerprinted failing
+set (not just an exit code) and a delta vocabulary (`new`/`cleared`/`persistent`) computed
+against an acknowledged baseline or the prior run. Two ceremonies consume it: `/workday-start`
+(surfaces only on a non-empty delta) and `/workstream-start` (item 6's red predicate advocates
+`/bug-blitz` on the same delta). This `Validation:` field and the test-red record are
+independent artifacts — this field's own semantics and enum are unchanged by the test-red
+record's existence.
 
 ---
 
 ## Post-ceremony command hook
 
-> Spec backlink: `docs/plans/2026-07-08-ceremony-post-command-hook-seam.md`
-> Helper: `coordinator/bin/coordinator-ceremony-hook.sh`
+> Helper: the engine-resident `coordinator/bin/coordinator-ceremony-hook.py`
 
 Any of the four cadence ceremonies (`/workday-start`, `/workday-complete`, `/workweek-start`,
 `/workweek-complete`) can run a consumer-repo-declared command at its terminal step, via one
-shared generic helper — `coordinator-ceremony-hook.sh <canonical-ceremony-name>`. This is the
+shared generic helper — the engine-resident `coordinator-ceremony-hook.py <canonical-ceremony-name>`. This is the
 seam a repo uses to, for example, publish its settled end-of-day state somewhere, without a
 bespoke terminal step per ceremony. One helper, called by all four, keeps the four near-identical
 bodies from drifting (the parallel-surface footgun).
@@ -157,13 +168,15 @@ If the key is absent (the default for most repos), nothing runs and nothing prin
 
 PM-invoked, release-grade. Reads the week-changelog as the canonical record — does NOT reconstruct from `git log`. Heavy steps absent from daily live here: `/update-docs`, ShellCheck, improvement-queue triage, skill-description advisory, scc, version bump, merge.
 
-Staleness signal: `check-weekly-staleness.sh` (≥5 days AND ≥15 commits since last weekly-reset SHA).
+Staleness signal: `check-weekly-staleness.py` (≥5 days AND ≥15 commits since last weekly-reset SHA).
 
 Improvement-queue triage: daily emits depth nudge only (≥5 → notice); weekly triggers action (apply, dispatch executors, delete resolved entries; commit subject names them).
 
 ### Step 4d: Skill description length advisory
 
-`check-description-length.sh` runs here as **advisory only** — it can never block the ceremony or propagate a non-zero exit. The validator's stdout and rc are captured into the weekly summary via the `set +e` / `_DESC_RC` / `set -e` pattern. A non-zero rc that produces no findings output indicates a script crash — investigate out-of-band. Skills flagged over-budget are follow-up nudges, not blockers.
+`check-description-length.py` runs here as **advisory only** — it can never block the ceremony or propagate a non-zero exit. The validator's stdout and rc are captured into the weekly summary via the `set +e` / `_DESC_RC` / `set -e` pattern. A non-zero rc that produces no findings output indicates a script crash — investigate out-of-band. Skills flagged over-budget are follow-up nudges, not blockers.
+
+**Scope caveat — this step does not cover coordinator.** The validator scans the Claude Code meta-repo's plugin-install tree, and coordinator's plugin source resolves live from its doctrine-authoring source tree via `--plugin-dir`, so no coordinator skill appears in its output. Its findings concern whichever other plugins are genuinely installed there. Coordinator's own description budget is bound in the pytest tier by `coordinator/tests/test_boot_description_envelope.py`, which covers agents, skills, and commands; a clean run of this weekly step says nothing about that budget either way.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: bug-sweep
-description: "Systematic codebase bug hunt — find and fix all AI-fixable bugs in-session, defer blocked ones to backlog"
+description: "Codebase bug hunt — find and fix AI-fixable bugs, defer the rest."
 allowed-tools: ["Agent", "Read", "Write", "Edit", "Bash", "Grep", "Glob", "Skill"]
 argument-hint: [path]
 ---

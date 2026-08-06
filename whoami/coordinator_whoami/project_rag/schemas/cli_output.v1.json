@@ -215,11 +215,11 @@
       "properties": {
         "installed": {
           "type": "boolean",
-          "description": "True when ~/.claude/plugins/coordinator/CLAUDE.md exists."
+          "description": "True when ~/.claude/plugins/coordinator-claude/.claude-plugin/plugin.json exists."
         },
         "version": {
           "type": ["string", "null"],
-          "description": "Version string parsed from CLAUDE.md frontmatter, or null."
+          "description": "Version string read from plugin.json's \"version\" field, or null."
         }
       }
     },

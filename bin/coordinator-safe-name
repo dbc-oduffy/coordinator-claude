@@ -1,45 +1,33 @@
-#!/usr/bin/env bash
-# coordinator-safe-name — CLI wrapper for lib/coordinator-safe-name.sh
-#
-# Spec backlink: docs/plans/2026-06-30-cross-platform-file-naming-helper.md § seam 1
-#
-# PURPOSE: Thin CLI wrapper that resolves the lib path relative to this script
-# (CLIs MAY self-locate; the lib they ship beside MUST NOT), sources it, and
-# dispatches timestamp/slug/check subcommands to the csn_* functions.
-#
-# Usage:
-#   coordinator-safe-name timestamp [--now | --mtime <file>]
-#   coordinator-safe-name slug "<text>"
-#   coordinator-safe-name check "<component>"
+#!/usr/bin/env python3
+# Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
+"""coordinator-safe-name — CLI wrapper for lib/coordinator_safe_name.py.
 
-set -euo pipefail
+Naked-Python port (2026-07-19 Windows de-bash campaign, chunk E3-c). Thin CLI
+that resolves the lib path relative to this script's own directory, imports
+it, and dispatches timestamp/slug/check subcommands to the csn_* functions.
+Windows bare-name invocation is covered by the generated
+coordinator-safe-name.cmd launcher (gen-launcher-shim.py), not a shell
+shebang trick.
 
-# Locate the lib relative to this script's own directory.
-_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-_LIB="$_SCRIPT_DIR/lib/coordinator-safe-name.sh"
+Spec backlink: docs/plans/2026-06-30-cross-platform-file-naming-helper.md § seam 1
+Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E3-c)
 
-if [ ! -f "$_LIB" ]; then
-    printf 'coordinator-safe-name: lib not found at %s\n' "$_LIB" >&2
-    exit 1
-fi
+Usage:
+  coordinator-safe-name timestamp [--now | --mtime <file>]
+  coordinator-safe-name slug "<text>"
+  coordinator-safe-name check "<component>"
+"""
+from __future__ import annotations
 
-# shellcheck source=lib/coordinator-safe-name.sh
-. "$_LIB"
+import os
+import sys
 
-subcommand="${1:-}"
-shift || true
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
-case "$subcommand" in
-    timestamp) csn_timestamp "$@" ;;
-    slug)      csn_slug "$@" ;;
-    check)     csn_check "$@" ;;
-    "")
-        printf 'Usage: coordinator-safe-name <timestamp|slug|check> [args...]\n' >&2
-        exit 1
-        ;;
-    *)
-        printf 'coordinator-safe-name: unknown subcommand "%s"\n' "$subcommand" >&2
-        printf 'Usage: coordinator-safe-name <timestamp|slug|check> [args...]\n' >&2
-        exit 1
-        ;;
-esac
+from coordinator_safe_name import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

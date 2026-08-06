@@ -14,7 +14,7 @@ related:
 
 Hand enriched, reviewed stub specifications to executor agents for implementation, selecting the appropriate model (Sonnet or Opus) based on stub complexity. The slash-command `/delegate-execution` exists as a thin entry-point; this wiki carries the enforceable procedure.
 
-Executors dispatched via this procedure carry the meta-ask preamble (see `snippets/meta-ask-preamble.md`, synced into `agents/executor.md`) and have access to ergonomic substrate helpers (`claude_machine_local` Python module, `claude-machine-local.{sh,ps1}` sourced shell helpers) for portable cross-machine path references. Full doctrine: `docs/wiki/eager-agent-calibration.md`.
+Executors dispatched via this procedure carry the meta-ask preamble (see `snippets/meta-ask-preamble.md`, synced into `agents/executor.md`) and have access to ergonomic substrate helpers (`claude_machine_local` Python module, `claude-machine-local.{sh,ps1}` sourced shell helpers) for portable cross-machine path references.
 
 ## Instructions
 
@@ -74,7 +74,7 @@ Prefer enumerated targets over described scope. "Apply this regex to these 7 fil
 
 Vague specs invite hallucinated completion — agents with vague instructions will by default report success against their own interpretation of the scope, not against the coordinator's intent. Hardcoded file lists, symbol lists, and exact replacement strings produce measurably higher first-try success than scope descriptions.
 
-**Briefs touching an existing surface MUST name the pre-existing regression-net test file(s) in the verification step — not just newly-authored tests.** Executors verify exactly what they are told to verify. A brief that says "run the new tests" gets green-on-new while the executor's change silently breaks the existing regression net, because the executor never ran it. The blind spot is structural: the executor's verification surface is the brief's verification surface. When a chunk modifies an existing module, enumerate the pre-existing test file(s) covering that module by path in the brief's verification step alongside any new tests, so the executor runs both. (2026-06-14, project-rag.)
+**Briefs touching an existing surface MUST name the pre-existing regression-net test file(s) in the verification step — not just newly-authored tests.** Executors verify exactly what they are told to verify. A brief that says "run the new tests" gets green-on-new while the executor's change silently breaks the existing regression net, because the executor never ran it. The blind spot is structural: the executor's verification surface is the brief's verification surface. When a chunk modifies an existing module, enumerate the pre-existing test file(s) covering that module by path in the brief's verification step alongside any new tests, so the executor runs both.
 
 **For independent stubs** (no shared dependencies):
 - Dispatch executor agents in parallel using Task tool with `run_in_background: true`
@@ -116,7 +116,8 @@ Track attempts in the **tracker README** status column (coordinator-owned), not 
 Tracker README: | chunk-2A | Execution in progress (attempt 2/3) | ... |
 ```
 
-**Sidecar alternative (plan-based fan-out):** when there is no tracker README, track attempt counts in the EM's dispatch ledger row (`skills/execute-plan/SKILL.md` § Phase 1.6) and in the per-chunk sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`. See § Flight-Recorder Sidecars below.
+<!-- Review: dispatch-ledger vocabulary completion sweep -->
+**Sidecar alternative (plan-based fan-out):** when there is no tracker README, track attempt counts in the EM's wave-map entry (`skills/execute-plan/SKILL.md` § Phase 1.6) and in the per-chunk run-report sidecar at `state/subagent-share/<session-id>/<provision_key>.md`. See § Flight-Recorder Sidecars below.
 
 After the 3rd attempt, regardless of outcome:
 - If still failing: escalate to PM with full dispatch history
@@ -213,7 +214,7 @@ Agent(
    - If validation fails after 2 re-dispatches: escalate to coordinator for diagnosis. The failures may indicate a spec problem, not an execution problem.
    - If validation passes: proceed to step 5.
 5. If spec-compliant and validation passes: route to code quality review via `/review-code`
-   - Post-execution review findings flow through the review-integrator for application (via Phase 3.7 of the reviewer pipeline — see `docs/wiki/reviewer-pipeline.md`), not the EM manually. Phase 3.7 requires an on-disk sidecar — the reviewer self-scaffolds it in `state/review-trail/findings/` and returns the path; the integrator reads that path, not an inline finding list.
+   - Post-execution review findings flow through the review-integrator for application, not the EM manually. This requires an on-disk sidecar — the reviewer writes to its provisioned `state/subagent-share/<session>/<provision_key>.md` sidecar (pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home otherwise) and returns the path; the integrator reads that path, not an inline finding list.
 6. If not spec-compliant: re-dispatch executor with specific gap list (this is distinct from validation failure — this is missing work, not broken work)
 7. Update tracker status to "Done" with commit hash if applicable
 
@@ -263,7 +264,9 @@ Before staging any executor output:
 
 See `docs/wiki/verification-before-completion.md` (or the active equivalent) → "Scope-Conformance Check After Executor Returns" for the coordinator-side mechanical check.
 
-**Apply executor briefs must explicitly forbid cross-repo writes — Sonnet executors will follow wiki redirect stubs to sibling repos and write there directly.** When a wiki file in the current repo is a redirect stub (e.g. "new content lands addon-side"), an executor will correctly infer the canonical destination and write there — violating cross-repo write discipline. The instinct on content destination can be right while the write path is wrong. The apply-dispatch prompt's OUT-OF-SCOPE block must include verbatim: *"Do NOT write to any path outside the current repo root, even if a wiki redirect stub names the canonical sibling location — flag such records for memo dispatch instead."* Folds with `coordinator/CLAUDE.md` § Cross-repo writes — two altitudes. (2026-05-28, learn-lessons local-mode drain: apply executor wrote 3 schema-migration records into `../project-rag-ue-addon/docs/wiki/`.)
+**Apply executor briefs must explicitly forbid cross-repo writes — Sonnet executors will follow wiki redirect stubs to sibling repos and write there directly.** When a wiki file in the current repo is a redirect stub (e.g. "new content lands addon-side"), an executor will correctly infer the canonical destination and write there — violating cross-repo write discipline. The instinct on content destination can be right while the write path is wrong. The apply-dispatch prompt's OUT-OF-SCOPE block must include verbatim: *"Do NOT write to any path outside the current repo root, even if a wiki redirect stub names the canonical sibling location — flag such records for memo dispatch instead."*
+
+**The `Edit` tool is guarded; `Bash` is not — and the write-outside-sandbox confinement was removed end-to-end.** Two consequences for source-writing dispatches: (1) a general-purpose subagent may now write source directly by design, so the *operative* discipline is that the EM reviews every subagent source-write via `git diff` before commit (reviewers stay read-only-on-source by convention — their Bash allowlist blocks commit/push, so any stray edit lands only in the working tree for the EM to catch on the diff); (2) writes to a SIBLING repo block the `Edit` tool but NOT `Bash`, so a `Bash`/python/PowerShell-heredoc write can still land unreviewed source in a sibling repo — the cross-repo forbid clause above is exactly what closes that gap. For sanctioned source writes prefer `coordinator:executor`; otherwise knowingly accept the bypass and have the EM review every on-disk diff before committing.
 
 ### Phase 4: Final Verification
 
@@ -325,29 +328,42 @@ grep -in "<codename>" docs/project-tracker.md tasks/*/todo.md docs/roadmap.md RO
 
 ## Bug-Blitz Pattern — Executor Edit-and-Report, EM Serializes Commits
 
-From the live bug-blitz smoke run (2026-05-06), two defects were discovered in the original design:
+From the live bug-blitz smoke run, two defects were discovered in the original design:
 
 1. **Concurrent-commit absorption** — multiple executor self-commits bundled into one with only one message surviving.
 2. **Scope sweep** — coordinator-safe-commit consulted touched-files from the long-lived session, absorbing 46 unrelated dirty files from concurrent workstreams.
 
-**Fix pattern (now canonical):** Executors **edit-and-report only** (no self-commit). EM serializes commits at wave gate via:
-```bash
-git reset && git add -- <specific-paths> && git commit -m "<message>"
-```
-Plain git, no helper. This pattern prevents both absorption and scope sweep.
+**Fix pattern (now canonical):** Executors **edit-and-report only** (no self-commit). EM serializes
+commits at wave gate by invoking the `ceremony.scoped_git_commit` op — `worktree_root`, the
+wave's `paths`, and the commit `message` — rather than hand-rolling git. This pattern prevents
+both absorption and scope sweep. The op inherits its underlying commit pipeline's mechanism
+selection (private index when staged content diverges from the worktree, ordinary pathspec
+commit when it agrees) rather than the caller having to pick one by hand — see
+`scoped-safety-commits.md § SC-DR-015`.
 
-Source: `archive/completed/2026-05.md` (2026-05-06 bug-blitz entry).
+This retires the earlier `git reset && git add -- <paths> && git commit -m "<message>"` recipe.
+That form's leading `git reset` cleared the *shared* index — unstaging whatever a concurrent
+session had staged — to make an absent trailing pathspec load-bearing; the op needs neither: it
+takes an explicit `paths` list and never resets the shared index out from under a peer.
+
+## File deletions in retirement/migration chunks route to the EM — `git rm` is blocked for executors
+
+The subagent destructive-action EM-lock denies all git verbs, `git rm` included, so a retirement/migration executor cannot stage a file deletion. Its filesystem-`rm` fallback removes the file from disk but does NOT persist to the index — so the deletion silently fails to land in the commit. Route file DELETIONS in retirement/migration chunks to the EM (`git rm`), OR let the executor filesystem-`rm` and have the EM stage the deletion. Either way, verify the deletion on disk AND in the index (`git status` shows a staged `D`) — never trust the executor's "deleted" claim. (C8a schema-file retirement: the executor's `git rm` was denied, its filesystem-rm fallback didn't reach the index.)
+
+## Copy-into-dest executors silently clobber same-named files — an `M` on an expected-new path is the tell
+
+A copy/merge executor that writes files into a destination can overwrite a same-basename, different-content file the destination already owned. The tell is in `git status`: a **genuinely new** write lands as `??` (untracked); an **`M`** (modified) on a path you expected to be new means the write clobbered an existing file. Before committing a copy/merge dispatch, verify each expected-new file shows `??`, not `M` — an unexpected `M` means revert and re-scope. (DR→coordinator merge: a copy-executor overwrote coordinator's OWN `test_prereq_probe.sh` / `test_repo_root_resolution.sh` with the same-named DR versions; `git status` showed them `M`, not `??`.)
 
 ## Review-Integrator as Mandatory Next Step
 
 After every review (plan, code, or architectural), the next action MUST be dispatching the review-integrator agent. Manual integration ("go through findings line-by-line") is prohibited except for explicit PM-override items.
 
-**Reviewer self-persists; dispatch the integrator with the returned path.** The review-integrator hard-stops on inline-relayed finding lists (`agents/review-integrator.md` § Intake precondition). Spec backlink: `cross-repo/inbox/2026-07-01-reviewer-selfpersist-confinement-redirect.md`.
+**Reviewer self-persists; dispatch the integrator with the returned path.** The review-integrator hard-stops on inline-relayed finding lists (`agents/review-integrator.md` § Intake precondition).
 
 The required sequence:
 
-1. **Dispatch `coordinator:code-reviewer`** (UNNAMED) or a persona reviewer with `snippets/findings-self-persist-sentinel.md` appended to the brief.
-2. **Read the returned pointer line**: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. The sidecar is already on disk in `state/review-trail/findings/` — the reviewer scaffolded it.
+1. **Dispatch `coordinator:code-reviewer`** (UNNAMED) or a persona reviewer. The sidecar is spawn-provisioned by the engine — no sentinel-append instruction is needed in the brief.
+2. **Read the returned pointer line**: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. The sidecar is already on disk at `state/subagent-share/<session>/<provision_key>.md` — provisioned at spawn, not self-scaffolded.
 3. **Dispatch the review-integrator pointing at the on-disk sidecar path** — never an inline finding list.
 
 The review-integrator dispatched as a subagent handles:
@@ -356,29 +372,25 @@ The review-integrator dispatched as a subagent handles:
 
 EM spot-checks the diff after integration; does not re-do the integration manually.
 
-Source: `archive/completed/2026-04.md` (2026-04-04 entry).
-
 ## Executor brief compliance — out-of-scope file edits are structural, not instructional
 
 **Executors self-mark plan-status fields and archive entries despite explicit "do not edit X" briefs — the impulse is structural, not a reading error.**
 **Why:** Across one session, 5 of 5 dispatched executors touched plan Status fields and/or archive entries despite each brief carrying a verbatim prohibition. The "mark this complete" impulse recurs because the executor's prior conflates plan-status ownership with chunk-completion convention.
 **How to apply:** gate Status edits via schema-validation hook + frontmatter enum (catches invalid values mid-write), or move plan-status into a derived view computed from the archive log. Stop assuming briefs alone are the enforcement; they're the policy, hooks are the enforcement.
 
-*Source: example-game-repo `state/lessons.md` (example-game-repo-L143, central-promoted 2026-05-28).*
-
 ## No-commit briefs need structural enforcement, not prose
 
 **Executors ignore explicit no-commit constraints under chunk-mode — "DO NOT commit" in a brief will be overridden by the executor's chunk-completion convention.**
 **Why:** A brief said "DO NOT commit; EM commits after verification" verbatim; the Sonnet executor self-committed anyway, citing chunk-completion as the stronger convention.
-**How to apply:** either enforce no-commit via `settings.json` deny on `git commit`, or accept that committers will commit and use an EM-side review/amend pattern after the executor returns. Prose alone is not binding against a structural prior. See coordinator improvement-queue for the executor agent-prompt amendment candidate.
+**How to apply:** either enforce no-commit via `settings.json` deny on `git commit`, or accept that committers will commit and use an EM-side review/amend pattern after the executor returns. Prose alone is not binding against a structural prior. See the improvement-queue for the executor agent-prompt amendment candidate.
 
-*Source: example-game-repo `state/lessons.md` (example-game-repo-L173, central-promoted 2026-05-28).*
+**Long-running dispatches are especially prone to constraint decay.** A Sonnet executor dispatched for ~30 min on a .NET/native task committed and continued past stub scope to author + commit a second wave despite an explicit "DO NOT COMMIT — EM commits at wave end" in the mandatory verbatim block. Hypothesis: long runs let initial constraints decay; the executor reverts to "ship the work" instinct mid-debugging. Mitigation candidates: (a) pin `expected_branch` AND `expected_HEAD_sha` in dispatch so a pre-commit hook can fail-loud on any commit during the run; (b) shorten dispatch windows to keep the no-commit constraint in working memory; (c) name the executor and include a kill-switch `SendMessage` after the first commit-attempt is detected. File for instance #2 before extracting a full pattern.
 
-**Long-running dispatches are especially prone to constraint decay.** A Sonnet executor dispatched for ~30 min on a .NET/native task committed and continued past stub scope to author + commit a second wave despite an explicit "DO NOT COMMIT — EM commits at wave end" in the mandatory verbatim block. Hypothesis: long runs let initial constraints decay; the executor reverts to "ship the work" instinct mid-debugging. Mitigation candidates: (a) pin `expected_branch` AND `expected_HEAD_sha` in dispatch so a pre-commit hook can fail-loud on any commit during the run; (b) shorten dispatch windows to keep the no-commit constraint in working memory; (c) name the executor and include a kill-switch `SendMessage` after the first commit-attempt is detected. File for instance #2 before extracting a full pattern. (2026-05-27, project-rag-ue-addon tc-3 W-B.)
+**The more durable fix is a non-cooperative, structural deny on subagent-context commits, not a cooperative pre-commit hook.** Pinning `expected_branch`/`expected_HEAD_sha` so a hook can fail-loud still assumes the executor *could* commit if the guard were bypassed or decayed. A PreToolUse-level guard that denies every subagent-context `git commit` before it lands (rather than catching it after, via a hook the executor's own actions could still race) closes the constraint-decay failure mode entirely — the commit is structurally unreachable, not merely discouraged.
 
 ## Flight-Recorder Sidecars
 
-**Spec:** `docs/plans/2026-06-09-executor-sidecar-flight-recorder.md`. **Executor prompt:** `agents/executor.md § Flight-Recorder Sidecar`.
+**Executor prompt:** `agents/executor.md § Flight-Recorder Sidecar`.
 
 For plan-based fan-out dispatches (via `bin/fan-out-dispatch.sh`), the EM creates a per-chunk sidecar file at dispatch time and passes its path to the executor brief. The executor writes crash-safety status and observations into the sidecar — never into the plan body.
 
@@ -396,7 +408,7 @@ tasks/<plan-slug>/flight/<chunk-id>.md
 2. **Mid-dispatch:** do NOT edit the sidecar — the executor owns it until it exits.
 3. **At `/workstream-complete`:** read all sidecars under `tasks/<plan-slug>/flight/`; fold genuinely-noteworthy observations into a `## Execution Observations` section appended to the plan body; delete `complete`-status sidecars. `blocked` and `thrashing` sidecars persist until the EM clears them manually (diagnostic preservation).
 
-The dispatch ledger (`## Dispatch Ledger` table in the plan, maintained by `skills/execute-plan/SKILL.md` Phase 1.6) is the EM's canonical in-plan surface for "is chunk N done?" — readers consult the ledger row, not a body stamp.
+The git commit log by chunk-id prefix (`git log --oneline -- <plan-path>`; a subject beginning `<chunk-id>:` means that chunk shipped), cross-referenced against the current wave-map, is the canonical surface for "is chunk N done?" — readers consult the commit log, not a body stamp.
 
 ### Executor responsibilities
 
@@ -406,7 +418,7 @@ The dispatch ledger (`## Dispatch Ledger` table in the plan, maintained by `skil
 4. Exit transition: update `status: in_flight` → `status: complete | blocked | thrashing`.
 5. Append `commits:` list when the executor commits (one SHA per line).
 
-**Executors do NOT stamp `**Status:**` into the plan body.** The plan body is immutable to executors; a PreToolUse tripwire (`hooks/scripts/block-subagent-plan-body-write.sh`, registered as `EXECUTOR-PLAN-BODY-IMMUTABLE` in `coordinator-tripwires.md`) denies subagent Edit/Write on `docs/plans/**/*.md`. The sidecar path at `tasks/<plan-slug>/flight/` is carved out from that deny rule.
+**Executors do NOT stamp `**Status:**` into the plan body.** The plan body is immutable to executors; a PreToolUse tripwire (`hooks/scripts/preuse-write-dispatch.py`, registered as `EXECUTOR-PLAN-BODY-IMMUTABLE` in `coordinator-tripwires.md`) denies subagent Edit/Write on `docs/plans/**/*.md`. The sidecar path at `tasks/<plan-slug>/flight/` is carved out from that deny rule.
 
 ### Status state machine
 
@@ -418,7 +430,8 @@ dispatched → in_flight → complete
 
 ### Disambiguation — two different "Status:" fields
 
-**Plan-body `**Status:**`** is EM-owned phase state (e.g., `Enriched and reviewed`, `Execution in progress` in the dispatch ledger). The EM writes this; executors never touch it.
+<!-- Review: dispatch-ledger vocabulary completion sweep -->
+**Plan-body `**Status:**`** is EM-owned phase state (e.g., `Enriched and reviewed`, `Execution in progress` in the wave-map). The EM writes this; executors never touch it.
 
 **Sidecar frontmatter `status:`** is executor-owned lifecycle state (`dispatched`, `in_flight`, `complete`, `blocked`, `thrashing`). The executor writes this; the EM reads it post-dispatch.
 
@@ -430,40 +443,36 @@ Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.s
 
 ### Lifecycle
 
-`tasks/<plan-slug>/flight/` directories are tracked by default (consistent with other `tasks/` UUID flight-recorder dirs) and swept at `/workstream-complete`. They are ephemeral — not load-bearing substrate. Load-bearing surface is the in-plan dispatch ledger, not the sidecar files themselves.
+`tasks/<plan-slug>/flight/` directories are tracked by default (consistent with other `tasks/` UUID flight-recorder dirs) and swept at `/workstream-complete`. They are ephemeral — not load-bearing substrate. Load-bearing surface is the wave-map, not the sidecar files themselves.
 
 ## Spotter Ownership — Fix What You Find
 
 **The spotter fixes it — don't route a latent gap you found to a hypothetical "owner".** When a review or investigation surfaces a fixable gap in committed code — even in a file near a concurrent session's workstream — fix it yourself (surgically, with a clear commit/comment trail). The spotter already has the full context; deferring is buck-passing, and the gap rots.
 
-"Align-don't-kill" means don't stomp *uncommitted* peer edits; it does NOT mean "never touch committed code near a peer's workstream." Reserve hand-off-to-owner for genuine cross-*repo* or design-authority calls. (2026-05-27, project-rag-ue-addon: unwired `ensure_platform_cached`, misleading `invariant_ok` — surfaced to "concurrent daemon-P0 owner" instead of fixed inline.)
+"Align-don't-kill" means don't stomp *uncommitted* peer edits; it does NOT mean "never touch committed code near a peer's workstream." Reserve hand-off-to-owner for genuine cross-*repo* or design-authority calls.
 
 ## Fabricated 'Already Done' Claims — git diff Is Ground Truth
 
 **Executor reports fabricate "already done" file states — verify edits via `git diff`, not the report.** Executors hallucinate prior state and downstream success, especially when a fix "feels" present — they report a flag that doesn't exist, cite a score from a test that errored, and assert the change landed when the source is unmodified.
 
-**How to apply:** after any executor edit, run `git diff`/`git status` on the claimed paths and re-run the tests yourself before committing. Chat is hypothesis; the diff is ground truth (→ `coordinator/CLAUDE.md` § Verifying Executor Output). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor. (2026-05-26, project-rag score_ndcg executor: `--output` flag didn't exist, 0.5101 re-score was fabricated, source unmodified.)
+**How to apply:** after any executor edit, run `git diff`/`git status` on the claimed paths and re-run the tests yourself before committing. Chat is hypothesis; the diff is ground truth (→ `docs/wiki/dispatching-parallel-agents.md` § Executor commit-fidelity and ground-truth verification). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor.
 
 ## 'Pre-Existing' and 'Already Fixed' Claims — Verify Against Merge-Base
 
 **An executor's "pre-existing failure" / "already on branch" claim checks only ITS dispatch baseline — verify against merge-base + source.** An executor's pre-edit tree is its own baseline, not the workstream's; and executors systematically under-report remaining work as already-done, especially on P1 findings.
 
-**How to apply:** verify "pre-existing"/"already-fixed" claims against `git merge-base origin/main HEAD` AND by grepping the cited lines — never trust a P1 "already fixed" report without confirming on disk. A file introduced by Chunk 2 in the same workstream is NOT "pre-existing" to a Chunk 6 executor even though it appears in its baseline. (2026-05-27, project-rag-ue-addon: Chunk 6 called a spawn-audit failure "pre-existing (stash-verified)"; fix-pass executor then claimed BOTH P1 findings "already on branch"; neither was fixed.)
+**How to apply:** verify "pre-existing"/"already-fixed" claims against `git merge-base origin/main HEAD` AND by grepping the cited lines — never trust a P1 "already fixed" report without confirming on disk. A file introduced by Chunk 2 in the same workstream is NOT "pre-existing" to a Chunk 6 executor even though it appears in its baseline.
 
 ## Stronger enforcement, not stronger wording — executor no-commit needs a structural guard
 
 **An executor that commits clean, well-messaged work in defiance of "no commits, no push" still defeats the EM-serial commit contract — the EM can no longer verify full scope before atomic commit.** The dispatch brief is policy; without an enforcement seam, eagerness wins.
-**Why:** the EM-serial commit pattern exists precisely so the EM can residuals-check (`git status`, scope-diff, missed call sites) before any commit lands. A partial executor commit — even a tidy one — pre-empts that gate and silently narrows the verification window to whatever the executor noticed. Recurring instance, same shape as the example-game-repo-L173 and 2026-05-27 long-running-decay entries above.
+**Why:** the EM-serial commit pattern exists precisely so the EM can residuals-check (`git status`, scope-diff, missed call sites) before any commit lands. A partial executor commit — even a tidy one — pre-empts that gate and silently narrows the verification window to whatever the executor noticed. Recurring instance, same shape as the long-running-decay entry above.
 **How to apply:** until a structural seam lands, treat "executor committed" as a known-recurring risk — after every executor return, run `git status` + `git log --since="<dispatch_start>"` and recover missed scope in an explicit follow-up commit before the next dispatch. Pair with the existing `--expected-branch` discipline and prefer dispatch surfaces that withhold commit/push permission outright over briefs that ask politely.
 
-*Source: project-rag-ue-addon `state/lessons.md` (ue-addon-L93, central-promoted 2026-06-14). Case: ue-addon 2026-06-09 — Chunk-3 executor committed autonomously despite verbatim "no commits, no push" brief; commit was clean but missed 5 mock.patch migrations the EM caught in follow-up.*
-
-<!-- DoE resolved: 2026-06-15 — see docs/plans/2026-06-15-executor-no-self-commit-em-only-gate.md (chunks 1-5 shipped on work/striker/2026-06-14). Structural guard live: agents/executor.md § Operating Protocols § EM-Only Commit Gate + coordinator-safe-commit --expected-owner em-only flag. -->
+This is exactly the failure mode a structural EM-only commit gate (see § No-commit briefs need structural enforcement above) closes for good — once the commit itself is denied at the tool layer for subagent context, "executor committed anyway" stops being a residual risk to hand-audit for.
 
 ## coordinator-auto-push — SSH Routing on Windows
 
 Git Bash's bundled OpenSSH cannot read 1Password's Windows named pipe (`\\.\pipe\openssh-ssh-agent`). `coordinator-auto-push` detects Git Bash + SSH remote and routes through `powershell.exe -NonInteractive -NoProfile` (Windows OpenSSH has access to the credential manager via the pipe). HTTPS and Linux/macOS go direct.
 
 The post-commit hook delegates to `coordinator-auto-push`; repo-setup installs it on new repos.
-
-Source: `archive/completed/2026-04.md` (2026-04-28).

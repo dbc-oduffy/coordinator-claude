@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+# coordinator-settings-home — canonical resolver for the coordinator settings home.
+#
+# Returns the absolute path to the coordinator settings home directory.
+# This is the sibling directory to ~/.claude that holds coordinator's durable
+# per-machine substrate: machine-local registry, coordinator-whoami identity,
+# .coordinator-venv, bin/ resolvers, setup/, and settings-manifest.md.
+#
+# Precedence (most-specific first):
+#   COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
+#   ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings  — sibling to ~/.claude
+#
+# Note: MACHINE_LOCAL_REGISTRY_DIR is a DEEPER registry-dir override handled
+# by _machine_local.py::_registry_dir() (rung-1). This script resolves the
+# settings HOME ROOT only — it does not read registry CONTENTS.
+#
+# Usage:
+#   coordinator-settings-home         — print settings-home root (with divergence check)
+#   coordinator-settings-home check   — run divergence check only (exit 1 if divergent)
+#
+# Exit codes:
+#   0   success
+#   1   divergent machine-local homes detected (with remediation on stderr)
+#   2   usage error (unknown subcommand)
+#
+# Portability: pure stdlib — no shell dependency.
+# Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+# RAG-bait: coordinator settings-home CLI resolver; COORDINATOR_SETTINGS_HOME
+
+import os
+import sys
+
+DIVERGENCE_MSG = """\
+coordinator-settings-home: DIVERGENT MACHINE-LOCAL HOMES — cannot safely resolve.
+
+Both ~/.claude/machine-local and <settings-home>/machine-local exist and point
+at different content homes. Reading from either risks using stale or incomplete
+registry data.
+
+Remediation — re-run /coordinator:install (the substrate→settings-home
+migration is now performed natively by the coordinator install step).
+
+Or set COORDINATOR_SETTINGS_HOME to the intended settings home and remove/
+symlink the other directory to resolve the ambiguity.
+"""
+
+
+def _claude_home():
+    return os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or ""
+
+
+def _resolve():
+    """Return the settings-home root. No side effects."""
+    override = os.environ.get("COORDINATOR_SETTINGS_HOME", "")
+    if override:
+        return override
+    return os.path.join(_claude_home(), ".coordinator-claude-settings")
+
+
+def _is_absent_or_empty_husk(path):
+    """True when `path` carries no machine-local state — absent, or a directory
+    left behind empty by a completed migration.
+
+    An empty directory is not a second content home: nothing can be read from
+    it, so treating it as one turns a finished migration into a fail-loud.
+    An unreadable directory counts as no-state too — it yields no content to
+    diverge over.
+    """
+    try:
+        if not os.path.exists(path):
+            return True
+        return not os.listdir(path)
+    except OSError:
+        return True
+
+
+def _check_divergence():
+    """Check for divergent machine-local homes.
+
+    Returns True (OK) when either home holds no state — absent, or an empty
+    post-migration husk — or when both share a realpath (compat symlink).
+    Returns False (fail-loud) only when both hold content at different
+    realpaths.
+    """
+    settings_home = _resolve()
+    legacy = os.path.join(_claude_home(), ".claude", "machine-local")
+    new = os.path.join(settings_home, "machine-local")
+
+    if _is_absent_or_empty_husk(legacy):
+        return True
+    if _is_absent_or_empty_husk(new):
+        return True
+
+    rp_legacy = os.path.realpath(legacy)
+    rp_new = os.path.realpath(new)
+
+    if rp_legacy != rp_new:
+        sys.stderr.write(DIVERGENCE_MSG)
+        sys.stderr.write("  Legacy realpath : %s\n" % rp_legacy)
+        sys.stderr.write("  New    realpath : %s\n" % rp_new)
+        return False
+    return True
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else ""
+
+    if cmd == "":
+        if not _check_divergence():
+            return 1
+        sys.stdout.write(_resolve())
+        sys.stdout.write("\n")
+        return 0
+    elif cmd == "check":
+        return 0 if _check_divergence() else 1
+    else:
+        sys.stderr.write("coordinator-settings-home: unknown subcommand: %s\n" % cmd)
+        sys.stderr.write("Usage: coordinator-settings-home [check]\n")
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

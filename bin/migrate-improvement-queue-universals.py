@@ -1,12 +1,4 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work:
-#   migrate-improvement-queue-universals.py ...         # direct, via the shebang above
-#   python  migrate-improvement-queue-universals.py ... # explicit interpreter
-#   bash    migrate-improvement-queue-universals.py ... # re-execs under python
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 migrate-improvement-queue-universals.py — one-shot migration of [universal]+central-wiki
 entries from a per-project improvement-queue.md into the structured lessons-outbox.
@@ -37,6 +29,8 @@ Usage:
   python migrate-improvement-queue-universals.py --apply [--from-dryrun <path>]
                                                  [--input <path>] [--stale-hours N]
 """
+
+from __future__ import annotations
 
 import sys
 import os
@@ -278,6 +272,13 @@ def run_apply(
       - dry-run file is absent
       - dry-run file is older than stale_hours
       - coordinator-lesson-promote is not on PATH
+
+    Deliberate isolation boundary — do not convert to an in-process
+    import. This is a distinct-target probe: a `--help` liveness check
+    on a candidate CLI before committing to it, so the probe must
+    observe that CLI's own process exit rather than this script's.
+    Reason recorded in
+    state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
     """
     # Resolve dry-run path.
     if dryrun_path is None:

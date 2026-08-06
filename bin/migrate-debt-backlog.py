@@ -1,12 +1,4 @@
-#!/bin/sh
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# The next line is inert Python (a bare string literal) but executable sh/bash.
-# It lets this CLI be invoked three ways that ALL Just Work:
-#   migrate-debt-backlog.py ...         # direct, via the shebang above
-#   python  migrate-debt-backlog.py ... # explicit interpreter
-#   bash    migrate-debt-backlog.py ... # re-execs under python
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 migrate-debt-backlog.py — one-shot migration of state/debt-backlog.md table rows
 and bullet-list entries into per-entry YAML files via coordinator-queue-append.
@@ -49,6 +41,8 @@ Usage:
   python migrate-debt-backlog.py --apply [--from-dryrun <path>] [--stale-hours N]
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import re
@@ -57,6 +51,9 @@ import datetime
 import argparse
 import subprocess
 import glob as glob_module
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _queue_append_locator import find_queue_append_cmd  # noqa: E402
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -442,8 +439,8 @@ def run_apply(
         return 1
 
     # Check coordinator-queue-append is on PATH.
-    append_bin = _find_coordinator_queue_append()
-    if append_bin is None:
+    cmd_prefix = find_queue_append_cmd(os.path.dirname(os.path.abspath(__file__)))
+    if cmd_prefix is None:
         print(
             "ERROR: coordinator-queue-append not found on PATH. "
             "Ensure the CLI is installed before running --apply.",
@@ -475,7 +472,7 @@ def run_apply(
         source_line = entry["source_line"]
         parsed = entry.get("parsed", {})
 
-        cmd = _build_append_command(append_bin, parsed)
+        cmd = _build_append_command(cmd_prefix, parsed)
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             print(
@@ -514,58 +511,15 @@ def run_apply(
     return 0
 
 
-def _find_coordinator_queue_append() -> str | None:
-    """
-    Return the coordinator-queue-append binary path if available on PATH, or None.
-
-    Also checks for the script in the same directory as this file so that
-    tests running from a tmpdir can locate the sibling binary.
-    """
-    for candidate in ("coordinator-queue-append", "coordinator-queue-append.py"):
-        try:
-            result = subprocess.run(
-                [candidate, "--help"],
-                capture_output=True,
-                text=True,
-            )
-        except OSError:
-            continue
-        if result.returncode == 0:
-            return candidate
-
-    # Also try the sibling path (same directory as this script).
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    sibling = os.path.join(script_dir, "coordinator-queue-append")
-    if os.path.exists(sibling):
-        try:
-            result = subprocess.run(
-                [sys.executable, sibling, "--help"],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return f"{sys.executable} {sibling}"
-        except OSError:
-            pass
-
-    return None
-
-
-def _build_append_command(append_bin: str, parsed: dict) -> list[str]:
+def _build_append_command(cmd_prefix: list[str], parsed: dict) -> list[str]:
     """
     Build the coordinator-queue-append command list for a parsed entry.
 
-    Uses sys.executable to invoke the binary if it is a python path pair.
+    `cmd_prefix` is the already-resolved argv prefix from
+    find_queue_append_cmd (e.g. ["coordinator-queue-append"] or
+    [sys.executable, "/abs/path/to/coordinator-queue-append"]).
     """
-    # append_bin may be "coordinator-queue-append" or "python /path/to/coordinator-queue-append"
-    if append_bin.startswith(sys.executable):
-        # Split off the interpreter.
-        parts = append_bin.split(" ", 1)
-        cmd = [parts[0], parts[1]]
-    else:
-        cmd = [append_bin]
-
-    cmd += [
+    cmd = list(cmd_prefix) + [
         "--schema", "debt-backlog",
         "--id", parsed["id"],
         "--title", parsed["title"],

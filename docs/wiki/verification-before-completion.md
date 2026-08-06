@@ -3,9 +3,8 @@ title: Verification before completion
 created: 2026-05-06
 type: doctrine
 related:
-  - plugins/coordinator/CLAUDE.md
   - docs/wiki/delegate-execution.md
-  - docs/wiki/round-trip-contract-tests.md
+  - docs/wiki/dispatching-parallel-agents.md
 ---
 
 # Verification Before Completion
@@ -135,7 +134,36 @@ Verification must target the actual side effects of YOUR action. Running an unre
 
 A passing test is not proof the fix is correct: an executor can make a red test go green by patching the *production* code to swallow the very condition the test should surface — broadening an `except`, wrapping a storage-boundary safety guard in `try/except (AssertionError, ImportError)` and falling back to a raw client, relaxing a validation. The test goes green; the production safety property is gone. This is in-scope by construction (the executor edited its target file), so the scope-conformance check does not catch it — only reading the diff does.
 
-**Rule:** on every executor return, read the **production** diff, not just the test diff, and ask "did the test go green because the fix is correct, or because production was weakened to stop raising?" A broadened `except`, a new fallback around a guard, or a deleted assertion paired with a newly-green test is the tell. Empirical (2026-06-24, macos-first-class-test-parity C3b): an executor returned "12 passed" after patching `semantic_lanes.py` to `try/except`-swallow a storage-boundary guard and fall back to a raw chromadb client — to "fix" what was actually a test-isolation bug (the test mocked the whole `core` package but never stubbed `core.source_registry`). Caught by reading the diff. Composes with § (a) Diff is ground truth and test-design-discipline.md §49 (broad `except` swallows schema-drift failures silently).
+**Rule:** on every executor return, read the **production** diff, not just the test diff, and ask "did the test go green because the fix is correct, or because production was weakened to stop raising?" A broadened `except`, a new fallback around a guard, or a deleted assertion paired with a newly-green test is the tell. Empirical (macos-first-class-test-parity C3b): an executor returned "12 passed" after patching `semantic_lanes.py` to `try/except`-swallow a storage-boundary guard and fall back to a raw chromadb client — to "fix" what was actually a test-isolation bug (the test mocked the whole `core` package but never stubbed `core.source_registry`). Caught by reading the diff. Composes with § (a) Diff is ground truth and test-design-discipline.md §49 (broad `except` swallows schema-drift failures silently).
+
+## EM Re-Runs the Suite Independently — an Executor's "Green" Is Not a Gate Signal
+
+An executor's self-reported test status is not evidence the suite passes. Diff-is-ground-truth (§ (a)) governs *what changed*; this governs *what passes* — and the only trustworthy answer is the EM re-running the suite, not reading the executor's chat.
+
+**Rule.** Never advance a gate on an executor's (or background workflow's) self-reported test-green. The EM re-runs the suite; git log + captured test output are authoritative over agent narration. Three recurring shapes:
+
+- **Self-report is unreliable even when confident.** A background `/execute-plan` executor self-reported the coordinator-uninstall acceptance suite green when it was 3/7 red; the EM re-running it caught the gap and root-caused 4 real bugs. (doe-L96 — universal.)
+- **Flaky / shared-resource suites need multiple cold runs, not one.** On a contention-sensitive suite, a single green run is not proof — re-run the FULL suite yourself several times cold. Two executors each reported 51/51 green on a flaky contract suite; the EM's cold runs showed 4-red each time, on *different* tests (the contention tell). Three cold full-suite runs caught both over-claims. A suite whose reds move between runs is a shared-resource contention signal, not noise to dismiss. (doe-L19.)
+- **The clean-slate gate is the whole suite, not the changed cluster.** Per-slice green is necessary but not sufficient: a change that passes its own tests can still break a *different* corpus-wide contract lint. A currency-probe fix passed its own 5 tests but violated `test-claude-home-contract`'s `CLAUDE_HOME` lint — caught only by the whole-suite pass after per-cluster green. Targeted (Tier-T) green on the touched cluster is never itself a clean-slate declaration — the whole-suite pass is the gate, and running it is a Tier-U action reserved to the top-level EM (→ `test-design-discipline.md` § Posture: Proportional Test-Running). An agent that isn't the EM declares its own Tier-T green plainly and states that suite-level confirmation is pending the EM's gate run — it does not fire the suite itself to manufacture that confirmation. (doe-L72.)
+
+This is a cadence-gate posture (clean-slate / workstream-complete / merge), not a per-commit reflex — it composes with § (b) *Match verification to the change* (a one-line edit does not earn a full-suite run) and the general rule that a commit is not itself a verification gate. The discriminator: a **completion or clean-slate claim** earns the independent full-suite re-run; mid-work iteration does not.
+
+### A dispatched agent's green is narrower than a directory-shaped brief by construction — covering the brief's breadth is the EM's job, not the agent's to guarantee
+
+A dispatched agent's test invocations are confined to file-and-node-id precision — it cannot accept a bare directory as a test-command argument, deliberately, so that a fan-out wave of agents cannot each re-run a wide suite concurrently. When an EM's dispatch brief names verification breadth in directory terms ("run `tests/foo/`"), the confinement means the agent's actual run is necessarily narrower than the breadth the brief asked for.
+
+**This is not the agent misreporting.** An agent that falls back to the touched files' node ids and reports "N passed" is telling the truth — it ran everything it was permitted to run. The gap is that the EM reads that green against the breadth *it specified*, and the two can silently differ by an order of magnitude: one incident saw an agent's confined run cover 37 tests where the briefed directory scope covered 434.
+
+**Rule.** If the EM needs the wider, brief-shaped breadth verified, the EM re-runs that breadth itself — it does not read a dispatched agent's narrower green as having already covered it. The fix for this gap is EM-side verification, never loosening the confinement: the confinement exists on purpose and is not the thing to relax. This is the dispatch-breadth-specific instance of § "EM Re-Runs the Suite Independently" immediately above — that section governs an executor's self-reported green in general; this one names the specific, easy-to-miss case where the *reason* the green is narrower is a structural guard the agent had no way around, not carelessness on either side.
+
+
+## Presence-Check Verifiers Are Blind to Guard-Placement Bugs — Verify Correctness, Not Just Presence
+
+A companion verifier that only checks a guard's **presence** (marker within N lines of a resolve-site) reports OK on guards that are functionally dead because they were placed wrong. This is the placement-side twin of § "A Discriminator Guard Is Dead If It Never Matches the Value the Producer Emits" (dead *condition*) and § "A documented or override-gated guardrail is not an implemented one" (dead *registration*): here the guard is present, registered, and matches — but sits on the wrong variable, so it rejects its own trusted input.
+
+**Failure shape:** a mechanical auto-fix stamped a traversal guard (`case "$VAR" in *"/.."*) _cc_trusted=0`) unconditionally onto a variable whose PRIMARY value legitimately contains `/../` — a `BASH_SOURCE`-relative sibling hop like `${_self_dir}/../bin/x.js`. The guard then always rejects its own trusted path. The safe form confines the guard to the fallback branch (`if [[ ! -f "$VAR" ]]; then VAR=fallback; <guard>; fi`). The presence-only verifier reported "delivery complete, 72 sites guarded" — hiding 6 broken lifecycle-stamping helpers.
+
+**Rule.** A presence check ("marker appears near the resolve-site") is not a correctness check. Two nets close this: (1) a **functional test** that exercises the guarded entry points and asserts they never emit the guard-rejection string on legitimate input; (2) a **placement lint** flagging a `/../`-primary variable guarded unconditionally (excluding `$(cd … && pwd)` runtime-normalized paths). Verify the guard *does its job on real input*, not that its text is present.
 
 ## Format Validation (fifa T1.3)
 
@@ -238,11 +266,9 @@ For any plan with declared acceptance criteria, "done" means more than green tes
 
 This is the bridge between engineering output and PM confidence. "The agent says it's done" is not the gate; this is.
 
-**"Smoke-proven launch-ready" overstates coverage when the smoke was killed before reaching most phases.** A predecessor handoff that says "PROVEN end-to-end via a real smoke (then killed)" may mean only the first of 5+ phases actually ran. Steps 2c, 2d, Phase 5 — never executed. The "launch-ready" framing makes recovery cost feel small; in reality the subsequent run crashes on previously-untested phases (lock self-deadlock, argparse arg-shape bug, chunker source_type=unknown). Rule: "proven" means at least one end-to-end run completed all phases, even at smaller scale — not "the first phase started." Either run a tiny full-pipeline smoke or qualify the claim as "Step 2a proven; later phases unverified." (2026-05-28, from-source-engine-rebuild.)
+**"Smoke-proven launch-ready" overstates coverage when the smoke was killed before reaching most phases.** A predecessor handoff that says "PROVEN end-to-end via a real smoke (then killed)" may mean only the first of 5+ phases actually ran. Steps 2c, 2d, Phase 5 — never executed. The "launch-ready" framing makes recovery cost feel small; in reality the subsequent run crashes on previously-untested phases (lock self-deadlock, argparse arg-shape bug, chunker source_type=unknown). Rule: "proven" means at least one end-to-end run completed all phases, even at smaller scale — not "the first phase started." Either run a tiny full-pipeline smoke or qualify the claim as "Step 2a proven; later phases unverified."
 
 ## AC Gate Degradation and Probe Anchoring
-
-> See coordinator/CLAUDE.md § Verification Before Done for the boot-context tripwire.
 
 ### Half-verified AC gates (L338)
 
@@ -271,19 +297,27 @@ Health probes must anchor to the **canonical artifact**, never to a convenience 
 
 > **Provenance:** consolidated 2026-05-27 from learn-lessons Bucket B. Green tests prove logic is *correct on disk*; they do not prove the *running system serves it* or that the *user-visible symptom is gone*. This is the most expensive sub-pattern in the bucket — fixes that pass every test and meet every AC while the live system stays broken.
 
+### A feature whose authorized path is unreachable is not done — "fails closed / inert" ≠ shipped
+
+Green tests can pass on every *gate* while the feature *does nothing*, because the wiring that makes an authorized action reachable was carved out and filed to the improvement queue as a "follow-up." A gate that fails closed is *safe*, not *done* — fail-closed-but-inert is the runtime-readiness gap wearing a security hat.
+
+A concrete case: an access-control feature shipped its read-path gates with 120 green tests; the roadmap tracker read `shipped`. But the scoping function excluded every protected band unconditionally, no verified principal was ever threaded (so no grant was ever bound), and the tier resolver defaulted everything to `'public'`. The three load-bearing enablers were filed to the improvement queue tagged *"fails closed, not a leak, PM scope call"* — a defer-via-rationale that reframed feature-completion as optional polish. The feature was inert; the roadmap said done.
+
+**Rule.** Load-bearing enablement — the wiring without which the feature's authorized path is unreachable — is a **roadmap deliverable**, never an improvement-queue entry. If it genuinely cannot ship in the slice (e.g. it depends on an undecided contract), file it as the next gated roadmap stub with `blocked_by`/`blocks` edges, not as a queue item that ages out. The improvement queue is the opportunistic "someday" bucket; putting completion there makes a green-tested feature read as shipped while it does nothing. **Tell:** "fails closed / not a leak / PM scope call" attached to something the feature needs to actually function; "green tests + nothing works end-to-end." Enforced at `/workstream-complete`'s `enablement-vs-opportunistic-deferral` judgment point; the diff-time twin is the `code-reviewer`'s Deferred-items lens.
+
 ### Don't kill the sibling-repo daemon you depend on without a verified relaunch path
 
-A sibling repo's running process (MCP daemon, indexer, watcher) may be the only live instance your session depends on. Before stopping/restarting/killing it, **verify the relaunch path resolves end-to-end** — the launch command exists, its config points at a valid target, and it comes back healthy — *before* taking the running one down. Killing the only running daemon you depend on without a verified relaunch path strands your own session and any concurrent one. *(2026-05-27.)* The cross-process analogue of "land regression-net tests before the refactor that depends on them": prove the recovery path before destroying working state. → [`cross-repo-communication.md`](./cross-repo-communication.md) for the cross-repo coordination framing.
+A sibling repo's running process (MCP daemon, indexer, watcher) may be the only live instance your session depends on. Before stopping/restarting/killing it, **verify the relaunch path resolves end-to-end** — the launch command exists, its config points at a valid target, and it comes back healthy — *before* taking the running one down. Killing the only running daemon you depend on without a verified relaunch path strands your own session and any concurrent one. The cross-process analogue of "land regression-net tests before the refactor that depends on them": prove the recovery path before destroying working state.
 
 ### A probe or tool that spawns a sibling's daemon directly inherits none of its lifecycle-manager safety
 
 **A probe/test/tool that spawns a sibling's daemon DIRECTLY (subprocess, not via the sibling's lifecycle manager) inherits NONE of that manager's safety machinery — park-state, crash-loop breakers, resource ceilings all live in the manager it bypassed.**
 
-*2026-05-27, project-rag-ue-addon (daemon-parking-leak).* `doctor.py:tool_dogfood` ran the host's dogfood runner directly (`--with-addons --project-root <addon>`), which child-spawned `project_rag_server.py` outside `ensure-project-rag-server` — so on a parked host actively being fixed for a 230GB-CUDA-commit freeze it could re-spawn a 43GiB daemon with no brake and no starts-log entry.
+A dogfood/smoke runner invoked an add-on host's runner directly, which child-spawned the daemon outside its own supervised launch path — so on a host actively being fixed for a resource-leak freeze it could re-spawn a multi-GB daemon with no brake and no starts-log entry.
 
-**Rule:** when you spawn another repo's long-lived process directly, you've opted out of its lifecycle safety — either route through its manager, or replicate the manager's guard signals (park-state sentinel path + cooldown — confirm the canonical signal with the owner, as park-state may have no positive on-disk sentinel). An explicit `PROJECT_RAG_PARKED` env flag (or equivalent) checked at the spawn site is the interim guard when routing through the manager is not possible. Sibling to the direct-spawn footgun note in `implementation-standards-by-domain.md` § Cross-repo contract discipline and to detect-then-fail-loud.
+**Rule:** when you spawn another repo's long-lived process directly, you've opted out of its lifecycle safety — either route through its manager, or replicate the manager's guard signals (park-state sentinel path + cooldown — confirm the canonical signal with the owner, as park-state may have no positive on-disk sentinel). An explicit parked-state env flag (or equivalent) checked at the spawn site is the interim guard when routing through the manager is not possible. Sibling to the direct-spawn footgun note in cross-repo contract discipline generally, and to detect-then-fail-loud.
 
-**Park-state sentinel mirroring as interim guard.** When a direct-spawn is unavoidable (the sibling's lifecycle manager is not callable from the probe), the minimum guard set is: (a) mirror the sibling's crash-loop sentinel path + cooldown, (b) check an explicit park-state env flag (`PROJECT_RAG_PARKED` or equivalent) at the spawn site, and (c) confirm with the sibling owner what the canonical park signal is — park-state may have no positive on-disk sentinel, making it easy to miss. This is an interim shape; route through the manager as soon as the interface is available. (2026-05-27, project-rag-ue-addon daemon-parking-leak.)
+**Park-state sentinel mirroring as interim guard.** When a direct-spawn is unavoidable (the sibling's lifecycle manager is not callable from the probe), the minimum guard set is: (a) mirror the sibling's crash-loop sentinel path + cooldown, (b) check an explicit park-state env flag (or equivalent) at the spawn site, and (c) confirm with the sibling owner what the canonical park signal is — park-state may have no positive on-disk sentinel, making it easy to miss. This is an interim shape; route through the manager as soon as the interface is available.
 
 ### A disk fix is not live in a long-running daemon until it restarts — and the restart path may itself be broken
 
@@ -307,7 +341,7 @@ setuptools editable installs (`pip install -e`) bake a top-level-package MAPPING
 - **When an editable-installed package fails to import despite source existing AND being declared, re-run `pip install -e <root>` before deeper debugging.** Install scripts that only `pip install -r requirements.txt` must ALSO re-run the editable install, or new packages silently break on consumer boot. (See also the managed-refresh venv-state leg in global CLAUDE.md § Plugin live-install propagation.)
 - **Reproducing a daemon's editable-import env requires `site.addsitedir()` or the venv's OWN python — NEVER bare interpreter + `PYTHONPATH`.** `PYTHONPATH` adds the dir to `sys.path` but does not process the `__editable__*.pth`/finder, so editable packages stay unresolvable. dist-info checks (`entry_points()`) ARE PYTHONPATH-visible; module-resolution checks (`find_spec` / `import`) are NOT — a probe using PYTHONPATH passes the dist-info half and false-fails the import half.
 - **To prove "is X loaded in the daemon's env," repro from a NEUTRAL cwd with the daemon's effective interpreter.** Running from the package source tree imports it via cwd and fabricates a pass. The check must (a) use the daemon's effective interpreter (argv-injected site-packages), AND (b) run from a cwd that is NOT the package source tree (`cd /c/` then import). Trust a doctor's env-scoped FAIL over a hand-repro until the hand-repro controls for both.
-- **A stale live install of an agent definition can carry a dead MCP server in its allowlist, silently breaking ALL of that subagent's MCP tool resolution.** When a subagent can't see MCP tools its source frontmatter grants, FIRST diff the live install against source for dead/retired `mcp__<server>__*` entries — don't reach for platform/dispatch-mode hypotheses until the live copy is confirmed in-sync. `refresh-plugin-live-install.sh` clears the dead ref + stale plugin cache. This is source↔install drift; diagnose against the LIVE copy, not source.
+- **A stale live install of an agent definition can carry a dead MCP server in its allowlist, silently breaking ALL of that subagent's MCP tool resolution.** When a subagent can't see MCP tools its source frontmatter grants, FIRST diff the live install against source for dead/retired `mcp__<server>__*` entries — don't reach for platform/dispatch-mode hypotheses until the live copy is confirmed in-sync. A refresh-live-install script clears the dead ref + stale plugin cache. This is source↔install drift; diagnose against the LIVE copy, not source.
 
 ### A documented or override-gated guardrail is not an implemented one
 
@@ -316,23 +350,23 @@ setuptools editable installs (`pip install -e`) bake a top-level-package MAPPING
 
 ### Windows launcher-stub re-exec is not a duplicate-spawn bug
 
-When a daemon appears to spawn a "duplicate" copy on a different interpreter at exactly boot time, BEFORE searching for application code that spawns subprocesses: dump parent/child argv + CreationDate via CIM. **Identical CreationDate + parent-child link + same argv + different `ExecutablePath` = a uv launcher-stub re-exec** (spawn-and-wait on Windows, not POSIX exec-replace), not a spawn bug. Diagnostic: `Get-FileHash` the venv `python.exe`/`pythonw.exe` (identical hash + ~46 KB = uv stub); check `pyvenv.cfg::home` for the base interpreter. The fix surface is the daemon spawn site, not the suspected protocol. → `python-subprocess-patterns.md`.
+When a daemon appears to spawn a "duplicate" copy on a different interpreter at exactly boot time, BEFORE searching for application code that spawns subprocesses: dump parent/child argv + CreationDate via CIM. **Identical CreationDate + parent-child link + same argv + different `ExecutablePath` = a uv launcher-stub re-exec** (spawn-and-wait on Windows, not POSIX exec-replace), not a spawn bug. Diagnostic: `Get-FileHash` the venv `python.exe`/`pythonw.exe` (identical hash + ~46 KB = uv stub); check `pyvenv.cfg::home` for the base interpreter. The fix surface is the daemon spawn site, not the suspected protocol.
 
 ## A Discriminator Guard Is Dead If It Never Matches the Value the Producer Emits
 
 **A status/enum-discriminator guard that gates on a value the producer never actually emits is dead code — it silently passes everything it was meant to catch.** A guard like `if status == "DEGRADED": block` is only live if the producer ever emits the literal string `"DEGRADED"`; if the producer emits `"degraded"`, `"warn"`, or a structured `{level: 2}` instead, the equality never fires and the guard is a no-op that *looks* protective. The failure is invisible: the guard reads correct, tests that mock the expected-but-wrong value pass, and the gate ships open.
 
-**Rule:** before trusting a value-discriminator guard, verify the emitted value at the producer — grep the producer for the literal it actually writes, or assert it with a wire-path test that flows a real producer output through the guard. Prefer gating on a **structural signal** (field presence, type, a typed sentinel) over a brittle string-equality on an enum the producer owns independently. This is the verification-side twin of `implementation-standards-by-domain.md` § Gate on Discriminating Signal (which governs *what* to gate on); here the discipline is *confirm the guard's condition can ever be true* before declaring the guard done. (2026-05-30, project-rag.)
+**Rule:** before trusting a value-discriminator guard, verify the emitted value at the producer — grep the producer for the literal it actually writes, or assert it with a wire-path test that flows a real producer output through the guard. Prefer gating on a **structural signal** (field presence, type, a typed sentinel) over a brittle string-equality on an enum the producer owns independently. This is the verification-side twin of "gate on discriminating signal" (which governs *what* to gate on); here the discipline is *confirm the guard's condition can ever be true* before declaring the guard done.
 
 ## Model-Identity / Version SHA Guards Must Be Prefix-Aware, Not Exact-Equality
 
 **A SHA / model-identity guard comparing a full hash with `==` false-fails on every legitimate abbreviation — make identity guards prefix-aware, and verify the index is queryable before trusting that the harness merely runs.** Git SHAs, model fingerprints, and content hashes are routinely surfaced abbreviated (7–12 chars) by one tool and full-length by another; an exact-equality identity check rejects the abbreviated form even when it is the same object. Use prefix containment (`full.startswith(short)` / `short` is a prefix of `full`) for identity comparison.
 
-Separately: a harness that *runs* is not a harness that *answers*. Before trusting an eval/index-backed guard, confirm the index is actually queryable (a real query returns real rows) — a runnable-but-empty index passes "the harness executes" while silently failing "the harness has data." (2026-05-29, project-rag.)
+Separately: a harness that *runs* is not a harness that *answers*. Before trusting an eval/index-backed guard, confirm the index is actually queryable (a real query returns real rows) — a runnable-but-empty index passes "the harness executes" while silently failing "the harness has data."
 
 ## Reproduce a Static Root-Cause Empirically Before It Gates a Flip / Ship / Cross-Repo Decision
 
-**A root-cause derived by reading code or reasoning statically is a hypothesis — reproduce it empirically before it drives an irreversible decision (a config flip, a ship, a cross-repo memo).** Static analysis tells you what *should* happen; it does not prove what *does*. When a diagnosed cause is about to gate a decision with reach beyond the current edit — flipping a default, shipping a fix, sending a sibling EM a memo that asserts the cause — run the reproduction first: trigger the failure, observe it, then observe the fix removing it (red→green on the actual mechanism, not a proxy). This is the decision-gating twin of the fix-code empirical-audit rule (`reviewer-premise-challenge.md` § Empirical audit before fix code) and the P0/P1 verification gate: read-confirms-plausible, but only a reproduction confirms-real, and the cost of a confidently-wrong static cause scales with the blast radius of the decision it gates. (2026-05-29, project-rag.)
+**A root-cause derived by reading code or reasoning statically is a hypothesis — reproduce it empirically before it drives an irreversible decision (a config flip, a ship, a cross-repo memo).** Static analysis tells you what *should* happen; it does not prove what *does*. When a diagnosed cause is about to gate a decision with reach beyond the current edit — flipping a default, shipping a fix, sending a sibling EM a memo that asserts the cause — run the reproduction first: trigger the failure, observe it, then observe the fix removing it (red→green on the actual mechanism, not a proxy). This is the decision-gating twin of the fix-code empirical-audit rule (empirical audit before fix code) and the P0/P1 verification gate: read-confirms-plausible, but only a reproduction confirms-real, and the cost of a confidently-wrong static cause scales with the blast radius of the decision it gates.
 
 ## The Bottom Line
 
@@ -402,19 +436,19 @@ When an executor edits a file that a live process (the Claude Code harness, a da
 
 A verification step that reuses the same flawed assumption the fix was built on cannot disconfirm the fix — it ratifies the premise rather than testing the outcome. If the fix assumed "field X is always populated" and the verification re-reads field X the same way, both share the blind spot.
 
-**Rule:** the verification oracle must be independent of the fix's reasoning — a different read path, a different tool, a measured side-effect, or a real reproduction. When you cannot construct an independent oracle, say so explicitly and treat the verification as provisional. Composes with the P0/P1 verification gate (read the cited code, don't trust the paraphrase) and tool-output-flakiness.md (two reads that share a channel are not two reads). *(2026-05-31, ~/.claude.)*
+**Rule:** the verification oracle must be independent of the fix's reasoning — a different read path, a different tool, a measured side-effect, or a real reproduction. When you cannot construct an independent oracle, say so explicitly and treat the verification as provisional. Composes with the P0/P1 verification gate (read the cited code, don't trust the paraphrase) and the general rule that two reads sharing one channel are not two independent reads.
 
 ## A Nullable-Input Gate Self-Skips in Production Until a Caller Supplies the Input
 
 A gate guarded on an optional/nullable argument (`if payload is not None: validate(payload)`) silently self-skips on every production call that doesn't supply the argument — and unit tests that always pass the argument never catch it. The gate reads protective; in production it is a no-op until some future caller happens to populate the input.
 
-**Rule:** when a gate is conditional on an optional input, test the **end-to-end CLI / production invocation path** (which may pass nothing), not just the gate function with the argument supplied. And **grep every caller** of the gated entry point to confirm at least one production path actually populates the input — if none does, the gate has never fired. Composes with § "A Discriminator Guard Is Dead If It Never Matches the Value the Producer Emits" and the verification-side rule that you must confirm a guard's condition can ever be true before declaring the guard done. *(2026-06-18, project-rag-ue-addon.)*
+**Rule:** when a gate is conditional on an optional input, test the **end-to-end CLI / production invocation path** (which may pass nothing), not just the gate function with the argument supplied. And **grep every caller** of the gated entry point to confirm at least one production path actually populates the input — if none does, the gate has never fired. Composes with § "A Discriminator Guard Is Dead If It Never Matches the Value the Producer Emits" and the verification-side rule that you must confirm a guard's condition can ever be true before declaring the guard done.
 
 ## "Out of Frame" / "Concurrent-Session Contamination" Is Not a Disposition
 
 Dismissing a test failure as "out of frame," "noise," or "another session's contamination" is an attribution claim, not a disposition — and it is frequently wrong (per-cluster triage repeatedly finds ~1/3 of "test rot" reds are real source bugs, see test-design-discipline.md §71b). A red is signal until proven otherwise.
 
-**Rule:** never close a failing test by labelling it cross-session noise. Read the failure message, name the workstream owner the failure belongs to, and write a finding / cross-repo memo / backlog entry that hands it to that owner. The only honest closures are "fixed," "attributed to owner X with a written handoff," or "reproduced-as-pre-existing against a named commit." This is the executor-output twin of "do not infer from absence" in tool-output-flakiness.md — a failure you can't explain is unknown state, not clean state. *(PM correction 2026-06-09, doctor-py partition closeout.)*
+**Rule:** never close a failing test by labelling it cross-session noise. Read the failure message, name the workstream owner the failure belongs to, and write a finding / cross-repo memo / backlog entry that hands it to that owner. The only honest closures are "fixed," "attributed to owner X with a written handoff," or "reproduced-as-pre-existing against a named commit." This is the executor-output twin of the general "do not infer from absence" rule — a failure you can't explain is unknown state, not clean state.
 
 ## Multi-Consumer Failure Reports May Share One Root Cause — Trust the Supervisor Giveup Sentinel's Exit Code Over Its Stderr-Tail
 
@@ -424,9 +458,7 @@ When multiple consumers report what look like different failure modes from the s
 
 **How to apply:** when triaging supervisor crashloops, read the `timestamps:` array AND the exit code from `supervisor.log` FIRST. Only consult `last_child_stderr_tail` after correlating timestamps — if the tail's log lines postdate the deterministic crash time, it's evidence from a different process. Pattern recurs whenever a supervisor batches multiple spawns into one giveup sentinel.
 
-**Empirical basis (2026-06-15, project-rag):** addon-EM reported daemon crashloop at spawn (exit 79); example-game-repo-EM reported daemon dying on first `semantic_search` (socket closed). EM scoped both as separate failure modes. Diagnostic spike + smoke test showed the same Mode A — all 5 spawns in the actual crashloop window hit `HostProfileUnknownError` at `project_rag_server.py:3907` BEFORE `_boot_server()` was even entered; the `last_child_stderr_tail` showing `embed_sidecar: spawning` came from an earlier longer-lived run.
-
-*(Source: project-rag-L26, central-promoted 2026-06-20.)*
+**Empirical basis:** two peer sessions reported a daemon crashloop at spawn (exit code X) and a daemon dying on first query (socket closed), respectively, and scoped them as separate failure modes. A diagnostic spike + smoke test showed the same single root cause — all spawns in the actual crashloop window hit the same startup error before the server's boot routine was even entered; the "last stderr tail" evidence field pointed at an earlier, longer-lived, unrelated run.
 
 ## Handoff Quantitative Trend Claims Need Git-Log Verification Before Designing Fixes
 
@@ -434,9 +466,7 @@ A handoff body that names a numerical trend ("drift +2.4 errors/day for 13 days"
 
 **Rule:** if the commit count doesn't match the trend shape (e.g. one commit explains the entire delta), redo the framing before designing remediation. The same discipline applies to any claim of the form "errors per day", "stale per week", "metric grew N units" — all need git/log-level grounding before scoping the fix.
 
-**Empirical basis (2026-06-14, project-rag):** handoff claimed "+2.4 errors/day for 13 days" (mypy baseline 462→493). `git log -- mypy-baseline.txt` revealed exactly ONE commit in that window — a 2026-06-01 platform re-anchor (Windows→Ubuntu). Net +96 was re-platform, not drift. A burn-rate fix schedule would have been built against a non-existent regression.
-
-*(Source: project-rag-L73, central-promoted 2026-06-20.)*
+**Empirical basis:** a handoff claimed "+2.4 errors/day for 13 days" against a type-checker baseline count. `git log` against the cited baseline file revealed exactly ONE commit in that window — a platform re-anchor (one OS to another). The net delta was re-platform, not drift. A burn-rate fix schedule would have been built against a non-existent regression.
 
 ## New Helper / Capability Must Be Wired Into the Production Code Path — Not Just Defined and Unit-Tested
 
@@ -444,12 +474,31 @@ When an executor adds a new non-test function or helper, verify it is **called f
 
 **Rule:** on executor return, for every new non-test function/capability, grep that it is invoked from the production caller (not only from the test file). A definition + a green unit test is necessary but not sufficient — "tested" ≠ "wired". Especially for header-inline helpers defined AFTER their intended caller (forward-declaration ordering means the wiring is a separate, easily-omitted edit).
 
-**Empirical basis (2026-06-19, example-game-workbench-repo):** tc-13 A2-5's executor defined `TryFactorSharedConjunct` and wrote a passing unit test for it, but never wired it into `MakeOr` (the synthesis path) — so on real synthesized formulas the factoring would never run. The executor optimized for "my AC test passes" against the helper directly, bypassing the integration the feature needed. EM caught it by asking "is this new function reachable from the production caller?" and grepping for the call site inside `MakeOr`.
+**Empirical basis:** an executor defined a new helper function and wrote a passing unit test for it, but never wired it into the production synthesis path — so on real inputs the new logic would never run. The executor optimized for "my AC test passes" against the helper directly, bypassing the integration the feature needed. The EM caught it by asking "is this new function reachable from the production caller?" and grepping for the call site.
 
-*(Source: example-game-repo-L190, central-promoted 2026-06-20.)*
+### The doc-edit twin — a chunk that describes wiring must edit the file that implements it, or it ships fiction
+
+The same unwired-claim failure has a documentation shape: a doc-edit chunk that *describes* an invocation surface, mode, or route must edit the file that actually implements it — or the doc asserts behavior that does not exist.
+
+**Rule.** When a chunk's deliverable is a doc that references behavior in a sibling file, either include that sibling in the chunk's write-scope, or verify it *already* implements the claim before writing the doc. A doc asserting "wiring exists elsewhere" is fiction if elsewhere was never touched — and the scope-conformance check won't catch it, because the doc edit is in-scope by construction; only reading the sibling file (or grepping for the described surface) does.
+
+**Empirical basis:** a pipeline doc-edit documented a mode "routed via" a driver file, but never edited that driver file, so the invocation surface didn't exist — an acceptance criterion was silently unmet until code review caught it.
 
 ## EM-Verify of Delegated Stateful Code Must Check Accumulator Scope/Lifetime Across Units
 
 When an executor delivers stateful code (a registry, an accumulator, a cache) on a host where the EM cannot compile/run it, unit tests passing is necessary-not-sufficient — cross-unit collisions are invisible to per-unit tests. A registry whose lifetime is per-call when it should be per-function (or per-process when it should be per-request) passes every isolated unit test and collides only when two units run in the same scope.
 
-**Rule:** on every executor return of stateful code, read the accumulator's *scope and lifetime* across units — is the registry instantiated per-call or shared? Does state from unit A leak into unit B? Unit tests exercise one unit at a time and structurally cannot surface a cross-unit scope bug; the EM must trace the lifetime by hand when the host can't run the integration. Composes with coordinator CLAUDE.md § Verifying Executor Output and test-design-discipline.md §62 (guard the destructive primitive on a shared singleton). *(2026-06-19, example-game-workbench-repo.)*
+**Rule:** on every executor return of stateful code, read the accumulator's *scope and lifetime* across units — is the registry instantiated per-call or shared? Does state from unit A leak into unit B? Unit tests exercise one unit at a time and structurally cannot surface a cross-unit scope bug; the EM must trace the lifetime by hand when the host can't run the integration. Composes with `docs/wiki/dispatching-parallel-agents.md` § Executor commit-fidelity and ground-truth verification and test-design-discipline.md §62 (guard the destructive primitive on a shared singleton).
+
+## A Mechanical Fix With a Negative Net Committed-Test Delta Is a Design Conflict, Not a Stubborn Bug
+
+Two separately-landed doctrines can collide inside a single file, and the shim that bridges them can *itself* be the violation one of them forbids. The originating case: a "no-implicit-cwd" gate and a "de-bash-to-in-process port" doctrine met in one module — and the `os.chdir` threaded in to make the ported code run was precisely the implicit-cwd the first gate exists to reject. The "mechanical" fix satisfied gate A but **broke three committed contract tests belonging to doctrine B and inverted B's direction.** Net committed-test delta: negative — more green turned red than red turned green.
+
+**Rule:** a fix whose net *committed*-test delta is negative is evidence of a **design conflict between two landed doctrines**, not a bug to be ground down with a bigger hammer. The signal is diagnostic, not incidental: committed tests encode a peer's ratified intent, so breaking more of them than you fix means your fix is fighting a decision, not a defect.
+
+**When the signal fires:**
+1. **Revert the fix unlanded** — do not commit a change that reds committed tests to green a gate.
+2. **Trace to the root conflict** — name the two doctrines colliding and the exact bridging construct that is the violation. The principled fix usually threads the constraint explicitly rather than bridging around it (here: thread an explicit root and keep the in-process callable contract — found on the second pass, landed with all three contract tests untouched).
+3. **File with the rejected alternative recorded** so the next owner does not re-derive and re-attempt the same dead-end mechanical fix.
+
+**Especially applies when the conflicting surface belongs to a live peer workstream** — the committed tests you are breaking are that peer's contract, and reding them is a cross-session collision, not a local cleanup.

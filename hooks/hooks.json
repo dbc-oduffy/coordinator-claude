@@ -1,144 +1,99 @@
 {
-  "description": "Coordinator hooks — session guardrails and cost optimization",
+  "description": "Coordinator hooks \u2014 session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected \u2014 those resolve live per tool call. Measurement: docs/wiki/external-plugin-live-resolution.md \u00a7 Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
   "hooks": {
     "SessionStart": [
       {
+        "_comment": "PM directive 2026-07-15 (full-kill-keep-fast-orientation): all boot-time guardrail/reminder/detector SessionStart hooks removed. ONLY the orientation RAM-cache injector is retained, forced --lightweight + short timeout so it injects context without dragging boot. Async is NOT an option here: async SessionStart stdout is not injected into the model context.",
         "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-settings-integrity.sh",
-            "timeout": 5,
-            "async": false
-          },
-          {
-            "type": "command",
-            "command": "bash ~/.claude/bin/platform-localize.sh",
-            "timeout": 5,
-            "async": true
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/project-rag-detect-wrapper.sh",
-            "timeout": 5,
-            "async": false
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-dropped-tracked-files.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.py --lightweight",
             "timeout": 5,
             "async": false
           }
         ]
       },
       {
+        "_comment": "Boot-time four-class archival sweep (consumed handoffs, terminal plans, shipped handoffs, actioned cross-repo memos) via the session.boot_sweep claude-klabauter op, fronted by the native bin/sweep-boot.py trampoline. This invocation was carried by the session-init.py SessionStart hook until it was deleted in the 2026-07-15 full-kill above (collateral: that directive targeted sync boot-latency hooks, not this side-effect sweep) \u2014 leaving sweep-boot.py an orphan trampoline with no caller and stranding status:actioned memos in cross-repo/inbox/. Re-wired here as async:true DELIBERATELY: unlike the orientation injector above, this hook produces NO context-bound stdout (its value is the archival git-mv+self-commit side effect and the integer count on stdout is discarded), so async is the correct shape \u2014 it restores the archival WITHOUT adding the cc_invoke claude-klabauter-spawn latency to first-token-to-context, honoring the 2026-07-15 directive's actual intent (fast orientation boot). The op self-commits its own scoped archival commit; sweep-boot.py never stages/commits. matcher startup|compact mirrors the original session-init boot_sweep coverage (not clear \u2014 a lightweight /clear is not a fresh session boundary).",
         "matcher": "startup|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-init.sh",
-            "timeout": 3,
-            "async": false
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/coordinator-reminder.sh",
-            "timeout": 3,
-            "async": true
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py",
             "timeout": 30,
-            "async": false
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ue-knowledge-distrust.sh",
-            "timeout": 3,
             "async": true
           }
         ]
       },
       {
-        "matcher": "clear",
+        "_comment": "settings.json integrity guard (clobber-detection + declared-true-but-unreachable-plugin reconciliation, claude-klabauter session.guard_settings_integrity op, called in-process). This IS a guardrail/detector in the sense the 2026-07-15 full-kill directive targeted, but it is the specific exception: it detects a live-incident-proven failure mode (2026-07-28 example-game-repo/example-game-repo-control/game-dev read enabled while loading nothing for days, MCP camouflaging the gap) and had 6 (now more) passing tests sitting orphaned with no caller \u2014 the guard existed, it just was never wired. Banner-only, never blocks SessionStart (fail-open at every uncertain step in the engine op), short timeout, sync (its output is additionalContext the model needs to see, so async is not an option here, same reasoning as the orientation injector above).",
+        "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-init.sh",
-            "timeout": 3,
-            "async": false
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/coordinator-reminder.sh",
-            "timeout": 3,
-            "async": true
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.sh --lightweight",
-            "timeout": 3,
-            "async": false
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/ue-knowledge-distrust.sh",
-            "timeout": 3,
-            "async": true
-          }
-        ]
-      },
-      {
-        "_comment": "session-ensure-branch: DO hook — cuts work/{machine}/{today} on startup/clear when the EM is on main, detached HEAD, or a zero-ahead non-span branch. nag→action exemplar (strang-04). Never matches compact — branch is already set during compaction.",
-        "matcher": "startup|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-ensure-branch.sh",
-            "timeout": 15,
-            "async": false
-          }
-        ]
-      },
-      {
-        "_comment": "F14 (2026-07-09) — advisory-only re-check of the Bash-tool invoking-shell bash>=4 version, cheap and async. Catches drift after install-time verification (commands/install.md § 1a.0.1) — e.g. a later chsh back to zsh, a new terminal profile. Never blocks; see hooks/scripts/nudge-invoking-shell-bash4.sh.",
-        "matcher": "startup|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-invoking-shell-bash4.sh",
-            "timeout": 3,
-            "async": true
-          }
-        ]
-      },
-      {
-        "_comment": "bootstrap-substrate is async (long-running first-boot deploy, up to 120s); check-plugin-update-currency is sync (fast network probe); no data dependency between them — a future hook that depends on substrate presence must account for the async race",
-        "matcher": "startup",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/bootstrap-substrate.sh",
-            "timeout": 120,
-            "async": true
-          },
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-plugin-update-currency.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-settings-integrity.py",
             "timeout": 5,
             "async": false
           }
         ]
       },
       {
-        "_comment": "C7 (P2, install-baton-rendezvous-off-dotclaude, AC12/AC13): guided post-restart self-onboarding nudge. Self-sufficient and fail-safe — reads only coordinator-setup-state.sh and install-status.json receipts, neither deployed by the async bootstrap-substrate entry above, so registration order carries no dependency and needs no ordering guarantee.",
-        "matcher": "startup",
+        "_comment": "foreign-platform-path guard (claude-klabauter session.guard_foreign_platform_paths op, called in-process). 2026-07-28 incident: a POSIX host's settings.json silently rewritten with Windows drive-letter hook-command paths (DoE-claude/...) by a sync/commit race on the ~/.claude meta-repo -- every one of ~40 hooks died with NO error anywhere, only tool calls failing against a drive that does not exist here. Detect-only (never auto-repairs -- settings.json is shared with another machine via git sync; a same-host repair could clobber the OTHER machine's next pull), shape-based (regex, never a hardcoded drive letter/username), banner-only, fail-open at every uncertain step, sync (its output is additionalContext the model needs to see). Delivery, re-verified 2026-07-28 on a POSIX host (this comment previously asserted the opposite and was stale): plugin-declared hooks in THIS file DO deliver via --plugin-dir. Live proof -- ~/.claude/settings.json carried an EMPTY hooks block (zero commands; settings.json was untracked in the meta-repo as machine-local) while pickup-autofire.py, registered nowhere but this file, fired normally. Do not re-derive the 'hook-delivery is dead, bug #38699' premise from the wiki without re-probing it; a sibling repo generalized a dead plugin hook of its own into 'plugin hooks.json never delivers', and that generalization does not hold here -- their dead hook loads via a directory-source marketplace, a different delivery mechanism. Residual gap that remains real regardless: an EXTERNAL rewrite (git sync, another machine's push) is not a tool call and lands between sessions, so no PreToolUse guard sees it and a SessionStart guard only reports it after the fact. The independent second leg for that is the native git pre-commit hook coordinator-precommit-foreign-platform-check (claude-klabauter), which fires via git itself on the WRITING machine and survives a session where every Claude Code hook is dead. The mid-session tool-write leg is guard-settings-json-write.py, registered below.",
+        "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/surface-unfinished-onboarding.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-foreign-platform-paths.py",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "hook-generation self-probe (claude-klabauter session.self_probe_hook_generation op / run_self_probe, called in-process \u2014 same DR-047 transport-seam shape as guard-settings-integrity.py and guard-foreign-platform-paths.py directly above). Wires a previously-inert guard: run_self_probe was fully built and tested with a registered op name but referenced by nothing anywhere, an orphan identical in shape to the guard-settings-integrity.py orphan fixed above. Purpose: every OTHER guard in the 2026-07-28 incident cluster is reactive (checks its own markers only when it happens to run); this fires on EVERY session boot, records what this session resolved as its content root, and re-arms the hooks-generation kill switch the FIRST time that resolution comes back empty/unresolvable instead of the fourth bricked session teaching us. Cheap by construction (single env read, at most two stat calls, best-effort small write \u2014 see the engine function's own docstring), banner-only, never blocks SessionStart (fail-open at every uncertain step in both the engine op and this stub), sync (its output is additionalContext the model needs to see in THIS turn, same reasoning as the guards above \u2014 async would discard it).",
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-hook-generation-self-probe.py",
+            "timeout": 8,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "C8 (docs/plans/2026-08-02-write-confinement-guards.md) \u2014 the write-confinement speed bump's session-start anchor record. Writes a small ONCE-per-session record (launch cwd, keyed on session id) that a later Bash/tool-surface bump guard reads back regardless of how many `cd`s happened in between (the harness Bash tool contract states 'Working directory persists between calls', so the live payload cwd drifts under an agent with no adversarial intent -- Zol\u00ed F1). FAIL OPEN unconditionally: a SessionStart hook that errors greets every session in the fleet with a stack trace, which is worse than one that silently no-ops. Matcher is exhaustive (every SessionStart source, not just cold start) because `write_session_start_record()` is idempotent -- a repeat fire for the same session id overwrites the same file with the same content, harmless by construction -- mirroring the C1b role-assertion hook's own reasoning for the same exhaustive matcher, immediately below. See hooks/scripts/session-start-write-bump-anchor.py.",
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-write-bump-anchor.py",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "DR-132 (docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-not-a-repos-star-inference.md, Consequences section) \u2014 self-heals engine.working_repos.doe_claude in the machine-local registry. Claude_klabauter self-heals via the engine plane's own installer (register_claude_klabauter_root()); doe_claude had no self-heal at all, an operator-set key that a fresh clone or wiped registry leaves silently wrong or absent, undermining _engine_root.py's working-repo gate for this repo's own sessions. Registered async:true DELIBERATELY, same reasoning as the boot-sweep entry above: this hook produces NO context-bound stdout \u2014 its whole value is the registry side-effect write \u2014 so async keeps it off first-token latency while still restoring the self-heal. Idempotent and quiet when already correct (reads the current value first via the shared _engine_root TOML reader; only a genuinely absent/different value triggers a machine-local set spawn), guarded against registering the wrong tree (requires the repo-root .coordinator-dev-repo sentinel with its slug: doe-claude content line \u2014 structurally absent from every OSS/consumer install, so this hook can never divert a consumer repo away from the published engine). FAIL OPEN unconditionally, same contract as every other hook in this SessionStart block. Matcher is exhaustive (every SessionStart source), mirroring the C8/C1b hooks' own reasoning for the same exhaustive matcher \u2014 safe because a repeat fire when the key is already correct is a single cheap TOML read and nothing else. See hooks/scripts/session-start-register-doe-claude-root.py.",
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-register-doe-claude-root.py",
             "timeout": 10,
+            "async": true
+          }
+        ]
+      },
+      {
+        "_comment": "C1b \u2014 asserts EM identity to the main session via snippets/agent-role-em.md. Deliberately a SEPARATE hook from the orientation injector above, not a fold-in: orientation is staleness-nudged and suppressible (COORDINATOR_REPOMAP_STATUS_OFF et al., quiet degrade on a missing cache); a role assertion sharing that suppressibility would be worse than none. Relies on SessionStart-class hooks firing only for the main session, never an Agent-tool dispatch -- no additional is-main-session guard is layered on top here. The matcher must enumerate EVERY SessionStart source, not just cold start: the harness emits startup, resume, clear, compact and fork, and an omitted source means the hook simply does not fire for it. A startup|clear|compact matcher silently loses the role assertion on --resume/--continue and on --fork-session, which are precisely the long-lived sessions where the EM has most drifted from its role. This hook's contract is unconditional delivery, so its matcher is exhaustive by construction rather than mirroring any sibling hook's narrower coverage.",
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/assert-em-role.py",
+            "timeout": 5,
             "async": false
           }
         ]
@@ -146,39 +101,121 @@
     ],
     "Stop": [
       {
-        "_comment": "C1a — L1 idle-EM awareness on end-of-turn",
+        "_comment": "C1a \u2014 L1 idle-EM awareness on end-of-turn",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
             "timeout": 5,
             "async": false
           }
         ]
       },
       {
-        "_comment": "C2b — L2 asyncRewake stop-watcher (per-session PID lock; sleeps to threshold; exits 2 on overrun)",
+        "_comment": "harness-directive dispatch nudge \u2014 catches an EM ending its turn having asked permission to dispatch, or having cited the model-gated tengu_heron_brook AgentTool line as a bar. Fires at most once per session; exits 2 to speak, 0 otherwise. See docs/wiki/harness-directive-conflicts.md.",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-stop-watcher.sh",
-            "timeout": 1800,
-            "async": true,
-            "asyncRewake": true
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-harness-directive-dispatch.py",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "unrouted-sizing nudge \u2014 catches an EM ending its turn having narrated a machine-resolved, unblocked next move (e.g. \"taking it into plan now\") without invoking the room. Exempts an open fork:appetite_exceeded and a route:pm-decision carrying xl_exit:null. Fires at most once per session; exits 2 to speak, 0 otherwise. See docs/wiki/coordinator-tripwires.md \u00a7 NUDGE-UNROUTED-SIZING.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-unrouted-sizing.py",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "C2b \u2014 L2 asyncRewake stop-watcher (per-session PID lock; sleeps to threshold; exits 2 on overrun). STOOD DOWN 2026-07-31 per PM ruling (reversible, not deleted): 681 fires over 26 days concerning only 6 distinct agents against a 0.59% genuine stall rate, and the demotion of the 'unknown' arrival state to suppressing (7a928d741) left it unable to fire on a real stall in ~99.5% of rows anyway. The script runtime-tripwire-stop-watcher.py is retained on disk, untouched, not deleted. Full restore: re-add this block's hooks entry (single command hook, matcher \"\", timeout 1800, async true, asyncRewake true, invoking ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-stop-watcher.py via the standard runpy trampoline used by every other entry in this file) PLUS flip _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED back to True in coordinator/hooks/scripts/runtime-tripwire-em-check.py. The three em-check.py registrations elsewhere in this file (push-failure / zero-tool-use / EM-report-altitude) were deliberately NOT touched by this stand-down -- that script hosts three unrelated live advisories alongside the stood-down tripwire nudge.",
+        "matcher": "",
+        "hooks": []
+      }
+    ],
+    "SessionEnd": [
+      {
+        "_comment": "Best-effort archival of this session's coordinator-sessions bookkeeping dir (nudge sentinels, dispatch evidence, started_at, meta.json), moved HERE from the /workstream-complete ceremony because that ceremony fires mid-session -- a session can close several workstreams before it actually ends, and archiving there reset once-per-session guards a still-live session still needed. SessionEnd fires exactly once, when the session is genuinely over. Matcher '' fires on every SessionEnd reason (clear, logout, prompt_input_exit, other) -- archival is wanted regardless of why the session ended. Shells out to the claude-klabauter-resident coordinator/bin/wsc-close.py archive-session --sid <sid> CLI (already non-fatal-by-design; see that script's own module docstring) rather than importing coordinator_core.session.scope directly, so this repo has exactly one thin caller of an entrypoint claude-klabauter already built for this call. Fails silently in every direction (unparsable stdin, absent session_id, unresolvable claude-klabauter root, subprocess timeout/failure) -- the 24h reaper is the documented backstop, so this hook must never block session teardown. Never falls back to a pid-derived or guessed session key.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-archive-session.py",
+            "timeout": 15,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "Unattended rescue-commit+push for whatever a session left uncommitted -- fires with no invocation, for the quick-fix session too small to warrant a closure ceremony (the case /handoff's own auto-commit step never reaches, because nothing invokes it). Calls the SAME safe-commit-offer CLI /handoff uses -- one mechanism, two triggers, so they cannot drift. Fails silently in every direction: a session ending is the worst moment to raise, and a commit that lands but does not push still survives.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-auto-commit.py",
+            "timeout": 30,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "_comment": "Stage 1 of the mechanical zero-tool-use subagent detector (docs/plans/2026-07-25-zero-tool-use-detection.md, C1/C2) -- fires on every subagent completion, reads the payload's agent_transcript_path (never the decoy transcript_path -- see the plan's AC10/Pinned contract), and relays to the coordinator_core.hooks.subagent_zero_tool_use claude-klabauter op, which counts tool_use blocks and writes the durable detection record. Emits nothing (DEC-4: a SubagentStop hookSpecificOutput.additionalContext reaches only the subagent's own context, never the EM's -- Stage 2, folded into the existing UserPromptSubmit runtime-tripwire-em-check.py entry below, is what surfaces it). Registered LAST, only after the claude-klabauter op landed (claude-klabauter commit 82224422) -- an unregistered script is inert; a registered one that silently no-ops on every SubagentStop until the op exists is the exact fail-open-reads-as-healthy shape this workstream exists to kill. This registration percolates to every OSS install of the coordinator plugin, most of which have no claude-klabauter and therefore no engine op to resolve -- for those installs this is a permanent per-SubagentStop python3 cold start (~642ms on the reference Windows machine) that can only ever no-op, same as the other _engine_root-gated entries in this file; precedented, not a blocker, but named here rather than shipped silently.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-zero-tool-use-detect.py",
+            "timeout": 5,
+            "async": false
+          }
+        ]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "_comment": "C3 (docs/plans/2026-07-23-computed-skills-bz-pickup-rebuild.md) -- first UserPromptExpansion entry in this manifest. Fires ahead of UserPromptSubmit on a typed slash-command invocation and carries pre-parsed command_name/command_args; the script itself matches command_name against the pickup verbs (cheap gate, not a security boundary -- see the script's own docstring), computes the pickup-assemble brief through the COORDINATOR_SETTINGS_HOME ladder, and auto-fires the mutating apply half ONLY on coast==clear AND judgment_points==[]. Every failure mode (unresolvable CLI, timeout, malformed output) degrades to silent pass -- this hook never blocks /pickup. async:false because the additionalContext must land in the SAME turn the EM's prompt is being expanded into. Install-surface note: this hook type required /reload-plugins to start firing during the spike that proved the mechanism (state/handoffs/2026-07-23_145600_spike-userpromptexpansion-slash-command-args.md) -- a plain hooks.json edit was not observed to be enough on its own.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pickup-autofire.py",
+            "timeout": 40,
+            "async": false
+          }
+        ]
+      },
+      {
+        "_comment": "mise-en-place run-id auto-mint (the mise-side twin of the pickup-autofire entry above). Fires ahead of UserPromptSubmit on a `mise-en-place` verb invocation; the script matches command_name (same bare-verb-vs-namespaced normalization as pickup-autofire.py), mints a fresh Phase-0 run id through the engine plane's `backlog-grind-assemble mint-run-id mise-en-place` CLI, immediately briefs that same id back through `backlog-grind-assemble brief mise-en-place --run-id <minted>`, and injects the minted id, its implied (not-yet-existing) inventory path, and the brief's decision object as additionalContext. Both calls are read-only -- this hook has no mutating apply-equivalent and must never grow one; Phase 6 stays an EM-driven invocation quoting the minted id. Never creates state/mise-inventory/ itself: that directory's absence is the engine's own Phase-0-vs-Phase-6 self-gate (see the script's own module docstring). async:false because the minted id must land in the SAME turn the EM's prompt is being expanded into. Every failure mode (unresolvable CLI, non-zero exit, timeout, malformed JSON, missing keys) degrades to silent pass -- this hook never blocks /mise-en-place; a failed mint just means the EM mints by hand, today's behaviour. Provenance: engine-plane commit 339470fd6bd7 shipped the mint-run-id verb; cross-repo/inbox/2026-08-04-claude-klabauter-em-mint-run-id-verb-shipped.md pins the consumer contract this hook relies on.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/mise-autofire.py",
+            "timeout": 30,
+            "async": false
           }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
-        "_comment": "C1a — L1 idle-EM awareness on user-prompt-submit (catches conversational-idle case)",
+        "_comment": "C1a \u2014 L1 idle-EM awareness on user-prompt-submit (catches conversational-idle case)",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
             "timeout": 5,
             "async": false
           }
@@ -191,8 +228,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.py",
             "timeout": 3
+          }
+        ]
+      },
+      {
+        "_comment": "GUARD-DOCTRINE-SURFACE-BASH-WRITE -- closes the Bash escape from the admission gate (check-claude-md-size.py is registered on Write|Edit|MultiEdit only, so a shell redirect or interpreter payload reached a governed doctrine surface without the gate ever firing). Denies redirect/tee/sed-in-place/interpreter writes to a GOVERNED_AUTHORING_SURFACES entry and offers the Write/Edit route instead. Fails OPEN only when there is no command to classify at all; an ambiguous or indirected command that names a governed surface fails CLOSED. DoE-resident by design, like the admission gate itself -- not folded into claude-klabauter's bash_guards dispatcher.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-doctrine-surface-bash-write.py",
+            "timeout": 5
           }
         ]
       },
@@ -202,30 +250,75 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
             "timeout": 15,
             "async": false
           }
         ]
       },
       {
+        "_comment": "C8 (docs/plans/2026-07-23-dr-088-ladder-enforcement-layers.md) -- Layer 2 of the DR-088 ladder: denies an Agent dispatch whose prompt tells the subagent to run a Tier-F/Tier-U suite-shaped command in imperative position, per claude-klabauter's classify_text (coordinator_core.bash_guards.check_test_suite_invocation). Registered first in this matcher's hook list so its deny is not shadowed.",
         "matcher": "Agent",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-foreground-agent-dispatch.sh",
-            "timeout": 3
-          },
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "PreToolUse(Agent) advisory: a NAMED Agent dispatch is an Agent-teams teammate whose plain-text output never reaches the dispatcher (only an explicit SendMessage to \"main\" does) -- an unnamed background agent's report IS delivered, so a brief ending 'Report back: ...' silently produces nothing from a named one and the EM sees only an idle_notification. Relays in-process to coordinator_core.hooks.nudge_named_agent_report_delivery (hooks.nudge_named_agent_report_delivery) via nudge-named-agent-report-delivery.py -- allow+additionalContext advisory only, never denies, never rewrites, fails open unconditionally on any transport failure. See that script's own module docstring for the full contract.",
+        "matcher": "Agent",
+        "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/enforce-agent-dispatch-mode.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-named-agent-report-delivery.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "_comment": "Mechanical enforcement of review-integrator.md's 'Intake precondition -- hard stop' (findings must live in an on-disk sidecar the dispatch prompt names, never inline in the prompt) -- prose lost this fight 5/5 in the field, this hook denies the Agent dispatch outright when subagent_type normalizes to review-integrator and no state/subagent-share/<session>/<key>.md path named in the prompt exists on disk. See coordinator/hooks/scripts/guard-review-integrator-sidecar-intake.py's module docstring for the full rationale, including the closed rationalization hole (an unrelated pre-existing sidecar on disk is NOT sufficient -- the path must be named in THIS dispatch's prompt).",
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-review-integrator-sidecar-intake.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "_comment": "DISPATCH-TIER OFFER. offer-exploration-tier-dispatch.py (last in this list) is the registered read-only-dispatch-tier offer: it fires for every doctrine-carrying subagent_type, not general-purpose alone, and it carries the naming-trap clause -- that naming an Explore dispatch both spends the saving and discards the read-only guarantee, because the Edit/Write denial lives in the built-in definition a named dispatch throws away. A narrower duplicate offering the same redirect was authored concurrently in another session and was dropped; this hook is the surviving canonical one. NAMED-DISPATCH TOOL-RESTRICTION (single-emitter fold-in, 2026-07-31, follow-up to enforce-agent-dispatch-mode.py's Concern E): guard-named-dispatch-tool-restriction.py used to be registered last in this entry, closing the hole where a named Explore/Plan dispatch routes to a teammate spawn that discards the built-in agent definition and fabricates one with tools:[\"*\"] (read-only denial and omitClaudeMd lost, dispatch bills ~48.6k instead of ~17.6k; NOT a security boundary per PM correction 2026-07-30 -- eager-not-adversary, on a recoverable tree). It raced enforce-agent-dispatch-mode.py's own updatedInput emission on this SAME Agent matcher (same-event PreToolUse hooks run in parallel with undefined completion order; updatedInput is last-writer-wins), the identical clobber class already fixed for worktree-isolation/mode-elevation. Fix: the guard's decision logic now lives in the shared _named_dispatch_strip.py module, and enforce-agent-dispatch-mode.py (this matcher's sole updatedInput emitter) calls it directly as \"Concern F\" and folds the result into its own single merge. guard-named-dispatch-tool-restriction.py is DEREGISTERED from this matcher entirely -- Agent was its only matcher, so unlike strip-worktree-isolation.py (kept registered on the distinct Workflow matcher) there is no live matcher left where it is a legitimate standalone emitter; the script stays on disk and is still exercised directly by its own test suite (coordinator/tests/test_guard_named_dispatch_tool_restriction.py) via subprocess. FOREGROUND-REROUTE RE-LAND (single-emitter fold-in, 2026-07-31, follow-up to Concern F): nudge-foreground-agent-dispatch.py used to be registered first in this entry, relaying claude-klabauter's coordinator_core.hooks.nudge_foreground_agent_dispatch REROUTE-gate result. That op's reroute (hookSpecificOutput.updatedInput rewriting run_in_background to true) was reverted 2026-07-30 to a deny because root cause looked like updatedInput not binding on the Agent tool -- that conclusion was wrong: the real cause was THIS shim racing enforce-agent-dispatch-mode.py for updatedInput on the same matcher, the identical last-writer-wins clobber class Concern E/F closed elsewhere. Fix: the foreground-reroute decision (three-state run_in_background handling, durable .harness-bg-capable calibration, .foreground-ok escape hatch) is now a byte-faithful pure-Python port living in the shared _foreground_dispatch_strip.py module (no claude-klabauter call, no spawn, on a hot path every Agent dispatch already pays), and enforce-agent-dispatch-mode.py calls it directly as \"Concern G\" and folds the result into its own single merge -- announcing the reroute via additionalContext on EVERY occurrence, never bark-once (a suppressed once-per-session notice is exactly how the original non-binding race went undetected for a whole session). nudge-foreground-agent-dispatch.py is DEREGISTERED from this matcher entirely; the script and claude-klabauter's own op stay on disk as the reference implementation, still exercised by their own dedicated test suites (coordinator/hooks/scripts/tests/test_nudge_foreground_agent_dispatch.py; claude-klabauter's coordinator_core/tests/test_hooks_roundtrip.py) via direct invocation.",
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/enforce-agent-dispatch-mode.py",
             "timeout": 3,
             "async": false
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.py",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/offer-exploration-tier-dispatch.py",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "_comment": "C8 (docs/plans/2026-07-23-dr-088-ladder-enforcement-layers.md) -- Layer 2 of the DR-088 ladder. Registered BEFORE block-workflow-unmodeled-agent.py below: first-deny-wins in registration order (hook-best-practices.md \u00a7 Multi-hook deny aggregation), so a suite-invocation deny surfaces this hook's remediation rather than losing to that hook's own (unrelated) verdict.",
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
+            "timeout": 5
           }
         ]
       },
@@ -234,8 +327,24 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.py",
             "timeout": 3
+          },
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-unmodeled-agent.py",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "_comment": "Structural git-worktree ban, leg 2 of 2 (leg 1: block-worktree-tool.py above, denying EnterWorktree/ExitWorktree outright). Strips isolation: \"worktree\" out of a Workflow dispatch's tool_input before the call proceeds -- design-as-offers: the dispatch SUCCEEDS without the worktree rather than being denied and forcing a full retry. isolation: \"remote\" and every other value pass through untouched. Single-emitter fix (2026-07-31): this used to be registered on matcher Agent|Workflow, racing enforce-agent-dispatch-mode.py's own updatedInput emission on the SAME Agent tool call (same-event PreToolUse hooks run in parallel with undefined completion order; updatedInput is last-writer-wins) -- confirmed live on harness 2.1.220. Narrowed to Workflow only; Agent's worktree-isolation strip now lives inside enforce-agent-dispatch-mode.py (the sole updatedInput emitter for Agent), sharing this script's strip computation via the new _worktree_isolation_strip.py module rather than duplicating it. See coordinator/hooks/scripts/strip-worktree-isolation.py module docstring for the full rationale and the shared .coordinator-override-worktree-guard sentinel.",
+        "matcher": "Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
+            "timeout": 5
           }
         ]
       },
@@ -244,7 +353,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/suggest-sonnet-research.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/suggest-sonnet-research.py",
             "timeout": 5
           }
         ]
@@ -254,164 +363,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.py",
             "timeout": 5
           }
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/validate-frontmatter-schema.js",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-claude-md-size.py",
-            "timeout": 3
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|NotebookEdit|Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-illegal-filename.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dev-side-mirror-wiki.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
+        "_comment": "PREUSE-WRITE-DISPATCH \u2014 the single PreToolUse(Write|Edit|MultiEdit) entrypoint (docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md \u00a7 C4, fan-in AC-1). Resolves the claude-klabauter engine in-process, then batches ALL FIVE DoE-resident write-path guards (check-claude-md-size, guard-prompt-surface-citations, guard-doctrine-changelog-prose, guard-oss-payload-locality, nudge-plan-test-surface-tier \u2014 formerly five standalone registrations on this matcher, now enrolled on `_guard_runner.REAL_GUARD_REGISTRY`) into the SAME interpreter via the in-process guard runner (coordinator/hooks/scripts/_guard_runner.py), each guard's own two-stage lazy-import scope descriptor deciding whether it is even imported for a given write. Class-aware aggregation (_guard_runner_contract.py clause 10): at most one deny reaches the harness, but a deny from one guard and an advisory from another on the SAME write both surface. This rewiring moves WHERE guards run, never what they decide \u2014 each guard's own module docstring still states its policy.",
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-completion-monolith-write.sh",
-            "timeout": 5
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
+            "timeout": 10
           }
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "_comment": "BLOCK-WORKTREE-TOOL \u2014 structural git-worktree ban, one leg of a multi-leg campaign. Denies EnterWorktree unconditionally (worktrees degrade on Windows and don't scale to concurrent-agent dispatch; the sanctioned shape is scoped-parallel dispatch into the same tree). ExitWorktree always ALLOWED \u2014 leaving a worktree is cleanup, never blocked, or an agent already inside one gets trapped. Override: repo-root sentinel file ONLY (no env-var leg \u2014 a subagent can set an env var on itself, defeating an env-var override for a guard that must bind subagents too). Deny message deliberately never names the sentinel file.",
+        "matcher": "EnterWorktree|ExitWorktree",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-archive-write.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-plan-body-write.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-subagent-plan-body-bash-write.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-tracker-edit.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-consumed-handoff-edit.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-reviewer-write-outside-sidecar.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "_comment": "REVIEWER-BASH-ALLOWLIST — confines the confined findings-agent set (see `_cs_is_confined_findings_agent`) to coordinator-doc-new --type review-findings only; all other Bash invocations from those types are denied fail-closed.",
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-reviewer-bash-outside-allowlist.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-bin-polyglot-break.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-improvement-queue-write.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-windows-subprocess-popup.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "_comment": "NUDGE-EM-CODE-DISPATCH — offer-shaped nudge when the EM (main-agent) writes a non-doc/data file inline; subagent writes are silently allowed",
-        "matcher": "Write|Edit|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-em-code-dispatch.js",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-worktree-tool.py",
             "timeout": 5
           }
         ]
@@ -423,38 +397,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.py",
             "timeout": 3
           }
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "_comment": "POSTUSE-STOP-FAMILY-DISPATCH — the combined PostToolUse entrypoint (docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md § C4b) for the four Stop-family write-path advisory guards (derive-global-doctrine-live-copy, derive-setup-copies, nudge-initiative-goals-ladder, nudge-new-file-zero-budget-ratchets — formerly four standalone registrations on this matcher, now `_stop_family_runner.REAL_STOP_FAMILY_REGISTRY`). Each guard writes its own advisory directly to stderr and returns exit 2 (the Stop-family protocol, distinct from the PreToolUse deny/additionalContext envelope shape `preuse-write-dispatch.py` uses); this dispatcher batches all four into ONE process via the in-process Stop-family runner (coordinator/hooks/scripts/_stop_family_runner.py), aggregating via CONCATENATE-ALL (never first-fires-wins — every guard that fires on a payload has its text reach the combined stderr, and the combined exit code is 2 if any fired). See coordinator/hooks/scripts/_stop_family_runner_contract.py for why this is a SIBLING mechanism to _guard_runner.py, not an extension of it. Policy byte-identical — this moves WHERE these guards run, never what they decide.",
+        "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-touched-files.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-unauthorized-handoff.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "_comment": "NUDGE-INITIATIVE-GOALS-LADDER — offer-shaped nudge when a state/initiatives/*.yaml is Written or Edited with empty/absent goals and the repo has >=1 goal under state/goals/. PostToolUse exit 2 reaches model without blocking. See hooks/scripts/nudge-initiative-goals-ladder.sh.",
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-initiative-goals-ladder.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
             "timeout": 10
           }
         ]
@@ -464,7 +418,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.py",
             "timeout": 15
           }
         ]
@@ -474,29 +428,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.py",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
             "timeout": 5,
             "async": false
           }
         ]
       },
       {
-        "_comment": "Phase 3 consolidation (docs/plans/2026-06-30-pretooluse-bash-hook-dispatcher.md): the two universal PostToolUse advisories (context-pressure + runtime-tripwire) are folded into one postuse_advisory_dispatch surface. This is a command spawn (not an mcp_tool). The script merges both check_* advisories' additionalContext into a single emission (see postuse-advisory-dispatch.sh). timeout 10 preserves the former per-hook budget headroom.",
+        "_comment": "Phase 3 consolidation (docs/plans/2026-06-30-pretooluse-bash-hook-dispatcher.md): the two universal PostToolUse advisories (context-pressure + runtime-tripwire) are folded into one postuse_advisory_dispatch surface. This is a command spawn (not an mcp_tool). The script merges both check_* advisories' additionalContext into a single emission (see postuse-advisory-dispatch.py). timeout 10 preserves the former per-hook budget headroom.",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
             "timeout": 10
           }
         ]
@@ -508,7 +462,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.sh",
+            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.py",
             "timeout": 3
           }
         ]

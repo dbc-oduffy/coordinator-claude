@@ -46,17 +46,17 @@ Maintainer self-merges (admin override on the maintainer's own PRs) are allowed 
 ## Conventions
 
 ### Skills
-- One directory per skill under `coordinator/skills/`
+- One directory per skill under `skills/`
 - Must have a `SKILL.md` with YAML frontmatter (`name`, `description`)
-- Follow the existing skill structure — see `coordinator/skills/validate/SKILL.md` for a minimal, well-formed example to model yours on
+- Follow the existing skill structure — see `skills/validate/SKILL.md` for a minimal, well-formed example to model yours on
 
 ### Agents
-- One `.md` file per agent under `{plugin}/agents/`
+- One `.md` file per agent under `agents/`
 - Must have YAML frontmatter with `name`, `description`, `model` (opus/sonnet/haiku)
 - Agent descriptions should define behavioral characteristics, not just capabilities
 
 ### Commands
-- One `.md` file per command under `coordinator/commands/`
+- One `.md` file per command under `commands/`
 - Must be registered in the coordinator README skill count
 
 ### Validation
@@ -72,7 +72,7 @@ Be kind, be constructive, be specific. We're all here to make human-AI collabora
 
 ### How to Add a Command
 
-Commands live at `coordinator/commands/<name>.md`. Each file needs YAML frontmatter:
+Commands live at `commands/<name>.md`. Each file needs YAML frontmatter:
 
 ```yaml
 ---
@@ -81,11 +81,11 @@ description: One-line summary shown in the skill inventory
 ---
 ```
 
-Body: write the command as a numbered checklist the EM follows. Cross-reference skills it calls. After adding, bump the command count in `coordinator/README.md` (search for "commands" in the inventory table).
+Body: write the command as a numbered checklist the EM follows. Cross-reference skills it calls. After adding, bump the command count in `README.md` (search for "commands" in the inventory table).
 
 ### How to Add a Skill
 
-Skills live at `coordinator/skills/<name>/SKILL.md`. The directory name is the skill's identifier.
+Skills live at `skills/<name>/SKILL.md`. The directory name is the skill's identifier.
 
 Frontmatter shape:
 
@@ -96,13 +96,13 @@ description: What the skill does (one sentence)
 ---
 ```
 
-See `coordinator/skills/validate/SKILL.md` for a minimal working example — read a couple of existing `SKILL.md` files before writing your first skill.
+See `skills/validate/SKILL.md` for a minimal working example — read a couple of existing `SKILL.md` files before writing your first skill.
 
-After adding, update the skill inventory in `coordinator/README.md`.
+After adding, update the skill inventory in `README.md`.
 
 ### How to Add a Reviewer
 
-Reviewer agents live at `coordinator/agents/<name>.md`. Required frontmatter:
+Reviewer agents live at `agents/<name>.md`. Required frontmatter:
 
 ```yaml
 ---
@@ -115,9 +115,9 @@ model: opus  # reviewers use opus; workers use sonnet
 After writing the agent file:
 
 1. Sync the `reviewer-calibration` snippet into your new file:
-   `bash coordinator/bin/verify-calibration-sync.sh --fix`
-2. If your reviewer fires hooks or references other agents, add a tripwire comment block in `coordinator/CLAUDE.md` (search "Tripwires" for the pattern).
-3. Register the reviewer in `coordinator/README.md` under the agents inventory.
+   `bin/verify-snippet-sync reviewer-calibration --fix`
+2. If your reviewer fires hooks or references other agents, add a tripwire entry in `docs/wiki/coordinator-tripwires.md` (search "Tripwires" for the pattern).
+3. Register the reviewer in `README.md` under the agents inventory.
 
 ### How to Test Install Changes
 
@@ -141,7 +141,7 @@ claude plugin install coordinator@coordinator-claude
 
 Verify that the plugins resolve under `~/.claude/plugins/cache/coordinator-claude/` and that `/coordinator:install` reports a clean status table (env var, machine-local, hooks). `/coordinator:install --check-only` is the read-only way to inspect the result without mutating state.
 
-On Windows: run the CLI in Git Bash; the platform-specific wiring (path translation, the `python3` App-Execution-Alias shim) lives in `lib/install-substrate.sh`, exercised by `/coordinator:install` Phase 3.
+On Windows: run the CLI in Git Bash; the platform-specific wiring (path translation, the `python3` App-Execution-Alias shim) lives in `lib/install-substrate.py`, exercised by `/coordinator:install` Phase 3.
 
 ### Prompt Style Rules
 
@@ -152,7 +152,7 @@ All agent and skill prompts follow the conventions in `docs/wiki/rag-bait-conven
 - Spec backlinks to the plan that introduced the component
 - Vocabulary from `CONTEXT.md` (if present) — no synonyms
 
-The coordinator CLAUDE.md (`coordinator/CLAUDE.md`) is the authority on behavioral rules; agent prompts reference it by inclusion, not by reinventing it.
+Coordinator behavioral doctrine is the authority agent prompts reference by inclusion, not by reinventing it in each prompt file — see the shared snippets synced into agent frontmatter (§ How to Add a Reviewer above) for the pattern.
 
 ### Compatibility Rules
 
@@ -171,12 +171,12 @@ The current version compatibility row lives in `README.md` (search "tested with 
 
 Before submitting a PR that adds or modifies an agent, skill, or command:
 
-- [ ] Frontmatter is complete and valid (`bash coordinator/bin/lint-frontmatter.sh`)
-- [ ] Reviewer agents: `verify-calibration-sync.sh --fix` run and diff is clean
+- [ ] Frontmatter is complete and valid (`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/lint-frontmatter"`)
+- [ ] Reviewer agents: `bin/verify-snippet-sync reviewer-calibration --fix` run and diff is clean
 - [ ] New component is registered in the README inventory count
 - [ ] Cross-references (file paths, skill names, command names) resolve — `python .github/scripts/run-all-checks.py` passes
 - [ ] No hardcoded local paths; build-for-someone-else's-machine rule followed
-- [ ] If the component fires hooks: tripwire added to `coordinator/CLAUDE.md`
+- [ ] If the component fires hooks: tripwire added to `docs/wiki/coordinator-tripwires.md`
 - [ ] If the component is a reviewer: upstream pre-flight wired into the producer skill
 
 ## Questions?

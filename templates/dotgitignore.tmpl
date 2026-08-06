@@ -1,0 +1,232 @@
+# =============================================================================
+# Starter ~/.claude/.gitignore — laid down by /coordinator:install on git init.
+#
+# PRINCIPLE: Track everything that represents work (your doctrine, plugins,
+# wikis, lessons). Ignore only per-machine state, credentials, and regenerable
+# caches/transcripts. Edit freely — this is a starting point, not a contract.
+#
+# THE HAZARD THIS FILE EXISTS FOR — read before you track something new.
+# The moment a SECOND machine clones this repo, "per-machine state" stops being
+# tidiness and becomes correctness. Three physics facts, each invisible until
+# that second machine exists:
+#
+#   1. GENERATED CONTENT BAKES THE AUTHORING MACHINE'S ABSOLUTE PATHS. Hook
+#      commands, PATH shims, forwarders and marketplace roots are materialized
+#      as full paths — a Windows drive root, a macOS home directory, whatever
+#      this machine happens to be. Tracking them
+#      ships one machine's filesystem to another, where those paths do not
+#      exist. Whichever box pushed last wins, and the loser's next pull points
+#      its tooling at a drive that isn't there.
+#   2. GIT CANNOT CARRY A POSIX EXEC BIT ONTO A WINDOWS CHECKOUT. Tracked
+#      executables silently decay to mode 100644 and stop being runnable. Any
+#      executable surface synced across macOS+Windows decays this way with no
+#      error at any point.
+#   3. A MARKER FILE IS A DECISION, AND SYNCING IT MAKES IT EVERYONE'S. Consent
+#      markers, "which root am I", "have I run setup" stamps — tracking one
+#      means one machine's answer arrives on every peer as a pull.
+#
+# If a surface hits any of the three, it belongs on the machine, not in this
+# repo. Per-machine state has a home already: the coordinator settings home
+# ($COORDINATOR_SETTINGS_HOME, default ~/.coordinator-claude-settings). Put it
+# there rather than inventing a tracked-but-ignored spot here.
+#
+# A FOURTH TRAP, DIFFERENT IN KIND — THE DEAD-RULE TRAP. A rule added here for an ALREADY-TRACKED path does
+# NOTHING — git keeps updating what is in the index regardless. So when you add
+# a rule later, untrack the path too:
+#
+#     git rm -r --cached <path> && git commit
+#
+# "It's gitignored" is never evidence a path isn't syncing; only `git ls-files
+# <path>` is. Add the rule BEFORE the untracking so it's in force when the
+# path leaves the index.
+#
+# No template placeholders: copied verbatim. Plugins that produce their own
+# per-machine artifacts add nested .gitignore files in their own data dirs.
+# =============================================================================
+
+# --- Coordinator per-machine state (set by /setup + orientation on THIS machine) ---
+# These answer "what is true on this machine" — a cloned ~/.claude must not carry
+# them to a fresh machine.
+/coordinator-setup-state.yaml
+/coordinator-identity.yaml
+/working-repos.yaml
+
+# settings.json and its sidecars — machine-local, MUST NOT be tracked here.
+# This is hazard 1 at its sharpest. The installer materializes every hook
+# command as an absolute path and stores absolute marketplace roots, so
+# whichever machine pushes last rewrites the other's entire hook chain; the
+# losing machine's next pull points every hook at a drive that does not exist
+# there, bricking Bash/Edit/Write — the very tools needed to repair it. Two
+# machines can also disagree structurally rather than only in path spelling
+# (hooks arriving via --plugin-dir on one and as explicit entries on the
+# other), so there is no single correct tracked value to converge on.
+# The sidecars are worse, not better: .settings-last-good.json is what the
+# clobber-guard AUTO-RESTORES from, so a tracked copy gets machine-absolute
+# paths actively installed into the live settings.json by the repair mechanism
+# itself; the hooks hash is a digest OF machine-local content and is
+# meaningless off the machine that computed it.
+# Each machine keeps its own. Portable preferences belong in a surface that
+# carries no absolute paths.
+/settings.json
+/.settings-last-good.json
+/.coordinator-settings-hooks.hash
+
+# Machine-local markers — hazard 3. Each names a decision or a resolved root
+# belonging to ONE machine (which content root, whether hook generation is
+# enabled here). Tracking one makes a single machine's answer arrive on every
+# peer as a pull, which is how a fail-open default silently re-enabled itself
+# across a fleet. Canonical home for these is the settings home's
+# machine-local/ dir, not this repo.
+# ANCHORED on purpose: each of these is root-only by definition (there is
+# exactly one "which content root" answer per checkout), so a bare, unanchored
+# rule would also swallow a same-named path a plugin legitimately tracks at
+# depth. Extend this block anchored, not bare.
+/.doe-root
+/.coordinator-hooks-disabled
+/.coordinator-hooks-enabled
+/.coordinator-content-root-last-seen
+
+# --- Credentials & secrets / machine-local auth state ---
+.credentials.json
+settings.local.json
+stats-cache.json
+mcp-needs-auth-cache.json
+
+# --- Python bytecode ---
+__pycache__/
+*.pyc
+
+# --- OS cruft (macOS Finder metadata) ---
+.DS_Store
+
+# --- Session transcripts (regenerable, massive) ---
+*.jsonl
+# Exception: plugin test fixtures are work product, not ephemeral transcripts.
+# `**` matches at any depth, so a flat plugins/<name>/tests/fixtures/ is covered.
+!plugins/**/tests/fixtures/*.jsonl
+
+# --- Claude Code internals (regenerable / ephemeral) ---
+backups/
+cache/
+debug/
+downloads/
+file-history/
+ide/
+daemon/
+paste-cache/
+session-env/
+shell-snapshots/
+statsig/
+telemetry/
+todos/
+usage-data/
+sessions/
+image-cache/
+.last-cleanup
+
+# --- Per-project session data (memory, settings, pointers — machine-local) ---
+projects/
+
+# --- Tasks: ignore UUID-named TodoWrite files (8-hex prefix + rest) + caches; keep curated files ---
+# (lessons.md, improvement-queue.md, handoffs/ etc. stay tracked.)
+tasks/[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]-*
+state/orientation_cache.md
+state/.scc-cache
+tasks/_*.log
+
+# --- Plugin install/marketplace state (machine-specific paths, autoupdate stamps, caches) ---
+plugins/installed_plugins.json
+plugins/known_marketplaces.json
+plugins/blocklist.json
+plugins/install-counts-cache.json
+plugins/cache/
+plugins/marketplaces/
+plugins/data/
+plugins/.last_inuse_sweep
+plugins/plugin-catalog-cache.json
+# Nested per-plugin data dirs (doctor-last-run.json, health-check stamps,
+# host-inventory caches) — regenerated on every doctor run, host-specific.
+plugins/*/data/
+
+# --- Repository map (regenerable cache) ---
+.claude/repomap.md
+.claude/repomap-cache/
+
+# --- Scratch / agent-teams scratch (transient, consumed by next phase) ---
+scratch/
+teams/
+
+# --- Session plans (ephemeral). Anchored to root so it does NOT shadow docs/plans/. ---
+/plans/
+
+# --- Installer-created machine artifacts (regenerable; never commit) ---
+# The coordinator venv the installer builds (16M+, 1000+ files) — pinned via the
+# machine-local key coordinator.python; a naive `git add` would commit the whole tree.
+.coordinator-venv/
+# Per-process GPU tenant scratch + install/runtime logs + the on-disk cache — pure
+# runtime churn.
+gpu-tenants/
+logs/
+/.cache/
+# Example: a per-plugin installer stamp file, only relevant if that plugin is
+# installed. Uncomment and rename for the plugin you're using:
+# <plugin-name>-setup-state.yaml
+# NOTE: `setup/` is intentionally NOT ignored — it is tracked doctrine (install
+# scripts, publish targets), not machine state.
+
+# --- Embedded plugin repos (separate git checkouts at the ~/.claude root) ---
+# A plugin that is its own git clone (e.g. a vendored tool or SDK checked out
+# under its own directory) triggers git's "adding embedded git repository"
+# warning and would be committed as a gitlink. Ignore the nested .git so the
+# working tree is tracked as plain files without absorbing a foreign repo. Add
+# the specific plugin dir here if you keep it as a live clone rather than
+# vendored content, e.g.:
+# <plugin-name>/.git/
+
+# --- Generated shims and forwarders (hazards 1 AND 2 together) ---
+# Anything under the ROOT bin/ dir here is a GENERATED PATH shim: it carries the
+# authoring machine's absolute interpreter path, so it cannot work on a peer
+# even in principle, and being executable it also decays to mode 100644 the
+# moment it round-trips through a Windows checkout. This directory is the
+# single largest accumulator of accidentally-tracked per-machine content — it
+# fills up quietly, one forwarder at a time, and the cleanup is a
+# many-hundred-file untracking commit rather than the one line below.
+# Callers should resolve executables through the settings home's bin dir
+# ($COORDINATOR_SETTINGS_HOME/bin), never through a tracked copy here.
+# ANCHORED with a leading slash on purpose: a bare `bin/` matches at every
+# depth and would silently ignore an installed plugin's own tracked bin/.
+/bin/
+# If you ever archive a bin/ tree, keep its README tracked. A timestamped
+# directory of hundreds of files with no explanation reads as disk damage to a
+# fresh session, which then proposes a repair for something that never broke.
+# Pattern: ignore the archive dir, negate its README.
+# bin.retired-<stamp>/
+# !bin.retired-<stamp>/README.md
+
+# --- Per-machine runtime stamps, heartbeats, and scheduler state ---
+# Version-check stamps, update receipts, install heartbeats and daemon logs are
+# answers about THIS machine at THIS moment; session ids and lock files are
+# actively confusing on the other box.
+# ANCHORED on purpose, same reasoning as the machine-local markers above: these
+# are root-only single-machine artifacts, so a bare rule would also swallow a
+# same-named path a plugin legitimately tracks at depth.
+/.last-update-result.json
+/.mcp-version-check
+/daemon.log
+/jobs/
+tasks/session-*/
+# Example: per-plugin install-profile / setup-state / heartbeat files for an
+# installed plugin stack — same reasoning, one entry per plugin you use:
+# <plugin-name>/install-profile.json
+# <plugin-name>/setup-state.json
+# <plugin-name>/install-heartbeat
+# <plugin-name>/watchdog/status.json
+
+# --- Install/upgrade backups (per-machine, regenerable, noise in history) ---
+*.bak
+
+# --- Percolate publish bookkeeping ---
+# Operator identity tokens and per-machine sync high-water marks. The identity
+# file is a credential-class surface, not just machine state.
+setup/.percolate-identity
+setup/percolate-state/

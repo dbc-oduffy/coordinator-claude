@@ -1,6 +1,6 @@
 ---
 name: merging-to-main
-description: "Use when a branch is ready to merge to main. Drafts release notes, creates PR, waits for CI, merges, cleans up."
+description: "Merges a ready branch to main — release notes, PR, CI wait, cleanup."
 allowed-tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", "Agent", "Skill", "AskUserQuestion", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList"]
 argument-hint: [--force]
 ---

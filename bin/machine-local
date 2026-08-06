@@ -1,14 +1,113 @@
-#!/usr/bin/env bash
-# machine-local — bare-name forwarder. The real reader installs to ~/.claude/bin
-# (CLAUDE_HOME-aware); this forwarder lives in the harness-injected plugin bin so
-# bare `machine-local` resolves on POSIX tool shells where ~/.claude/bin is NOT on PATH.
-# Spec: docs/plans/2026-06-18-machine-local-bare-invocation-macos.md
-set -euo pipefail
-# CLAUDE_HOME is a $HOME-substitute per machine-local-registry.md §4a (CLAUDE_HOME=/x → install at /x/.claude/), so the .claude suffix is correct here.
-# Review: code-reviewer slice1-F2 — clarifying comment; the expansion below is doctrinally correct, do NOT alter it.
-_real="${CLAUDE_HOME:-$HOME}/.claude/bin/machine-local"
-if [ ! -x "$_real" ]; then
-  echo "machine-local: resolver not installed at $_real — run /coordinator:setup (Phase 3)." >&2
-  exit 127
-fi
-exec "$_real" "$@"
+#!/usr/bin/env python3
+"""
+machine-local — bare-name forwarder to the real machine-local reader.
+
+The real reader installs to the settings home
+(${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local),
+with the legacy ${CLAUDE_HOME:-$HOME}/.claude/bin/machine-local kept as a fallback
+for machines that predate the retirement of ~/.claude/bin; on Windows the
+extensioned siblings of either are tried first. This forwarder lives in the
+harness-injected plugin bin so bare `machine-local` resolves on tool shells where
+the real install dir is NOT on PATH.
+
+Durable-first ordering (DR-072) is load-bearing, not cosmetic. When ~/.claude/bin
+was retired, this forwarder still named it as the only install location, so every
+call exited 127 with "resolver not installed" — and `_ml_get`-style callers treat a
+non-zero exit as "key unset". Every registry lookup on the machine silently became
+None, and each consumer fell through to its own last-resort rung: the meta-repo's
+generated git hooks baked a path that does not exist, disarming auto-push. A reader
+that reports "unset" for a registry it simply cannot reach is indistinguishable, to
+its callers, from an empty registry — which is why the fallback below is ordered,
+not merely present.
+
+Self-contained on purpose — do NOT rewrite this as a claude-klabauter-importing trampoline
+(the cc_invoke/_resolve_claude_klabauter_root pattern used elsewhere in this directory).
+Claude-Klabauter-root resolution itself shells out to machine-local
+(coordinator/lib/coordinator-claude-klabauter-root.sh rung 2), so a trampoline that imports
+cc_invoke here would recurse on any machine that doesn't already have a resolved
+Claude-klabauter-root pointer.
+
+Spec: docs/plans/2026-06-18-machine-local-bare-invocation-macos.md
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+
+# CLAUDE_HOME is a $HOME-substitute per machine-local-registry.md §4a
+# (CLAUDE_HOME=/x -> install at /x/.claude/), so the .claude suffix below is correct.
+_CLAUDE_HOME = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+_SETTINGS_HOME = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
+    os.path.expanduser("~"), ".coordinator-claude-settings"
+)
+# Durable settings-home install first, legacy ~/.claude/bin second.
+_REAL_BASES = (
+    os.path.join(_SETTINGS_HOME, "bin", "machine-local"),
+    os.path.join(_CLAUDE_HOME, ".claude", "bin", "machine-local"),
+)
+
+_REMEDIATION = (
+    "machine-local: resolver not installed at any of {paths} — "
+    "run /coordinator:setup (Phase 3)."
+)
+
+
+def _resolve_real() -> str | None:
+    """Find an invocable real reader.
+
+    On Windows the extensioned siblings are tried FIRST; on POSIX the
+    extensionless path is.
+
+    Order matters because ``os.access(path, os.X_OK)`` is not a meaningful
+    executability test on Windows — there is no exec permission bit, so it
+    returns True for ANY existing file. Checking the extensionless path first
+    therefore always "succeeded", returned a shebang script Windows cannot
+    exec, and blew up at ``subprocess.call`` with::
+
+        [WinError 193] %1 is not a valid Win32 application
+
+    The ``.cmd`` sibling that exists precisely for this case sat right beside
+    it and was never reached. Callers saw the forwarder produce no value and
+    read that as "registry key unset" — sending operators to set a key that
+    was already set correctly. That misdiagnosis blocked percolation entirely
+    on Windows, since the whole publish-target resolution chain runs through
+    this forwarder.
+    """
+    for base in _REAL_BASES:
+        if os.name == "nt":
+            for suffix in (".cmd", ".py"):
+                candidate = base + suffix
+                if os.path.isfile(candidate):
+                    return candidate
+            # Extensionless last on Windows: only useful if it is genuinely a
+            # native executable, which subprocess will tell us definitively.
+            if os.path.isfile(base):
+                return base
+            # falls through to the loop's natural next-base advance
+
+        if os.path.isfile(base) and os.access(base, os.X_OK):
+            return base
+    return None
+
+
+def main(argv: list[str]) -> int:
+    real = _resolve_real()
+    if real is None:
+        print(_REMEDIATION.format(paths=" or ".join(_REAL_BASES)), file=sys.stderr)
+        return 127
+
+    cmd = [real] + argv
+    if real.endswith(".py"):
+        cmd = [sys.executable, real] + argv
+
+    try:
+        return subprocess.call(cmd)
+    except OSError as exc:
+        print(f"machine-local: failed to invoke {real}: {exc}", file=sys.stderr)
+        return 127
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

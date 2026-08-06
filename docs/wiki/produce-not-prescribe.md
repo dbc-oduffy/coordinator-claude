@@ -38,6 +38,5 @@ The inversion fixes the root: setup produces, downstream self-gates.
 
 ## Adjacent doctrine
 
-→ [`post-install-onboarding-pattern.md`](post-install-onboarding-pattern.md) — the EM-facilitated guided tour at install-tail. **Distinct from this doctrine** — that one is about the *conversation* (orient / make it yours / test drive); this one is about the *substrate* (what setup writes to disk). The two compose: setup produces minimum-viable substrate, then the post-install tour offers an optional guided walkthrough of what was installed.
-→ [`getting-started.md`](getting-started.md) — coordinator's operator-facing tour (the instance of `post-install-onboarding-pattern.md` for this plugin).
+→ The post-install onboarding pattern — the EM-facilitated guided tour at install-tail. **Distinct from this doctrine** — that one is about the *conversation* (orient / make it yours / test drive); this one is about the *substrate* (what setup writes to disk). The two compose: setup produces minimum-viable substrate, then the post-install tour offers an optional guided walkthrough of what was installed.
 → `skills/repo-setup/SKILL.md` § Lazy-creation discipline — the in-skill articulation of the underlying "meaningful day-1 content" rule that this principle generalizes.

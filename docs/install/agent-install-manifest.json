@@ -3,10 +3,35 @@
   "repo_id": "coordinator-claude",
   "setup_skill": "/coordinator:setup",
   "standalone_setup_script": {
-    "posix": "coordinator/scripts/setup.sh",
-    "windows": "coordinator/scripts/setup.ps1"
+    "posix": "coordinator/scripts/setup.py",
+    "windows": "coordinator/scripts/setup.ps1",
+    "entry_point_contract": {
+      "non_interactive_flag": "--i-am-agent",
+      "check_only_flag": "--check",
+      "deterministic_exit": true
+    }
   },
-  "direct_deps": [],
+  "programmatic_entry_point": {
+    "posix": "coordinator/scripts/install-maximalist.py",
+    "entry_point_contract": {
+      "non_interactive_flag": "--non-interactive",
+      "check_only_flag": "--check-only",
+      "deterministic_exit": true
+    }
+  },
+  "direct_deps": [
+    {
+      "id": "claude-klabauter",
+      "severity": "hard",
+      "sibling_dir_name": "claude-klabauter",
+      "upstream_url": "https://github.com/dbc-oduffy/claude-klabauter",
+      "distribution": "private-access-on-request",
+      "distribution_note": "The coordinator_core engine publishes from claude-klabauter to the public repo claude-klabauter — NOT YET LIVE as of this manifest (zero commits pushed). upstream_url points at claude-klabauter in anticipation of that publish; until it goes live the URL 404s and this dep is access-on-request from the maintainer, same model as project-rag.",
+      "functional_probe_kind": "claude_klabauter_seam_resolvable",
+      "functional_probe_args": {},
+      "consumer_install_args": []
+    }
+  ],
   "required_env_vars": [],
   "override_flags": {
     "skip_dep_check": "--skip-dep-check",
@@ -17,6 +42,47 @@
     "plugin_self_registration": true,
     "refresh_primitive": "bin/refresh-plugin-live-install.sh",
     "hoistable_at_step_zero": true
+  },
+  "installer_floor": {
+    "floor_prerequisite_ids": ["git", "claude_code"],
+    "install_root_drivable": true
+  },
+  "tested_platforms": ["macos", "linux"],
+  "present_platforms": ["macos", "linux", "windows"],
+  "configurable_locations": [
+    {
+      "name": "install_root",
+      "discovery": {
+        "candidates": [
+          "CLAUDE_HOME env_var override (test sandboxes, CI runners, alt installs)",
+          "HOME (POSIX-canonical)",
+          "USERPROFILE (Windows-canonical fallback)",
+          "language-stdlib Path.home() last resort"
+        ]
+      },
+      "default": "~/.claude (i.e. <resolved-home>/.claude)",
+      "override": {
+        "env": "CLAUDE_HOME"
+      }
+    },
+    {
+      "name": "repos_root",
+      "discovery": {
+        "candidates": [
+          "explicit REPO_<SLUG> env-var or CLI flag override",
+          "tracked search-roots autodiscovery via marketplace.json identity marker",
+          "tracked path-exceptions table (OS-keyed slug -> parent-path overrides)",
+          "registry.local.toml repos.<slug> last-resort fallback"
+        ]
+      },
+      "default": "sibling-repo discovery via marketplace.json marker under tracked search-roots",
+      "override": {
+        "env": "REPO_<SLUG>"
+      }
+    }
+  ],
+  "packageability_compliance": {
+    "declared": true
   },
   "system_prerequisites": [
     {

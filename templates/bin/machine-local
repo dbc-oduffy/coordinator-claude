@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+# machine-local — thin forwarder for the machine-local registry reader.
+#
+# Spec backlink: docs/plans/2026-05-19-machine-local-registry.md §4.3
+# Purpose: delegate all subcommands to _machine_local.py, resolving a Python
+# interpreter portably. Users call this forwarder; _machine_local.py is the
+# implementation and is intentionally underscore-prefixed to discourage direct
+# invocation.
+#
+# LOCATION-INDEPENDENT FORWARDER: resolves _machine_local.py via the coordinator
+# settings-home seam, so this script works correctly whether installed at
+# <settings-home>/bin/machine-local (primary) or ~/.claude/bin/machine-local
+# (transitional compat forwarder during the settings-home migration window).
+# _real= target: COORDINATOR_SETTINGS_HOME -> ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
+# Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C4 -- _real= target
+#
+# EXTENSIONLESS ENTRYPOINT, PYTHON SHEBANG: this file keeps its installed name
+# (`machine-local`, no extension) verbatim -- callers resolve it by that exact
+# name (PATH lookup, co-located-file fallback, shutil.which()). Only the
+# implementation language changed (bash -> python3); the on-disk name and the
+# subprocess-exec contract are unchanged. Ported 2026-07-22 per the
+# structural-bash-to-naked-Python campaign (coordinator.local.md).
+#
+# PORTABILITY: this forwarder can itself be launched under an interpreter that
+# predates its own >=3.11 guard-check target (the shebang's `env python3` picks
+# whatever `python3` resolves first on the caller's PATH, which under a stripped
+# PATH or an old macOS system Python can be < 3.11). That is fine: everything
+# below is plain, version-agnostic stdlib code (no 3.11+ syntax) -- its only job
+# is to probe for a >=3.11 interpreter and exec _machine_local.py under it. The
+# impl script is the one that actually requires >=3.11 and enforces it itself.
+
+import os
+import shutil
+import subprocess
+import sys
+
+
+def _real_settings_bin() -> str:
+    settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME")
+    if not settings_home:
+        home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or ""
+        settings_home = os.path.join(home, ".coordinator-claude-settings")
+    return os.path.join(settings_home, "bin")
+
+
+def _py311_ok(candidate: str) -> bool:
+    try:
+        result = subprocess.run(
+            [candidate, "-c", "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+def main() -> int:
+    _real = _real_settings_bin()
+    impl = os.path.join(_real, "_machine_local.py")
+
+    if not os.path.isfile(impl):
+        settings_home = _real[: -len("/bin")] if _real.endswith("/bin") else _real
+        sys.stderr.write(f"machine-local: implementation not found at {impl}\n")
+        sys.stderr.write(f"  Settings home: {settings_home}\n")
+        sys.stderr.write(
+            "  Remediation: re-run coordinator:install to seed the settings-home bin/ family.\n"
+        )
+        return 2  # operational failure (see _machine_local.py exit-code contract)
+
+    # Resolve a Python interpreter that satisfies _machine_local.py's >=3.11
+    # guard. Naively taking the first `python3` on PATH is a footgun: under a
+    # stripped PATH (e.g. a daemon launched with PATH=/usr/bin:/bin) `python3`
+    # resolves to macOS system Python 3.9, which trips the impl's version
+    # guard and exits operational-fail -- indistinguishable downstream from a
+    # genuinely-absent key. Probe candidates and pick the first that is
+    # >=3.11 so the forwarder self-heals for ANY caller regardless of
+    # inherited PATH. Cross-repo memo 2026-06-24 (daemon read-path).
+    python = os.environ.get("MACHINE_LOCAL_PYTHON") or ""
+
+    if not python:
+        # Version-pinned names first (most likely >=3.11 even under a
+        # stripped PATH that only carries an old generic python3), then the
+        # generics (catch a new-enough python3/python whatever its minor
+        # version, future-proofing past this list). Worst case ~6 probe
+        # spawns before the real exec; MACHINE_LOCAL_PYTHON skips it.
+        for cand in ("python3.14", "python3.13", "python3.12", "python3.11", "python3", "python"):
+            resolved = shutil.which(cand)
+            if resolved and _py311_ok(resolved):
+                python = resolved
+                break
+
+    if not python:
+        # No >=3.11 interpreter found. Exec the first available python
+        # anyway so the impl's own version guard emits its actionable
+        # remediation (and the operational exit code), rather than dying
+        # here with a vaguer message.
+        for cand in ("python3", "python"):
+            resolved = shutil.which(cand)
+            if resolved:
+                python = resolved
+                break
+
+    if not python:
+        sys.stderr.write("machine-local: no python3 (or python) found on PATH\n")
+        return 2  # operational failure (see _machine_local.py exit-code contract)
+
+    try:
+        os.execvp(python, [python, impl] + sys.argv[1:])
+    except OSError as exc:
+        sys.stderr.write(f"machine-local: failed to exec {python}: {exc}\n")
+        return 2
+
+    return 0  # unreachable — execvp replaces this process on success
+
+
+if __name__ == "__main__":
+    sys.exit(main())

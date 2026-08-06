@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://coordinator.local/schemas/goal.schema.json",
+  "x-schema-name": "goal",
+  "x-schema-version": "1.1.0",
+  "x-bump-class": "nested-field-additive",
+  "x-bump-note": "1.0.0 -> 1.1.0 added key_results.items.properties.reassessment_proposal (strict, greenfield object nested in the key_results array).",
+  "applies_to": "state/goals/*.yaml",
+  "description": "Goal artifact — a time-boxed outcome target with measurable key results. Stored per-goal in state/goals/<id>.yaml (whole-document YAML frontmatter is the whole file — no prose markdown body). Spec backlink: docs/plans/2026-07-06-deliverable-rollup-render-and-fk-population.md § C1. Spec backlink: docs/plans/2026-07-13-close-weekly-goal-loop.md § C1 (.md→.yaml migration, reverses the above's format decision)",
+  "type": "object",
+  "required": ["id", "title", "status", "objective", "key_results", "created", "schema", "period", "period_value"],
+  "_additionalProperties_note": "Permissive by design — additionalProperties is not set to false here, consistent with the handoff schema. A misspelled field will silently pass. This is intentional for forward-compatibility and matches the existing permissive pattern in other coordinator schemas. TOP-LEVEL posture reconfirmed 2026-07-25 (goal-kr-field-ownership-convention, C2): tightening was considered and DECLINED — debt-backlog.schema.json:10 cites this schema's permissiveness by name as its own precedent, and cross-repo-commitment.schema.json:10 cites goal implicitly via its own 'matches the existing permissive pattern in other coordinator schemas' clause (it names 'handoff' explicitly but not 'goal' by name — goal is one of those 'other coordinator schemas' it means, so a tightening here would still strand that citation even though the word 'goal' isn't present at cross-repo-commitment.schema.json:10 for a future reader to find directly). Unlike skill.schema.json:7 (which cleared a documented zero-out-of-set-keys corpus bar across 32 observed files before going strict), no equivalent corpus proof exists for goal records. By contrast, key_results.items.properties.reassessment_proposal (added in the same change) IS strict (additionalProperties: false + required) — it is a greenfield object with no sibling-schema citation to strand and no corpus to clear, so none of the grounds above apply to it; the top-level decline and the nested strictness are deliberately asymmetric, not in tension.",
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "goal",
+      "description": "Schema discriminator — always 'goal'. Enables kind-first schema matching."
+    },
+    "id": {
+      "type": "string",
+      "description": "Stable canonical goal identifier (e.g. 'goal-shipping-velocity'). Kebab-case; unique across the repo. Used as the FK value in artifact frontmatter goal: fields."
+    },
+    "title": {
+      "type": "string",
+      "description": "Business-legible display name for this goal."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "achieved", "abandoned"],
+      "description": "Goal lifecycle status. active=in flight; achieved=key results met; abandoned=cancelled or superseded."
+    },
+    "objective": {
+      "type": "string",
+      "description": "Prose statement of what this goal aims to achieve. Written as a complete sentence. This is the 'O' in OKR."
+    },
+    "key_results": {
+      "type": "array",
+      "description": "Ordered list of measurable key results for this goal (the 'KR' in OKR). Each item is a concrete, falsifiable result. An empty array is permitted — a goal may be authored before KRs are defined (inception phase). No cross-field rule requires at least one KR for status:active; the assumption is that KRs are added before a goal is acted on.",
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "kind", "status", "weekly_perceptible", "evidence_source"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier for this key result within the goal (e.g. 'kr-1', 'kr-throughput'). Stable across edits so FK references survive reordering."
+          },
+          "text": {
+            "type": "string",
+            "description": "Human-readable description of the key result. Written as a measurable outcome."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["output", "outcome"],
+            "description": "output=a deliverable/artifact produced; outcome=a measurable change in behaviour or state."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["not-started", "in-progress", "met", "at-risk"],
+            "description": "Current progress on this key result. not-started=no work begun; in-progress=active; met=achieved; at-risk=blocked or behind."
+          },
+          "weekly_perceptible": {
+            "type": "boolean",
+            "description": "True if progress on this key result should be visible in a weekly changelog or status report."
+          },
+          "evidence_source": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "description": "Path or reference to the artifact, metric, or document that evidences completion. Null when not yet known."
+          },
+          "reassessment_proposal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["proposed_status", "perceptible_movement", "proposed_at", "proposed_by"],
+                "properties": {
+                  "proposed_status": {
+                    "type": "string",
+                    "enum": ["not-started", "in-progress", "met", "at-risk"],
+                    "description": "The status reassess-goal-krs proposes for this KR — NOT yet written to the live status field above. Same value space as status; distinguishing this from status IS the point (goals-okr-system.md § Weekly KR re-assessment: 'writes the proposed status back to the artifact for EM/PM confirmation — not a silent auto-set')."
+                  },
+                  "perceptible_movement": {
+                    "type": "boolean",
+                    "description": "Whether reassess-goal-krs judged this KR to have moved perceptibly since the prior reassessment — the signal the wiki's re-assessment section describes alongside the proposed status."
+                  },
+                  "proposed_at": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Date the proposal was written (YYYY-MM-DD) — provenance for when, paired with proposed_by for by-what."
+                  },
+                  "proposed_by": {
+                    "type": "string",
+                    "description": "Actor that authored this proposal (e.g. 'reassess-goal-krs') — provenance for by-what, paired with proposed_at for when."
+                  }
+                }
+              },
+              {"type": "null"}
+            ],
+            "description": "Pending KR-status reassessment proposal awaiting EM/PM confirmation, or null when there is none outstanding. Confirmation is out-of-band: an EM/PM that accepts the proposal writes proposed_status into the live status field above and clears this back to null — this field itself is never read as the live status. Strict object shape (additionalProperties: false + required) — a typo'd key or a proposal missing one of its four subfields fails validation rather than passing silently. Not listed in key_results.items.required: most KRs carry no outstanding proposal."
+          }
+        }
+      }
+    },
+    "created": {
+      "type": "string",
+      "format": "date",
+      "description": "Date this goal was authored (YYYY-MM-DD)."
+    },
+    "owner": {
+      "type": "string",
+      "description": "EM or workstream identifier owning this goal. Optional — may be unassigned at inception."
+    },
+    "period": {
+      "type": "string",
+      "enum": ["day", "week", "repo", "quarter", "year"],
+      "description": "Time horizon this goal operates over. day=sprint/daily; week=weekly cadence; repo=workstream-scoped; quarter=quarterly OKR (e.g. Q3-2026); year=annual OKR. Required — no null branch (the Director of Engineering F2/D-C): emit-goal-from-artifact.py hard-requires period at emission time (SKIPs + _EMIT_FAIL=1 if absent), so a null/absent period must be rejected at authoring time, not silently SKIP'd later at emit."
+    },
+    "period_value": {
+      "type": "string",
+      "description": "The period's concrete value: an ISO-week (e.g. '2026-W29') when period=week, 'Q3-2026'-shaped when period=repo/quarter, an ISO-date when period=day. Required — emit-goal-from-artifact.py already hard-requires this from frontmatter (SKIPs + _EMIT_FAIL=1 if absent) and the deterministic goal_id is sha1(repo|root|period|period_value|text) (append-goal-event.py:187); making it required here closes the gap at the contract, not the emitter."
+    },
+    "weekly_perceptible": {
+      "type": "boolean",
+      "description": "TOP-LEVEL goal-scope weekly-perceptibility flag, distinct from the existing per-KR key_results[].weekly_perceptible — cockpit's weekly/CEO view. Optional. Wire projection is 1:1 passthrough (no OR-over-KRs derivation — see C11's field map)."
+    },
+    "parent_goal_id": {
+      "anyOf": [{"type": "string"}, {"type": "null"}],
+      "description": "Weekly goal → parent quarter/repo OKR linkage. Schema'd annotation only in this plan (DEC-2) — not made queryable here. Optional; null when this goal has no parent OKR."
+    },
+    "initiative": {
+      "anyOf": [{"type": "string"}, {"type": "null"}],
+      "description": "Goal-side reverse FK to the initiative entity (state/initiatives/<id>.yaml) — lets a goal name the initiative it serves without scanning every initiative's goals[] array. Additive companion to the authoritative forward edge initiative.goals[] (many-to-many); this reverse edge is a single-value soft tag with no referential enforcement, fleet-consistent with the initiative: FK on handoff/plan/roadmap (D9 present-as-null, never .optional(); non-empty string when non-null). On conflict between this field and initiative.goals[], the forward array is authoritative for cockpit's buildLadder render. Spec backlink: cross-repo/inbox/2026-07-13-claude-klabauter-em-goal-side-initiative-reverse-fk-additive.md"
+    },
+    "goal_id": {
+      "type": "string",
+      "description": "Deterministic content-derived authoring identifier: sha1(repo|root|period|period_value|text), computable at author time. This IS the C15 structured-records facet key (the SQLite facet index dedup key) — it is INTENTIONALLY DISTINCT from the wire goal_id, which append-goal-event.py derives independently from an emitter-constructed, id-prefixed text (`\"<id>: <objective>\"`, not the bare text/objective this field hashes). `--goal-id` is accepted by append-goal-event.py but not substituted for the wire goal_id (out of scope for C11 — see plan body); the two goal_id values are expected to diverge, not to match. Distinct from the stable canonical `id` field (project-rag excludes id/name from metadata promotion as a chunk-id-slot collision; goal_id is unambiguously non-colliding)."
+    }
+  }
+}

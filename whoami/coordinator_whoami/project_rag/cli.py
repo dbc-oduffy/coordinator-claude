@@ -40,7 +40,7 @@ probes (_probe_project_rag_state, _probe_source, _probe_engine_version,
 _probe_project_kind) live in this module. Extraction: C1 refactor per
 archive/specs/2026-05-27-whoami-session-spine-refactor.md § C1.
 
-Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at X:/project-rag (not imported; preserved at source).
+Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at project-rag (not imported; preserved at source).
 Re-anchored backlink (this repo): docs/plans/2026-05-19-whoami-substrate-migration.md § 8 Task 2
 """
 from __future__ import annotations
@@ -322,7 +322,7 @@ def compose() -> dict[str, Any]:
         plus the three new native probes (source, engine_version, project_kind)
         added per PM system-improvement directive 2026-05-19.
 
-    Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at X:/project-rag (not imported; preserved at source).
+    Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at project-rag (not imported; preserved at source).
     Re-anchored backlink (this repo): docs/plans/2026-05-19-whoami-substrate-migration.md § 8 Task 2
     """
     return {
@@ -353,7 +353,7 @@ def persist(profile: dict[str, Any]) -> Path:
 
     Returns the path written.
 
-    Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at X:/project-rag (not imported; preserved at source).
+    Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at project-rag (not imported; preserved at source).
       ("Persistence — whoami_profile sub-key under install-profile.json")
     Re-anchored backlink (this repo): docs/plans/2026-05-19-whoami-substrate-migration.md § 8 Task 2
     """

@@ -59,6 +59,124 @@ _NO_CONSOLE_WINDOW = (
 )
 
 
+def _settings_home() -> Path:
+    """coordinator-settings-home root, by pure path arithmetic (never a file read).
+
+    Same two-rung precedence every settings-home consumer in this repo carries
+    (COORDINATOR_SETTINGS_HOME override, else CLAUDE_HOME-or-HOME joined with
+    ".coordinator-claude-settings") — see
+    coordinator/templates/bin/claude_machine_local.py::_settings_home and
+    coordinator/hooks/scripts/_engine_root.py::_settings_home for the two
+    other copies of this exact ladder. Inlined here, not imported, because
+    coordinator_whoami is a standalone-distributable package (own
+    pyproject.toml, own venv — see coordinator/whoami/pyproject.toml) that
+    cannot import across the coordinator/hooks or coordinator/templates
+    package boundary; every existing settings-home consumer in this repo
+    duplicates the same two lines for the identical reason rather than
+    reaching across a package boundary for it.
+    """
+    override = os.environ.get("COORDINATOR_SETTINGS_HOME")
+    if override:
+        return Path(override)
+    home = os.environ.get("CLAUDE_HOME") or str(Path.home())
+    return Path(home) / ".coordinator-claude-settings"
+
+
+def _read_hardware_concern() -> dict[str, Any]:
+    """In-process, zero-subprocess read of the `hardware` machine-local concern.
+
+    Purpose: several host probes below shell out to sysctl/PowerShell/etc. to
+    learn a fact (CPU chip name, RAM size, GPU name) that the fleet's
+    install-time hardware audit capability has already persisted into
+    <settings-home>/machine-local/hardware.local.toml via
+    `machine-local set --concern hardware`. Reading that file directly with
+    stdlib tomllib is materially cheaper than either re-probing (a fresh
+    subprocess spawn) or asking for the value via the `machine-local` CLI
+    (also a subprocess spawn — see coordinator/templates/bin/
+    claude_machine_local.py, whose _Namespace._reader_invocation shells out
+    to _machine_local.py for every single key read). A subprocess round-trip
+    would only relocate the exact cost this repointing exists to remove, not
+    remove it — see this module's spec backlink for the fuller reasoning.
+
+    Mirrors coordinator/hooks/scripts/_engine_root.py's own zero-spawn
+    tomllib-direct read of the machine-local registry — same in-process
+    pattern, same latency motive (that module's own docstring names the
+    identical "hot-path, no subprocess" constraint this one is under).
+
+    This module NEVER writes to the registry — it is a read-only consumer of
+    a fact the install-time hardware audit already owns; building a second
+    store of the same fact here is the exact failure mode this repointing is
+    meant to avoid, not a shortcut to take.
+
+    Resolution: hardware.toml (tracked baseline) is read first, then
+    hardware.local.toml (per-machine values) is layered on top — matching
+    _machine_local.py's own concern-file precedence (local overrides base).
+    In practice only .local ever carries real values; the tracked baseline
+    carries schema-only declarations (see hardware.toml's own header).
+
+    Fails open on every rung: pre-3.11 interpreter (no tomllib), missing
+    settings-home, missing/unreadable/malformed TOML, or an empty/absent
+    `[hardware]` table all return `{}` — callers MUST treat `{}` as "probe
+    live", never as an error (same posture as the engine-root resolver this
+    mirrors).
+
+    Returns (or `{}` on any failure):
+        {
+            "cores": int | None,
+            "ram_gb": int | None,
+            "gpu": str | None,
+            "vram_gb": int | None,
+            "written_at": {<bare_key>: str | None, ...},  # per-key provenance
+        }
+    """
+    try:
+        import tomllib
+    except ImportError:
+        return {}
+
+    reg_dir = _settings_home() / "machine-local"
+    hw: dict[str, Any] = {}
+    provenance: dict[str, dict[str, Any]] = {}
+
+    for name in ("hardware.toml", "hardware.local.toml"):
+        path = reg_dir / name
+        try:
+            if not path.is_file():
+                continue
+            with path.open("rb") as fh:
+                data = tomllib.load(fh)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        hw_table = data.get("hardware")
+        if isinstance(hw_table, dict):
+            hw.update(hw_table)
+        prov_root = data.get("provenance")
+        if isinstance(prov_root, dict):
+            for prov_key, prov_val in prov_root.items():
+                if isinstance(prov_val, dict):
+                    provenance[prov_key] = prov_val
+
+    if not hw:
+        return {}
+
+    def _int_or_none(v: Any) -> int | None:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    gpu_val = hw.get("gpu")
+    return {
+        "cores": _int_or_none(hw.get("cores")),
+        "ram_gb": _int_or_none(hw.get("ram_gb")),
+        "gpu": gpu_val if isinstance(gpu_val, str) and gpu_val else None,
+        "vram_gb": _int_or_none(hw.get("vram_gb")),
+        "written_at": {k: v.get("written_at") for k, v in provenance.items()},
+    }
+
+
 def _probe_os() -> dict[str, Any]:
     """Probe OS name, version string, active shell, and is_windows flag.
 
@@ -251,6 +369,10 @@ def _probe_arch() -> dict[str, Any]:
         # perflevel0 = highest-performance tier (P-cores); perflevel1 = efficiency tier (E-cores).
         # Convention pinned — DO NOT INVERT. EM-verified 2026-06-23 on Apple M5 Pro (Mac17,9):
         # hw.perflevel0.physicalcpu=5, hw.perflevel1.physicalcpu=10, hw.physicalcpu=15.
+        # physical_cores/performance_cores/efficiency_cores/model have no
+        # counterpart in the persisted hardware.* registry (it records only
+        # LOGICAL core count under hardware.cores — see hardware.toml's own
+        # ownership-map comment) so these stay live sysctl probes.
         try:
             val0 = _sysctl_str("hw.perflevel0.physicalcpu")
             if val0 is not None:
@@ -263,7 +385,14 @@ def _probe_arch() -> dict[str, Any]:
                 efficiency_cores = int(val1)
         except (ValueError, TypeError):
             efficiency_cores = None
-        chip = _sysctl_str("machdep.cpu.brand_string")
+        # chip (machdep.cpu.brand_string) is the same real-world fact the
+        # install-time hardware audit already persisted as hardware.gpu on
+        # Apple Silicon (one SoC, one chip name for both CPU and GPU) — read
+        # it from the registry first, falling back to the live sysctl probe
+        # when the registry has no value (absent install, cleared settings
+        # home, or a non-Apple-Silicon-audited machine). See
+        # _read_hardware_concern's own docstring for the fail-open contract.
+        chip = _read_hardware_concern().get("gpu") or _sysctl_str("machdep.cpu.brand_string")
         model = _sysctl_str("hw.model")
 
     return {
@@ -367,7 +496,19 @@ def _probe_gpu() -> dict[str, Any]:
     # Apple Silicon branch: Darwin + arm64 + no working nvidia-smi.
     # mps_capable derives purely from platform facts — zero torch import.
     if platform.system() == "Darwin" and platform.machine() == "arm64":
-        chip_name = _sysctl_str("machdep.cpu.brand_string")
+        # Same registry-first / sysctl-fallback repointing as _probe_arch()'s
+        # `chip` field — see that call site's comment for the fact-identity
+        # reasoning (one SoC, one chip name, already persisted as
+        # hardware.gpu by the install-time hardware audit).
+        chip_name = _read_hardware_concern().get("gpu") or _sysctl_str("machdep.cpu.brand_string")
+        # unified_memory_bytes deliberately stays a live sysctl probe, not a
+        # registry repoint: the registry's hardware.ram_gb is rounded to the
+        # nearest whole GB at audit time (see the install-time hardware
+        # audit's round-to-nearest-GB step) while this field's contract is
+        # exact bytes — reconstructing bytes from the rounded GB value would
+        # silently substitute an approximation for an exact reading rather
+        # than a genuinely equivalent fact (unlike the chip-name repoint
+        # above, which is a lossless registry/sysctl match).
         unified_memory_bytes: int | None = None
         try:
             memsize_str = _sysctl_str("hw.memsize")
@@ -490,7 +631,14 @@ def _probe_memory() -> dict[str, Any]:
             }
 
         elif sys.platform == "darwin":
-            # Total: hw.memsize (bytes directly)
+            # Total: hw.memsize (bytes directly). Deliberately NOT repointed
+            # to the registry's hardware.ram_gb: that value is rounded to
+            # the nearest whole GB at install-audit time, while this field's
+            # contract is exact bytes — reconstructing bytes from a rounded
+            # GB figure would silently swap an approximation in for an exact
+            # reading (see the matching decision + reasoning on
+            # _probe_gpu()'s unified_memory_bytes, which reads the identical
+            # sysctl key).
             total_bytes: int | None = None
             try:
                 r = subprocess.run(
@@ -951,23 +1099,34 @@ def _probe_claude() -> dict[str, Any]:
 def _probe_coordinator() -> dict[str, Any]:
     """Probe coordinator-claude installation state.
 
-    Checks for the coordinator's CLAUDE.md at the standard plugin path
-    under ~/.claude/plugins/coordinator-claude/.
+    Checks for the plugin manifest (`.claude-plugin/plugin.json`) at the
+    standard plugin path under ~/.claude/plugins/coordinator-claude/. The
+    manifest is a structural artifact the Claude Code plugin loader requires
+    to recognize any plugin at all — unlike a documentation file (the retired
+    `coordinator/CLAUDE.md` marker this replaces), it cannot be deleted or
+    relocated by a doc reorg without also breaking plugin loading itself, and
+    it carries a real `version` field so version reporting survives the
+    switch. `skills/` (also present in every install) was considered and
+    rejected: a directory of skill files is not something the platform
+    itself depends on to recognize the plugin, and it carries no version.
+
+    Spec backlink: coordinator-claude was flattened to a single-plugin repo
+    ("v3 cutover", coordinator-claude@9a8d7b2) — the installed plugin root
+    (marketplace `"source": "."`) has no nested `coordinator/` subdirectory,
+    so the manifest lives directly at `<plugin-root>/.claude-plugin/plugin.json`.
     """
     claude_home = os.environ.get("CLAUDE_HOME")
-    base = Path(claude_home) if claude_home else Path.home() / ".claude"
-    coordinator_marker = base / "plugins" / "coordinator-claude" / "coordinator" / "CLAUDE.md"
+    base = (Path(claude_home) if claude_home else Path.home()) / ".claude"
+    coordinator_marker = base / "plugins" / "coordinator-claude" / ".claude-plugin" / "plugin.json"
 
     if coordinator_marker.exists():
-        # Attempt to read version from the CLAUDE.md frontmatter — optional.
         version: str | None = None
         try:
-            text = coordinator_marker.read_text(encoding="utf-8", errors="replace")
-            # Look for "version: X.Y.Z" in frontmatter-like header.
-            m = re.search(r"version:\s*([^\s\n]+)", text[:2000])
-            if m:
-                version = m.group(1)
-        except OSError:
+            data = json.loads(coordinator_marker.read_text(encoding="utf-8", errors="replace"))
+            raw_version = data.get("version") if isinstance(data, dict) else None
+            if isinstance(raw_version, str):
+                version = raw_version
+        except (OSError, json.JSONDecodeError):
             pass
         return {"installed": True, "version": version}
 

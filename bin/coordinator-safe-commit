@@ -1,1620 +1,2237 @@
-#!/usr/bin/env bash
-# coordinator-safe-commit — Scoped safety commit helper (Phase 3, scoped-safety-commits plan)
-#
-# Canonical invocation:
-#   ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "<subject>"
-# Or alias in shell rc:
-#   alias safe-commit='~/.claude/plugins/coordinator/bin/coordinator-safe-commit'
-#
-# Usage forms:
-#   coordinator-safe-commit "<subject>"                   # default — scoped staging
-#   coordinator-safe-commit --blanket "<subject>"         # blanket staging (carve-outs only)
-#   coordinator-safe-commit --scope-from <path> "<subject>" # workstream-anchored (handoff/pickup)
-#   coordinator-safe-commit --dry-run "<subject>"         # show what would be staged, no commit
-#
-# Environment:
-#   CLAUDE_SESSION_ID            — explicit session-ID override (manual / tests)
-#   CLAUDE_CODE_SESSION_ID       — platform-injected session ID (Claude Code ≥ ~2.1.150;
-#                                  authoritative for the running session, beats the sentinel)
-#   CLAUDE_INVOKING_COMMAND      — required for --blanket (must be one of: workstream-start, update-docs, relay-protocol, distillation)
-#   COORDINATOR_OVERRIDE_SCOPE=1 — emergency: stage all dirty files, logs override, skip subtraction
-#
-# See: ~/.claude/plans/scoped-safety-commits.md  (design)
-#      ~/.claude/plans/review-scoped-safety-commits-the Staff Engineer.md  (the Staff Engineer's review)
+#!/usr/bin/env python3
+"""coordinator-safe-commit — Scoped safety commit helper (naked-Python port,
+Wave 2 of the coordinator-session-family-repoint-and-delete plan, chunk C2a).
 
-set -euo pipefail
+Port of the bash `coordinator-safe-commit` (Phase 3, scoped-safety-commits
+plan) onto `coordinator_core.session` (core/liveness/scope/claims), in-process
+imported via the `cc_invoke._resolve_claude_klabauter_root` seam — the DR-047
+Python-caller-shape ruling (the Director of Engineering, 2026-07-22; see
+docs/plans/2026-07-22-coordinator-session-family-repoint-and-delete.md
+§ Decisions). Same path, zero caller repoint — every dispatch prompt /
+hook / doc that shells out to `coordinator-safe-commit` keeps working
+unchanged; only the interpreter behind the shebang changed.
 
-# ---------------------------------------------------------------------------
-# bash version guard (ratified policy: Coordinator requires bash >= 4 — see
-# plugins/coordinator/docs/wiki/cross-platform-shell-portability.md § bash-version policy).
-# This helper specifically uses `local -n` namerefs (bash 4.3+) in addition to
-# `declare -A` (bash 4.0+), so its true floor is 4.3. macOS ships bash 3.2 as
-# /bin/bash; without this guard the script aborts mid-commit at the first
-# `declare -A`/`local -n` with a cryptic "invalid option" and no context — and
-# this is the commit helper the whole team depends on, so a silent break is
-# catastrophic. Fail fast with actionable remediation instead.
-# (BASH_VERSINFO and (( )) exist since bash 2.x, so this guard runs fine on 3.2.)
-if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
-  echo "ERROR: coordinator-safe-commit requires bash 4.3 or later." >&2
-  echo "       Detected: bash ${BASH_VERSION:-unknown}" >&2
-  echo "" >&2
-  echo "  macOS ships bash 3.2 as /bin/bash. Install a current bash and put it first on PATH:" >&2
-  echo "      brew install bash" >&2
-  echo '      export PATH="$(brew --prefix)/bin:$PATH"   # add to ~/.zshrc or ~/.bashrc' >&2
-  echo "" >&2
-  echo "  (Linux, WSL, and Git Bash for Windows ship bash 4.3+ already — if you hit" >&2
-  echo "   this there, upgrade bash via your package manager.)" >&2
-  exit 1
-fi
+THIS CHUNK (C2a) implemented, as real working logic:
+  - Session-id resolution, full priority chain (COORDINATOR_SESSION_ID >
+    CLAUDE_SESSION_ID > CLAUDE_CODE_SESSION_ID > coordinator_core.session.
+    core.resolve_session_id's 4-tier chain w/ tier-4 ambiguity guard >
+    live-session-count auto-detect fallback).
+  - Scope computation via coordinator_core.session.scope.compute_scope,
+    plus the do_scoped-side mtime-only-orphan reclassification and the
+    Case A/B/C/D "nothing to stage" diagnosis.
+  - Scoped git add / git commit with the Sentinel-1/Sentinel-2 no-op-commit
+    FAIL contract.
+  - The overlap-gate lock primitive (`with_overlap_lock`) — ported as a
+    self-contained function; C2b (below) wires it into --scope-from and
+    --include-orphans, the only bash callers.
+  - The >1-live-session fail-closed gate in default mode (outside
+    combined/scope-from delegation): refuses (exit 1), naming the
+    candidate session IDs.
 
-# ---------------------------------------------------------------------------
-# Library source
-# ---------------------------------------------------------------------------
+THIS CHUNK (C2b) additionally implements, as real working logic:
+  - `--scope-from <path>` (do_scope_from): parses the handoff YAML
+    frontmatter `scope:` list, validates + expands each pathspec, publishes
+    active-scope.txt under the overlap-gate lock (Fix 6 — closes the
+    read-peers/write-own TOCTOU window), checks for collisions against live
+    peer sessions' active-scope.txt, computes out-of-scope-dirty, and stages
+    + commits the declared-scope intersection.
+  - `--allow-out-of-scope-dirty` (scope-from-only): downgrades the
+    out-of-scope-dirty check from a hard error to a warning; the check
+    itself still runs, and semantics are identical whether or not --dry-run
+    is also passed.
+  - `--include-orphans <pathspec>...` (variadic, one-shot claim — not
+    appended to touched.txt): resolves pathspecs to concrete dirty files,
+    publishes/unions into active-scope.txt, runs the overlap gate, writes
+    orphan-claims.log, and requires either a single live session (default
+    mode) or --scope-from (combined mode) — do_scope_from delegates to
+    do_scoped when both flags are combined, mirroring the bash's single
+    canonical implementation (no duplicated combined-mode block).
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="${SCRIPT_DIR}/../lib/coordinator-session.sh"
+THIS CHUNK (C2c-build) additionally implements, as real working logic:
+  - `--blanket` (do_blanket): carve-out enforcement (CLAUDE_INVOKING_COMMAND
+    allowlist — workstream-start / update-docs / relay-protocol /
+    distillation — with a parent-process-cmdline fallback), logged to
+    blanket-invocations.log; `git add -A` (the one sanctioned blanket-add
+    path); the F0/F1 foreign-path subtract (sibling-claimed staged paths
+    minus own/agent-touched, intersected with the staged set;
+    `COORDINATOR_BLANKET_ACCEPT_FOREIGN=1` escape hatch; genesis-repo skip
+    since a genesis repo cannot have live siblings); the destructive-shape
+    gate (>=3 files with deletion-heavy diffs and no plan/handoff/PR/lessons
+    /queue reference in the subject; soft-warn through 2026-06-01 then
+    hard-fail; `COORDINATOR_OVERRIDE_BLANKET_SHAPE=1` /
+    `COORDINATOR_BLANKET_SHAPE_STRICT=1`); Sentinel-1/Sentinel-2.
+  - `COORDINATOR_OVERRIDE_SCOPE=1` (do_override): the audit-trail-degraded
+    emergency escape hatch — logs to overrides.log, Sentinel-1/Sentinel-2.
+    Intercepts default mode only. Staging is conditional (fixed 2026-07-25,
+    see do_override docstring): commits a pre-staged explicit-path index
+    as-is when one exists, falling back to `git add -A` only when the index
+    is empty at entry.
+  - `--dry-run`: an ORTHOGONAL boolean (`args.dry_run`), not a mode value —
+    combinable with `--blanket`, `--scope-from`, or the plain default path,
+    in any flag order. Prints what would be staged/committed without
+    running `git add`/`git commit`, then exits 0: declared scope +
+    orphan-claimed + unclaimed orphans + other-session-excluded on the
+    default/`--include-orphans` path (do_scoped); the `git add -A`
+    candidate set + commit subject on `--blanket` (do_blanket), computed
+    from the current dirty-file union so no index mutation is needed to
+    preview it; the scope-intersection set on `--scope-from`
+    (do_scope_from). (Fixed 2026-07-22: `args.mode` was previously a
+    single last-writer-wins field, so `--dry-run --blanket` and `--blanket
+    --dry-run` disagreed — whichever flag parsed last won, so the second
+    order silently fired a real commit despite the explicit `--dry-run`.
+    See docs/plans/2026-06-15-harden-safe-commit-against-sibling-add-all.md
+    for the original scoped-only dry-run; this promoted it to orthogonal.)
 
-if [[ ! -f "$LIB" ]]; then
-  echo "ERROR: coordinator-session.sh not found at ${LIB}" >&2
-  exit 1
-fi
-# shellcheck source=../lib/coordinator-session.sh
-source "$LIB"
+2026-07-24 (M4, docs/plans/2026-07-24-g4-execute-pipeline-two-repo-rebuild.md
+§ chunk M4): the `--expected-owner em-only` gate (cooperative
+`COORDINATOR_AGENT_CONTEXT` signal, fail-open by construction when unset)
+and the `--expected-branch` self-commit bypass are BOTH REMOVED — not
+bypassed, deleted. Both are SUPERSEDED by
+`coordinator_core/bash_guards/block_subagent_commit.py`, a PreToolUse(Bash)
+hard-deny guard keyed on the harness-supplied caller identity (a subagent
+cannot unset it, unlike an env var). There is now exactly one rule
+governing whether a caller may run this script's underlying `git commit` —
+the guard, not a flag this script parses.
 
-# Script-global: path to the overlap-gate lock directory (set by _with_overlap_lock,
-# read by EXIT traps in do_scope_from and do_scoped so that a body function calling
-# exit 1 still cleans up the lock — the RETURN trap does not fire on script exit).
-# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — mkdir-lock EXIT trap.
-_overlap_lock_dir=""
+Canonical invocation:
+  ~/.claude/plugins/coordinator/bin/coordinator-safe-commit "<subject>"
+
+Usage forms:
+  coordinator-safe-commit "<subject>"                      # default — scoped staging
+  coordinator-safe-commit --blanket "<subject>"             # blanket — carve-outs only
+  coordinator-safe-commit --scope-from <path> "<subject>"   # workstream-anchored
+  coordinator-safe-commit --dry-run "<subject>"              # show what would be staged
+  coordinator-safe-commit --body-file <path> "<subject>"     # multi-paragraph message
+  coordinator-safe-commit "<subject>" -- <path> [<path>...]  # pathspec — delegates to
+                                                               # scoped-git-commit
+
+2026-08-06 (cross-repo/inbox/2026-08-06-doe-claude-em-safe-commit-pathspec-
+and-allowlist-naming.md, Defect 1): the `-- <paths>` form above is a
+passthrough — it shells out to `scoped-git-commit -m "<subject>" -- <paths>`
+(coordinator_core/ops/ceremony/scoped_git_commit.py) rather than
+re-implementing pathspec-scoped staging here. Before this fix, a caller who
+knew exactly which files to commit had no route off this wrapper short of
+`--blanket` (commits everything dirty) or raw git (which trips the
+bare-commit advisory that then names `scoped-git-commit` as the correct
+binary anyway) — this closes that gap at its cheapest fix: delegate, don't
+duplicate. Incompatible with `--blanket`, `--scope-from`,
+`--include-orphans`, `--allow-out-of-scope-dirty`, and `--body-file` (the
+delegate has no body/orphan-claim/handoff-scope support of its own).
+
+Negative-spec: `--dry-run` must NEVER reach `git add`/`git commit` and must
+NEVER mutate the staged index or refs, in EVERY mode and EVERY combination —
+including `COORDINATOR_OVERRIDE_SCOPE=1` (do_override), which intercepts
+default mode in main() BEFORE mode dispatch and therefore needs its own
+`args.dry_run` gate (see do_override docstring, 2026-07-25 second fix). A
+future change that adds a new `do_*` entry point or a new env-var
+interception in main() and does not thread `args.dry_run` through it
+reintroduces this exact class of defect.
+
+Environment:
+  CLAUDE_SESSION_ID                  — explicit session-ID override (manual / tests)
+  CLAUDE_CODE_SESSION_ID             — platform-injected session ID
+  COORDINATOR_SESSION_ID             — lib tier-1 test override (highest priority)
+  COORDINATOR_OVERRIDE_SCOPE=1       — emergency: commits a pre-staged explicit-path index
+                                        as-is if one exists, else stages all dirty files
+                                        (git add -A); logged, default-mode only
+  COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 — skip the blanket F0/F1 foreign-path subtract
+  COORDINATOR_ACCEPT_LIVENESS_PROBE_FAILURE=1 — bypass the resolve_session_id fail-closed
+                                        liveness-probe-exception gate; degrades to 0 live
+                                        sessions, session misidentification is possible
+  COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 — silence the blanket destructive-shape warning/fail
+  COORDINATOR_BLANKET_SHAPE_STRICT=1   — promote the destructive-shape warning to a hard fail
+
+Spec backlinks: docs/plans/2026-06-15-harden-safe-commit-against-sibling-add-all.md § E3,
+docs/plans/2026-05-05-session-misidentification-fix.md,
+docs/plans/safe-commit-fixes.md § Phase 1/2,
+docs/plans/safe-commit-fixes-5-and-6.md § Fix 5/6,
+docs/plans/2026-06-22-authorized-blanket-orphan-capture-not-sibling-sweep.md § C1a F0/F1,
+docs/plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1/2,
+docs/plans/2026-07-22-coordinator-session-family-repoint-and-delete.md § C2a/C2b/C2c-build,
+docs/plans/2026-07-24-g4-execute-pipeline-two-repo-rebuild.md § chunk M4
+  (em-only + --expected-branch REMOVED, superseded by
+  coordinator_core/bash_guards/block_subagent_commit.py).
+"""
+from __future__ import annotations
+
+import contextlib
+import io
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import re
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Set
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(SCRIPT_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+
+BLANKET_ALLOWED_COMMANDS = frozenset(
+    {"workstream-start", "update-docs", "relay-protocol", "distillation", "distill"}
+)
+# Parent-process-cmdline fallback markers (mirrors bash's ppid_cmd substring
+# checks) — "distillation" deliberately has no `.md` suffix in bash, matching
+# the ceremony's own dispatch-prompt naming, not a `.md` file. "distill.md"
+# is the actual skill file (coordinator/commands/distill.md) — the natural
+# `CLAUDE_INVOKING_COMMAND=distill` value was refused by neither marker
+# before this fix (cross-repo/inbox/2026-08-06-doe-claude-em-safe-commit-
+# pathspec-and-allowlist-naming.md, Defect 2).
+BLANKET_ALLOWED_PPID_MARKERS = (
+    "workstream-start.md",
+    "update-docs.md",
+    "relay-protocol.md",
+    "distillation",
+    "distill.md",
+)
+
+# Subject-reference grep for the blanket destructive-shape gate: word-boundary
+# anchored tokens only (bare substrings like `plan`/`queue`/`review` were
+# false-positive magnets — matched `workplan`, `dequeue`, "code review style
+# comments"). Mirrors the bash grep -qiE pattern exactly.
+_DESTRUCTIVE_SHAPE_REF_RE = re.compile(
+    r"(\bhandoff\b|\bspinoff\b|\blearn-lessons\b|\bupdate-docs\b|\bdistill\b|"
+    r"\bPR[ #]|#[0-9]+|\bplan/|plan #|\blessons\.md\b|\bqueue\.md\b|"
+    r"\breview-trail\b|\bworkday-(complete|start)\b|\bworkweek-(complete|start)\b|"
+    r"\bworkstream-(complete|start)\b)",
+    re.IGNORECASE,
+)
+
+
+class UsageError(RuntimeError):
+    """Raised for CLI usage errors; caught at the top level, prints to stderr, exit 1."""
+
+
+def _import_session():
+    """Resolve claude-klabauter root (cc_invoke._resolve_claude_klabauter_root seam, DR-047) and
+    import the four coordinator_core.session submodules this port needs.
+    Mirrors the refresh-queries.py in-process-import precedent."""
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+    except RuntimeError as exc:
+        print(f"coordinator-safe-commit: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(3)
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    try:
+        from coordinator_core.session import claims as cs_claims
+        from coordinator_core.session import core as cs_core
+        from coordinator_core.session import liveness as cs_liveness
+        from coordinator_core.session import scope as cs_scope
+    except ImportError as exc:
+        print(
+            f"coordinator-safe-commit: coordinator_core.session not importable: {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+    return cs_core, cs_liveness, cs_scope, cs_claims
+
 
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
-MODE="default"       # default | blanket | scope-from | dry-run
-SCOPE_FROM_PATH=""
-SUBJECT=""
-ALLOW_OUT_OF_SCOPE_DIRTY=0  # --allow-out-of-scope-dirty
-EXPECTED_BRANCH=""   # --expected-branch <name>: deterministic branch-pin gate
-EXPECTED_OWNER=""    # --expected-owner em-only: fail closed if invoked from a subagent context (see DoE follow-up 8)
-INCLUDE_ORPHANS=()   # --include-orphans <pathspec>...: claim hook/install-touched files (Phase 2)
+class Args:
+    def __init__(self) -> None:
+        self.mode = "default"  # default | blanket | scope-from
+        self.dry_run = False  # orthogonal to mode — combinable with any of the above
+        self.scope_from_path: str = ""
+        self.subject: str = ""
+        self.allow_out_of_scope_dirty = False
+        self.include_orphans: List[str] = []
+        self.body_file: str = ""
+        self.body: str = ""
+        self.paths: List[str] = []
 
-usage() {
-  cat >&2 <<'USAGE'
-Usage:
+
+def usage() -> None:
+    print(
+        """Usage:
   coordinator-safe-commit "<subject>"
   coordinator-safe-commit --blanket "<subject>"
   coordinator-safe-commit --scope-from <handoff.md> "<subject>"
   coordinator-safe-commit --dry-run "<subject>"
+  coordinator-safe-commit --body-file <path> "<subject>"
+  coordinator-safe-commit "<subject>" -- <path> [<path>...]
 
 Optional flags (combinable):
-  --expected-branch <name>          Fail closed if active branch != <name>
   --allow-out-of-scope-dirty        (--scope-from only) warn instead of error
                                     when dirty files exist outside declared scope
   --include-orphans <pathspec>...   Claim hook/install-script-touched files for
                                     this commit. Variadic until next flag or --.
-                                    One-shot (not appended to touched.txt). Runs
-                                    the runtime overlap gate; requires single live
-                                    session or --scope-from for concurrent use.
-  --expected-owner em-only          Fail closed (exit 2) if COORDINATOR_AGENT_CONTEXT
-                                    names a subagent context (e.g. executor).
-                                    v1 accepts only the literal 'em-only'. The gate
-                                    is default-on (auto-applied when no --expected-owner
-                                    and no --expected-branch); passing the flag explicitly
-                                    is accepted for clarity. An authorized executor commit
-                                    (SC-DR-008 --expected-branch path) simply does NOT
-                                    pass this flag — branch-pin alone bypasses the gate.
-USAGE
-  exit 1
-}
+  --body-file <path>                Commit BODY (second paragraph) read from a
+                                    file — avoids shell-quoting hazards for
+                                    multi-paragraph messages. <subject> is
+                                    still the required positional; the file's
+                                    content becomes `git commit -m <subject>
+                                    -m <body>`, never replaces the subject.
 
-# Parse flags before subject
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --blanket)
-      MODE="blanket"
-      shift
-      ;;
-    --scope-from)
-      MODE="scope-from"
-      if [[ $# -lt 2 ]]; then
-        echo "ERROR: --scope-from requires a path argument." >&2
-        exit 1
-      fi
-      SCOPE_FROM_PATH="$2"
-      shift 2
-      ;;
-    --dry-run)
-      MODE="dry-run"
-      shift
-      ;;
-    --allow-out-of-scope-dirty)
-      ALLOW_OUT_OF_SCOPE_DIRTY=1
-      shift
-      ;;
-    --include-orphans)
-      # Variadic: consume subsequent args until next flag (starts with -), --, or
-      # until only one positional remains (which must be the commit subject).
-      # The subject MUST be the last positional arg. Use '--' to explicitly terminate
-      # pathspecs if a pathspec could be confused for the subject.
-      shift
-      while [[ $# -gt 1 && "$1" != "--" && "$1" != -* ]]; do
-        INCLUDE_ORPHANS+=("$1")
-        shift
-      done
-      if [[ ${#INCLUDE_ORPHANS[@]} -eq 0 ]]; then
-        echo "ERROR: --include-orphans requires at least one pathspec argument." >&2
-        exit 1
-      fi
-      ;;
-    --expected-branch)
-      if [[ $# -lt 2 ]]; then
-        echo "ERROR: --expected-branch requires a branch-name argument." >&2
-        exit 1
-      fi
-      EXPECTED_BRANCH="$2"
-      shift 2
-      ;;
-    --expected-owner)
-      # v1 accepts only the literal 'em-only'; the flag exists to fail closed when
-      # a subagent context (COORDINATOR_AGENT_CONTEXT != 'em'/unset) invokes the
-      # helper. Anti-scope: no speculative --expected-owner reviewer-only / integrator-only.
-      # Spec backlink: docs/plans/2026-06-15-executor-no-self-commit-em-only-gate.md DR-3.
-      if [[ $# -lt 2 ]]; then
-        echo "ERROR: --expected-owner requires a value (only 'em-only' is accepted in v1)." >&2
-        exit 1
-      fi
-      if [[ "$2" != "em-only" ]]; then
-        echo "ERROR: --expected-owner only accepts 'em-only' in v1 (got: '$2')." >&2
-        exit 1
-      fi
-      EXPECTED_OWNER="$2"
-      shift 2
-      ;;
-    --)
-      shift
-      break
-      ;;
-    -*)
-      echo "ERROR: Unknown flag: $1" >&2
-      usage
-      ;;
-    *)
-      break
-      ;;
-  esac
-done
+The `-- <path> [<path>...]` form delegates to `scoped-git-commit -m
+"<subject>" -- <paths>` — the sanctioned scoped-commit route for a caller
+who already knows exactly which files to commit. Incompatible with
+--blanket, --scope-from, --include-orphans, --allow-out-of-scope-dirty, and
+--body-file.
 
-# Remaining arg is the subject
-if [[ $# -eq 0 ]]; then
-  echo "ERROR: Commit subject is required." >&2
-  usage
-fi
-if [[ $# -gt 1 ]]; then
-  echo "ERROR: Too many positional arguments. Quote your subject." >&2
-  usage
-fi
-SUBJECT="$1"
+Whether a caller may commit at all is enforced by the
+coordinator_core/bash_guards/block_subagent_commit.py PreToolUse(Bash)
+guard, not by a flag this script parses (2026-07-24, M4).
+""",
+        file=sys.stderr,
+    )
 
-if [[ -z "$SUBJECT" ]]; then
-  echo "ERROR: Commit subject cannot be empty." >&2
-  exit 1
-fi
 
-# Default-on em-only when caller passed no explicit owner gate and no branch-pin.
-# Plan: docs/plans/2026-06-15-harden-safe-commit-against-sibling-add-all.md § E3.
-# PM ruling (2026-06-15): presume concurrent EMs always; helper defaults to multi-EM safe shape.
-# Executor opt-out path is unchanged: --expected-branch <name> without --expected-owner.
-# --blanket has its own CLAUDE_INVOKING_COMMAND allow-list; do not auto-gate it.
-# scope-from mode is intentionally NOT exempt — EM serial commits via scope-from must also fail-closed in subagent context.
-if [[ -z "$EXPECTED_OWNER" && -z "$EXPECTED_BRANCH" && "$MODE" != "blanket" ]]; then
-  EXPECTED_OWNER="em-only"
-fi
+def parse_args(argv: Sequence[str]) -> Args:
+    args = Args()
+    i = 0
+    n = len(argv)
+    positionals: List[str] = []
+    saw_pathspec_separator = False
+    # Review: code-reviewer — Finding 3 (fixed 2026-07-22): args.mode was
+    # previously a single last-writer-wins field, so parse order determined
+    # which of --scope-from / --dry-run "won" — either silently dropped the
+    # declared scope, or (worse) silently fired a real commit despite an
+    # explicit --dry-run. Fix: --dry-run is now an ORTHOGONAL boolean
+    # (args.dry_run) that never competes for the mode field, so it combines
+    # cleanly with --blanket or --scope-from in either flag order.
+    while i < n:
+        tok = argv[i]
+        if tok == "--blanket":
+            args.mode = "blanket"
+            i += 1
+        elif tok == "--scope-from":
+            args.mode = "scope-from"
+            if i + 1 >= n:
+                raise UsageError("--scope-from requires a path argument.")
+            args.scope_from_path = argv[i + 1]
+            i += 2
+        elif tok == "--dry-run":
+            args.dry_run = True
+            i += 1
+        elif tok == "--allow-out-of-scope-dirty":
+            args.allow_out_of_scope_dirty = True
+            i += 1
+        elif tok == "--body-file":
+            if i + 1 >= n:
+                raise UsageError("--body-file requires a path argument.")
+            args.body_file = argv[i + 1]
+            i += 2
+        elif tok == "--include-orphans":
+            i += 1
+            # Variadic: consume until next flag (starts with -), '--', or until
+            # only one positional remains (the subject must be last).
+            while i < n - 1 and argv[i] != "--" and not argv[i].startswith("-"):
+                args.include_orphans.append(argv[i])
+                i += 1
+            if not args.include_orphans:
+                raise UsageError("--include-orphans requires at least one pathspec argument.")
+        elif tok == "--":
+            # Pathspec-passthrough separator (Defect 1,
+            # cross-repo/inbox/2026-08-06-doe-claude-em-safe-commit-
+            # pathspec-and-allowlist-naming.md): everything after `--` is a
+            # path handed to `scoped-git-commit`, mirroring `git commit`'s
+            # own `-m <subject> -- <paths>` shape. The subject is whatever
+            # positional token(s) were already collected before `--`.
+            i += 1
+            saw_pathspec_separator = True
+            args.paths = list(argv[i:])
+            i = n
+            break
+        elif tok.startswith("-"):
+            raise UsageError(f"Unknown flag: {tok}")
+        else:
+            # Token-by-token (append + i+=1), NOT `positionals.extend(argv[i:]);
+            # break` — deliberate 2026-08-06 behavior change (Review:
+            # coordinator-code-reviewer bd2f004c): a flag-shaped token
+            # appearing after the subject now raises UsageError immediately
+            # via the `tok.startswith("-")` branch above on the next loop
+            # iteration, instead of being silently swallowed into
+            # `positionals` as an extra "positional" that only errored later,
+            # indirectly, via the `len(positionals) > 1` check below.
+            positionals.append(tok)
+            i += 1
 
-# ---------------------------------------------------------------------------
-# Session ID resolution
-# ---------------------------------------------------------------------------
+    if not positionals:
+        if saw_pathspec_separator:
+            raise UsageError(
+                "Commit subject is required. `--` was seen before any subject "
+                "token — did you mean `<subject> -- <paths>` (subject first, "
+                "then the pathspec separator)?"
+            )
+        raise UsageError("Commit subject is required.")
+    if len(positionals) > 1:
+        raise UsageError("Too many positional arguments. Quote your subject.")
+    args.subject = positionals[0]
+    if not args.subject:
+        raise UsageError("Commit subject cannot be empty.")
 
-resolve_session_id() {
-  # Priority 0: lib tier-1 explicit test override. COORDINATOR_SESSION_ID is the
-  # highest-priority variable in coordinator-session.sh (_cs_resolve_session_id).
-  # Checking it first here aligns resolve_session_id with the lib's intended tier
-  # ordering so tests that set COORDINATOR_SESSION_ID inside a live Claude Code
-  # session (where CLAUDE_CODE_SESSION_ID is exported by the platform) can override
-  # the platform var — without this check, Priority-2 CLAUDE_CODE_SESSION_ID would
-  # shadow it and COORDINATOR_SESSION_ID could never override.
-  # Review: code-reviewer — B-F2: COORDINATOR_SESSION_ID (lib tier-1 test override)
-  # was shadowed by Priority-2 CLAUDE_CODE_SESSION_ID; added here as Priority 0 to
-  # match lib tier ordering (coordinator-session.sh _cs_resolve_session_id:165-168).
-  if [[ -n "${COORDINATOR_SESSION_ID:-}" ]]; then
-    echo "$COORDINATOR_SESSION_ID"
-    return 0
-  fi
+    if saw_pathspec_separator and not args.paths:
+        raise UsageError("`--` requires at least one path argument after it.")
+    if args.paths:
+        if any(not p for p in args.paths):
+            raise UsageError("`--` requires at least one non-empty path argument after it.")
+        if args.mode != "default":
+            raise UsageError("`-- <paths>` cannot be combined with --blanket or --scope-from.")
+        if args.include_orphans:
+            raise UsageError("`-- <paths>` cannot be combined with --include-orphans.")
+        if args.allow_out_of_scope_dirty:
+            raise UsageError("`-- <paths>` cannot be combined with --allow-out-of-scope-dirty.")
+        if args.body_file:
+            raise UsageError(
+                "`-- <paths>` cannot be combined with --body-file "
+                "(scoped-git-commit has no body support)."
+            )
 
-  # Priority 1: explicit override (manual / test harness). Historically the only
-  # env source; the platform never sets this name, so in real operation it is
-  # empty and we fall through to Priority 2.
-  if [[ -n "${CLAUDE_SESSION_ID:-}" ]]; then
-    echo "$CLAUDE_SESSION_ID"
-    return 0
-  fi
+    if args.body_file:
+        try:
+            args.body = Path(args.body_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            raise UsageError(f"--body-file: cannot read {args.body_file}: {exc}")
+        if not args.body.strip():
+            raise UsageError(f"--body-file: {args.body_file} is empty.")
 
-  # Priority 2: platform-injected session id. Claude Code (≥ ~2.1.150) exports
-  # CLAUDE_CODE_SESSION_ID into every tool subprocess — the EM's interactive Bash
-  # AND dispatched subagents (a subagent inherits the *dispatching* EM's id, which
-  # is exactly what the .agents back-pointer machinery reconstructs the hard way).
-  # This is per-session and cannot be clobbered by a sibling session's SessionStart,
-  # so it is strictly more reliable than the last-writer-wins sentinel below. Older
-  # Claude Code (≤ 2.1.128) did not export it; the sentinel fallback covers that.
-  if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
-    echo "$CLAUDE_CODE_SESSION_ID"
-    return 0
-  fi
+    return args
 
-  # Priority 3: sentinel file (last-writer-wins; only reached on old Claude Code).
-  # Phase 1 validation: check if the sentinel points at a dead session dir BEFORE
-  # delegating to cs_resolve_session_id. This warning is load-bearing user-facing
-  # feedback from the Phase 1 safe-commit spec (plans/safe-commit-fixes.md § Phase 1).
-  #
-  # Why the pre-check is necessary: cs_resolve_session_id treats "0 live sessions +
-  # sentinel dir absent" as a "true legacy" state and trusts the sentinel value — it
-  # returns the stale sid rather than empty. The safe-commit helper must NOT trust a
-  # stale sentinel (session dir gone) in that case; it must warn and fall through to
-  # Priority 4 so the PID scan / recency-based auto-detect can handle resolution.
-  # Skipping the pre-check and calling cs_resolve_session_id directly causes the helper
-  # to proceed with a dead session ID (regression introduced by a543a5e).
-  #
-  # When the sentinel IS valid (session dir exists), the _p3_skip guard is false and
-  # we delegate to cs_resolve_session_id for the full 4-tier chain with its
-  # fail-empty-under-ambiguity guard (≥2 live sessions → empty → fall to Priority 4).
-  #
-  # Spec backlink: plans/safe-commit-fixes.md § Phase 1 — sentinel validation.
-  # Spec backlink: docs/plans/2026-07-06-racy-sentinel-tier4-fail-empty.md § C3b.
-  # Review: code-reviewer — B-F1 (2026-07-06 refactor): restored Phase 1 pre-check
-  # lost in a543a5e; cs_resolve_session_id trusted stale sentinel in 0-live case.
-  local _p3_skip=false
-  local _p3_root
-  _p3_root=$(_cs_git_root) || true
-  if [[ -n "$_p3_root" ]]; then
-    local _p3_sentinel="${_p3_root}/.git/coordinator-sessions/.current-session-id"
-    if [[ -f "$_p3_sentinel" ]]; then
-      local _p3_raw_sid
-      # Review: code-reviewer — F2 (nit): [[ -f "$_p3_sentinel" ]] was verified above;
-      # cat+tr spawned two subprocesses on a hot-path; replaced with pure-bash read +
-      # string substitution. The 2>/dev/null on cat was dead code after the -f guard.
-      IFS= read -r _p3_raw_sid < "$_p3_sentinel"
-      _p3_raw_sid="${_p3_raw_sid//[[:space:]]/}"
-      if [[ -n "$_p3_raw_sid" ]]; then
-        # Review: code-reviewer — F1 (P2): _cs_sessions_dir calls _cs_git_root internally,
-        # spawning a second git rev-parse. _p3_root already holds the result; derive the
-        # sessions dir directly to avoid the redundant subprocess on every commit.
-        local _p3_sdir_check="${_p3_root}/.git/coordinator-sessions"
-        if [[ -n "$_p3_sdir_check" && ! -d "${_p3_sdir_check}/${_p3_raw_sid}" ]]; then
-          echo "WARNING: sentinel points at '${_p3_raw_sid}' but session dir is gone — falling through to PID scan" >&2
-          _p3_skip=true
-        fi
-      fi
-    fi
-  fi
 
-  if [[ "$_p3_skip" == false ]]; then
-    local p3_sid
-    p3_sid=$(cs_resolve_session_id)
-    if [[ -n "$p3_sid" ]]; then
-      echo "$p3_sid"
-      return 0
-    fi
-  fi
-  # cs_resolve_session_id returned empty (ambiguous/stale sentinel) — fall through to Priority 4
+def do_pathspec(args: "Args") -> None:
+    """Port of Defect 1's fix (cross-repo/inbox/2026-08-06-doe-claude-em-
+    safe-commit-pathspec-and-allowlist-naming.md): delegates a `-- <paths>`
+    invocation to `scoped-git-commit -m "<subject>" -- <paths>`
+    (coordinator_core/ops/ceremony/scoped_git_commit.py) — a subprocess
+    handoff, not a re-implementation, so the delegate's own ownership gate,
+    agree-case/private-index selection, and push-state handling apply
+    unchanged. `--dry-run` is honored here directly (the delegate has no
+    dry-run flag of its own) and never reaches the subprocess."""
+    if args.dry_run:
+        print("DRY RUN — pathspec: would delegate to scoped-git-commit:", file=sys.stderr)
+        print(
+            "  scoped-git-commit -m %s -- %s" % (shlex.quote(args.subject), " ".join(shlex.quote(p) for p in args.paths)),
+            file=sys.stderr,
+        )
+        print("(no git add or commit executed)", file=sys.stderr)
+        sys.exit(0)
 
-  # Priority 4: auto-detect the lone live session by last_activity RECENCY.
-  # Liveness is keyed on last_activity recency (_cs_is_session_live), NOT a live
-  # PID — in-harness every Bash call runs in a fresh process whose recorded $$ is
-  # dead within seconds, so a kill -0 gate reports every session dead and this
-  # fallback always errored with "No live session found" on an old (pre-env-var)
-  # Claude Code host. Routing through cs_live_session_ids unifies this path with
-  # the single liveness model the rest of the codebase adopted at r1
-  # (state/handoffs/2026-06-23_153742_claim-lock-pid-death-false-positive.md);
-  # it also handles the .archive/.agents exclusions. Env-var Priorities 1-3
-  # (CLAUDE_CODE_SESSION_ID etc.) still resolve first — this is the fallback only.
-  local base
-  base=$(_cs_sessions_dir) || true
-  if [[ -z "$base" || ! -d "$base" ]]; then
-    return 1   # errors go to stderr; caller reads exit code, not stdout, on this path
-  fi
+    target = os.path.join(SCRIPT_DIR, "scoped-git-commit")
+    result = subprocess.run([sys.executable, target, "-m", args.subject, "--", *args.paths])
+    sys.exit(result.returncode)
 
-  local live_sessions=()
-  while IFS= read -r _liveid; do
-    [[ -n "$_liveid" ]] && live_sessions+=("$_liveid")
-  done < <(cs_live_session_ids 2>/dev/null || true)
 
-  if [[ ${#live_sessions[@]} -eq 1 ]]; then
-    echo "${live_sessions[0]}"
-    return 0
-  elif [[ ${#live_sessions[@]} -eq 0 ]]; then
-    echo "ERROR: No live session found. Set CLAUDE_SESSION_ID or ensure a session was initialized." >&2
-    echo "Fallback: bypass the helper with explicit-path commit:" >&2
-    echo "  git add -- <your-paths>" >&2
-    echo "  git commit -m \"<subject>\"" >&2
-    return 1
-  else
-    echo "ERROR: Multiple live sessions found — cannot auto-detect session ID. Set CLAUDE_SESSION_ID explicitly. Candidates: ${live_sessions[*]}" >&2
-    echo "If session-ownership is misidentifying your work (your files blocked, others' files swept), the safer fallback is to bypass the helper:" >&2
-    echo "  git add -- <your-paths>" >&2
-    echo "  git commit -m \"<subject>\"" >&2
-    return 1
-  fi
-}
+def _commit_message_argv(subject: str, body: str) -> List[str]:
+    """Build the `git commit` message args: `-m <subject>` alone, or `-m
+    <subject> -m <body>` when a body is present — git renders each `-m` as
+    its own paragraph, so this is the standard subject/body commit shape,
+    not a string concatenation. Never used to replace the subject; the body
+    is strictly additive."""
+    if body:
+        return ["-m", subject, "-m", body]
+    return ["-m", subject]
+
 
 # ---------------------------------------------------------------------------
-# YAML frontmatter parser (for --scope-from)
+# git helpers
 # ---------------------------------------------------------------------------
 
-# parse_scope_from_frontmatter <file>
-# Prints one pathspec per line to stdout.
-# Returns 1 if frontmatter is missing or scope: is absent.
-parse_scope_from_frontmatter() {
-  local fpath="${1:?}"
+def _git_output_lines(git_args: Sequence[str]) -> List[str]:
+    try:
+        result = subprocess.run(["git", *git_args], capture_output=True, text=True, check=False)
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+    return result.stdout.splitlines()
 
-  if [[ ! -f "$fpath" ]]; then
-    echo "ERROR: Handoff file not found: ${fpath}" >&2
-    return 1
-  fi
 
-  # Read lines between the first two "---" delimiters (YAML frontmatter)
-  local in_frontmatter=false
-  local started=false
-  local in_scope=false
-  local found_scope=false
-  local scope_entries=()
+def _git_rev_parse_head() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return "INITIAL"
+    if result.returncode != 0:
+        return "INITIAL"
+    return result.stdout.strip()
 
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    # Strip trailing CR for CRLF-encoded files (Windows handoffs).
-    # Without this, "$line" == "---" never matches and the parser silently
-    # reports "no scope: field found" — a bug observed across 4+ sessions.
-    line="${line%$'\r'}"
 
-    if [[ "$line" == "---" ]]; then
-      if [[ "$started" == false ]]; then
-        started=true
-        in_frontmatter=true
-        continue
-      elif [[ "$in_frontmatter" == true ]]; then
-        in_frontmatter=false
-        break
-      fi
-    fi
+def _current_dirty_files() -> List[str]:
+    """Union of `git diff --name-only HEAD` and `git ls-files --others
+    --exclude-standard`, sort -u'd. Deliberately two git commands, not
+    `git status --porcelain` — porcelain collapses an untracked directory to
+    `dir/` (see coordinator_core.session.scope module negative-spec)."""
+    diff = _git_output_lines(["diff", "--name-only", "HEAD"])
+    others = _git_output_lines(["ls-files", "--others", "--exclude-standard"])
+    return sorted({f for f in (diff + others) if f})
 
-    [[ "$in_frontmatter" == false ]] && continue
 
-    # Detect "scope:" key
-    if [[ "$line" =~ ^scope:[[:space:]]*$ ]]; then
-      in_scope=true
-      found_scope=true
-      continue
-    fi
+def _resolve_python_invocation() -> "tuple[str, List[str]]":
+    """Resolve (python_bin, python_args) for THIS host, mirroring the
+    `coordinator_core.pyresolve` precedent `dispatch_checks._bt_python3_
+    invocation()` already establishes elsewhere in this package (do not
+    import that function directly — it lives in
+    `coordinator_core/bash_guards/dispatch_checks.py`, which another agent
+    is actively editing concurrently; this is an independent call into the
+    same underlying resolver, not a dependency on that module).
 
-    # If we are inside scope:, collect list items ("  - value")
-    if [[ "$in_scope" == true ]]; then
-      if [[ "$line" =~ ^[[:space:]]+\-[[:space:]]+(.+)$ ]]; then
-        scope_entries+=("${BASH_REMATCH[1]}")
-      elif [[ "$line" =~ ^[a-zA-Z] ]]; then
-        # New top-level key — exit scope block
-        in_scope=false
-      fi
-    fi
-  done < "$fpath"
+    A bare `python3` is frequently absent on stock Windows (the interpreter
+    there is `python.exe`, or the `py`/`pyw` launcher) — hardcoding it would
+    make the emitted suggestion wrong on that platform the same way the
+    bareword `coordinator_core.invoke` import was wrong on every non-claude-klabauter
+    cwd. `prefer_windowless=False` is mandatory: the suggestion's output is
+    read from stdout, and `pythonw.exe` silently swallows it.
 
-  if [[ "$found_scope" == false ]]; then
-    echo "ERROR: No 'scope:' field found in YAML frontmatter of ${fpath}" >&2
-    return 1
-  fi
+    Fails open to `("python3", [])` on any resolution failure (ImportError —
+    e.g. called before `_import_session()` has put claude-klabauter on `sys.path` —
+    PythonPinInvalid, or OSError), matching `_bt_python3_invocation`'s own
+    fail-open contract: a broken resolver must not crash the deny path,
+    only degrade this one suggestion's portability."""
+    try:
+        from coordinator_core.pyresolve import PythonPinInvalid, resolve_python_bin
+    except ImportError:
+        return "python3", []
+    try:
+        python_bin, python_args = resolve_python_bin(prefer_windowless=False)
+    except (PythonPinInvalid, OSError):
+        return "python3", []
+    if not python_bin:
+        return "python3", []
+    return python_bin, list(python_args)
 
-  if [[ ${#scope_entries[@]} -eq 0 ]]; then
-    echo "ERROR: 'scope:' field is present but empty in ${fpath}" >&2
-    return 1
-  fi
 
-  for entry in "${scope_entries[@]}"; do
-    echo "$entry"
-  done
-  return 0
-}
+def _scoped_commit_suggestion(subject: str, host_is_windows: Optional[bool] = None) -> str:
+    """Build a copy-pasteable `ceremony.scoped_git_commit` invocation for the
+    concurrency-refusal deny message in `do_scoped` — the rung-B shape
+    (`docs/wiki/bash-guard-threat-model.md`): reproduce the caller's own
+    situation in corrected form rather than naming a destination with no
+    route. `--scope-from <handoff>` was that destination-with-no-route (the
+    /handoff skill stopped emitting the `scope:` frontmatter block it reads,
+    2026-07-25) — this suggests the mechanism the skill actually routes
+    through today instead.
 
-# validate_pathspec <pathspec>
-# Returns 0 if git accepts it, 1 if malformed.
-validate_pathspec() {
-  local ps="${1:?}"
-  git ls-files -- "$ps" >/dev/null 2>&1
-}
+    Params come from `_current_dirty_files()` (this session's own dirty
+    tree, the same source `do_scoped` itself stages from) and `os.getcwd()`
+    (this tool never chdirs, so cwd is the worktree root) — both directly
+    observable here, unlike the handoff-body round-trip `--scope-from` used
+    to require. The caller still owns narrowing `paths` to what THIS
+    workstream owns before running it; a dirty tree may hold a sibling
+    session's files too.
+
+    Verified runnable (2026-07-29, scratch repo, `ceremony.scoped_git_commit`
+    registered): `python3 -m coordinator_core.invoke ceremony.scoped_git_commit
+    '{"worktree_root": ..., "paths": [...], "message": ...}' --repo <root> --bare`
+    returns `{"committed": true, "sha": "...", "pushed": ...}` on success.
+
+    2026-07-29 fix (round 1): the bareword `python3 -m coordinator_core.
+    invoke` above only resolves when `coordinator_core` is already on
+    `sys.path` — true in claude-klabauter's own tree, false in every OTHER caller repo
+    (DoE-claude foremost), where it dies with `ModuleNotFoundError` the
+    instant it's copy-pasted. Fixed by resolving claude-klabauter's root at emit time
+    via the same `cc_invoke._resolve_claude_klabauter_root()` seam `_import_session()`
+    uses (module-level import, line ~159) — settings-home is the sanctioned
+    resolution point (PM ruling, 2026-07-29): `_resolve_claude_klabauter_root()`'s own
+    Rung 1.5 already reads `<settings-home>/machine-local/.claude-klabauter-root`
+    ahead of any bash-spawning fallback, so this call routes through it. No
+    absolute path is hardcoded in source; the value is resolved fresh on
+    every call.
+
+    2026-07-29 fix (round 2, same-day PM follow-up): round 1 baked the
+    resolved root into a `PYTHONPATH=<root> cmd` inline-assignment prefix —
+    POSIX-shell-only syntax, broken verbatim in cmd.exe and PowerShell, and
+    it also still hardcoded `python3`, absent on stock Windows. Fixed by (a)
+    resolving the interpreter via `_resolve_python_invocation()` instead of
+    a literal, and (b) branching the emitted STRING on `os.name` — this
+    process runs natively on the same host the caller is reading the deny
+    message on, so `os.name` here is a reliable proxy for the caller's
+    platform. Windows gets two explicitly-labeled forms (cmd.exe's `set
+    VAR=val&& cmd`, PowerShell's `$env:VAR='val'; cmd`) built via
+    `subprocess.list2cmdline` for correct Windows argv quoting, since a
+    single string cannot be simultaneously correct in both POSIX and
+    Windows shell grammars — see this function's own verification note in
+    the test file for which half is macOS-verified vs. reasoned-but-
+    unverified on Windows.
+
+    `host_is_windows` (default `None` -> real `os.name == "nt"`) mirrors
+    the override-parameter pattern `coordinator_core.bash_guards.
+    _platform_verdict.platform_verdict` already establishes for this exact
+    problem (host branching that must be test-exercisable from macOS):
+    a keyword with no environment-variable mirror is not agent-reachable,
+    so it cannot be used to spoof the emitted form in production, while a
+    test can drive the Windows branch on any host. Deliberately does NOT
+    thread into `_resolve_python_invocation()` below — that call resolves
+    the REAL host's interpreter via `coordinator_core.pyresolve`, which
+    internally constructs a `pathlib.WindowsPath` on the `nt` branch and is
+    genuinely unconstructible cross-platform (verified: forcing `os.name`
+    itself to `"nt"` in-process on macOS raises `UnsupportedOperation`
+    three frames into that resolver) — this parameter controls only THIS
+    function's own string-assembly branch, not a platform this process
+    cannot actually resolve a real interpreter for."""
+    worktree_root = os.getcwd()
+    dirty = _current_dirty_files()
+    paths = dirty if dirty else ["<your-paths>"]
+    params = json.dumps({"worktree_root": worktree_root, "paths": paths, "message": subject or "<subject>"})
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+    except RuntimeError as exc:
+        return (
+            "  # claude-klabauter root resolution failed (%s) — run from claude-klabauter's own\n"
+            "  # tree, or fix CLAUDE_KLABAUTER_ROOT resolution first, then:\n"
+            "  python3 -m coordinator_core.invoke ceremony.scoped_git_commit '%s' --repo %s --bare"
+            % (exc, params, worktree_root)
+        )
+
+    python_bin, python_args = _resolve_python_invocation()
+    module_argv = [
+        python_bin,
+        *python_args,
+        "-m",
+        "coordinator_core.invoke",
+        "ceremony.scoped_git_commit",
+        params,
+        "--repo",
+        worktree_root,
+        "--bare",
+    ]
+
+    is_windows = (os.name == "nt") if host_is_windows is None else host_is_windows
+    if is_windows:
+        win_cmdline = subprocess.list2cmdline(module_argv)
+        posh_root = claude_klabauter_root.replace("'", "''")  # PowerShell single-quote escaping
+        return (
+            "  # cmd.exe:\n"
+            "  set PYTHONPATH=%s&& %s\n"
+            "  # PowerShell:\n"
+            "  $env:PYTHONPATH='%s'; %s"
+            % (claude_klabauter_root, win_cmdline, posh_root, win_cmdline)
+        )
+
+    posix_cmd = " ".join(shlex.quote(tok) for tok in module_argv)
+    return "  PYTHONPATH=%s %s" % (shlex.quote(claude_klabauter_root), posix_cmd)
+
+
+def _git_add(paths: Iterable[str]) -> None:
+    paths = [p for p in paths if p]
+    if not paths:
+        return
+    subprocess.run(["git", "add", "--", *paths], check=True)
+
+
+def _git_add_all_blanket() -> None:
+    """Port of `( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git
+    add -A )` — the ONE sanctioned `git add -A` path (SC-DR-014). Runs `git
+    add -A` in a subprocess carrying the internal env-var marker so the
+    parent process's own environment never leaks the marker into any other
+    code path (mirrors the bash subshell's scope-safety rationale — a
+    subprocess dies with the call on any exit, same guarantee)."""
+    env = dict(os.environ)
+    env["_COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET"] = "1"
+    subprocess.run(["git", "add", "-A"], check=True, env=env)
+
+
+def _git_diff_cached_names() -> List[str]:
+    return _git_output_lines(["diff", "--cached", "--name-only"])
+
+
+def _git_diff_cached_numstat() -> List[str]:
+    return _git_output_lines(["diff", "--cached", "--numstat"])
+
+
+def _git_reset_unstage(path: str) -> None:
+    subprocess.run(["git", "reset", "-q", "HEAD", "--", path], check=False)
+
+
+def _git_diff_cached_is_empty() -> bool:
+    result = subprocess.run(
+        ["git", "diff", "--cached", "--quiet"], capture_output=True, check=False
+    )
+    return result.returncode == 0
+
+
+def _git_ls_files_pathspec(pathspec: str) -> List[str]:
+    """Port of the bash `git ls-files -- "$ps"; git ls-files --others
+    --exclude-standard -- "$ps"` two-command union used to expand a
+    pathspec to concrete tracked + untracked files. Order matches bash
+    (tracked first, then untracked); no sort/dedup — mirrors the original."""
+    tracked = _git_output_lines(["ls-files", "--", pathspec])
+    untracked = _git_output_lines(["ls-files", "--others", "--exclude-standard", "--", pathspec])
+    return [f for f in (tracked + untracked) if f]
+
+
+def _validate_pathspec(pathspec: str) -> bool:
+    """Port of `validate_pathspec`: a pathspec is valid iff `git ls-files --
+    <pathspec>` exits 0 (git accepts the pathspec syntax), independent of
+    whether it matches any files."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--", pathspec], capture_output=True, text=True, check=False
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+_SCOPE_ITEM_RE = re.compile(r"^\s+-\s+(.+)$")
+_TOPLEVEL_KEY_RE = re.compile(r"^[a-zA-Z]")
+_SCOPE_KEY_RE = re.compile(r"^scope:\s*$")
+
+
+def _parse_scope_from_frontmatter(fpath: str) -> Optional[List[str]]:
+    """Port of `parse_scope_from_frontmatter <file>`: reads lines between
+    the first two `---` YAML-frontmatter delimiters, finds the `scope:`
+    list key, and collects its `  - value` items. Returns None (having
+    already printed the ERROR) on missing file / missing / empty scope:
+    field — mirrors the bash function's `return 1` contract."""
+    if not os.path.isfile(fpath):
+        print(f"ERROR: Handoff file not found: {fpath}", file=sys.stderr)
+        return None
+    try:
+        raw_lines = Path(fpath).read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        print(f"ERROR: Handoff file not found: {fpath} ({exc})", file=sys.stderr)
+        return None
+
+    in_frontmatter = False
+    started = False
+    in_scope = False
+    found_scope = False
+    scope_entries: List[str] = []
+
+    for raw_line in raw_lines:
+        # Strip trailing CR for CRLF-encoded files (Windows handoffs).
+        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
+
+        if line == "---":
+            if not started:
+                started = True
+                in_frontmatter = True
+                continue
+            elif in_frontmatter:
+                in_frontmatter = False
+                break
+
+        if not in_frontmatter:
+            continue
+
+        if _SCOPE_KEY_RE.match(line):
+            in_scope = True
+            found_scope = True
+            continue
+
+        if in_scope:
+            m = _SCOPE_ITEM_RE.match(line)
+            if m:
+                scope_entries.append(m.group(1))
+            elif _TOPLEVEL_KEY_RE.match(line):
+                in_scope = False
+
+    if not found_scope:
+        print(f"ERROR: No 'scope:' field found in YAML frontmatter of {fpath}", file=sys.stderr)
+        return None
+    if not scope_entries:
+        print(f"ERROR: 'scope:' field is present but empty in {fpath}", file=sys.stderr)
+        return None
+    return scope_entries
+
 
 # ---------------------------------------------------------------------------
-# active-scope.txt success-path cleanup
+# Overlap-gate lock + scoped overlap-check helpers (Fix 6). Ported in C2a as
+# a self-contained primitive; C2b wires it into --scope-from /
+# --include-orphans, the only bash callers.
 # ---------------------------------------------------------------------------
 
-# _cleanup_active_scope
-# Purpose: remove active-scope.txt and clear the script-global pointer after a
-# successful commit. Called from both do_scope_from (no-orphan path) and
-# do_scoped (combined-mode success path). The EXIT/INT/TERM/HUP trap covers
-# error paths; this function covers the happy path so that peer sessions do not
-# false-positive on the overlap gate after we have committed.
-# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — _cleanup_active_scope.
-_cleanup_active_scope() {
-  if [[ -n "${_sfm_active_scope_file:-}" ]]; then
-    rm -f "$_sfm_active_scope_file"
-    _sfm_active_scope_file=""
-  fi
-}
+def with_overlap_lock(base: str, cs_core, body_fn, *body_args, timeout_s: int = 10):
+    """Port of bash `_with_overlap_lock <body_fn> [args...]`: acquire the
+    per-repo overlap-gate lock via atomic mkdir, run body_fn(*body_args),
+    release. Propagates body_fn's return value; a SystemExit raised by
+    body_fn propagates unchanged (mirrors bash's exit-code passthrough,
+    the Staff Engineer finding 1). flock is NOT used (unavailable on Git Bash for
+    Windows); mkdir is universal.
 
-# ---------------------------------------------------------------------------
-# Overlap-gate lock (Fix 6) and scoped overlap-check helpers
-# ---------------------------------------------------------------------------
+    Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — mkdir-lock.
+    """
+    lock_dir = os.path.join(base, ".overlap-gate.lock")
+    os.makedirs(base, exist_ok=True)
+    waited = 0
+    while True:
+        try:
+            os.mkdir(lock_dir)
+            break
+        except FileExistsError:
+            held_pid = ""
+            try:
+                held_pid = Path(os.path.join(lock_dir, "pid")).read_text(encoding="utf-8").strip()
+            except OSError:
+                held_pid = ""
+            if held_pid and not cs_core.pid_alive(held_pid):
+                print(f"WARNING: reaping stale overlap-gate lock (dead PID {held_pid})", file=sys.stderr)
+                shutil.rmtree(lock_dir, ignore_errors=True)
+                continue
+            if waited >= timeout_s:
+                print(
+                    f"ERROR: overlap-gate lock timeout ({timeout_s}s); held by PID {held_pid or '?'}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            time.sleep(1)
+            waited += 1
 
-# _with_overlap_lock <body_fn> [args...]
-# Purpose: acquire the per-repo overlap-gate lock via atomic mkdir, run the body
-# function, then release the lock. Mirrors cs_claim_handoff in lib/coordinator-session.sh
-# (mkdir as atomic primitive — POSIX + NTFS safe, no external dependency).
-#
-# flock is NOT used: unavailable on Git Bash for Windows (command -v flock returns
-# nothing on this platform). mkdir is universal.
-#
-# Lock scope is intentionally narrow — held only across the check + publish of
-# active-scope.txt, NOT across git add / git commit (those are long-running and
-# don't need mutual exclusion for correctness).
-#
-# Exit-code contract: propagates the body's exit code unchanged (the Staff Engineer finding 1).
-# Caller MUST NOT swallow non-zero — overlap-check bodies call exit 1 on conflict.
-#
-# Signal-path cleanup: the RETURN trap fires when this function returns normally.
-# When the body calls `exit 1`, the RETURN trap does NOT fire (it is a script exit).
-# To handle that case, _overlap_lock_dir is a script-global read by the EXIT traps
-# in do_scope_from and do_scoped — they rm -rf it before clearing _sfm_active_scope_file.
-#
-# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — mkdir-lock.
-_with_overlap_lock() {
-  local lock_dir="${base}/.overlap-gate.lock"
-  local timeout_s=10
-  local waited=0
-  mkdir -p "$base" 2>/dev/null
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    # Inspect holder PID; reap stale (dead PID) locks.
-    local held_pid
-    held_pid=$(cat "${lock_dir}/pid" 2>/dev/null || echo "")
-    if [[ -n "$held_pid" ]] && ! _cs_pid_alive "$held_pid"; then
-      echo "WARNING: reaping stale overlap-gate lock (dead PID ${held_pid})" >&2
-      rm -rf "$lock_dir" 2>/dev/null
-      continue
-    fi
-    if (( waited >= timeout_s )); then
-      # Fail-loud — no degraded-mode fallback (the Staff Engineer finding 2).
-      # The mkdir primitive is universal; timeout means a real contention problem.
-      echo "ERROR: overlap-gate lock timeout (${timeout_s}s); held by PID ${held_pid:-?}" >&2
-      return 1
-    fi
-    sleep 1
-    waited=$(( waited + 1 ))
-  done
-  echo "$$" > "${lock_dir}/pid"
-  # Expose lock dir to EXIT traps in do_scope_from / do_scoped so they can clean up
-  # when the body calls exit 1 (RETURN trap does not fire on script exit).
-  _overlap_lock_dir="$lock_dir"
-  # RETURN trap: fire on normal function return. Redundant with explicit rm below
-  # but guards against early-return paths (e.g., unexpected errors in the body that
-  # propagate as non-exit failures).
-  trap 'rm -rf "${_overlap_lock_dir:-}" 2>/dev/null; _overlap_lock_dir=""' RETURN
-  "$@"
-  local rc=$?
-  rm -rf "$lock_dir" 2>/dev/null
-  _overlap_lock_dir=""
-  trap - RETURN
-  return $rc
-}
+    try:
+        with open(os.path.join(lock_dir, "pid"), "w", encoding="utf-8") as fh:
+            fh.write(str(os.getpid()))
+    except OSError:
+        pass
 
-# _do_scope_from_overlap_check_and_publish <active_scope_file> <base> <session_id> <handoff_files_ref> <scope_set_ref>
-# Purpose: write this session's handoff scope to active-scope.txt and check for
-# file-level collisions with peer sessions' declared scopes. Runs inside
-# _with_overlap_lock so the write + check are atomic (no TOCTOU window).
-# Uses bash namerefs for array/assoc-array arguments (bash 4.3+; we run 5.3).
-# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — inner helper.
-_do_scope_from_overlap_check_and_publish() {
-  local active_scope_file="$1"
-  local _base="$2"
-  local _session_id="$3"
-  local -n _handoff_files_ref="$4"   # indexed array: files to write to active-scope.txt
-  local -n _scope_set_ref="$5"       # assoc array: files to check against peers
+    try:
+        return body_fn(*body_args)
+    finally:
+        shutil.rmtree(lock_dir, ignore_errors=True)
 
-  # Write this session's scope (replaces step 5 write inside the lock).
-  if [[ ${#_handoff_files_ref[@]} -gt 0 ]]; then
-    printf '%s\n' "${_handoff_files_ref[@]}" > "$active_scope_file"
-  else
-    : > "$active_scope_file"
-  fi
 
-  # Check peers for scope collisions (step 6 overlap gate, inside the lock).
-  if [[ -n "$_base" && -d "$_base" ]]; then
-    for _sfop_peer_sdir in "${_base}"/*/; do
-      [[ -d "$_sfop_peer_sdir" ]] || continue
-      local _sfop_peer_id
-      _sfop_peer_id=$(basename "$_sfop_peer_sdir")
-      [[ "$_sfop_peer_id" == "$_session_id" ]] && continue
-      [[ "$_sfop_peer_id" == ".archive" ]] && continue
-      [[ "$_sfop_peer_id" == ".agents" ]] && continue
-      local _sfop_peer_scope="${_sfop_peer_sdir}active-scope.txt"
-      [[ -f "$_sfop_peer_scope" ]] || continue
-      while IFS= read -r _sfop_path; do
-        [[ -z "$_sfop_path" ]] && continue
-        if [[ -v "_scope_set_ref[$_sfop_path]" ]]; then
-          echo "ERROR: scope overlaps with session ${_sfop_peer_id}'s handoff at ${_sfop_path}; resolve via explicit-path commit." >&2
-          exit 1
-        fi
-      done < "$_sfop_peer_scope"
-    done
-  fi
-}
+def _iter_peer_scope_dirs(base: str, session_id: str):
+    """Yield (peer_id, active-scope.txt path) for every live-looking peer
+    session dir under base, excluding self / .archive / .agents — mirrors
+    the bash `for peer_sdir in "${base}"/*/` loop shared by both overlap
+    helpers below."""
+    if not base or not os.path.isdir(base):
+        return
+    for entry in sorted(os.listdir(base)):
+        peer_dir = os.path.join(base, entry)
+        if not os.path.isdir(peer_dir):
+            continue
+        if entry == session_id or entry in (".archive", ".agents"):
+            continue
+        peer_scope = os.path.join(peer_dir, "active-scope.txt")
+        if not os.path.isfile(peer_scope):
+            continue
+        yield entry, peer_scope
 
-# _do_scoped_orphan_overlap_check_and_publish <active_scope_file> <base> <session_id> <orphan_resolved_ref> <union_scope_set_ref>
-# Purpose: append resolved orphan paths to active-scope.txt and check the union
-# (handoff scope + orphans) for collisions with peer sessions. Runs inside
-# _with_overlap_lock (Fix 6). Only called from do_scoped's --include-orphans path.
-# Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — inner helper.
-_do_scoped_orphan_overlap_check_and_publish() {
-  local active_scope_file="$1"
-  local _base="$2"
-  local _session_id="$3"
-  local -n _orphan_resolved_ref="$4"   # indexed array: orphan files to append
-  local -n _union_scope_set_ref="$5"   # assoc array: full union for overlap check
 
-  # Append resolved orphan paths to active-scope.txt (additive in combined-mode;
-  # initial write in pure default-mode — file was created empty above).
-  if [[ -n "$active_scope_file" && ${#_orphan_resolved_ref[@]} -gt 0 ]]; then
-    printf '%s\n' "${_orphan_resolved_ref[@]}" >> "$active_scope_file"
-  fi
+def _publish_scope_and_check_overlap(
+    active_scope_file: str,
+    base: str,
+    session_id: str,
+    handoff_files: Sequence[str],
+    scope_set: Set[str],
+) -> None:
+    """Port of `_do_scope_from_overlap_check_and_publish`: write this
+    session's declared handoff scope to active-scope.txt, then check every
+    live peer session's active-scope.txt for a path already in scope_set.
+    Runs inside with_overlap_lock — write + check are atomic (no TOCTOU
+    window). exits 1 on first collision found (matches bash `exit 1` inside
+    the loop, which the caller's SystemExit propagation now carries)."""
+    try:
+        with open(active_scope_file, "w", encoding="utf-8") as fh:
+            for f in handoff_files:
+                if f:
+                    fh.write(f + "\n")
+    except OSError:
+        pass
 
-  # Overlap gate: check union against peer sessions (same logic as step 6 but on union).
-  if [[ -n "$_base" && -d "$_base" ]]; then
-    for _sdop_peer_sdir in "${_base}"/*/; do
-      [[ -d "$_sdop_peer_sdir" ]] || continue
-      local _sdop_peer_id
-      _sdop_peer_id=$(basename "$_sdop_peer_sdir")
-      [[ "$_sdop_peer_id" == "$_session_id" ]] && continue
-      [[ "$_sdop_peer_id" == ".archive" ]] && continue
-      [[ "$_sdop_peer_id" == ".agents" ]] && continue
-      local _sdop_peer_scope="${_sdop_peer_sdir}active-scope.txt"
-      [[ -f "$_sdop_peer_scope" ]] || continue
-      while IFS= read -r _sdop_path; do
-        [[ -z "$_sdop_path" ]] && continue
-        if [[ -v "_union_scope_set_ref[$_sdop_path]" ]]; then
-          echo "ERROR: --include-orphans: '${_sdop_path}' is already claimed by session ${_sdop_peer_id}." >&2
-          echo "Resolve: wait for that session to finish, or use explicit-path commit without the helper." >&2
-          exit 1
-        fi
-      done < "$_sdop_peer_scope"
-    done
-  fi
-}
+    for peer_id, peer_scope in _iter_peer_scope_dirs(base, session_id):
+        try:
+            lines = Path(peer_scope).read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for path in lines:
+            if path and path in scope_set:
+                print(
+                    f"ERROR: scope overlaps with session {peer_id}'s handoff at {path}; "
+                    "resolve via explicit-path commit.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+
+def _append_orphans_and_check_overlap(
+    active_scope_file: str,
+    base: str,
+    session_id: str,
+    orphan_resolved: Sequence[str],
+    union_scope_set: Set[str],
+) -> None:
+    """Port of `_do_scoped_orphan_overlap_check_and_publish`: append
+    resolved --include-orphans paths to active-scope.txt (additive in
+    combined-mode, initial write in pure default-mode — caller already
+    created the empty file), then check the union (handoff scope + orphans)
+    against every live peer session's active-scope.txt."""
+    if active_scope_file and orphan_resolved:
+        try:
+            with open(active_scope_file, "a", encoding="utf-8") as fh:
+                for f in orphan_resolved:
+                    fh.write(f + "\n")
+        except OSError:
+            pass
+
+    for peer_id, peer_scope in _iter_peer_scope_dirs(base, session_id):
+        try:
+            lines = Path(peer_scope).read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for path in lines:
+            if path and path in union_scope_set:
+                print(
+                    f"ERROR: --include-orphans: '{path}' is already claimed by session {peer_id}.",
+                    file=sys.stderr,
+                )
+                print(
+                    "Resolve: wait for that session to finish, or use explicit-path commit without the helper.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
 
 # ---------------------------------------------------------------------------
 # Structured pre-commit summary printer
 # ---------------------------------------------------------------------------
 
-# print_summary <staged_count> <staged_list_nl> <orphan_count> <orphan_list_nl> <other_count> <other_list_nl>
-print_summary() {
-  local staged_count="$1"
-  local staged_list="$2"
-  local orphan_count="$3"
-  local orphan_list="$4"
-  local other_count="$5"
-  local other_list="$6"
+def print_summary(
+    staged_count: int,
+    staged_list: Sequence[str],
+    orphan_count: int,
+    orphan_list: Sequence[str],
+    other_count: int,
+    other_list: Sequence[str],
+) -> None:
+    print("", file=sys.stderr)
+    print(f"Scope: {staged_count} file(s) staged", file=sys.stderr)
+    for f in staged_list:
+        if f:
+            print(f"  {f}", file=sys.stderr)
 
-  echo "" >&2
-  echo "Scope: ${staged_count} file(s) staged" >&2
-  if [[ -n "$staged_list" ]]; then
-    while IFS= read -r f; do
-      [[ -n "$f" ]] && echo "  ${f}" >&2
-    done <<< "$staged_list"
-  fi
+    print(f"Orphans (dirty, no session claim): {orphan_count} file(s) — NOT STAGED", file=sys.stderr)
+    for f in orphan_list:
+        if f:
+            print(f"  {f}", file=sys.stderr)
 
-  echo "Orphans (dirty, no session claim): ${orphan_count} file(s) — NOT STAGED" >&2
-  if [[ -n "$orphan_list" ]]; then
-    while IFS= read -r f; do
-      [[ -n "$f" ]] && echo "  ${f}" >&2
-    done <<< "$orphan_list"
-  fi
+    print(f"Other-session-owned (excluded): {other_count} file(s)", file=sys.stderr)
+    for f in other_list:
+        if f:
+            print(f"  {f}", file=sys.stderr)
+    print("", file=sys.stderr)
 
-  echo "Other-session-owned (excluded): ${other_count} file(s)" >&2
-  if [[ -n "$other_list" ]]; then
-    while IFS= read -r f; do
-      [[ -n "$f" ]] && echo "  ${f}" >&2
-    done <<< "$other_list"
-  fi
-  echo "" >&2
-}
 
 # ---------------------------------------------------------------------------
+# Session-ID resolution
+# ---------------------------------------------------------------------------
+
+def resolve_session_id(cs_core, cs_liveness) -> str:
+    """Priorities 0-3 (COORDINATOR_SESSION_ID > CLAUDE_SESSION_ID >
+    CLAUDE_CODE_SESSION_ID > sentinel w/ tier-4 ambiguity guard) are all
+    handled by coordinator_core.session.core.resolve_session_id — that port
+    already folds in the bash caller's own Phase-1 stale-sentinel pre-check
+    (0-live + session-dir-still-present -> untrusted -> empty), so a single
+    call covers the full 4-tier chain byte-for-byte. Priority 4 (the
+    live-session-count auto-detect fallback) is this function's own
+    responsibility — it is NOT part of the lib's resolve_session_id.
+
+    Fail-closed contract: a liveness-probe exception must NEVER be silently
+    reinterpreted as "0 live sessions" — that degrade previously fed a
+    distrusted empty set into the len==0 ("no live session", safe-looking)
+    and len==1 (an identity derived from data the probe just failed to
+    produce) branches below, on the commit hot path every live session
+    shares. This mirrors the two sibling liveness gates in this file
+    (the --blanket F0/F1 foreign-path subtract and the default-mode
+    >1-live-session gate), which already abort rather than degrade.
+    COORDINATOR_ACCEPT_LIVENESS_PROBE_FAILURE=1 restores the old
+    degrade-to-empty behavior for an operator who needs a way through the
+    commit hot path with liveness genuinely unavailable; never enabled
+    implicitly."""
+    sid = cs_core.resolve_session_id()
+    if sid:
+        return sid
+
+    base = cs_core.sessions_dir()
+    if not base or not os.path.isdir(base):
+        _print_no_live_session_error()
+        return ""
+
+    # Review: code-reviewer — Finding 2: this is a fail-closed safety gate —
+    # an exception here must not silently degrade to "0 live sessions"
+    # (which reads as the safe case and can misresolve session identity from
+    # data the probe was just unable to produce). Abort instead of guessing,
+    # matching the F0/F1 subtract (:946) and the default-mode >1-live-session
+    # gate (:1085).
+    try:
+        live_sessions = sorted(cs_liveness.live_session_ids())
+    except Exception as exc:
+        if os.environ.get("COORDINATOR_ACCEPT_LIVENESS_PROBE_FAILURE") == "1":
+            print(
+                f"WARNING: session-liveness check failed ({exc}); "
+                "COORDINATOR_ACCEPT_LIVENESS_PROBE_FAILURE=1 is set — resolving "
+                "session identity from an UNTRUSTED liveness read (treating as 0 "
+                "live sessions). Session misidentification is possible.",
+                file=sys.stderr,
+            )
+            live_sessions = []
+        else:
+            print(
+                f"ERROR: cannot verify session liveness ({exc}); refusing to resolve "
+                "session identity from an untrusted liveness read. Set "
+                "COORDINATOR_ACCEPT_LIVENESS_PROBE_FAILURE=1 to bypass at your own risk "
+                "(degrades to treating this as 0 live sessions), or bypass the helper "
+                "with explicit-path commit:",
+                file=sys.stderr,
+            )
+            print("  git add -- <your-paths>", file=sys.stderr)
+            print('  git commit -m "<subject>"', file=sys.stderr)
+            sys.exit(1)
+
+    if len(live_sessions) == 1:
+        return live_sessions[0]
+    if len(live_sessions) == 0:
+        _print_no_live_session_error()
+        return ""
+    print(
+        "ERROR: Multiple live sessions found — cannot auto-detect session ID. "
+        f"Set CLAUDE_SESSION_ID explicitly. Candidates: {' '.join(live_sessions)}",
+        file=sys.stderr,
+    )
+    print(
+        "If session-ownership is misidentifying your work (your files blocked, "
+        "others' files swept), the safer fallback is to bypass the helper:",
+        file=sys.stderr,
+    )
+    print("  git add -- <your-paths>", file=sys.stderr)
+    print('  git commit -m "<subject>"', file=sys.stderr)
+    return ""
+
+
+def _print_no_live_session_error() -> None:
+    print(
+        "ERROR: No live session found. Set CLAUDE_SESSION_ID or ensure a session was initialized.",
+        file=sys.stderr,
+    )
+    print("Fallback: bypass the helper with explicit-path commit:", file=sys.stderr)
+    print("  git add -- <your-paths>", file=sys.stderr)
+    print('  git commit -m "<subject>"', file=sys.stderr)
+
+
 # ---------------------------------------------------------------------------
 # BLANKET MODE
 # ---------------------------------------------------------------------------
 
-do_blanket() {
-  local session_id="$1"
+def _blanket_invoking_command_allowed() -> bool:
+    """Carve-out enforcement: --blanket is only valid from authorized sweep
+    ceremonies. Primary signal is CLAUDE_INVOKING_COMMAND; fallback inspects
+    the parent process's command line (Linux /proc, else `ps -p <ppid> -o
+    command=`) for one of the ceremony markers, matching bash's dual-path
+    check exactly."""
+    invoking = os.environ.get("CLAUDE_INVOKING_COMMAND", "")
+    if invoking in BLANKET_ALLOWED_COMMANDS:
+        return True
 
-  # Carve-out enforcement: only valid from authorized sweep ceremonies.
-  # /workday-complete was REMOVED 2026-06-22 — it migrated to the
-  # workday-complete-step2_5-dirty-tree.sh path-classifier and no longer uses --blanket.
-  local invoking="${CLAUDE_INVOKING_COMMAND:-}"
-  local allowed=false
+    ppid = os.getppid()
+    ppid_cmd = ""
+    proc_cmdline = f"/proc/{ppid}/cmdline"
+    if os.path.isfile(proc_cmdline):
+        try:
+            with open(proc_cmdline, "rb") as fh:
+                ppid_cmd = fh.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
+        except OSError:
+            ppid_cmd = ""
+    else:
+        # Review: code-reviewer — Finding 4: `ps` reliably existed under the
+        # prior bash-under-git-bash implementation (MSYS ships its own
+        # ps.exe); now that this runs as native Python, `ps` may not be on
+        # PATH on native Windows. Try psutil first (already a stated
+        # dependency elsewhere in this codebase — see
+        # coordinator/bin/probe-memory-headroom.py) as a Windows-native
+        # fallback before falling through to `ps`. Neither being available
+        # fails closed (rejects the blanket carve-out), which is the
+        # documented accepted gap, not a security hole.
+        ppid_cmd = ""
+        try:
+            import psutil  # noqa: PLC0415 — optional, Windows-native fallback only
 
-  if [[ "$invoking" == "workstream-start" || \
-        "$invoking" == "update-docs" || "$invoking" == "relay-protocol" || \
-        "$invoking" == "distillation" ]]; then
-    allowed=true
-  fi
+            ppid_cmd = " ".join(psutil.Process(ppid).cmdline())
+        except Exception:
+            ppid_cmd = ""
+        if not ppid_cmd:
+            try:
+                result = subprocess.run(
+                    ["ps", "-p", str(ppid), "-o", "command="],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                ppid_cmd = result.stdout if result.returncode == 0 else ""
+            except OSError:
+                ppid_cmd = ""
 
-  # Fallback: inspect parent process command line
-  if [[ "$allowed" == false ]]; then
-    local ppid_cmd=""
-    if [[ -r "/proc/$PPID/cmdline" ]]; then
-      ppid_cmd=$(tr '\0' ' ' < "/proc/$PPID/cmdline" 2>/dev/null || true)
-    else
-      ppid_cmd=$(ps -p "$PPID" -o command= 2>/dev/null || true)
-    fi
-    if [[ "$ppid_cmd" == *"workstream-start.md"* || \
-          "$ppid_cmd" == *"update-docs.md"* || "$ppid_cmd" == *"relay-protocol.md"* || \
-          "$ppid_cmd" == *"distillation"* ]]; then
-      allowed=true
-    fi
-  fi
+    return any(marker in ppid_cmd for marker in BLANKET_ALLOWED_PPID_MARKERS)
 
-  if [[ "$allowed" == false ]]; then
-    cat >&2 <<'ERR'
-ERROR: --blanket is only valid from authorized sweep ceremonies: /workstream-start, /update-docs, relay-protocol, or distillation.
-Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.
-ERR
-    exit 1
-  fi
 
-  # Log this invocation
-  local base sdir log_file
-  base=$(_cs_sessions_dir) || true
-  if [[ -n "$base" && -n "$session_id" ]]; then
-    sdir="${base}/${session_id}"
-    mkdir -p "$sdir"
-    log_file="${sdir}/blanket-invocations.log"
-    echo "$(_cs_now_iso) invoking_command=${invoking:-unknown}" >> "$log_file"
-  fi
+def _blanket_check_destructive_shape(subject: str) -> None:
+    """Port of the nested `_blanket_check_destructive_shape`: soft-warn
+    through 2026-06-01, then hard-fail (>= 3 files with deletion-heavy diffs
+    AND no plan/handoff/PR/lessons/queue reference in the subject).
+    `sys.exit(3)` here terminates the whole process (do_blanket -> main),
+    exactly matching bash's `exit 3` inside a nested function terminating
+    the calling script, not just the function.
+    Spec backlink: archive/improvement-queue/coordinator-improvement-queue.md
+    (2026-05-16, blanket commit shape-check entry)."""
+    if os.environ.get("COORDINATOR_OVERRIDE_BLANKET_SHAPE") == "1":
+        return
+    if _DESTRUCTIVE_SHAPE_REF_RE.search(subject):
+        return
 
-  # Stage everything (this is the ONE sanctioned use of git add -A)
-  # Sentinel 1: capture HEAD before commit so we can detect silent no-ops.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
-  local _pre_head
-  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  # Review: code-reviewer — subshell scope-safety: if git add -A fails under set -e, the export/unset
-  # block in the parent shell would leak _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET into EXIT trap /
-  # signal handlers. Subshell ensures the env var dies with the subshell on any exit path.
-  ( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git add -A )  # E1 hook bypass — sanctioned blanket-add path (SC-DR-014). Plan: harden-safe-commit-against-sibling-add-all.
+    heavy_count = 0
+    for line in _git_diff_cached_numstat():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        added_raw, deleted_raw = parts[0], parts[1]
+        if not (added_raw.isdigit() and deleted_raw.isdigit()):
+            continue  # binary files report "-"/"-" — skipped, matches bash's ^[0-9]+$ guard
+        added, deleted = int(added_raw), int(deleted_raw)
+        if deleted >= 10 and deleted > added:
+            heavy_count += 1
 
-  # ---------------------------------------------------------------------------
-  # F0/F1: Foreign-path subtract — remove sibling-EM-claimed paths from the
-  # staged index so a blanket sweep captures orphans but never absorbs a
-  # concurrent sibling EM's in-flight files.
-  #
-  # Escape hatch: COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 skips the subtract and
-  # reverts to full-tree sweep (e.g. a deliberate cross-session consolidation).
-  #
-  # Initial-commit guard: when there is no HEAD yet (_pre_head == INITIAL) a
-  # genesis repo cannot have live siblings — skip subtract entirely.
-  #
-  # TOCTOU: the read-foreign → git reset window is an accepted residual
-  # (attribution-only loss, strictly narrower than the prior warn-only status quo),
-  # deliberately un-locked to preserve workstream-start autonomy.
-  # Cross-ref docs/wiki/concurrent-em-hazards.md.
-  #
-  # Spec backlink: docs/plans/2026-06-22-authorized-blanket-orphan-capture-not-sibling-sweep.md § C1a F0/F1.
-  # ---------------------------------------------------------------------------
-  local subtracted_count=0
-  # Initial-commit/genesis repos cannot have live siblings (single-operator bootstrap),
-  # so skipping the subtract is safe AND `git reset HEAD` would error without a HEAD.
-  if [[ "${COORDINATOR_BLANKET_ACCEPT_FOREIGN:-}" != "1" && "$_pre_head" != "INITIAL" ]]; then
-    # --- Build own set: own touched.txt + own-agent touched.txt ---
-    local _blanket_base
-    _blanket_base=$(_cs_sessions_dir) || true
-    declare -A _own_set
-    if [[ -n "$_blanket_base" && -f "${_blanket_base}/${session_id}/touched.txt" ]]; then
-      while IFS= read -r _op; do
-        [[ -n "$_op" ]] && _own_set["$_op"]=1
-      done < "${_blanket_base}/${session_id}/touched.txt"
-    fi
-    # exact mode: broadened would scoop a sibling EM's own sub-agent back-pointer into
-    # "own", causing the blanket to absorb the sibling's in-flight files — no downstream
-    # correction exists on the blanket path (the subtract IS the only correction).
-    # Review: code-reviewer — fail-open here under-populates own-set with no downstream
-    # re-subtraction (unlike do_scoped), so own-wins is under-applied on agent-enumeration
-    # failure — accepted edge on old/sentinel-collision hosts.
-    while IFS= read -r _ap; do
-      [[ -n "$_ap" ]] && _own_set["$_ap"]=1
-    done < <(_cs_my_agent_touched "$session_id" exact 2>/dev/null || true)
+    if heavy_count < 3:
+        return
 
-    # --- Build sibling-claimed set: union of live sibling sessions' touched.txt ---
-    # Sibling = live session that is NOT this session.
-    declare -A _sibling_set
-    if [[ -n "${_blanket_base:-}" && -d "$_blanket_base" ]]; then
-      local _slsid
-      while IFS= read -r _slsid; do
-        [[ -z "$_slsid" ]] && continue
-        [[ "$_slsid" == "$session_id" ]] && continue
-        local _sl_touched="${_blanket_base}/${_slsid}/touched.txt"
-        [[ -f "$_sl_touched" ]] || continue
-        local _slpath
-        while IFS= read -r _slpath; do
-          [[ -n "$_slpath" ]] && _sibling_set["$_slpath"]=1
-        done < "$_sl_touched"
-      done < <(cs_live_session_ids 2>/dev/null || true)
-    fi
+    if os.environ.get("COORDINATOR_BLANKET_SHAPE_STRICT") == "1":
+        print(
+            f"FAIL: blanket-commit destructive-shape gate: {heavy_count} files with "
+            "deletion-heavy diffs and no plan/handoff/PR/lessons/queue reference in subject.",
+            file=sys.stderr,
+        )
+        print(f"  Subject: {subject}", file=sys.stderr)
+        print(
+            "  Set COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 to bypass, or add a reference token to the subject.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
 
-    # --- Compute Foreign = sibling-claimed − (own ∪ agent), intersected with staged ---
-    # Only paths that are STAGED (after git add -A) AND claimed by a sibling but NOT
-    # by us are subtracted.
-    local _staged_path
-    while IFS= read -r _staged_path; do
-      [[ -z "$_staged_path" ]] && continue
-      # Is it sibling-claimed?
-      [[ -v "_sibling_set[$_staged_path]" ]] || continue
-      # Is it also own-claimed? If yes, own wins — do NOT subtract.
-      [[ -v "_own_set[$_staged_path]" ]] && continue
-      # Foreign confirmed — unstage it (preserves working-tree content).
-      git reset -q HEAD -- "$_staged_path" 2>/dev/null || true
-      subtracted_count=$(( subtracted_count + 1 ))
-    done < <(git diff --cached --name-only 2>/dev/null || true)
+    print(
+        f"WARN: blanket-commit destructive-shape: {heavy_count} files with deletion-heavy diffs; "
+        "subject lacks plan/handoff/PR/lessons/queue reference.",
+        file=sys.stderr,
+    )
+    print(f"  Subject: {subject}", file=sys.stderr)
+    print(
+        "  This warning becomes a hard fail after 2026-06-01. Add a reference token now to "
+        "suppress, or set COORDINATOR_OVERRIDE_BLANKET_SHAPE=1.",
+        file=sys.stderr,
+    )
 
-    # All-foreign-subtracted: if the index is now empty, nothing to commit — clean exit.
-    # Do NOT fall through to the _pre_head == _post_head FAIL sentinel (that guards the
-    # genuine no-op bug where do_blanket ran but nothing was ever staged).
-    if [[ "$subtracted_count" -gt 0 ]] && git diff --cached --quiet 2>/dev/null; then
-      echo "INFO: blanket: nothing to commit — all staged paths belong to live siblings (${subtracted_count} path(s) subtracted) [session: ${session_id:-?}]" >&2
-      exit 0
-    fi
-  fi
 
-  # Destructive-shape gate (soft-warn through 2026-06-01, then promote to fail).
-  # Catches blanket commits laundering unauthorized substrate changes (572a548b class):
-  # ≥3 files with deletion-heavy diffs AND no plan/handoff/PR/lessons/queue ref in subject.
-  # Override: COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 silences the warning.
-  # Strict (fail-loud): COORDINATOR_BLANKET_SHAPE_STRICT=1.
-  # Spec backlink: archive/improvement-queue/coordinator-improvement-queue.md (2026-05-16, blanket commit shape-check entry; prose file archived 2026-06).
-  # Note: _blanket_check_destructive_shape is defined nested inside do_blanket
-  # for locality with its single caller. `exit 3` inside the nested function
-  # terminates the calling script (do_blanket → main), not just the function —
-  # intentional behavior, but non-obvious. If extracting, preserve that semantic.
-  _blanket_check_destructive_shape() {
-    [[ "${COORDINATOR_OVERRIDE_BLANKET_SHAPE:-}" == "1" ]] && return 0
-    local subj="$1"
-    # Subject-reference grep — word-boundary anchored tokens only. Bare substrings
-    # like `plan`/`queue`/`review` were false-positive magnets (matched `workplan`,
-    # `dequeue`, `code review style comments`). Word-boundary tokens: handoff,
-    # spinoff, learn-lessons, update-docs, distill. Word-anchored
-    # forms: plan/, plan #, lessons.md, queue file paths, review-trail.
-    if echo "$subj" | grep -qiE '(\bhandoff\b|\bspinoff\b|\blearn-lessons\b|\bupdate-docs\b|\bdistill\b|\bPR[ #]|#[0-9]+|\bplan/|plan #|\blessons\.md\b|\bqueue\.md\b|\breview-trail\b|\bworkday-(complete|start)\b|\bworkweek-(complete|start)\b|\bworkstream-(complete|start)\b)'; then
-      return 0
-    fi
-    # Count files with deletion-heavy diffs in the staged set.
-    # Threshold N=10 lines deleted per file (line-count proxy for the queue
-    # entry's "N named symbols" calibration — line count is greppable from
-    # numstat without parsing ASTs). M=3 files. `$2 > $1` requires net-deletion
-    # shape (more deletions than insertions in the file). Binary files report
-    # `-` in $1/$2 and are skipped by the `^[0-9]+$` guard.
-    local heavy_count
-    heavy_count=$(git diff --cached --numstat 2>/dev/null \
-      | awk '$1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $2 >= 10 && $2 > $1 { c++ } END { print c+0 }')
-    [[ "${heavy_count:-0}" -lt 3 ]] && return 0
-    if [[ "${COORDINATOR_BLANKET_SHAPE_STRICT:-}" == "1" ]]; then
-      echo "FAIL: blanket-commit destructive-shape gate: ${heavy_count} files with deletion-heavy diffs and no plan/handoff/PR/lessons/queue reference in subject." >&2
-      echo "  Subject: ${subj}" >&2
-      echo "  Set COORDINATOR_OVERRIDE_BLANKET_SHAPE=1 to bypass, or add a reference token to the subject." >&2
-      exit 3
-    fi
-    echo "WARN: blanket-commit destructive-shape: ${heavy_count} files with deletion-heavy diffs; subject lacks plan/handoff/PR/lessons/queue reference." >&2
-    echo "  Subject: ${subj}" >&2
-    echo "  This warning becomes a hard fail after 2026-06-01. Add a reference token now to suppress, or set COORDINATOR_OVERRIDE_BLANKET_SHAPE=1." >&2
-  }
-  _blanket_check_destructive_shape "$SUBJECT"
-  # Sentinel 2: wrap commit call so mid-call failures (hook reject, detached HEAD)
-  # surface as a FAIL line rather than a silent non-zero exit.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
-  if ! git commit -m "$SUBJECT"; then
-    local _rc=$?
-    echo "FAIL: git commit returned ${_rc} in do_blanket" >&2
-    exit 2
-  fi
-  local _post_head
-  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  if [[ "$_pre_head" == "$_post_head" ]]; then
-    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_blanket commit attempt)" >&2
-    exit 2
-  fi
-}
+def do_blanket(session_id: str, args: "Args", cs_core, cs_liveness, cs_claims) -> None:
+    """Port of `do_blanket`. Stages everything (the one sanctioned `git add
+    -A` path), subtracts sibling-claimed paths (F0/F1), runs the
+    destructive-shape gate, then commits under the Sentinel-1/Sentinel-2
+    no-op-commit FAIL contract.
 
-# ---------------------------------------------------------------------------
-# SCOPE-FROM MODE
-# ---------------------------------------------------------------------------
+    Fail-closed contract on F0/F1: own_set/sibling_set resolution failures
+    (unreadable touched.txt, a raising claims/liveness call) abort the
+    commit rather than proceeding with an incomplete set — the subtract IS
+    the only correction on this path, so a partial set is unsafe, not
+    merely degraded. COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 skips the whole
+    subtract as the escape hatch. Negative-spec: a touched.txt that simply
+    does not exist is a normal empty-set case (a session that has touched
+    nothing) and must NOT abort — only a read/resolution error does. An
+    absent session_id (own_set/agent-touched resolution) is likewise a
+    normal empty-identity case, not a failure, and must NOT abort."""
+    if not _blanket_invoking_command_allowed():
+        print(
+            "ERROR: --blanket is only valid from authorized sweep ceremonies: "
+            "/workstream-start, /update-docs, relay-protocol, or /distill (distillation).",
+            file=sys.stderr,
+        )
+        print(
+            "Use scoped staging (default) or COORDINATOR_OVERRIDE_SCOPE=1 for emergencies.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-do_scope_from() {
-  local session_id="$1"
+    if args.dry_run:
+        # Preview the git-add-A candidate set without mutating the index —
+        # the F0/F1 foreign-path subtract and destructive-shape gate both
+        # act on the staged index, so a true preview of their outcome would
+        # require actually staging; a dry-run's contract is "no git add or
+        # commit executed", so this reports the pre-subtract dirty-file
+        # union instead (may overcount by any sibling-claimed paths F0/F1
+        # would otherwise subtract).
+        dirty = _current_dirty_files()
+        print(f"DRY RUN — blanket: would stage {len(dirty)} file(s) via 'git add -A':", file=sys.stderr)
+        for f in dirty:
+            print(f"  {f}", file=sys.stderr)
+        print(f"Would commit with subject: {args.subject}", file=sys.stderr)
+        print("(no git add or commit executed)", file=sys.stderr)
+        sys.exit(0)
 
-  # The handoff scope: field is the declarative truth for what this session owns.
-  # Cross-session subtraction was removed 2026-05-05 (Issue C, plan
-  # docs/plans/2026-05-05-session-misidentification-fix.md): the helper no longer
-  # reads any session's touched.txt in --scope-from mode. Identity-resolution
-  # bugs (last-writer-wins sentinel under concurrent EMs / subagent SessionStart)
-  # were causing the helper to read the wrong session's touched.txt and exclude
-  # the calling session's own scope. The handoff scope is now load-bearing for
-  # commit safety; overlapping scopes are caught by the runtime overlap gate
-  # (step 5 below), not by post-hoc identity-keyed subtraction.
+    invoking = os.environ.get("CLAUDE_INVOKING_COMMAND", "")
+    base = cs_core.sessions_dir()
+    if base and session_id:
+        sdir = os.path.join(base, session_id)
+        os.makedirs(sdir, exist_ok=True)
+        log_file = os.path.join(sdir, "blanket-invocations.log")
+        try:
+            with open(log_file, "a", encoding="utf-8") as fh:
+                fh.write(f"{cs_core.now_iso()} invoking_command={invoking or 'unknown'}\n")
+        except OSError:
+            pass
 
-  # 1. Verify handoff file exists
-  if [[ ! -f "$SCOPE_FROM_PATH" ]]; then
-    echo "ERROR: --scope-from path does not exist: ${SCOPE_FROM_PATH}" >&2
-    exit 1
-  fi
+    # Sentinel 1: capture HEAD before commit to detect silent no-ops.
+    pre_head = _git_rev_parse_head()
+    _git_add_all_blanket()
 
-  # 2. Parse frontmatter scope: array
-  local handoff_scope_raw
-  if ! handoff_scope_raw=$(parse_scope_from_frontmatter "$SCOPE_FROM_PATH"); then
-    exit 1
-  fi
+    # ---------------------------------------------------------------------
+    # F0/F1: Foreign-path subtract — remove sibling-EM-claimed paths from
+    # the staged index so a blanket sweep captures orphans but never
+    # absorbs a concurrent sibling EM's in-flight files.
+    # Fail-closed contract: own_set and sibling_set resolution (touched.txt
+    # reads, my_agent_touched(), live_session_ids()) must never silently
+    # degrade to an incomplete set — an incomplete own_set strips "own
+    # wins" and can drop a legitimately-owned staged path as a sibling's;
+    # an incomplete sibling_set can let a live sibling's in-flight file get
+    # absorbed into this commit. Any resolution failure aborts the
+    # --blanket commit. A touched.txt simply not existing (a session that
+    # has touched nothing) is a normal empty-set case, NOT a failure, and
+    # must not abort.
+    # Escape hatch: COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 skips the whole
+    # subtract (own_set/sibling_set resolution included), the same escape
+    # named in every abort message below.
+    # Genesis-repo guard: no HEAD yet means no live siblings are possible
+    # (single-operator bootstrap) AND `git reset HEAD` would error without
+    # a HEAD — skip the subtract entirely.
+    # Spec backlink: docs/plans/2026-06-22-authorized-blanket-orphan-capture-not-sibling-sweep.md § C1a F0/F1.
+    # ---------------------------------------------------------------------
+    subtracted_count = 0
+    if os.environ.get("COORDINATOR_BLANKET_ACCEPT_FOREIGN") != "1" and pre_head != "INITIAL":
+        # do_blanket's own signature is not threaded with cs_scope (it is
+        # called positionally by existing tests with 5 args) — local import,
+        # same idiom as this file's other in-function imports (e.g.
+        # `from coordinator_core.ops.ceremony import git_native` below).
+        # `_git_root` (distinct from the injected `cs_core`, which some
+        # callers stub with a sessions_dir()/now_iso()-only double) is used
+        # only for the sibling-mtime resolution below.
+        from coordinator_core.session import core as _git_root_core  # noqa: PLC0415
+        from coordinator_core.session import scope as cs_scope  # noqa: PLC0415
 
-  local handoff_pathspecs=()
-  while IFS= read -r ps; do
-    [[ -n "$ps" ]] && handoff_pathspecs+=("$ps")
-  done <<< "$handoff_scope_raw"
+        own_set: Set[str] = set()
+        own_lines: List[str] = []
+        if base and session_id:
+            touched_path = os.path.join(base, session_id, "touched.txt")
+            if os.path.isfile(touched_path):
+                try:
+                    own_lines = Path(touched_path).read_text(encoding="utf-8").splitlines()
+                except OSError as exc:
+                    print(
+                        f"ERROR: cannot read this session's own touched.txt "
+                        f"({touched_path}: {exc}); refusing --blanket commit — the F0/F1 "
+                        "subtract's 'own wins' protection cannot be trusted with an "
+                        "incomplete own_set, and a legitimately-owned staged path could be "
+                        "incorrectly subtracted as a sibling's. Set "
+                        "COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 to skip the whole subtract "
+                        "and bypass at your own risk.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                # SELF-facing projection (P3): own_set is this session's own
+                # scope, so a path last RELEASED (R) must not re-enter it —
+                # `project_self_scope` never applies the peer-facing mtime
+                # re-claim (that arm must not widen `my_scope`/own_set).
+                own_set.update(cs_scope.project_self_scope(own_lines))
+        # exact mode: broadened would scoop a sibling EM's own sub-agent
+        # back-pointer into "own", causing the blanket to absorb the
+        # sibling's in-flight files — no downstream correction exists on
+        # the blanket path (the subtract IS the only correction).
+        # Negative-spec: this skip is scoped to an absent session id ONLY. A
+        # raising my_agent_touched with a REAL session id still aborts — there
+        # the machinery genuinely failed and own_set is untrustworthy.
+        try:
+            if session_id:
+                own_set.update(f for f in cs_claims.my_agent_touched(session_id, "exact") if f)
+        except Exception as exc:
+            print(
+                f"ERROR: cannot resolve own dispatched-agent touched files ({exc}); "
+                "refusing --blanket commit — the F0/F1 subtract's 'own wins' protection "
+                "cannot be trusted with an incomplete own_set. Set "
+                "COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 to skip the whole subtract and "
+                "bypass at your own risk.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-  # 3. Validate each pathspec
-  for ps in "${handoff_pathspecs[@]}"; do
-    if ! validate_pathspec "$ps"; then
-      echo "ERROR: Malformed or invalid pathspec in scope: '${ps}'" >&2
-      exit 1
-    fi
-  done
+        sibling_set: Set[str] = set()
+        if base and os.path.isdir(base):
+            # Review: code-reviewer — Finding 2: this feeds the F0/F1
+            # foreign-path subtract, the only correction preventing a
+            # blanket sweep from absorbing a concurrent sibling EM's
+            # in-flight files. An exception here must not silently degrade
+            # to "no live siblings" (which reads as the safe case) — abort
+            # the blanket commit instead of proceeding unsafely.
+            try:
+                live_ids = cs_liveness.live_session_ids()
+            except Exception as exc:
+                print(
+                    f"ERROR: cannot verify sibling-session liveness ({exc}); refusing "
+                    "--blanket commit — the foreign-path subtract cannot be trusted. "
+                    "Set COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 to bypass at your own risk.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            # PEER-facing challenger evidence (EM ratification 2026-08-03,
+            # item 1: option (a)): only this session's own REAL-timestamped
+            # T events feed `project_peer_claims`'s `challenger_t_events`
+            # argument, mirroring `compute_scope` Step 3's own construction
+            # — a legacy/fail-safe T (unknown time) carries no evidence of
+            # post-dating anything and is excluded.
+            # Review: code-reviewer Finding 1 (sidecar
+            # coordinatorcode-reviewer-5c643f30.md) — this scan is now the
+            # shared `cs_scope._challenger_t_events` helper, rather than a
+            # third independent rewrite of the same derivation.
+            # Dict[str, datetime] — `datetime` is not imported into this file
+            # (Finding 2, same sidecar); local variable annotations are never
+            # evaluated at runtime (this file already has `from __future__
+            # import annotations`), so the bare name is safe here without a
+            # new import.
+            challenger_t_events: Dict[str, datetime] = cs_scope._challenger_t_events(
+                own_lines
+            )
+            root = _git_root_core.git_root()
+            for sl_sid in live_ids:
+                if sl_sid == session_id:
+                    continue
+                sl_touched = os.path.join(base, sl_sid, "touched.txt")
+                if not os.path.isfile(sl_touched):
+                    continue
+                try:
+                    sl_lines = Path(sl_touched).read_text(encoding="utf-8").splitlines()
+                except OSError as exc:
+                    print(
+                        f"ERROR: cannot read touched.txt for live sibling session {sl_sid} "
+                        f"({sl_touched}: {exc}); refusing --blanket commit — the F0/F1 "
+                        "subtract cannot verify that session's claimed files, risking "
+                        "absorption of a sibling's in-flight work. Set "
+                        "COORDINATOR_BLANKET_ACCEPT_FOREIGN=1 to skip the whole subtract "
+                        "and bypass at your own risk.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                # PEER-facing projection (P3): route sibling_set through
+                # `project_peer_claims` — a released path re-projects to
+                # CLAIMED only under the mtime-re-claim rule (§ Decision 3);
+                # a released path with no re-claim evidence stays absent
+                # here, same as sibling_set never gaining an entry for it
+                # today.
+                nonblank_sl_lines = [ln for ln in sl_lines if ln]
+                sl_path_mtimes = cs_scope._collect_peer_path_mtimes(nonblank_sl_lines, root)
+                sibling_set.update(
+                    cs_scope.project_peer_claims(
+                        nonblank_sl_lines, sl_path_mtimes, challenger_t_events
+                    )
+                )
 
-  # 4. Expand handoff pathspecs to a concrete file list
-  local handoff_files=()
-  for ps in "${handoff_pathspecs[@]}"; do
-    while IFS= read -r f; do
-      [[ -n "$f" ]] && handoff_files+=("$f")
-    done < <(git ls-files -- "$ps" 2>/dev/null; git ls-files --others --exclude-standard -- "$ps" 2>/dev/null)
-  done
+        excluded_paths: List[str] = []
+        for staged_path in _git_diff_cached_names():
+            if not staged_path:
+                continue
+            if staged_path not in sibling_set:
+                continue
+            if staged_path in own_set:
+                continue  # own wins — do NOT subtract
+            _git_reset_unstage(staged_path)
+            subtracted_count += 1
+            excluded_paths.append(staged_path)
 
-  # Build a hash set of declared-scope files for O(1) membership tests
-  declare -A scope_set
-  for f in "${handoff_files[@]}"; do
-    [[ -n "$f" ]] && scope_set["$f"]=1
-  done
+        if subtracted_count > 0 and not session_id:
+            # Review: code-reviewer — Finding 1 (P2): own_set is empty here
+            # specifically because session_id is absent, so the "own wins"
+            # check above could never have protected any of these paths. A
+            # path this session genuinely owns that also appears in a live
+            # sibling's touched.txt is excluded above with no other signal.
+            # Non-destructive (the file stays dirty, not discarded) — this
+            # is visibility only, so an operator can notice and re-commit
+            # the excluded path explicitly.
+            print(
+                f"INFO: blanket: session_id unresolved — {subtracted_count} path(s) "
+                "excluded without 'own wins' protection (may include a path this "
+                "session genuinely owns):",
+                file=sys.stderr,
+            )
+            for p in excluded_paths:
+                print(f"  {p}", file=sys.stderr)
 
-  local base
-  base=$(_cs_sessions_dir) || true
+        if subtracted_count > 0 and _git_diff_cached_is_empty():
+            print(
+                "INFO: blanket: nothing to commit — all staged paths belong to live siblings "
+                f"({subtracted_count} path(s) subtracted) [session: {session_id or '?'}]",
+                file=sys.stderr,
+            )
+            sys.exit(0)
 
-  # Script-globals: the active-scope.txt path for this scope-from run and a
-  # sentinel indicating that the trap was installed by do_scope_from (so that
-  # do_scoped — when called as a delegate — does not double-install a trap on
-  # the same file). NOT declared local so the EXIT trap and do_scoped both see
-  # them after do_scope_from returns on error paths.
-  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — the Staff Engineer finding 0.
-  _sfm_active_scope_file=""
-  _sfm_trap_installed=0
+    _blanket_check_destructive_shape(args.subject)
 
-  # 5. Side-channel write: declare this session's active scope (best-effort
-  # session id is sufficient — file is keyed by session-dir, not by identity-
-  # accuracy, and even an imprecise session id distinguishes from siblings).
-  if [[ -n "$base" && -n "$session_id" ]]; then
-    local sdir="${base}/${session_id}"
-    mkdir -p "$sdir"
-    _sfm_active_scope_file="${sdir}/active-scope.txt"
-    # Install trap BEFORE the write so error paths clean up the file.
-    # Also cleans up the overlap-gate lock if a body fn called exit 1 while
-    # holding it (RETURN trap does not fire on script exit — see _with_overlap_lock).
-    # Spec backlink: the Staff Engineer review fix-1 — active-scope.txt leak on error paths.
-    # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — lock EXIT cleanup.
-    trap 'rm -rf "${_overlap_lock_dir:-}" 2>/dev/null; _overlap_lock_dir=""; [ -n "${_sfm_active_scope_file:-}" ] && rm -f "${_sfm_active_scope_file:-}"' EXIT INT TERM HUP
-    # Step 5 write + step 6 overlap check happen inside the lock (Fix 6) to close
-    # the TOCTOU window between reading peers and writing own scope.
-    # Lock is narrow: released before git add / git commit.
-    # sdir already created above (line ~639); _with_overlap_lock also calls mkdir -p "$base".
-    _with_overlap_lock _do_scope_from_overlap_check_and_publish \
-      "$_sfm_active_scope_file" "$base" "$session_id" handoff_files scope_set || exit $?
-  fi
+    # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
+    result = subprocess.run(["git", "commit", *_commit_message_argv(args.subject, args.body)])
+    if result.returncode != 0:
+        print(f"FAIL: git commit returned {result.returncode} in do_blanket", file=sys.stderr)
+        sys.exit(2)
+    post_head = _git_rev_parse_head()
+    if pre_head == post_head:
+        print(
+            "FAIL: helper produced no commit (reason: HEAD unchanged after do_blanket commit attempt)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
-  # 6. Runtime overlap gate is now inside _do_scope_from_overlap_check_and_publish
-  # (called above under _with_overlap_lock). This comment preserved for step numbering
-  # continuity — the lock closes the TOCTOU window that existed between the original
-  # read-peers and write-own-scope sequence (the Staff Engineer finding 7 / Fix 6).
-  # No inline overlap-gate loop here — it moved to the helper.
-
-  # 6b. Combined-mode --include-orphans processing (Phase 2).
-  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — delegate to do_scoped.
-  #
-  # do_scope_from has now published active-scope.txt (step 5) and checked the handoff
-  # scope against peers (step 6). Orphan resolution, union-scope overlap gate, audit
-  # log, and commit are all handled by do_scoped's --include-orphans path — which is
-  # the single canonical implementation. Delegating here eliminates the ~80-line
-  # duplicated block that lived here previously (the Staff Engineer finding 0).
-  if [[ ${#INCLUDE_ORPHANS[@]} -gt 0 ]]; then
-    # Set the sentinel BEFORE calling do_scoped so it skips the double-trap-install
-    # on _active_scope_file. Greppable > clever: explicit name, not path-as-signal.
-    _sfm_trap_installed=1
-    do_scoped "$session_id"
-    return $?
-  fi
-
-  # 7. Determine which declared-scope files are dirty (intersect scope ∩ git-status)
-  # No-orphan path only: scope_set contains only handoff files.
-  local dirty_files=()
-  while IFS= read -r f; do
-    [[ -n "$f" ]] && dirty_files+=("$f")
-  done < <(
-    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u
-  )
-
-  local my_scope=()
-  local out_of_scope_dirty=()
-  for f in "${dirty_files[@]:-}"; do
-    [[ -z "$f" ]] && continue
-    if [[ -v "scope_set[$f]" ]]; then
-      my_scope+=("$f")
-    else
-      out_of_scope_dirty+=("$f")
-    fi
-  done
-
-  # 8. Out-of-scope dirty check (Issue C plan, second-order behavior change).
-  # Files this session edited but did NOT declare in handoff scope are not
-  # staged. If any such files exist, the helper exits non-zero with a hint
-  # listing them, unless --allow-out-of-scope-dirty was passed.
-  if [[ ${#out_of_scope_dirty[@]} -gt 0 ]]; then
-    if [[ "$ALLOW_OUT_OF_SCOPE_DIRTY" == "1" ]]; then
-      # Honor the flag consistently in both normal and dry-run modes: warn but continue.
-      echo "WARNING: ${#out_of_scope_dirty[@]} dirty file(s) outside declared scope (not staged; --allow-out-of-scope-dirty in effect):" >&2
-      for f in "${out_of_scope_dirty[@]}"; do echo "  ${f}" >&2; done
-    else
-      # Error in both normal and dry-run modes so --allow-out-of-scope-dirty has consistent
-      # semantics regardless of whether --dry-run is also passed.
-      echo "ERROR: ${#out_of_scope_dirty[@]} dirty file(s) outside declared scope:" >&2
-      for f in "${out_of_scope_dirty[@]}"; do echo "  ${f}" >&2; done
-      echo "Resolve: include them in the handoff scope, stash them, or pass --allow-out-of-scope-dirty." >&2
-      exit 1
-    fi
-  fi
-
-  if [[ "${MODE}" == "dry-run" ]]; then
-    # No-orphan path only (--include-orphans delegates to do_scoped before reaching here).
-    echo "DRY RUN — would stage ${#my_scope[@]} file(s):" >&2
-    for f in "${my_scope[@]:-}"; do echo "  $f" >&2; done
-    # Out-of-scope dirty files were already reported above (error+exit or warning).
-    echo "(no git add or commit executed)" >&2
-    exit 0
-  fi
-
-  # 9. Stage and commit — empty-array guard matches do_scoped line ~1079.
-  # Without this guard, an empty my_scope produces `git add --` with no args,
-  # which emits an obscure error instead of the actionable message below.
-  local staged_count=${#my_scope[@]}
-  if [[ ${#my_scope[@]} -eq 0 ]]; then
-    echo "ERROR: declared scope filtered to zero dirty files — nothing to commit." >&2
-    exit 1
-  fi
-  # Sentinel 1: capture HEAD before commit to detect silent no-ops.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
-  local _pre_head
-  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
-  # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
-  if ! git commit -m "$SUBJECT"; then
-    local _rc=$?
-    echo "FAIL: git commit returned ${_rc} in do_scope_from" >&2
-    exit 2
-  fi
-  local _post_head
-  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  if [[ "$_pre_head" == "$_post_head" ]]; then
-    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_scope_from commit attempt)" >&2
-    exit 2
-  fi
-
-  # Clean up active-scope.txt — declared scope is no longer active after commit succeeds.
-  # Without this, peer sessions read stale entries and false-positive on overlap gate.
-  # Use the shared helper so both do_scope_from and do_scoped (combined-mode) share one path.
-  _cleanup_active_scope
-
-  # Build display list for print_summary (no orphan annotation needed: no-orphan path)
-  local _sfm_display_list=()
-  for _sfm_sf in "${my_scope[@]}"; do
-    _sfm_display_list+=("$_sfm_sf")
-  done
-
-  print_summary "$staged_count" "$(printf '%s\n' "${_sfm_display_list[@]:-}")" \
-    0 "" \
-    0 ""
-}
 
 # ---------------------------------------------------------------------------
 # OVERRIDE MODE helper
 # ---------------------------------------------------------------------------
 
-do_override() {
-  local session_id="$1"
+def do_override(session_id: str, args: "Args", cs_core) -> None:
+    """Port of `do_override`: COORDINATOR_OVERRIDE_SCOPE=1 emergency escape
+    hatch — audit-trail-degraded, logs to overrides.log, then
+    Sentinel-1/Sentinel-2 commit.
 
-  echo "WARNING: COORDINATOR_OVERRIDE_SCOPE=1 is set — audit-trail-degraded path." >&2
-  echo "         Staging all dirty files. This will be logged." >&2
+    2026-07-25 fix (real incident, project-rag same-day): staging is now
+    CONDITIONAL, not unconditionally blanket. If the caller already staged
+    an explicit-path index (`git add -- <paths>`) before invoking this
+    helper, that pre-staged index is committed AS-IS — `_git_add_all_blanket`
+    is never called, so a careful caller's explicit staging is no longer
+    silently discarded and replaced with `git add -A`. Only when the index
+    is empty at entry does this fall back to the original blanket-add
+    behavior. Negative-spec: the refusal text in `do_scoped` (~1145/~1159)
+    phrases the override as "explicit-path staging", which previously lied —
+    `do_override` ignored any pre-staged index and always blanket-added
+    regardless. This is the fix for that lie, not a new feature.
 
-  # Collect dirty files for the log
-  local dirty_files=()
-  while IFS= read -r f; do
-    [[ -n "$f" ]] && dirty_files+=("$f")
-  done < <(
-    { git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u
-  )
+    2026-07-25 second fix (this dispatch, real incident #2): `--dry-run` is
+    now honored HERE, before any staging or commit. Previously `main()`
+    intercepted `COORDINATOR_OVERRIDE_SCOPE=1` (default mode only) and
+    dispatched straight to `do_override` without ever consulting
+    `args.dry_run` — so `--dry-run` combined with the override env var
+    silently fell through every check and reached a real `git commit`,
+    consuming and mutating the caller's staged index and (on `work/*`
+    branches) auto-pushing the result. `--dry-run` must win over
+    `COORDINATOR_OVERRIDE_SCOPE=1` in every combination and every flag
+    order — an override of *scope* must never become an override of
+    *dry-run*. Negative-spec: a future edit that reads `args.dry_run` only
+    in `do_scoped`/`do_blanket`/`do_scope_from` and not here reintroduces
+    this exact defect — `do_override` is reached from `main()` BEFORE mode
+    dispatch, so it needs its own dry-run gate; it does not inherit one from
+    any other `do_*` function."""
+    # Sentinel 1: capture HEAD before commit to detect silent no-ops. Must be
+    # captured before either staging path below (pre_head is HEAD-before-
+    # commit regardless of which staging branch runs). Also used by the
+    # dry-run preview below — reading it is a no-op query (`git rev-parse`),
+    # never a mutation.
+    pre_head = _git_rev_parse_head()
 
-  # Log the override
-  local base
-  base=$(_cs_sessions_dir) || true
-  if [[ -n "$base" && -n "$session_id" ]]; then
-    local sdir="${base}/${session_id}"
-    mkdir -p "$sdir"
-    local log_file="${sdir}/overrides.log"
-    {
-      echo "=== Override at $(_cs_now_iso) ==="
-      echo "Subject: ${SUBJECT}"
-      echo "Files staged:"
-      printf '  %s\n' "${dirty_files[@]:-}"
-      echo ""
-    } >> "$log_file"
-  fi
+    pre_staged = not _git_diff_cached_is_empty()
 
-  # Sentinel 1: capture HEAD before commit to detect silent no-ops.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
-  local _pre_head
-  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  # Review: code-reviewer — subshell scope-safety: if git add -A fails under set -e, the export/unset
-  # block in the parent shell would leak _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET into EXIT trap /
-  # signal handlers. Subshell ensures the env var dies with the subshell on any exit path.
-  ( export _COORDINATOR_SAFE_COMMIT_INTERNAL_BLANKET=1 && git add -A )  # E1 hook bypass — sanctioned blanket-add path (SC-DR-014). Plan: harden-safe-commit-against-sibling-add-all.
-  # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
-  if ! git commit -m "$SUBJECT"; then
-    local _rc=$?
-    echo "FAIL: git commit returned ${_rc} in do_override" >&2
-    exit 2
-  fi
-  local _post_head
-  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  if [[ "$_pre_head" == "$_post_head" ]]; then
-    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_override commit attempt)" >&2
-    exit 2
-  fi
-}
+    if args.dry_run:
+        print("WARNING: COORDINATOR_OVERRIDE_SCOPE=1 is set — audit-trail-degraded path.", file=sys.stderr)
+        if pre_staged:
+            staged_files = _git_diff_cached_names()
+            print(
+                f"DRY RUN — override: would commit the pre-staged index as-is "
+                f"({len(staged_files)} file(s)):",
+                file=sys.stderr,
+            )
+            for f in staged_files:
+                print(f"  {f}", file=sys.stderr)
+        else:
+            dirty = _current_dirty_files()
+            print(
+                f"DRY RUN — override: nothing staged; would stage ALL {len(dirty)} "
+                "dirty file(s) via 'git add -A':",
+                file=sys.stderr,
+            )
+            for f in dirty:
+                print(f"  {f}", file=sys.stderr)
+        print(f"Would commit with subject: {args.subject}", file=sys.stderr)
+        print("(no git add or commit executed; staged index left untouched)", file=sys.stderr)
+        sys.exit(0)
+
+    if pre_staged:
+        print("WARNING: COORDINATOR_OVERRIDE_SCOPE=1 is set — audit-trail-degraded path.", file=sys.stderr)
+        print(
+            "         Index already has staged changes — committing the pre-staged index "
+            "as-is (NOT staging additional dirty files). This will be logged.",
+            file=sys.stderr,
+        )
+    else:
+        print("WARNING: COORDINATOR_OVERRIDE_SCOPE=1 is set — audit-trail-degraded path.", file=sys.stderr)
+        print(
+            "         Nothing was staged — staging ALL dirty files (git add -A). This may "
+            "pull in ANY concurrent session's unstaged dirty work. This will be logged.",
+            file=sys.stderr,
+        )
+        _git_add_all_blanket()
+
+    staged_files = _git_diff_cached_names()
+
+    base = cs_core.sessions_dir()
+    if base and session_id:
+        sdir = os.path.join(base, session_id)
+        os.makedirs(sdir, exist_ok=True)
+        log_file = os.path.join(sdir, "overrides.log")
+        try:
+            with open(log_file, "a", encoding="utf-8") as fh:
+                fh.write(f"=== Override at {cs_core.now_iso()} ===\n")
+                fh.write(f"Subject: {args.subject}\n")
+                fh.write(f"Mode: {'pre-staged-index' if pre_staged else 'blanket (git add -A)'}\n")
+                fh.write("Files staged:\n")
+                for f in staged_files:
+                    fh.write(f"  {f}\n")
+                fh.write("\n")
+        except OSError:
+            pass
+
+    # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
+    result = subprocess.run(["git", "commit", *_commit_message_argv(args.subject, args.body)])
+    if result.returncode != 0:
+        print(f"FAIL: git commit returned {result.returncode} in do_override", file=sys.stderr)
+        sys.exit(2)
+    post_head = _git_rev_parse_head()
+    if pre_head == post_head:
+        print(
+            "FAIL: helper produced no commit (reason: HEAD unchanged after do_override commit attempt)",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
 
 # ---------------------------------------------------------------------------
-# DEFAULT / DRY-RUN MODE (main scoped path)
+# DEFAULT MODE (scoped staging path)
 # ---------------------------------------------------------------------------
 
-do_scoped() {
-  local session_id="$1"
-  # Paths claimed via --include-orphans; populated later if the flag was passed.
-  # Declared here so all code paths (dry-run, error branches, commit) see the var.
-  _orphan_claimed_paths=()
-  # active-scope.txt path (set by --include-orphans pure default-mode; used in trap).
-  # NOT declared local so the trap function can still see it after do_scoped returns.
-  _active_scope_file=""
-  # Temp files for cs_compute_scope capture. Script-globals (not local) so the
-  # consolidated trap below can see them after do_scoped returns on error paths.
-  tmpout=""
-  tmperr=""
+def do_scoped(
+    session_id: str,
+    args: "Args",
+    cs_core,
+    cs_liveness,
+    cs_scope,
+    cs_claims,
+    combined_mode: bool = False,
+    active_scope_file: str = "",
+) -> None:
+    """combined_mode=True means do_scope_from delegated here (mirrors bash
+    `_sfm_trap_installed=1`): the >1-live-session gate below is skipped
+    (do_scope_from already resolved identity + the handoff-scope overlap
+    gate), and active_scope_file already exists (do_scope_from's own
+    active-scope.txt) rather than being created fresh here."""
+    subject = args.subject
+    include_orphans = list(args.include_orphans)
 
-  # Single consolidated trap covering EXIT INT TERM HUP. Guards every temp/scope
-  # artifact declared above. ${var:-} guards required — set -u; trap runs at any
-  # exit point including before the variables are assigned their mktemp paths.
-  # Spec backlink: the Staff Engineer review fix-2 — trap-collision consolidation.
-  #
-  # When do_scope_from delegates here (_sfm_trap_installed=1), it has already
-  # installed its own trap on _sfm_active_scope_file (== _active_scope_file path).
-  # Skip the duplicate rm to avoid racing the do_scope_from trap on the same file.
-  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — the Staff Engineer finding 0.
-  #
-  # Also cleans up the overlap-gate lock dir if a body fn called exit 1 while
-  # holding it (RETURN trap does not fire on script exit — see _with_overlap_lock).
-  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — lock EXIT cleanup.
-  trap 'rm -f "${tmpout:-}" "${tmperr:-}"; rm -rf "${_overlap_lock_dir:-}" 2>/dev/null; _overlap_lock_dir=""; [[ "${_sfm_trap_installed:-0}" -ne 1 ]] && [ -n "${_active_scope_file:-}" ] && rm -f "${_active_scope_file:-}"' EXIT INT TERM HUP
+    # Issue C fail-closed gate: default mode is unsafe under concurrent
+    # sessions because it relies on session-id resolution, which is
+    # ambiguity-guarded but still a single-session model. When >1 live
+    # session is detected, refuse and direct the caller to a direct
+    # `ceremony.scoped_git_commit` invocation or COORDINATOR_OVERRIDE_SCOPE=1
+    # — which honors a pre-staged explicit-path `git add -- <paths>` index
+    # as-is, falling back to `git add -A` only when nothing was pre-staged
+    # (2026-07-25 fix — see do_override docstring).
+    #
+    # NOT --scope-from <handoff> (2026-07-29 fix, DoE-claude audit
+    # state/audits/2026-07-29-safe-commit-scope-from-defect.md): the
+    # /handoff skill stopped emitting the `scope:` frontmatter block
+    # --scope-from parses (2026-07-25, DoE-claude 1d5aa82b) and every
+    # handoff written since fails it on arrival — a named alternative that
+    # is inoperative in the situation the caller is actually in is worse
+    # than none (docs/wiki/bash-guard-threat-model.md). `_scoped_commit_
+    # suggestion` below reproduces the caller's own dirty-path set as a
+    # verified-runnable `ceremony.scoped_git_commit` command instead — a
+    # copy, not a re-derivation.
+    #
+    # Exception: combined-mode (do_scope_from delegating). do_scope_from
+    # already handled identity resolution and the handoff-scope overlap
+    # gate, so concurrent sessions are expected and safe at this point.
+    if not combined_mode:
+        # Review: code-reviewer — Finding 2: this is a fail-closed safety
+        # gate; an exception here must not silently degrade to "0 live
+        # sessions" (which reads as the safe case and lets an unsafe
+        # concurrent commit proceed). Abort instead of guessing.
+        try:
+            live_ids = sorted(cs_liveness.live_session_ids())
+        except Exception as exc:
+            print(
+                f"ERROR: cannot verify session liveness ({exc}); refusing default-mode "
+                "commit under concurrency-unknown conditions.\n\n"
+                "Did you mean:\n" + _scoped_commit_suggestion(subject) + "\n\n"
+                "(trim 'paths' to what THIS workstream owns before running). For a true "
+                "emergency, stage explicitly (git add -- <paths>) and set "
+                "COORDINATOR_OVERRIDE_SCOPE=1 — it commits your pre-staged index as-is, "
+                "audit-trail-degraded, last resort.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if len(live_ids) > 1:
+            print(
+                f"ERROR: multiple live sessions detected ({len(live_ids)}); "
+                "default-mode commit is unsafe under concurrency.",
+                file=sys.stderr,
+            )
+            for sid in live_ids:
+                print(f"  {sid}", file=sys.stderr)
+            print(
+                "\nDid you mean:\n" + _scoped_commit_suggestion(subject) + "\n\n"
+                "(dirty files this session touched are pre-filled above — trim 'paths' "
+                "to what THIS workstream owns before running; ceremony.scoped_git_commit "
+                "selects the agree-case vs. private-index staging form for you). For a "
+                "true emergency, stage explicitly (git add -- <paths>) and set "
+                "COORDINATOR_OVERRIDE_SCOPE=1 — it commits your pre-staged index as-is "
+                "(falls back to staging ALL dirty files, including any concurrent "
+                "session's, only if nothing was pre-staged), audit-trail-degraded, last "
+                "resort.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
-  # Issue C fail-closed gate: default mode is unsafe under concurrent sessions
-  # because it relies on session-id sentinel resolution, which is
-  # last-writer-wins under subagent SessionStart and concurrent EMs (see
-  # docs/plans/2026-05-05-session-misidentification-fix.md). When >1 live
-  # session is detected, refuse to proceed and direct the caller to
-  # --scope-from or COORDINATOR_OVERRIDE_SCOPE=1 with explicit-path staging.
-  #
-  # Exception: combined-mode (do_scope_from delegating via _sfm_trap_installed=1).
-  # do_scope_from already handled identity resolution and the handoff-scope overlap
-  # gate, so concurrent sessions are expected and safe at this point.
-  if [[ "${_sfm_trap_installed:-0}" -ne 1 ]]; then
-    local _live_ids=()
-    while IFS= read -r _liveid; do _live_ids+=("$_liveid"); done < <(cs_live_session_ids 2>/dev/null || true)
-    local _live_count=${#_live_ids[@]}
-    if [[ "$_live_count" -gt 1 ]]; then
-      echo "ERROR: multiple live sessions detected (${_live_count}); default-mode commit is unsafe under concurrency." >&2
-      for sid_line in "${_live_ids[@]}"; do
-        echo "  ${sid_line}" >&2
-      done
-      echo "Resolve: use --scope-from <handoff> for workstream commits, or COORDINATOR_OVERRIDE_SCOPE=1 with explicit-path staging for emergencies." >&2
-      exit 1
-    fi
-  fi
+    base = cs_core.sessions_dir()
 
-  # Read my touched.txt for post-filtering (mtime-only orphan exclusion)
-  # cs_compute_scope adds mtime-dirty unclaimed files to my_scope, but per
-  # plan orphan policy those must only be warned, never auto-staged.
-  # We enforce this here by removing from my_scope any file that:
-  #   - is NOT in my touched.txt
-  #   - is NOT claimed by another session (i.e., is an orphan)
-  local my_touched=()
-  local base
-  base=$(_cs_sessions_dir) || true
-  if [[ -n "$base" && -n "$session_id" && -f "${base}/${session_id}/touched.txt" ]]; then
-    # Dedup-on-read: sort -u collapses any duplicate lines that may have landed
-    # under concurrent append-only writes (Phase 3a, plans/safe-commit-fixes.md § Phase 3a).
-    # LC_ALL=C prevents locale-sensitive collation differences from producing
-    # non-deterministic results across environments.
-    while IFS= read -r t; do
-      [[ -n "$t" ]] && my_touched+=("$t")
-    done < <(LC_ALL=C sort -u "${base}/${session_id}/touched.txt")
-  fi
+    # Read my touched.txt for post-filtering (mtime-only orphan exclusion).
+    my_touched: List[str] = []
+    # Own-session paths whose LAST event is R (committed-and-released) —
+    # tracked separately from `my_touched` purely for Case B's diagnostic
+    # clause below (AC11/C6): distinguishes "this session released these
+    # paths" from "this session never touched anything", so the dirty-file
+    # ERROR doesn't read as if THIS session's own work went unclaimed.
+    released_paths: List[str] = []
+    if base and session_id:
+        touched_path = os.path.join(base, session_id, "touched.txt")
+        if os.path.isfile(touched_path):
+            try:
+                lines = Path(touched_path).read_text(encoding="utf-8").splitlines()
+            except OSError:
+                lines = []
+            # LC_ALL=C sort -u dedup on read (bash: Phase 3a). SELF-facing
+            # projection (P3): a path last RELEASED (R) must not re-enter
+            # my_touched — `project_self_scope` never applies the
+            # peer-facing mtime re-claim (that arm must not widen
+            # `my_scope`).
+            my_touched.extend(sorted(cs_scope.project_self_scope(lines)))
+            # Review: code-reviewer Finding 1 (sidecar
+            # coordinatorcode-reviewer-5c643f30.md) — shares the
+            # last-event-per-path scan with `project_self_scope` via
+            # `cs_scope._last_verb_map`, rather than re-deriving it here.
+            last_verb: Dict[str, str] = cs_scope._last_verb_map(lines)
+            released_paths = sorted(path for path, verb in last_verb.items() if verb == "R")
 
-  # Issue A: union dispatched-agent touched files into my_touched.
-  # Per docs/plans/2026-05-05-issue-a-agent-id-linkage.md (the Staff Engineer APPROVED_WITH_NOTES v3).
-  # Extracted to _cs_my_agent_touched in lib/coordinator-session.sh (C1a refactor).
-  # broadened mode: Issue-A sentinel-pollution recovery — on old Claude Code an executor's
-  # SessionStart can pollute .current-session-id, broadening to live sids recovers the EM's
-  # own fan-out output; over-reach is self-correcting because cs_compute_scope re-subtracts
-  # other_sessions downstream.
-  while IFS= read -r f; do
-    [[ -n "$f" ]] && my_touched+=("$f")
-  done < <(_cs_my_agent_touched "$session_id" broadened 2>/dev/null || true)
+    # Union dispatched-agent touched files (broadened mode: recovers the
+    # EM's own fan-out output on old Claude Code sentinel-pollution).
+    # Review: code-reviewer — Finding 2: surface a swallowed exception here
+    # rather than silently narrowing my_touched (a diagnostic, not a
+    # safety-gate reversal — dropping to empty only makes scope narrower).
+    try:
+        agent_touched = [f for f in cs_claims.my_agent_touched(session_id, "broadened") if f]
+    except Exception as exc:
+        print(
+            f"WARNING: could not resolve dispatched-agent touched files ({exc}); "
+            "scoped commit may miss fan-out output this run.",
+            file=sys.stderr,
+        )
+        agent_touched = []
+    my_touched.extend(agent_touched)
+    touched_set = set(my_touched)
 
-  # Capture cs_compute_scope output: stdout = my scope, stderr = skip + orphan messages
-  local scope_stdout scope_stderr
-  tmpout=$(mktemp)
-  tmperr=$(mktemp)
+    scope_result = cs_scope.compute_scope(session_id)
+    dirty_list = _current_dirty_files()
+    dirty_set = set(dirty_list)
 
-  cs_compute_scope "$session_id" > "$tmpout" 2> "$tmperr"
+    # Post-filter: cs_scope.compute_scope's my_scope already unions
+    # touched.txt with mtime-dirty-since-started_at files. Re-derive which
+    # candidates are genuinely ours (in touched_set) vs. mtime-only
+    # additions (reclassified as orphans — warn, never auto-stage), and
+    # drop touched-but-now-clean files (Case C candidates) rather than
+    # feeding them to `git commit` as no-op paths.
+    my_scope: List[str] = []
+    mtime_orphans: List[str] = []
+    clean_touched: List[str] = []
+    for candidate in scope_result.my_scope:
+        if candidate in touched_set:
+            if candidate in dirty_set:
+                my_scope.append(candidate)
+            else:
+                clean_touched.append(candidate)
+        else:
+            mtime_orphans.append(candidate)
 
-  scope_stdout=$(cat "$tmpout")
-  scope_stderr=$(cat "$tmperr")
-  rm -f "$tmpout" "$tmperr"
-  tmpout=""
-  tmperr=""
+    orphan_files: List[str] = list(scope_result.orphans)
+    for mto in mtime_orphans:
+        orphan_files.append(mto)
+        print(f"orphan (mtime-only, not in touched.txt): {mto}", file=sys.stderr)
 
-  # Parse raw scope from cs_compute_scope stdout (may include mtime-added orphans)
-  local raw_scope=()
-  while IFS= read -r line; do
-    [[ -n "$line" ]] && raw_scope+=("$line")
-  done <<< "$scope_stdout"
+    other_excluded_files = [
+        f"skipping {path} — owned by session {owner}" for (path, owner) in scope_result.skipped
+    ]
 
-  # Post-filter: separate legitimate scope (in my touched.txt) from mtime-only orphans
-  # A file is an mtime-only orphan if:
-  #   - cs_compute_scope included it (so no other session claims it)
-  #   - it is NOT in my touched.txt
-  # Per plan orphan policy: warn only, do NOT stage.
-  #
-  # Additionally: cs_compute_scope returns files from touched.txt regardless of
-  # whether they're currently dirty. Filter my_scope to only dirty files so that
-  # clean-but-touched files (likely reverted) don't cause git commit failures.
-  local _current_dirty_list=()
-  while IFS= read -r _cdf; do
-    [[ -n "$_cdf" ]] && _current_dirty_list+=("$_cdf")
-  done < <({ git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
-  declare -A _current_dirty_set
-  for _cdf in "${_current_dirty_list[@]:-}"; do
-    [[ -n "$_cdf" ]] && _current_dirty_set["$_cdf"]=1
-  done
+    # -------------------------------------------------------------------
+    # Phase 2: --include-orphans processing.
+    # Spec backlink: plans/safe-commit-fixes.md § Phase 2 — flag spec.
+    # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — combined-mode
+    # delegation (single canonical implementation, no duplicated block).
+    #
+    # In combined_mode, active_scope_file already exists (written by
+    # do_scope_from); we append/union into it. In pure default-mode we
+    # create it fresh here for the overlap gate. Ownership of cleaning it
+    # up on a failure exit belongs to the creator: do_scope_from wraps its
+    # delegate call in a cleanup finally (mirrors its bash EXIT trap
+    # persisting across the delegated do_scoped call); pure default-mode
+    # owns its own cleanup via the finally below (mirrors do_scoped's own
+    # bash EXIT trap, active only when _sfm_trap_installed==0).
+    # -------------------------------------------------------------------
+    orphan_claimed_paths: List[str] = []
+    local_active_scope_file = active_scope_file
+    own_active_scope_file = False  # True iff THIS call created the file (pure mode)
 
-  local my_scope=()
-  local mtime_orphans=()
-  local _clean_touched=()  # in touched.txt but not dirty (Case C candidates)
-  declare -A touched_set
-  for t in "${my_touched[@]:-}"; do
-    [[ -n "$t" ]] && touched_set["$t"]=1
-  done
-  for candidate in "${raw_scope[@]:-}"; do
-    [[ -z "$candidate" ]] && continue
-    if [[ -n "${touched_set[$candidate]+x}" ]]; then
-      # In touched.txt — only add to my_scope if actually dirty
-      if [[ -v "_current_dirty_set[$candidate]" ]]; then
-        my_scope+=("$candidate")
-      else
-        _clean_touched+=("$candidate")
-      fi
-    else
-      # Not in my touched.txt — treat as mtime-only orphan
-      mtime_orphans+=("$candidate")
-    fi
-  done
+    def _cleanup_local_active_scope_file() -> None:
+        if local_active_scope_file:
+            try:
+                os.remove(local_active_scope_file)
+            except OSError:
+                pass
 
-  # Parse other-session exclusions from stderr (skipping ... lines)
-  local other_excluded_files=()
-  while IFS= read -r line; do
-    if [[ "$line" == "skipping "* ]]; then
-      other_excluded_files+=("$line")
-    fi
-  done <<< "$scope_stderr"
+    if include_orphans:
+        if not local_active_scope_file and base and session_id:
+            sdir = os.path.join(base, session_id)
+            os.makedirs(sdir, exist_ok=True)
+            local_active_scope_file = os.path.join(sdir, "active-scope.txt")
 
-  # Merge orphans: library-detected ones (from stderr) + mtime-only ones we post-filtered
-  # Library stderr emits "orphan: <path>"; collect those too
-  local orphan_files=()
-  while IFS= read -r line; do
-    if [[ "$line" == "orphan: "* ]]; then
-      orphan_files+=("${line#orphan: }")
-    fi
-  done <<< "$scope_stderr"
-  # Add mtime-only orphans that the library didn't mark (it thought they were ours)
-  if [[ ${#mtime_orphans[@]} -gt 0 ]]; then
-    for mto in "${mtime_orphans[@]}"; do
-      [[ -n "$mto" ]] || continue
-      orphan_files+=("$mto")
-      echo "orphan (mtime-only, not in touched.txt): ${mto}" >&2
-    done
-  fi
+        if not combined_mode and local_active_scope_file:
+            own_active_scope_file = True
+            try:
+                open(local_active_scope_file, "w", encoding="utf-8").close()
+            except OSError:
+                pass
 
-  # ---------------------------------------------------------------------------
-  # Phase 2: --include-orphans processing
-  # Spec backlink: plans/safe-commit-fixes.md § Phase 2 — --include-orphans flag spec.
-  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — combined-mode delegation.
-  #
-  # _combined_mode=1 means do_scope_from delegated here via _sfm_trap_installed=1.
-  # In that case active-scope.txt already exists (written by do_scope_from step 5);
-  # we point _active_scope_file at it without re-creating it or installing a second trap.
-  # In pure default-mode (_sfm_trap_installed=0), we create active-scope.txt fresh.
-  # ---------------------------------------------------------------------------
-  if [[ ${#INCLUDE_ORPHANS[@]} -gt 0 ]]; then
-    local _combined_mode=0
-    # Use the explicit sentinel — greppable > file-presence heuristic (the Staff Engineer finding 0).
-    if [[ "${_sfm_trap_installed:-0}" -eq 1 ]]; then
-      _combined_mode=1
-    fi
+        try:
+            orphan_candidate_files: List[str] = []
+            for ops in include_orphans:
+                if not _validate_pathspec(ops):
+                    print(
+                        f"ERROR: --include-orphans: malformed or invalid pathspec '{ops}'",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                orphan_candidate_files.extend(_git_ls_files_pathspec(ops))
 
-    if [[ -n "$base" && -n "$session_id" ]]; then
-      _active_scope_file="${base}/${session_id}/active-scope.txt"
-    fi
+            if not orphan_candidate_files:
+                print(
+                    f"WARNING: --include-orphans: no files matched the given pathspec(s): {' '.join(include_orphans)}",
+                    file=sys.stderr,
+                )
 
-    # Pure default-mode: write active-scope.txt for the overlap gate.
-    # The consolidated EXIT trap at the top of do_scoped handles cleanup on all exit paths.
-    # Trap guards _active_scope_file deletion only when _sfm_trap_installed=0 (see trap above).
-    # SIGKILL leaks active-scope.txt; long-tail cleanup via cs_reap_stale at 24h staleness.
-    if [[ "$_combined_mode" -eq 0 && -n "$base" && -n "$session_id" ]]; then
-      mkdir -p "${base}/${session_id}"
-      : > "$_active_scope_file"
-    fi
+            # Filter to only dirty files (no point staging clean files as orphans).
+            orphan_resolved = [f for f in orphan_candidate_files if f in dirty_set]
 
-    # Resolve pathspecs to concrete dirty files
-    local _orphan_candidate_files=()
-    for _ops in "${INCLUDE_ORPHANS[@]}"; do
-      # Validate pathspec
-      if ! validate_pathspec "$_ops"; then
-        echo "ERROR: --include-orphans: malformed or invalid pathspec '${_ops}'" >&2
-        exit 1
-      fi
-      while IFS= read -r _of; do
-        [[ -n "$_of" ]] && _orphan_candidate_files+=("$_of")
-      done < <(git ls-files -- "$_ops" 2>/dev/null; git ls-files --others --exclude-standard -- "$_ops" 2>/dev/null)
-    done
+            # Union of declared scope (from active-scope.txt if combined-mode)
+            # and orphan paths — both must clear the overlap gate.
+            union_scope_set: Set[str] = set()
+            if combined_mode and local_active_scope_file and os.path.isfile(local_active_scope_file):
+                try:
+                    union_scope_set.update(
+                        p for p in Path(local_active_scope_file).read_text(encoding="utf-8").splitlines() if p
+                    )
+                except OSError:
+                    pass
+            union_scope_set.update(f for f in orphan_resolved if f)
 
-    if [[ ${#_orphan_candidate_files[@]} -eq 0 ]]; then
-      echo "WARNING: --include-orphans: no files matched the given pathspec(s): ${INCLUDE_ORPHANS[*]}" >&2
-    fi
+            if base:
+                with_overlap_lock(
+                    base,
+                    cs_core,
+                    _append_orphans_and_check_overlap,
+                    local_active_scope_file,
+                    base,
+                    session_id,
+                    orphan_resolved,
+                    union_scope_set,
+                )
 
-    # Filter to only dirty files (no point staging clean files as orphans)
-    local _dirty_set=()
-    while IFS= read -r _ddf; do
-      [[ -n "$_ddf" ]] && _dirty_set+=("$_ddf")
-    done < <({ git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
-    declare -A _dirty_map
-    for _ddf in "${_dirty_set[@]:-}"; do
-      [[ -n "$_ddf" ]] && _dirty_map["$_ddf"]=1
-    done
+            if base and session_id:
+                claim_log = os.path.join(base, session_id, "orphan-claims.log")
+                try:
+                    with open(claim_log, "a", encoding="utf-8") as fh:
+                        fh.write(f"=== Claim at {cs_core.now_iso()} ===\n")
+                        fh.write(f"Pathspecs: {' '.join(include_orphans)}\n")
+                        fh.write("Resolved dirty files:\n")
+                        for p in orphan_resolved:
+                            fh.write(f"  {p}\n")
+                        fh.write("\n")
+                except OSError:
+                    pass
 
-    local _orphan_resolved=()
-    for _orf in "${_orphan_candidate_files[@]:-}"; do
-      [[ -z "$_orf" ]] && continue
-      if [[ -v "_dirty_map[$_orf]" ]]; then
-        _orphan_resolved+=("$_orf")
-      fi
-    done
+            orphan_claimed_paths = orphan_resolved
+            if orphan_claimed_paths:
+                claimed_set = set(orphan_claimed_paths)
+                orphan_files = [f for f in orphan_files if f not in claimed_set]
+        except SystemExit:
+            if own_active_scope_file:
+                _cleanup_local_active_scope_file()
+            raise
+    # ---------------------------------------------------------------
+    # End --include-orphans processing
+    # ---------------------------------------------------------------
 
-    # Build union of declared scope (from active-scope.txt if combined-mode) and orphan paths
-    # Both must clear the overlap gate before any append succeeds (the Staff Engineer R3 #23).
-    declare -A _union_scope_set
-    if [[ "$_combined_mode" -eq 1 && -f "$_active_scope_file" ]]; then
-      while IFS= read -r _usf; do
-        [[ -n "$_usf" ]] && _union_scope_set["$_usf"]=1
-      done < "$_active_scope_file"
-    fi
-    for _orf in "${_orphan_resolved[@]:-}"; do
-      [[ -n "$_orf" ]] && _union_scope_set["$_orf"]=1
-    done
+    # From here to function exit, own_active_scope_file (pure default-mode,
+    # --include-orphans) must be cleaned up on EVERY exit path — success or
+    # any sys.exit below — mirroring the bash EXIT trap that persists for
+    # the rest of do_scoped's execution. Combined-mode cleanup ownership
+    # belongs to do_scope_from's own wrapping finally.
+    try:
+        # Dry-run: print and exit without committing. Placed after
+        # --include-orphans processing (so orphan-claimed/unclaimed lists
+        # are accurate) and before the four-case "nothing to stage"
+        # diagnosis, matching bash's do_scoped placement exactly.
+        if args.dry_run:
+            print(f"DRY RUN — would stage {len(my_scope)} file(s):", file=sys.stderr)
+            for f in my_scope:
+                print(f"  {f}", file=sys.stderr)
+            if orphan_claimed_paths:
+                print(
+                    f"Orphan-claimed (would also stage): {len(orphan_claimed_paths)} file(s):",
+                    file=sys.stderr,
+                )
+                for f in orphan_claimed_paths:
+                    print(f"  {f}  (orphan-claimed)", file=sys.stderr)
+            if orphan_files:
+                print(f"Orphans (not staged): {len(orphan_files)} file(s):", file=sys.stderr)
+                for f in orphan_files:
+                    print(f"  {f}", file=sys.stderr)
+            if other_excluded_files:
+                print(f"Excluded (other-session-owned): {len(other_excluded_files)}", file=sys.stderr)
+            print("(no git add or commit executed)", file=sys.stderr)
+            sys.exit(0)
 
-    # Overlap gate + active-scope.txt append under lock (Fix 6): check union against
-    # peer sessions and append orphan paths to active-scope.txt atomically so no
-    # concurrent session can interleave their check+publish with ours (TOCTOU closure).
-    # Lock scope is narrow — released before git add / git commit.
-    # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 6 — do_scoped wrap.
-    if [[ -n "$base" ]]; then
-      _with_overlap_lock _do_scoped_orphan_overlap_check_and_publish \
-        "$_active_scope_file" "$base" "$session_id" _orphan_resolved _union_scope_set || exit $?
-    fi
+        if not my_scope and not orphan_claimed_paths:
+            dirty_count = len(dirty_list)
+            if clean_touched:
+                # Case C: touched.txt has entries but they're clean now (reverted).
+                print(
+                    "NOTE: Edit/Write fired on these path(s), but they are clean now (likely reverted):",
+                    file=sys.stderr,
+                )
+                for f in clean_touched:
+                    print(f"  {f}", file=sys.stderr)
+                if orphan_files:
+                    print(f"Working tree dirty (unclaimed): {len(orphan_files)} file(s):", file=sys.stderr)
+                    for f in orphan_files:
+                        print(f"  {f}", file=sys.stderr)
+                sys.exit(1)
+            elif not my_touched and dirty_count > 0:
+                # Case B: sentinel valid, touched.txt empty, dirty tree exists.
+                print(
+                    f"ERROR: {dirty_count} dirty file(s) but none claimed by this session via Edit/Write.",
+                    file=sys.stderr,
+                )
+                if released_paths:
+                    # AC11/C6: this session DID touch paths — they were
+                    # already committed and released, so they correctly
+                    # dropped out of `my_touched`. Without this clause the
+                    # ERROR above reads as if this session's own work went
+                    # unclaimed, which nudges toward staging the dirty
+                    # file(s) below — those are NOT this session's released
+                    # work; do not treat this note as license to
+                    # --include-orphans them.
+                    print(
+                        f"NOTE: {len(released_paths)} path(s) touched by this session were "
+                        "already committed and released; they are not among the dirty "
+                        "file(s) below:",
+                        file=sys.stderr,
+                    )
+                    for f in released_paths:
+                        print(f"  {f}", file=sys.stderr)
+                print("These are likely hook-touched or install-script-touched files.", file=sys.stderr)
+                print("To stage them, use one of:", file=sys.stderr)
+                print(
+                    "  coordinator-safe-commit --include-orphans <pathspec>...  (preferred — audited, overlap-checked)",
+                    file=sys.stderr,
+                )
+                print(
+                    '  git reset && git add -- <paths> && git commit -m "<subject>"  (fallback)',
+                    file=sys.stderr,
+                )
+                print("Dirty file(s):", file=sys.stderr)
+                for f in dirty_list:
+                    print(f"  {f}", file=sys.stderr)
+                sys.exit(1)
+            elif not my_touched and dirty_count == 0:
+                # Case A: sentinel valid, touched.txt absent/empty, tree clean.
+                print(
+                    "NOTE: Nothing to commit — no Edit/Write fired this session and the working tree is clean.",
+                    file=sys.stderr,
+                )
+                sys.exit(0)
+            else:
+                # Case D: session dir genuinely missing between resolution and here.
+                print(
+                    "ERROR: No live session scope detected. The session directory may have been archived or reaped.",
+                    file=sys.stderr,
+                )
+                print("Fallback: bypass the helper with explicit-path commit:", file=sys.stderr)
+                print("  git add -- <your-paths>", file=sys.stderr)
+                print('  git commit -m "<subject>"', file=sys.stderr)
+                sys.exit(1)
 
-    # Write audit log
-    if [[ -n "$base" && -n "$session_id" ]]; then
-      local _claim_log="${base}/${session_id}/orphan-claims.log"
-      {
-        echo "=== Claim at $(_cs_now_iso) ==="
-        echo "Pathspecs: ${INCLUDE_ORPHANS[*]}"
-        echo "Resolved dirty files:"
-        printf '  %s\n' "${_orphan_resolved[@]:-}"
-        echo ""
-      } >> "$_claim_log"
-    fi
+        # commit_scoped (C3, coordinator_core.ops.ceremony.git_native) picks
+        # the safe write mechanism from OBSERVED index/worktree state --
+        # `git add -- paths && git commit -F msg -- paths` when nothing has
+        # diverged, or a private-index compare-and-swap branch when a peer
+        # has partial-staged one of these paths. Replaces the prior
+        # `_git_add` + pathspec-less `git commit`, which committed THE
+        # INDEX and could silently absorb a concurrent sibling's staged
+        # file (DoE-claude 726925b2). Scope COMPUTATION above (my_scope,
+        # orphan_claimed_paths) is unchanged; only the write mechanism is
+        # repointed. sys.path already carries claude_klabauter_root at this point
+        # (main() runs _import_session() before dispatching to do_scoped).
+        from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415
 
-    _orphan_claimed_paths=("${_orphan_resolved[@]:-}")
+        commit_paths = list(my_scope) + list(orphan_claimed_paths)
+        message = f"{subject}\n\n{args.body}" if args.body else subject
+        msg_fd, msg_path = tempfile.mkstemp(prefix="coordinator-safe-commit.do_scoped.")
+        pre_head = _git_rev_parse_head()
+        try:
+            with os.fdopen(msg_fd, "w", encoding="utf-8") as fh:
+                fh.write(message)
+            commit_result = git_native.commit_scoped(commit_paths, msg_path, cwd=os.getcwd())
+        finally:
+            try:
+                os.remove(msg_path)
+            except OSError:
+                pass
+        if not commit_result.ok:
+            print(
+                f"FAIL: git commit returned {commit_result.returncode} in do_scoped: "
+                f"{commit_result.stderr.strip()}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        post_head = _git_rev_parse_head()
+        if pre_head == post_head:
+            print(
+                "FAIL: helper produced no commit (reason: HEAD unchanged after do_scoped commit attempt)",
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
-    # Remove claimed paths from orphan_files so print_summary doesn't double-list them
-    if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
-      declare -A _claimed_set
-      for _cp in "${_orphan_claimed_paths[@]}"; do
-        [[ -n "$_cp" ]] && _claimed_set["$_cp"]=1
-      done
-      local _filtered_orphans=()
-      for _of in "${orphan_files[@]:-}"; do
-        [[ -n "$_of" ]] || continue
-        [[ -v "_claimed_set[$_of]" ]] || _filtered_orphans+=("$_of")
-      done
-      orphan_files=("${_filtered_orphans[@]+"${_filtered_orphans[@]}"}")
-    fi
-  fi
-  # ---------------------------------------------------------------------------
-  # End --include-orphans processing
-  # ---------------------------------------------------------------------------
+        # Success-path cleanup: remove active-scope.txt so peer sessions do
+        # not false-positive on the overlap gate. Runs for both pure
+        # default-mode (--include-orphans only) and combined-mode
+        # (do_scope_from delegated here) — matches bash's unconditional
+        # `if _orphan_claimed_paths: _cleanup_active_scope`.
+        if orphan_claimed_paths:
+            _cleanup_local_active_scope_file()
 
-  # Dry-run: print and exit without committing
-  if [[ "$MODE" == "dry-run" ]]; then
-    echo "DRY RUN — would stage ${#my_scope[@]} file(s):" >&2
-    for f in "${my_scope[@]:-}"; do echo "  $f" >&2; done
-    if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
-      echo "Orphan-claimed (would also stage): ${#_orphan_claimed_paths[@]} file(s):" >&2
-      for f in "${_orphan_claimed_paths[@]}"; do echo "  ${f}  (orphan-claimed)" >&2; done
-    fi
-    if [[ ${#orphan_files[@]} -gt 0 ]]; then
-      echo "Orphans (not staged): ${#orphan_files[@]} file(s):" >&2
-      for f in "${orphan_files[@]}"; do echo "  $f" >&2; done
-    fi
-    if [[ ${#other_excluded_files[@]} -gt 0 ]]; then
-      echo "Excluded (other-session-owned): ${#other_excluded_files[@]}" >&2
-    fi
-    echo "(no git add or commit executed)" >&2
-    exit 0
-  fi
+        # Annotate orphan-claimed paths in the staged display list.
+        display_staged_list = list(my_scope) + [f"{f}  (orphan-claimed)" for f in orphan_claimed_paths]
+        total_staged = len(my_scope) + len(orphan_claimed_paths)
 
-  # Validate we have something to stage — four-case branched diagnosis (Phase 1).
-  # Spec backlink: plans/safe-commit-fixes.md § Phase 1 — do_scoped branched error.
-  # Cases A/B/C require the session to have resolved (not Case D — "no live session"
-  # — which is handled upstream when resolve_session_id returns nothing).
-  # Skip the error block if --include-orphans claimed paths to commit (Phase 2):
-  # _orphan_claimed_paths being non-empty means we have something to stage even
-  # if my_scope is empty.
-  if [[ ${#my_scope[@]} -eq 0 && ${#_orphan_claimed_paths[@]} -eq 0 ]]; then
-    # Determine working-tree dirty state for diagnosis
-    local _dirty_list=()
-    while IFS= read -r _df; do
-      [[ -n "$_df" ]] && _dirty_list+=("$_df")
-    done < <({ git diff --name-only HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort -u)
+        print_summary(total_staged, display_staged_list, len(orphan_files), orphan_files, len(other_excluded_files), other_excluded_files)
+    finally:
+        if own_active_scope_file:
+            _cleanup_local_active_scope_file()
 
-    local _dirty_count=${#_dirty_list[@]}
 
-    if [[ ${#_clean_touched[@]} -gt 0 ]]; then
-      # Case C: touched.txt has entries but those files are clean now (likely reverted).
-      # my_scope is empty because all touched files were filtered out as clean.
-      echo "NOTE: Edit/Write fired on these path(s), but they are clean now (likely reverted):" >&2
-      printf '  %s\n' "${_clean_touched[@]}" >&2
-      if [[ ${#orphan_files[@]} -gt 0 ]]; then
-        echo "Working tree dirty (unclaimed): ${#orphan_files[@]} file(s):" >&2
-        printf '  %s\n' "${orphan_files[@]}" >&2
-      fi
-      exit 1
-    elif [[ ${#my_touched[@]} -eq 0 && "$_dirty_count" -gt 0 ]]; then
-      # Case B: sentinel valid, touched.txt empty, dirty tree exists
-      # (files touched via Bash/hooks/install-scripts — not tracked by Edit/Write hook)
-      echo "ERROR: ${_dirty_count} dirty file(s) but none claimed by this session via Edit/Write." >&2
-      echo "These are likely hook-touched or install-script-touched files." >&2
-      echo "To stage them, use one of:" >&2
-      echo "  coordinator-safe-commit --include-orphans <pathspec>...  (preferred — audited, overlap-checked)" >&2
-      echo "  git reset && git add -- <paths> && git commit -m \"<subject>\"  (fallback)" >&2
-      echo "Dirty file(s):" >&2
-      printf '  %s\n' "${_dirty_list[@]}" >&2
-      exit 1
-    elif [[ ${#my_touched[@]} -eq 0 && "$_dirty_count" -eq 0 ]]; then
-      # Case A: sentinel valid, touched.txt absent/empty, working tree clean
-      echo "NOTE: Nothing to commit — no Edit/Write fired this session and the working tree is clean." >&2
-      exit 0
-    else
-      # Case D: session dir genuinely missing (sentinel was stale, PID scan also failed)
-      # This should only be reached when session_id resolved to something but its dir
-      # was deleted between resolution and here — treat as "no live session".
-      echo "ERROR: No live session scope detected. The session directory may have been archived or reaped." >&2
-      echo "Fallback: bypass the helper with explicit-path commit:" >&2
-      echo "  git add -- <your-paths>" >&2
-      echo "  git commit -m \"<subject>\"" >&2
-      exit 1
-    fi
-  fi
+# ---------------------------------------------------------------------------
+# SCOPE-FROM MODE
+# ---------------------------------------------------------------------------
 
-  # Stage explicitly using xargs -0 to handle spaces in paths
-  if [[ ${#my_scope[@]} -gt 0 ]]; then
-    printf '%s\0' "${my_scope[@]}" | xargs -0 git add --
-  fi
+def do_scope_from(args: "Args", session_id: str, cs_core, cs_liveness, cs_scope, cs_claims) -> None:
+    """Port of `do_scope_from`. The handoff `scope:` field is the
+    declarative truth for what this session owns — no cross-session
+    touched.txt subtraction (removed 2026-05-05, Issue C: identity-
+    resolution bugs under concurrent EMs / subagent SessionStart were
+    causing the helper to exclude the calling session's own scope).
+    Overlapping scopes are caught by the runtime overlap gate, not
+    post-hoc identity-keyed subtraction."""
+    scope_from_path = args.scope_from_path
 
-  # Stage any orphan-claimed files (--include-orphans, Phase 2)
-  if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
-    printf '%s\0' "${_orphan_claimed_paths[@]}" | xargs -0 git add --
-  fi
+    if not os.path.isfile(scope_from_path):
+        print(f"ERROR: --scope-from path does not exist: {scope_from_path}", file=sys.stderr)
+        sys.exit(1)
 
-  # Sentinel 1: capture HEAD before commit to detect silent no-ops.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 1.
-  local _pre_head
-  _pre_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
+    handoff_pathspecs = _parse_scope_from_frontmatter(scope_from_path)
+    if handoff_pathspecs is None:
+        # `scope:` is schema-optional on handoffs (coordinator/schemas/
+        # handoff.schema.json) — roughly half the live corpus omits it, so
+        # this is a routine, expected failure mode under concurrency, not an
+        # edge case. Every OTHER identity-ambiguity refusal in this file
+        # (resolve_session_id, _print_no_live_session_error) hands the
+        # caller a concrete escape; this one previously dead-ended at the
+        # bare parse error and left COORDINATOR_OVERRIDE_SCOPE=1 (audit-
+        # trail-degraded) as the only visible next step. Mirror those
+        # siblings and name the safe fallback explicitly.
+        #
+        # Deliberately NOT auto-populated from this session's touched.txt:
+        # that log is session-wide (every subagent this session has spawned),
+        # not scoped to the one baton/workstream the caller is committing —
+        # offering it as a ready-made `git add` list would routinely sweep in
+        # a concurrent subagent's still-in-flight files, the exact hazard
+        # this fallback exists to avoid. The caller must name their own
+        # paths.
+        print(
+            "This handoff has no usable 'scope:' list, so --scope-from cannot "
+            "compute what to stage. The safe path is explicit-path staging — "
+            "bypass this helper and commit only the files you actually touched:",
+            file=sys.stderr,
+        )
+        print("  git add -- <your-paths>", file=sys.stderr)
+        print('  git commit -m "<subject>"', file=sys.stderr)
+        print(
+            "COORDINATOR_OVERRIDE_SCOPE=1 is an audit-trail-degraded emergency "
+            "hatch, not the routine answer to a missing scope: field — prefer "
+            "explicit-path staging above.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
-  # Sentinel 2: wrap commit call so mid-call failures surface as a FAIL line.
-  # Spec backlink: plans/2026-05-13-safe-commit-demote-to-sweep.md § Chunk 1 — Sentinel 2.
-  if ! git commit -m "$SUBJECT"; then
-    local _rc=$?
-    echo "FAIL: git commit returned ${_rc} in do_scoped" >&2
-    exit 2
-  fi
+    for ps in handoff_pathspecs:
+        if not _validate_pathspec(ps):
+            print(f"ERROR: Malformed or invalid pathspec in scope: '{ps}'", file=sys.stderr)
+            sys.exit(1)
 
-  local _post_head
-  _post_head=$(git rev-parse HEAD 2>/dev/null || echo "INITIAL")
-  if [[ "$_pre_head" == "$_post_head" ]]; then
-    echo "FAIL: helper produced no commit (reason: HEAD unchanged after do_scoped commit attempt)" >&2
-    exit 2
-  fi
+    handoff_files: List[str] = []
+    for ps in handoff_pathspecs:
+        handoff_files.extend(_git_ls_files_pathspec(ps))
 
-  # Success-path cleanup: remove active-scope.txt so peer sessions do not
-  # false-positive on the overlap gate. Called here for both pure default-mode
-  # (--include-orphans only) and combined-mode (do_scope_from delegated here).
-  # In combined-mode this also clears _sfm_active_scope_file so do_scope_from's
-  # EXIT trap guard is a no-op when the function returns normally.
-  # Spec backlink: plans/safe-commit-fixes-5-and-6.md § Fix 5 — _cleanup_active_scope.
-  if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
-    _cleanup_active_scope
-  fi
+    scope_set: Set[str] = {f for f in handoff_files if f}
 
-  # Print structured summary (to stderr so it doesn't pollute capture)
-  # Annotate orphan-claimed paths with (orphan-claimed) suffix in the staged list
-  local _display_staged_list=()
-  for _sf in "${my_scope[@]:-}"; do
-    [[ -n "$_sf" ]] && _display_staged_list+=("$_sf")
-  done
-  if [[ ${#_orphan_claimed_paths[@]} -gt 0 ]]; then
-    for _ocf in "${_orphan_claimed_paths[@]}"; do
-      [[ -n "$_ocf" ]] && _display_staged_list+=("${_ocf}  (orphan-claimed)")
-    done
-  fi
-  local _total_staged=$(( ${#my_scope[@]} + ${#_orphan_claimed_paths[@]} ))
+    base = cs_core.sessions_dir()
 
-  print_summary \
-    "${_total_staged}" \
-    "$(printf '%s\n' "${_display_staged_list[@]+"${_display_staged_list[@]}"}")" \
-    "${#orphan_files[@]}" \
-    "$(printf '%s\n' "${orphan_files[@]+"${orphan_files[@]}"}")" \
-    "${#other_excluded_files[@]}" \
-    "$(printf '%s\n' "${other_excluded_files[@]+"${other_excluded_files[@]}"}")"
-}
+    active_scope_file = ""
+    if base and session_id:
+        sdir = os.path.join(base, session_id)
+        os.makedirs(sdir, exist_ok=True)
+        active_scope_file = os.path.join(sdir, "active-scope.txt")
+
+    def _cleanup() -> None:
+        if active_scope_file:
+            try:
+                os.remove(active_scope_file)
+            except OSError:
+                pass
+
+    try:
+        # Step 5+6: publish this session's declared scope and check for
+        # collisions with live peer sessions, atomically under the
+        # overlap-gate lock (closes the read-peers/write-own TOCTOU window).
+        if active_scope_file:
+            with_overlap_lock(
+                base,
+                cs_core,
+                _publish_scope_and_check_overlap,
+                active_scope_file,
+                base,
+                session_id,
+                handoff_files,
+                scope_set,
+            )
+
+        # Combined-mode: --include-orphans delegates to do_scoped, the
+        # single canonical implementation (eliminates a duplicated block).
+        if args.include_orphans:
+            do_scoped(
+                session_id,
+                args,
+                cs_core,
+                cs_liveness,
+                cs_scope,
+                cs_claims,
+                combined_mode=True,
+                active_scope_file=active_scope_file,
+            )
+            return
+
+        # No-orphan path: intersect the declared scope with currently dirty files.
+        dirty_files = _current_dirty_files()
+        my_scope: List[str] = []
+        out_of_scope_dirty: List[str] = []
+        for f in dirty_files:
+            if f in scope_set:
+                my_scope.append(f)
+            else:
+                out_of_scope_dirty.append(f)
+
+        # Out-of-scope dirty check: files this session edited but did NOT
+        # declare in handoff scope are not staged, unless
+        # --allow-out-of-scope-dirty downgrades this to a warning.
+        if out_of_scope_dirty:
+            if args.allow_out_of_scope_dirty:
+                print(
+                    f"WARNING: {len(out_of_scope_dirty)} dirty file(s) outside declared scope "
+                    "(not staged; --allow-out-of-scope-dirty in effect):",
+                    file=sys.stderr,
+                )
+                for f in out_of_scope_dirty:
+                    print(f"  {f}", file=sys.stderr)
+            else:
+                print(f"ERROR: {len(out_of_scope_dirty)} dirty file(s) outside declared scope:", file=sys.stderr)
+                for f in out_of_scope_dirty:
+                    print(f"  {f}", file=sys.stderr)
+                print(
+                    "Resolve: include them in the handoff scope, stash them, or pass --allow-out-of-scope-dirty.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+
+        # Empty-array guard: without it, `git add --` with no args emits an
+        # obscure error instead of this actionable message.
+        if not my_scope:
+            print("ERROR: declared scope filtered to zero dirty files — nothing to commit.", file=sys.stderr)
+            sys.exit(1)
+
+        if args.dry_run:
+            print(f"DRY RUN — scope-from: would stage {len(my_scope)} file(s):", file=sys.stderr)
+            for f in my_scope:
+                print(f"  {f}", file=sys.stderr)
+            if out_of_scope_dirty:
+                print(f"Excluded (out-of-scope dirty): {len(out_of_scope_dirty)} file(s):", file=sys.stderr)
+                for f in out_of_scope_dirty:
+                    print(f"  {f}", file=sys.stderr)
+            print(f"Would commit with subject: {args.subject}", file=sys.stderr)
+            print("(no git add or commit executed)", file=sys.stderr)
+            sys.exit(0)
+
+        # commit_scoped (C3, coordinator_core.ops.ceremony.git_native) picks
+        # the safe write mechanism from OBSERVED index/worktree state --
+        # `git add -- paths && git commit -F msg -- paths` when nothing has
+        # diverged, or a private-index compare-and-swap branch when a peer
+        # has partial-staged one of these paths. Replaces the prior
+        # `_git_add` + pathspec-less `git commit`, which committed THE
+        # INDEX and could silently absorb a concurrent sibling's staged
+        # file (DoE-claude 726925b2) -- the same horn do_scoped's no-orphan
+        # sibling branch was closed against. Scope COMPUTATION above
+        # (my_scope) is unchanged; only the write mechanism is repointed.
+        # sys.path already carries claude_klabauter_root at this point (main() runs
+        # _import_session() before dispatching to do_scope_from).
+        from coordinator_core.ops.ceremony import git_native  # noqa: PLC0415
+
+        message = f"{args.subject}\n\n{args.body}" if args.body else args.subject
+        msg_fd, msg_path = tempfile.mkstemp(prefix="coordinator-safe-commit.do_scope_from.")
+        pre_head = _git_rev_parse_head()
+        try:
+            with os.fdopen(msg_fd, "w", encoding="utf-8") as fh:
+                fh.write(message)
+            commit_result = git_native.commit_scoped(my_scope, msg_path, cwd=os.getcwd())
+        finally:
+            try:
+                os.remove(msg_path)
+            except OSError:
+                pass
+        if not commit_result.ok:
+            print(
+                f"FAIL: git commit returned {commit_result.returncode} in do_scope_from: "
+                f"{commit_result.stderr.strip()}",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        post_head = _git_rev_parse_head()
+        if pre_head == post_head:
+            print(
+                "FAIL: helper produced no commit (reason: HEAD unchanged after do_scope_from commit attempt)",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+
+        # Declared scope is no longer active after a successful commit —
+        # without this, peer sessions read stale entries and false-positive
+        # on the overlap gate.
+        _cleanup()
+
+        print_summary(len(my_scope), my_scope, 0, [], 0, [])
+    finally:
+        # Mirrors the bash EXIT/INT/TERM/HUP trap installed at step 5: any
+        # exit path (including one raised inside the delegated do_scoped
+        # call above) must not leak active-scope.txt to peer sessions.
+        # Idempotent with do_scoped's own cleanup calls (os.remove on an
+        # already-removed path is a no-op via the try/except above).
+        _cleanup()
+
 
 # ---------------------------------------------------------------------------
 # Main dispatch
 # ---------------------------------------------------------------------------
 
-main() {
-  # --expected-owner em-only: fail closed if invoked from a subagent context.
-  # COORDINATOR_AGENT_CONTEXT is set by subagents in their first action per their
-  # standing orders (agents/executor.md § Operating Protocols § EM-Only Commit Gate).
-  # Unset / "em" = EM context. Gate runs first — identity failure short-circuits
-  # before any git or session operation (DR-4 ordering).
-  # Spec backlink: docs/plans/2026-06-15-executor-no-self-commit-em-only-gate.md DR-1, DR-4.
-  if [[ "$EXPECTED_OWNER" == "em-only" ]]; then
-    local _ctx="${COORDINATOR_AGENT_CONTEXT:-em}"
-    if [[ "$_ctx" != "em" ]]; then
-      echo "ERROR: coordinator-safe-commit --expected-owner em-only refused: COORDINATOR_AGENT_CONTEXT='${_ctx}'." >&2
-      echo "       This commit was invoked from a subagent context; the EM-serial commit contract" >&2
-      echo "       requires the EM (not the executor) to commit after spot-check residuals." >&2
-      echo "       If you are an executor: report DONE without committing; the EM commits after verification." >&2
-      echo "       See: agents/executor.md § Operating Protocols § EM-Only Commit Gate." >&2
-      exit 2
-    fi
-  fi
+def main(argv: Sequence[str]) -> None:
+    try:
+        args = parse_args(argv)
+    except UsageError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        usage()
+        sys.exit(1)
 
-  # Self-heal orphaned git locks before any git operation. Under concurrent-EM on
-  # Git-for-Windows, a prior session's commit can leave an orphaned `.git/index.lock`
-  # that blocks every subsequent commit ("Unable to create '.../index.lock': File exists").
-  # The reaper removes ONLY aged + stable locks (never a fresh/in-flight one), so this is
-  # safe as a hot-path pre-flight. Best-effort: a non-zero rc (fresh lock present, rc=2)
-  # is not fatal — git itself will surface a real collision. See the reaper header and
-  # docs/wiki/concurrent-em-hazards.md § H21.
-  "${SCRIPT_DIR}/coordinator-reap-stale-locks" >/dev/null 2>&1 || true
+    if args.paths:
+        # Pathspec-passthrough (Defect 1): the delegate (`scoped-git-commit`)
+        # does its own session/ownership gating — no need to resolve THIS
+        # wrapper's session id or run the self-heal lock reap first.
+        do_pathspec(args)
+        return
 
-  # Issue B: --expected-branch deterministic branch-pin gate. Fails-closed
-  # before any staging if the active branch doesn't match the expected one.
-  # Per docs/plans/2026-05-05-issue-b-expected-branch-flag.md.
-  if [[ -n "$EXPECTED_BRANCH" ]]; then
-    local _current_branch
-    _current_branch=$(git branch --show-current 2>/dev/null)
-    # Case-insensitive compare: HEAD's stored case may differ from the on-disk
-    # canonical case on Windows (.git/HEAD literal vs ref-file). Both forms
-    # describe the same branch — compare case-insensitively. (lessons.md:3,
-    # 2026-05-07 HTTPS-autopush case-mismatch.)
-    local _cb_lower _eb_lower
-    _cb_lower=$(printf '%s' "${_current_branch}" | tr '[:upper:]' '[:lower:]')
-    _eb_lower=$(printf '%s' "${EXPECTED_BRANCH}" | tr '[:upper:]' '[:lower:]')
-    if [[ "${_cb_lower}" != "${_eb_lower}" ]]; then
-      echo "ERROR: branch mismatch — current is '${_current_branch:-<detached>}', expected '${EXPECTED_BRANCH}'." >&2
-      echo "Reflog (current branch):" >&2
-      if [[ -n "$_current_branch" ]]; then
-        git reflog "$_current_branch" -3 2>/dev/null | sed 's/^/  /' >&2 || true
-      fi
-      echo "Reflog (expected branch):" >&2
-      git reflog "$EXPECTED_BRANCH" -3 2>/dev/null | sed 's/^/  /' >&2 || true
-      echo "Resolution: 'git checkout ${EXPECTED_BRANCH}' or correct the dispatch prompt's expected_branch." >&2
-      exit 1
-    fi
-  fi
+    # 2026-07-24 (M4): the em-only gate (cooperative COORDINATOR_AGENT_CONTEXT
+    # signal) and the --expected-branch self-commit bypass both lived here
+    # and are REMOVED — deleted, not bypassed. Whether the caller may commit
+    # at all is now enforced upstream by the PreToolUse(Bash) hard-deny guard
+    # coordinator_core/bash_guards/block_subagent_commit.py, keyed on the
+    # harness-supplied caller identity (non-cooperative — a subagent cannot
+    # unset it). See docs/plans/2026-07-24-g4-execute-pipeline-two-repo-
+    # rebuild.md § chunk M4.
 
-  # Resolve session ID (needed for all modes except dry-run of blanket)
-  local session_id=""
+    # Self-heal orphaned git locks before any git operation. Best-effort:
+    # non-zero rc is not fatal — git itself surfaces a real collision.
+    # See docs/wiki/concurrent-em-hazards.md § H21.
+    # Review: code-reviewer — Finding 1: invoke via sys.executable, not the
+    # bare extensionless path, so this self-heal is Windows-invocable
+    # (CreateProcess has no shebang support; the old bare-path form raised
+    # FileNotFoundError there and was silently swallowed).
+    reap_script = os.path.join(SCRIPT_DIR, "coordinator-reap-stale-locks")
+    try:
+        subprocess.run(
+            [sys.executable, reap_script],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+        )
+    except OSError:
+        pass
 
-  if [[ "$MODE" != "blanket" ]]; then
-    # For non-blanket modes we always need a session ID
-    if ! session_id=$(resolve_session_id); then
-      # Error already printed by resolve_session_id
-      exit 1
-    fi
-    if [[ -z "$session_id" ]]; then
-      echo "ERROR: Could not resolve session ID." >&2
-      exit 1
-    fi
-  else
-    # For blanket mode, try to resolve for logging purposes, but don't fail if absent
-    session_id=$(resolve_session_id 2>/dev/null) || session_id=""
-  fi
+    cs_core, cs_liveness, cs_scope, cs_claims = _import_session()
 
-  # COORDINATOR_OVERRIDE_SCOPE=1 intercepts default mode only
-  if [[ "${COORDINATOR_OVERRIDE_SCOPE:-}" == "1" && "$MODE" == "default" ]]; then
-    do_override "$session_id"
-    exit 0
-  fi
+    # Resolve session ID (needed for all modes except blanket, which tries
+    # for logging purposes but doesn't fail if absent — bash:
+    # `session_id=$(resolve_session_id 2>/dev/null) || session_id=""`).
+    if args.mode != "blanket":
+        session_id = resolve_session_id(cs_core, cs_liveness)
+        if not session_id:
+            sys.exit(1)
+    else:
+        # Blanket mode resolves the session id for LOGGING ONLY and must never
+        # fail on it. redirect_stderr suppresses the diagnostic text but not
+        # control flow, so resolve_session_id's fail-closed sys.exit(1) (the
+        # liveness-probe-raised branch) would otherwise propagate out of main()
+        # and abort the commit — wedging the one sanctioned blanket path used by
+        # /workstream-start, /update-docs, relay-protocol and distillation.
+        # Negative-spec: catching SystemExit here is scoped to this best-effort
+        # logging read ONLY. The default-mode branch above must keep exiting —
+        # there the session id is load-bearing for the concurrency gate, and
+        # degrading it to "" would be the fail-open this file exists to prevent.
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                session_id = resolve_session_id(cs_core, cs_liveness) or ""
+        except SystemExit:
+            session_id = ""
 
-  case "$MODE" in
-    blanket)
-      do_blanket "$session_id"
-      ;;
-    scope-from)
-      do_scope_from "$session_id"
-      ;;
-    dry-run)
-      do_scoped "$session_id"
-      ;;
-    default)
-      do_scoped "$session_id"
-      ;;
-    *)
-      echo "ERROR: Unknown mode: ${MODE}" >&2
-      exit 1
-      ;;
-  esac
-}
+    # COORDINATOR_OVERRIDE_SCOPE=1 intercepts default mode only.
+    if os.environ.get("COORDINATOR_OVERRIDE_SCOPE") == "1" and args.mode == "default":
+        do_override(session_id, args, cs_core)
+        return
 
-main "$@"
+    if args.mode == "blanket":
+        do_blanket(session_id, args, cs_core, cs_liveness, cs_claims)
+    elif args.mode == "scope-from":
+        do_scope_from(args, session_id, cs_core, cs_liveness, cs_scope, cs_claims)
+    else:
+        # mode == "default" reaches do_scoped; args.dry_run (orthogonal
+        # boolean) is honored inside do_scoped regardless of mode.
+        do_scoped(session_id, args, cs_core, cs_liveness, cs_scope, cs_claims)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

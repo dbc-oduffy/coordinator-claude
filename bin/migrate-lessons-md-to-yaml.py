@@ -1,9 +1,4 @@
-#!/bin/sh
-''''exec "$(command -v python3 || command -v python || command -v py)" "$0" "$@" #'''
-# ── sh/python polyglot trampoline ──────────────────────────────────────────────
-# Review: code-reviewer Slice-A — (A-F6) exec trampoline moved to line 2 (BIN-SH-POLYGLOT).
-# Line 2 above is inert Python (a bare string literal) but executable sh/bash.
-from __future__ import annotations
+#!/usr/bin/env python3
 """
 migrate-lessons-md-to-yaml.py -- one-shot migration of state/lessons.md entries
 into per-entry YAML files under state/lessons/.
@@ -34,6 +29,8 @@ Modes:
               COUNT PARITY (N parsed == N written), then git rm state/lessons.md.
               Double-apply guard: aborts if state/lessons/ already contains YAML files.
 """
+
+from __future__ import annotations
 
 import sys
 import os
