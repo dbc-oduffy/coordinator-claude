@@ -178,9 +178,9 @@ each plugin under `~/.claude/plugins/cache/coordinator-claude/<plugin>/<version>
 build-time input you can move or delete, and the plugin's skills, hooks, and commands keep working.**
 That self-containment is scoped to the plugin, not to every capability it offers — see the engine
 dependency note in Prerequisites below: state-mutating flows (claiming handoffs, memo resolution,
-coverage computation, terminal stamping) need the coordinator engine, which is a separate,
-access-on-request dependency, not something this clone/install step provides. Read the CLI output;
-if it reports an error, surface it to the human verbatim — do not paper over.
+coverage computation, terminal stamping) need the coordinator engine, a separate public repository
+(`claude-klabauter`) installed on its own, not something this clone/install step provides. Read
+the CLI output; if it reports an error, surface it to the human verbatim — do not paper over.
 
 > **Why the GitHub repo, not your clone path?** `claude plugin marketplace add <a-directory>`
 > registers a *directory* source that Claude Code resolves from that exact path on **every** load —
@@ -276,6 +276,60 @@ guided tour in `docs/getting-started.md` is the vehicle.
 
 ---
 
+## Step 4 — Install the engine (`claude-klabauter`)
+
+coordinator-claude and its engine are **one joint installation, not two independent ones.**
+Cloning coordinator-claude is not the same as installing it, and installing coordinator-claude is
+not the same as installing the engine — treat this step as mandatory, not optional, before
+declaring the install complete. Without it, planning/review/personas/shaping still work; claiming
+handoffs, memo resolution, coverage computation, and terminal stamping do not.
+
+**Do this only after Step 3 has completed** — `/coordinator:install` has run and the session has
+been through its restart. The reason is mechanical, not procedural: coordinator-claude ships
+`bin/machine-local` as a thin forwarder; the real resolver is deposited by `/coordinator:setup`
+(Phase 3), which runs as part of Step 3. Run the engine installer before that, and its dependency
+check calls the forwarder, finds no resolver, and **exits 127** reporting `resolver not installed`
+— the fix it names is exactly "run `/coordinator:setup` (Phase 3)", i.e. go back and finish Step 3
+first. If you see that exit code, this is why.
+
+1. **Confirm the resolver is live** before proceeding: `machine-local keys` (or equivalent) should
+   resolve, not 127. If it doesn't, finish Step 3 first.
+2. **Windows only, before anything else:** disable the Python App Execution Alias stubs — Settings
+   › Apps › App execution aliases › turn off `python` and `python3`. Left on, `python3` resolves to
+   a Microsoft Store shim and every subsequent step misreports.
+3. **Prerequisite:** Python 3.11+.
+4. **Clone the engine** (a separate repo from coordinator-claude):
+   ```bash
+   git clone https://github.com/dbc-oduffy/claude-klabauter
+   cd claude-klabauter
+   ```
+5. **Run the agent install path** — non-interactive, the one you should use:
+   ```bash
+   python3 scripts/setup.py --i-am-agent
+   ```
+   (Windows: `python <klabauter-clone>\scripts\setup.py --i-am-agent`.) This checks dependencies (including that the
+   `machine-local` resolver from Step 3 is present), installs, and registers the engine.
+6. **Verify with the check-only pass:**
+   ```bash
+   python3 scripts/setup.py --check
+   ```
+   This has no side effects — use it to confirm success without risk of re-running the install.
+
+**What NOT to do:**
+- **Do not run `pip install .` as the engine install.** It is a narrower, legitimate step that
+  makes `coordinator_core` importable and provides one console script — but it skips the
+  dependency check and registration step above, so it does not give you a working engine.
+- **Do not pass `--skip-dep-check --accept-missing-deps-risk`** unless you have a specific,
+  understood reason to install without coordinator-claude present — it's a documented degraded
+  path, not a normal step, and the two flags are a pair: passing only one is an error.
+- **klabauter has no plugin or skills surface** — it is a Python package (`coordinator_core`), not
+  a second Claude Code plugin. There is no `claude plugin install` step for it.
+
+For the human path (interactive prompts instead of `--i-am-agent`), the same three commands apply
+without that flag.
+
+---
+
 ## Refinement target: edit your `~/.claude`, not this clone
 
 After install, the human evolves their live, git-tracked `~/.claude` — their Claude Central.
@@ -341,12 +395,10 @@ Before installing, verify:
 - **Node 18+** — only if the human wants the NotebookLM add-on. Otherwise irrelevant.
 - **The coordinator engine (published as `claude-klabauter`) — one hard dependency, not part of
   this clone.** coordinator-claude has one hard dependency: the engine that handles all durable
-  work-state mutation. It is published as `claude-klabauter`. **That publish is not yet live** —
-  until it is, the engine is available on request from the maintainer (same access-on-request
-  model as `project-rag`). Without it, every pure-prompt flow (planning, review, personas, shaping)
-  still works; what's lost is the state machine (claiming handoffs, memo resolution, coverage
-  computation, terminal stamping). This is not a step to run now — it is a fact to tell the human
-  before they hit a state-mutating flow and find it missing. See
+  work-state mutation. It is published, public, at
+  [`https://github.com/dbc-oduffy/claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter).
+  This is not a step to run now — Step 4 below walks the full install, and it must run **after**
+  Step 3 (restart + `/coordinator:setup`), not before. See
   [docs/install/AGENT.md](install/AGENT.md) for the full dependency detail.
 
 ---

@@ -93,9 +93,9 @@ Source: `coordinator/hooks/hooks.json`.
 ### The engine (`coordinator_core` / `claude-klabauter`)
 
 coordinator-claude declares a **hard dependency** on a separate control-plane engine, published
-as a companion repository, `claude-klabauter`. **That publish is not yet live** (the repository
-has zero commits and its GitHub URL 404s as of this writing) — the engine is currently
-access-on-request from the maintainer, not something this install can fetch or run for you.
+as a companion repository, [`claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter).
+That publish is live and public — the engine is installed separately, not something this
+install fetches or runs for you.
 
 This document does not attempt to describe what the engine writes to your machine, because it is
 not part of this distribution and this repo cannot verify claims about code it does not ship.
@@ -103,8 +103,8 @@ Most of coordinator-claude's 36 skills call into the engine, directly or through
 forwarder, and will not function without it; the skills that don't (plan-review, brainstorming,
 shape flows) are pure-prompt and work regardless.
 
-Sources: `NOTICE.md`, `MANIFESTO.md` (status note), `README.md` § "The engine underneath" (all in
-this distribution's top level).
+Sources: `NOTICE.md` (this distribution's top level), `docs/wiki/manifesto.md` (status note),
+`README.md` § "The engine underneath" (this distribution's top level).
 
 ---
 
