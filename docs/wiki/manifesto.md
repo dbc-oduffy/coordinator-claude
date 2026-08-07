@@ -1,11 +1,11 @@
 # Two Repos, One System
 
 > **Status note, up front.** This document describes the architecture coordinator-claude is built
-> on. The engine repo it names, `claude-klabauter`, is **not yet public** — it publishes from a
-> private source repo and that publish has not gone live. Until it does, the engine is
-> access-on-request from the maintainer, and coordinator-claude's engine-dependent flows are
-> available to you only if you have it. The pure-prompt flows work regardless. We would rather
-> describe the shape accurately now than have you discover the seam by hitting it.
+> on. The engine repo it names, [`claude-klabauter`](https://github.com/dbc-oduffy/claude-klabauter),
+> is **public** — install it from there; nothing is access-on-request any more. Install order is
+> load-bearing: coordinator-claude first, then the engine. The pure-prompt flows work without the
+> engine; the engine-dependent flows do not. We would rather describe the shape accurately than
+> have you discover the seam by hitting it.
 
 coordinator-claude used to be one thing: a plugin full of prompt text. It is now two things, and
 the second one is not a plugin at all.

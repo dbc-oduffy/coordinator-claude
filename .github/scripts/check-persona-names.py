@@ -59,6 +59,31 @@ ROSTER_DIGESTS = frozenset(
     ]
 )
 
+# Digests whose plaintext collides with a common technical abbreviation, where
+# only a CAPITALIZED occurrence can be the persona display name.
+#
+# `token_digest` lowercases before hashing (deliberately — it must catch a
+# display name however it is cased in prose). One roster name is three letters
+# long and is also the near-universal abbreviation for "session id", so every
+# `<sid>` placeholder, `sid:` key and `sid` function parameter in the engine's
+# own scripts hashed to a roster digest. That produced hundreds of failures on
+# lines containing no persona reference at all, which blocked the publish
+# outright.
+#
+# The narrow rule: for these digests, a lowercase occurrence is a technical
+# token and is exempt; a capitalized one still fails. This keeps the guard's
+# actual job intact — a display name in human-facing prose is written
+# capitalized, and that is what must not reach the public layer — while not
+# flagging `sid` in `def _count_session(sessions_base: str, sid: str)`.
+#
+# Deliberately keyed by digest rather than plaintext so this file still carries
+# no roster name in the clear, which is the whole point of the digest table.
+CASE_SENSITIVE_ONLY_DIGESTS = frozenset(
+    [
+        "ec3536b4bcae512aff1ddcd4195d999c4138683a7b2a85ec456569a8aceb381a",
+    ]
+)
+
 TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 NOQA_RE = re.compile(r"#\s*noqa:\s*persona-names", re.IGNORECASE)
@@ -121,9 +146,22 @@ def get_tracked_files() -> list[pathlib.Path]:
 
 def find_match(line: str) -> str | None:
     for token in TOKEN_RE.finditer(line):
-        digest = token_digest(token.group(0))
-        if digest in ROSTER_DIGESTS:
-            return digest
+        raw = token.group(0)
+        digest = token_digest(raw)
+        if digest not in ROSTER_DIGESTS:
+            continue
+        # An abbreviation-colliding name only counts in Title case — see
+        # CASE_SENSITIVE_ONLY_DIGESTS. Both other casings are the technical
+        # token: lowercase is the parameter/placeholder form (`sid: str`,
+        # `<sid>`) and ALL-CAPS is the environment-variable and prose-acronym
+        # form (`SID="${SID:-unknown}"`, "SID-disambiguated"). A display name in
+        # human-facing prose is written `Sid`, and that is the only form that
+        # must not reach the public layer.
+        if digest in CASE_SENSITIVE_ONLY_DIGESTS and not (
+            raw[:1].isupper() and not raw.isupper()
+        ):
+            continue
+        return digest
     return None
 
 

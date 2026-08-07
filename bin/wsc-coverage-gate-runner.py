@@ -955,6 +955,77 @@ def _describe_uncovered_shas(shas: list[str], repo_root: str | None) -> list[str
     return lines or list(shas)
 
 
+def _classify_uncovered_shas(
+    shas: list[str], repo_root: str | None,
+) -> tuple[list[str], list[str]]:
+    """Split `shas` into `(planning, code)`, in input order, using the SAME
+    classifier the gate itself already applies to decide `chain_code_shas`
+    membership (`coverage._classify_bookkeeping_shas`) — never a second
+    classifier, and this never changes `chain_code_shas` membership or the
+    denominator/verdict, only how the HALT message labels each entry
+    (2026-08-07 audit, `state/audits/2026-08-07-wsc-chain-gate-counts-doc-
+    only-commits.md` Q1: PLANNING commits stay IN the code-obligation set
+    by design — AC9, "a planning artifact still owes a review, just not a
+    code review" — the gate's own message calling them "chain code
+    commit(s)" was the lie this splits apart).
+
+    `repo_root=None`, or an empty `shas`, degrades to `([], list(shas))` —
+    every sha reads as unclassified CODE, the message's prior behavior,
+    rather than guessing at a classification this diagnostic couldn't
+    resolve."""
+    if not repo_root or not shas:
+        return [], list(shas)
+    _exhaust_set, planning_set, _note = _classify_bookkeeping_shas(shas, repo_root, {})
+    planning = [sha for sha in shas if sha in planning_set]
+    code = [sha for sha in shas if sha not in planning_set]
+    return planning, code
+
+
+def _partition_foreign_uncovered_shas(
+    shas: list[str], session_id: str | None,
+) -> tuple[list[str], list[str]]:
+    """Split `shas` into `(foreign, own)`, in input order — the
+    "unrecordable-by-construction" distinction (`state/audits/2026-08-07-
+    wsc-chain-gate-counts-doc-only-commits.md` Q2/Q5): a FOREIGN commit's
+    coverage can never be discharged by an ordinary review-trail write,
+    because `coordinator_core.ops.review_trail_write._guard_foreign_
+    session_range` refuses any range naming a commit attributed to
+    another session, while the chain-terminal discharge path
+    (`directives_review._record_membership_shas`) narrows a record by the
+    WRITING session's id — so a record correctly naming a predecessor's
+    commit is emptied to `set()` and credits nothing. Both mechanisms are
+    individually correct; jointly they make a foreign uncovered commit
+    unsatisfiable by any write this session could make.
+
+    Reuses `_resolve_foreign_session_shas` per sha, over the same `X^..X`
+    single-commit range idiom the write path itself produces
+    (`directives_review.py`'s own comments), rather than a second
+    trailer-reading implementation.
+
+    `session_id=None` (closing session unresolvable) degrades every sha to
+    `own` — this diagnostic must never assert a commit is foreign when it
+    cannot positively confirm who the closing session even is. A per-sha
+    `_resolve_foreign_session_shas` failure (unresolvable repo root,
+    `session_attribution.GitLogFailed`) degrades that one sha to `own` for
+    the same reason: silence, not a false claim, on the diagnostics-only
+    leg this backs."""
+    if not session_id:
+        return [], list(shas)
+    foreign: list[str] = []
+    own: list[str] = []
+    for sha in shas:
+        try:
+            foreign_set = _resolve_foreign_session_shas(f"{sha}^..{sha}", session_id)
+        except Exception:
+            own.append(sha)
+            continue
+        if sha in foreign_set:
+            foreign.append(sha)
+        else:
+            own.append(sha)
+    return foreign, own
+
+
 def _load_trail_records() -> list[dict]:
     """Load every on-disk review-trail record (live + archive) as parsed
     JSON dicts, via `coordinator_core.ops.list_review_trail_records`.
@@ -1528,24 +1599,65 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             if chain_code_shas and chain_dag_shas:
-                cap = 10
-                descs = _describe_uncovered_shas(uncovered[:cap], _resolve_repo_root())
+                # 2026-08-07 rendering fix (state/audits/2026-08-07-wsc-
+                # chain-gate-counts-doc-only-commits.md): a rendering-only
+                # change — `uncovered`/`chain_code_shas` themselves, the
+                # denominator below, and the verdict are untouched. Two
+                # things this message used to get wrong: (1) it called
+                # every entry a "chain code commit" when PLANNING commits
+                # (docs/plans/, docs/research/, docs/problems/, state/plan-
+                # sidecars/) stay in the obligation set by design but are
+                # not code; (2) it stayed silent when an uncovered commit
+                # is foreign to the closing session, which is frequently
+                # uncovered BY CONSTRUCTION (Q2/Q5) rather than because no
+                # one reviewed it.
+                repo_root = _resolve_repo_root()
+                planning_shas, code_shas_only = _classify_uncovered_shas(uncovered, repo_root)
+                closing_session_id = _resolve_closing_session_id(repo_root) if repo_root else None
+                foreign_shas, own_shas = _partition_foreign_uncovered_shas(
+                    uncovered, closing_session_id,
+                )
                 print(
                     f"UNCOVERED: {len(uncovered)} of {len(chain_code_shas)} "
                     "chain code commit(s) carry no discharging review-trail "
                     "verdict (no record's range names them):",
                     file=sys.stderr,
                 )
-                for line in descs:
-                    print(f"  {line}", file=sys.stderr)
-                if len(uncovered) > cap:
-                    print(f"  +{len(uncovered) - cap} more", file=sys.stderr)
-                print(
-                    "REMEDY: record a per-commit review-trail verdict for "
-                    "each via coordinator/bin/coordinator-write-review-"
-                    "trail.py.",
-                    file=sys.stderr,
-                )
+                cap = 10
+                if code_shas_only:
+                    print(f"  {len(code_shas_only)} code commit(s):", file=sys.stderr)
+                    for line in _describe_uncovered_shas(code_shas_only[:cap], repo_root):
+                        print(f"    {line}", file=sys.stderr)
+                    if len(code_shas_only) > cap:
+                        print(f"    +{len(code_shas_only) - cap} more", file=sys.stderr)
+                if planning_shas:
+                    print(
+                        f"  {len(planning_shas)} planning-artifact "
+                        "commit(s) (owe a plan review, not a code review):",
+                        file=sys.stderr,
+                    )
+                    for line in _describe_uncovered_shas(planning_shas[:cap], repo_root):
+                        print(f"    {line}", file=sys.stderr)
+                    if len(planning_shas) > cap:
+                        print(f"    +{len(planning_shas) - cap} more", file=sys.stderr)
+                if foreign_shas:
+                    print(
+                        f"  {len(foreign_shas)} of these {len(uncovered)} "
+                        "commit(s) are unrecordable by an ordinary review-"
+                        "trail write: authored by a predecessor session, "
+                        "and the foreign-session guard refuses any range "
+                        "naming them, so no record this session writes can "
+                        "discharge them. Sanctioned exits: a PM vouch "
+                        "waiver, or /handoff.",
+                        file=sys.stderr,
+                    )
+                if own_shas:
+                    print(
+                        f"REMEDY: record a per-commit review-trail verdict "
+                        f"for each of the remaining {len(own_shas)} via "
+                        "coordinator/bin/coordinator-write-review-trail.py.",
+                        file=sys.stderr,
+                    )
             else:
                 print(
                     "UNCOVERED: union-coverage diagnostics unavailable — "

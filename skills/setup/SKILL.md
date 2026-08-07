@@ -23,9 +23,10 @@ These three verbs coexist without collision. The `:setup` verb is the establishe
 `REPO_CLAUDE_KLABAUTER` lookups throughout this skill are the correct sibling-registry resolution
 path for a dev-tree session that has that registry entry, and stay as written. An OSS installer has
 no such registry entry and will not resolve the engine that way; for that audience the same engine
-is the dependency described in `docs/install/AGENT.md` (published under its own OSS-facing name,
-private and access-on-request until its publish goes live). Both paths resolve the identical
-engine — the registry key is internal plumbing, not a second dependency.
+is the dependency described in `docs/install/AGENT.md` (published publicly under its own
+OSS-facing name, `claude-klabauter`, at `https://github.com/dbc-oduffy/claude-klabauter`). Both
+paths resolve the identical engine — the registry key is internal plumbing, not a second
+dependency.
 
 ---
 

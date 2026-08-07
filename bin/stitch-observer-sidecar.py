@@ -24,10 +24,22 @@ Behavior (in order):
      Condition). No-op, exit 0.
   2. Sidecar present but the daily summary is missing — the leak condition.
      Refuses to delete the sidecar. Fails LOUD (visible stderr line), exit 1.
-  3. Daily summary already contains a `## Strategic Review` heading — already
-     stitched (re-run, or a hand-stitch already happened). Idempotent: does
-     NOT append a second copy, removes the now-redundant sidecar, reports it,
-     exit 0.
+  3. Daily summary already contains a `## Strategic Review` heading AND does
+     not carry the analyst's placeholder line — already stitched (re-run, or a
+     hand-stitch already happened). Idempotent: does NOT append a second copy,
+     removes the now-redundant sidecar, reports it, exit 0. Deletion here is
+     gated on the sidecar's own body being verifiably present in the summary,
+     not on the heading alone (see below).
+  3b. Heading present but the placeholder is ALSO present — a marker
+     false-positive, not a completed stitch. The placeholder (and its own
+     heading, when the analyst brief emitted one) is removed and the normal
+     path in 4 runs. Negative-spec: the heading is NOT a sufficient
+     already-stitched signal. An analyst brief that writes `## Strategic
+     Review` above the placeholder makes the marker match content that was
+     never stitched; the pre-2026-08-07 shape took that branch, deleted the
+     sidecar, and exited 0 — destroying the observer's entire output while
+     every exit code reported success. Deletion must never be reachable from
+     a state where the sidecar's content is absent from the summary.
   4. Otherwise — the normal path. Appends the sidecar's content verbatim
      (never re-authored/summarized) onto the end of the daily summary, then
      re-reads the daily summary to confirm exactly one `## Strategic Review`
@@ -77,6 +89,12 @@ import sys
 _HEADING = "## Strategic Review"
 _SIDECAR_SUFFIX = ".observer.md"
 
+#: The analyst's stand-in for the section this script appends, per DoE-claude
+#: coordinator/docs/wiki/daily-summary-procedure.md's summary template. Its
+#: presence proves the stitch has NOT run, regardless of what headings the
+#: summary carries.
+_PLACEHOLDER = "_Strategic Review section will be appended by the reviewer agent._"
+
 
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
@@ -84,6 +102,48 @@ def _err(msg: str) -> None:
 
 def _heading_count(text: str) -> int:
     return sum(1 for line in text.splitlines() if line.startswith(_HEADING))
+
+
+def _sidecar_body_marker(sidecar_content: str) -> str:
+    """First substantive (non-blank, non-heading) line of the sidecar.
+
+    Proves the sidecar's content is genuinely present in the summary before
+    the already-stitched branch deletes it. A heading match alone is not
+    proof: a placeholder, a hand-written stub, or an unrelated section can
+    carry the same heading while the observer's output is nowhere in the file.
+    Returns "" for a heading-only sidecar, which disables the check rather
+    than failing a legitimately empty section.
+    """
+    for line in sidecar_content.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            return stripped
+    return ""
+
+
+def _strip_placeholder(main_content: str) -> str:
+    """Remove the placeholder line, plus a `## Strategic Review` heading
+    directly above it when the analyst brief emitted one.
+
+    Negative-spec: that heading is dropped ONLY when it belongs to the
+    placeholder — adjacent, separated at most by blank lines. The sidecar
+    carries its own heading, so leaving the placeholder's behind would yield
+    two and trip the post-append verification.
+    """
+    lines = main_content.splitlines()
+    try:
+        idx = next(i for i, line in enumerate(lines) if _PLACEHOLDER in line)
+    except StopIteration:
+        return main_content
+
+    start = idx
+    probe = idx - 1
+    while probe >= 0 and not lines[probe].strip():
+        probe -= 1
+    if probe >= 0 and lines[probe].startswith(_HEADING):
+        start = probe
+
+    return "\n".join(lines[:start] + lines[idx + 1:]).rstrip("\n") + "\n"
 
 
 def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
@@ -105,15 +165,28 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
              "Investigate before re-running Step 4d.")
         return 1
 
-    if _heading_count(main_content) >= 1:
+    placeholder_present = _PLACEHOLDER in main_content
+
+    if _heading_count(main_content) >= 1 and not placeholder_present:
+        marker = _sidecar_body_marker(sidecar_content)
+        if marker and marker not in main_content:
+            _err(f"[stitch-observer-sidecar] LEAK: '{daily_summary_path}' carries a "
+                 f"'{_HEADING}' heading but NOT the sidecar's content — refusing to "
+                 f"delete '{observer_sidecar_path}' on a marker false-positive. "
+                 "Reconcile the two by hand before re-running.")
+            return 1
         os.remove(observer_sidecar_path)
         _err(f"[stitch-observer-sidecar] '{daily_summary_path}' already contains "
-             f"'{_HEADING}' — idempotent no-op. Removed redundant sidecar "
-             f"'{observer_sidecar_path}'.")
+             f"'{_HEADING}' and the sidecar's content — idempotent no-op. Removed "
+             f"redundant sidecar '{observer_sidecar_path}'.")
         return 0
 
+    if placeholder_present:
+        main_content = _strip_placeholder(main_content)
+
     separator = "" if main_content.endswith("\n\n") else ("\n" if main_content.endswith("\n") else "\n\n")
-    with open(daily_summary_path, "a", encoding="utf-8") as f:
+    with open(daily_summary_path, "w", encoding="utf-8") as f:
+        f.write(main_content)
         f.write(separator)
         f.write(sidecar_content)
 
