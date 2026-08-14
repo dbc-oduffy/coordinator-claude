@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """regen-cockpit-schema.py — Regenerate the canonical cockpit-contract schema.
 
@@ -26,7 +25,7 @@ replaces the former bash forwarder (regen-cockpit-schema.sh, DoE 23d34a4c,
 the emitter is invoked directly via subprocess.run() with an argv list, never
 through a shell string.
 
-Spec backlink: docs/plans/2026-07-16-cockpit-contract-decommission-ts-mirror.md (chunk C2).
+Spec backlink: DoE-claude:pln-decommission-cockpit-contract--73331e (chunk C2).
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1, Category C).
 
 Usage:
@@ -122,12 +121,13 @@ _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
+import cc_invoke  # noqa: E402
+
+cc_invoke.ensure_engine_on_path(__file__)
+
 from cli_shared import claude_klabauter_root  # noqa: E402
 from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
-
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _EMITTER_MODULE = "coordinator_core.contract.cockpit_schema.emit_schema"
 _RELEASE_TAG = "cockpit-contract-release"
@@ -159,7 +159,7 @@ def _resolve_doe_root() -> str:
         root = doe_root()
     except _DoeUnresolvable as exc:
         print(
-            f"ERROR: could not resolve the DoE-claude repo root ({exc}). "
+            f"ERROR: could not resolve the coordinator doctrine repo root ({exc}). "
             "Set repos.doe_claude in the machine-local registry, or set the "
             "DOE_ROOT / REPO_DOE_CLAUDE env var.",
             file=sys.stderr,
@@ -172,14 +172,14 @@ def _resolve_doe_root() -> str:
 
 
 def _build_trampoline_env(mak_root: str) -> dict[str, str]:
-    """Build the subprocess env for a source-trampoline spawn into claude-klabauter.
+    """Build the subprocess env for a source-trampoline spawn into the engine repo.
 
     Passes os.environ through, sets CLAUDE_KLABAUTER_ROOT, and prepends mak_root to
     PYTHONPATH only if not already present (idempotency fence). Mirrors
     `_build_subprocess_env()` in `coordinator/bin/lib/cc_invoke.py` — this is
     the same sanctioned source-trampoline pattern, not a fresh convention.
-    This reaches claude-klabauter's SOURCE tree only; it never resolves or spawns a
-    claude-klabauter-resident interpreter (see module docstring).
+    This reaches the engine repo's SOURCE tree only; it never resolves or spawns
+    an engine-resident interpreter (see module docstring).
     """
     env: dict[str, str] = {**os.environ, "CLAUDE_KLABAUTER_ROOT": mak_root}
     existing_pp = env.get("PYTHONPATH", "")
@@ -209,7 +209,7 @@ def _schema_dir_dirty(doe_root: str, out_dir: str) -> bool:
             cwd=doe_root,
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except OSError as exc:
         print(f"ERROR: could not check git status for {rel_out_dir}: {exc}", file=sys.stderr)
@@ -243,7 +243,7 @@ def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
             cwd=doe_root,
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except OSError as exc:
         print(f"ERROR: could not check for tag {_RELEASE_TAG}: {exc}", file=sys.stderr)
@@ -257,7 +257,7 @@ def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
             cwd=doe_root,
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except OSError as exc:
         print(f"ERROR: could not diff {_RELEASE_TAG}..HEAD for {rel_out_dir}: {exc}", file=sys.stderr)
@@ -330,7 +330,7 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
             cwd=doe_root,
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except OSError as exc:
         print(f"ERROR: could not advance tag {_RELEASE_TAG}: {exc}", file=sys.stderr)
@@ -344,7 +344,7 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
     print(
         "  NOT pushed — publishing this tag to origin is DoE's step to take, not "
         "claude-klabauter's. Until DoE performs it (or their own automated publish step "
-        "lands), the origin tag stays stale. In the DoE-claude clone:"
+        "lands), the origin tag stays stale. In the coordinator doctrine repo clone:"
     )
     print(f"    git -C {doe_root} push origin refs/tags/{_RELEASE_TAG}")
 
@@ -394,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
         env=trampoline_env,
         capture_output=True,
         text=True,
-        creationflags=_NO_WINDOW,
+        **no_console_creationflags(),
     )
     if probe.returncode != 0:
         print(f"ERROR: emitter module {_EMITTER_MODULE} not importable", file=sys.stderr)
@@ -411,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
     result = subprocess.run(
         [sys.executable, "-m", _EMITTER_MODULE],
         env=env,
-        creationflags=_NO_WINDOW,
+        **no_console_creationflags(),
         capture_output=True,
         text=True,
     )

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """resolve-repo-path.py — emit the on-disk path for a registered repo shortname.
 
@@ -51,8 +50,6 @@ import os
 import subprocess
 import sys
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
@@ -61,7 +58,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from coordinator_core.win_portability import is_executable  # noqa: E402
+from coordinator_core.win_portability import is_executable, no_console_creationflags  # noqa: E402
 from machine_local_impl_resolve import (  # noqa: E402
     claude_home as _mlir_claude_home,
     settings_home as _mlir_settings_home,
@@ -117,7 +114,7 @@ def _resolve_registry_value(key: str) -> str:
             [ml, "get", key],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except OSError:
         return ""

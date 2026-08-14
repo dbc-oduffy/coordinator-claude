@@ -29,7 +29,7 @@ Reader semantics: strip a trailing `\r` (Windows line endings), skip blank
 lines and `#`-comment lines, trim TRAILING whitespace only — leading
 whitespace in a pattern is significant and preserved.
 
-Spec backlink: docs/plans/2026-07-21-percolate-python-port.md § C-W1b.
+Spec backlink: DoE-claude:pln-port-the-percolate-engine-to-p-94f40f § C-W1b.
 """
 
 from __future__ import annotations

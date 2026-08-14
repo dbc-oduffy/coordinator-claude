@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """gen-claude-klabauter-root-pointer.py — project the claude-klabauter repo root into a cold-readable pointer file.
 
 Purpose: reads repos.claude_klabauter from the machine-local registry and writes
@@ -18,7 +17,7 @@ script is invoked identically from the POSIX install path (install-maximalist.py
 via `python3`/`python`) and the Windows install path (setup.ps1, via
 `python3`/`python`) — one implementation, no shell-specific duplication.
 
-Spec backlink: docs/plans/2026-07-14-claude-klabauter-windows-portability.md § C1b
+Spec backlink: pln-claude-klabauter-windows-portability-a48fac § C1b
 Design mirror: coordinator/bin/gen-doe-root-pointer.py (bash analog for the DoE
                 repo root pointer — same idempotent/atomic/--check-only shape).
 Resolution mirror: coordinator/lib/coordinator-claude-klabauter-root.sh (bash reader),
@@ -60,6 +59,8 @@ import subprocess
 import sys
 import tempfile
 
+GENERATES = []  # writes only <settings-home>/machine-local/.claude-klabauter-root, outside claude-klabauter's tracked tree
+
 # ---------------------------------------------------------------------------
 # Settings-home resolution — inline mirror of cc_invoke.py::_resolve_claude_klabauter_root.
 # Kept inline (no cross-module import) for the same single-file-module reason
@@ -75,7 +76,12 @@ def _settings_home() -> str:
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if override:
         return override
-    home = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+    home = (
+        os.environ.get("CLAUDE_HOME")
+        or os.environ.get("HOME")
+        or os.environ.get("USERPROFILE")
+        or os.path.expanduser("~")
+    )
     return os.path.join(home, ".coordinator-claude-settings")
 
 

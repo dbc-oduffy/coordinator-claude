@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 """detect-existing-claude-home.py — three-state classifier for Claude home directories.
 
-Thin, argv-passthrough veneer over claude-klabauter's
+Thin, argv-passthrough veneer over the engine repo's
 coordinator_core.ops.detect_existing_claude_home. Classifies a target
 Claude home directory as pristine / used-vanilla / configured, driving the
 install flow's track A/B fork. Read-only, idempotent; degrades to
@@ -33,7 +32,7 @@ install flow's track A/B fork. Read-only, idempotent; degrades to
 #       gate-blocking) — so there is no dedicated transport-failure code to
 #       collide with a business code (rule per porter-brief addendum § 3b).
 #
-# Spec backlink: docs/plans/2026-07-16-bash-to-naked-python-engine-migration.md
+# Spec backlink: docs/plans/2026-07-16-bash-to-naked-python-engine-migration.md [DEAD-CITATION: plan file never committed to this repo]
 from __future__ import annotations
 
 import os

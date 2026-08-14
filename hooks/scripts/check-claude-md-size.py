@@ -14,13 +14,13 @@ check_claude_md_size` (2026-07-29, `docs/plans/2026-07-29-hook-fan-in-
 write-path.md` § C8) and no longer runs here — this hook now only ever
 soft-warns (exit 1) on size, never hard-blocks on it. It still hard-blocks
 (exit 2) on the C7 admission-gate check below, which is a wholly separate,
-DoE-resident-permanently predicate — see that section's own docstring for
+doctrine-plane-resident-permanently predicate — see that section's own docstring for
 why it does not fold into the engine.
 
 Fires only when the target path is a GOVERNED (fleet-loaded) CLAUDE.md-class
 surface per `coordinator_core.claude_md_budget.is_governed_claude_md` —
 `~/.claude/CLAUDE.md` or `<dev-repo>/coordinator/CLAUDE.md` — NOT a bare
-basename match. A repo-scoped `CLAUDE.md` (DoE-claude's own repo-root file,
+basename match. A repo-scoped `CLAUDE.md` (this doctrine-plane repo's own repo-root file,
 any sibling repo's) is a project file, not fleet-loaded, and must not share
 this budget; see `coordinator/docs/wiki/claude-md-surfaces.md`. All other
 paths, and any path that fails the governed-surface check, fast-exit 0.
@@ -124,7 +124,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # imported on this machine — degrade to a conservative local approximation
 # rather than fail fully open (a missing sibling engine should narrow this
 # hook's coverage, not disable it outright). Kept intentionally close to the
-# unified SSOT values (40000/38000) rather than the pre-unification DoE-local
+# unified SSOT values (40000/38000) rather than the pre-unification doctrine-plane-local
 # 39900/39000 pair, so a fallback firing does not itself reintroduce drift.
 _HARD_FALLBACK = 40000
 _SOFT_FALLBACK = 38000

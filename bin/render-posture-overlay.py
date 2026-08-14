@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """render-posture-overlay.py — merges a Posture overlay block into a target file.
 
@@ -68,7 +67,7 @@ to DoE-claude in the 2026-07-22 executable-surface migration.
 #       coordinator-auto-push's never-block posture — a claude-klabauter-link failure
 #       here degrades to a loud, distinguishable exit 2, not a silent 0.
 #
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 # Prior bash implementation: see git log (render-posture-overlay.py, 262
 #   lines pre-port, retired on this cutover)
 import os

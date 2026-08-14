@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stop-hook shim — harness-directive dispatch nudge.
 
-DoE owns only this thin PLUMBING shim: resolve the sibling engine, hand it the
+The doctrine plane owns only this thin PLUMBING shim: resolve the sibling engine, hand it the
 raw Stop payload, and convert its verdict into the documented Stop-hook block
 channel. The engine owns the DETECTION LOGIC
 (`coordinator_core.hooks.nudge_harness_directive_dispatch.op`).

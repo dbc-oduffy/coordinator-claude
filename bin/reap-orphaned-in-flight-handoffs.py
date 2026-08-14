@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """reap-orphaned-in-flight-handoffs.py — crash-orphan CLAIM-RELEASER for consumed+in_flight
 handoffs.
@@ -109,11 +108,11 @@ Exit codes:
     0 — normal (including zero orphans found; claim-release is best-effort)
     2 — internal error (not inside a git repo, or state/handoffs/ unresolvable)
 
-Spec backlink: docs/plans/2026-07-08-handoff-spinoff-robustness-hardening.md § C5a
-Spec backlink: docs/plans/2026-07-13-reaper-ship-not-abandon-shipped-orphans.md
+Spec backlink: DoE-claude:pln-handoff-spinoff-machinery-robu-0d0f15 § C5a
+Spec backlink: DoE-claude:pln-reaper-ships-not-abandons-ship-6ce32a
 Port of: reap-orphaned-in-flight-handoffs.sh (DoE e991362e, 2026-07-21,
 de-bash campaign chunk A2-c)
-Spec backlink: docs/plans/2026-07-21-depolyglot-coordinator-js-to-python.md § chunk B1
+Spec backlink: DoE-claude:pln-de-polyglot-the-coordinator-mi-119303 § chunk B1
 (node-spawn call sites repointed onto archive-stamp-cli; handoff-transition.js /
 stamp-shipped-in.js deleted 2026-07-22 — claude-klabauter's parity suites froze to committed
 goldens, dissolving the DEC-3 keep-as-oracle hold)
@@ -140,16 +139,13 @@ _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-from handoff_lifecycle import claim_holder as _shared_claim_holder  # noqa: E402
 from handoff_lifecycle import is_claimed_status  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
-_ARCHIVE_STAMP_CLI = os.path.join(_SCRIPT_DIR, "archive-stamp-cli")
+_ARCHIVE_STAMP_CLI = os.path.join(_SCRIPT_DIR, "archive-stamp-cli.py")
 _QUERY_CLI_DEFAULT = os.path.join(_SCRIPT_DIR, "query-completions.py")
 _HAS_LIVE_CHILDREN_CLI = os.path.join(_SCRIPT_DIR, "handoff-has-live-children.py")
-
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _resolve_session_live():
@@ -182,6 +178,24 @@ def _resolve_find_archived_twin_by_handoff_id():
         sys.path.insert(0, claude_klabauter_root)
     from coordinator_core.handoff_creation_guard import find_archived_twin_by_handoff_id
     return find_archived_twin_by_handoff_id
+
+
+def _resolve_claim_state():
+    """Import coordinator_core.claim_state.resolve_claim_state via
+    CLAUDE_KLABAUTER_ROOT.
+
+    Same in-process import trampoline as ``_resolve_session_live`` above.
+    C1 (commit 1194eb3f4) landed this as the canonical ledger-first claim
+    accessor — ledger wins whenever it holds a LIVE claim (regardless of
+    what the frontmatter mirror says); a dead ledger holder degrades to
+    ``source: "mirror"``/``"none"``, never ``"ledger"``. See
+    ``_claim_holder`` below for how this reaper consumes it.
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.claim_state import resolve_claim_state
+    return resolve_claim_state
 
 
 def _resolve_canonical_kind():
@@ -235,26 +249,50 @@ def _fm_field(path: str, key: str) -> str:
     return val
 
 
-def _claim_holder(path: str) -> str:
-    """DR-084 dual-read: prefer claimed_by, fall back to consumed_by.
+def _claim_holder(path: str, *, repo_root: str = "") -> str:
+    """Ledger-first claim-holder read: prefer the branch-independent claim
+    ledger's LIVE holder, fall back to the tracked-frontmatter mirror
+    (`claimed_by`, then legacy `consumed_by`).
 
-    Thin wrapper over the shared coordinator/bin/lib/handoff_lifecycle.py
-    accessor (claim_holder) — kept as a local name so every call site below
-    stays unchanged; the dual-read logic itself lives in exactly one place
-    now, not duplicated per-caller. See that module's docstring for why the
-    single-shared-accessor pattern replaced this file's own local dual-read
-    (a prior in-file-only fix here still left the same pattern free to drift
-    a second time in another Python reader).
+    Thin wrapper over `coordinator_core.claim_state.resolve_claim_state` (C1,
+    commit 1194eb3f4) — the canonical ledger-first accessor. This replaces
+    this file's prior mirror-only dual-read
+    (coordinator/bin/lib/handoff_lifecycle.claim_holder): that accessor could
+    never see a claim the ledger still held once the mirror reverted (e.g. a
+    shared-worktree branch switch away from the commit that stamped
+    `claimed_by`) — a LIVE ledger holder would read as "no holder" here and
+    either wrongly disappear into `skipped_no_holder`, or worse, let a STALE
+    mirror value (a different, dead session id left over from a prior claim)
+    stand in as the tested holder and get reaped out from under the true,
+    still-live claimant. `resolve_claim_state` closes both: `.holder`
+    resolves to the ledger's holder whenever the ledger holds a live claim
+    (source == "ledger"), regardless of the mirror; only when the ledger has
+    no live claim does `.holder` fall back to the mirror value (source ==
+    "mirror"/"none"). A dead ledger holder is never surfaced as `.holder`
+    with source == "ledger" (see that module's own fail-closed-to-mirror
+    degrade) — this reaper's downstream `session_live()` re-check therefore
+    still governs whether the RESOLVED holder (ledger-live or mirror
+    fallback) is itself alive; this wrapper only fixes WHICH holder gets
+    tested, never removes that liveness test.
 
-    Review: code-reviewer — Finding 1 (superseded by the shared-accessor
-    promotion above, behavior unchanged). `_shipped_orphan_sha`'s P2 bounded
-    scan previously read raw `consumed_by` only, so a claimed_by-only
-    (migrated-vocabulary) handoff never matched its own dead holder's id,
-    silently zeroing match_count and disabling the ship-reclaim path for
-    any fully-migrated corpus. Factored so main()'s claim-holder resolution
-    and both P2 scan sites share one dual-read implementation.
+    `repo_root` threads through to `resolve_claim_state`'s own
+    `git_common_dir` resolution (lru_cache'd — see that module's docstring),
+    so passing it here costs a cached-dict lookup, not a subprocess.
+
+    A resolution failure (e.g. a malformed ledger record for this one
+    handoff) degrades to "" — this reaper's existing "no claim holder
+    recorded, skip, do not reap" path — rather than aborting the whole
+    batch. Defense-in-depth at this boundary even though the ledger-record
+    accessor itself is expected to degrade rather than raise; this script
+    destroys claim state, so it stays fail-closed-and-skip per handoff on
+    its own terms.
     """
-    return _shared_claim_holder(path)
+    resolve_claim_state = _resolve_claim_state()
+    try:
+        state = resolve_claim_state(path, repo_root=(repo_root or None))
+    except Exception:
+        return ""
+    return state.holder or ""
 
 
 def _handoff_id_archived_twin(handoff_id: str, repo_root: str) -> str:
@@ -302,7 +340,7 @@ def _run_query_cli(query_cli: str, where: str, fmt: str) -> str:
     else:
         cmd = [query_cli, "--where", where, "--format", fmt]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, creationflags=_NO_WINDOW)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, **no_console_creationflags())
     except OSError:
         return ""
     if result.returncode != 0:
@@ -310,17 +348,26 @@ def _run_query_cli(query_cli: str, where: str, fmt: str) -> str:
     return result.stdout or ""
 
 
-def _shipped_orphan_sha(
+def _shipped_orphan_candidate(
     consumed_by: str,
     this_handoff: str,
     handoffs_dir: str,
     repo_root: str,
     query_cli: str = _QUERY_CLI_DEFAULT,
-) -> str:
-    """Ship-check predicate P2-P4 (P1 is checked by the caller — see module
-    docstring). Returns a landing SHA iff P2 AND P3 AND P4 all hold; returns ""
-    on ANY failure (fail-closed — caller falls through to the claim-release
-    (unconsume) path unchanged).
+) -> Optional[list]:
+    """Ship-check predicate P2+P3 (P1 is checked by the caller; P4's SHA
+    selection is DEFERRED — see ``_batch_commit_timestamps`` /
+    ``_best_shipped_sha`` below). Returns the single matched completion
+    entry's raw ``commits[]`` list iff P2 AND P3 hold; returns ``None`` on
+    ANY failure (fail-closed — caller treats this identically to a P4 "no
+    resolvable SHA", i.e. falls through to the claim-release (unconsume)
+    path unchanged).
+
+    Neither P2 nor P3 spawns git — this function does zero subprocess calls.
+    Splitting P4 out is what lets the caller batch the one genuinely
+    git-spawning leg (committer-timestamp resolution) across every orphan in
+    the in-flight set in a single call, instead of one ``git show`` per
+    commit per orphan.
     """
     # Reserved for the documented future chain-join extension
     # (docs/plans/2026-07-13-reaper-ship-not-abandon-shipped-orphans.md
@@ -336,7 +383,7 @@ def _shipped_orphan_sha(
     for h in glob.glob(os.path.join(handoffs_dir, "*.md")):
         if not os.path.isfile(h):
             continue
-        if _claim_holder(h) == consumed_by:
+        if _claim_holder(h, repo_root=repo_root) == consumed_by:
             match_count += 1
 
     archive_handoffs_dir = os.path.join(repo_root, "archive", "handoffs")
@@ -344,11 +391,11 @@ def _shipped_orphan_sha(
         for h in glob.glob(os.path.join(archive_handoffs_dir, "**", "*.md"), recursive=True):
             if not os.path.isfile(h):
                 continue
-            if _claim_holder(h) == consumed_by:
+            if _claim_holder(h, repo_root=repo_root) == consumed_by:
                 match_count += 1
 
     if match_count != 1:
-        return ""
+        return None
 
     # P3 — completion-entry oracle (DoE-local ONLY; no claude-klabauter/ceremony coupling).
     # Exactly one completion-log entry authored by the dead session. Zero means
@@ -357,75 +404,166 @@ def _shipped_orphan_sha(
     completion_paths = _run_query_cli(query_cli, where, "paths")
     completion_path_count = len([ln for ln in completion_paths.splitlines() if ln.strip()])
     if completion_path_count != 1:
-        return ""
+        return None
 
-    # P4 — terminal SHA selection: MAX committer timestamp across the single
-    # matched completion entry's commits[] (best_sha/best_ct idiom mirroring
-    # promote-shipped-in-flight-stubs.py:137-151 — do NOT positional-trust
-    # array order).
     completion_json = _run_query_cli(query_cli, where, "json")
     if not completion_json.strip():
-        return ""
+        return None
     try:
         parsed = json.loads(completion_json)
     except (ValueError, TypeError):
-        return ""
+        return None
     if not isinstance(parsed, list) or not parsed:
-        return ""
+        return None
 
     entry = parsed[0] if isinstance(parsed[0], dict) else {}
     frontmatter = entry.get("frontmatter") if isinstance(entry, dict) else None
     commits = frontmatter.get("commits") if isinstance(frontmatter, dict) else None
     if not isinstance(commits, list):
-        return ""
+        return None
 
+    return [sha.strip() for sha in commits if isinstance(sha, str) and sha.strip()]
+
+
+def _batch_commit_timestamps(shas: list, repo_root: str) -> dict:
+    """Resolve committer-timestamp (``%ct``) for a batch of commit SHAs in
+    ONE ``git log`` call.
+
+    Mirrors ``emit/sections/handoffs._resolve_shipped_in_dates``'s
+    ``--no-walk --ignore-missing`` shape exactly (the in-tree reconciliation
+    reference this chunk was told to cite, not re-derive): this is an OBJECT
+    question (commit metadata at a caller-supplied SHA), not a RANGE
+    question, so it batches unconditionally — ``git log --no-walk`` resolves
+    each argv SHA independently; it never merges them into one
+    ancestry/reachability set expression the way ``git rev-list A..B C..D``
+    would (the forbidden shape for a DIFFERENT git-spawn class entirely; see
+    ``docs/wiki/coverage-gate-perf.md``).
+
+    ``--ignore-missing`` makes an unresolvable SHA silently ABSENT from
+    stdout (exit 0) rather than an error — never read that absence as "this
+    SHA resolved to nothing meaningful, treat it as ineligible and move on"
+    without accounting for it explicitly: the prefix-match loop below only
+    ever POPULATES ``sha_ct`` for a SHA it can positively match against
+    stdout, so a requested SHA absent from the return value is simply absent
+    from ``sha_ct`` — the caller (``_best_shipped_sha``) already treats a
+    candidate sha missing from this dict as unresolved and skips it, which
+    is exactly the fail-closed behaviour the old per-sha
+    ``returncode != 0: continue`` path had.
+    """
+    if not shas:
+        return {}
+    ordered = sorted(set(shas))
+    try:
+        proc = subprocess.run(
+            [
+                "git", "-C", repo_root, "log",
+                "--no-walk=unsorted", "--ignore-missing",
+                "--format=%H %ct",
+                *ordered,
+            ],
+            capture_output=True, text=True, check=False,
+            **no_console_creationflags(),
+        )
+    except (OSError, ValueError):
+        return {}
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return {}
+
+    sha_ct: dict = {}
+    matched: set = set()
+    for line in proc.stdout.replace("\r", "").splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        full, ct_str = parts[0], parts[1]
+        try:
+            ct = int(ct_str)
+        except ValueError:
+            continue
+        for raw in ordered:
+            if raw not in matched and full[: len(raw)] == raw:
+                sha_ct[raw] = ct
+                matched.add(raw)
+                break
+    return sha_ct
+
+
+def _best_shipped_sha(candidates: list, sha_ct: dict) -> str:
+    """P4 — terminal SHA selection: MAX committer timestamp across a single
+    completion entry's ``commits[]`` (best_sha/best_ct idiom mirroring
+    ``promote-shipped-in-flight-stubs.py:137-151`` — do NOT positional-trust
+    array order), resolved against the batched ``sha_ct`` map produced by
+    ``_batch_commit_timestamps``. A candidate sha absent from ``sha_ct``
+    (unresolvable, or dropped by ``--ignore-missing``) is never treated as
+    resolved. No resolvable SHA -> "" (fail-closed, same contract as the
+    prior per-sha-spawning ``_shipped_orphan_sha``).
+    """
     best_sha = ""
     best_ct = -1
-    for sha in commits:
-        if not isinstance(sha, str):
-            continue
-        sha = sha.strip()
-        if not sha:
-            continue
-        try:
-            result = subprocess.run(
-                ["git", "-C", repo_root, "show", "-s", "--format=%ct", sha],
-                capture_output=True, text=True, check=False, creationflags=_NO_WINDOW,
-            )
-        except OSError:
-            continue
-        if result.returncode != 0:
-            continue
-        out = (result.stdout or "").strip()
-        try:
-            ct = int(out)
-        except ValueError:
+    for sha in candidates:
+        ct = sha_ct.get(sha)
+        if ct is None:
             continue
         if ct > best_ct:
             best_ct = ct
             best_sha = sha
-
     return best_sha
 
 
-def _run_archive_stamp_cli(args: list) -> bool:
+def _shipped_orphan_sha(
+    consumed_by: str,
+    this_handoff: str,
+    handoffs_dir: str,
+    repo_root: str,
+    query_cli: str = _QUERY_CLI_DEFAULT,
+) -> str:
+    """Ship-check predicate P2-P4 for a SINGLE orphan (P1 is checked by the
+    caller — see module docstring). Returns a landing SHA iff P2 AND P3 AND
+    P4 all hold; returns "" on ANY failure (fail-closed — caller falls
+    through to the claim-release (unconsume) path unchanged).
+
+    Composes ``_shipped_orphan_candidate`` + ``_batch_commit_timestamps`` +
+    ``_best_shipped_sha``. Retained for any single-orphan caller (e.g.
+    tests exercising the predicate directly); ``main()`` below calls the
+    three primitives directly so it can batch the ``_batch_commit_timestamps``
+    leg across every in-flight orphan in ONE git call instead of once per
+    orphan.
+    """
+    candidates = _shipped_orphan_candidate(consumed_by, this_handoff, handoffs_dir, repo_root, query_cli)
+    if candidates is None:
+        return ""
+    sha_ct = _batch_commit_timestamps(candidates, repo_root)
+    return _best_shipped_sha(candidates, sha_ct)
+
+
+def _run_archive_stamp_cli(args: list) -> tuple:
     """Invoke bin/archive-stamp-cli (a Python trampoline into claude-klabauter
     coordinator_core.archive_stamp) as a subprocess, mirroring the retired
     _run_node's success-boolean contract (returncode == 0). Preserves the
     same success/failure handling the reaper previously got from
     _run_node(handoff-transition.js / stamp-shipped-in.js) — only the
     process target changed (no node spawn, no bash re-exec).
+
+    Returns ``(ok, diagnostic)``. The diagnostic is empty on success and
+    otherwise carries the exit code plus the child's stderr/stdout tail, so a
+    caller can name WHY a verb failed. Negative-spec: callers must not collapse
+    this back to a bare boolean — an unnamed "error releasing <path>; skipping"
+    line is indistinguishable from a released-nothing run and sent two sibling
+    repos chasing the wrong hypothesis (2026-08-12 cross-repo memos).
     """
     try:
         from cc_invoke import child_env  # noqa: E402 (path injected at module top)
 
         result = subprocess.run(
             [sys.executable, _ARCHIVE_STAMP_CLI] + args,
-            capture_output=True, text=True, check=False, env=child_env(), creationflags=_NO_WINDOW,
+            capture_output=True, text=True, check=False, env=child_env(), **no_console_creationflags(),
         )
-    except OSError:
-        return False
-    return result.returncode == 0
+    except OSError as exc:
+        return False, f"could not spawn {_ARCHIVE_STAMP_CLI}: {exc}"
+    if result.returncode == 0:
+        return True, ""
+    detail = (result.stderr or "").strip() or (result.stdout or "").strip() or "(no output)"
+    return False, f"{os.path.basename(_ARCHIVE_STAMP_CLI)} {args[0]} exit {result.returncode}: {detail}"
 
 
 def _has_live_children_exit_code(handoff_path: str) -> int:
@@ -447,7 +585,7 @@ def _has_live_children_exit_code(handoff_path: str) -> int:
 
         result = subprocess.run(
             [sys.executable, _HAS_LIVE_CHILDREN_CLI, handoff_path],
-            capture_output=True, text=True, check=False, env=child_env(), creationflags=_NO_WINDOW,
+            capture_output=True, text=True, check=False, env=child_env(), **no_console_creationflags(),
         )
     except OSError:
         return 2
@@ -467,23 +605,21 @@ def main(argv: Optional[list] = None) -> int:
     dry_run = args.dry_run
 
     # ---------------------------------------------------------------------
-    # Repo root / handoffs dir resolution — direct git rev-parse (same
-    # primitive the bash oracle wrapped): this reaper needs to run from a
+    # Repo root / handoffs dir resolution — via repo_identity's checked
+    # resolver (memoized, gates on session identity; not a direct git
+    # rev-parse call in this module): this reaper needs to run from a
     # cold session-init-hook shell like sweep-shipped-handoffs.sh, and scans
     # state/handoffs/ directly (session-claim liveness is itself keyed off
     # this same git root's .git/coordinator-sessions/).
     # ---------------------------------------------------------------------
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False,
-            creationflags=_NO_WINDOW,
-        )
-        repo_root = (result.stdout or "").strip()
-    except OSError:
-        repo_root = ""
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if not repo_root:
         print("reap-orphaned-in-flight-handoffs.py: not inside a git repo", file=sys.stderr)
         return 2
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277: this is a READER (no write into resolved root) -- warn
+        # and proceed. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     handoffs_dir = os.path.join(repo_root, "state", "handoffs")
 
@@ -515,6 +651,20 @@ def main(argv: Optional[list] = None) -> int:
     would_skip_by_guard = 0
     skipped_archived_duplicate = 0
     would_skip_archived_duplicate = 0
+    failed_release = 0
+
+    # -----------------------------------------------------------------
+    # Pass 1 (read-only): walk the corpus once, evaluate every gate up to
+    # (but not including) P4's git-spawning SHA selection, and — for every
+    # dead-holder orphan whose ship-check reaches P2/P3 — collect its raw
+    # candidate commits[] WITHOUT resolving any commit's timestamp yet.
+    # This defers the one genuinely git-spawning leg (_batch_commit_timestamps
+    # below) so it can run ONCE, batched over every candidate SHA across the
+    # WHOLE in-flight set, instead of once per commit per orphan (the
+    # C13 target: "batches _shipped_orphan_sha across the in-flight set").
+    # -----------------------------------------------------------------
+    pending: list = []
+    all_candidate_shas: set = set()
 
     if os.path.isdir(handoffs_dir):
         for f in sorted(glob.glob(os.path.join(handoffs_dir, "*.md"))):
@@ -547,7 +697,7 @@ def main(argv: Optional[list] = None) -> int:
             # preferred value, and the old name misled a reader skimming
             # just the variable name (not the assignment) into assuming
             # old-vocab-only.
-            claim_holder = _claim_holder(f)
+            claim_holder = _claim_holder(f, repo_root=repo_root)
 
             # No claim holder recorded — cannot evaluate liveness; skip
             # (fail-closed, do not reap).
@@ -586,8 +736,10 @@ def main(argv: Optional[list] = None) -> int:
                 continue
 
             # Dead holder — orphan confirmed. Before defaulting to
-            # claim-release, run the ship-check (P1-P4 — see module docstring)
-            # to catch orphans that actually shipped before the session died.
+            # claim-release, run the ship-check's non-spawning legs (P1-P3 —
+            # see module docstring) to catch orphans that actually shipped
+            # before the session died. P4 (SHA selection) is deferred to the
+            # batched resolution after this loop.
             #
             # P1 — population split (NOT overlap) with
             # promote-shipped-in-flight-stubs.py: kind:spinoff-roadmap +
@@ -596,119 +748,152 @@ def main(argv: Optional[list] = None) -> int:
             # and fall through to the unmodified claim-release path.
             kind = _fm_field(f, "kind")
             deliverable_id = _fm_field(f, "deliverable_id")
-            sha = ""
+            candidates = None
             if not (canonical_kind(kind) == "roadmap-baton" and deliverable_id):
-                sha = _shipped_orphan_sha(claim_holder, f, handoffs_dir, repo_root)
+                candidates = _shipped_orphan_candidate(claim_holder, f, handoffs_dir, repo_root)
+                if candidates:
+                    all_candidate_shas.update(candidates)
 
-            if sha:
-                # SHIP path — P1 and P2 and P3 and P4 all held: this dead
-                # holder ran a terminal completion ceremony for exactly one
-                # handoff (this one).
-                #
-                # TOCTOU re-read (mirrors
-                # promote-shipped-in-flight-stubs.py:158-160): a concurrent
-                # writer could have moved status/deployment_state between the
-                # earlier read and now.
-                now_status = _fm_field(f, "status")
-                now_dstate = _fm_field(f, "deployment_state")
-                if not (is_claimed_status(now_status) and now_dstate == "in_flight"):
-                    continue
+            pending.append({"path": f, "claim_holder": claim_holder, "candidates": candidates})
 
-                if dry_run:
-                    print(
-                        f"reap-orphaned-in-flight-handoffs.py: [dry-run] would SHIP (reclaim) {f} "
-                        f"(dead holder: {claim_holder}; shipped_in {sha[:8]})"
-                    )
-                    would_reclaim += 1
-                    continue
+    # -----------------------------------------------------------------
+    # ONE batched git call resolves every candidate SHA's committer
+    # timestamp across the ENTIRE in-flight set (object question — batches
+    # unconditionally; see _batch_commit_timestamps' docstring). Zero spawns
+    # here when no orphan reached P2/P3.
+    # -----------------------------------------------------------------
+    sha_ct = _batch_commit_timestamps(sorted(all_candidate_shas), repo_root)
 
-                _run_archive_stamp_cli(["stamp-shipped-in", f, "--sha", sha])
+    # -----------------------------------------------------------------
+    # Pass 2 (mutating): P4 selection against the batched map, then the
+    # unchanged ship / release disposition per orphan.
+    # -----------------------------------------------------------------
+    for item in pending:
+        f = item["path"]
+        claim_holder = item["claim_holder"]
+        candidates = item["candidates"]
+        sha = _best_shipped_sha(candidates, sha_ct) if candidates else ""
 
-                # ASSERT shipped_in landed (mirrors
-                # promote-shipped-in-flight-stubs.py:168-176) — UNCONDITIONAL,
-                # not gated on this handoff's created date. If the stamp
-                # silently no-op'd, fail closed: WARN and fall through to
-                # claim-release rather than leaving a handoff
-                # shipped-but-unstamped.
-                landed = _fm_field(f, "shipped_in")
-                if not landed or landed == "null":
-                    print(
-                        f"reap-orphaned-in-flight-handoffs.py: WARNING {f} — shipped_in did not land "
-                        "after stamp; falling through to claim-release",
-                        file=sys.stderr,
-                    )
-                else:
-                    if _run_archive_stamp_cli(["ship-handoff", f]):
-                        print(
-                            f"reap-orphaned-in-flight-handoffs.py: reclaimed (shipped): {f} "
-                            f"(dead holder {claim_holder} ran a terminal ceremony; shipped_in {sha[:8]})"
-                        )
-                        reclaimed += 1
-                        continue
-                    else:
-                        # A ship-verb failure after a successful stamp must
-                        # fall through to claim-release like the WARN branch
-                        # above, not strand the handoff at shipped_in-populated
-                        # + status:consumed/deployment_state:in_flight forever
-                        # (invisible to /pickup, never retried).
-                        print(
-                            f"reap-orphaned-in-flight-handoffs.py: error shipping {f}; "
-                            "falling through to claim-release",
-                            file=sys.stderr,
-                        )
-
-            # Reverse-membership (live-children) guard — reachable ONLY from
-            # the clean fall-through (sha never populated, i.e. the ship-check
-            # returned "" and no stamp was ever attempted for this node). The
-            # WARN-degraded ship path above (sha truthy, stamp-shipped-in
-            # already landed, ship-handoff then failed or shipped_in didn't
-            # land) keeps falling through to release unchanged — it must not
-            # be re-gated here.
-            if not sha:
-                guard_exit = _has_live_children_exit_code(f)
-                if guard_exit == 0:
-                    reason = "has a live succession child; releasing would resurrect an ancestor"
-                elif guard_exit == 2:
-                    reason = "live-children guard indeterminate; fail-closed"
-                else:
-                    reason = None  # guard_exit == 1 (childless) -> proceed to release
-
-                if reason is not None:
-                    if dry_run:
-                        print(f"reap-orphaned-in-flight-handoffs.py: [dry-run] would skip {f} ({reason})")
-                        would_skip_by_guard += 1
-                    else:
-                        print(f"reap-orphaned-in-flight-handoffs.py: skip: {f} — {reason}", file=sys.stderr)
-                        skipped_by_guard += 1
-                    continue
-
-            # Dispatch the `unconsume` claim-release transition (this script
-            # never writes frontmatter itself — single-writer invariant,
-            # AC5). Returns the handoff to the pool (status:active,
-            # deployment_state:ready_to_fire) rather than terminating it — a
-            # dead HOLDER is not a dead DELIVERABLE.
-            if dry_run:
-                print(
-                    f"reap-orphaned-in-flight-handoffs.py: [dry-run] would release {f} "
-                    f"(dead holder: {claim_holder})"
-                )
-                would_release += 1
+        if sha:
+            # SHIP path — P1 and P2 and P3 and P4 all held: this dead
+            # holder ran a terminal completion ceremony for exactly one
+            # handoff (this one).
+            #
+            # TOCTOU re-read (mirrors
+            # promote-shipped-in-flight-stubs.py:158-160): a concurrent
+            # writer could have moved status/deployment_state between the
+            # earlier read and now.
+            now_status = _fm_field(f, "status")
+            now_dstate = _fm_field(f, "deployment_state")
+            if not (is_claimed_status(now_status) and now_dstate == "in_flight"):
                 continue
 
-            note = (
-                f"claim released by crash-orphan reaper — holder {claim_holder} died without "
-                "resolving; returned to pool"
-            )
-            if _run_archive_stamp_cli(
-                ["unconsume-handoff", f, note, "--reaped-from", claim_holder]
-            ):
+            if dry_run:
                 print(
-                    f"reap-orphaned-in-flight-handoffs.py: released {f} "
-                    f"(dead holder: {claim_holder} — returned to pool)"
+                    f"reap-orphaned-in-flight-handoffs.py: [dry-run] would SHIP (reclaim) {f} "
+                    f"(dead holder: {claim_holder}; shipped_in {sha[:8]})"
                 )
-                released += 1
+                would_reclaim += 1
+                continue
+
+            _stamp_ok, _stamp_diag = _run_archive_stamp_cli(["stamp-shipped-in", f, "--sha", sha])
+            if not _stamp_ok:
+                print(
+                    f"reap-orphaned-in-flight-handoffs.py: WARNING {f} — {_stamp_diag}",
+                    file=sys.stderr,
+                )
+
+            # ASSERT shipped_in landed (mirrors
+            # promote-shipped-in-flight-stubs.py:168-176) — UNCONDITIONAL,
+            # not gated on this handoff's created date. If the stamp
+            # silently no-op'd, fail closed: WARN and fall through to
+            # claim-release rather than leaving a handoff
+            # shipped-but-unstamped.
+            landed = _fm_field(f, "shipped_in")
+            if not landed or landed == "null":
+                print(
+                    f"reap-orphaned-in-flight-handoffs.py: WARNING {f} — shipped_in did not land "
+                    "after stamp; falling through to claim-release",
+                    file=sys.stderr,
+                )
             else:
-                print(f"reap-orphaned-in-flight-handoffs.py: error releasing {f}; skipping", file=sys.stderr)
+                ship_ok, ship_diag = _run_archive_stamp_cli(["ship-handoff", f])
+                if ship_ok:
+                    print(
+                        f"reap-orphaned-in-flight-handoffs.py: reclaimed (shipped): {f} "
+                        f"(dead holder {claim_holder} ran a terminal ceremony; shipped_in {sha[:8]})"
+                    )
+                    reclaimed += 1
+                    continue
+                else:
+                    # A ship-verb failure after a successful stamp must
+                    # fall through to claim-release like the WARN branch
+                    # above, not strand the handoff at shipped_in-populated
+                    # + status:consumed/deployment_state:in_flight forever
+                    # (invisible to /pickup, never retried).
+                    print(
+                        f"reap-orphaned-in-flight-handoffs.py: error shipping {f} — {ship_diag}; "
+                        "falling through to claim-release",
+                        file=sys.stderr,
+                    )
+
+        # Reverse-membership (live-children) guard — reachable ONLY from
+        # the clean fall-through (sha never populated, i.e. the ship-check
+        # returned "" and no stamp was ever attempted for this node). The
+        # WARN-degraded ship path above (sha truthy, stamp-shipped-in
+        # already landed, ship-handoff then failed or shipped_in didn't
+        # land) keeps falling through to release unchanged — it must not
+        # be re-gated here.
+        if not sha:
+            guard_exit = _has_live_children_exit_code(f)
+            if guard_exit == 0:
+                reason = "has a live succession child; releasing would resurrect an ancestor"
+            elif guard_exit == 2:
+                reason = "live-children guard indeterminate; fail-closed"
+            else:
+                reason = None  # guard_exit == 1 (childless) -> proceed to release
+
+            if reason is not None:
+                if dry_run:
+                    print(f"reap-orphaned-in-flight-handoffs.py: [dry-run] would skip {f} ({reason})")
+                    would_skip_by_guard += 1
+                else:
+                    print(f"reap-orphaned-in-flight-handoffs.py: skip: {f} — {reason}", file=sys.stderr)
+                    skipped_by_guard += 1
+                continue
+
+        # Dispatch the `unconsume` claim-release transition (this script
+        # never writes frontmatter itself — single-writer invariant,
+        # AC5). Returns the handoff to the pool (status:active,
+        # deployment_state:ready_to_fire) rather than terminating it — a
+        # dead HOLDER is not a dead DELIVERABLE.
+        if dry_run:
+            print(
+                f"reap-orphaned-in-flight-handoffs.py: [dry-run] would release {f} "
+                f"(dead holder: {claim_holder})"
+            )
+            would_release += 1
+            continue
+
+        note = (
+            f"claim released by crash-orphan reaper — holder {claim_holder} died without "
+            "resolving; returned to pool"
+        )
+        release_ok, release_diag = _run_archive_stamp_cli(
+            ["unconsume-handoff", f, note, "--reaped-from", claim_holder]
+        )
+        if release_ok:
+            print(
+                f"reap-orphaned-in-flight-handoffs.py: released {f} "
+                f"(dead holder: {claim_holder} — returned to pool)"
+            )
+            released += 1
+        else:
+            print(
+                f"reap-orphaned-in-flight-handoffs.py: error releasing {f} — {release_diag}; skipping",
+                file=sys.stderr,
+            )
+            failed_release += 1
 
     # -----------------------------------------------------------------
     # Summary
@@ -720,8 +905,18 @@ def main(argv: Optional[list] = None) -> int:
             print(f"{would_release} orphaned in_flight handoffs would be released (dry-run)")
         if would_reclaim > 0:
             print(f"{would_reclaim} orphaned in_flight handoffs would be reclaimed as shipped (dry-run)")
-    elif released == 0:
+    elif released == 0 and failed_release == 0:
         print("no orphaned in_flight handoffs released")
+    elif released == 0 and failed_release > 0:
+        print(
+            f"0 orphaned in_flight handoffs released — {failed_release} release attempt(s) FAILED "
+            "(see error lines above)"
+        )
+    elif failed_release > 0:
+        print(
+            f"{released} orphaned in_flight claims released (returned to pool); "
+            f"{failed_release} release attempt(s) FAILED (see error lines above)"
+        )
     else:
         print(f"{released} orphaned in_flight claims released (returned to pool)")
 

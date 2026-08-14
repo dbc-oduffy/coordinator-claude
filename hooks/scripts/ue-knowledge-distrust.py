@@ -3,10 +3,10 @@
 the retired bash SessionStart hook of the same shape.
 
 W4b bash-to-naked-python-hook-migration cohort, recipe section 2.5
-(DoE-claude/scratch/subagent-sandbox/bash-to-python-migration/W4a-sessionstart-recipe.md):
+(doctrine repo: scratch/subagent-sandbox/bash-to-python-migration/W4a-sessionstart-recipe.md):
 naked-Python DIRECT PORT.
 
-DoE owns only this thin PLUMBING stub (same DR-047 transport-seam carve-out as
+The doctrine plane owns only this thin PLUMBING stub (same DR-047 transport-seam carve-out as
 `preuse-write-dispatch.py` / `coordinator-reminder.py` / `project-rag-detect.py`):
 resolve the claude-klabauter engine, call its detect+gate+banner function IN-PROCESS,
 relay stdout/stderr. Claude-klabauter owns the LOGIC
@@ -17,7 +17,7 @@ re-spawn for THIS hook's own logic -- the claude-klabauter op's own bootstrap wr
 logic (`_run_bootstrap`) is a native-Python port of `claude-ue-bootstrap.py`'s
 write/merge logic (C5: retired the prior `["bash", script, cwd]` subprocess
 spawn this hook used to make on the session-hot-path); `claude-ue-bootstrap.py`
-itself survives as a DoE-owned manual entrypoint for bootstrapping other
+itself survives as a doctrine-plane-owned manual entrypoint for bootstrapping other
 project dirs by hand, not as something this hook ever subprocess-invokes.
 
 Contract (mirrors the bash hook it replaces):

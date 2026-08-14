@@ -14,7 +14,7 @@ Identity key: a hook group is "generated" iff at least one of its command hooks 
   All other groups are preserved verbatim. This mirrors gen-settings-hooks.py's
   `group_is_generated` jq def exactly; do not re-derive divergently.
 
-Spec backlink: docs/plans/2026-07-08-coordinator-uninstall.md § C2
+Spec backlink: DoE-claude:pln-first-class-coordinator-uninst-15db2e § C2
 Prior art: docs/wiki/install-surface-completeness.md § Multi-site value parity
   ("one canonical manifest, all call-sites consume it" — this module is that
   canonical manifest for the settings-hook identity key specifically).

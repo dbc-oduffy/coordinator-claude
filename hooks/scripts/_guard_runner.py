@@ -1,5 +1,5 @@
 """_guard_runner.py -- the in-process guard runner (chunk C1) that batches
-DoE-resident write-path guards inside the same interpreter
+doctrine-plane-resident write-path guards inside the same interpreter
 `preuse-write-dispatch.py` already starts for the sibling engine call.
 
 Implements `_guard_runner_contract.py` (the GOVERNING SURFACE, landed C1a,
@@ -69,6 +69,7 @@ from _guard_runner_contract import (  # noqa: E402
     CHANNEL_DENY,
     CHECK_CLAUDE_MD_SIZE_SCOPE_DESCRIPTOR,
     DOCTRINE_CHANGELOG_PROSE_SCOPE_DESCRIPTOR,
+    GUARD_DOCTRINE_SURFACE_RATIO_SCOPE_DESCRIPTOR,
     GuardScopeDescriptor,
 )
 
@@ -359,8 +360,27 @@ _GUARD_PLAN_TEST_SURFACE_TIER = "nudge-plan-test-surface-tier.py"
 _GUARD_PROMPT_SURFACE_CITATIONS = "guard-prompt-surface-citations.py"
 _GUARD_DOCTRINE_CHANGELOG_PROSE = "guard-doctrine-changelog-prose.py"
 _GUARD_CHECK_CLAUDE_MD_SIZE = "check-claude-md-size.py"
+_GUARD_TEST_TREE_GIT_FIXTURE_SPAWN = "guard-test-tree-git-fixture-spawn.py"
+_GUARD_PYTHON_SYNTAX_ON_WRITE = "guard-python-syntax-on-write.py"
+_GUARD_DOCTRINE_SURFACE_RATIO = "guard-doctrine-surface-ratio.py"
 
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
+    RegisteredGuard(
+        module_key="guard_python_syntax_on_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_PYTHON_SYNTAX_ON_WRITE),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_PYTHON_SYNTAX_ON_WRITE,
+            # Real scope (the guard's own `is_in_scope`) is ".py" files with
+            # "coordinator" among the RESOLVED ABSOLUTE path's parts. This
+            # descriptor instead substring-tests the RAW tool_input path —
+            # a different test that over-admits relative to `is_in_scope`,
+            # which is the safe direction (under-admitting would not be).
+            # They agree in practice only because Write/Edit/MultiEdit
+            # mandate absolute `file_path` inputs.
+            path_suffixes=frozenset({".py"}),
+            directory_substrings=("coordinator/",),
+        ),
+    ),
     RegisteredGuard(
         module_key="guard_oss_payload_locality",
         module_path=str(Path(_HOOKS_DIR) / _GUARD_OSS_PAYLOAD_LOCALITY),
@@ -417,6 +437,28 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         # (`check-claude-md-size.py`'s own `run_via_runner`), not the
         # stdout-JSON envelope the other four enrolled guards use.
         verdict_attr="run_via_runner",
+    ),
+    RegisteredGuard(
+        module_key="guard_test_tree_git_fixture_spawn",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_TEST_TREE_GIT_FIXTURE_SPAWN),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_TEST_TREE_GIT_FIXTURE_SPAWN,
+            # C9 (docs/plans/2026-08-07-restore-the-excised-tests-spawn-free.md).
+            # Deliberately OVER-approximating and repo-generic: a bare
+            # "tests/" substring (never "coordinator/tests/") plus ".py"
+            # suffix -- the guard's own `spawn_detect.is_test_tree_site()`
+            # call is the real, precise, structural scope predicate (see
+            # that guard's own module docstring "SCOPE-EXPRESSION NOTE");
+            # this descriptor's only job is to rule out payloads that could
+            # never possibly match, cheaply, before paying the import.
+            path_suffixes=frozenset({".py"}),
+            directory_substrings=("tests/",),
+        ),
+    ),
+    RegisteredGuard(
+        module_key="guard_doctrine_surface_ratio",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_DOCTRINE_SURFACE_RATIO),
+        descriptor=GUARD_DOCTRINE_SURFACE_RATIO_SCOPE_DESCRIPTOR,
     ),
 )
 

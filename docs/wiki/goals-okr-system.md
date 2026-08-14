@@ -132,14 +132,7 @@ artifacts and emits a per-goal coverage count, flagging zero-coverage active
 goals. `/workweek-start` surfaces the result after priorities are set,
 proposing a stub spinoff per zero-coverage goal — propose-only, PM-gated.
 
-**Why the format changed (already-non-constraint, not a pending gap).** Goal
-artifacts were originally `.md` with YAML frontmatter because, at authoring
-time, the RAG index's `.yaml` chunker gave plain YAML files a single blob
-embedding with no prose-section granularity — a real retrieval-quality cost.
-That constraint is now historical: the index confirmed YAML retrieval parity
-some time later, so the artifact shape no longer needs to work around a
-chunker limitation. Goals moved to pure `.yaml` precisely because the
-original reason to avoid it no longer holds.
+**Goals are pure `.yaml`, not `.md` with YAML frontmatter (already-non-constraint, not a pending gap).** The RAG index confirms YAML retrieval parity — a plain YAML file gets prose-section-granular embedding without `.md`-wrapping — so the artifact shape needs no workaround for a chunker limitation.
 
 ---
 
@@ -469,6 +462,7 @@ Field column.
 | `parent_goal_id` | Goal-setting ceremony / `/workweek-start`, when a parent OKR exists; otherwise left `null` | Authoring time | No |
 | `initiative` | `coordinator-initiative attach --goals` (reverse-edge CLI) | Post-authoring, on ladder attach | No — single CLI path |
 | `goal_id` | **Collision cell 4** — scaffolder leaves commented; `append-goal-event.py` independently re-derives its own at emit time | Scaffold time (hint, optional) → emit time (wire value, independent) | See below — deliberately dual-derived, not a bug |
+| `deliverable_id` | **No writer** — `goal` is an umbrella artifact class, so an absent/null value is the correct terminal value, not a gap (see `canonical-artifact-shapes.md` § *`deliverable_id` — chain identity, not a universal field*) | N/A — never minted, never carried | No. A sweep reporting a goal record as "missing `deliverable_id`" is reporting a non-defect |
 | `key_results[].id` | Goal-setting ceremony / scaffolder, at KR-authoring time | Authoring time | No — stable across reordering (FK survives) |
 | `key_results[].text` | **Collision cell 1** — same two actors as `objective`; see below | Authoring time | See below |
 | `key_results[].kind` | Goal-setting ceremony | Authoring time | No |

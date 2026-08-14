@@ -151,6 +151,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from _message_envelope import compose, render  # noqa: E402
+from _win_portability import no_console_creationflags  # noqa: E402
 
 #: Wiki section carrying the relocated override-hatch explanation (env var,
 #: sentinel file, PM-gate) -- see this hook's conversion relocation fragment
@@ -515,6 +516,7 @@ def _git_root() -> "str | None":
             capture_output=True,
             text=True,
             timeout=1,
+            **no_console_creationflags(),
         )
     except Exception:
         return None

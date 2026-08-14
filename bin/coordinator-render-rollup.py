@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator-render-rollup.py — CLI trampoline over claude-klabauter
@@ -69,6 +68,24 @@ def _resolve_run_op_main():
     claude_klabauter_root = _resolve_claude_klabauter_root()
     if claude_klabauter_root not in sys.path:
         sys.path.insert(0, claude_klabauter_root)
+    import coordinator_core
+
+    # Guard against an ambient (e.g. editable-install) `coordinator_core`
+    # already sitting in `sys.modules` from an EARLIER sys.path entry
+    # shadowing the one this CLAUDE_KLABAUTER_ROOT resolution is meant to select — a
+    # bogus/stale CLAUDE_KLABAUTER_ROOT (no real coordinator_core inside it) would
+    # otherwise silently succeed by falling through to that ambient module
+    # instead of surfacing as the "not importable" never-block skip this
+    # trampoline's own docstring documents. Compare the resolved module's
+    # actual file location against claude_klabauter_root; a mismatch is treated the
+    # same as an outright ImportError.
+    resolved_file = getattr(coordinator_core, "__file__", None) or ""
+    if not os.path.abspath(resolved_file).startswith(os.path.abspath(claude_klabauter_root) + os.sep):
+        raise ImportError(
+            f"coordinator_core resolved from {resolved_file!r}, not under "
+            f"CLAUDE_KLABAUTER_ROOT {claude_klabauter_root!r}"
+        )
+
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

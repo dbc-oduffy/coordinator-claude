@@ -6,141 +6,85 @@ version: 1.0.0
 
 # coordinator:new-project
 
-<!-- Purpose: single-invocation greenfield repo creator. Owns creation + stack scaffolding; DELEGATES
-     coordinator onboarding to coordinator:repo-setup (the compose boundary — never re-implement the
-     onboarding half). The outer wrapper repo-setup is not: repo-setup onboards an existing folder you
-     are already inside; this skill creates the folder first, from any cwd, and scaffolds real source. -->
+<!-- Purpose: greenfield repo creator. Owns creation + stack scaffolding; DELEGATES coordinator
+     onboarding to coordinator:repo-setup — never re-implement the onboarding half. -->
 
 ## When to Use
 
-- **Creating a brand-new repo from scratch** (greenfield) — from any cwd, including `~/.claude` or an
-  unrelated directory.
-- Contrast with **`coordinator:repo-setup`**, which onboards an *existing* folder you are already
-  inside. The two are siblings: create-new vs onboard-existing. This skill **delegates the onboarding
-  half to `coordinator:repo-setup`** rather than reimplementing it.
+Creating a brand-new repo from scratch, from any cwd. Contrast with **`coordinator:repo-setup`**,
+which onboards an *existing* folder you are already inside — this skill creates the folder first
+and scaffolds real source, then delegates onboarding to repo-setup.
 
-**When NOT to use:** onboarding an existing repo → `coordinator:repo-setup`. Fleet/multi-repo setup →
-`coordinator:repo-setup --batch`. Monorepo / workspace scaffolds, CI/deploy wiring → out of scope (v1).
+**Not for:** onboarding an existing repo (`coordinator:repo-setup`), fleet/multi-repo setup
+(`coordinator:repo-setup --batch`), monorepo/workspace scaffolds, CI/deploy wiring (out of scope
+v1).
 
 ## Inputs (promptable, with defaults)
 
 | Input | Flag | Default | Notes |
 |-------|------|---------|-------|
-| Project name | `--name <n>` | **required** | becomes the dir name + `package.json` name. Prompt if absent. |
-| Parent dir | `--parent <dir>` | `$HOME/Code_Projects` | resolution order: flag → `COORDINATOR_PROJECTS_ROOT` env → default. Created if absent. |
-| Stack template | `--template next-app\|empty` | `next-app` | `next-app` = Next/React/TS/Tailwind/Vitest shell; `empty` = git + onboarding only. |
-| Remote | `--remote none\|private\|public` | `none` | external, opt-in. Never defaults to public; never creates a remote without an explicit choice. |
+| Project name | `--name <n>` | **required** | dir name + `package.json` name; prompt if absent. |
+| Parent dir | `--parent <dir>` | `$HOME/Code_Projects` | flag → `COORDINATOR_PROJECTS_ROOT` env → default; created if absent. |
+| Stack template | `--template next-app\|empty` | `next-app` | `next-app` = Next/React/TS/Tailwind/Vitest; `empty` = git + onboarding only. |
+| Remote | `--remote none\|private\|public` | `none` | opt-in only; never defaults to public, never creates a remote unasked. |
 
 ## Flow
 
-### Phase 1 — Resolve + validate inputs
+**1 — Resolve + validate inputs.** Gather name (ask if absent), parent, template, remote.
 
-Gather name (required — ask the user if not supplied), parent, template, remote. The scaffold helper
-(Phase 2) **fails loud if the target dir already exists and is non-empty** — never silently scaffold
-into an occupied directory; surface the conflict and stop.
+**2 — Create + scaffold.** The helper resolves the parent, fails loud on an occupied non-empty
+target dir, `mkdir`s, `git init`s (`main` default branch), renders the template
+(`{{PROJECT_NAME}}` tokens), seeds `coordinator.local.md` (with `project_type` pre-set) and a
+minimal `README.md`, and for `next-app` runs the boot smoke (`pnpm install` + `pnpm typecheck` +
+`pnpm test`):
 
-### Phase 2 — Create + scaffold (delegate to the scaffold helper)
-
-Run the deterministic creation helper — it resolves the parent, guards against an occupied dir,
-`mkdir`s the target, `git init`s with the default branch set to `main`, renders the chosen stack
-template (tokens like `{{PROJECT_NAME}}` resolved), seeds `coordinator.local.md` (with `project_type`
-pre-set so the downstream onboarding skips its type question) and a minimal `README.md` (H1 = project
-name), and — for `next-app` — runs the boot smoke (`pnpm install` + `pnpm typecheck` + `pnpm test`):
-
-<!-- TEMPLATE: adapt the resolved values; --no-smoke only for offline/test runs -->
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/new-project-scaffold" --name "<name>" --parent "<parent>" --template "<template>"
 ```
 
-A template that does not boot is a **failed scaffold** — report it, do not work around it.
+A template that does not boot is a **failed scaffold** — report it, don't work around it.
+<!-- engine-gap: field=new_project.scaffold.file_manifest producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
 
-### Phase 3 — `cd` into the new dir, then assert cwd (required guard)
+**3 — `cd` into the new dir, assert cwd.** This session's `CLAUDE.md`/`coordinator.local.md` are
+cwd-scoped to where it started, not the new project — Phase 4's onboarding needs the Bash-tool
+cwd moved first. `cd` in its own Bash call (never a compound `cd &&`), then assert:
 
-These instructions run in the **current** Claude session, whose `CLAUDE.md` / `coordinator.local.md`
-are **cwd-scoped** to wherever the session started — *not* the new project. The onboarding delegation
-(Phase 4) relies on the Bash-tool cwd moving into the new dir so the onboarding skill operates on the
-right tree. `cd` in its own Bash call (not a compound `cd &&`), then **assert** before proceeding —
-this guard prevents scaffolding the wrong tree (worst case `~/.claude`) if cwd inheritance breaks:
-
-<!-- VERBATIM -->
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/assert-cwd" "<new-dir-abs>"
 ```
 
-### Phase 4 — Delegate coordinator onboarding to `coordinator:repo-setup`
+**4 — Delegate onboarding to `coordinator:repo-setup`** against the new dir — it produces the
+coordinator artifacts (CLAUDE.md, tracker, README index, orientation cache, `state/` skeleton,
+git hooks, currency stamp, starter `agent-install-manifest.json`). Never re-implement this half
+here (`NEW-PROJECT-REPO-SETUP-BOUNDARY` tripwire). Phase 2's `project_type` seed means repo-setup
+skips its type question — expect ~1-2 ratify-prompts (name + initial workstreams).
 
-Invoke **`coordinator:repo-setup`** against the new dir. It produces the coordinator artifacts
-(CLAUDE.md, project tracker, README index, orientation cache, the full `state/` skeleton,
-auto-push + commit-msg git hooks, concurrent-EM git hardening, the currency stamp, a
-packageability-compliant starter `docs/install/agent-install-manifest.json`). **This skill never
-re-implements that onboarding half** — creation + stack scaffolding is this skill's job; coordinator
-onboarding belongs wholly to `coordinator:repo-setup`. (Re-doing repo-setup's internal onboarding steps
-here — canonical-structure scaffolding, hook installation, currency stamping, git hardening — is the
-duplication the compose boundary forbids; see the `NEW-PROJECT-REPO-SETUP-BOUNDARY` tripwire.)
+**4.5 — Register in the machine-local registry.** `new-project-scaffold` self-registers the new
+dir's absolute path under `repos.<name>` (kebab→snake-cased) via `machine-local set` as part of
+scaffolding — required for cross-repo discovery (`machine-local get repos.<name>`, `$REPO_<NAME>`,
+the handoff tracker's `--all-repos`, cross-repo memo relay). Nothing further to run; each machine
+re-registers on clone. If `machine-local` exits 127 (not installed), run `/coordinator:install`
+first, then retry. Optional, for a durable constellation sibling other machines should know
+exists: also declare the bare key in the *committed* `<settings-home>/machine-local/registry.toml`
+— a shared-registry edit, not for throwaway scaffolds.
 
-Because Phase 2 seeded `coordinator.local.md` with `project_type`, repo-setup skips its project-type
-question; expect **~1-2 ratify-prompts** (project name + initial workstreams). This is the accepted
-minimal-friction surface, not a defect.
+**5 — Optional remote (opt-in; never default public).** Only on an explicit `--remote
+private|public` choice:
 
-### Phase 4.5 — Register the new repo in the machine-local registry (cross-repo discovery)
-
-A freshly-created repo is invisible to coordinator cross-repo discovery until its path is registered —
-sibling-repo lookups (`machine-local get repos.<name>`, `$REPO_<NAME>`, the `repos.*` Python helper),
-the DoE handoff tracker (`render-handoff-tracker.py --all-repos`), and any cross-repo memo relay all
-resolve paths through this registry. Skipping it is the gap that leaves a just-created project
-unreachable by name from other sessions.
-
-Registration is no longer a separate manual step: the `new-project-scaffold` CLI invoked in
-Phase 2 self-registers the new dir's **absolute path** under `repos.<name>` (kebab→snake-cased)
-via `machine-local` as part of scaffolding, resolving claude-klabauter's root itself. Nothing further
-to run here.
-
-`set` writes the per-machine value to `<settings-home>/machine-local/registry.local.toml`
-(gitignored, per-machine; settings home resolved via `~/.coordinator-claude-settings/bin/coordinator-settings-home`
-or `COORDINATOR_SETTINGS_HOME` — never hardcode `~/.claude/machine-local`, which does not exist) —
-that alone makes `get`/`$REPO_*` resolve; **no commit is required and the path never leaves this
-machine.** Each machine registers its own checkout (on clone, re-run the `set` there). If the
-`machine-local` binary exits 127 ("command not found" / "resolver not installed" / claude-klabauter
-unresolved), run `/coordinator:install` (Phase 3) first to install the coordinator infra, then
-retry this step.
-
-**Optional, for a first-class constellation sibling** (a repo other machines should know exists, like
-an OSS root paired with coordinator): also declare the bare key in the *committed* schema
-`<settings-home>/machine-local/registry.toml` (`"repos.<name>" = ""`). That declaration is a
-shared-registry edit — do it only when the project is a durable sibling, not a throwaway scaffold.
-The `set` above is the always-on step; the schema declaration is the sometimes-on polish.
-
-### Phase 5 — Optional remote (opt-in; never default public)
-
-The remote defaults to `none`. **Only** when the user explicitly chose `private` or `public`, create
-and push the remote — an external, hard-to-reverse action:
-
-<!-- TEMPLATE: only runs on explicit --remote private|public; never on the none default -->
 ```bash
 gh repo create "<name>" --private --source=. --remote=origin --push
 ```
 
-Substitute `--public` in place of `--private` above when the user explicitly chose the `public`
-visibility option.
+Substitute `--public` for the public choice. Never create a remote unasked; never default public.
 
-Never create a remote without an explicit opt-in; never default to `public`.
+**6 — Scoped first commit** via the engine's scoped-commit helper (explicit `paths`, message
+`"<subject>"`) — never `git add -A`/`.`, regardless of hook coverage (the
+`BLOCK-BLANKET-GIT-ADD` hook guards only the `~/.claude` meta-repo). Detail: wiki.
 
-### Phase 6 — Scoped first commit
+**7 — Report the honest boundary.** The current session does NOT become the new project — its
+`CLAUDE.md`/`coordinator.local.md` stay cwd-scoped to where it started. Emit a paste-able
+launcher:
 
-Commit the created tree via `ceremony.scoped_git_commit` (claude-klabauter; `paths`, message
-`"<subject>"`) — it selects the agree-case vs. private-index form for you, so the new repo's
-first commit is scoped exactly like any coordinator commit despite the `BLOCK-BLANKET-GIT-ADD`
-hook guarding only the `~/.claude` meta-repo. Never `git add -A` / `git add .` — explicit-path is
-coordinator doctrine here regardless of hook coverage. → `docs/wiki/scoped-safety-commits.md § The trailing pathspec is a proxy for scope, valid only while index and worktree agree`.
-
-### Phase 7 — What's next (the honest boundary)
-
-Print a clear close-out. Be truthful about the session boundary: **the current session does NOT become
-the new project.** Because `CLAUDE.md` / `coordinator.local.md` are **cwd-scoped** to where this
-session started, the new project's project-scoped instructions will not auto-load here. Emit a
-paste-able launcher so the user can open a session rooted in (and cwd-scoped to) the new dir:
-
-<!-- TEMPLATE: substitute the new dir -->
 ```
 ✓ Created <name> at <new-dir> — scaffolded (<template>), onboarded via repo-setup<, pushed to <remote>>.
 
@@ -152,20 +96,16 @@ To start working in it, open a Claude session rooted there:
 
 ## Out of scope (v1)
 
-- Multi-project / fleet creation → `coordinator:repo-setup --batch` (for existing repos).
-- Monorepo / workspace scaffolds — single-package only.
-- CI / deploy wiring (GitHub Actions, hosting) — creation + local-dev-ready is the bar.
-- Speculative stack templates (python, rust, node-lib) — ship `next-app` + `empty`; add others when a
-  real need surfaces (instance-#3 rule).
+Multi-project/fleet creation (`repo-setup --batch`), monorepo/workspace scaffolds, CI/deploy
+wiring, speculative stack templates beyond `next-app`/`empty` (add on real need — instance-#3
+rule).
 
 ## Negative-spec
 
-- **Never silently overwrite an occupied dir** — the scaffold helper fails loud; surface and stop.
-- **Never default the remote to public; never create any remote without an explicit choice.**
-- **Never re-implement `coordinator:repo-setup`'s onboarding half** — delegate. Owning creation + stack
-  here and onboarding there is the whole point of the compose.
-- **Never pretend the current session adopts the new project** — the cwd/CLAUDE.md boundary is real;
-  the Phase 7 launcher is the honest handoff.
-- **Never use blanket-add for the new project's first commit** — use `ceremony.scoped_git_commit`
-  (explicit-path, per coordinator scoped-commit doctrine). The blanket-add hook does not cover the new repo
-  (it guards only `~/.claude`); the discipline is self-enforced, not hook-backstopped.
+- Never silently overwrite an occupied dir — fail loud, surface, stop.
+- Never default the remote to public; never create any remote without explicit choice.
+- Never re-implement `coordinator:repo-setup`'s onboarding half — delegate.
+- Never pretend the current session adopts the new project — Phase 7's launcher is the honest
+  handoff.
+- Never blanket-add the first commit — the scoped-commit helper only, self-enforced (not
+  hook-backstopped for the new repo).

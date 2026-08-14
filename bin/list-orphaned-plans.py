@@ -29,7 +29,7 @@ count, and any unrecognized_status entries. Read-only, advisory-only — same
 "never blocks" posture as `plan.list_stale_executing` (see that op's own
 docstring): this CLI never fails a ceremony or a commit, so it always exits 0.
 
-Spec backlink: docs/plans/2026-07-31-plan-orphan-ownership-resolver.md, chunk C4
+Spec backlink: pln-plan-orphan-ownership-resolver-3e68bb, chunk C4
 
 Negative-spec:
     - Does NOT scan docs/plans/ itself — calls
@@ -65,6 +65,7 @@ from coordinator_core.ops.draft_plan_aging import (  # noqa: E402
 from coordinator_core.orient_assemble.reader_result import (  # noqa: E402
     truncate_external_text,
 )
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _USAGE_FAIL = 2
 
@@ -95,7 +96,7 @@ def _resolve_repo_root(positional: str | None) -> str | None:
             text=True,
             timeout=_GIT_TOPLEVEL_TIMEOUT_SECS,
             stdin=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None

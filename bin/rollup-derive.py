@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """rollup-derive.py — CLI trampoline over claude-klabauter coordinator_core.ops.rollup_derive.
 
@@ -36,7 +35,7 @@ from __future__ import annotations
 # error signal, not the process exit code); 1 — CLI usage error (no arg passed,
 # or an empty artifact-id).
 #
-# Spec backlink: docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C5
+# Spec backlink: DoE-claude:pln-lifecycle-vocab-c2-durable-cro-991bd4 § C5
 # Port of: coordinator/bin/rollup-derive.py (bash body retired on cutover; see git log)
 # Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
 #

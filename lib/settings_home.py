@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """settings_home.py — coordinator settings-home resolution helpers.
 
@@ -28,7 +27,7 @@ Note: MACHINE_LOCAL_REGISTRY_DIR is a DEEPER registry-dir override handled by
 _machine_local.py::_registry_dir() (rung-1). This module resolves the
 settings HOME ROOT only — it does not read registry CONTENTS.
 
-Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
 RAG-bait: coordinator settings-home resolution seam; COORDINATOR_SETTINGS_HOME
           env var; machine-local divergence fail-loud guard
 

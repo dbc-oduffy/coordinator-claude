@@ -199,7 +199,7 @@ def _load_toml_isolated(path: str) -> dict | None:
     concern file must not take down every other concern's keys or the
     registry layers (blast-radius defect, cross-repo memo
     cross-repo/inbox/2026-08-03-project-rag-ue-addon-em-machine-local-rulings-still-outstanding.md,
-    DoE ruling (a): "fail soft on read, loud on write").
+    doctrine-plane ruling (a): "fail soft on read, loud on write").
 
     Registry files (registry.toml / registry.local.toml) deliberately do NOT
     route through this function — they stay on the fatal _load_toml path.
@@ -273,7 +273,7 @@ def _scan_marketplace_marker(candidate_dir: str) -> str | None:
 def _scan_dev_repo_marker(candidate_dir: str) -> str | None:
     """Scan a candidate directory for its .coordinator-dev-repo identity marker.
 
-    The dev-repo shape (the DoE-claude authoring clone: no marketplace manifest,
+    The dev-repo shape (the doctrine-repo authoring clone: no marketplace manifest,
     identified instead by a repo-root `.coordinator-dev-repo` sentinel) — see that
     file's own header for why its location is load-bearing.
 
@@ -312,7 +312,7 @@ def _scan_marker(candidate_dir: str) -> str | None:
         at either the repo-root or one-level-nested placement (unchanged behaviour
         and precedence from before this function split in two).
       - dev-repo shape — _scan_dev_repo_marker: the repo-root .coordinator-dev-repo
-        sentinel's `slug:` line. This is the DoE-claude authoring clone's shape —
+        sentinel's `slug:` line. This is the doctrine-repo authoring clone's shape —
         it carries no marketplace manifest at all.
 
     A candidate carrying BOTH marker kinds is an identity contradiction, not a
@@ -428,7 +428,15 @@ def _autodiscover_repo(slug: str, reg_dir: str) -> str | None:
             dev_repo_slug = _scan_dev_repo_marker(child_path)
             if marketplace_slug is not None and dev_repo_slug is not None:
                 if slug in (marketplace_slug, dev_repo_slug):
-                    contradictions.append((child_path, marketplace_slug, dev_repo_slug))
+                    # realpath, not the raw child_path: `expanded_root` may carry
+                    # forward slashes (search-roots.toml is written POSIX-
+                    # normalized, see search_roots.py) while `child` is appended
+                    # via os.path.join's native separator, so the raw join mixes
+                    # '/' and '\' on Windows -- neither the operator's own path
+                    # string nor os.path.realpath(their_path) then substring-
+                    # matches it in the composed error message below.
+                    # os.path.realpath resolves to one native, unambiguous form.
+                    contradictions.append((os.path.realpath(child_path), marketplace_slug, dev_repo_slug))
                 continue
             found_slug = marketplace_slug if marketplace_slug is not None else dev_repo_slug
             if found_slug == slug:
@@ -915,7 +923,7 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
         c_path = os.path.join(reg_dir, f"{concern}.toml")
         c_local_path = os.path.join(reg_dir, f"{concern}.local.toml")
 
-        # Per-file isolation (DoE ruling (a), see _load_toml_isolated): a malformed
+        # Per-file isolation (doctrine-plane ruling (a), see _load_toml_isolated): a malformed
         # concern file warns and drops ONLY its own layer, None distinguishes that
         # from "absent/empty" ({}) so the two don't collapse into one warning below.
         c_data = _load_toml_isolated(c_path)
@@ -1324,7 +1332,7 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
         section_end = nm.start() if nm else len(content)
         section_body = content[section_start:section_end]
         leaf_pat = re.compile(
-            r"^(\s*" + re.escape(leaf_path) + r"\s*=\s*)(?:\"[^\"]*\"|'[^']*')([ \t]*(?:#[^\n]*)?)",
+            r"^([ \t]*" + re.escape(leaf_path) + r"[ \t]*=[ \t]*)(?:\"[^\"]*\"|'[^']*')([ \t]*(?:#[^\n]*)?)",
             re.MULTILINE,
         )
         leaf_m = leaf_pat.search(section_body)
@@ -1606,7 +1614,8 @@ def cmd_array_append(args: argparse.Namespace) -> int:
     # Detect scalar collision — key exists but resolves to a string (not a list).
     # Note: _flatten_nested stores the native Python type; lists come through as list.
     # For the pre-check we read the raw parsed value, not _flatten_nested, because
-    # _flatten_nested joins lists with \n (losing the list type we need here).
+    # _resolve_key joins lists with \n (losing the list type we need here); _flatten_nested
+    # itself stores non-dict values, including lists, unchanged.
     try:
         pre_raw = tomllib.loads(content)
         # Walk dotted key segments into the parsed dict.
@@ -1664,7 +1673,7 @@ def cmd_array_append(args: argparse.Namespace) -> int:
             parsed_existing = tomllib.loads(content)
             # Navigate to the key value — may be a flat quoted-dotted key or
             # nested table, so use _flatten_nested's list-preserving sibling.
-            # _flatten_nested joins lists with \n, so read from the raw parsed dict.
+            # _resolve_key joins lists with \n, so read from the raw parsed dict instead.
             flat_raw = _get_raw_list(parsed_existing, key)
             if isinstance(flat_raw, list):
                 current_elements = [str(e) for e in flat_raw]
@@ -2303,9 +2312,9 @@ def cmd_set(args: argparse.Namespace) -> int:
         _pre_val_for_guard = None
 
     if isinstance(_pre_val_for_guard, list):
-        # _flatten_nested joins lists with \n, so the value is a str when the
-        # key is a list — but raw pre-parse check is more reliable.  Re-check
-        # via _get_raw_list to confirm it is genuinely a list.
+        # _flatten_nested stores the list unchanged (it only recurses into dicts), so
+        # this branch fires on a genuine list — but raw pre-parse check is more
+        # reliable.  Re-check via _get_raw_list to confirm it is genuinely a list.
         _raw_for_guard = _get_raw_list(_pre_parsed_for_guard, key)
         if isinstance(_raw_for_guard, list):
             print(
@@ -2528,8 +2537,12 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
         return _excise(m.start(), m.end()), old_value
 
     if kind == "table-leaf":
-        # abs_start = section_start + leaf_m.start() (MULTILINE ^ → abs_start is
-        # the first character of the leaf's line in the full content string).
+        # abs_start = section_start + leaf_m.start(). leaf_pat's leading
+        # whitespace class is [ \t]* (horizontal only, never \s*) so MULTILINE
+        # ^ + leaf_m.start() lands on the first character of the leaf's own
+        # line — never on the newline terminating the [section] header above
+        # it, which \s* would have swallowed for a leaf immediately after the
+        # header (the first-leaf-under-a-header corruption case).
         abs_start = locate["abs_start"]
         abs_end = locate["abs_end"]
         return _excise(abs_start, abs_end), old_value
@@ -2537,6 +2550,185 @@ def _remove_key(content: str, key: str) -> tuple[str, str | None]:
     # table-header-only: section exists but leaf absent — nothing to remove.
     # array-of-tables-detected or other: not safely handled here.
     return content, None
+
+
+def cmd_unset(args: argparse.Namespace) -> int:
+    """Implement: machine-local unset <key> [--global] [--dry-run] [--concern NAME]
+
+    Removes a string-scalar key from ONE target file: registry.local.toml
+    (default) or registry.toml (--global). Target-file-scoped, NOT
+    resolution-stack-scoped — it does not consult or mutate other layers.
+    Consequence: after unsetting from registry.local.toml, `machine-local has
+    <key>` may still exit 0 because registry.toml (or a concern layer, or the
+    env layer) still supplies it. That is correct behavior, not a bug.
+
+    Exit-code contract — the read-path tri-state, NOT cmd_set's 0/non-zero
+    convention. unset is the one write verb with a clean-absence outcome:
+        0  key was present in the target file and was removed (or, under
+           --dry-run, would be).
+        1  key was already absent from the target file — a clean no-op, no
+           write, no stderr noise. Makes the verb idempotent while still
+           distinguishing "removed" from "was already absent".
+        2  operational failure: every refusal path (malformed target TOML,
+           array-valued key, non-string-scalar key, an unhandled definition
+           shape, round-trip failure, atomic-write failure, --concern) — never
+           1, which is reserved for the clean negative.
+
+    --concern is deliberately NOT supported: accepted by argparse, refused at
+    runtime (exit 2) with an actionable message, rather than omitted (which
+    would surface argparse's bare "unrecognized arguments"). Concern-file leaf
+    removal is unimplemented because _cmd_set_concern also writes a per-key
+    [provenance.<key>] table that a leaf-only removal would strand; remediation
+    is to hand-edit <NAME>.local.toml.
+
+    No concern-namespace guard (deliberate divergence from cmd_set): removing
+    a stale concern-namespace key still sitting in a registry file is exactly
+    the cleanup this verb exists for, so _check_concern_namespace is NOT
+    called here.
+
+    Empty [table] headers are left in place — inherits _remove_key's negative-
+    spec. A generic header sweep is unsafe (comments, sibling tooling), and an
+    empty table resolves to nothing, so an operator note is printed instead of
+    an automatic sweep.
+
+    Review: code-reviewer (F2) — the read-then-write here is not compare-and-
+    swap: a concurrent writer's change landing between the read at file open
+    and the `os.replace` in _write_registry_file is silently lost. The atomic
+    write narrows the race window from the minutes a hand-edit takes to the
+    milliseconds this verb runs in; it does not eliminate the race.
+
+    Spec backlink: state/handoffs/2026-08-12-machine-local-toml-and-unset-verb.md
+    """
+    if getattr(args, "concern", None):
+        print(
+            "machine-local: unset does not support --concern: the concern-file "
+            "writer (_cmd_set_concern) also writes a per-key [provenance.<key>] "
+            "table that a leaf-only removal would strand, and stranded-provenance "
+            f"removal is unimplemented. Hand-edit {args.concern}.local.toml instead.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+
+    reg_dir = _registry_dir()
+    target_file = "registry.toml" if args.write_global else "registry.local.toml"
+    target_path = os.path.join(reg_dir, target_file)
+    key = args.key
+
+    if not os.path.exists(target_path):
+        return EXIT_NOT_FOUND
+
+    with open(target_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    try:
+        parsed = tomllib.loads(content)
+    except tomllib.TOMLDecodeError as exc:
+        print(
+            f"machine-local: unset: refusing — {target_path} is malformed TOML: "
+            f"{exc}. Fix the file's syntax before unsetting from it.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+
+    flat = _flatten_nested(parsed)
+    current = flat.get(key)
+    if current is None:
+        return EXIT_NOT_FOUND
+
+    if isinstance(current, list):
+        raw = _get_raw_list(parsed, key)
+        if isinstance(raw, list):
+            print(
+                f"machine-local: unset: '{key}' is an array; use `array-set` to "
+                "replace or clear it, not `unset`.",
+                file=sys.stderr,
+            )
+            return EXIT_OPERATIONAL
+
+    if not isinstance(current, str):
+        print(
+            f"machine-local: unset: '{key}' resolves to a {type(current).__name__}, "
+            "not a string scalar; unset only handles string scalars. "
+            f"Hand-edit {target_path} to remove it.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+
+    new_content, old_value = _remove_key(content, key)
+    if old_value is None:
+        print(
+            f"machine-local: unset: '{key}' resolves in {target_path} but its "
+            "definition shape (inline table, array-of-tables, or other) is not "
+            f"surgically removable by this writer. Hand-edit {target_path} to remove it.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+
+    # Review: code-reviewer (F3) — only note a possibly-empty header when the
+    # section body is actually now empty (whitespace/comments only), not
+    # merely because the removed leaf's original shape was table-leaf; a
+    # table with sibling leaves remaining must not print the note.
+    empty_header_note = False
+    # Review: code-reviewer (F5) — `content` is immutable and unchanged by
+    # _remove_key above; re-reading it here (rather than new_content) is
+    # deliberate, to see the pre-removal shape/position for detection.
+    removed_kind = (_locate_existing_definition(content, key) or {}).get("kind")
+    if removed_kind == "table-leaf":
+        # Find the header line immediately preceding the key's original
+        # position, then check whether that same section in new_content is
+        # now whitespace/comment-only up to the next header (or EOF).
+        key_pos = content.find(key)
+        preceding_headers = list(re.finditer(r"^\[[^\]]+\]\s*$", content[:key_pos], re.MULTILINE))
+        if preceding_headers:
+            header_line = preceding_headers[-1].group(0)
+            header_pos_new = new_content.find(header_line)
+            if header_pos_new != -1:
+                body_start = header_pos_new + len(header_line)
+                next_header = re.search(r"^\[[^\]]+\]\s*$", new_content[body_start:], re.MULTILINE)
+                body_end = body_start + next_header.start() if next_header else len(new_content)
+                body = new_content[body_start:body_end]
+                empty_header_note = all(
+                    (not line.strip()) or line.strip().startswith("#")
+                    for line in body.splitlines()
+                )
+
+    try:
+        reparsed = tomllib.loads(new_content)
+    except tomllib.TOMLDecodeError as exc:
+        print(
+            f"machine-local: unset: refusing to write — post-removal TOML is "
+            f"malformed: {exc}. This is a bug in machine-local unset, not in "
+            "your input. File a report and edit the registry by hand for now.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+
+    if _flatten_nested(reparsed).get(key) is not None:
+        print(
+            f"machine-local: unset: refusing to write — post-removal round-trip "
+            f"read of {key!r} still resolves in {target_path}. Likely cause: a "
+            "duplicate definition this writer did not detect. File a report and "
+            "edit the registry by hand for now.",
+            file=sys.stderr,
+        )
+        return EXIT_OPERATIONAL
+
+    if args.dry_run:
+        print(f"[dry-run] would remove {key!r} (was {old_value!r}) from {target_path}")
+        return EXIT_OK
+
+    rc = _write_registry_file(target_path, new_content, False)
+    if rc != 0:
+        return EXIT_OPERATIONAL
+
+    print(f"machine-local: removed {key!r} (was {old_value!r}) from {target_path}")
+    if empty_header_note:
+        print(
+            f"machine-local: Note: an empty [<section>] header may remain in "
+            f"{target_path} — this is harmless valid TOML; remove it manually "
+            "if desired."
+        )
+    return EXIT_OK
 
 
 def _insert_mirror_path(content: str, mirror_key: str, path_value: str,
@@ -2935,6 +3127,34 @@ def main() -> int:
         help="Print what would be written without making changes",
     )
 
+    # unset
+    unset_p = subparsers.add_parser(
+        "unset",
+        help="Remove a key from ONE target file (registry.local.toml by default, "
+             "registry.toml with --global). Exit 0 = removed, 1 = already absent "
+             "(clean no-op), 2 = operational failure. Target-file-scoped, not "
+             "resolution-stack-scoped — see machine-local-registry.md.",
+    )
+    unset_p.add_argument("key", help="Dotted key to remove")
+    unset_p.add_argument(
+        "--global",
+        dest="write_global",
+        action="store_true",
+        help="Remove from registry.toml (tracked/shared) instead of registry.local.toml (gitignored/per-machine)",
+    )
+    unset_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be removed without making changes",
+    )
+    unset_p.add_argument(
+        "--concern",
+        metavar="NAME",
+        default=None,
+        help="Not supported — accepted so the operator gets an actionable message "
+             "instead of a bare argparse 'unrecognized arguments' error.",
+    )
+
     # array-append
     aa_p = subparsers.add_parser(
         "array-append",
@@ -2993,6 +3213,7 @@ def main() -> int:
         "path": cmd_path,
         "dir": cmd_dir,
         "set": cmd_set,
+        "unset": cmd_unset,
         "array-append": cmd_array_append,
         "array-set": cmd_array_set,
         "migrate-publish-mirrors": cmd_migrate_publish_mirrors,

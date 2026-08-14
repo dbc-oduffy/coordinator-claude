@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """assert-no-terminal-plans-in-live.py — AC6 gate for programmatic terminal-plan archival.
 
@@ -78,13 +77,24 @@ def _coordinator_state_root() -> str | None:
     sep = ";" if os.name == "nt" else ":"
     env["PYTHONPATH"] = claude_klabauter_root + (sep + pythonpath if pythonpath else "")
 
+    # `claude_klabauter_root` above only reaches the CHILD subprocess's env
+    # (PYTHONPATH) -- this process's own `sys.path` never got it, so the
+    # coordinator_core import below died on a mirror checkout where
+    # coordinator_core isn't pip-installed. `ensure_engine_on_path` puts it
+    # on THIS process's sys.path too.
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
+
+    from coordinator_core.win_portability import no_console_creationflags
+
     proc = subprocess.run(
         [sys.executable, "-m", "coordinator_core.state_root"],
         capture_output=True,
         text=True,
         env=env,
         check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # popup-safe-env-suppressed
+        **no_console_creationflags(),
     )
     if proc.returncode != 0:
         return None

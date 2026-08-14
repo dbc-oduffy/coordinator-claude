@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """workday-complete-backfill-scan.py — skipped-workday backfill detector.
 
@@ -33,7 +32,7 @@ Feeds a nudge at `/workday-start` Step 1.85 and an auto-backfill fan-out at
 #       including the healthy empty-output case; 1 = CLI usage error or cwd
 #       not a git repo with COORDINATOR_ROOT unset).
 #
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 # Prior bash implementation: see git log (workday-complete-backfill-scan.py,
 # 391 lines, retired on this cutover)
 

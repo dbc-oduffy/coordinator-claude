@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """verify-doe-root-seam-sync.py — verify (or fix) that every cold-path `.doe-root`
 literal READ in the coordinator corpus is durable-first (DR-072): it must try
 the settings-home pointer
@@ -52,9 +51,9 @@ Usage:
 Exit codes: 0 clean/fixed, 1 UNMIGRATED site(s) found (verify) or a file
 still fails re-verify after --fix, 2 usage error.
 
-Spec backlink: docs/plans/2026-07-21-durable-coordinator-root-pointer.md § C3, § AC2
 Prior art (script shape mirrored): coordinator/bin/verify-cc-root-source-guard-sync.py (retired 2026-07-23)
 """
+# Spec backlink: DoE-claude:pln-durable-coordinator-root-point-37e1e6 § C3, § AC2
 
 from __future__ import annotations
 
@@ -66,6 +65,8 @@ from pathlib import Path
 
 SCRIPT_PATH = Path(__file__).resolve()
 SCRIPT_DIR = SCRIPT_PATH.parent
+
+GENERATES = []  # --fix rewrites discovered `.doe-root` cat-read sites in place, but `--list` against this checkout resolves zero in-scope sites inside claude-klabauter's own tree today (all live matches are under the DoE-claude checkout) — no fixed or currently-realized claude-klabauter artifact
 
 # Defensive self-locate for the coordinator_registry sibling import — mirrors
 # the sys.path.insert convention every bin/ entrypoint already uses (see
@@ -324,7 +325,7 @@ def _resolve_scan_roots() -> list[Path]:
         doe_coordinator = Path(doe_root()) / "coordinator"
     except _DoeUnresolvable as exc:
         print(
-            f"verify-doe-root-seam-sync.py: WARNING — DoE-claude repo root "
+            f"verify-doe-root-seam-sync.py: WARNING — coordinator doctrine repo root "
             f"unresolvable ({exc}); skipping the DoE-resident coordinator/ "
             "tree half of the scan.",
             file=sys.stderr,

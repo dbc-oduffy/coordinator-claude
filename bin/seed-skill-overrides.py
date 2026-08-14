@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Idempotently seed bundled-skill skillOverrides into a Claude Code settings.json.
 
 Purpose: merge the coordinator's bundled-skill override entries into the user's
@@ -25,6 +24,8 @@ import tempfile
 
 
 # Core override set — always seeded.
+GENERATES = []  # writes CLAUDE_HOME/.claude/settings.json (the operator's Claude settings file) — outside claude-klabauter's own tree
+
 _CORE_OVERRIDES = ["review", "security-review", "simplify", "init"]
 
 # Optional override added when --with-deep-research is passed.

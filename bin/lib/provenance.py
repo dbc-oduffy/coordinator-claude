@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """provenance.py — single executable realization of ccos-3 design B's absence⟹unknown default.
 
 This module is the ONE place raw-record consumers (ccos-4/5/6) resolve a work-item

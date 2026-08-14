@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 setup-fnm-pin.py — CLI trampoline over claude-klabauter coordinator_core.ops.setup_fnm_pin.
 

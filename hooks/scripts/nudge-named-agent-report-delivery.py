@@ -1,6 +1,6 @@
 """PreToolUse(Agent) naked-Python advisory dispatcher — named-dispatch report delivery.
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the engine plane, hand it the raw payload, relay its stdout. The engine plane owns
 the ADVISORY LOGIC (coordinator_core.hooks.nudge_named_agent_report_delivery,
 registered under the JSON-RPC method hooks.nudge_named_agent_report_delivery).

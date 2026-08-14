@@ -55,7 +55,7 @@ Exit codes:
   3 — CLAUDE_KLABAUTER_ROOT resolution or coordinator_core import failure (transport
       failure, distinct from both business codes above).
 
-Spec backlink: docs/plans/2026-08-06-shell-spawn-regrowth-gate.md § C12
+Spec backlink: pln-shell-spawn-regrowth-gate-cens-097e21 § C12
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ from pathlib import Path
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 _COMMAND_KEY_RE = re.compile(r"^([A-Za-z0-9_]+):\s?(.*)$")
 _EXEMPT_KEY = "argv_only_exempt"
@@ -80,9 +80,7 @@ def _import_deps():
     API. Raises RuntimeError (root resolution) or ImportError (module
     missing) — both caught by `main()` and turned into exit code 3.
     """
-    claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_colocated_engine_on_path(__file__)
 
     from coordinator_core.ceremony_config.argv_only import check_argv_only
     from coordinator_core.cli_entry import recording_declared_writes

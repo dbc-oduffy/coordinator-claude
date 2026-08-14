@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """harvest-exit-interviews.py — CLI trampoline over claude-klabauter
 coordinator_core.subagent_sandbox.harvest_exit_interviews.
@@ -32,7 +31,7 @@ posture to fall back to). Once import succeeds, the exit code and stdout/
 stderr shape are entirely coordinator_core.subagent_sandbox.
 harvest_exit_interviews.main()'s own — see that module's docstring.
 
-Spec backlink: docs/plans/2026-07-13-subagent-run-report-autoprovision.md
+Spec backlink: pln-claude-klabauter-subagent-run-report-aut-f51428
 """
 
 from __future__ import annotations

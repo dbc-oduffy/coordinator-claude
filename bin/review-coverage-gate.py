@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """review-coverage-gate.py — chain-end code-review coverage gate for
 /workstream-complete Step 2.9 and /merge-to-main.
 
@@ -32,13 +31,20 @@ Usage:
   --mint-chain-waivers     Forwarded to `coverage.gate` as `mint_chain_waivers=true`
                            (docs/plans/2026-07-31-review-trail-chain-ancestry-discriminator.md
                            § C2b). Ceremony-close-only: only
-                           `wsc-coverage-gate-runner.py`'s `coverage-gate` subcommand
-                           passes this flag. Every ad-hoc/diagnostic invocation of this
-                           CLI MUST omit it — the default (flag absent) stays read-only,
-                           per AC2. Mints a per-SHA chain-ancestry waiver for each
-                           uncovered chain commit on a DAG-mode UNCOVERED verdict; a
-                           no-op on COVERED/INDETERMINATE or in flat mode (no
-                           --from-handoff).
+                           `wsc-coverage-gate-runner.py`'s `coverage-gate` AND
+                           `brightline-gate` subcommands pass this flag (2026-08-07,
+                           state/audits/2026-08-07-review-gate-scoping-predecessor-and-
+                           planning-artifacts.md — brightline-gate now mints its own
+                           chain-ancestry waivers so it is self-sufficient without
+                           requiring coverage-gate to run first; the mint is idempotent
+                           per (sha, chain_id), so both subcommands calling it is safe).
+                           Every ad-hoc/diagnostic invocation of this CLI MUST omit it —
+                           the default (flag absent) stays read-only, per AC2. Mints a
+                           per-SHA chain-ancestry waiver for each sha in the DAG-mode
+                           uncovered set, regardless of verdict — a COVERED chain whose
+                           only uncovered commits are planning artifacts still mints; a
+                           no-op when that set is empty, on INDETERMINATE, or in flat
+                           mode (no --from-handoff).
 
 Missing/empty --scope-paths: falls back to unscoped whole-chain (not an error).
 See Design § "Scope filtering — asymmetric by design" for the full rationale.
@@ -69,6 +75,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402  (sys.path mutated above)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _SAFE_RANGE_RE = re.compile(
     r"^[0-9A-Za-z_/.][0-9A-Za-z_/.~^]*\.\.\.?[0-9A-Za-z_/.][0-9A-Za-z_/.~^]*$"
@@ -169,15 +176,13 @@ def main(argv: list[str]) -> int:
             )
         range_arg = f"{merge_base}..HEAD"
 
-    try:
-        repo_root = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except (subprocess.CalledProcessError, OSError):
+    # READER (AC10): a MISMATCH verdict is warned to stderr and the resolved
+    # root used anyway (DR-277); UNRESOLVED never refuses either (AC4).
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if repo_root is None:
         _die("review-coverage-gate.py: cannot find git repo root")
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
 
     params: dict[str, object] = {}
     if from_handoff:
@@ -227,10 +232,16 @@ def main(argv: list[str]) -> int:
             f"review-coverage-gate.py: engine could not compute a verdict ({exc})",
             file=sys.stderr,
         )
-        print(
-            "  Verify CLAUDE_KLABAUTER_ROOT and coordinator_core installation (see diagnostics above)",
-            file=sys.stderr,
-        )
+        # Review: coordinator:code-reviewer P2 (2026-08-08) — a timeout is never install-
+        # related (AC7); gate the install-shaped remedy on is_timeout_error so this caller
+        # doesn't re-append the exact "Verify CLAUDE_KLABAUTER_ROOT" line C5 removed from cc_invoke.py
+        # itself. A non-timeout RuntimeError (e.g. engine-won't-start) may still legitimately
+        # name the install.
+        if not cc_invoke.is_timeout_error(exc):
+            print(
+                "  Verify CLAUDE_KLABAUTER_ROOT and coordinator_core installation (see diagnostics above)",
+                file=sys.stderr,
+            )
         return 1
 
     if not isinstance(result, dict):

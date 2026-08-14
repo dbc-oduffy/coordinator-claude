@@ -20,17 +20,11 @@ make up the rest. A detector that flags the majority of hits in any tree is
 wrong, not thorough, and this module's own `current_counts()` should be
 sanity-checked against that ceiling before it is trusted.
 
-CAVEAT ON THAT CEILING: the `hooks/` tree's own measured attribution
-fraction, run against this detector, came out well above the 5-30% range
-above. The sample the ceiling was drawn from surveyed several sibling-repo
-names across the corpus; this detector, by contrast, scans for the ONE
-sibling name this fleet's OSS-payload machinery currently knows about. A
-tree whose real attribution content clusters around that single name will
-plausibly measure a higher fraction than a sample averaged over several
-names, so a `hooks/`-tree fraction above the ceiling is not on its own
-evidence the detector over-flags — reconcile against the ceiling's own
-per-name composition before treating a hooks/-tree overage as a detector
-defect.
+THE CEILING'S SOURCE: `docs/plans/2026-07-30-oss-payload-ratchet.md:106-118`,
+a stratified close-read broken out PER TREE, not averaged across sibling
+names. `hooks/`, `skills/`, and `commands/` were each independently measured
+at 25-30% attribution — that per-tree figure, not a cross-name average, is
+the number a fresh measurement in any one of those trees is held to.
 
 FAIL-OPEN POSTURE, mirroring `_prompt_surface_citations.py`: every ratified
 classification input (`_oss_operative_strings.py`'s table/shape-rule/MCP-
@@ -41,7 +35,20 @@ surface) rather than bricking the PreToolUse hook built on it. A Python file
 that fails to `ast.parse` degrades the SAME way for that one file only: the
 sibling-name/attribution scan is skipped for it (the position lens has
 nothing to stand on), while the drive-path scan — which does not depend on
-AST position — still runs.
+AST position — still runs, subject to the escape-sequence discriminator
+below.
+
+DRIVE-PATH SCAN IS POSITION-INDEPENDENT FOR ATTRIBUTION PURPOSES, BUT NOT
+CONTENT-BLIND, FOR `.py` PATHS: inside a non-raw Python string-literal
+token, a lone separator backslash is an escape character, not a path
+separator — genuine Python source hardcoding a drive path must write the
+separator doubled, use a raw-prefixed string, or use a forward slash
+instead. A `WINDOWS_DRIVE_PATH` match inside a non-raw `.py` string
+literal, whose matched separator is a lone, undoubled backslash, is read
+as an escape sequence and skipped — every other case (comments, raw
+strings, doubled-backslash literals, forward slashes, non-`.py` files)
+still flags. See `_python_string_literal_spans` and its use at the match
+site in `iter_violations`.
 
 THE COVERAGE ASYMMETRY this module inherits from `_oss_payload.py`: a
 write-time guard built on `is_in_scope()` only ever sees files LOCAL to this
@@ -52,16 +59,32 @@ FULL payload via `_oss_payload.payload_files()` (local + engine, when the
 engine repo is resolvable) — the same local/engine split, restated here
 because an unstated asymmetry reads as coverage a mechanism does not have.
 
+THE SIBLING-NAME PATTERN ITSELF IS PAYLOAD-SCOPED: the engine leg of
+`current_counts()` scans with a pattern built ONLY from record entries with
+`is_engine_sibling is True` (`_ENGINE_SIBLING_NAME_TOKEN`), never the full
+`SIBLING_REPO_RECORD` the local leg uses — a name outside that engine subset
+is unreachable from a tree this repo has no standing commit grant to fix, so
+counting it there is a tripwire nobody holding this branch can clear;
+`is_in_scope()`/the write-time guard is unaffected, since it never touches
+engine files in the first place.
+
 THREE CARVE-OUTS, each toggled off/on and diffed against the corpus by the
 carve-out narrowness tests in this module's own companion test suite
 (three `test_*_carveout_is_narrow` tests, one per carve-out below) rather
 than merely asserted narrow:
 
-  1. RATIFIED OPERATIVE LITERALS — `_oss_operative_strings.py`. Two of its
-     four historically-considered classes are DERIVABLE (MCP tool-name
-     prefixes from `coordinator/mcp-topology.yaml`; the env-var/registry-key
-     SHAPE RULE), leaving one genuinely irreducible literal residue. See
-     that module's own docstring and ENTRY CRITERION.
+  1. RATIFIED OPERATIVE LITERALS — `_oss_operative_strings.py`. Most of its
+     classes are DERIVABLE rather than curated (MCP tool-name prefixes from
+     `coordinator/mcp-topology.yaml`; the env-var/registry-key SHAPE RULE;
+     the minted-stable-artifact-id SHAPE RULE, covering the fleet's
+     `pln-`/`dlv-`/`hnd-`/`cmp-` spec-backlink citation form explicitly,
+     where the older `docs/plans/<slug>.md` path form only ever cleared
+     incidentally, on the dot its extension supplies), leaving one
+     genuinely irreducible literal residue. Both shape rules reach this
+     detector through the SINGLE `is_identifier_shape_operative` call site
+     below — a new operative shape is taught to that ratified module, never
+     grown as a second classification mechanism here. See that module's own
+     docstring and ENTRY CRITERION.
   2. REGISTERED SNIPPET `<!-- BEGIN … -->` / `<!-- END … -->` FENCES —
      `STRUCTURAL_MARKERS`, loaded from the SAME ratified source
      `_prompt_surface_citations.py` already uses
@@ -154,10 +177,64 @@ CARVE_OUT_SOURCES: "tuple[Path, ...]" = (
 
 _operative_strings_module = _load_operative_strings()
 
+
+def _normalize_sibling_record(raw) -> dict:
+    """Normalize whatever the operative-strings module exposes into the
+    one name-keyed record shape `name -> {is_engine_sibling, oss_reachable,
+    short_forms, aliases, case_sensitive}`.
+
+    Two input shapes are accepted, one normalizer:
+
+    - A record mapping already in the target shape is consumed directly,
+      unchanged.
+    - A legacy plain tuple-of-names is normalized per entry to
+      `{is_engine_sibling: True, oss_reachable: False, short_forms:
+      (<trailing part> if the name has more than one `-`/`_`-delimited
+      part else ()), aliases: (), case_sensitive: False}` — reproducing
+      exactly the old derive-from-trailing-part, case-insensitive
+      behavior, so no name in the legacy tuple changes matching behavior
+      by passing through this normalizer."""
+    if isinstance(raw, dict):
+        return raw
+    record: dict = {}
+    for name in raw or ():
+        if not isinstance(name, str) or not name:
+            continue
+        norm = name.replace("-", "_")
+        parts = norm.split("_")
+        short_forms = (parts[-1],) if len(parts) > 1 else ()
+        record[name] = {
+            "is_engine_sibling": True,
+            "oss_reachable": False,
+            "short_forms": short_forms,
+            "aliases": (),
+            "case_sensitive": False,
+        }
+    return record
+
+
+_raw_sibling_source = (
+    getattr(_operative_strings_module, "SIBLING_REPO_RECORD", None)
+    if _operative_strings_module
+    else None
+)
+if _raw_sibling_source is None:
+    _raw_sibling_source = (
+        getattr(_operative_strings_module, "SIBLING_REPO_NAMES", ())
+        if _operative_strings_module
+        else ()
+    )
+
 #: Resolved once at import time. Empty/no-op on load failure — see the
-#: module docstring's fail-open contract.
-SIBLING_REPO_NAMES: tuple = (
-    getattr(_operative_strings_module, "SIBLING_REPO_NAMES", ()) if _operative_strings_module else ()
+#: module docstring's fail-open contract. One name-keyed record; see
+#: `_normalize_sibling_record`.
+SIBLING_REPO_RECORD: dict = _normalize_sibling_record(_raw_sibling_source)
+
+#: Derived VIEW over `SIBLING_REPO_RECORD` -- every name whose record
+#: declares `oss_reachable is False`. Kept for callers (and the
+#: identifier-shape carve-out below) that only need the bare name set.
+SIBLING_REPO_NAMES: tuple = tuple(
+    name for name, data in SIBLING_REPO_RECORD.items() if data.get("oss_reachable") is False
 )
 IRREDUCIBLE_LITERALS: tuple = (
     getattr(_operative_strings_module, "IRREDUCIBLE_LITERALS", ()) if _operative_strings_module else ()
@@ -172,6 +249,15 @@ MCP_TOOL_PREFIX_SPAN = (
 )
 _is_identifier_shape_operative = (
     getattr(_operative_strings_module, "is_identifier_shape_operative", None)
+    if _operative_strings_module
+    else None
+)
+_strip_trailing_sentence_period = (
+    # Degrading to None here means "don't strip" -- a token keeps its
+    # trailing period, fails the carve-out match, and the detector flags
+    # it. That's the fail-safe direction: over-flagging, never a silently
+    # widened exemption.
+    getattr(_operative_strings_module, "_strip_trailing_sentence_period", None)
     if _operative_strings_module
     else None
 )
@@ -282,34 +368,78 @@ def _is_angle_bracket_placeholder(line: str, start: int, end: int) -> bool:
     return s > 0 and e < len(line) and line[s - 1] == "<" and line[e] == ">"
 
 
-def _sibling_name_pattern() -> "re.Pattern | None":
-    """Compiled alternation over every known sibling repo name's full
-    and short forms, in both hyphenated and underscored spellings. `None`
-    when `SIBLING_REPO_NAMES` failed to load (fail-open:
-    the sibling-name scan is skipped entirely, never manufactured from a
-    hardcoded guess)."""
-    if not SIBLING_REPO_NAMES:
+def _sibling_name_pattern(record: "dict | None" = None) -> "re.Pattern | None":
+    """Compiled alternation over every known sibling repo name's full and
+    short forms, in both hyphenated and underscored spellings, plus each
+    name's declared `short_forms`/`aliases`. `None` when the record is
+    empty/unloadable (fail-open: the sibling-name scan is skipped
+    entirely, never manufactured from a hardcoded guess).
+
+    Reads per-name data off `record` (`SIBLING_REPO_RECORD` by default) —
+    a name contributes a short-form arm ONLY where one is declared for it,
+    never a bare derived trailing-part. Case sensitivity is compiled
+    per-arm from each record entry's `case_sensitive` field via an inline
+    `(?i:...)` group, not one module-wide `re.IGNORECASE`."""
+    if record is None:
+        record = SIBLING_REPO_RECORD
+    if not record:
         return None
     alternatives = []
-    for name in SIBLING_REPO_NAMES:
+    for name, data in record.items():
+        if not isinstance(name, str) or not name:
+            continue
         norm = name.replace("-", "_")
-        parts = norm.split("_")
-        alternatives.append(re.escape(name))
-        alternatives.append(re.escape(norm))
-        if len(parts) > 1:
-            alternatives.append(re.escape(parts[-1]))
-    pattern = "|".join(sorted(set(alternatives), key=len, reverse=True))
-    return re.compile(rf"\b(?:{pattern})\b", re.IGNORECASE)
+        forms = {name, norm}
+        forms.update(f for f in data.get("short_forms", ()) if f)
+        forms.update(f for f in data.get("aliases", ()) if f)
+        case_sensitive = bool(data.get("case_sensitive", False))
+        for form in forms:
+            escaped = re.escape(form)
+            wrapped = escaped if case_sensitive else f"(?i:{escaped})"
+            # Review: coordinator:code-reviewer -- sort by the underlying
+            # literal's length, not the wrapped alternative's, so a
+            # case-insensitive form's `(?i:...)` overhead can't make a
+            # shorter literal outrank a longer case-sensitive one and
+            # misorder leftmost-alternative-wins precedence.
+            alternatives.append((len(form), wrapped))
+    if not alternatives:
+        return None
+    pattern = "|".join(
+        wrapped for _length, wrapped in sorted(set(alternatives), key=lambda pair: pair[0], reverse=True)
+    )
+    return re.compile(rf"\b(?:{pattern})\b")
 
 
 _SIBLING_NAME_TOKEN = _sibling_name_pattern()
+
+#: Engine-leg pattern, built ONLY from `is_engine_sibling is True` record
+#: entries — narrower than `_SIBLING_NAME_TOKEN`, which is compiled from the
+#: full record. `_sibling_name_pattern` already fails open to `None` on an
+#: empty record, so an empty/unloadable `SIBLING_REPO_RECORD` degrades this
+#: the same way as the local pattern. See module docstring's "THE
+#: SIBLING-NAME PATTERN ITSELF IS PAYLOAD-SCOPED" note.
+_ENGINE_SIBLING_RECORD: dict = {
+    name: data
+    for name, data in SIBLING_REPO_RECORD.items()
+    if data.get("is_engine_sibling") is True
+}
+_ENGINE_SIBLING_NAME_TOKEN = _sibling_name_pattern(_ENGINE_SIBLING_RECORD)
 
 
 def _is_irreducible_literal(token: str, path_str: str, line_no: int) -> bool:
     """True only at the exact `(file, line)` site an `IRREDUCIBLE_LITERALS`
     entry names — never for the same literal recurring elsewhere, including
     elsewhere in the same file. See `_oss_operative_strings.py`'s ENTRY
-    CRITERION and per-entry scoping note."""
+    CRITERION and per-entry scoping note.
+
+    Strips a trailing sentence-period like `is_identifier_shape_operative`
+    does, for the same reason (a sentence-final mention is not a different
+    token) — safe here specifically because the match is additionally
+    gated on the exact `(file, line)` site, so stripping can only affect
+    whether *that* one site matches, never widen the carve-out to any other
+    occurrence of the literal."""
+    if _strip_trailing_sentence_period is not None:
+        token = _strip_trailing_sentence_period(token)
     normalized = token.lower().replace("-", "_")
     for literal, entry_file, entry_line, _reason in IRREDUCIBLE_LITERALS:
         if normalized != literal.lower().replace("-", "_"):
@@ -346,6 +476,18 @@ _HTML_COMMENT_LINE = re.compile(r"^\s*<!--(.*)-->\s*$")
 _BEGIN_WORD = re.compile(r"^\s*BEGIN\b")
 _END_WORD = re.compile(r"^\s*END\b")
 
+#: The `coordinator:fleet-only:start`/`:end` marker pair is a second,
+#: independent fence vocabulary alongside `BEGIN`/`END` — it is already in
+#: `STRUCTURAL_MARKERS` (so it survives the publish-side provenance ban) but
+#: its body never satisfies `_BEGIN_WORD`/`_END_WORD`, which only recognize
+#: the literal words "BEGIN"/"END". A `coordinator:fleet-only` span is
+#: stripped wholesale by the publish transform (`strip_fleet_only_fences`)
+#: and never reaches an OSS reader, so it earns the same scan-skip treatment
+#: as a `BEGIN`/`END` fence -- counting content inside it is a false
+#: positive against this detector's own "does an OSS reader see it" test.
+_FLEET_ONLY_BEGIN_WORD = re.compile(r"^\s*coordinator:fleet-only:start\b")
+_FLEET_ONLY_END_WORD = re.compile(r"^\s*coordinator:fleet-only:end\b")
+
 
 def _matches_any(patterns: Iterable, text: str) -> bool:
     return any(p.search(text) for p in patterns)
@@ -361,19 +503,23 @@ def _structural_comment_body(line: str) -> "str | None":
 
 
 def _is_snippet_begin(line: str) -> bool:
-    if not STRUCTURAL_MARKERS:
-        return False
     body = _structural_comment_body(line)
     if body is None:
+        return False
+    if _FLEET_ONLY_BEGIN_WORD.search(body):
+        return True
+    if not STRUCTURAL_MARKERS:
         return False
     return _matches_any(STRUCTURAL_MARKERS, body) and bool(_BEGIN_WORD.search(body))
 
 
 def _is_snippet_end(line: str) -> bool:
-    if not STRUCTURAL_MARKERS:
-        return False
     body = _structural_comment_body(line)
     if body is None:
+        return False
+    if _FLEET_ONLY_END_WORD.search(body):
+        return True
+    if not STRUCTURAL_MARKERS:
         return False
     return _matches_any(STRUCTURAL_MARKERS, body) and bool(_END_WORD.search(body))
 
@@ -443,12 +589,180 @@ def _python_attribution_lines(text: str) -> "frozenset[int] | None":
     return frozenset(lines)
 
 
+def _python_string_literal_spans(text: str) -> "dict[int, list] | None":
+    """Per-line column spans covered by a Python string-literal TOKEN
+    (`tokenize.STRING`, plus f-string parts on interpreters that emit them
+    separately), each tagged with whether that token is raw-prefixed.
+
+    Scoped narrowly to feed the drive-path escape-sequence discriminator: a
+    lone backslash immediately preceding a drive letter's separator, inside
+    one of these non-raw spans, is a Python escape character in the SOURCE
+    TEXT, not a literal path separator — see module docstring. A raw-prefixed
+    token (`r"..."`, `rb"..."`, any prefix containing `r`/`R`) is excluded
+    from that reading because Python does not treat backslash as an escape
+    lead-in there, so a single backslash inside a raw string genuinely means
+    one backslash character, i.e. a real path separator.
+
+    Multi-line tokens are split across their covered lines: the first line
+    from the token's start column to end-of-line, interior lines covered in
+    full, the last line from column 0 to the token's end column — mirroring
+    how a match on any of those lines could legitimately fall inside the
+    token's span.
+
+    Fails open (`None`) on ANY `tokenize` failure, matching this module's
+    stated posture: the discriminator then contributes nothing and the
+    drive-path scan behaves exactly as it did before this carve-out
+    existed."""
+    spans: dict = {}
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return None
+    except Exception:
+        return None
+
+    fstring_start_type = getattr(tokenize, "FSTRING_START", None)
+    fstring_part_types = set()
+    for attr in ("FSTRING_MIDDLE", "FSTRING_END"):
+        tok_type = getattr(tokenize, attr, None)
+        if tok_type is not None:
+            fstring_part_types.add(tok_type)
+
+    string_types = {tokenize.STRING} | fstring_part_types
+    if fstring_start_type is not None:
+        string_types.add(fstring_start_type)
+
+    # `FSTRING_MIDDLE`/`FSTRING_END` token text carries no prefix or quote
+    # characters to recover rawness from (it is the literal content only) --
+    # rawness for those parts must be carried forward from the `FSTRING_START`
+    # token of the SAME logical f-string, established once per string rather
+    # than recomputed per-token.
+    current_fstring_is_raw = False
+
+    for tok in tokens:
+        if tok.type not in string_types:
+            continue
+        if tok.type == fstring_start_type:
+            prefix = tok.string.rstrip("'\"")
+            current_fstring_is_raw = any(c in ("r", "R") for c in prefix)
+            is_raw = current_fstring_is_raw
+        elif tok.type in fstring_part_types:
+            is_raw = current_fstring_is_raw
+        else:
+            # Recover the literal's prefix (r, rb, Rb, f, ...) from the raw
+            # token text -- only characters preceding the first quote can be
+            # a string prefix. Correct for ordinary `STRING` tokens, which
+            # always carry their own prefix and quote characters.
+            prefix = ""
+            for ch in tok.string:
+                if ch in ("'", '"'):
+                    break
+                prefix += ch
+            is_raw = any(c in ("r", "R") for c in prefix)
+
+        start_line, start_col = tok.start
+        end_line, end_col = tok.end
+        if start_line == end_line:
+            spans.setdefault(start_line, []).append((start_col, end_col, is_raw))
+            continue
+        spans.setdefault(start_line, []).append((start_col, None, is_raw))
+        for mid_line in range(start_line + 1, end_line):
+            spans.setdefault(mid_line, []).append((0, None, is_raw))
+        spans.setdefault(end_line, []).append((0, end_col, is_raw))
+
+    return spans
+
+
+def _is_escaped_drive_path_match(
+    line: str, match_start: int, match_end: int, literal_spans: "list | None"
+) -> bool:
+    """True if a `WINDOWS_DRIVE_PATH` match at `[match_start, match_end)` on
+    `line` should be read as a Python escape sequence rather than a real
+    path separator -- i.e. it falls inside a non-raw string-literal span AND
+    its matched separator character is a lone backslash not immediately
+    followed by another backslash (a doubled backslash IS a real single
+    backslash character in the literal's value, so it stays flagged same as
+    a forward slash would).
+
+    Single-character lookahead only -- an odd-length (3+) backslash run at
+    the match boundary is not distinguished from a doubled one and is
+    deliberately out of scope."""
+    if not literal_spans:
+        return False
+    separator = line[match_end - 1]
+    if separator != "\\":
+        return False
+    if match_end < len(line) and line[match_end] == "\\":
+        return False
+    for span_start, span_end, is_raw in literal_spans:
+        if is_raw:
+            continue
+        effective_end = span_end if span_end is not None else len(line)
+        if span_start <= match_start and match_end <= effective_end:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Position lens for .md files — fenced code blocks, never a snippet fence
+# ---------------------------------------------------------------------------
+
+#: Opening fence delimiter: optional leading indent, then 3+ backtick or
+#: tilde characters, optionally followed by an info string (` ```bash `,
+#: ` ~~~text `, etc.) — the info string's own content is not inspected.
+_MD_FENCE_OPEN = re.compile(r"^[ \t]{0,3}([`~]{3,})")
+
+
+def _markdown_fence_lines(text: str) -> frozenset:
+    """Every line number inside a fenced code block (``` or ~~~, 3+
+    markers, optionally indented up to 3 spaces per common Markdown fence
+    convention) — LOAD-BEARING for the sibling-name check, exactly like a
+    `.py` string literal/identifier position, never ATTRIBUTION. Deliberately
+    narrower than the `BEGIN`/`END`/`coordinator:fleet-only` snippet-fence
+    vocabulary (`_is_snippet_begin`/`_is_snippet_end`): this reclassifies
+    ONLY the sibling-name check's position for the span it covers, while a
+    snippet fence skips every violation kind including the drive-path check.
+    The two mechanisms are independent and neither one substitutes for the
+    other's job.
+
+    Deliberately does NOT handle: fences opened inside an already-fenced
+    block (nested/lazy continuation per CommonMark's own edge cases), a
+    closing fence whose marker run is shorter than to the opener but still
+    followed by trailing content beyond whitespace, or an unbalanced fence
+    (never closed) reopening semantics — an unclosed fence simply covers the
+    rest of the file, the same fail-safe direction the snippet-fence
+    vocabulary already takes elsewhere in this module.
+    """
+    lines = text.split("\n")
+    fence_lines: set = set()
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+    close_re = None
+    for line_no, line in enumerate(lines, start=1):
+        if not in_fence:
+            m = _MD_FENCE_OPEN.match(line)
+            if m:
+                fence_char = m.group(1)[0]
+                fence_len = len(m.group(1))
+                close_re = re.compile(
+                    rf"^[ \t]{{0,3}}{re.escape(fence_char)}{{{fence_len},}}[ \t]*$"
+                )
+                in_fence = True
+                fence_lines.add(line_no)
+            continue
+        fence_lines.add(line_no)
+        if close_re.match(line):
+            in_fence = False
+    return frozenset(fence_lines)
+
+
 # ---------------------------------------------------------------------------
 # Violation detection
 # ---------------------------------------------------------------------------
 
 
-def iter_violations(text: str, *, path=None) -> list:
+def iter_violations(text: str, *, path=None, sibling_pattern=_SIBLING_NAME_TOKEN) -> list:
     """Every locality violation in `text`, in line order.
 
     `path` is optional but load-bearing for classification: when it names a
@@ -456,8 +770,20 @@ def iter_violations(text: str, *, path=None) -> list:
     `tokenize` position lens (`_python_attribution_lines`); for any other
     path (or `path=None`), the sibling-name check runs over every
     non-fenced line, matching the markdown/prose trees this module also
-    covers. The drive-path check is position-independent and runs
-    everywhere except inside a structural snippet fence.
+    covers. The drive-path check is position-independent for attribution
+    purposes and runs everywhere except inside a structural snippet fence —
+    but for a `.py` path it is not content-blind: a match whose separator
+    is a lone, undoubled backslash inside a non-raw string-literal token is
+    read as a Python escape sequence, not a path separator, and skipped
+    (`_python_string_literal_spans`).
+
+    `sibling_pattern` is optional, defaulting to the module-level
+    `_SIBLING_NAME_TOKEN` (every existing caller unchanged). A caller
+    scanning the engine leg of the payload passes `_ENGINE_SIBLING_NAME_TOKEN`
+    instead — the narrower, `is_engine_sibling`-only pattern — so a name
+    pinned reachable only on the local leg does not flag there. `None`
+    (fail-open, e.g. an empty/unloadable record) skips the sibling-name scan
+    entirely, same as today.
     """
     path_str = ""
     is_python = False
@@ -471,9 +797,16 @@ def iter_violations(text: str, *, path=None) -> list:
 
     attribution_lines = _python_attribution_lines(text) if is_python else None
     python_scan_disabled = is_python and attribution_lines is None
+    literal_spans = _python_string_literal_spans(text) if is_python else None
+    markdown_fence_lines = _markdown_fence_lines(text) if not is_python else None
 
     lines = text.split("\n")
     violations: list = []
+    # An unclosed fence (BEGIN/END or coordinator:fleet-only) skips every
+    # remaining line to EOF rather than reopening the scan at any point --
+    # same contract as the pre-existing BEGIN/END vocabulary. This detector
+    # does not replicate the publish-side unbalanced/nested-fence failure;
+    # an unbalanced fleet-only fence still fails loud there.
     in_snippet_fence = False
 
     for line_no, line in enumerate(lines, start=1):
@@ -488,21 +821,42 @@ def iter_violations(text: str, *, path=None) -> list:
         fingerprint = " ".join(line.split())
 
         for m in WINDOWS_DRIVE_PATH.finditer(line):
+            if is_python and _is_escaped_drive_path_match(
+                line, m.start(), m.end(), literal_spans.get(line_no) if literal_spans else None
+            ):
+                continue
             violations.append(
                 Violation(path_str, line_no, "drive-rooted windows path", _excerpt(line), fingerprint)
             )
 
-        if _SIBLING_NAME_TOKEN is None:
+        if sibling_pattern is None:
             continue
         if python_scan_disabled:
             continue
         if is_python and line_no not in attribution_lines:
             continue
+        if not is_python and markdown_fence_lines and line_no in markdown_fence_lines:
+            continue
 
-        for m in _SIBLING_NAME_TOKEN.finditer(line):
+        for m in sibling_pattern.finditer(line):
             if _inside_mcp_prefix_span(line, m.start()):
                 continue
             if _is_angle_bracket_placeholder(line, m.start(), m.end()):
+                continue
+            token_start, token_end = _token_span(line, m.start(), m.end())
+            # A trailing sentence-period extends the token span past the
+            # match (identifier-shaped `.` recovery), same reason
+            # `_strip_trailing_sentence_period` exists -- a sentence-final
+            # mention is still the WHOLE token, not a fragment of a longer
+            # local identifier, so it is not disqualified here.
+            effective_token_end = token_end
+            if token_end == m.end() + 1 and line[m.end()] == ".":
+                effective_token_end = m.end()
+            if (token_start, effective_token_end) != (m.start(), m.end()):
+                # The matched sibling-name substring is only a fragment of a
+                # longer `-`/`_`-joined LOCAL identifier (e.g. a script named
+                # `check-claude-klabauter-doctor-sentinel.sh`) rather than the whole
+                # surrounding token -- not a pointer at the sibling repo.
                 continue
             token = _surrounding_token(line, m.start(), m.end())
             if _is_irreducible_literal(token, path_str, line_no):
@@ -531,13 +885,64 @@ def _violation_key(v: Violation) -> tuple:
     return (v.kind, v.fingerprint)
 
 
+def _sibling_scan_disabled(text: str, path) -> bool:
+    """Whether `iter_violations` will skip the sibling-name scan for `text` —
+    true only for a `.py` path whose text does not `ast.parse`."""
+    if path is None or Path(path).suffix != ".py":
+        return False
+    return _python_attribution_lines(text) is None
+
+
 def new_violations(before: str, after: str, *, path=None) -> list:
     """Violations present in `after` that were not already present in
     `before`, as a multiset difference — same contract as
     `_prompt_surface_citations.new_violations`, so a hard-deny guard built on
     this is safe against the existing corpus's legacy violations: a
     violation sitting untouched elsewhere in the file contributes equally to
-    both sides of the diff and never surfaces here."""
+    both sides of the diff and never surfaces here.
+
+    Negative spec: when only ONE side of a `.py` diff parses, the two sides
+    are not comparable for the sibling-name class — the unparseable side
+    scans zero of them by design, so every legacy violation on the parseable
+    side would read as new. That asymmetry makes a syntax-error repair
+    undeniable-by-construction (the very write that restores parseability is
+    the one denied), so the sibling-name class fails OPEN across it. The
+    drive-path class is position-independent and stays comparable.
+
+    RESIDUAL GAP this fail-open leaves OPEN, not merely the case it closes:
+    when `before` fails to parse and `after` does (the repair direction),
+    the sibling-name class is skipped entirely rather than falling back to
+    any comparison — so a write that BOTH fixes the syntax error AND
+    introduces a genuinely new sibling-repo-name attribution in the same
+    edit is caught by neither guard. `guard-oss-payload-locality` fails
+    open by design here (this docstring's own contract), and
+    `guard-python-syntax-on-write` has nothing to deny once the after-text
+    compiles. The OPPOSITE direction (before parses, after doesn't) is
+    closed only as a composition property of the two guards under
+    `preuse-write-dispatch.py`'s first-deny-wins ordering: that write is
+    denied outright by `guard-python-syntax-on-write` on the syntax defect
+    before this guard's own posture ever matters. Named, narrow trade-off
+    (the alternative is an unrepairable file) — not a defect to fix here."""
+    if _sibling_scan_disabled(before, path) != _sibling_scan_disabled(after, path):
+        before_drive = Counter(
+            _violation_key(v)
+            for v in iter_violations(before, path=path)
+            if v.kind == "drive-rooted windows path"
+        )
+        after_drive = [
+            v
+            for v in iter_violations(after, path=path)
+            if v.kind == "drive-rooted windows path"
+        ]
+        delta = Counter(_violation_key(v) for v in after_drive) - before_drive
+        seen: Counter = Counter()
+        out: list = []
+        for v in after_drive:
+            key = _violation_key(v)
+            if seen[key] < delta.get(key, 0):
+                out.append(v)
+                seen[key] += 1
+        return out
     before_counts = Counter(_violation_key(v) for v in iter_violations(before, path=path))
     after_violations = iter_violations(after, path=path)
     after_counts = Counter(_violation_key(v) for v in after_violations)
@@ -596,7 +1001,7 @@ def current_counts() -> dict:
                 text = full.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            n = len(iter_violations(text, path=full))
+            n = len(iter_violations(text, path=full, sibling_pattern=_ENGINE_SIBLING_NAME_TOKEN))
             if n:
                 counts[f"(engine){rel.as_posix()}"] = n
 

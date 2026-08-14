@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """edit-live-hook.py — CLI trampoline over the claude-klabauter stage/validate/atomic-swap
 helper for editing a live PreToolUse Bash-matcher hook.
@@ -61,7 +60,7 @@ concurrent-em-hazards.md § H33.
 #
 # Ported logic: claude-klabauter coordinator_core/ops/edit_live_hook.py
 # (co-located pytest: coordinator_core/ops/test_edit_live_hook.py)
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 
 import os
 import sys

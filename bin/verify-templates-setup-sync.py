@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 verify-templates-setup-sync.py — CLI trampoline over claude-klabauter
@@ -13,7 +12,7 @@ live->template --fix path was removed because it directly contradicted
 the outward-only publish doctrine (state/lessons/2026-07-06-verify-
 templates-setup-sync-sh-fix-is-ba.yaml).
 
-Spec backlink: docs/plans/2026-05-21-generic-percolation-via-coordinator-install.md § Step 3
+Spec backlink: docs/plans/2026-05-21-generic-percolation-via-coordinator-install.md § Step 3 [DEAD-CITATION: plan file never committed to this repo]
 Port target: claude-klabauter coordinator_core/ops/verify_templates_setup_sync.py
 """
 
@@ -70,7 +69,7 @@ def _resolve_plugin_root() -> str:
         root = doe_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-templates-setup-sync.py: cannot resolve the DoE-claude "
+            "verify-templates-setup-sync.py: cannot resolve the coordinator doctrine "
             f"repo root ({exc}). Set repos.doe_claude in the machine-local "
             "registry, or set the DOE_ROOT env var, or set "
             "CLAUDE_PLUGIN_ROOT directly.",

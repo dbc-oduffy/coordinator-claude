@@ -1,0 +1,3 @@
+# Files that are publish-native and must survive sync from plugin docs/wiki/.
+# Lines = filenames (basenames only, one per line). Blank lines and # comments OK.
+task-tier-guidance.md

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday-start-step0.py — deterministic Step 0 (Branch Setup) for /workday-start.
 
 Encapsulates the precedence switch documented in pipelines/workday-start-internals.md
@@ -7,15 +6,28 @@ inline bash in the skill body — concentrating the precedence logic in a single
 entrypoint removes EM judgment from a mechanical procedure.
 
 Stdout: one-line status notice consumed by the briefing (RENAMED / IN-SPAN / FRESH-CUT /
-NAMED-WORKSTREAM / STALE-NEEDS-ABC / SYNC-MAIN-ABORT / RENAME-PUSH-FAILED), followed by
-the reconcile leg's own line on the FRESH-CUT / NAMED-WORKSTREAM / RENAMED paths.
-Stderr: human-readable detail.
+NAMED-WORKSTREAM / STALE-NEEDS-ABC / SYNC-MAIN-ABORT / RENAME-PUSH-FAILED / CRASH),
+followed by the reconcile leg's own line on the FRESH-CUT / NAMED-WORKSTREAM / RENAMED
+paths. CRASH is emitted by two guards, covering the two places an unhandled exception
+can propagate BEFORE any of the deliberate-refusal lines above got a chance to print:
+a module-level try/except around the ``workday_ceremony_lib``/``cc_invoke`` imports
+(near the top of this file — the ACTUAL 2026-08-12 incident, a ``ModuleNotFoundError``
+raised at that import), and ``_main_with_crash_guard`` wrapping ``main()`` itself
+(near the bottom, for anything unhandled inside the precedence switch). Without either,
+a crash-before-first-line and a refusal-that-ran-and-found-nothing-to-do are
+indistinguishable from the ceremony's side (state/bug-backlog/
+2026-08-12-ceremony-cannot-distinguish-a-step-0-tha-2245f21fe6d0.yaml). Still exits 1,
+same as every other unexpected-error path — nothing downstream keys off exit code to
+tell a crash apart from a deliberate abort (see ``_main_with_crash_guard``'s own
+docstring for the consumer-grep that established this).
+Stderr: human-readable detail; on CRASH, the full traceback (never swallowed).
 
 Exit codes:
   0 — step 0 succeeded; proceed to step 1.
   2 — stale-commit guard triggered; A/B/C Branch Reconciliation needed.
   3 — reconcile with origin/main hit a conflict; PM resolves first.
-  1 — sync-main aborted or other unexpected error.
+  1 — sync-main aborted, an unhandled exception (CRASH; see Stdout above), or other
+      unexpected error.
 
 Test seam (internal, not part of the ceremony contract):
   --self-heal-machine-slug      run only the Step 0.2a machine-slug self-heal/drift block.
@@ -58,10 +70,31 @@ import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
-import workday_ceremony_lib as wc  # noqa: E402
-from cc_invoke import _resolve_claude_klabauter_root, child_env  # noqa: E402
+# Module-level crash guard — narrow, covers only the imports below (and their
+# sys.path bootstrap) that can realistically fail at import time: a missing
+# lib dir, a broken workday_ceremony_lib/cc_invoke, or (the 2026-08-12
+# incident this closes) an unreachable coordinator_core transitively pulled
+# in by them. Without this, such a failure propagates before
+# `_main_with_crash_guard` (which wraps `main()`, further below) is ever
+# reached — the exact "crash before any status line" failure mode
+# state/bug-backlog/2026-08-12-ceremony-cannot-distinguish-a-step-0-tha-
+# 2245f21fe6d0.yaml describes; a REAL 2026-08-12 incident on this exact
+# import (ModuleNotFoundError: coordinator_core, since fixed in d2d4ec545)
+# is what proved the class, not just the theory. Uses only stdlib
+# (print/sys/traceback) already imported above — never depends on anything
+# from the imports it is guarding, which may not exist in a half-imported
+# module.
+try:
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
+    import workday_ceremony_lib as wc  # noqa: E402
+    from cc_invoke import _resolve_claude_klabauter_root, child_env  # noqa: E402
+except Exception:
+    import traceback
+    print("CRASH")
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LIB_DIR = os.path.join(PLUGIN_ROOT, "lib")
@@ -147,9 +180,12 @@ def contributor_slug_self_heal() -> None:
 # ---------------------------------------------------------------------------
 
 def _exec_reconcile() -> int:
+    _ensure_claude_klabauter_on_path()
+    from coordinator_core.win_portability import no_console_creationflags
+
     result = subprocess.run(
         [sys.executable, _BIN_RECONCILE],
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
         capture_output=True,
         text=True,
         env=child_env(),
@@ -164,6 +200,83 @@ def _exec_reconcile() -> int:
     if result.stderr:
         print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
     return result.returncode
+
+
+# ---------------------------------------------------------------------------
+# Check 4 — session-meta branch carry (AC8-AC10)
+# ---------------------------------------------------------------------------
+
+def _session_meta_dirs() -> "list[str]":
+    """Enumerate this tree's session-claim directories under the git common
+    dir's ``coordinator-sessions/`` hub (``coordinator_core.session.core.
+    sessions_dir``), skipping the hub's own non-session bookkeeping entries
+    (``_NON_SESSION_DIR_NAMES`` — the same denylist ``live_session_ids``
+    filters on). Deliberately unfiltered by liveness: a session that has
+    already ended still has other readers of its ``meta.json:branch`` field
+    (``pickup_assemble/holder_evidence.py``), so a stale/dead session's
+    record needs the same old->new carry a live one does.
+
+    Returns ``[]`` on any resolution failure (not a git repo, hub walk
+    raised) — callers treat that as "no sessions to touch", not as an error
+    to propagate; the rename itself must never depend on this succeeding.
+    """
+    from coordinator_core.session import core as session_core
+    from coordinator_core.session import liveness as session_liveness
+
+    try:
+        base = session_core.sessions_dir()
+    except Exception:
+        return []
+    if not base:
+        return []
+    basep = Path(base)
+    if not basep.is_dir():
+        return []
+    dirs: list[str] = []
+    try:
+        for entry in basep.iterdir():
+            if not entry.is_dir() or entry.name in session_liveness._NON_SESSION_DIR_NAMES:
+                continue
+            dirs.append(str(entry))
+    except OSError:
+        return dirs
+    return dirs
+
+
+def _rewrite_session_meta_branch(old: str, new: str) -> None:
+    """Rewrites ``meta.json:branch`` from ``old`` to ``new`` for every session
+    directory on this tree currently recording ``old`` (AC8). Keeps the
+    session hub's branch bookkeeping in step with Check 4's
+    ``git branch -m old new``, which renames the ONE local ref every
+    concurrent session on this shared tree is sitting on (see module
+    docstring / ``_rename_across_midnight``) — the rename site is the only
+    place that knows the old->new mapping, so read-time resolution elsewhere
+    cannot substitute for this.
+
+    Best-effort and never fatal (AC9): an unwritable or corrupt meta is
+    skipped with a stderr note rather than raising. A failed meta rewrite is
+    strictly less bad than a failed rename, and by the time this runs the
+    local rename has already happened.
+    """
+    from coordinator_core.session import core as session_core
+
+    for sdir in _session_meta_dirs():
+        try:
+            recorded = session_core.read_meta_field(sdir, "branch")
+        except Exception as exc:
+            _err(f"WARN: could not read session meta branch at '{sdir}': {exc}")
+            continue
+        if recorded != old:
+            continue
+        try:
+            wrote = session_core.update_meta_field(sdir, "branch", new)
+        except Exception as exc:
+            _err(f"WARN: could not rewrite session meta branch at '{sdir}' "
+                 f"({old} -> {new}): {exc}")
+            continue
+        if not wrote:
+            _err(f"WARN: session meta at '{sdir}' unwritable or corrupt; "
+                 f"branch field left at '{old}' (expected rewrite to '{new}').")
 
 
 def _handle_rename_push_failure(old: str, new: str, attempted_remote_delete: bool) -> int:
@@ -189,6 +302,10 @@ def _handle_rename_push_failure(old: str, new: str, attempted_remote_delete: boo
           already-applied signature), does NOT guess a rollback direction —
           fails loudly instead, leaves local as-is, and tells the operator
           exactly what was observed and how to reconcile by hand.
+        - On the clean-rollback path, also reverses the session-meta
+          ``branch`` rewrite ``_rename_across_midnight`` performed (AC10) — a
+          local-only rollback with no meta reversal would leave live session
+          directories recording the now-nonexistent ``new`` name.
     """
     ls = wc.git("ls-remote", "--heads", "origin", old, new)
     ls_lines = (ls.stdout or "").splitlines() if ls.returncode == 0 else []
@@ -201,6 +318,9 @@ def _handle_rename_push_failure(old: str, new: str, attempted_remote_delete: boo
         rollback_env.update(_OVERRIDE_ENV_BASE)
         rollback_env["COORDINATOR_OVERRIDE_BRANCH_REASON"] = "workday-start step 0 rename rollback"
         wc.git("branch", "-m", new, old, env=rollback_env)
+        # AC10: reverse the forward meta rewrite too, or the rollback leaves
+        # behind the stale `new` names it exists to undo.
+        _rewrite_session_meta_branch(new, old)
         _out(f"RENAME-PUSH-FAILED old={old}")
         _err(f"Remote rename rejected; remote confirmed unchanged (origin/{old} present, "
              f"origin/{new} absent); local rolled back to '{old}'. Investigate remote "
@@ -245,6 +365,13 @@ def _rename_across_midnight(old: str, new: str) -> int:
         - Push failure handling is delegated to ``_handle_rename_push_failure``,
           which re-verifies actual remote state rather than assuming the local
           rollback alone restores consistency.
+        - Every session directory on this tree recording ``old`` as its
+          ``meta.json:branch`` is rewritten to ``new`` right after the local
+          rename succeeds (AC8) — best-effort, never fails the rename (AC9).
+          Without this, ``_shared_branch_live_count`` in
+          ``coordinator_core/hooks/auto_push.py`` string-compares that stale
+          field and undercounts live peers on exactly the branch a rename
+          just touched.
     """
     rename_env = dict(os.environ)
     rename_env.update(_OVERRIDE_ENV_BASE)
@@ -252,6 +379,11 @@ def _rename_across_midnight(old: str, new: str) -> int:
     _rename = wc.git("branch", "-m", old, new, env=rename_env)
     sys.stderr.write((_rename.stdout or "") + (_rename.stderr or ""))
     sys.stderr.flush()
+
+    if _rename.returncode == 0:
+        # AC8: carry every session's meta.json:branch across the rename this
+        # process just performed on the ONE shared local ref.
+        _rewrite_session_meta_branch(old, new)
 
     from coordinator_core.session.worktree_safety import history_rewrite_verdict
     try:
@@ -305,12 +437,13 @@ def main(argv: list[str]) -> int:
     from coordinator_core.daily_branch import parse_branch_span, rename_target, should_prompt_rename
     from coordinator_core.daily_day import local_day
     from coordinator_core.machine_resolver import compute_machine
+    from coordinator_core.win_portability import no_console_creationflags
 
     # Step 0.1 — Sync main
     sm = subprocess.run(
         [sys.executable, _BIN_SYNC_MAIN], stdout=sys.stderr, stderr=sys.stderr,
         env=child_env(),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
     if sm.returncode != 0:
         _out("SYNC-MAIN-ABORT")
@@ -365,6 +498,18 @@ def main(argv: list[str]) -> int:
         return 1
     if ensure.result == "FRESH-CUT":
         return _exec_reconcile()
+    if ensure.result == "REFUSED-LIVE-PEERS":
+        # Settled-on-this-branch terminal, same shape as FRESH-CUT and
+        # NAMED-WORKSTREAM: the cut was declined because it would switch the
+        # shared checkout under live peers, so the tree stays where it is and
+        # we reconcile it rather than falling through to Check 3.5/4, whose
+        # span parse cannot succeed on `main` and would exit 1 on a
+        # non-EM-skippable step. session_ensure_branch has already printed the
+        # peer detail; this line names the day-level consequence.
+        _err("LIVENESS-GATE: staying on "
+             f"{current or '<detached>'} — no day branch was cut. "
+             "Branch discipline is NOT in force for this session.")
+        return _exec_reconcile()
 
     # Check 3.5 — Named long-lived workstream
     parseable = parse_branch_span(current) is not None
@@ -410,5 +555,38 @@ def main(argv: list[str]) -> int:
     return _rename_across_midnight(old, new)
 
 
+def _main_with_crash_guard(argv: list[str]) -> int:
+    """Top-level guard around ``main()`` — makes an unhandled exception
+    distinguishable from a deliberate refusal on the stdout status-line
+    contract the ceremony already consumes (module docstring's Stdout
+    block).
+
+    Without this, ``main()`` had no top-level exception handler and was
+    invoked bare as ``sys.exit(main(argv))``: a crash BEFORE any status
+    line printed exited 1 with nothing on stdout — identical, from
+    /workday-start's side, to a step that ran and legitimately found
+    nothing to do. Filed as state/bug-backlog/2026-08-12-ceremony-cannot-
+    distinguish-a-step-0-tha-2245f21fe6d0.yaml.
+
+    Reuses exit code 1 rather than minting a new one: grepping
+    ``coordinator/commands/workday-start.md`` (DoE-claude) shows the
+    consumer already treats exit 1 as "unexpected error -> halt"
+    unconditionally of WHICH unexpected error — nothing downstream
+    branches on 1 vs. a hypothetical distinct crash code, so a new code
+    would add a contract surface with no reader. The CRASH stdout line is
+    the only new signal needed; the traceback goes to stderr exactly as
+    it would have with no guard at all (``BaseException`` — SystemExit,
+    KeyboardInterrupt — is deliberately NOT caught here, so ``sys.exit()``
+    and Ctrl-C keep their normal behavior).
+    """
+    try:
+        return main(argv)
+    except Exception:
+        import traceback
+        _out("CRASH")
+        traceback.print_exc(file=sys.stderr)
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(_main_with_crash_guard(sys.argv[1:]))

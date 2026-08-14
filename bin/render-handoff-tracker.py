@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """render-handoff-tracker.py — CLI trampoline over the handoff-tracker render op.
 
@@ -71,7 +70,7 @@ from __future__ import annotations
 #
 # Review: code-reviewer — F1
 #
-# Spec backlink: docs/plans/2026-07-16-wsc-pure-python-tail-rebuild.md § C8b/C9
+# Spec backlink: pln-rebuild-the-wsc-commit-ceremon-f7c2a0 § C8b/C9
 # Prior node implementation: coordinator/bin/render-handoff-tracker.js (still
 # present, delete-gated — see "Filename note" above)
 

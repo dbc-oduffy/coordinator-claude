@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """merge-recovery-and-tag-cut.py — naked-Python port of the /merging-to-main
 recovery-branch dance and idempotent annotated-tag cut.
@@ -86,6 +85,21 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before the coordinator_core import
+# below: this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+# this bin/ directory, not the checkout root. Same bootstrap as
+# coordinator/bin/coordinator-lesson-add (9b979ee5f).
+require_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
+
 
 def _run(
     cmd: list[str],
@@ -100,13 +114,23 @@ def _run(
         capture_output=True,
         text=True,
         check=check,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
 
 def _die(message: str) -> None:
     print(message, file=sys.stderr)
     sys.exit(1)
+
+
+def _branch_mutation_verdict():
+    """Import indirection mirroring `session_ensure_branch._branch_mutation_verdict`
+    — native import, no subprocess spawn. Isolated so a missing/broken
+    coordinator_core install degrades loudly via ImportError at call time
+    rather than silently at module load."""
+    from coordinator_core.session.worktree_safety import branch_mutation_verdict
+
+    return branch_mutation_verdict
 
 
 # ---------------------------------------------------------------------------
@@ -123,11 +147,22 @@ def cmd_recovery_branch(args: argparse.Namespace) -> int:
     repo_root = Path(args.repo_root) if args.repo_root else Path.cwd()
     branch = args.branch_name or _default_branch_name()
 
+    branch_mutation_verdict = _branch_mutation_verdict()
+    verdict = branch_mutation_verdict(cwd=str(repo_root))
+    if verdict.outcome != "ok":
+        _die(
+            "REFUSED-LIVE-PEERS: declining to cut a recovery branch and "
+            f"hard-reset main — {verdict.reason}. A branch is a property of "
+            "the shared TREE, not this session; recovering main here would "
+            "switch every live peer's checkout and reset main out from "
+            "under them. Wait for peers to clear, or resolve manually."
+        )
+
     sync_main = Path(__file__).resolve().parent / "sync-main.py"
     sync = subprocess.run(
         [sys.executable, str(sync_main)],
         cwd=str(repo_root),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_passthrough_kwargs(),
     )
     if sync.returncode != 0:
         _die(
@@ -322,7 +357,7 @@ def publish_gh_release(tag: str, repo: str, notes_file: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
     if edit.returncode == 0:
         return
@@ -336,7 +371,7 @@ def publish_gh_release(tag: str, repo: str, notes_file: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
     if create.returncode != 0:
         _die(

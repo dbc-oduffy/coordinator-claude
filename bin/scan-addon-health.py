@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 scan-addon-health.sh — CLI trampoline over claude-klabauter
@@ -22,7 +21,7 @@ Environment: COORDINATOR_PLUGINS_ROOT (default ~/.claude/plugins),
 COORDINATOR_CONSUMER_HEALTH_ROOT (default ~/.claude),
 COORDINATOR_HEALTH_STALE_SEC (default 86400).
 
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md § T3a-g2/T3b
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
 """
 
 from __future__ import annotations

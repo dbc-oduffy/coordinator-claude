@@ -43,7 +43,7 @@ class SuffixCollisionError(RuntimeError):
 
 @dataclass
 class EnsureResult:
-    result: str  # "FRESH-CUT" or "" (no-op)
+    result: str  # "FRESH-CUT", "REFUSED-LIVE-PEERS", or "" (no-op)
     new_branch: str  # branch name when FRESH-CUT; "" otherwise
 
 
@@ -53,6 +53,16 @@ def _branch_ref_exists(name: str) -> bool:
         capture_output=True,
     )
     return proc.returncode == 0
+
+
+def _branch_mutation_verdict():
+    """Import indirection mirroring `_parses_as_branch_span` — native
+    import, no subprocess spawn. Isolated so a missing/broken
+    coordinator_core install degrades loudly via ImportError at call time
+    rather than silently at module load."""
+    from coordinator_core.session.worktree_safety import branch_mutation_verdict
+
+    return branch_mutation_verdict
 
 
 def _parses_as_branch_span(name: str) -> bool:
@@ -80,6 +90,18 @@ def session_ensure_branch(
     work/{machine}/{today} (collision-safe suffix loop), push it, return
     EnsureResult("FRESH-CUT", branch). Silent no-op (EnsureResult("", "")) when
     the gate condition is not met.
+
+    Before cutting, consults
+    coordinator_core.session.worktree_safety.branch_mutation_verdict — a
+    branch is a property of the shared TREE, not of a session, so cutting
+    one switches every live peer session's checkout out from under it. A
+    non-"ok" verdict (both "refused" and "unknown" — the latter is FAIL
+    CLOSED per that module's contract and MUST be treated the same as
+    "refused") aborts the cut without touching git, prints
+    "REFUSED-LIVE-PEERS branch=... reason=..." naming the peer detail, and
+    returns EnsureResult("REFUSED-LIVE-PEERS", ""). This value is
+    deliberately distinguishable from both "" (nothing-to-do) and
+    "FRESH-CUT" (cut succeeded) — callers must not conflate it with either.
 
     Parameters mirror the bash oracle's positional contract:
       machine       — coordinator machine slug (from cs_compute_machine)
@@ -128,6 +150,15 @@ def session_ensure_branch(
 
     if not (is_main or is_detached or is_zero_ahead_non_span):
         return EnsureResult(result="", new_branch="")
+
+    branch_mutation_verdict = _branch_mutation_verdict()
+    verdict = branch_mutation_verdict()
+    if verdict.outcome != "ok":
+        print(
+            f"REFUSED-LIVE-PEERS branch=work/{machine}/{today} reason={verdict.reason}",
+            file=err,
+        )
+        return EnsureResult(result="REFUSED-LIVE-PEERS", new_branch="")
 
     new_branch = f"work/{machine}/{today}"
 

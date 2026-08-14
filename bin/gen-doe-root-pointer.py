@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 gen-doe-root-pointer.py — CLI trampoline over claude-klabauter coordinator_core.ops.gen_doe_root_pointer.
@@ -10,7 +9,7 @@ coordinator_core/ops/gen_doe_root_pointer.py per DR-047 (DoE owns contract/gener
 Claude-klabauter owns engine). This file is now a thin DoE-side (contract) trampoline over that
 Claude-klabauter (engine) module.
 
-Spec backlink: docs/plans/2026-07-04-coordinator-maximalist-install-shape.md § C1
+Spec backlink: DoE-claude:pln-coordinator-maximalist-install-e73afa § C1
 Prior bash implementation: see git log (gen-doe-root-pointer.py, 223 lines, retired on
 this cutover).
 """

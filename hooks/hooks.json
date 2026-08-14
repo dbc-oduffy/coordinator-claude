@@ -1,5 +1,5 @@
 {
-  "description": "Coordinator hooks \u2014 session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected \u2014 those resolve live per tool call. Measurement: docs/wiki/external-plugin-live-resolution.md \u00a7 Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
+  "description": "Coordinator hooks — session guardrails and cost optimization. REGISTRATIONS IN THIS FILE ARE READ AT SESSION START AND CACHED: adding or removing an entry here reaches NO already-running session until it runs /reload-plugins or restarts, and a deleted entry keeps firing until then. Run /reload-plugins in this session before testing your change, and expect peer sessions on this machine to keep their booted roster regardless. Hook SCRIPT bodies are unaffected — those resolve live per tool call. Measurement: docs/wiki/external-plugin-live-resolution.md § Hook REGISTRATION staleness; tripwire HOOKS-JSON-REGISTRATION-STALENESS.",
   "hooks": {
     "SessionStart": [
       {
@@ -8,33 +8,55 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.py --lightweight",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/project-orientation.py",
+              "--lightweight",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "Boot-time four-class archival sweep (consumed handoffs, terminal plans, shipped handoffs, actioned cross-repo memos) via the session.boot_sweep claude-klabauter op, fronted by the native bin/sweep-boot.py trampoline. This invocation was carried by the session-init.py SessionStart hook until it was deleted in the 2026-07-15 full-kill above (collateral: that directive targeted sync boot-latency hooks, not this side-effect sweep) \u2014 leaving sweep-boot.py an orphan trampoline with no caller and stranding status:actioned memos in cross-repo/inbox/. Re-wired here as async:true DELIBERATELY: unlike the orientation injector above, this hook produces NO context-bound stdout (its value is the archival git-mv+self-commit side effect and the integer count on stdout is discarded), so async is the correct shape \u2014 it restores the archival WITHOUT adding the cc_invoke claude-klabauter-spawn latency to first-token-to-context, honoring the 2026-07-15 directive's actual intent (fast orientation boot). The op self-commits its own scoped archival commit; sweep-boot.py never stages/commits. matcher startup|compact mirrors the original session-init boot_sweep coverage (not clear \u2014 a lightweight /clear is not a fresh session boundary).",
+        "_comment": "Boot-time four-class archival sweep (consumed handoffs, terminal plans, shipped handoffs, actioned cross-repo memos) via the session.boot_sweep claude-klabauter op, fronted by the native bin/sweep-boot.py trampoline. This invocation was carried by the session-init.py SessionStart hook until it was deleted in the 2026-07-15 full-kill above (collateral: that directive targeted sync boot-latency hooks, not this side-effect sweep) — leaving sweep-boot.py an orphan trampoline with no caller and stranding status:actioned memos in cross-repo/inbox/. Re-wired here as async:true DELIBERATELY: unlike the orientation injector above, this hook produces NO context-bound stdout (its value is the archival git-mv+self-commit side effect and the integer count on stdout is discarded), so async is the correct shape — it restores the archival WITHOUT adding the cc_invoke claude-klabauter-spawn latency to first-token-to-context, honoring the 2026-07-15 directive's actual intent (fast orientation boot). The op self-commits its own scoped archival commit; sweep-boot.py never stages/commits. matcher startup|compact mirrors the original session-init boot_sweep coverage (not clear — a lightweight /clear is not a fresh session boundary).",
         "matcher": "startup|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py",
+            "command": "python3",
             "timeout": 30,
-            "async": true
+            "async": true,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "settings.json integrity guard (clobber-detection + declared-true-but-unreachable-plugin reconciliation, claude-klabauter session.guard_settings_integrity op, called in-process). This IS a guardrail/detector in the sense the 2026-07-15 full-kill directive targeted, but it is the specific exception: it detects a live-incident-proven failure mode (2026-07-28 example-game-repo/example-game-repo-control/game-dev read enabled while loading nothing for days, MCP camouflaging the gap) and had 6 (now more) passing tests sitting orphaned with no caller \u2014 the guard existed, it just was never wired. Banner-only, never blocks SessionStart (fail-open at every uncertain step in the engine op), short timeout, sync (its output is additionalContext the model needs to see, so async is not an option here, same reasoning as the orientation injector above).",
+        "_comment": "settings.json integrity guard (clobber-detection + declared-true-but-unreachable-plugin reconciliation, claude-klabauter session.guard_settings_integrity op, called in-process). This IS a guardrail/detector in the sense the 2026-07-15 full-kill directive targeted, but it is the specific exception: it detects a live-incident-proven failure mode (2026-07-28 example-game-repo/example-game-repo-control/game-dev read enabled while loading nothing for days, MCP camouflaging the gap) and had 6 (now more) passing tests sitting orphaned with no caller — the guard existed, it just was never wired. Banner-only, never blocks SessionStart (fail-open at every uncertain step in the engine op), short timeout, sync (its output is additionalContext the model needs to see, so async is not an option here, same reasoning as the orientation injector above).",
         "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-settings-integrity.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-settings-integrity.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -44,102 +66,215 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-foreign-platform-paths.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-foreign-platform-paths.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "hook-generation self-probe (claude-klabauter session.self_probe_hook_generation op / run_self_probe, called in-process \u2014 same DR-047 transport-seam shape as guard-settings-integrity.py and guard-foreign-platform-paths.py directly above). Wires a previously-inert guard: run_self_probe was fully built and tested with a registered op name but referenced by nothing anywhere, an orphan identical in shape to the guard-settings-integrity.py orphan fixed above. Purpose: every OTHER guard in the 2026-07-28 incident cluster is reactive (checks its own markers only when it happens to run); this fires on EVERY session boot, records what this session resolved as its content root, and re-arms the hooks-generation kill switch the FIRST time that resolution comes back empty/unresolvable instead of the fourth bricked session teaching us. Cheap by construction (single env read, at most two stat calls, best-effort small write \u2014 see the engine function's own docstring), banner-only, never blocks SessionStart (fail-open at every uncertain step in both the engine op and this stub), sync (its output is additionalContext the model needs to see in THIS turn, same reasoning as the guards above \u2014 async would discard it).",
+        "_comment": "hook-generation self-probe (claude-klabauter session.self_probe_hook_generation op / run_self_probe, called in-process — same DR-047 transport-seam shape as guard-settings-integrity.py and guard-foreign-platform-paths.py directly above). Wires a previously-inert guard: run_self_probe was fully built and tested with a registered op name but referenced by nothing anywhere, an orphan identical in shape to the guard-settings-integrity.py orphan fixed above. Purpose: every OTHER guard in the 2026-07-28 incident cluster is reactive (checks its own markers only when it happens to run); this fires on EVERY session boot, records what this session resolved as its content root, and re-arms the hooks-generation kill switch the FIRST time that resolution comes back empty/unresolvable instead of the fourth bricked session teaching us. Cheap by construction (single env read, at most two stat calls, best-effort small write — see the engine function's own docstring), banner-only, never blocks SessionStart (fail-open at every uncertain step in both the engine op and this stub), sync (its output is additionalContext the model needs to see in THIS turn, same reasoning as the guards above — async would discard it).",
         "matcher": "startup|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-hook-generation-self-probe.py",
+            "command": "python3",
             "timeout": 8,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-hook-generation-self-probe.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "C8 (docs/plans/2026-08-02-write-confinement-guards.md) \u2014 the write-confinement speed bump's session-start anchor record. Writes a small ONCE-per-session record (launch cwd, keyed on session id) that a later Bash/tool-surface bump guard reads back regardless of how many `cd`s happened in between (the harness Bash tool contract states 'Working directory persists between calls', so the live payload cwd drifts under an agent with no adversarial intent -- Zol\u00ed F1). FAIL OPEN unconditionally: a SessionStart hook that errors greets every session in the fleet with a stack trace, which is worse than one that silently no-ops. Matcher is exhaustive (every SessionStart source, not just cold start) because `write_session_start_record()` is idempotent -- a repeat fire for the same session id overwrites the same file with the same content, harmless by construction -- mirroring the C1b role-assertion hook's own reasoning for the same exhaustive matcher, immediately below. See hooks/scripts/session-start-write-bump-anchor.py.",
+        "_comment": "C8 (docs/plans/2026-08-02-write-confinement-guards.md) — the write-confinement speed bump's session-start anchor record. Writes a small ONCE-per-session record (launch cwd, keyed on session id) that a later Bash/tool-surface bump guard reads back regardless of how many `cd`s happened in between (the harness Bash tool contract states 'Working directory persists between calls', so the live payload cwd drifts under an agent with no adversarial intent -- the Director of Engineering F1). FAIL OPEN unconditionally: a SessionStart hook that errors greets every session in the fleet with a stack trace, which is worse than one that silently no-ops. Matcher is exhaustive (every SessionStart source, not just cold start) because `write_session_start_record()` is idempotent -- a repeat fire for the same session id overwrites the same file with the same content, harmless by construction -- mirroring the C1b role-assertion hook's own reasoning for the same exhaustive matcher, immediately below. See hooks/scripts/session-start-write-bump-anchor.py.",
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-write-bump-anchor.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-write-bump-anchor.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "DR-132 (docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-not-a-repos-star-inference.md, Consequences section) \u2014 self-heals engine.working_repos.doe_claude in the machine-local registry. Claude_klabauter self-heals via the engine plane's own installer (register_claude_klabauter_root()); doe_claude had no self-heal at all, an operator-set key that a fresh clone or wiped registry leaves silently wrong or absent, undermining _engine_root.py's working-repo gate for this repo's own sessions. Registered async:true DELIBERATELY, same reasoning as the boot-sweep entry above: this hook produces NO context-bound stdout \u2014 its whole value is the registry side-effect write \u2014 so async keeps it off first-token latency while still restoring the self-heal. Idempotent and quiet when already correct (reads the current value first via the shared _engine_root TOML reader; only a genuinely absent/different value triggers a machine-local set spawn), guarded against registering the wrong tree (requires the repo-root .coordinator-dev-repo sentinel with its slug: doe-claude content line \u2014 structurally absent from every OSS/consumer install, so this hook can never divert a consumer repo away from the published engine). FAIL OPEN unconditionally, same contract as every other hook in this SessionStart block. Matcher is exhaustive (every SessionStart source), mirroring the C8/C1b hooks' own reasoning for the same exhaustive matcher \u2014 safe because a repeat fire when the key is already correct is a single cheap TOML read and nothing else. See hooks/scripts/session-start-register-doe-claude-root.py.",
+        "_comment": "DR-132 (docs/decisions/DR-132-engine-working-repos-is-its-own-namespace-not-a-repos-star-inference.md, Consequences section) — self-heals engine.working_repos.doe_claude in the machine-local registry. Claude_klabauter self-heals via the engine plane's own installer (register_claude_klabauter_root()); doe_claude had no self-heal at all, an operator-set key that a fresh clone or wiped registry leaves silently wrong or absent, undermining _engine_root.py's working-repo gate for this repo's own sessions. Registered async:true DELIBERATELY, same reasoning as the boot-sweep entry above: this hook produces NO context-bound stdout — its whole value is the registry side-effect write — so async keeps it off first-token latency while still restoring the self-heal. Idempotent and quiet when already correct (reads the current value first via the shared _engine_root TOML reader; only a genuinely absent/different value triggers a machine-local set spawn), guarded against registering the wrong tree (requires the repo-root .coordinator-dev-repo sentinel with its slug: doe-claude content line — structurally absent from every OSS/consumer install, so this hook can never divert a consumer repo away from the published engine). FAIL OPEN unconditionally, same contract as every other hook in this SessionStart block. Matcher is exhaustive (every SessionStart source), mirroring the C8/C1b hooks' own reasoning for the same exhaustive matcher — safe because a repeat fire when the key is already correct is a single cheap TOML read and nothing else. See hooks/scripts/session-start-register-doe-claude-root.py.",
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-register-doe-claude-root.py",
+            "command": "python3",
             "timeout": 10,
-            "async": true
+            "async": true,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-register-doe-claude-root.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "C1b \u2014 asserts EM identity to the main session via snippets/agent-role-em.md. Deliberately a SEPARATE hook from the orientation injector above, not a fold-in: orientation is staleness-nudged and suppressible (COORDINATOR_REPOMAP_STATUS_OFF et al., quiet degrade on a missing cache); a role assertion sharing that suppressibility would be worse than none. Relies on SessionStart-class hooks firing only for the main session, never an Agent-tool dispatch -- no additional is-main-session guard is layered on top here. The matcher must enumerate EVERY SessionStart source, not just cold start: the harness emits startup, resume, clear, compact and fork, and an omitted source means the hook simply does not fire for it. A startup|clear|compact matcher silently loses the role assertion on --resume/--continue and on --fork-session, which are precisely the long-lived sessions where the EM has most drifted from its role. This hook's contract is unconditional delivery, so its matcher is exhaustive by construction rather than mirroring any sibling hook's narrower coverage.",
+        "_comment": "Self-heals a stale SCRIPT= path in this repo's already-installed native git prepare-commit-msg hook (docs/wiki/coordinator-tripwires.md § COMMIT-TRAILER-HOOK-SELF-HEAL). The 2026-07-22 executable-surface migration (b644d5a9b) relocated coordinator/bin/coordinator-prepare-commit-msg out of DoE-claude and into claude-klabauter; a shim materialized BEFORE that migration hardcodes a now-nonexistent path and every one of its fallback rungs also resolves inside DoE-claude, so the hook silently never stamps Session-Id/Deliverable-Id trailers on a plain git commit -- fail-open by design, indistinguishable from a healthy no-op. Registered async:true DELIBERATELY, same reasoning as the doe-claude-root self-heal immediately below: this hook's whole value is the file-repair side effect, not context-bound stdout. Idempotent (only rewrites when nothing already-embedded resolves AND a replacement does), touches ONLY a file it recognizes via a marker string as its own shim, exhaustive matcher for the same reason session-start-write-bump-anchor.py and session-start-register-doe-claude-root.py use one. See hooks/scripts/session-start-repair-prepare-commit-msg-hook.py.",
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/assert-em-role.py",
+            "command": "python3",
+            "timeout": 10,
+            "async": true,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start-repair-prepare-commit-msg-hook.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "C1b — asserts EM identity to the main session via snippets/agent-role-em.md. Deliberately a SEPARATE hook from the orientation injector above, not a fold-in: orientation is staleness-nudged and suppressible (COORDINATOR_REPOMAP_STATUS_OFF et al., quiet degrade on a missing cache); a role assertion sharing that suppressibility would be worse than none. Relies on SessionStart-class hooks firing only for the main session, never an Agent-tool dispatch -- no additional is-main-session guard is layered on top here. The matcher must enumerate EVERY SessionStart source, not just cold start: the harness emits startup, resume, clear, compact and fork, and an omitted source means the hook simply does not fire for it. A startup|clear|compact matcher silently loses the role assertion on --resume/--continue and on --fork-session, which are precisely the long-lived sessions where the EM has most drifted from its role. This hook's contract is unconditional delivery, so its matcher is exhaustive by construction rather than mirroring any sibling hook's narrower coverage.",
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/assert-em-role.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
     ],
     "Stop": [
       {
-        "_comment": "C1a \u2014 L1 idle-EM awareness on end-of-turn",
+        "_comment": "C1a — L1 idle-EM awareness on end-of-turn",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "harness-directive dispatch nudge \u2014 catches an EM ending its turn having asked permission to dispatch, or having cited the model-gated tengu_heron_brook AgentTool line as a bar. Fires at most once per session; exits 2 to speak, 0 otherwise. See docs/wiki/harness-directive-conflicts.md.",
+        "_comment": "harness-directive dispatch nudge — catches an EM ending its turn having asked permission to dispatch, or having cited the model-gated tengu_heron_brook AgentTool line as a bar. Fires at most once per session; exits 2 to speak, 0 otherwise. See docs/wiki/harness-directive-conflicts.md.",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-harness-directive-dispatch.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-harness-directive-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "unrouted-sizing nudge \u2014 catches an EM ending its turn having narrated a machine-resolved, unblocked next move (e.g. \"taking it into plan now\") without invoking the room. Exempts an open fork:appetite_exceeded and a route:pm-decision carrying xl_exit:null. Fires at most once per session; exits 2 to speak, 0 otherwise. See docs/wiki/coordinator-tripwires.md \u00a7 NUDGE-UNROUTED-SIZING.",
+        "_comment": "unrouted-sizing nudge — catches an EM ending its turn having narrated a machine-resolved, unblocked next move (e.g. \"taking it into plan now\") without invoking the room. Exempts an open fork:appetite_exceeded and a route:pm-decision carrying xl_exit:null. Fires at most once per session; exits 2 to speak, 0 otherwise. See docs/wiki/coordinator-tripwires.md § NUDGE-UNROUTED-SIZING.",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-unrouted-sizing.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-unrouted-sizing.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "C2b \u2014 L2 asyncRewake stop-watcher (per-session PID lock; sleeps to threshold; exits 2 on overrun). STOOD DOWN 2026-07-31 per PM ruling (reversible, not deleted): 681 fires over 26 days concerning only 6 distinct agents against a 0.59% genuine stall rate, and the demotion of the 'unknown' arrival state to suppressing (7a928d741) left it unable to fire on a real stall in ~99.5% of rows anyway. The script runtime-tripwire-stop-watcher.py is retained on disk, untouched, not deleted. Full restore: re-add this block's hooks entry (single command hook, matcher \"\", timeout 1800, async true, asyncRewake true, invoking ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-stop-watcher.py via the standard runpy trampoline used by every other entry in this file) PLUS flip _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED back to True in coordinator/hooks/scripts/runtime-tripwire-em-check.py. The three em-check.py registrations elsewhere in this file (push-failure / zero-tool-use / EM-report-altitude) were deliberately NOT touched by this stand-down -- that script hosts three unrelated live advisories alongside the stood-down tripwire nudge.",
+        "_comment": "C2b — L2 asyncRewake stop-watcher (per-session PID lock; sleeps to threshold; exits 2 on overrun). STOOD DOWN 2026-07-31 per PM ruling (reversible, not deleted): 681 fires over 26 days concerning only 6 distinct agents against a 0.59% genuine stall rate, and the demotion of the 'unknown' arrival state to suppressing (7a928d741) left it unable to fire on a real stall in ~99.5% of rows anyway. The script runtime-tripwire-stop-watcher.py is retained on disk, untouched, not deleted. Full restore: re-add this block's hooks entry (single command hook, matcher \"\", timeout 1800, async true, asyncRewake true, invoking ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-stop-watcher.py via the standard runpy trampoline used by every other entry in this file) PLUS flip _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED back to True in coordinator/hooks/scripts/runtime-tripwire-em-check.py. The three em-check.py registrations elsewhere in this file (push-failure / zero-tool-use / EM-report-altitude) were deliberately NOT touched by this stand-down -- that script hosts three unrelated live advisories alongside the stood-down tripwire nudge.",
         "matcher": "",
         "hooks": []
+      },
+      {
+        "_comment": "C3 (docs/plans/2026-08-10-posture-scaled-autonomous-disposition.md) -- undischarged-next-move watchdog, Stop leg. Reads the per-session next-move ledger (_next_move_ledger.py) and NOTHING ELSE -- no timing/idle/session-age predicate anywhere in this leg (A5). Fires at most once per obligation (A6): advisory at posture precision (stdout, exit 0), blocking at default/substrate-free (stderr, exit 2), matching nudge-unrouted-sizing.py's own posture-scaled Stop-family shape. See watchdog-undischarged-next-move.py module docstring for the full seam table and exemption discipline.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/watchdog-undischarged-next-move.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "manufactured-blocker guard -- fires when a turn closes by handing the PM a blocker list of EM-altitude items; posture-scaled, exempt on real PM gates. docs/plans/2026-08-10-posture-scaled-autonomous-disposition.md C5",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-manufactured-blocker.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -149,9 +284,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-archive-session.py",
+            "command": "python3",
             "timeout": 15,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-archive-session.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -161,9 +303,36 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-auto-commit.py",
+            "command": "python3",
             "timeout": 30,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-auto-commit.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "_comment": "C3 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- moves the dispatched-agent bookkeeping WRITE onto SubagentStart, the first event carrying a real agent_id/agent_type identity pair, replacing the regex-scrape last resort the PostToolUse(Agent) leg used when both tool_response.agentId/.agent_id were absent. This call is IDENTITY-ONLY by design (track-dispatched-agents.py branches on hook_event_name): it sends agent_id and the literal subagent_type placeholder \"unknown\", never the real SubagentStart agent_type, so the row lands on claude-klabauter's enrich-in-place branch (coordinator_core/hooks/track_dispatched_agents.py::_resolve_row_collision) rather than the idempotent-dedup branch when PostToolUse(Agent) enriches it with the real type and model -- writing the real type here would strand model at \"unknown\" permanently. The PostToolUse(Agent) registration below is unchanged in shape; it still writes, now purely as the enrichment call. Column 4 (timestamp) is deliberately set here, nearer the true dispatch moment, and preserved by the enrich branch rather than overwritten. Failure mode (Review: coordinator:code-reviewer, Finding 5): if the PostToolUse(Agent) enrich fire never lands for a given agent (state/bug-backlog/2026-08-10-posttooluse-agent-does-not-fire-for-some-8c1d40be9f2a.yaml documents this happens), this create call's placeholder row -- subagent_type=\"unknown\", dispatched_model=\"unknown\" -- now persists PERMANENTLY instead of the dispatch going unrecorded as it did pre-C3. Accepted tradeoff: a permanently-unknown row beats a dispatch recorded nowhere, but it means a future reader diagnosing stale \"unknown\" rows in dispatched-agents.txt cannot distinguish 'genuinely unresolved' from 'enrich never fired' without checking the linked bug.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -175,9 +344,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-zero-tool-use-detect.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-zero-tool-use-detect.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -189,9 +365,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pickup-autofire.py",
+            "command": "python3",
             "timeout": 40,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pickup-autofire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -201,58 +384,112 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/mise-autofire.py",
+            "command": "python3",
             "timeout": 30,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/mise-autofire.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "handoff residue-segment retrieval seam (third UserPromptExpansion entry). Fires on a `handoff` verb invocation (same bare-verb-vs-namespaced normalization as pickup-autofire.py/mise-autofire.py); computes the active case set for coordinator/skills/handoff/residue/'s segment contract (`shared` unconditionally, `dirty-tree` from a read-only `git status --porcelain`, `predecessor`/`carried-items` from the read-only `baton-assemble brief handoff` CLI, self-resolving to this session's own held handoff claim), selects every segment whose `case` is active, sorts ascending by `order`, and injects the concatenated bodies as additionalContext -- so the EM never hand-opens a segment file. Read-only end to end: `apply` is never invoked from this hook and there is no mutating half. async:false because the segment set must land in the SAME turn the EM's /handoff prompt is being expanded into. Every failure mode (unresolvable baton-assemble binary, non-zero exit, timeout, malformed JSON, missing/unreadable residue directory, a single malformed segment) degrades to silent pass -- this hook never blocks /handoff, which fires under context pressure by definition. Budget-capped (see `_CONTEXT_BUDGET_CHARS` in the script's own module docstring for the exact figure -- deliberately NOT the 10,000 chars pickup-autofire.py/mise-autofire.py carry), degrading class:droppable segments before ever touching a class:protected one. Install-surface note: this hook type required /reload-plugins to start firing during the spike that proved the mechanism (see pickup-autofire.py's own module docstring for the same finding) -- a plain hooks.json edit alone was not observed to be enough on its own.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 30,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/handoff-segment-inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
-        "_comment": "C1a \u2014 L1 idle-EM awareness on user-prompt-submit (catches conversational-idle case)",
+        "_comment": "C1a — L1 idle-EM awareness on user-prompt-submit (catches conversational-idle case)",
         "matcher": "",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
         "_comment": "GUARD-DOCTRINE-SURFACE-BASH-WRITE -- closes the Bash escape from the admission gate (check-claude-md-size.py is registered on Write|Edit|MultiEdit only, so a shell redirect or interpreter payload reached a governed doctrine surface without the gate ever firing). Denies redirect/tee/sed-in-place/interpreter writes to a GOVERNED_AUTHORING_SURFACES entry and offers the Write/Edit route instead. Fails OPEN only when there is no command to classify at all; an ambiguous or indirected command that names a governed surface fails CLOSED. DoE-resident by design, like the admission gate itself -- not folded into claude-klabauter's bash_guards dispatcher.",
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-doctrine-surface-bash-write.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-doctrine-surface-bash-write.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
         "_comment": "Timeout is 15s because it is >= the max of the former per-hook timeouts (rm and orphan were 10s, doing git rev-list/status); checks now run sequentially in one process. This single dispatcher replaces the 8 folded guards PLUS validate-commit (folded Phase 2, 2026-06-30, see docs/plans/2026-06-30-fold-validate-commit-into-dispatcher.md). 15s comfortably covers validate-commit's former 5s commit-path budget.",
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
+            "command": "python3",
             "timeout": 15,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -262,8 +499,33 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "Registration only for the engine plane's coordinator_core.hooks.block_unenumerated_agent_type hard-deny guard: denies an Agent dispatch whose subagent_type is not on the enumerated roster (union of DoE's subagent-sandbox-policy.yaml + coordinator/agents/*.md, harness built-ins, and installed plugin agents). All roster/deny logic is the engine plane's; this entry is transport registration only, via coordinator/hooks/scripts/block-unenumerated-agent-type.py. Fail-CLOSED by design on roster-load failure (unresolvable engine root, unimportable engine module, or a raising check() call) -- unlike every other Agent-matcher entry below it, a transport failure here denies rather than silently passing, because the point of this guard is verifying enumeration, and 'could not verify' must not collapse into 'assume fine'. Carries one provisional harness-shape carve-out (`fork`, not yet in the engine's own harness-builtin roster) that is removed once the engine plane's roster carries it. Escape hatch: a `COORDINATOR-OVERRIDE-UNENUMERATED-AGENT-TYPE: <reason>` line in the dispatch prompt. Registered at index 4 -- after the DR-088 suite guard (index 3, registered first so its own deny is never shadowed) and ahead of every advisory Agent entry that follows, so this hard deny is never shadowed by an advisory's own (unrelated) verdict either.",
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-unenumerated-agent-type.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -273,8 +535,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-named-agent-report-delivery.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-named-agent-report-delivery.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -284,8 +553,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-review-integrator-sidecar-intake.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-review-integrator-sidecar-intake.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -295,30 +571,58 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/enforce-agent-dispatch-mode.py",
+            "command": "python3",
             "timeout": 3,
-            "async": false
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/enforce-agent-dispatch-mode.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           },
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           },
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/offer-exploration-tier-dispatch.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/offer-exploration-tier-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "C8 (docs/plans/2026-07-23-dr-088-ladder-enforcement-layers.md) -- Layer 2 of the DR-088 ladder. Registered BEFORE block-workflow-unmodeled-agent.py below: first-deny-wins in registration order (hook-best-practices.md \u00a7 Multi-hook deny aggregation), so a suite-invocation deny surfaces this hook's remediation rather than losing to that hook's own (unrelated) verdict.",
+        "_comment": "C8 (docs/plans/2026-07-23-dr-088-ladder-enforcement-layers.md) -- Layer 2 of the DR-088 ladder. Registered BEFORE block-workflow-unmodeled-agent.py below: first-deny-wins in registration order (hook-best-practices.md § Multi-hook deny aggregation), so a suite-invocation deny surfaces this hook's remediation rather than losing to that hook's own (unrelated) verdict.",
         "matcher": "Workflow",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -327,13 +631,27 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-multiwave-workflow.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           },
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-unmodeled-agent.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-unmodeled-agent.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -343,8 +661,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -353,8 +678,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/suggest-sonnet-research.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/suggest-sonnet-research.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -363,42 +695,70 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "PREUSE-WRITE-DISPATCH \u2014 the single PreToolUse(Write|Edit|MultiEdit) entrypoint (docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md \u00a7 C4, fan-in AC-1). Resolves the claude-klabauter engine in-process, then batches ALL FIVE DoE-resident write-path guards (check-claude-md-size, guard-prompt-surface-citations, guard-doctrine-changelog-prose, guard-oss-payload-locality, nudge-plan-test-surface-tier \u2014 formerly five standalone registrations on this matcher, now enrolled on `_guard_runner.REAL_GUARD_REGISTRY`) into the SAME interpreter via the in-process guard runner (coordinator/hooks/scripts/_guard_runner.py), each guard's own two-stage lazy-import scope descriptor deciding whether it is even imported for a given write. Class-aware aggregation (_guard_runner_contract.py clause 10): at most one deny reaches the harness, but a deny from one guard and an advisory from another on the SAME write both surface. This rewiring moves WHERE guards run, never what they decide \u2014 each guard's own module docstring still states its policy.",
+        "_comment": "PREUSE-WRITE-DISPATCH — the single PreToolUse(Write|Edit|MultiEdit) entrypoint (docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md § C4, fan-in AC-1). Resolves the claude-klabauter engine in-process, then batches ALL FIVE DoE-resident write-path guards (check-claude-md-size, guard-prompt-surface-citations, guard-doctrine-changelog-prose, guard-oss-payload-locality, nudge-plan-test-surface-tier — formerly five standalone registrations on this matcher, now enrolled on `_guard_runner.REAL_GUARD_REGISTRY`) into the SAME interpreter via the in-process guard runner (coordinator/hooks/scripts/_guard_runner.py), each guard's own two-stage lazy-import scope descriptor deciding whether it is even imported for a given write. Class-aware aggregation (_guard_runner_contract.py clause 10): at most one deny reaches the harness, but a deny from one guard and an advisory from another on the SAME write both surface. This rewiring moves WHERE guards run, never what they decide — each guard's own module docstring still states its policy.",
         "matcher": "Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
       {
-        "_comment": "BLOCK-WORKTREE-TOOL \u2014 structural git-worktree ban, one leg of a multi-leg campaign. Denies EnterWorktree unconditionally (worktrees degrade on Windows and don't scale to concurrent-agent dispatch; the sanctioned shape is scoped-parallel dispatch into the same tree). ExitWorktree always ALLOWED \u2014 leaving a worktree is cleanup, never blocked, or an agent already inside one gets trapped. Override: repo-root sentinel file ONLY (no env-var leg \u2014 a subagent can set an env var on itself, defeating an env-var override for a guard that must bind subagents too). Deny message deliberately never names the sentinel file.",
+        "_comment": "BLOCK-WORKTREE-TOOL — structural git-worktree ban, one leg of a multi-leg campaign. Denies EnterWorktree unconditionally (worktrees degrade on Windows and don't scale to concurrent-agent dispatch; the sanctioned shape is scoped-parallel dispatch into the same tree). ExitWorktree always ALLOWED — leaving a worktree is cleanup, never blocked, or an agent already inside one gets trapped. Override: repo-root sentinel file ONLY (no env-var leg — a subagent can set an env var on itself, defeating an env-var override for a guard that must bind subagents too). Deny message deliberately never names the sentinel file.",
         "matcher": "EnterWorktree|ExitWorktree",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-worktree-tool.py",
-            "timeout": 5
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-worktree-tool.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-heartbeat.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -408,8 +768,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -418,8 +785,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.py",
-            "timeout": 15
+            "command": "python3",
+            "timeout": 15,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -428,19 +802,40 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
-            "timeout": 5
-          },
-          {
-            "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+            "command": "python3",
             "timeout": 5,
-            "async": false
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          },
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       },
@@ -450,8 +845,34 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
-            "timeout": 10
+            "command": "python3",
+            "timeout": 10,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "C3 (docs/plans/2026-08-10-posture-scaled-autonomous-disposition.md) -- undischarged-next-move watchdog, emission/discharge leg. Observes Skill and Agent tool completions to open obligations from a STATIC seam table (sizing-routed, plan->review, review-a1-a2) and discharge them on the matching terminal call -- never an inference. Exempts an open appetite/post-size fork or a route:pm-decision object carrying xl_exit:null, same discipline as nudge-unrouted-sizing.py. Paired with the Stop-leg registration of the same script above.",
+        "matcher": "Skill|Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/watchdog-undischarged-next-move.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
       }
@@ -462,10 +883,1274 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -c 'import os,runpy,sys;p=sys.argv[1];sys.argv=sys.argv[1:];runpy.run_path(p,run_name=\"__main__\") if os.path.isfile(p) else sys.stderr.write(\"COORDINATOR HOOK SEAM: registered hook script unreachable -- \"\"failing OPEN so tool calls keep working. missing: \"+p+\" | This is a defect, not a \"\"normal state: the registration and the script have drifted apart (deleted script, \"\"or a path that does not resolve on this host).\")' ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.py",
-            "timeout": 3
+            "command": "python3",
+            "timeout": 3,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
           }
         ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "_comment": "C2 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- observe-only ConfigChange handler. Records a JSONL line per fire to <git-common-dir>/coordinator-sessions/hook-observations/ConfigChange.jsonl; never blocks, never mutates, no `if:` (not a tool event -- `if:` there silently disables the hook entirely). ConfigChange CAN block a config change (verbatim strings confirmed live: 'ConfigChange hook blocked change to ', '...blocked deletion of ', '...blocked skill reload ('), but a first registration that both observes and enforces gives no way to tell a false positive from a correct block on a file every session on every host boots through -- land the signal first. NAMED EXIT CONDITION (C2 chunk body): after 50 observed payloads or 2026-09-10, whichever comes first, the EM reads the accumulated records and either files the enforcement successor or retires this hook. FAIL OPEN unconditionally. See hooks/scripts/observe-config-change.py.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observe-config-change.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "_comment": "C2 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- observe-only PostCompact handler, deliberately PAYLOAD-AGNOSTIC. This event has never been empirically fired on any harness version; two headless probes failed to induce compaction, and its payload is inferred from bundle strings, not measured. The handler never reads a named field -- it dumps the parsed JSON back out whole (or the raw stdin text if it does not even parse) into <git-common-dir>/coordinator-sessions/hook-observations/PostCompact.jsonl, so it is correct without knowing the real shape and becomes the instrument that finally measures reachability by riding real sessions. Never blocks, never mutates, no `if:` (not a tool event). Do NOT convert this to named-field reads until a real fired payload has been captured and inspected. FAIL OPEN unconditionally. See hooks/scripts/observe-post-compact.py.",
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/observe-post-compact.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "x-effective-delivery": {
+    "version": 1,
+    "generated_from_sha": "7e49c345be0b8f78134fe28e73d5fb4565ee5145",
+    "generated_at": "2026-08-13T17:28:51Z",
+    "generated_from_dirty_tree": true,
+    "carriers": [
+      {
+        "script": "scripts/preuse-write-dispatch.py",
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "guards": [
+          {
+            "id": "guard_python_syntax_on_write",
+            "script": "scripts/guard-python-syntax-on-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_oss_payload_locality",
+            "script": "scripts/guard-oss-payload-locality.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_plan_test_surface_tier",
+            "script": "scripts/nudge-plan-test-surface-tier.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_prompt_surface_citations",
+            "script": "scripts/guard-prompt-surface-citations.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_doctrine_changelog_prose",
+            "script": "scripts/guard-doctrine-changelog-prose.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "check_claude_md_size",
+            "script": "scripts/check-claude-md-size.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_test_tree_git_fixture_spawn",
+            "script": "scripts/guard-test-tree-git-fixture-spawn.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_completion_monolith_write",
+            "script": "write_guards/block_completion_monolith_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_consumed_handoff_edit",
+            "script": "write_guards/block_consumed_handoff_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_cutover_phase_hand_edit",
+            "script": "write_guards/block_cutover_phase_hand_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "block_derived_global_doctrine_write",
+            "script": "write_guards/block_derived_global_doctrine_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_dev_repo_sentinel_write",
+            "script": "write_guards/block_dev_repo_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_dev_side_mirror_wiki",
+            "script": "write_guards/block_dev_side_mirror_wiki.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_disarm_marker_sentinel_write",
+            "script": "write_guards/block_disarm_marker_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_em_hand_edit_pending_review_integration",
+            "script": "write_guards/block_em_hand_edit_pending_review_integration.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_goals_log_hand_write",
+            "script": "write_guards/block_goals_log_hand_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_home_dir_memo_delivery",
+            "script": "write_guards/block_home_dir_memo_delivery.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_illegal_filename",
+            "script": "write_guards/block_illegal_filename.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_memo_status_hand_edit",
+            "script": "write_guards/block_memo_status_hand_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "block_oss_mirror_memo_delivery",
+            "script": "write_guards/block_oss_mirror_memo_delivery.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_priority_ledger_edit",
+            "script": "write_guards/block_priority_ledger_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_archive_write",
+            "script": "write_guards/block_subagent_archive_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_grant_record_write",
+            "script": "write_guards/block_subagent_grant_record_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_guard_grant_write",
+            "script": "write_guards/block_subagent_guard_grant_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_subagent_plan_body_write",
+            "script": "write_guards/block_subagent_plan_body_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_tracker_edit",
+            "script": "write_guards/block_tracker_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_unauthorized_claude_md_write",
+            "script": "write_guards/block_unauthorized_claude_md_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_worktree_sentinel_write",
+            "script": "write_guards/block_worktree_sentinel_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "bump_out_of_repo_tool_write",
+            "script": "write_guards/bump_out_of_repo_tool_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "check_claude_md_size",
+            "script": "write_guards/check_claude_md_size.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "guard_concrete_path_citations",
+            "script": "write_guards/guard_concrete_path_citations.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_doctrine_surface_edits",
+            "script": "write_guards/guard_doctrine_surface_edits.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "guard_memory_store_cap",
+            "script": "write_guards/guard_memory_store_cap.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "guard_settings_json_write",
+            "script": "write_guards/guard_settings_json_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_baton_body_bar",
+            "script": "write_guards/nudge_baton_body_bar.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_em_code_dispatch",
+            "script": "write_guards/nudge_em_code_dispatch.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_handoff_ac_shape",
+            "script": "write_guards/nudge_handoff_ac_shape.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_improvement_queue_write",
+            "script": "write_guards/nudge_improvement_queue_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_new_sh_file_naked_python",
+            "script": "write_guards/nudge_new_sh_file_naked_python.py",
+            "tool_names": [
+              "Write"
+            ]
+          },
+          {
+            "id": "nudge_outbox_draft_frontmatter_shape",
+            "script": "write_guards/nudge_outbox_draft_frontmatter_shape.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_plan_sidecar_family_split",
+            "script": "write_guards/nudge_plan_sidecar_family_split.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_private_git_fact_resolver",
+            "script": "write_guards/nudge_private_git_fact_resolver.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_prose_queue_append",
+            "script": "write_guards/nudge_prose_queue_append.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_prose_queue_creation",
+            "script": "write_guards/nudge_prose_queue_creation.py",
+            "tool_names": [
+              "Write"
+            ]
+          },
+          {
+            "id": "nudge_sentinel_retained_review_sidecar",
+            "script": "write_guards/nudge_sentinel_retained_review_sidecar.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_shell_shaped_spawn",
+            "script": "write_guards/nudge_shell_shaped_spawn.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge_tasks_state_folder_split",
+            "script": "write_guards/nudge_tasks_state_folder_split.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_terminal_artifact_edit",
+            "script": "write_guards/nudge_terminal_artifact_edit.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "nudge_windows_subprocess_popup",
+            "script": "write_guards/nudge_windows_subprocess_popup.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "validate_frontmatter_schema_advisory",
+            "script": "write_guards/validate_frontmatter_schema_advisory.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "validate_frontmatter_schema_deny",
+            "script": "write_guards/validate_frontmatter_schema_deny.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          }
+        ]
+      },
+      {
+        "script": "scripts/postuse-stop-family-dispatch.py",
+        "matcher": "Write|Edit|MultiEdit",
+        "guards": [
+          {
+            "id": "derive-global-doctrine-live-copy.py",
+            "script": "scripts/derive-global-doctrine-live-copy.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "derive-setup-copies.py",
+            "script": "scripts/derive-setup-copies.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge-initiative-goals-ladder.py",
+            "script": "scripts/nudge-initiative-goals-ladder.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
+            "id": "nudge-new-file-zero-budget-ratchets.py",
+            "script": "scripts/nudge-new-file-zero-budget-ratchets.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          }
+        ]
+      },
+      {
+        "script": "scripts/preuse-bash-dispatch.py",
+        "matcher": "Bash|PowerShell",
+        "guards": [
+          {
+            "id": "no-verify",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "destructive-git-orphan",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "destructive-rm",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "destructive-git-clean",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "destructive-git-revert",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "blanket-git-add",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "runaway-find",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-worktree-creation",
+            "script": "bash_guards/block_worktree_creation.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-approval-sentinel-creation",
+            "script": "bash_guards/block_approval_sentinel_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-worktree-sentinel-creation",
+            "script": "bash_guards/block_worktree_sentinel_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-disarm-marker-sentinel-creation",
+            "script": "bash_guards/block_disarm_marker_sentinel_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-stash-destruction",
+            "script": "bash_guards/block_stash_destruction.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-subagent-stash-creation",
+            "script": "bash_guards/block_subagent_stash_creation.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-reviewer-bash-outside-allowlist",
+            "script": "bash_guards/block_reviewer_bash_outside_allowlist.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-destructive-action",
+            "script": "bash_guards/block_subagent_destructive_action.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-subagent-commit",
+            "script": "bash_guards/block_subagent_commit.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "check-test-suite-invocation",
+            "script": "bash_guards/check_test_suite_invocation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-subagent-grant-acquisition",
+            "script": "bash_guards/block_subagent_grant_acquisition.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-subagent-guard-grant",
+            "script": "bash_guards/block_subagent_guard_grant.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "destructive-git-revert-advisory",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-dev-repo-sentinel-removal-advisory",
+            "script": "bash_guards/block_dev_repo_sentinel_removal.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "bump-foreign-repo-write",
+            "script": "bash_guards/bump_foreign_repo_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "bump-outside-repo-write",
+            "script": "bash_guards/bump_outside_repo_write.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "offer-git-c",
+            "script": "bash_guards/guard_offer_git_c.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "reap-stale-git-lock",
+            "script": "bash_guards/guard_reap_stale_git_lock.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "git-no-optional-locks",
+            "script": "bash_guards/guard_no_optional_locks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "validate-commit",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "inprocess-search",
+            "script": "bash_guards/guard_inprocess_search.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "probe-spray",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-illegal-filename",
+            "script": "bash_guards/block_illegal_filename.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "find-exec-rewrite",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "grep-via-bash-rewrite",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "sed-range-read-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "cat-heredoc-write-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "git-commit-safe-commit-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "multiprobe-banner-rewrite",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "head-tail-plumbing-rewrite",
+            "script": "bash_guards/guard_head_tail_rewrite.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "offer-invoke-params-stdin",
+            "script": "bash_guards/guard_offer_invoke_params_stdin.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "grep-via-bash-guard",
+            "script": "bash_guards/guard_grep_via_bash.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "powershell-via-bash-guard",
+            "script": "bash_guards/guard_powershell_via_bash.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "branch-set-precedence",
+            "script": "bash_guards/guard_branch_set_precedence.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "longlived-branch-naming",
+            "script": "bash_guards/guard_longlived_branch_naming.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "block-noncanonical-branch-creation",
+            "script": "bash_guards/block_noncanonical_branch_creation.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "block-subagent-plan-body-bash-write",
+            "script": "bash_guards/block_subagent_plan_body_bash_write.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "check-raw-pid-liveness",
+            "script": "bash_guards/check_raw_pid_liveness.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "multiprobe-banner",
+            "script": "bash_guards/guard_multiprobe_banner.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "plumbing-and-loops",
+            "script": "bash_guards/guard_plumbing_and_loops.py",
+            "tool_names": [
+              "Bash"
+            ]
+          }
+        ]
+      },
+      {
+        "script": "scripts/postuse-advisory-dispatch.py",
+        "matcher": "",
+        "guards": [],
+        "ops": [
+          "hooks.postuse_advisory_dispatch",
+          "hooks.track_touched_files"
+        ]
+      }
+    ],
+    "direct": [
+      {
+        "id": "agent-completion-log.py",
+        "script": "scripts/agent-completion-log.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "assert-em-role.py",
+        "script": "scripts/assert-em-role.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "block-dispatch-suite-invocation.py",
+        "script": "scripts/block-dispatch-suite-invocation.py",
+        "tool_names": [
+          "Agent",
+          "Workflow"
+        ]
+      },
+      {
+        "id": "block-unenumerated-agent-type.py",
+        "script": "scripts/block-unenumerated-agent-type.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "block-workflow-unmodeled-agent.py",
+        "script": "scripts/block-workflow-unmodeled-agent.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
+        "id": "block-worktree-tool.py",
+        "script": "scripts/block-worktree-tool.py",
+        "tool_names": [
+          "EnterWorktree",
+          "ExitWorktree"
+        ]
+      },
+      {
+        "id": "context-pressure-precompact.py",
+        "script": "scripts/context-pressure-precompact.py",
+        "tool_names": []
+      },
+      {
+        "id": "enforce-agent-dispatch-mode.py",
+        "script": "scripts/enforce-agent-dispatch-mode.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "guard-doctrine-surface-bash-write.py",
+        "script": "scripts/guard-doctrine-surface-bash-write.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
+      },
+      {
+        "id": "guard-foreign-platform-paths.py",
+        "script": "scripts/guard-foreign-platform-paths.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "startup"
+        ]
+      },
+      {
+        "id": "guard-hook-generation-self-probe.py",
+        "script": "scripts/guard-hook-generation-self-probe.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "startup"
+        ]
+      },
+      {
+        "id": "guard-manufactured-blocker.py",
+        "script": "scripts/guard-manufactured-blocker.py",
+        "tool_names": []
+      },
+      {
+        "id": "guard-review-integrator-sidecar-intake.py",
+        "script": "scripts/guard-review-integrator-sidecar-intake.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "guard-settings-integrity.py",
+        "script": "scripts/guard-settings-integrity.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "startup"
+        ]
+      },
+      {
+        "id": "handoff-segment-inject.py",
+        "script": "scripts/handoff-segment-inject.py",
+        "tool_names": []
+      },
+      {
+        "id": "mise-autofire.py",
+        "script": "scripts/mise-autofire.py",
+        "tool_names": []
+      },
+      {
+        "id": "nudge-autonomous-askuserquestion.py",
+        "script": "scripts/nudge-autonomous-askuserquestion.py",
+        "tool_names": [
+          "AskUserQuestion"
+        ]
+      },
+      {
+        "id": "nudge-harness-directive-dispatch.py",
+        "script": "scripts/nudge-harness-directive-dispatch.py",
+        "tool_names": []
+      },
+      {
+        "id": "nudge-multiwave-workflow.py",
+        "script": "scripts/nudge-multiwave-workflow.py",
+        "tool_names": [
+          "Agent",
+          "Workflow"
+        ]
+      },
+      {
+        "id": "nudge-named-agent-report-delivery.py",
+        "script": "scripts/nudge-named-agent-report-delivery.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "nudge-unrouted-sizing.py",
+        "script": "scripts/nudge-unrouted-sizing.py",
+        "tool_names": []
+      },
+      {
+        "id": "observe-config-change.py",
+        "script": "scripts/observe-config-change.py",
+        "tool_names": []
+      },
+      {
+        "id": "observe-post-compact.py",
+        "script": "scripts/observe-post-compact.py",
+        "tool_names": []
+      },
+      {
+        "id": "offer-exploration-tier-dispatch.py",
+        "script": "scripts/offer-exploration-tier-dispatch.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "pickup-autofire.py",
+        "script": "scripts/pickup-autofire.py",
+        "tool_names": []
+      },
+      {
+        "id": "plan-persistence-check.py",
+        "script": "scripts/plan-persistence-check.py",
+        "tool_names": [
+          "ExitPlanMode"
+        ]
+      },
+      {
+        "id": "project-orientation.py",
+        "script": "scripts/project-orientation.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "startup"
+        ]
+      },
+      {
+        "id": "runtime-tripwire-em-check.py",
+        "script": "scripts/runtime-tripwire-em-check.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "session-heartbeat.py",
+        "script": "scripts/session-heartbeat.py",
+        "tool_names": [
+          "Bash",
+          "PowerShell"
+        ]
+      },
+      {
+        "id": "session-start-register-doe-claude-root.py",
+        "script": "scripts/session-start-register-doe-claude-root.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "session-start-repair-prepare-commit-msg-hook.py",
+        "script": "scripts/session-start-repair-prepare-commit-msg-hook.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "session-start-write-bump-anchor.py",
+        "script": "scripts/session-start-write-bump-anchor.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
+      {
+        "id": "sessionend-archive-session.py",
+        "script": "scripts/sessionend-archive-session.py",
+        "tool_names": []
+      },
+      {
+        "id": "sessionend-auto-commit.py",
+        "script": "scripts/sessionend-auto-commit.py",
+        "tool_names": []
+      },
+      {
+        "id": "strip-worktree-isolation.py",
+        "script": "scripts/strip-worktree-isolation.py",
+        "tool_names": [
+          "Workflow"
+        ]
+      },
+      {
+        "id": "subagent-zero-tool-use-detect.py",
+        "script": "scripts/subagent-zero-tool-use-detect.py",
+        "tool_names": []
+      },
+      {
+        "id": "suggest-sonnet-research.py",
+        "script": "scripts/suggest-sonnet-research.py",
+        "tool_names": [
+          "WebFetch",
+          "WebSearch"
+        ]
+      },
+      {
+        "id": "sweep-boot.py",
+        "script": "scripts/sweep-boot.py",
+        "tool_names": [
+          "compact",
+          "startup"
+        ]
+      },
+      {
+        "id": "track-dispatched-agents.py",
+        "script": "scripts/track-dispatched-agents.py",
+        "tool_names": [
+          "Agent"
+        ]
+      },
+      {
+        "id": "watchdog-undischarged-next-move.py",
+        "script": "scripts/watchdog-undischarged-next-move.py",
+        "tool_names": [
+          "Agent",
+          "Skill"
+        ]
+      }
+    ],
+    "retired": [
+      {
+        "id": "nudge-foreground-agent-dispatch.py",
+        "script": "scripts/nudge-foreground-agent-dispatch.py",
+        "reason": "Deregistered from hooks.json; folded into a pure-Python port inside enforce-agent-dispatch-mode.py that makes no engine-plane call at all."
+      },
+      {
+        "id": "runtime-tripwire-stop-watcher.py",
+        "script": "scripts/runtime-tripwire-stop-watcher.py",
+        "reason": "Stood down 2026-07-31 per PM ruling; reversible, comment-only mention remains in hooks.json."
+      },
+      {
+        "id": "guard-named-dispatch-tool-restriction.py",
+        "script": "scripts/guard-named-dispatch-tool-restriction.py",
+        "reason": "Deregistered from hooks.json; folded into a pure-Python port inside enforce-agent-dispatch-mode.py."
+      },
+      {
+        "id": "track-touched-files.py",
+        "script": "scripts/track-touched-files.py",
+        "reason": "Standalone Write|Edit|MultiEdit|NotebookEdit registration folded into postuse-advisory-dispatch.py's hooks.track_touched_files call; fully absent from hooks.json."
+      },
+      {
+        "id": "nudge-unauthorized-handoff.py",
+        "script": "scripts/nudge-unauthorized-handoff.py",
+        "reason": "Its standalone PostToolUse(Write) registration was folded into postuse-advisory-dispatch.py's direct nudge_unauthorized_handoff.advisory_text() call; fully absent from current hooks.json."
       }
     ]
   }

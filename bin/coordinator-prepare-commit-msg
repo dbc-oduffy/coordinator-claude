@@ -12,12 +12,22 @@ Git hook signature (prepare-commit-msg):
 
 Behaviour:
   1. Resolve the git dir once (``git rev-parse --git-dir``, ONE subprocess —
-     needed both for the session-id sentinel fallback and for locating
-     ``session-shape.json``) and the current session-id via the canonical
-     three-tier ladder:
-       (1) $CLAUDE_SESSION_ID                                   (legacy var)
-       (2) $CLAUDE_CODE_SESSION_ID                              (platform-injected)
-       (3) <git-dir>/coordinator-sessions/.current-session-id   (sentinel fallback)
+     needed for locating ``session-shape.json``) and the current session-id
+     via the three-tier env ladder (KS-6, 2026-08-07 — widened to match
+     ``coordinator_core.session.core.SESSION_ENV_PRECEDENCE``, the canonical
+     reference; this hook cannot cheaply import ``coordinator_core`` on its
+     hot commit-hook path, so this ladder is a hand-mirrored copy of that
+     module's — a change to one must be mirrored in the other):
+       (1) $COORDINATOR_SESSION_ID                              (explicit test override)
+       (2) $CLAUDE_SESSION_ID                                   (legacy var)
+       (3) $CLAUDE_CODE_SESSION_ID                               (platform-injected)
+     A former tier-4 ``<git-dir>/coordinator-sessions/.current-session-id`` sentinel
+     fallback (liveness-gated as of 2026-08-07) was REMOVED entirely on
+     2026-08-07 (KS-1) — unsound by construction under this fleet's
+     concurrency (documented last-writer-wins,
+     ``coordinator_core/bash_guards/guard_inprocess_search.py`` ~L84) and its
+     writer (``session-init.py``) was deleted 2026-07-15. See
+     ``_resolve_session_id``'s own docstring for the full rationale.
   2. Empty session-id → exit 0 silently (non-coordinator commit; unaffected).
   3. Fail-safe UUID validation — a resolved session-id that is not UUID-shaped
      (e.g. a poisoned sentinel or a stray profiling-run env override) → exit 0,
@@ -38,7 +48,13 @@ Behaviour:
      git unavailable, timeout, empty stage) and a genuinely divergent
      multi-artifact commit (``DivergentDeliverableIdError``) both degrade to
      "tier 0 has nothing to say" — noted on stderr for the divergent case —
-     rather than blocking or erroring the commit. This mirrors
+     rather than blocking or erroring the commit. Gated (2026-08-07, DR-207)
+     on ``coordinator_core.claim_state.resolve_claim_state``: a staged
+     artifact claimed by a DIFFERENT live session is excluded from tier 0's
+     consideration (falls through to the session-keyed tiers below) rather
+     than stamping the peer's deliverable onto this commit — see
+     ``_resolve_deliverable_id_from_paths``'s own docstring for the
+     memo-write-through defect this closes. This mirrors
      ``coordinator_core.git.commit_trailers.compute_missing_trailer_args``'s
      own tier 0 for a caller (``git commit-tree`` et al.) that hooks never
      fire for; that sibling is CLI-facing and propagates the same divergence
@@ -73,6 +89,43 @@ Behaviour:
      Deliverable-Id stays omitted.
      Spec: cross-repo dispatch 2026-07-27 (`Deliverable-Id trailer never
      lands on cross-repo claude-klabauter commits` investigation).
+  3b. Scope-match tier + ambiguity gate (C4, importing C2's landed seam,
+     2026-08-10): between tier 0 (artifact-first) and step 4
+     (session-shape.json pickup) below, resolve this session's held plan
+     claims (``coordinator_core.session.claimed_plan.list_held_plan_claims``,
+     C1a's ``[(plan_path, claimed_at), ...]`` shape) and try
+     ``coordinator_core.git.commit_trailers.resolve_deliverable_id_from_scope_match``
+     — a code-only commit whose staged pathspec is strictly covered by
+     exactly ONE claimed plan's ``scope:`` frontmatter resolves to that
+     plan's ``deliverable_id``. Both this tier AND the ambiguity gate
+     (``session_holds_multiple_plan_claims`` — a session holding 2+ plan
+     claims with neither tier 0 nor this scope-match tier disambiguating
+     OMITS rather than guesses, since every tier below is session-keyed and
+     cannot tell which held claim a given commit is actually for) are IMPORTED, not
+     re-mirrored, from ``coordinator_core.git.commit_trailers`` — C2's
+     REQUIRED INTERFACE, its sole two new exports. Verified live at C4 time:
+     importing them triggers ZERO ``coordinator_core.ops`` module imports
+     (that package's own eager ~161-module sweep never fires), so this
+     import is as cheap on the hot commit-hook path as the pre-existing
+     claimed-plan import in step 4b below. Lazily imported the same way, via
+     ``_ensure_claude_klabauter_on_syspath()`` / ``cc_invoke.require_colocated_engine_on_path``
+     (self-location-first, wrapping ``resolve_colocated_claude_klabauter_root``).
+     ORDERING DEPENDENCY (reviewer finding, 2026-08-10): the "zero
+     ``coordinator_core.ops`` imports" property holds only because
+     ``_ensure_claude_klabauter_on_syspath()`` imports ``cc_invoke`` first, and
+     ``cc_invoke``'s own module-import sets ``sys._coordinator_core_lazy_ops``
+     as a side effect before this tier's lazy ``commit_trailers`` import ever
+     runs. Reordering this ladder to reach step 3b before
+     ``_ensure_claude_klabauter_on_syspath()`` has run, or a future caller of
+     ``resolve_deliverable_id_from_scope_match`` that skips that bootstrap,
+     silently reintroduces the eager ~161-module sweep on the commit hot
+     path — nothing here catches that regression, so preserve the ordering.
+     Mirrored-pair maintenance note (module docstring, above): this tier is
+     the ONE exception to "hand-mirrored, changed in both by hand" — C2's
+     scope-match tier and ambiguity predicate are IMPORTED here verbatim, so
+     a change to either lives in exactly one place
+     (``coordinator_core/git/commit_trailers.py``) and this hook picks it up
+     automatically; do not hand-roll a second implementation of either.
   4b. Claimed-plan fallback (2026-08-01): steps 4/4a both key off
      ``pickup.deliverable_id``, populated ONLY by ``record_pickup`` on a
      ``/pickup`` of a HANDOFF. A session that claims a PLAN directly and
@@ -103,6 +156,12 @@ Behaviour:
 
 NEVER blocks a commit — always exits 0. `git interpret-trailers` is core git ≥ 1.8.
 
+Also emits ONE write-time advisory, unrelated to trailers and equally
+non-blocking: a subject shaped as a chunk-id RANGE (`C1-C5: ...`) is named on
+stderr with its enumerated form (`C1,C2,C3,C4,C5: ...`) attached — see
+`_warn_hyphen_range_subject`. Fires ahead of the session-id gate, adds no
+subprocess, and never rewrites the message.
+
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § git-hook-installers-port
 Prior spec: docs/plans/2026-06-15-brightline-session-scope-fix.md § C1
 Spec: cross-repo/inbox/2026-07-21-claude-klabauter-em-claude-klabauter-session-id-leak-fix-reply.md (residual B(i))
@@ -116,9 +175,22 @@ import os
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+#: Range-shaped chunk-id prefix on a commit subject — `C1-C5: <prose>`,
+#: `C1 - 5: <prose>`, `1-4: <prose>`. Deliberately requires DIGITS on BOTH
+#: sides of the hyphen, which is what keeps every real compound dash-tag in
+#: the corpus (`DOCTRINE-C7a:`, `RESIDUE-C9:`, `RESIDUE-C1..C7:`) out of it:
+#: their left component is prose, so the alternation never starts. The
+#: optional right-hand alpha prefix is captured so it can be checked equal to
+#: the left one (or absent) before firing — `C1-D4:` is two different spine
+#: families, not a range, and must not be reported as one.
+_HYPHEN_RANGE_SUBJECT_RE = re.compile(
+    r"^\s*(?P<lp>[A-Za-z]{0,10}?)(?P<ln>\d+)\s*-\s*(?P<rp>[A-Za-z]{0,10}?)(?P<rn>\d+)\s*:"
 )
 
 
@@ -126,8 +198,8 @@ def _resolve_git_dir() -> str:
     """Resolve the current repo's git-dir via ONE ``git rev-parse --git-dir``
     subprocess call. Returns ``""`` on any failure (git missing, not a repo,
     spawn error, timeout) — callers treat that as "no git-dir available" and
-    degrade gracefully (sentinel-tier session-id resolution and
-    Deliverable-Id lookup both become no-ops, never errors)."""
+    degrade gracefully (Deliverable-Id lookup becomes a no-op, never
+    errors)."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--git-dir"],
@@ -141,21 +213,46 @@ def _resolve_git_dir() -> str:
 
 
 def _resolve_session_id(git_dir: str) -> str:
-    """Three-tier ladder: legacy env → platform env → sentinel file (under
-    the already-resolved ``git_dir`` — no subprocess of its own)."""
+    """Hand-mirrored copy of ``coordinator_core.session.core
+    .resolve_session_id`` / ``SESSION_ENV_PRECEDENCE`` (KS-6, 2026-08-07) —
+    THAT function is the source of truth for this ladder; this copy exists
+    only because this hook runs on the hot commit-hook path and cannot
+    cheaply import ``coordinator_core`` there. A change to the precedence
+    order or tier set in ``core.py`` MUST be mirrored here by hand.
+
+    Full 3-tier ladder: ``COORDINATOR_SESSION_ID`` -> ``CLAUDE_SESSION_ID``
+    -> ``CLAUDE_CODE_SESSION_ID`` — widened from the prior 2-tier (legacy
+    env -> platform env) chain this function used to implement, to match
+    the canonical reference (see ``SESSION_ENV_PRECEDENCE``'s own docstring
+    for the prior break-class defect two disagreeing copies of this ladder
+    caused).
+
+    A former tier (the ``<git_dir>/coordinator-sessions/.current-session-id``
+    sentinel file, plus its liveness gate ``_sentinel_session_live``) was
+    REMOVED here, not merely gated — KS-1, mirrored from
+    ``coordinator_core.git.commit_trailers._resolve_session_id`` (see that
+    module's own docstring for the full rationale). Two independent
+    reasons: (1) unsound by construction under this fleet's concurrency,
+    documented as last-writer-wins in
+    ``coordinator_core/bash_guards/guard_inprocess_search.py`` ~L84 — ~18
+    concurrent sessions on one shared worktree means even a freshly-written
+    sentinel hands session A the id of whichever session wrote last, so a
+    liveness gate only made it confidently wrong rather than obviously
+    wrong; (2) its writer, ``session-init.py`` (DoE-claude SessionStart
+    hook), was deleted by PM directive 2026-07-15
+    ("full-kill-keep-fast-orientation") — no production writer survives
+    anywhere. ``git_dir`` is accepted (and resolved by the caller) purely
+    for the Deliverable-Id lookups below, which still need it. Do not
+    restore this tier without a new writer for the sentinel file."""
+    sid = os.environ.get("COORDINATOR_SESSION_ID", "").strip()
+    if sid:
+        return sid
     sid = os.environ.get("CLAUDE_SESSION_ID", "").strip()
     if sid:
         return sid
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
     if sid:
         return sid
-    if git_dir:
-        sentinel = os.path.join(git_dir, "coordinator-sessions", ".current-session-id")
-        try:
-            with open(sentinel, encoding="utf-8") as fh:
-                return fh.read().strip()
-        except Exception:
-            return ""
     return ""
 
 
@@ -165,12 +262,18 @@ def _resolve_doe_root() -> str:
     the top of this file) — settings-home machine-local pointer first, then
     the legacy ``~/.claude`` location. Returns ``""`` if neither resolves.
     No subprocess spawn; at most two plain file reads."""
+    home = (
+        os.environ.get("CLAUDE_HOME")
+        or os.environ.get("HOME")
+        or os.environ.get("USERPROFILE")
+        or str(Path.home())
+    )
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME", "").strip() or os.path.join(
-        os.path.expanduser("~"), ".coordinator-claude-settings"
+        home, ".coordinator-claude-settings"
     )
     for candidate in (
         os.path.join(settings_home, "machine-local", ".doe-root"),
-        os.path.join(os.path.expanduser("~"), ".claude", ".doe-root"),
+        os.path.join(home, ".claude", ".doe-root"),
     ):
         try:
             with open(candidate, encoding="utf-8") as fh:
@@ -227,17 +330,45 @@ def _resolve_staged_paths(timeout: float = 10.0) -> list:
     — never raises. An empty result reads identically to "tier 0 has
     nothing to say" at the call site, which is exactly the fallback-to-
     session-tiers behaviour this hook must degrade to.
+
+    ``coordinator_core.win_portability`` is not importable off a bare
+    ``sys.path`` in a real hook invocation (git spawns this script with no
+    ``PYTHONPATH``), so the bootstrap here MUST be
+    ``_ensure_claude_klabauter_on_syspath()`` — the same self-location bootstrap every
+    other ``coordinator_core`` import in this file already uses — before
+    that import is attempted. A resolution failure still degrades to ``[]``
+    (never blocks the commit), matching the module's fail-soft contract, but
+    is noted on stderr, matching the visible-not-silent convention this file
+    already uses for tier-0 ambiguity (``_resolve_deliverable_id``) — a
+    silently empty tier-0 lookup here previously masqueraded as "nothing
+    staged" indefinitely.
     """
+    claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
+    if not claude_klabauter_root:
+        sys.stderr.write(
+            "coordinator-prepare-commit-msg: could not resolve the colocated "
+            "claude-klabauter checkout for coordinator_core.win_portability; staged-path "
+            "derivation (tier-0 Deliverable-Id resolution) skipped for this "
+            "commit.\n"
+        )
+        return []
     try:
+        from coordinator_core.win_portability import no_console_creationflags
+
         out = subprocess.run(
             ["git", "diff", "--cached", "--name-only"],
             capture_output=True,
             text=True,
             timeout=timeout,
             stdin=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(
+            "coordinator-prepare-commit-msg: staged-path derivation failed "
+            f"({exc}); tier-0 Deliverable-Id resolution skipped for this "
+            "commit.\n"
+        )
         return []
     if out.returncode != 0:
         return []
@@ -257,17 +388,16 @@ def _ensure_claude_klabauter_on_syspath() -> str:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
-        from cc_invoke import resolve_colocated_claude_klabauter_root
+        from cc_invoke import require_colocated_engine_on_path
 
-        claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
-        return claude_klabauter_root
+        return require_colocated_engine_on_path(__file__)
     except Exception:
         return ""
 
 
-def _resolve_deliverable_id_from_paths(paths: list) -> str:
+def _resolve_deliverable_id_from_paths(
+    paths: list, session_id: "str | None" = None, git_dir: "str | None" = None
+) -> str:
     """Tier 0: resolve straight off the committed artifact(s), not the
     session — hand-mirrored from
     ``coordinator_core.git.commit_trailers._resolve_deliverable_id_from_paths``
@@ -284,6 +414,19 @@ def _resolve_deliverable_id_from_paths(paths: list) -> str:
     ``_resolve_deliverable_id`` (below) downgrades to a non-aborting
     fallback rather than letting it propagate, unlike the CLI-facing
     sibling this mirrors.
+
+    Contention gate (2026-08-07, DR-207): a staged artifact claimed by a
+    DIFFERENT live session (per
+    ``coordinator_core.claim_state.resolve_claim_state``) must NOT have its
+    ``deliverable_id`` stamped onto THIS commit — that enrolls the commit in
+    the peer's chain DAG (see the memo-write-through defect this closes).
+    Claimed-by-``session_id`` itself, or unclaimed, is not contention and is
+    treated exactly as before. Each claim lookup is independently fail-soft:
+    an exception, unresolvable path, or missing ledger degrades to "no claim
+    information" — the SAFE direction here is to KEEP the artifact's
+    ``deliverable_id`` (today's behaviour), never to suppress it. ``paths``
+    carrying a claim only from a different session are dropped from
+    consideration entirely, as if they had no ``deliverable_id``.
     """
     if not paths:
         return ""
@@ -300,6 +443,13 @@ def _resolve_deliverable_id_from_paths(paths: list) -> str:
     except Exception:
         return ""
 
+    try:
+        from coordinator_core.claim_state import resolve_claim_state
+    except Exception:
+        resolve_claim_state = None
+
+    common_dir = Path(git_dir) if git_dir else None
+
     found = {}
     for rel_path in paths:
         try:
@@ -314,6 +464,18 @@ def _resolve_deliverable_id_from_paths(paths: list) -> str:
         if isinstance(deliverable_id, str):
             cleaned = deliverable_id.strip()
             if cleaned and cleaned.lower() not in ("none", "null", "~"):
+                if resolve_claim_state is not None and session_id:
+                    try:
+                        claim = resolve_claim_state(
+                            Path(rel_path), common_dir=common_dir
+                        )
+                        holder = claim.holder
+                    except Exception:
+                        # Fail-soft to today's behaviour: an errored claim
+                        # lookup is NOT evidence of contention.
+                        holder = None
+                    if holder and holder != session_id:
+                        continue
                 found[rel_path] = cleaned
 
     distinct_values = sorted(set(found.values()))
@@ -330,6 +492,78 @@ def _resolve_deliverable_id_from_paths(paths: list) -> str:
     )
 
 
+def _list_held_plan_claims(cwd: str) -> list:
+    """Lazy wrapper over ``coordinator_core.session.claimed_plan
+    .list_held_plan_claims`` (C1a) -- the SAME bootstrap
+    (``_ensure_claude_klabauter_on_syspath``) step 4b's claimed-plan lookup already
+    performs, reused rather than re-derived. Feeds both the scope-match tier
+    and the ambiguity gate below (step 3b of the module docstring) with the
+    ONE enumeration both consume. Never raises -- an unresolvable claude-klabauter
+    root, an import failure, or any exception from the callee all degrade to
+    ``[]``, the same omit-rather-than-guess contract ``list_held_plan_claims``
+    itself documents."""
+    claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
+    if not claude_klabauter_root:
+        return []
+    try:
+        from coordinator_core.session.claimed_plan import list_held_plan_claims
+
+        return list_held_plan_claims(cwd)
+    except Exception:
+        return []
+
+
+def _resolve_deliverable_id_from_scope_match(cwd: str, paths: list, claims: list) -> str:
+    """Lazy import of C2's landed
+    ``coordinator_core.git.commit_trailers.resolve_deliverable_id_from_scope_match``
+    -- step 3b of the module docstring. IMPORTED, not re-mirrored: verified
+    live (C4) to trigger zero ``coordinator_core.ops`` module imports, so
+    this costs no more than the pre-existing claimed-plan import below. That
+    zero-import property depends on ``_ensure_claude_klabauter_on_syspath()`` (called
+    just below) having already imported ``cc_invoke`` -- see the module
+    docstring's ORDERING DEPENDENCY note under step 3b before reordering
+    this call relative to that bootstrap.
+    Never raises -- an unresolvable claude-klabauter root, an import failure, or any
+    exception from the callee all degrade to ``""`` (tier abstains, caller
+    falls through)."""
+    claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
+    if not claude_klabauter_root:
+        return ""
+    try:
+        from coordinator_core.git.commit_trailers import (
+            resolve_deliverable_id_from_scope_match,
+        )
+
+        return resolve_deliverable_id_from_scope_match(cwd, paths, claims)
+    except Exception:
+        return ""
+
+
+def _session_holds_multiple_plan_claims(claims: list) -> bool:
+    """Lazy import of C2's landed
+    ``coordinator_core.git.commit_trailers.session_holds_multiple_plan_claims``
+    -- the ambiguity-gate predicate, step 3b of the module docstring.
+    IMPORTED, not re-mirrored, for the same reason as
+    ``_resolve_deliverable_id_from_scope_match`` above. Any import/lookup
+    failure degrades to ``False`` -- the SAFE direction here is to NOT gate
+    (fall through to the session-keyed tiers, today's behaviour), never to
+    silently omit a resolvable trailer because the ambiguity check itself
+    errored."""
+    if not claims:
+        return False
+    claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
+    if not claude_klabauter_root:
+        return False
+    try:
+        from coordinator_core.git.commit_trailers import (
+            session_holds_multiple_plan_claims,
+        )
+
+        return session_holds_multiple_plan_claims(claims)
+    except Exception:
+        return False
+
+
 def _resolve_deliverable_id_from_claimed_plan() -> str:
     """Step 4b of the module docstring: the same-session plan-execute path
     (no handoff). Reached only when steps 4 and 4a both miss.
@@ -337,7 +571,8 @@ def _resolve_deliverable_id_from_claimed_plan() -> str:
     Lazily reaches into ``coordinator_core`` — deliberately NOT imported at
     module scope, so a hit on step 4/4a (the common case) never pays this
     import's cost on the commit hot path. Resolves CLAUDE_KLABAUTER_ROOT via the
-    self-location-first ``resolve_colocated_claude_klabauter_root()`` (this script
+    self-location-first ``require_colocated_engine_on_path()`` (which wraps
+    ``resolve_colocated_claude_klabauter_root()``; this script
     lives inside the claude-klabauter checkout at ``coordinator/bin/``, so
     ``Path(__file__)``'s own parents answer it with zero external
     dependency) SOLELY to put ``coordinator_core`` on ``sys.path`` for the
@@ -364,11 +599,9 @@ def _resolve_deliverable_id_from_claimed_plan() -> str:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
-        from cc_invoke import resolve_colocated_claude_klabauter_root
+        from cc_invoke import require_colocated_engine_on_path
 
-        claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        require_colocated_engine_on_path(__file__)
         from coordinator_core.session.claimed_plan import resolve_claimed_plan_path
         from coordinator_core.frontmatter.primitives import (
             read_fm_field_unquoted,
@@ -401,10 +634,17 @@ def _resolve_deliverable_id_from_claimed_plan() -> str:
 
 
 def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" = None) -> str:
-    """Step 3a (tier 0) + steps 4 + 4a + 4b of the module docstring: check
-    the committed artifact(s) named by ``paths`` first (tier 0 — the
-    multi-baton-session fix; see ``_resolve_deliverable_id_from_paths``),
-    then ``git_dir`` (the common single-baton case — a commit landed in the
+    """Step 3a (tier 0) + step 3b (scope-match tier + ambiguity gate,
+    imported from C2's landed seam) + steps 4 + 4a + 4b of the module
+    docstring: check the committed artifact(s) named by ``paths`` first
+    (tier 0 — the multi-baton-session fix; see
+    ``_resolve_deliverable_id_from_paths``), then a code-only commit's
+    pathspec against every plan this session holds a claim on (step 3b —
+    see ``_resolve_deliverable_id_from_scope_match``), gated by
+    ``_session_holds_multiple_plan_claims`` (a 2+-claim session that neither
+    tier above disambiguated OMITS the trailer rather than guessing among
+    the session-keyed tiers below), then ``git_dir`` (the common
+    single-baton case — a commit landed in the
     same repo ``/pickup`` ran in), then DoE-claude's own git-dir (the
     cross-repo case — a commit landed directly into claude-klabauter under the
     standing DoE→claude-klabauter write grant), then the session's claimed PLAN (the
@@ -422,7 +662,9 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     """
     if paths:
         try:
-            deliverable_id = _resolve_deliverable_id_from_paths(paths)
+            deliverable_id = _resolve_deliverable_id_from_paths(
+                paths, session_id=session_id, git_dir=git_dir
+            )
         except Exception as exc:
             sys.stderr.write(
                 "coordinator-prepare-commit-msg: tier-0 artifact deliverable-id "
@@ -432,6 +674,18 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
             deliverable_id = ""
         if deliverable_id:
             return deliverable_id
+
+    # Step 3b: scope-match tier + ambiguity gate (C4, importing C2's landed
+    # seam). cwd is this process's own cwd -- the repo the commit is landing
+    # in, matching what the git hook always runs against.
+    cwd = os.getcwd()
+    claims = _list_held_plan_claims(cwd)
+    deliverable_id = _resolve_deliverable_id_from_scope_match(cwd, paths or [], claims)
+    if deliverable_id:
+        return deliverable_id
+    if _session_holds_multiple_plan_claims(claims):
+        return ""
+
     deliverable_id = _resolve_deliverable_id_at(git_dir, session_id)
     if deliverable_id:
         return deliverable_id
@@ -460,10 +714,98 @@ def _has_trailer_line(commit_msg_file: str, prefix: str) -> bool:
     return False
 
 
+def _subject_line(commit_msg_file: str) -> str:
+    """First non-blank, non-comment line of ``commit_msg_file`` — git's own
+    notion of the subject. ``""`` on any read failure or an all-comment
+    message (a commit being aborted)."""
+    try:
+        with open(commit_msg_file, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                return stripped
+    except Exception:
+        return ""
+    return ""
+
+
+def _warn_hyphen_range_subject(commit_msg_file: str) -> None:
+    """Emit a write-time advisory (stderr, never a block) when the subject
+    about to be committed uses a hyphen RANGE where the chunk-id convention
+    takes an enumeration.
+
+    Landed 2026-08-08 on a example-store-repo-em FYI memo (`cross-repo/inbox/
+    2026-08-08-example-store-repo-em-close-out-and-stamp-chunk-id-separator.md`) —
+    a second independent hit, in a consumer repo, of
+    `state/lessons/2026-08-05-a-machine-parsed-commit-subject-is-an-api-and-
+    a-hyphen-is-not-a-separator.yaml`. `_extract_chunk_ids` (close_out_and_
+    stamp) recognizes `,`/`+`/`/` and deliberately NOT `-`, so `C1-C5:` takes
+    the single-id path, matches no spine id, and five shipped chunks read as
+    uncommitted at close-out — after which the honest repairs are a
+    hand-stamp or a rebase of already-landed commits.
+
+    The lesson's own discharge (`_hyphen_range_subject_diagnostics`) fires at
+    close-out, which is the last possible moment; this is the first one. The
+    sender's run is the evidence that read-time-only left a load-bearing gap:
+    a human reads the range effortlessly, so nothing else in the chain
+    disagrees with the author until the parser is consulted.
+
+    NEVER blocks, and never edits the message. This hook's whole contract is
+    fail-open (see this module's docstring and the `__main__` backstop), and
+    a subject-shape opinion is emphatically not the thing to break it for.
+    Rewriting `C1-C5:` into an enumeration is equally out of scope: this hook
+    cannot know whether `C2`/`C3`/`C4` exist on the plan's spine, and
+    inventing ids the author never wrote is the over-crediting
+    `_extract_chunk_ids` already refuses on the read side.
+
+    Negative-spec: do NOT widen `_HYPHEN_RANGE_SUBJECT_RE` to `..`/`through`/
+    `etc` shapes on suspicion. The corpus contains legitimate compound tags
+    carrying `..` inside a single id (`RESIDUE-C1..C7`); a diagnostic that
+    confidently names a wrong cause is worse than none, and the hyphen shape
+    is the one with two independent live incidents behind it.
+    """
+    subject = _subject_line(commit_msg_file)
+    if not subject:
+        return
+    match = _HYPHEN_RANGE_SUBJECT_RE.match(subject)
+    if not match:
+        return
+    left_prefix = match.group("lp")
+    right_prefix = match.group("rp")
+    if right_prefix and right_prefix.lower() != left_prefix.lower():
+        return
+    try:
+        first = int(match.group("ln"))
+        last = int(match.group("rn"))
+    except ValueError:
+        return
+    if last <= first:
+        return
+    enumerated = ",".join("%s%d" % (left_prefix, n) for n in range(first, last + 1))
+    sys.stderr.write(
+        "[coordinator] commit subject reads as a chunk-id RANGE: %r\n"
+        "              Write it enumerated instead: '%s: ...'\n"
+        "              Close-out chunk-id parsing recognizes only , + / as "
+        "separators (a hyphen is excluded on purpose — real ids carry one, "
+        "e.g. DOCTRINE-C7a), so a range registers as ONE unknown id and every "
+        "chunk in it reads as uncommitted at /execute-plan close-out.\n"
+        "              Advisory only — this commit is NOT blocked; amend the "
+        "subject now while it is free.\n"
+        % (match.group(0).rstrip(":").strip(), enumerated)
+    )
+
+
 def main(argv: list) -> int:
     commit_msg_file = argv[0] if argv else ""
     if not commit_msg_file or not os.path.isfile(commit_msg_file):
         return 0
+
+    # Ahead of the session-id gate on purpose: a range-shaped chunk-id
+    # subject is equally wrong on a commit this hook adds no trailer to, and
+    # the whole value of the advisory is that it lands BEFORE the commit
+    # does. Pure string work — no subprocess, nothing added to the hot path.
+    _warn_hyphen_range_subject(commit_msg_file)
 
     git_dir = _resolve_git_dir()
     session_id = _resolve_session_id(git_dir)

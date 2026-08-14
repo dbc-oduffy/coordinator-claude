@@ -348,10 +348,9 @@ Domain reviewers activate per-project via `.claude/coordinator.local.md` (`proje
 
 ## Companion Plugins
 
-- **[clangd-lsp](https://github.com/anthropics/claude-code-plugins/tree/main/clangd-lsp)** — C++ code intelligence. Reviewer agents gain go-to-definition, find-references, and call hierarchy ‒ helpful for those (like us) using Claude Code with Unreal Engine.
 - **[Context7](https://github.com/upstash/context7)** — External library documentation lookup.
 
-All are optional. Coordinator works without them; relevant features degrade gracefully.
+Optional. Coordinator works without it; relevant features degrade gracefully.
 
 <details>
 <summary><strong>Directory structure</strong></summary>

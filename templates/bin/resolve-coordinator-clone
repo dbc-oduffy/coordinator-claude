@@ -59,14 +59,14 @@ _LIB_REL = Path("lib") / "resolve-coordinator-clone.py"
 
 
 def _home_dir() -> Path:
-    return Path(os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or "") / ".claude"
+    return Path(os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE") or "") / ".claude"
 
 
 def _settings_home_dir() -> Path | None:
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if override:
         return Path(override)
-    home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME")
+    home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE")
     if not home:
         return None
     return Path(home) / ".coordinator-claude-settings"

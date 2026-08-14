@@ -5,7 +5,7 @@ model: sonnet
 effort: low
 color: red
 access-mode: read-write
-tools: ["Read", "Bash", "Edit"]
+tools: ["Read", "Bash", "PowerShell", "Edit"]
 ---
 
 <!-- This harness build provides no Grep/Glob tool at runtime — do not re-add them, they do not exist. Content search is via `grep` through Bash; file location is via `find` through Bash. -->

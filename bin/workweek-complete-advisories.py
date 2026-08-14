@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator/bin/workweek-complete-advisories.py — read-only advisory subcommands
@@ -68,7 +67,7 @@ from typing import Dict, List, Optional, Tuple
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -214,12 +213,10 @@ def _cmd_cruft_sweep_last_run(args: argparse.Namespace) -> int:
 
 def _cmd_ubt_unresolved(args: argparse.Namespace) -> int:
     try:
-        _repo_root_for_import = Path(resolve_colocated_claude_klabauter_root(__file__))
+        require_colocated_engine_on_path(__file__)
     except RuntimeError as exc:
         print(f"workweek-complete-advisories.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 1
-    if str(_repo_root_for_import) not in sys.path:
-        sys.path.insert(0, str(_repo_root_for_import))
 
     from coordinator_core.ops.scan_unresolved_ubt_records import scan_unresolved_ubt_records
 

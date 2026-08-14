@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """validate-install-contract.py — CLI trampoline over claude-klabauter coordinator_core.ops.validate_install_contract.
 
@@ -66,8 +65,8 @@ cross-repo/fleet-shared hook.
 # windows-gotchas.md § Carve-out (cross-repo — this wiki lives in the
 # DoE-claude repo, not here).
 #
-# Spec backlink: docs/plans/2026-07-11-packageability-contract-fleet-doctrine.md § C4
-# Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+# Spec backlink: DoE-claude:pln-fleet-packageability-contract--d44c4c § C4
+# Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
 
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """refresh-roadmap-callout.py — refreshes a roadmap-callout sentinel block in place.
 
@@ -25,7 +24,7 @@ from __future__ import annotations
 # trampoline layer must exit 1 too, not swallow the error at exit 0 (unlike
 # the never-block auto-push shape).
 #
-# Spec backlink: docs/plans/2026-07-09-roadmap-callout-refresh-at-pickup-and-wsc.md § C1
+# Spec backlink: DoE-claude:pln-refresh-roadmap-query-callout--d3d748 § C1
 #                docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md (R1 DOE-PORT)
 import os
 import sys

@@ -382,9 +382,11 @@ Before installing, verify:
     invisible to Git Bash. Any `python3 …` call breaks against it. Fix it *before* installing:
     `winget install Python.Python.3.13`, ensure the real `Python313\` dir precedes
     `…\WindowsApps` on PATH, and — since Windows ships `python.exe`, not `python3.exe` — provide a
-    `python3` (copy `python.exe` → `python3.exe`, or use the shim `/coordinator:install` lays down).
-    `/coordinator:install` Phase 3 also detects orphan AppX stubs and installs a `python3.cmd` shim,
-    but the pre-restart steps in *this* playbook need a working `python3` first.
+    `python3` (copy/hardlink `python.exe` → `python3.exe` in that same directory, or let
+    `/coordinator:install` lay it down for you).
+    `/coordinator:install` Phase 3 also detects orphan AppX stubs and places that real `python3.exe`
+    ahead of `…\WindowsApps` on PATH, but the pre-restart steps in *this* playbook need a working
+    `python3` first.
   - **Windows gotcha — `winget` PATH changes don't reach the running shell.** `winget install …`
     prints *"Path environment variable modified; restart your shell."* — the change lands in the
     registry but not in the current process. An agent that installs a prerequisite and then tries to

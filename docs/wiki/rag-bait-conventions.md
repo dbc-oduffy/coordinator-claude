@@ -161,7 +161,7 @@ on different OSes, they're a parity-pair. When you author or tune the §1a pream
 update the other in the same commit. The §1a lint should flag missing parity (follow-on
 work; not yet enforced).
 
-**Driver/orchestrator vs focused-mechanism distinction (related amendment 2026-05-18):**
+**Driver/orchestrator vs focused-mechanism distinction:**
 the §1a AC-A3 retrieval gate accepts rank ≤5 for `text_preamble` driver/orchestrator scripts
 (e.g., `install-plugin.{ps1,sh}`) versus rank ≤2 for focused mechanism files
 (e.g., `read-claude-pin.py`, a focused interpreter-resolution helper). Drivers get out-competed in re-ranking by
@@ -219,18 +219,25 @@ spec requirement — particularly anything non-obvious or the result of a decisi
 
 **Format:**
 ```python
-# Implements archive/specs/2026-04-29-foo.md §3.2 — decompose_query semantics
+# Implements pln-drain-the-cross-repo-memo-inbo-aec26b § 3.2 — decompose_query semantics
 ```
+
+The citation is the plan's minted `plan_id` (`pln-<slug>-<6hex>`, `coordinator/schemas/plan.schema.json`),
+not a file path. Prefer `pln-` over `dlv-`: `deliverable_id` is group-stamped across a plan,
+its handoff, and its completion entry, so a `dlv-` citation can resolve to more than one plan;
+`plan_id` is plan-scoped and never collides. For a citation into a sibling repo's plan, use
+the foreign form in `cross-repo-citation-conventions.md` rather than restating it here.
 
 **Why this survives refactors:** The comment is purpose-shaped ("implements X"), not
 behaviour-shaped ("calls Y then Z"). When the implementation changes, the spec reference
-remains accurate unless the *purpose* of the code changes. Points at `archive/specs/` after
-/distill runs (not `docs/plans/`) — /distill rewrites these during the link-heal pass.
+remains accurate unless the *purpose* of the code changes. The id form also survives the
+plan's own file moving or being archived — the id doesn't change, so there is nothing to
+rewrite.
 
 **Python example:**
 ```python
 def decompose_query(query: str) -> list[SubQuery]:
-    # Implements archive/specs/2026-04-29-example-readiness.md §3.2 — decompose_query semantics
+    # Implements pln-example-readiness-6c19a2 § 3.2 — decompose_query semantics
     ...
 ```
 
@@ -240,8 +247,8 @@ def decompose_query(query: str) -> list[SubQuery]:
     # See the planning doc for context
     ...
 ```
-Why bad: Non-retrievable. "The planning doc" could mean anything; after /distill moves the
-plan to `archive/specs/`, the pointer is broken.
+Why bad: Non-retrievable. "The planning doc" could mean anything, and a path is broken by
+the plan moving or being renamed; the minted `plan_id` is not.
 
 ---
 
@@ -308,7 +315,7 @@ annotation at a correction site in source code. Section 5 is a *markdown heading
 skill body bounding a routing trigger. Same spirit (tell the reader what NOT to do / use),
 different artifact and different audience.
 
-**Reference pattern (from context7):** `rules/context7-mcp.md` opens with the trigger
+**Reference pattern (from context7):** `global-doctrine/rules/context7.md` opens with the trigger
 surface, then a one-line `Do not use for: refactoring, writing scripts from scratch,
 debugging business logic, code review, or general programming concepts.`
 
@@ -392,10 +399,9 @@ N≥3 modules. This converts the convention from aspirational to validated — s
 
 When /distill runs on a repo, RAG-bait and the distillation log interact as follows:
 
-**Spec backlinks** point at `archive/specs/` paths (not `docs/plans/`). During the
-link-heal pass (W4 sub-step d), /distill rewrites spec backlinks in source code from the
-original `docs/plans/` path to the archived `archive/specs/` path. This keeps backlinks
-accurate after the plan moves to the archive.
+**Spec backlinks** cite the plan's minted `plan_id` (`pln-<slug>-<6hex>`), not a file path.
+The id does not change when the plan moves to `archive/specs/`, so there is nothing for
+/distill's link-heal pass to rewrite; see § 3 above for the citation form.
 
 **Provenance frontmatter** on wiki entries carries `last_verbose_sha` — the git SHA of the
 original verbose plan/spec before trimming. When a future EM needs the review history or

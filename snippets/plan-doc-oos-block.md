@@ -13,4 +13,4 @@ Do NOT edit the plan markdown body — not the header `Status:`, not your assign
 
 The PreToolUse guard `block_subagent_plan_body_write` will DENY any Write/Edit/MultiEdit/NotebookEdit you attempt on `docs/plans/**/*.md`. Attempting the write wastes context; the hook is the gate, this block names the rule so you don't try.
 
-There is no executor-side override. If a plan-body edit is genuinely required for your task, the EM will set COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY=1 in your dispatch environment. If you encounter the hook DENY without that override set, the dispatch was misconfigured — return a BLOCKED report and stop.
+Editing the plan document is never inside your remit, under any circumstance, in this dispatch. If your task appears to genuinely require a plan-body edit, that is itself a sign the dispatch scoped you incorrectly, not a problem for you to route around — return a BLOCKED report describing the requirement and stop. Do not retry the write, and do not look for another way to make the edit land.

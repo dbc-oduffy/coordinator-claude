@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """sync-plugin-wiki.py — CLI trampoline over claude-klabauter coordinator_core.ops.sync_plugin_wiki.
 
@@ -35,7 +34,7 @@ from __future__ import annotations
 # (fail-loud — this is a doctrine-integrity gate, not a best-effort nudge), 2 usage
 # error (unknown flag), 5 dev-side mirror detected (single-tree invariant broken).
 #
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 
 import os
 import sys

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 memo_compose.py — shared composer for cross-repo memo frontmatter and documents.
 
@@ -116,6 +115,7 @@ def compose_frontmatter(
     summary: str | None = None,
     kind: str | None = None,
     scoped_to: dict[str, str] | None = None,
+    sent_by: str | None = None,
 ) -> str:
     """Compose the YAML frontmatter block for a memo.
 
@@ -143,6 +143,17 @@ def compose_frontmatter(
                  memo_send.py's field order. Omitted entirely when None or
                  empty (no `scoped_to:` line at all) — never emitted as a
                  present-but-empty mapping.
+        sent_by: Optional sender session UUID (docs/plans/2026-08-13-session-
+                 identity-earns-its-keep.md § C7), mirroring picked_up_by on
+                 the receive path. Resolved at SEND time by the caller — this
+                 composer never resolves session identity itself (same
+                 negative-spec as from_id above). Rendered AFTER scoped_to
+                 and BEFORE the self_receipt block — this composer's field
+                 order is NOT the same as memo_send.py._compose_memo's
+                 (which renders sent_by BEFORE scoped_to); YAML mapping
+                 order is not semantically load-bearing for a parsed
+                 frontmatter dict, so the two orders are deliberately not
+                 kept in lockstep. Omitted entirely when None or empty.
 
     Schema backlink:
         docs/plans/2026-05-23-cross-repo-single-surface-and-canonical-scaffold.md § Chunk 3
@@ -187,6 +198,8 @@ def compose_frontmatter(
         lines.append(f"supersedes: {_yaml_quote(supersedes)}")
     if scoped_to:
         lines.append(_render_scoped_to(scoped_to))
+    if sent_by:
+        lines.append(f"sent_by: {_yaml_quote(sent_by)}")
     if self_receipt:
         lines.append(f"action_taken_at: {_now_iso()}")
         lines.append(f"decision: {_yaml_quote(decision)}")
@@ -207,11 +220,15 @@ def compose_memo(
     summary: str | None = None,
     kind: str | None = None,
     scoped_to: dict[str, str] | None = None,
+    sent_by: str | None = None,
 ) -> str:
     """Compose the full memo document (frontmatter + body).
 
     Returns the complete document string ready for writing to disk.
     Delegates frontmatter composition to compose_frontmatter().
+
+    sent_by: see compose_frontmatter's docstring — resolved by the caller at
+    SEND time, this function only forwards it.
     """
     frontmatter = compose_frontmatter(
         from_id=from_id,
@@ -225,5 +242,6 @@ def compose_memo(
         summary=summary,
         kind=kind,
         scoped_to=scoped_to,
+        sent_by=sent_by,
     )
     return frontmatter + "\n" + body.rstrip("\n") + "\n"

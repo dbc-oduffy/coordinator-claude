@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """close-origin-stub-on-ship.py — close the origin spinoff/spinoff-roadmap stub
 whose work just shipped, joining on (roadmap_id, stub_id) from the governing
@@ -63,13 +62,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess
 import sys
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import RouteMutationError, route_mutation  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _legacy_fn():
@@ -89,16 +88,17 @@ def _legacy_fn():
 
 
 def _repo_root() -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return completed.stdout.strip()
-    except Exception:
-        return os.getcwd()
+    """Resolve the repo root via the checked resolver (repo_identity).
+
+    READER classification (DR-277 / plan C5): MISMATCH is advisory only --
+    warn to stderr and proceed with the resolved root; UNRESOLVED never
+    refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
+    preserving this script's pre-existing best-effort behavior.
+    """
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+    return root or os.getcwd()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -149,8 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # Success — print a concise summary from the op's result.
-    # {"exit_code":0,"closed":[{"stub_path","roadmap_id","stub_id","join_source"}],
-    #  "skipped":[...],"pairs_resolved":int,"message":str}
+    # {"exit_code":0,"closed":[{"stub_path","roadmap_id","stub_id","join_source",
+    #  "close_basis"}],"skipped":[...],"pairs_resolved":int,"message":str}
     closed = result.get("closed", []) if isinstance(result, dict) else []
     skipped = result.get("skipped", []) if isinstance(result, dict) else []
     message = result.get("message", "") if isinstance(result, dict) else ""

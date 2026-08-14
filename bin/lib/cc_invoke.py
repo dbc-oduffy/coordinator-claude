@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """cc_invoke — Python-side transport for coordinator_core.invoke.
 
 Port of: coordinator-core-invoke.sh (DoE c6d97219, 2026-07-22) — the bash transport's
@@ -18,7 +17,7 @@ find_spec gate and the subprocess env (single resolution source).
 Public API:
     resolve_colocated_claude_klabauter_root(script_file) -> str
         Self-location-first CLAUDE_KLABAUTER_ROOT resolution for a CLI that lives INSIDE the
-        claude-klabauter checkout (coordinator/bin/*.py). Tries Path(script_file)'s
+        engine checkout (coordinator/bin/*.py). Tries Path(script_file)'s
         parents[2] first (probed against coordinator_core/ + pyproject.toml markers);
         falls back to _resolve_claude_klabauter_root()'s machine-local registry ladder only
         when that probe misses (the published/vendored-outside-the-checkout case).
@@ -55,12 +54,12 @@ Public API:
     route_mutation(op, params, repo_root, legacy_fn)
         Mutation-aware sibling of route(): calls route(), then raises RouteMutationError
         if the returned dict carries a non-zero 'exit_code', a non-empty 'failed' list, or
-        a non-empty string 'error' with exit_code absent/0 — claude-klabauter's op-level refusals
+        a non-empty string 'error' with exit_code absent/0 — the engine repo's op-level refusals
         live INSIDE the result payload with no top-level 'error' key at the ENVELOPE level,
         so bare route() would return them unraised. Python sibling of the shell transport's
         strangle_route_mutation (Port of: strangler-facade.sh, DoE c6d97219, 2026-07-22).
 
-Spec backlink: docs/plans/2026-07-06-strang-08-arm-queue-facade-invoke-retarget.md § C1
+Spec backlink: DoE-claude:pln-strang-08-arm-the-doe-queue-fa-36567b § C1
 DR-215 ref: coordinator_core/invoke/__main__.py's default (non---bare) response IS the
             {jsonrpc,id,result} envelope this module's cc_invoke() parses (--bare is
             opt-in server-side) — the envelope-parse convention is verified against the
@@ -90,6 +89,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
+GENERATES = []  # writes only a tempfile.mkstemp() params file for subprocess argv-passing; no tracked artifact
+
 
 class StructuralPinError(RuntimeError):
     """Marks a non-self-healing structural contract-pin failure (engine rc=2 /
@@ -114,7 +115,7 @@ class StructuralPinError(RuntimeError):
 # stdlib-only (importlib.util, json, os, subprocess, sys, tempfile, typing) —
 # no coordinator_core import sits above this line; every coordinator_core
 # import in this module is function-local.
-# Spec backlink: docs/plans/2026-07-21-retire-coordinator-venv-system-python.md § C8
+# Spec backlink: DoE-claude:pln-decouple-coordinator-s-own-bin-42d50a § C8
 #
 # WHY A `sys` ATTRIBUTE AND NOT `os.environ` (2026-07-28). This used to be
 # `os.environ.setdefault(_LAZY_OPS_ENV_KEY, "1")` — a PROCESS-environment
@@ -141,6 +142,65 @@ _LAZY_OPS_SYS_ATTR = "_coordinator_core_lazy_ops"
 _LAZY_OPS_INJECTED_BY_THIS_MODULE = _LAZY_OPS_ENV_KEY not in os.environ
 if _LAZY_OPS_INJECTED_BY_THIS_MODULE:
     setattr(sys, _LAZY_OPS_SYS_ATTR, True)
+
+
+def _no_console_kw(claude_klabauter_root: str) -> dict:
+    """Splat-ready Windows console-suppression kwarg for a `coordinator_core.invoke`
+    child spawn. ``claude_klabauter_root`` is already resolved by every call site here (the
+    engine spawn itself), so this is a plain function-local coordinator_core import
+    (no seam violation — see the module-top note above) rather than a fresh
+    resolution. Falls back to the same suppression kwargs computed inline (zero
+    imports beyond ``subprocess``) on any import failure, rather than silently
+    dropping console suppression — a resolution failure must never turn a quiet
+    spawn into a visible console window (Review: code-reviewer P1 — this was the
+    most fanned-out `_no_console_kw`-shaped helper in coordinator/bin/ still
+    fail-opening to bare ``{}``, matched here to the pattern ccbdbecc2 applied to
+    sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py).
+
+    The fallback reproduces the primitive's POSIX contract exactly -- ``{}`` off
+    Windows, not ``{"creationflags": 0}``. Both splat harmlessly into
+    ``subprocess.run``, but a caller comparing against ``no_console_creationflags()``
+    or testing the mapping's truthiness would see the substitute disagree with the
+    thing it substitutes for."""
+    try:
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's transport posture
+        if os.name != "nt":
+            return {}
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
+def _no_console_passthrough_kw(claude_klabauter_root: str) -> dict:
+    """`_no_console_kw` for a child whose OUTPUT MUST REACH THE OPERATOR.
+
+    Same resolution and fail-open posture as `_no_console_kw` above, plus the
+    std fds. Console suppression alone is not enough: with no
+    ``stdout=``/``stderr=`` passed, CPython omits ``STARTF_USESTDHANDLES``, so
+    the child binds its standard handles to the fresh window-less console
+    ``CREATE_NO_WINDOW`` allocates instead of inheriting this process's -- and
+    everything it prints is lost. Passing the fds explicitly restores the
+    inheritance. Canonical implementation, kept in sync by hand because this
+    module fails open without coordinator_core:
+    ``coordinator_core.win_portability.no_console_passthrough_kwargs``.
+
+    Real fds, not ``sys.stdout``/``sys.stderr``: the child inherits OS handles,
+    and the fd is what a redirection actually moved. A stream with no fd
+    (``pythonw``, a captured object) contributes nothing and degrades to plain
+    inheritance rather than raising.
+    """
+    kwargs = dict(_no_console_kw(claude_klabauter_root))
+    for key, stream in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+        try:
+            fd = stream.fileno()
+        except (AttributeError, ValueError, OSError):
+            continue
+        if fd >= 0:
+            kwargs[key] = fd
+    return kwargs
 
 
 def child_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
@@ -300,7 +360,7 @@ def _resolve_claude_klabauter_root() -> str:
                 direct file read, no subprocess spawn (docs/plans/2026-07-14-
                 claude-klabauter-windows-portability.md § C1).
       Rung 2+:  native resolver. coordinator_core.claude_klabauter_root lives INSIDE the
-                claude-klabauter checkout this function is trying to locate, so it can't
+                engine checkout this function is trying to locate, so it can't
                 be imported before a candidate path is known (the bootstrap
                 circularity coordinator-claude-klabauter-root.sh never had, since that
                 script lived in THIS repo). Bootstrap the candidate via a direct
@@ -309,6 +369,24 @@ def _resolve_claude_klabauter_root() -> str:
                 rung 2 performs, just invoked without a bash intermediary), then
                 hand resolution authority to the native module itself for
                 byte-identical behavior/remediation text once it's importable.
+      Rung 3 (NEW, TERMINAL): self-location from THIS module's own ``__file__``,
+                via the existing ``_walk_up_to_checkout`` helper — reached only
+                when rungs 1, 1.5, and 2 have all missed, immediately before the
+                function would otherwise raise. On a stranger's box none of the
+                registry/pointer/env rungs resolve, which is why ~24 of the
+                published-CLI failures this rung fixes were the single message
+                "cc_invoke: cannot resolve CLAUDE_KLABAUTER_ROOT". LIMITATION, stated
+                honestly: this answers with *cc_invoke.py's own* tree, not
+                necessarily the caller's — on a multi-checkout box a bare
+                ``_resolve_claude_klabauter_root()`` caller gets cc_invoke's tree, which is
+                exactly why this is the TERMINAL rung (reached only when the
+                alternative is raising) rather than an earlier one. A caller that
+                wants per-caller self-location semantics should call
+                ``resolve_engine_root(__file__)`` instead — that is not a general
+                recommendation to migrate every caller here, just the honest
+                answer for the multi-checkout case this rung cannot cover. In the
+                published payload the two trees are the same, which is the case
+                this rung targets.
 
     Returns the resolved absolute path.
     Raises RuntimeError on failure (unresolvable root).
@@ -334,7 +412,7 @@ def _resolve_claude_klabauter_root() -> str:
     #   COORDINATOR_SETTINGS_HOME (explicit override) →
     #   ${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings
     #
-    # Spec backlink: docs/plans/2026-07-14-claude-klabauter-windows-portability.md § C1
+    # Spec backlink: pln-claude-klabauter-windows-portability-a48fac § C1
     _settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.path.join(
         os.environ.get("CLAUDE_HOME") or os.path.expanduser("~"),
         ".coordinator-claude-settings",
@@ -364,6 +442,13 @@ def _resolve_claude_klabauter_root() -> str:
 
     _candidate = _machine_local_get("repos.claude_klabauter")
     if not _candidate or not os.path.isdir(_candidate):
+        # Rung 3 (terminal): self-locate from cc_invoke's OWN __file__ before
+        # raising. Reached only when env, pointer, and registry all missed —
+        # see the docstring's "Rung 3 (NEW, TERMINAL)" note for the limitation
+        # this rung knowingly carries.
+        _self_located = _walk_up_to_checkout(__file__)
+        if _self_located:
+            return _self_located
         raise RuntimeError(_remediation)
 
     _injected = _candidate not in sys.path
@@ -392,7 +477,7 @@ def _resolve_claude_klabauter_root() -> str:
 
 
 def resolve_colocated_claude_klabauter_root(script_file: str) -> str:
-    """Resolve CLAUDE_KLABAUTER_ROOT for a CLI that lives INSIDE the claude-klabauter checkout itself.
+    """Resolve CLAUDE_KLABAUTER_ROOT for a CLI that lives INSIDE the engine checkout itself.
 
     Self-location-first ladder for scripts under coordinator/bin/ (e.g. the
     distill-*.py CLIs): those scripts need to find their OWN repo root, which
@@ -403,13 +488,13 @@ def resolve_colocated_claude_klabauter_root(script_file: str) -> str:
 
     Rung 1: `Path(script_file).resolve().parents[2]` — for a script at
             coordinator/bin/X.py, parents[0]=coordinator/bin, parents[1]=coordinator,
-            parents[2]=the claude-klabauter root. Accepted only if it probes as a real
-            claude-klabauter checkout (has BOTH a coordinator_core/ directory AND a
+            parents[2]=the engine root. Accepted only if it probes as a real
+            engine checkout (has BOTH a coordinator_core/ directory AND a
             pyproject.toml — the same two-marker probe on every caller, so a
             change here can't silently diverge across the six distill CLIs).
     Rung 2: `_resolve_claude_klabauter_root()` (machine-local registry ladder) — only reached
             when rung 1's probe misses, i.e. the script has been published/vendored
-            to a location outside its own claude-klabauter checkout (the case the previous
+            to a location outside its own engine checkout (the case the previous
             registry-only resolution was actually trying to cover).
 
     Raises RuntimeError (via _resolve_claude_klabauter_root's own fail-loud remediation text)
@@ -419,6 +504,192 @@ def resolve_colocated_claude_klabauter_root(script_file: str) -> str:
     if (_candidate / "coordinator_core").is_dir() and (_candidate / "pyproject.toml").is_file():
         return str(_candidate)
     return _resolve_claude_klabauter_root()
+
+
+def _walk_up_to_checkout(script_file: str) -> str | None:
+    """Walk up from ``script_file`` to the nearest enclosing engine checkout.
+
+    Depth-agnostic sibling of ``resolve_colocated_claude_klabauter_root``'s fixed
+    ``parents[2]`` probe, using the same two-marker test (``coordinator_core/``
+    directory AND ``pyproject.toml`` file). The fixed-depth form is correct only
+    for scripts at ``coordinator/bin/X.py``; a helper module one level deeper at
+    ``coordinator/bin/lib/X.py`` lands on ``coordinator/`` and silently misses.
+    Walking removes the depth coupling, so a co-located caller resolves its own
+    checkout regardless of where in the tree it sits.
+
+    Returns None when no ancestor probes as a checkout (published/vendored
+    outside any engine tree) — callers fall through to the registry ladder.
+
+    Each ancestor's probe is individually guarded against OSError
+    (``.is_dir()``/``.is_file()`` can raise on a broken Windows junction, a
+    symlink loop, or a permission-denied parent): an unreadable ancestor is
+    skipped rather than aborting the whole walk, so one bad link in the chain
+    doesn't hide a real checkout further up.
+    """
+    try:
+        parents = list(Path(script_file).resolve().parents)
+    except OSError:
+        return None
+    for candidate in parents:
+        try:
+            if (candidate / "coordinator_core").is_dir() and (candidate / "pyproject.toml").is_file():
+                return str(candidate)
+        except OSError:
+            continue
+    return None
+
+
+def resolve_engine_root(script_file: str) -> str:
+    """Resolve the engine checkout for a co-located CLI, override-first.
+
+    The ladder every ``coordinator/bin`` entrypoint should use to find the
+    engine it is about to import from:
+
+      Rung 1: ``CLAUDE_KLABAUTER_ROOT`` in the environment, when it names a real
+              directory — the explicit operator/test-harness override.
+      Rung 2: self-location — ``_walk_up_to_checkout(script_file)``, the
+              nearest enclosing checkout at any depth.
+      Rung 3: ``_resolve_claude_klabauter_root()``'s remaining rungs — the
+              ``<settings-home>/machine-local/.claude-klabauter-root`` pointer file, then
+              the machine-local ``repos.claude_klabauter`` registry key.
+
+    Distinct from ``resolve_colocated_claude_klabauter_root`` in rung ORDER, and the
+    difference is load-bearing: that function probes self-location BEFORE the
+    environment, so a caller pointing a script at a different engine checkout
+    via ``CLAUDE_KLABAUTER_ROOT`` is silently served the one the script happens to sit in.
+    Its existing callers are pinned to that ordering, so this is a new function
+    rather than a change of semantics underneath them.
+
+    Relative to the bare ``_resolve_claude_klabauter_root()`` this replaces at ~26 call
+    sites, rung 1 is NOT byte-identical. Both still consult ``CLAUDE_KLABAUTER_ROOT``
+    first and both still let it outrank every other rung — but unlike
+    ``_resolve_claude_klabauter_root``, which returns any non-empty env value verbatim,
+    this rung 1 is gated on ``os.path.isdir(env_root)``: a set-but-nonexistent
+    ``CLAUDE_KLABAUTER_ROOT`` (e.g. stale after a cross-platform sync — ``~/.claude`` is
+    shared between machines whose absolute paths differ, so a value baked on
+    one box can name nothing on the other) falls through to self-location
+    instead of being honored. This is deliberate: silently trusting a
+    nonexistent root would reintroduce the ModuleNotFoundError this function
+    exists to remove. The consequence for a caller relying on the old
+    verbatim-return behavior — e.g. a test harness that deliberately pins a
+    broken ``CLAUDE_KLABAUTER_ROOT`` to assert on the resulting failure — is that it
+    will no longer get that broken root back; it gets self-location's answer
+    (or the registry ladder's) instead.
+
+    Otherwise: self-location is consulted ahead of the pointer file and the
+    registry. That is what makes a script inside an engine checkout work on an
+    install whose machine-local registry was never populated, which is the
+    portability defect this exists to close: before it, a hand-set
+    ``PYTHONPATH`` was the only remaining answer.
+
+    Note the one behavior change that follows: on a box whose pointer file or
+    registry names a DIFFERENT checkout than the one the script lives in, the
+    script now uses its own. That is the intended reading of "co-located" and
+    matches what ``resolve_colocated_claude_klabauter_root``'s callers already do; an
+    operator who genuinely wants the other tree sets ``CLAUDE_KLABAUTER_ROOT`` to an
+    EXISTING directory, which still outranks everything.
+
+    Raises RuntimeError (via ``_resolve_claude_klabauter_root``'s fail-loud remediation
+    text) when every rung misses.
+
+    A caller that must fail loud when the engine is unresolvable belongs on
+    THIS function, not on ``ensure_engine_on_path`` — see that function's
+    docstring for why the degrading form is the wrong choice there.
+    """
+    env_root = os.environ.get("CLAUDE_KLABAUTER_ROOT") or ""
+    if env_root and os.path.isdir(env_root):
+        return env_root
+    walked = _walk_up_to_checkout(script_file)
+    if walked:
+        return walked
+    return _resolve_claude_klabauter_root()
+
+
+def _front_insert_on_path(root: str) -> str:
+    """Shared ``if root not in sys.path: sys.path.insert(0, root)`` body.
+
+    The one insert primitive every path-mutating resolver wrapper in this
+    module (``ensure_engine_on_path``, ``require_engine_on_path``,
+    ``require_colocated_engine_on_path``) calls through, so the front-insert
+    behavior — an explicit ``CLAUDE_KLABAUTER_ROOT`` outranking an ambient editable
+    install of ``coordinator_core`` — lives in exactly one place. Returns
+    ``root`` unchanged, so callers can end on ``return _front_insert_on_path(root)``.
+    """
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    return root
+
+
+def ensure_engine_on_path(script_file: str) -> str | None:
+    """Resolve the engine root via ``resolve_engine_root`` and put it on ``sys.path``.
+
+    The one-line form of the ``resolve → if not in sys.path → insert`` dance
+    that was hand-rolled at every engine-touching seam in ``coordinator/bin``.
+    Inserts at the FRONT, so an explicit ``CLAUDE_KLABAUTER_ROOT`` outranks an ambient
+    editable install of ``coordinator_core``.
+
+    Best-effort by design: returns None instead of raising when every rung
+    misses, because the callers are CLIs that degrade gracefully on an
+    engine-less install (a scaffold that needs no engine must not die on a
+    resolution failure). A caller that genuinely requires the engine should
+    call ``require_engine_on_path`` directly and let the RuntimeError fly.
+
+    Catches both ``RuntimeError`` (every rung missed) and ``OSError``
+    (a filesystem probe along the way — e.g. a broken junction or an
+    inaccessible ancestor that ``_walk_up_to_checkout`` couldn't shield
+    itself, or a registry/pointer-file read failure) so the "never raises"
+    contract above actually holds; narrowing to ``RuntimeError`` alone let a
+    raw ``OSError`` from a filesystem edge case escape past this best-effort
+    boundary.
+
+    Returns the resolved root, or None when unresolvable.
+    """
+    try:
+        root = resolve_engine_root(script_file)
+    except (RuntimeError, OSError):
+        return None
+    if not root:
+        return None
+    return _front_insert_on_path(root)
+
+
+def require_engine_on_path(script_file: str) -> str:
+    """Resolve the engine root via ``resolve_engine_root`` and put it on ``sys.path``, fail-loud.
+
+    Env-first ladder (``resolve_engine_root``'s own rung order: an existing-directory
+    ``CLAUDE_KLABAUTER_ROOT`` first, then self-location, then the pointer-file/registry rungs) — so
+    an explicit operator override outranks self-location here, unlike
+    ``require_colocated_engine_on_path`` below.
+
+    Catches NOTHING: a ``RuntimeError`` from ``resolve_engine_root`` (every rung missed)
+    or an ``OSError`` from a filesystem probe along the way propagates straight to the
+    caller. Use this over ``ensure_engine_on_path`` when the caller genuinely requires the
+    engine and an unresolvable root should be a hard failure, not a silent None.
+
+    Returns the resolved root.
+    """
+    root = resolve_engine_root(script_file)
+    return _front_insert_on_path(root)
+
+
+def require_colocated_engine_on_path(script_file: str) -> str:
+    """Resolve the engine root via ``resolve_colocated_claude_klabauter_root`` and put it on ``sys.path``, fail-loud.
+
+    Self-location-first ladder: ``resolve_colocated_claude_klabauter_root``'s rung 1 probes
+    ``Path(script_file)``'s own ``parents[2]`` as a candidate engine checkout BEFORE
+    consulting the environment — while its two-marker probe hits, an explicit
+    ``CLAUDE_KLABAUTER_ROOT`` is never even consulted. Only when that self-location probe misses
+    does resolution fall through to ``_resolve_claude_klabauter_root()``'s ladder, where
+    ``CLAUDE_KLABAUTER_ROOT`` is rung 1.
+
+    Catches NOTHING: a ``RuntimeError`` from ``resolve_colocated_claude_klabauter_root`` (both
+    rungs missed) or an ``OSError`` from a filesystem probe along the way propagates
+    straight to the caller.
+
+    Returns the resolved root.
+    """
+    root = resolve_colocated_claude_klabauter_root(script_file)
+    return _front_insert_on_path(root)
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +786,7 @@ def _should_pass_repo(op: str, claude_klabauter_root: str | None = None) -> bool
     ...` here relies on coordinator_core already being importable from the
     CALLING process's ambient sys.path, which is NOT guaranteed: a caller script
     living at coordinator/bin/*.py (e.g. coordinator-workflow-scaffold.py) has
-    only coordinator/bin/lib on sys.path, not the claude-klabauter root itself, so the
+    only coordinator/bin/lib on sys.path, not the engine root itself, so the
     import raised ImportError every time and this function silently fell open
     (returned True) on EVERY call — reintroducing the exact DR-279 bug this
     module exists to fix, for exactly the callers most likely to hit it. Mirrors
@@ -574,6 +845,67 @@ def _build_subprocess_env(claude_klabauter_root: str) -> dict[str, str]:
     return env
 
 
+_IMPORT_ERROR_TOKENS = ("importerror", "modulenotfounderror", "no module named")
+
+#: Cap on the raw-stdout tail `_op_error_detail` falls back to when the child's
+#: stdout is not a parseable JSON-RPC envelope. A traceback or a debug dump can
+#: run to megabytes; the raised message has to stay readable in a terminal.
+_OP_ERROR_DETAIL_CAP = 2000
+
+
+def _op_error_detail(stdout_text: str) -> str:
+    """Recover the engine's own failure text from a nonzero-exit child's STDOUT.
+
+    ``coordinator_core.invoke`` splits its two failure channels by ORIGIN, not by
+    severity, and the split is easy to misread as "errors go to stderr":
+
+      - A PRE-dispatch failure (bad args, unresolvable repo_root) goes through
+        ``_fatal_stderr``, which writes its JSON-RPC error envelope to **stderr**
+        and exits 1.
+      - A dispatch that COMPLETED with an op-level error is an ordinary JSON-RPC
+        response: ``main()`` prints it to **stdout** and exits 1 via
+        ``_exit_code_for_response``. Stderr is typically empty.
+
+    ``_raise_on_process_failure`` only ever read stderr, so the entire second
+    class — every op-level refusal, every exception escaping a handler, an
+    unknown method — reached the operator as a bare
+    ``invoke process exited 1 (op=X) — op or dispatch error`` followed by an
+    empty ``stderr:`` line, with the reason nowhere: it was sitting on stdout,
+    discarded unread. That is how ``ceremony.wsc_tail`` failed on doe-claude-em's
+    Windows box with no recoverable diagnosis
+    (``cross-repo/inbox/2026-08-07-doe-claude-em-windows-ceremony-cli-coordinator-core-import-break.md``),
+    and why that one item's symptom looked unlike its two siblings' — those died
+    in the trampoline process itself and printed a real traceback, while this one
+    died behind the transport's blind side.
+
+    Returns an indented ``  op error: ...`` line for a JSON-RPC error envelope, a
+    capped ``  op stdout: ...`` line for anything else non-empty, or ``""`` when
+    stdout carries nothing. Never raises — this runs on a path that is already
+    failing and must not acquire a second failure mode of its own.
+
+    To reproduce the stdout-borne error envelope this recovers, without firing a
+    mutating op at a live tree: ``docs/reference/transport-failure-probes.md``
+    (``diagnostics.always_refuses`` is the write-free probe for this shape).
+    """
+    text = (stdout_text or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        parsed = None
+    if isinstance(parsed, dict):
+        err = parsed.get("error")
+        if isinstance(err, dict):
+            return (
+                f"  op error: code={err.get('code', '?')!r} "
+                f"message={err.get('message', '?')!r}"
+            )
+        if err:
+            return f"  op error: {err!r}"
+    return f"  op stdout: {text[:_OP_ERROR_DETAIL_CAP]}"
+
+
 def _raise_on_process_failure(
     rc: int,
     stdout_text: str,
@@ -588,33 +920,87 @@ def _raise_on_process_failure(
     RuntimeError (or its StructuralPinError subclass) on failure; returns None when the
     process succeeded with output.
 
-    (2) Nonzero exit → distinguish, in precedence order: ImportError (engine-won't-start)
-        > rc==2 structural contract-pin failure (StructuralPinError, non-self-healing) >
-        generic op-level error.
+    (2) Nonzero exit → distinguish, in precedence order: ImportError on stderr
+        (engine-won't-start) > rc==2 structural contract-pin failure
+        (StructuralPinError, non-self-healing) > ImportError recovered from the
+        stdout error envelope > generic op-level error. EVERY rung now carries
+        ``_op_error_detail``'s recovery of the child's stdout — see that
+        function for the channel split this ladder used to be blind to.
     (3) Empty stdout → invoke always produces output on success.
+
+    Negative-spec: the stdout-borne ImportError rung is deliberately ranked BELOW
+    the rc==2 structural-pin rung, not folded into the stderr sniff above it. The
+    pre-existing precedence — which rung an input lands on: stderr-ImportError >
+    rc==2 > generic — is load-bearing and stays identical; widening the top sniff
+    to stdout would let a structural-pin message that merely mentions a module
+    name get reclassified as an install failure, losing the engine's own
+    non-self-healing discriminator. (The raised message TEXT for rungs 1/2 is not
+    byte-identical to before this change — `_op_error_detail`'s recovered detail
+    is now appended to every rung, including these two — only the routing
+    precedence is pinned. Review: code-reviewer P3.)
+
+    ``docs/reference/transport-failure-probes.md`` maps each rung above to a
+    write-free probe that reaches it — safe to fire at a live, dirty, shared tree
+    — and names the three rungs (stderr ImportError, empty stdout, transport
+    absent) that no registered op can reach, with the spawn-free unit cases that
+    cover them instead.
     """
     if rc != 0:
-        _is_import_err = any(
-            tok in stderr_text.lower()
-            for tok in ("importerror", "modulenotfounderror", "no module named")
-        )
-        if _is_import_err:
-            raise RuntimeError(
-                f"cc_invoke: engine will not import/start (op={op}, rc={rc})\n"
-                "  ImportError — verify CLAUDE_KLABAUTER_ROOT and coordinator_core installation:\n"
-                f"    CLAUDE_KLABAUTER_ROOT={claude_klabauter_root!r}\n"
-                f"    stderr: {stderr_text.strip()}"
-            )
+        detail = _op_error_detail(stdout_text)
+
+        def _engine_wont_start(token_origin: str) -> RuntimeError:
+            """Build the engine-won't-start error, naming which channel accused the engine.
+
+            ``token_origin`` is load-bearing rather than cosmetic. Two different rungs
+            raise this, and only one of them is strong evidence:
+
+              - ``stderr`` — the engine itself failed to import, and said so on the
+                channel it uses for pre-dispatch failures. Trustworthy.
+              - ``stdout`` — an ImportError token was recovered from a COMPLETED
+                dispatch's own error envelope. That usually means the same thing, but
+                it cannot mean it as certainly: the engine demonstrably started (it ran
+                a handler far enough to produce an envelope), so an op merely reporting
+                a module problem of its own lands here too and gets told to go check
+                CLAUDE_KLABAUTER_ROOT. Naming the origin is what lets the operator tell those
+                apart instead of chasing an install that is fine.
+
+            Narrowing the stdout sniff to remove that false positive was considered and
+            declined: it trades a visible-and-labelled misclassification for a silent
+            missed one, and this ladder's whole purpose is that failures state what they
+            actually know. Reviewed and escalated as s2/F1 (2026-08-07).
+            """
+            lines = [
+                f"cc_invoke: engine will not import/start (op={op}, rc={rc})",
+                "  ImportError — verify CLAUDE_KLABAUTER_ROOT and coordinator_core installation:",
+                f"    CLAUDE_KLABAUTER_ROOT={claude_klabauter_root!r}",
+                f"    ImportError token seen on: {token_origin}",
+            ]
+            if token_origin == "stdout":
+                lines.append(
+                    "    NOTE: recovered from the op's OWN error envelope, not from engine "
+                    "startup — the engine did start, so if the op merely reported a module "
+                    "problem of its own, this classification is wrong; read the op error below."
+                )
+            lines.append(f"    stderr: {stderr_text.strip()}")
+            message = "\n".join(lines)
+            return RuntimeError(f"{message}\n{detail}" if detail else message)
+
+        if any(tok in stderr_text.lower() for tok in _IMPORT_ERROR_TOKENS):
+            raise _engine_wont_start("stderr")
         if rc == 2:
-            raise StructuralPinError(
+            message = (
                 f"cc_invoke: structural contract-pin failure (op={op}, rc=2) — "
                 "non-self-healing, will recur on retry\n"
                 f"  stderr: {stderr_text.strip()}"
             )
-        raise RuntimeError(
+            raise StructuralPinError(f"{message}\n{detail}" if detail else message)
+        if any(tok in detail.lower() for tok in _IMPORT_ERROR_TOKENS):
+            raise _engine_wont_start("stdout")
+        message = (
             f"cc_invoke: invoke process exited {rc} (op={op}) — op or dispatch error\n"
             f"  stderr: {stderr_text.strip()}"
         )
+        raise RuntimeError(f"{message}\n{detail}" if detail else message)
 
     if not stdout_text.strip():
         raise RuntimeError(
@@ -630,7 +1016,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], floor:
     transport's _cc_resolve_op_timeouts DEC-2a/2b split:
       "ok"     — dump succeeded; _OP_TIMEOUTS_MAP holds the {op: secs} map (incl. the
                  required "__default__" key).
-      "absent" — dump surface not present (older claude-klabauter; argparse "unrecognized" on
+      "absent" — dump surface not present (older engine repo; argparse "unrecognized" on
                  stderr) — DEC-2a, silent, expected.
       "error"  — surface present but the call failed (timeout / nonzero for another
                  reason / empty / malformed / missing "__default__") — DEC-2b, still
@@ -639,7 +1025,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], floor:
     The DEC-1 dump surface ships server-side today, so the probe always runs — once
     per process, memoized via the `_OP_TIMEOUTS_STATE is not None` guard above, so it
     never doubles the per-op subprocess/CreateProcess spawn count (the single most
-    expensive syscall path on Windows) beyond that one-time cost. Older claude-klabauter
+    expensive syscall path on Windows) beyond that one-time cost. Older engine
     checkouts that predate the dump surface fall through the DEC-2a "absent" branch
     below (argparse "unrecognized" detection on stderr) — that is the graceful-
     degradation path this function preserves, not a feature flag.
@@ -660,7 +1046,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], floor:
             timeout=floor,
             env=env,
             cwd=claude_klabauter_root,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_kw(claude_klabauter_root),
         )
     except subprocess.TimeoutExpired:
         # A timeout means the surface responded (or was expected to) and wedged — DEC-2b.
@@ -668,7 +1054,7 @@ def _resolve_op_timeouts(claude_klabauter_root: str, env: dict[str, str], floor:
         return
 
     if proc.returncode != 0:
-        # DEC-2 split: an argparse-style "unrecognized" error is an older claude-klabauter without
+        # DEC-2 split: an argparse-style "unrecognized" error is an older engine repo without
         # the dump surface (2a, silent); any other failure shape is a real fault (2b).
         _argparse_absent = any(
             tok in proc.stderr.lower()
@@ -716,6 +1102,12 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
     (CC_INVOKE_CLIENT_MARGIN_SECS, default 10) covers cold python startup + import on top
     of the engine's own dispatch budget. Falls back to flat FLOOR when the engine's
     op-budget dump is absent or errored (with a once-per-process breadcrumb on error).
+
+    Substrate fact (2026-08-08 timeout-remedy fix): the long-unexplained "observed
+    consistently at 40s" in the backlog is this formula with the default constants —
+    max(FLOOR=10, engine_budget(op)=30 + MARGIN=10) = 40. See `_timeout_exceeded_message`,
+    which surfaces this derivation in the TimeoutExpired remedy text instead of the old
+    (and wrong, on a healthy engine) "verify CLAUDE_KLABAUTER_ROOT / installation" text.
     """
     global _OP_TIMEOUTS_BREADCRUMB_SHOWN
     floor = _read_positive_int_env("CC_INVOKE_TIMEOUT_SECS", 10)
@@ -736,6 +1128,84 @@ def _op_timeout_ceiling(op: str, claude_klabauter_root: str, env: dict[str, str]
         )
         _OP_TIMEOUTS_BREADCRUMB_SHOWN = True
     return floor
+
+
+# Stable literal prefix of every TimeoutExpired-derived RuntimeError this module raises
+# (both cc_invoke() and cc_invoke_bare()) — the discriminator `is_timeout_error` matches
+# on. Kept as a named constant rather than inlined so the two places that must agree on
+# it (the builder below and the discriminator) cannot drift independently.
+_TIMEOUT_MESSAGE_PREFIX = "cc_invoke: engine timeout after "
+
+
+def is_timeout_error(exc: BaseException) -> bool:
+    """True if `exc` is the TimeoutExpired-derived RuntimeError this module raises.
+
+    Lets a caller distinguish "engine was simply busy" (never install-related) from
+    every other RuntimeError this module's ladder can raise (which may legitimately be
+    install-related, e.g. `_engine_wont_start`) WITHOUT re-deriving or duplicating
+    `_timeout_exceeded_message`'s text. A caller that appends its own generic "verify
+    CLAUDE_KLABAUTER_ROOT / installation" remedy line after any `except RuntimeError` should gate
+    that line on `not is_timeout_error(exc)` — see AC7,
+    docs/plans/2026-08-08-claim-index-the-commit-gate-never-had.md § C5.
+    """
+    return isinstance(exc, RuntimeError) and str(exc).startswith(_TIMEOUT_MESSAGE_PREFIX)
+
+
+def _timeout_exceeded_message(op: str, timeout: int) -> str:
+    """Build the TimeoutExpired remedy text — names the COMPUTED ceiling, not the install.
+
+    Replaces the old "Verify CLAUDE_KLABAUTER_ROOT and coordinator_core installation" text, which
+    was flatly wrong on a demonstrably healthy engine (it cost a session four retries and
+    a wrong install diagnosis; reproduced on coverage.gate and ceremony.wsc_tail, neither
+    lock-related). Called AFTER `_op_timeout_ceiling(op, ...)` has already run for this
+    invocation, so `_OP_TIMEOUTS_STATE`/`_OP_TIMEOUTS_MAP` are already resolved — no
+    second engine spawn here.
+
+    Names the derivation (`max(FLOOR, engine_budget(op) + MARGIN)`) so the reader knows
+    CC_INVOKE_TIMEOUT_SECS is a FLOOR: it only raises the ceiling when set ABOVE the
+    already-computed `timeout`, and is a no-op at or below it.
+
+    That FLOOR sentence is true but incomplete on its own: on the `_OP_TIMEOUTS_STATE ==
+    "ok"` branch the binding term is usually the engine's own op budget, not the client
+    floor — CC_INVOKE_TIMEOUT_SECS provably cannot clear the timeout in that case. A
+    client-side floor cannot clear an engine-budget timeout; only
+    COORDINATOR_DISPATCH_TIMEOUT_SECS (`coordinator_core/ipc.py::DISPATCH_TIMEOUT_SECS`)
+    raises that budget. An operator who read only the FLOOR sentence set
+    CC_INVOKE_TIMEOUT_SECS=300, watched the same 30s-derived timeout recur, and had to
+    read ipc.py to find the real knob — see
+    `cross-repo/inbox/2026-08-10-doe-claude-em-wsc-tail-exceeds-the-30s-dispatch-budget.md`.
+    This function now names both knobs and which side of the wait each governs whenever
+    the engine-budget derivation is known; the degraded branch (dump unavailable) still
+    names both but does not assert a budget number it could not read.
+
+    The returned text always starts with `_TIMEOUT_MESSAGE_PREFIX` — `is_timeout_error`
+    depends on that invariant.
+    """
+    floor = _read_positive_int_env("CC_INVOKE_TIMEOUT_SECS", 10)
+    margin = _read_positive_int_env("CC_INVOKE_CLIENT_MARGIN_SECS", 10)
+    if _OP_TIMEOUTS_STATE == "ok":
+        budget = _OP_TIMEOUTS_MAP.get(op, _OP_TIMEOUTS_MAP["__default__"])
+        budget_int = int(budget)
+        derivation = f"max(floor {floor}, engine budget {budget_int} + margin {margin})"
+        knobs_line = (
+            f"  To raise the engine budget itself (currently {budget_int}s for op={op}), set\n"
+            "  COORDINATOR_DISPATCH_TIMEOUT_SECS: CC_INVOKE_TIMEOUT_SECS governs only the\n"
+            "  client-side wait; COORDINATOR_DISPATCH_TIMEOUT_SECS governs the op's own budget."
+        )
+    else:
+        derivation = f"floor {floor} (engine op-budget dump unavailable)"
+        knobs_line = (
+            "  CC_INVOKE_TIMEOUT_SECS governs only the client-side wait; the op's own budget\n"
+            "  (raised via COORDINATOR_DISPATCH_TIMEOUT_SECS) could not be read here."
+        )
+    return (
+        f"{_TIMEOUT_MESSAGE_PREFIX}{timeout}s (op={op}) — "
+        "coordinator_core.invoke did not respond\n"
+        f"  Exceeded {timeout}s = {derivation}. The engine may simply be busy.\n"
+        "  CC_INVOKE_TIMEOUT_SECS is a FLOOR, not a ceiling: it only raises this number when\n"
+        f"  set ABOVE {timeout}s. Setting it at or below {timeout}s changes nothing.\n"
+        f"{knobs_line}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -815,18 +1285,14 @@ def cc_invoke(
             timeout=timeout,
             env=env,
             cwd=claude_klabauter_root,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_kw(claude_klabauter_root),
         )
         rc = proc.returncode
         stdout_text = proc.stdout
         stderr_text = proc.stderr
     except subprocess.TimeoutExpired:
         # (1) Timeout — mirrors the retired bash transport's cs_timeout exit 124 branch.
-        raise RuntimeError(
-            f"cc_invoke: engine timeout after {timeout}s (op={op}) — "
-            "coordinator_core.invoke did not respond\n"
-            f"  Verify CLAUDE_KLABAUTER_ROOT ({claude_klabauter_root!r}) and coordinator_core installation"
-        )
+        raise RuntimeError(_timeout_exceeded_message(op, timeout))
 
     # (2) Nonzero process exit — distinguish engine-start failure from op-level error.
     # (3) Empty stdout — invoke always produces output on success.
@@ -901,7 +1367,7 @@ def cc_invoke_bare(
         Windows/msys, where a ~50KB+ payload overflows a bare argv arg (exit 126 HALT).
       - Per-op timeout ceiling (DEC-1..3): _t = max(FLOOR, engine_budget(op)+MARGIN) for
         every op, resolved once-per-process from the engine's --dump-op-timeouts map;
-        flat-FLOOR fallback when that surface is absent (older claude-klabauter) or errored.
+        flat-FLOOR fallback when that surface is absent (older engine repo) or errored.
 
     Shares the timeout / nonzero-exit ImportError-vs-op / empty-stdout fail-closed rungs
     with cc_invoke() via _raise_on_process_failure — one ladder, two call conventions.
@@ -949,18 +1415,14 @@ def cc_invoke_bare(
                 timeout=timeout,
                 env=env,
                 cwd=claude_klabauter_root,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                **_no_console_kw(claude_klabauter_root),
             )
             rc = proc.returncode
             stdout_text = proc.stdout
             stderr_text = proc.stderr
         except subprocess.TimeoutExpired:
             # (1) Timeout — mirrors the retired bash transport's cs_timeout exit 124 branch.
-            raise RuntimeError(
-                f"cc_invoke: engine timeout after {timeout}s (op={op}) — "
-                "coordinator_core.invoke did not respond\n"
-                f"  Verify CLAUDE_KLABAUTER_ROOT ({claude_klabauter_root!r}) and coordinator_core installation"
-            )
+            raise RuntimeError(_timeout_exceeded_message(op, timeout))
     finally:
         try:
             os.unlink(_params_path)
@@ -991,7 +1453,7 @@ def cc_invoke_bare(
 
 
 # ---------------------------------------------------------------------------
-# State-1 remediation — W0.5 Option B+C (PM-ratified 2026-07-19): claude-klabauter
+# State-1 remediation — W0.5 Option B+C (PM-ratified 2026-07-19): the engine repo
 # is a MANDATORY prerequisite of coordinator in every environment. A seam-absent
 # route() call is not a legitimate "no engine installed, degrade gracefully"
 # outcome anymore — it is a broken install. Prior to this, State-1 silently
@@ -1005,7 +1467,7 @@ def cc_invoke_bare(
 # ---------------------------------------------------------------------------
 
 def _state1_remediation_message(op: str, attempted_claude_klabauter_root: str | None) -> str:
-    """Build the claude-klabauter-install-specific remediation text for a State-1 (seam-absent) failure.
+    """Build the engine-install-specific remediation text for a State-1 (seam-absent) failure.
 
     Enumerates the four-rung CLAUDE_KLABAUTER_ROOT resolution ladder (mirrors
     _resolve_claude_klabauter_root's own rung order) so an operator sees exactly which
@@ -1051,7 +1513,7 @@ def route(
 
     State-1 (seam absent — coordinator_core.invoke not importable via CLAUDE_KLABAUTER_ROOT):
         Call legacy_fn(); its return value passes through unchanged on success.
-        If legacy_fn() raises, the exception is wrapped in a claude-klabauter-install-specific
+        If legacy_fn() raises, the exception is wrapped in an engine-install-specific
         remediation RuntimeError (the four-rung CLAUDE_KLABAUTER_ROOT resolution ladder) instead
         of propagating whatever generic message the caller's legacy_fn happened to
         raise (see _state1_remediation_message). No native spawn attempted either way.
@@ -1070,7 +1532,7 @@ def route(
             on the State-1/legacy_fn path. Keyword-only; most callers omit it.
     """
     # Resolve CLAUDE_KLABAUTER_ROOT; unresolvable root → treat as seam-absent (State-1).
-    # Rationale: if the registry doesn't know about claude-klabauter, the seam is definitely absent.
+    # Rationale: if the registry doesn't know about the engine repo, the seam is definitely absent.
     claude_klabauter_root: str | None
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
@@ -1125,9 +1587,9 @@ def route_mutation(
     repo_root: str,
     legacy_fn: Callable[[], Any],
 ) -> Any:
-    """Mutation-aware sibling of route() — honors claude-klabauter's in-envelope exit_code/failed/error.
+    """Mutation-aware sibling of route() — honors the engine repo's in-envelope exit_code/failed/error.
 
-    Purpose: route() returns the BARE result dict on transport success, but claude-klabauter's
+    Purpose: route() returns the BARE result dict on transport success, but the engine repo's
     op-level refusals (build_setup_error_result -> {"exit_code": 1, ...}; build_act_result
     with partial/total failure -> {"exit_code": 2, "failed": [...]}) live INSIDE that
     result payload with no top-level 'error' key — cc_invoke's envelope ladder only

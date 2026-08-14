@@ -135,7 +135,7 @@ After the 3rd attempt, regardless of outcome:
 
 Before the coordinator reads files manually, dispatch a **Haiku agent** to do the mechanical data-gathering. The Haiku agent receives the executor's completion report and the stub's acceptance criteria, then:
 
-1. **Confirms files changed** — `git diff --name-only` against the pre-execution state. Do the modified files match what the stub specified?
+1. **Confirms files changed** — `git --no-optional-locks diff --name-only` against the pre-execution state. Do the modified files match what the stub specified? On a tree shared with concurrent sessions, a manually-run `git status`/`git diff` takes the `.git/index.lock`; the no-lock form is `git --no-optional-locks <subcommand>` — the flag must sit between `git` and the subcommand or the invocation hard-fails — and `git diff --cached`/`git ls-files -m` need no such flag.
 2. **Runs project validation** — compile, typecheck, lint, test suite (the command identified in the stub or project config)
 3. **Checks acceptance criteria** — reads the stub's `## Acceptance Criteria` section and for each `AC-N:` item:
    - Verifies the criterion against the git diff and current file state
@@ -161,7 +161,7 @@ Agent(
   {paste stub's ## Acceptance Criteria section, or "NONE — report absence"}
 
   TASKS:
-  1. Run: git diff --name-only {pre-execution-commit}..HEAD
+  1. Run: git --no-optional-locks diff --name-only {pre-execution-commit}..HEAD
      Report: files changed (expected vs actual from executor report)
   2. Run project validation: {validation command from stub or project config}
      If no explicit command, use the Validation Matrix: tsconfig.json → npx tsc --noEmit,
@@ -254,7 +254,7 @@ Agent(
 
 Before staging any executor output:
 
-1. Run `git diff --stat` to enumerate all changed paths.
+1. Run `git --no-optional-locks diff --stat` to enumerate all changed paths.
 2. Confirm each changed path is within the dispatch's declared scope.
 3. Stash or revert any out-of-scope edits — common out-of-scope mutations include test file deletions, unrelated refactors, and autonomous commits the executor made despite instructions.
 
@@ -289,10 +289,9 @@ Executors own their tracker updates (status, commit hashes). The coordinator's r
 **5.2: Canonical tracker sweep verification**
 For each completed stub, grep its codename across canonical trackers to confirm the executor ran its sweep:
 ```bash
-grep -in "<codename>" docs/project-tracker.md tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null
+grep -in "<codename>" tasks/*/todo.md docs/roadmap.md ROADMAP.md 2>/dev/null
 ```
 - If a canonical tracker still shows the item as pending/unchecked despite the executor reporting DONE, fix it now
-- If `docs/project-tracker.md` references the work and wasn't updated, that's a gap — update it
 - This is the coordinator's backstop for the executor's sweep. If executors did their job, this is a no-op. If they didn't, it catches the drift.
 
 ### Completion Report
@@ -348,11 +347,11 @@ takes an explicit `paths` list and never resets the shared index out from under 
 
 ## File deletions in retirement/migration chunks route to the EM — `git rm` is blocked for executors
 
-The subagent destructive-action EM-lock denies all git verbs, `git rm` included, so a retirement/migration executor cannot stage a file deletion. Its filesystem-`rm` fallback removes the file from disk but does NOT persist to the index — so the deletion silently fails to land in the commit. Route file DELETIONS in retirement/migration chunks to the EM (`git rm`), OR let the executor filesystem-`rm` and have the EM stage the deletion. Either way, verify the deletion on disk AND in the index (`git status` shows a staged `D`) — never trust the executor's "deleted" claim. (C8a schema-file retirement: the executor's `git rm` was denied, its filesystem-rm fallback didn't reach the index.)
+The subagent destructive-action EM-lock denies all git verbs, `git rm` included, so a retirement/migration executor cannot stage a file deletion. Its filesystem-`rm` fallback removes the file from disk but does NOT persist to the index — so the deletion silently fails to land in the commit. Route file DELETIONS in retirement/migration chunks to the EM (`git rm`), OR let the executor filesystem-`rm` and have the EM stage the deletion. Either way, verify the deletion on disk AND in the index (`git --no-optional-locks status` shows a staged `D`) — never trust the executor's "deleted" claim. (C8a schema-file retirement: the executor's `git rm` was denied, its filesystem-rm fallback didn't reach the index.)
 
 ## Copy-into-dest executors silently clobber same-named files — an `M` on an expected-new path is the tell
 
-A copy/merge executor that writes files into a destination can overwrite a same-basename, different-content file the destination already owned. The tell is in `git status`: a **genuinely new** write lands as `??` (untracked); an **`M`** (modified) on a path you expected to be new means the write clobbered an existing file. Before committing a copy/merge dispatch, verify each expected-new file shows `??`, not `M` — an unexpected `M` means revert and re-scope. (DR→coordinator merge: a copy-executor overwrote coordinator's OWN `test_prereq_probe.sh` / `test_repo_root_resolution.sh` with the same-named DR versions; `git status` showed them `M`, not `??`.)
+A copy/merge executor that writes files into a destination can overwrite a same-basename, different-content file the destination already owned. The tell is in `git --no-optional-locks status`: a **genuinely new** write lands as `??` (untracked); an **`M`** (modified) on a path you expected to be new means the write clobbered an existing file. Before committing a copy/merge dispatch, verify each expected-new file shows `??`, not `M` — an unexpected `M` means revert and re-scope. (DR→coordinator merge: a copy-executor overwrote coordinator's OWN `test_prereq_probe.sh` / `test_repo_root_resolution.sh` with the same-named DR versions; `git status` showed them `M`, not `??`.)
 
 ## Review-Integrator as Mandatory Next Step
 
@@ -363,7 +362,7 @@ After every review (plan, code, or architectural), the next action MUST be dispa
 The required sequence:
 
 1. **Dispatch `coordinator:code-reviewer`** (UNNAMED) or a persona reviewer. The sidecar is spawn-provisioned by the engine — no sentinel-append instruction is needed in the brief.
-2. **Read the returned pointer line**: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. The sidecar is already on disk at `state/subagent-share/<session>/<provision_key>.md` — provisioned at spawn, not self-scaffolded.
+2. **Read the returned pointer line**: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`, which `coordinator:code-reviewer` extends with a trailing `| executed: <yes|no>` — a persona reviewer's line carries no such field. The sidecar is already on disk at `state/subagent-share/<session>/<provision_key>.md` — provisioned at spawn, not self-scaffolded.
 3. **Dispatch the review-integrator pointing at the on-disk sidecar path** — never an inline finding list.
 
 The review-integrator dispatched as a subagent handles:
@@ -392,7 +391,7 @@ EM spot-checks the diff after integration; does not re-do the integration manual
 
 **Executor prompt:** `agents/executor.md § Flight-Recorder Sidecar`.
 
-For plan-based fan-out dispatches (via `bin/fan-out-dispatch.sh`), the EM creates a per-chunk sidecar file at dispatch time and passes its path to the executor brief. The executor writes crash-safety status and observations into the sidecar — never into the plan body.
+For plan-based fan-out dispatches (via `bin/fan-out-dispatch.py`), the EM creates a per-chunk sidecar file at dispatch time and passes its path to the executor brief. The executor writes crash-safety status and observations into the sidecar — never into the plan body.
 
 ### Sidecar path convention
 
@@ -439,7 +438,7 @@ These are distinct fields with distinct owners — do not cross-reference.
 
 ### Scope: fan-out dispatches only
 
-Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.sh` writes `sidecar_path:` into each brief. Solo `Agent`-tool dispatches without a `sidecar_path:` field in the brief are valid; the executor falls back to exit-report-only and does not attempt to create or update a sidecar.
+Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.py` writes `sidecar_path:` into each brief. Solo `Agent`-tool dispatches without a `sidecar_path:` field in the brief are valid; the executor falls back to exit-report-only and does not attempt to create or update a sidecar.
 
 ### Lifecycle
 
@@ -455,7 +454,7 @@ Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.s
 
 **Executor reports fabricate "already done" file states — verify edits via `git diff`, not the report.** Executors hallucinate prior state and downstream success, especially when a fix "feels" present — they report a flag that doesn't exist, cite a score from a test that errored, and assert the change landed when the source is unmodified.
 
-**How to apply:** after any executor edit, run `git diff`/`git status` on the claimed paths and re-run the tests yourself before committing. Chat is hypothesis; the diff is ground truth (→ `docs/wiki/dispatching-parallel-agents.md` § Executor commit-fidelity and ground-truth verification). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor.
+Chat is hypothesis; the diff is ground truth (→ `docs/wiki/dispatching-parallel-agents.md` § Executor commit-fidelity and ground-truth verification). Small well-diagnosed fixes are often faster to apply EM-direct than to re-dispatch over a confused executor.
 
 ## 'Pre-Existing' and 'Already Fixed' Claims — Verify Against Merge-Base
 
@@ -465,9 +464,9 @@ Sidecars are mandatory only for fan-out dispatches where `bin/fan-out-dispatch.s
 
 ## Stronger enforcement, not stronger wording — executor no-commit needs a structural guard
 
-**An executor that commits clean, well-messaged work in defiance of "no commits, no push" still defeats the EM-serial commit contract — the EM can no longer verify full scope before atomic commit.** The dispatch brief is policy; without an enforcement seam, eagerness wins.
+**An executor that commits clean, well-messaged work in defiance of "no commits, no push" still defeats the EM-serial commit contract — the EM cannot verify full scope before atomic commit.** The dispatch brief is policy; without an enforcement seam, eagerness wins.
 **Why:** the EM-serial commit pattern exists precisely so the EM can residuals-check (`git status`, scope-diff, missed call sites) before any commit lands. A partial executor commit — even a tidy one — pre-empts that gate and silently narrows the verification window to whatever the executor noticed. Recurring instance, same shape as the long-running-decay entry above.
-**How to apply:** until a structural seam lands, treat "executor committed" as a known-recurring risk — after every executor return, run `git status` + `git log --since="<dispatch_start>"` and recover missed scope in an explicit follow-up commit before the next dispatch. Pair with the existing `--expected-branch` discipline and prefer dispatch surfaces that withhold commit/push permission outright over briefs that ask politely.
+Until a structural seam lands, treat "executor committed" as a known-recurring risk and recover any missed scope in an explicit follow-up commit before the next dispatch. Pair with the existing `--expected-branch` discipline and prefer dispatch surfaces that withhold commit/push permission outright over briefs that ask politely.
 
 This is exactly the failure mode a structural EM-only commit gate (see § No-commit briefs need structural enforcement above) closes for good — once the commit itself is denied at the tool layer for subagent context, "executor committed anyway" stops being a residual risk to hand-audit for.
 

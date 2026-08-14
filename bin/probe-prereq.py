@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """probe-prereq.py -- install.md Phase 1 prerequisite probes/mutations that
 have no existing landed CLI: git-lfs-enable (idempotent `git lfs install`
@@ -83,19 +82,16 @@ _BIN_DIR = Path(__file__).resolve().parent
 _LIB_DIR = _BIN_DIR / "lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 try:
-    _REPO_ROOT = Path(resolve_colocated_claude_klabauter_root(__file__))
+    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
 except RuntimeError as _exc:
     print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 from coordinator_core.install.step_zero_emit import emit_line  # noqa: E402
-
-_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 
 def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.CompletedProcess]:
@@ -118,7 +114,7 @@ def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.Compl
             timeout=timeout,
             encoding="utf-8",
             errors="replace",
-            **_NO_CONSOLE,
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
         return None
@@ -142,7 +138,7 @@ def _cmd_git_lfs_enable(args: argparse.Namespace) -> int:
 
     lfs_ver = _run(["git", "lfs", "version"])
     if lfs_ver is not None and lfs_ver.returncode == 0:
-        subprocess.run(["git", "lfs", "install"], stdin=subprocess.DEVNULL, **_NO_CONSOLE)
+        subprocess.run(["git", "lfs", "install"], stdin=subprocess.DEVNULL, **no_console_creationflags())
 
     sys.stdout.write(prereq_probe.probe_git_lfs())
     return 0

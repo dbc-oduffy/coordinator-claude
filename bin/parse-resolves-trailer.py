@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 parse-resolves-trailer.py — CLI trampoline over claude-klabauter
@@ -26,7 +25,7 @@ Exit codes: 0 — success (incl. vacuous zero-trailer output); 1 — usage error
 2 — not a git repo / invalid commit / CLAUDE_KLABAUTER_ROOT resolution or import failure
 (fail-loud, matching the ported script's own internal-error convention).
 
-Spec backlink: docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C4
+Spec backlink: DoE-claude:pln-lifecycle-vocab-c2-durable-cro-991bd4 § C4
 Doctrine: coordinator/docs/wiki/resolves-commit-trailer.md
 Port of: coordinator/bin/parse-resolves-trailer.py (bash body retired on cutover; see git log)
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md

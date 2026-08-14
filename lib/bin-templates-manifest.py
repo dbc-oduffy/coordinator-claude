@@ -23,7 +23,7 @@ else — the parity test
 build if `templates/bin/` gains a file this manifest does not classify, or
 if an entry here no longer exists on disk.
 
-Spec backlink: docs/plans/2026-07-25-install-surface-freshness-classification.md
+Spec backlink: pln-install-surface-freshness-exte-f702c8
                § C12 / AC19 / AC20
 
 Every entry's `artifact_class` is `"code"` and `force_overwrite` is `True` —
@@ -83,7 +83,6 @@ ML_FAMILY_FILES: "tuple[BinTemplateEntry, ...]" = (
     BinTemplateEntry("machine-local", "code", True, True),
     BinTemplateEntry("_machine_local.py", "code", False, True),
     BinTemplateEntry("machine-local.cmd", "code", False, True),
-    BinTemplateEntry("python3.cmd", "code", False, True),
     BinTemplateEntry("resolve-coordinator-clone", "code", True, True),
     BinTemplateEntry("resolve-coordinator-clone.cmd", "code", False, True),
 )

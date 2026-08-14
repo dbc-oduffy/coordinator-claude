@@ -7,13 +7,13 @@ that trips the P0 Windows guard (`test_posix_exec_assumptions_baseline.py`,
 `env_shebang`). The grandfathered sibling shims predate that ratchet; do not
 copy their first line, and do not widen the baseline to admit this one.
 
-DoE owns only this thin PLUMBING shim: resolve the sibling engine, hand it the
+The doctrine plane owns only this thin PLUMBING shim: resolve the sibling engine, hand it the
 raw Stop payload, and convert its verdict into the documented Stop-hook block
 channel. The engine owns the DETECTION LOGIC
 (`coordinator_core.hooks.nudge_unrouted_sizing.op`).
 
 Per DR-118 (`docs/decisions/DR-118-doe-resident-transport-seam-is-a-pointer.md`),
-a DoE-resident transport seam contains a pointer only: resolve, hand over,
+a doctrine-plane-resident transport seam contains a pointer only: resolve, hand over,
 translate, degrade unconditionally at every step — no fail-open policy, no
 detection policy of its own. This shim demonstrably satisfies that rule; DR-118
 walks its body line by line as the ruling's own conformance example.

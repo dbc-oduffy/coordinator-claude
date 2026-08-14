@@ -5,7 +5,7 @@ Replaces the former ~10 `bash …/block-*.sh` + `bash …/nudge-*.sh` PreToolUse
 registrations with ONE `python3` hook entry — zero Git-Bash cold-starts per edit
 (each bash.exe spawn costs 200-500ms on Windows; this is the whole point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the raw payload, relay its stdout. Claude-klabauter owns the
 guard LOGIC (`coordinator_core.write_guards`, which also reuses
 `coordinator_core.subagent_sandbox`). The engine is imported and run IN-PROCESS —
@@ -96,6 +96,17 @@ except Exception:
 _GUARD_REGISTRY: "tuple" = _REAL_GUARD_REGISTRY
 
 
+def _compose_skipped_guard_breadcrumb(skipped: "list[str]") -> str:
+    """Best-effort stderr breadcrumb naming write-guard module(s) that
+    failed to import and were skipped (fail-open for those guards only).
+    Pure -- takes the skipped-name list, returns the string; `main()` is
+    the only caller and the only place that prints it."""
+    return (
+        "[preuse-write-dispatch] write-guard module(s) failed to import "
+        f"and were skipped (fail-open for those guards only): {', '.join(skipped)}"
+    )
+
+
 def main() -> int:
     raw = sys.stdin.read()
 
@@ -107,8 +118,8 @@ def main() -> int:
     # the engine root is APPENDED, never inserted at index 0 -- the hooks
     # dir (inserted at index 0 above, before this point) must stay AHEAD
     # of the engine root on sys.path, so a module-name collision between a
-    # DoE-local helper and a same-named engine-side module resolves toward
-    # the DoE-local helper.
+    # doctrine-plane-local helper and a same-named engine-side module resolves toward
+    # the doctrine-plane-local helper.
     if root not in sys.path:
         sys.path.append(root)
 
@@ -121,7 +132,7 @@ def main() -> int:
     except Exception:
         return 0  # engine unimportable → fail-open ALLOW
 
-    # Policy file for the reused subagent_sandbox guard lives at the DoE plugin root.
+    # Policy file for the reused subagent_sandbox guard lives at the doctrine-plane plugin root.
     # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root)
     policy_path = str(Path(__file__).resolve().parents[2] / "subagent-sandbox-policy.yaml")
 
@@ -152,7 +163,7 @@ def main() -> int:
     except Exception:
         return 0  # any engine failure → fail-open ALLOW (never brick an edit)
 
-    # In-process guard runner (C1): batches the DoE-resident write-path
+    # In-process guard runner (C1): batches the doctrine-plane-resident write-path
     # guards named in `_GUARD_REGISTRY` into this SAME interpreter, after
     # the engine call, with zero subprocess spawns of its own (AC1). The
     # registry is empty until C2 (next wave) enrols the three residual
@@ -178,11 +189,7 @@ def main() -> int:
     # above or this hook's own exit code; any failure here is swallowed.
     try:
         if _skipped:
-            print(
-                "[preuse-write-dispatch] write-guard module(s) failed to import "
-                f"and were skipped (fail-open for those guards only): {', '.join(_skipped)}",
-                file=sys.stderr,
-            )
+            print(_compose_skipped_guard_breadcrumb(_skipped), file=sys.stderr)
     except Exception:
         pass
 

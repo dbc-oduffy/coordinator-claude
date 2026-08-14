@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 workday-complete-step2_5-dirty-tree.py — CLI trampoline over claude-klabauter
@@ -43,7 +42,7 @@ and is never emitted by the claude-klabauter module itself):
         this repo," which rc=1 conflated before this fix.
 
 Spec backlink: commands/workday-complete.md § Step 2.5
-Spec backlink: docs/plans/2026-07-16-bash-to-naked-python-engine-migration.md
+Spec backlink: docs/plans/2026-07-16-bash-to-naked-python-engine-migration.md [DEAD-CITATION: plan file never committed to this repo]
 """
 
 from __future__ import annotations

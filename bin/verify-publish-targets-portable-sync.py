@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 verify-publish-targets-portable-sync.py — divergence check between the
@@ -67,6 +66,35 @@ replacement signal — it still fails loud if one of those excluded names goes
 missing from this repo's OWN tracked copy, so exclusion cannot silently hide an
 accidental drop from every copy at once.
 
+ALLOWLIST ROT — THE THIRD BLINDNESS (2026-08-07, carried item
+`cf-allowlist-rot-guard-4a1c9e` from
+state/handoffs/2026-08-07_222114_percolate-performance-delta-sweep.md):
+everything above compares two COPIES against each other and never consults
+the source tree the rows describe. An allowlist entry (field 7) naming a
+path that no longer exists in that tree therefore compares clean forever, in
+both copies, indefinitely — the two files agree perfectly about a file that
+is gone. This is not hypothetical: a publish row aborted fail-closed on a
+rotted entry (`build_allowlisted_source` raises `AllowlistError` per
+AC18(c) — an absent entry is indistinguishable from a typo'd or wrong-rooted
+one and must abort rather than silently narrow the publish set) for an
+unknown length of time, and nothing reported it; it surfaced only when
+someone ran a full two-pass publish proof. `_check_allowlist_entries_resolve`
+closes the observation gap: each row's own field-4 `source_subdir` names the
+tree its field-7 entries are relative to, so the check resolves that root and
+asserts each entry exists — the same `root / entry` resolution
+`build_allowlisted_source` performs at publish time, run at verification time
+instead. This predicts the MISSING-ENTRY `AllowlistError` a publish would
+abort on (AC18(c)); it does not predict every class of `AllowlistError` the
+engine can raise — `build_allowlisted_source` also enforces a collision
+precondition and a multi-source `.percolate-ignore`-readability precondition
+that this check does not reproduce. It runs against the two TRACKED copies
+(DoE's and this repo's own),
+each rooted at the checkout that owns it, and it needs no live install to do
+so — so it is computed ahead of every live-resolution outcome and survives
+the clean-skip and INCONCLUSIVE paths that end the two-copy comparison. See
+Negative-spec for why the live copy is not a third subject and for every
+entry shape deliberately not flagged.
+
 Placement: coordinator-doctor probe (see `docs/wiki/coordinator-doctor.md`
 P-11 precedent — a machine-dependent check that is NOT wired into the fast
 test tier because a missing live install must not fail a machine that never
@@ -106,7 +134,69 @@ Negative-spec:
       POST-MOVE THREE-COPY TOPOLOGY above. This is a deliberate, documented
       exclusion, not a blind spot: `_check_claude_klabauter_owned_rows_present` still
       fails loud if any of those names is absent from this repo's own
-      tracked copy.
+      tracked copy. The allowlist-rot check is NOT scoped by this exclusion
+      — it reads each tracked copy against its own checkout, so the
+      klabauter rows are the ones it covers most directly.
+    - Does NOT run the allowlist-rot check against the LIVE copy. The
+      shared-install root is a deployed install, not the source checkout its
+      rows describe: `~/.claude` legitimately carries none of the trees
+      (`coordinator_core`, `coordinator/bin`, `scripts`) the rows name, so
+      rooting the check there would report every entry of every row as
+      missing. The two tracked copies are also where rot originates — they
+      are what a human edits — so checking them catches it at the source
+      rather than at the mirror.
+    - Does NOT skip the allowlist-rot check when the live copy is absent,
+      unresolvable, or collapsed onto the DoE path. Rot detection needs no
+      live install — it reads the two tracked copies against their own
+      checkouts — so `main()` computes it ABOVE every live-resolution
+      outcome and reports it from each terminal path. A clone-only machine
+      therefore says the DoE-vs-live comparison was not applicable AND exits
+      1 on rot, rather than skipping the one check it could still run. See
+      `main()`'s LIVE-INDEPENDENT comment; the two finding classes stay
+      separately labelled so an operator knows which signal they have.
+    - Does NOT hard-fail an allowlist row whose SOURCE ROOT does not resolve
+      — an unresolvable `plugin-source:<key>` (the registry key is unset on
+      this machine) or a `source_subdir` naming no directory in the owning
+      checkout skips that ROW's entries cleanly. This is a per-row skip, not
+      the whole-check skip an absent live install triggers for the two-copy
+      comparison. Only a RESOLVED root with a missing entry under it is a
+      finding. Load-bearing rather than lenient:
+      `setup/publish-targets.portable`'s
+      `claude-klabauter-publish-repo-toplevel` row is authored against an
+      agreed shape whose `dist/klabauter-toplevel` tree does not exist yet,
+      and a machine without `plugin.mirrors.coordinator-claude.source_path`
+      set cannot see DoE's source tree at all — neither is allowlist rot.
+    - Does NOT apply `_resolve_source_sigil`'s non-strict
+      `<meta-root>/plugins/<key>` fallback for an unset
+      `plugin.mirrors.<key>.source_path`. That fallback is a warn-and-guess
+      on the publish path; guessing a root here would manufacture a whole
+      row's worth of missing-entry findings out of a machine-configuration
+      gap. Unset means skip.
+    - Does NOT flag `!`-prefixed EXCLUSION entries as rot. An exclusion is
+      validated against the paths the inclusion entries actually admitted,
+      and `_apply_exclusions` accepts one whose target was already removed by
+      the contributing root's `.percolate-ignore` — so an exclusion naming a
+      path absent from the source tree is legal by construction, not rot.
+    - Does NOT flag allowlist entries routed elsewhere by a row's field-8
+      `source_map`. Those resolve against a different contributing root
+      (`entry_roots = {entry: sm.get(entry, real_src)}` in
+      `build_allowlisted_source`), reached through a strict registry
+      resolution this check does not reproduce; the row's remaining,
+      primary-rooted entries are still checked rather than the whole row
+      being skipped.
+    - Does NOT re-validate entry SAFETY (`/`-absolute, `..`-traversing) or
+      re-derive what an allowlist SHOULD contain. `build_allowlisted_source`
+      already rejects unsafe entries loudly at publish time, and an entry
+      deliberately omitted from a row is a ratified curation decision (see
+      `claude-klabauter-toplevel-reference`'s two recorded omissions), not a
+      gap this check may fill. It answers exactly one question: does every
+      entry a row claims still exist under the root that row names?
+    - Does NOT distinguish a case-mismatched entry from a correct one on a
+      case-insensitive filesystem (Windows, default macOS): `Path.exists()`
+      inherits the platform's casing rules, so an entry that would fail a
+      publish on a case-sensitive host can pass here. Out of scope — the
+      cross-platform casing surface belongs to a portability check, not to
+      this one.
 """
 
 # Review: code-reviewer — Finding 3 (P2, sliceverify-publish-targets-portable-sync):
@@ -124,9 +214,24 @@ _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
+
+# `_registry_machine_local_get` is the only reader this lib exposes for an
+# arbitrary registry key, and the allowlist-rot check needs exactly one class
+# of them (`plugin.mirrors.<key>.source_path`) to resolve a `plugin-source:`
+# source root. Imported rather than reimplemented: it already carries the
+# sys.executable-not-PATH resolution and the Windows CREATE_NO_WINDOW guard
+# that a local re-roll of `machine-local get` would drop.
+from coordinator_registry import (  # noqa: E402
+    _DoeUnresolvable,
+    _registry_machine_local_get,
+    doe_root,
+)
 
 _TARGETS_RELATIVE = Path("setup") / "publish-targets.portable"
+
+_SOURCE_SUBDIR_FIELD = 3
+_ALLOWLIST_FIELD = 6
+_SOURCE_MAP_FIELD = 7
 
 # Rows relocated into this repo from DoE-claude by
 # docs/plans/2026-08-03-klabauter-rows-relocate-into-claude-klabauter.md (chunks
@@ -375,6 +480,145 @@ def _check_claude_klabauter_owned_rows_present(
     ]
 
 
+def _resolve_row_source_root(source_subdir: str, checkout_root: Path) -> Optional[Path]:
+    """Resolve a row's field-4 `source_subdir` to the tree its field-7
+    allowlist entries are relative to, or None when this machine cannot see
+    that tree.
+
+    Mirrors `resolve_target._resolve_source_sigil` in its resolved-path shape
+    — `plugin-source:<key>[/subpath]` reads
+    `plugin.mirrors.<key>.source_path`, anything else is
+    `checkout_root / sigil` — with one deliberate divergence, stated as
+    Negative-spec above: the non-strict `<meta-root>/plugins/<key>` fallback
+    for an unset registry key is NOT applied here. That fallback exists so a
+    publish can proceed on a best guess; a guess in this position would
+    invent an empty root and report every entry of the row as rotted.
+
+    `checkout_root` is the repo root of the copy being read (the parent of
+    its own `setup/`), never this script's own checkout: a row is always
+    relative to the tree that tracks it, which is what makes DoE's copy and
+    this repo's copy separately checkable.
+    """
+    if source_subdir.startswith("plugin-source:"):
+        ref = source_subdir[len("plugin-source:") :]
+        key, _, subpath = ref.partition("/")
+        if not key:
+            return None
+        # Review: code-reviewer — mirrors _resolve_source_sigil's ".." rejection
+        # on ps_subpath (resolve_target.py:423-427); without it this read-only
+        # probe would silently .exists()-check outside the intended root
+        # instead of raising, an undocumented second divergence from the
+        # function it claims to mirror "with one deliberate divergence".
+        if subpath and ".." in subpath:
+            return None
+        base = _registry_machine_local_get(f"plugin.mirrors.{key}.source_path")
+        if base is None:
+            return None
+        return Path(base) / subpath if subpath else Path(base)
+    return checkout_root / source_subdir
+
+
+def _source_map_routed_entries(source_map_field: str) -> frozenset[str]:
+    """Entry names a row's field-8 `source_map` routes to a contributing root
+    other than the row's own field-4 source.
+
+    Field grammar (`resolve_target._resolve_publish_mirror_row`):
+    `<source-sigil>=<csv-of-entries>` segments joined by `;`. A malformed
+    segment is skipped rather than reported — this check is not the
+    source_map grammar gate (`resolve_publish_row` raises on it at publish
+    time), and treating an unparseable segment as routing nothing would
+    silently move its entries into the primary-root existence check.
+    """
+    routed: set[str] = set()
+    for segment in source_map_field.split(";"):
+        _, sep, entry_csv = segment.partition("=")
+        if not sep:
+            continue
+        routed.update(entry.strip() for entry in entry_csv.split(",") if entry.strip())
+    return frozenset(routed)
+
+
+def _check_allowlist_entries_resolve(
+    rows: dict[str, str], checkout_root: Path, *, copy_label: str
+) -> list[str]:
+    """Return one finding per allowlist entry that names a path absent from
+    the source tree its own row points at — the rot `_diff_rows` is blind to
+    by construction, since a rotted entry sits identically in both copies.
+
+    Resolution is deliberately the same `root / entry` that
+    `build_allowlisted_source` performs, so a finding here predicts the
+    MISSING-ENTRY `AllowlistError` a publish of that row would abort on —
+    not every class of `AllowlistError` the engine can raise (it also
+    enforces a collision precondition via `_collision_preflight` and a
+    multi-source `.percolate-ignore`-readability precondition, neither of
+    which this check reproduces), not a stricter parallel rule that could
+    disagree with the engine on the class it does cover.
+    """
+    findings: list[str] = []
+    for name in sorted(rows):
+        fields = [f.strip() for f in rows[name].split("|")]
+        if len(fields) <= _ALLOWLIST_FIELD or not fields[_ALLOWLIST_FIELD]:
+            continue
+        source_subdir = fields[_SOURCE_SUBDIR_FIELD]
+        if not source_subdir:
+            continue
+        source_root = _resolve_row_source_root(source_subdir, checkout_root)
+        if source_root is None or not source_root.is_dir():
+            continue
+        routed = (
+            _source_map_routed_entries(fields[_SOURCE_MAP_FIELD])
+            if len(fields) > _SOURCE_MAP_FIELD
+            else frozenset()
+        )
+        missing = [
+            entry
+            for entry in (e.strip() for e in fields[_ALLOWLIST_FIELD].split(","))
+            if entry
+            and not entry.startswith("!")
+            and entry not in routed
+            and not (source_root / entry).exists()
+        ]
+        if missing:
+            findings.append(
+                f"'{name}' ({copy_label} copy): allowlist (field 7) names "
+                f"{len(missing)} path(s) absent from its own source root "
+                f"{source_root}: {sorted(missing)}"
+            )
+    return findings
+
+
+def _report_rot_findings(rot_findings: list[str]) -> None:
+    """Print the allowlist-rot finding block. Factored out because rot is
+    reported from every terminal path in `main()`, not just the one that
+    reaches the two-copy comparison — see that function's LIVE-INDEPENDENT
+    comment for why.
+
+    See module docstring's ALLOWLIST ROT section for why this matters: a
+    rotted entry aborts a publish fail-closed (AllowlistError, AC18(c)) and
+    is otherwise invisible to the two-copy comparison, since it sits
+    identically in every copy.
+    """
+    print(
+        "verify-publish-targets-portable-sync.py: FAIL — allowlist rot: "
+        "entries naming paths that no longer exist under the source root "
+        "their own row points at. A publish of these rows aborts "
+        "fail-closed (AllowlistError, AC18(c)); the two-copy comparison "
+        "cannot see this, since a rotted entry sits identically in every "
+        "copy:",
+        file=sys.stderr,
+    )
+    for finding in rot_findings:
+        print(f"  - {finding}", file=sys.stderr)
+    print(
+        "This check is READ-ONLY — it does not edit either copy. Recover "
+        "manually: for each named entry, decide whether the source path "
+        "moved (repoint the entry) or was deleted (drop the entry). Do "
+        "not widen the allowlist to make the error go away — an entry's "
+        "absence from a row is sometimes a ratified curation decision.",
+        file=sys.stderr,
+    )
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv:
@@ -394,6 +638,29 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
         return 1
 
+    doe_rows = _parse_rows(doe_path.read_text(encoding="utf-8"))
+
+    claude_klabauter_path = _claude_klabauter_tracked_path()
+    claude_klabauter_rows = (
+        _parse_rows(claude_klabauter_path.read_text(encoding="utf-8")) if claude_klabauter_path.is_file() else {}
+    )
+
+    # LIVE-INDEPENDENT: the allowlist-rot check is computed here, ABOVE every
+    # live-copy resolution outcome, because it needs no live install at all —
+    # it reads the two TRACKED copies against their own checkouts. Ordering it
+    # below the `live_path is None` clean-skip (as the first cut of this check
+    # did) made it dead on exactly the clone-only machine class where it is
+    # cheapest to run and where the skip-clean contract exists. The two
+    # finding classes then compose at every terminal path: a machine with no
+    # live install can report rot and exit 1 while still saying the
+    # DoE-vs-live comparison was not applicable.
+    rot_findings = _check_allowlist_entries_resolve(
+        doe_rows, doe_path.parent.parent, copy_label="DoE-tracked"
+    )
+    rot_findings += _check_allowlist_entries_resolve(
+        claude_klabauter_rows, claude_klabauter_path.parent.parent, copy_label="claude-klabauter-tracked"
+    )
+
     try:
         live_path = _resolve_live_targets_path()
     except ImportError as exc:
@@ -402,6 +669,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"coordinator_core.percolate.runtime_root not importable: {exc}",
             file=sys.stderr,
         )
+        if rot_findings:
+            _report_rot_findings(rot_findings)
         return 1
     except RuntimeError as exc:
         print(
@@ -409,6 +678,8 @@ def main(argv: Optional[list[str]] = None) -> int:
             f"failed: {exc}",
             file=sys.stderr,
         )
+        if rot_findings:
+            _report_rot_findings(rot_findings)
         return 1
 
     if live_path is None:
@@ -416,7 +687,17 @@ def main(argv: Optional[list[str]] = None) -> int:
             "verify-publish-targets-portable-sync.py: not applicable — no "
             "live-install publish-targets.portable resolvable on this "
             "machine (no PERCOLATE_ROOT rung matched, or the resolved root "
-            "has no setup/publish-targets.portable). Skipping cleanly.",
+            "has no setup/publish-targets.portable). Skipping the DoE-vs-live "
+            "comparison cleanly.",
+        )
+        if rot_findings:
+            _report_rot_findings(rot_findings)
+            return 1
+        print(
+            "verify-publish-targets-portable-sync.py: OK — the allowlist-rot "
+            "check needs no live install and DID run: every resolvable "
+            f"allowlist entry in {doe_path} and {claude_klabauter_path} exists under "
+            "its own source root."
         )
         return 0
 
@@ -437,27 +718,33 @@ def main(argv: Optional[list[str]] = None) -> int:
             "the DoE-tracked path.",
             file=sys.stderr,
         )
+        # Rot is still reportable here — it never depended on there being a
+        # second copy — and is the one actionable signal this run can offer
+        # an operator whose live resolution has collapsed.
+        if rot_findings:
+            _report_rot_findings(rot_findings)
         return 1
 
-    doe_rows = _parse_rows(doe_path.read_text(encoding="utf-8"))
     live_rows = _parse_rows(live_path.read_text(encoding="utf-8"))
-
-    claude_klabauter_path = _claude_klabauter_tracked_path()
-    claude_klabauter_rows = (
-        _parse_rows(claude_klabauter_path.read_text(encoding="utf-8")) if claude_klabauter_path.is_file() else {}
-    )
 
     findings = _diff_rows(doe_rows, live_rows, exclude_names=KLABAUTER_TARGET_NAMES)
     findings += _check_claude_klabauter_owned_rows_present(claude_klabauter_rows, KLABAUTER_TARGET_NAMES)
-    if not findings:
+
+    if not findings and not rot_findings:
         print(
             f"verify-publish-targets-portable-sync.py: OK — {doe_path} and "
             f"{live_path} agree ({len(doe_rows)} target rows compared, "
             f"{len(KLABAUTER_TARGET_NAMES)} claude-klabauter-owned row(s) excluded per "
             "POST-MOVE THREE-COPY TOPOLOGY and separately confirmed present "
-            f"in {claude_klabauter_path})."
+            f"in {claude_klabauter_path}); every resolvable allowlist entry in both "
+            "tracked copies exists under its own source root."
         )
         return 0
+
+    if rot_findings:
+        _report_rot_findings(rot_findings)
+        if not findings:
+            return 1
 
     print(
         "verify-publish-targets-portable-sync.py: FAIL — DoE-tracked copy "

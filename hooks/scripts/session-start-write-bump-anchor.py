@@ -11,9 +11,9 @@ this file as the missing wiring: chunk C0 correctly refused to invent a
 registration list in the engine's own installer (that generator is purely
 data-driven off THIS file, `coordinator/hooks/hooks.json` — it has no
 per-hook list of its own to edit), so the real fresh-install wiring is a
-`hooks.json` SessionStart entry plus this thin DoE-resident shim.
+`hooks.json` SessionStart entry plus this thin doctrine-plane-resident shim.
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
 resolve the engine root, extract `session_id`/`cwd` from the raw
 SessionStart payload, call `write_session_start_record()` directly, in
 process. Deliberately NOT routed through `coordinator_core.hooks` /

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday-complete-backfill-inject-anchor.py — Phase A0 mechanical anchor injection.
 
 Injects covered_tip_sha/covered_machine anchors into a pre-existing daily summary that
@@ -33,8 +32,8 @@ Port of: workday-complete-backfill-inject-anchor.sh (DoE 091c0f3e, 2026-07-19).
 The one incidental `python3 -c` JSON-length parse (with grep fallback) is now native json.
 Coordinator_claude_klabauter_root's bash-lib bridge call (workday_ceremony_lib.lib_func) is RETIRED
 (de-bash campaign, docs/2026-07-29-debash-residual-sites-spec.md § Group C) — `_completion_count()`
-now resolves CLAUDE_KLABAUTER_ROOT via `cc_invoke._resolve_claude_klabauter_root()` (the same resolver
-`_derive_machine()` below already uses) and queries the completion-log directly in-process
+now resolves CLAUDE_KLABAUTER_ROOT via `cc_invoke.ensure_engine_on_path()` (the same self-location-first
+resolver `_derive_machine()` below already uses) and queries the completion-log directly in-process
 via `coordinator_core.ops.ceremony.records_query.query_records`, dropping the `command -v node`
 gate outright rather than porting it: query-completions.py (what the gate used to guard) is
 itself already fully native and spawns no node subprocess (see
@@ -60,6 +59,12 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
 import workday_ceremony_lib as wc  # noqa: E402
 
+# Generator-provenance declaration (generator_provenance.py).
+# _rewrite_anchor/_inject_anchor rewrite whichever
+# archive/daily-summaries/<date>-<machine>.md file currently matches the
+# caller's date/machine -- a data-dependent target set, not a fixed artifact.
+MUTATES = ["archive/daily-summaries/*.md"]
+
 _ANCHOR_KEY = "covered_tip_sha:"
 _MACHINE_KEY = "covered_machine:"
 
@@ -70,16 +75,14 @@ def _err(msg: str) -> None:
 
 def _ensure_claude_klabauter_on_path() -> None:
     """Idempotently put CLAUDE_KLABAUTER_ROOT on sys.path, reusing `_derive_machine`'s /
-    `_completion_count`'s own resolver (`cc_invoke._resolve_claude_klabauter_root`) so
-    this file has exactly one CLAUDE_KLABAUTER_ROOT resolution path. Best-effort: a
-    resolution failure here is caught by the caller, matching the existing
-    try/except shape those two functions already use.
+    `_completion_count`'s own resolver (`cc_invoke.ensure_engine_on_path`,
+    self-location-first) so this file has exactly one CLAUDE_KLABAUTER_ROOT resolution
+    path. Best-effort: a resolution failure here is caught by the caller,
+    matching the existing try/except shape those two functions already use.
     """
-    from cc_invoke import _resolve_claude_klabauter_root
+    import cc_invoke
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    cc_invoke.ensure_engine_on_path(__file__)
 
 
 def _declare_write(target_file: str) -> None:
@@ -195,10 +198,7 @@ def _derive_machine(root: str, full_sha: str, machine_arg: str) -> str:
             return m.group(1)
     # Fall back to the native cs_compute_machine equivalent (coordinator_core.machine_resolver).
     try:
-        from cc_invoke import _resolve_claude_klabauter_root
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _ensure_claude_klabauter_on_path()
         from coordinator_core.machine_resolver import compute_machine
         m = compute_machine()
         if m:
@@ -214,12 +214,13 @@ def _completion_count(root: str, date: str) -> int:
     De-bash campaign, docs/2026-07-29-debash-residual-sites-spec.md § Group C: this used
     to bridge to bash twice (once to source coordinator-claude-klabauter-root.sh for CLAUDE_KLABAUTER_ROOT,
     once to gate `command -v node` before shelling out to query-completions.py). Both
-    bridges are retired — CLAUDE_KLABAUTER_ROOT resolves via `cc_invoke._resolve_claude_klabauter_root()`
-    (the same resolver `_derive_machine()` above already uses, so this file has exactly
-    one CLAUDE_KLABAUTER_ROOT resolution path instead of two that could drift apart), and the
-    completion-log query calls `coordinator_core.ops.ceremony.records_query.query_records`
-    in-process — no `node` gate, because query-completions.py (what that gate used to
-    guard) is itself already fully native and spawns no node subprocess.
+    bridges are retired — CLAUDE_KLABAUTER_ROOT resolves via `cc_invoke.ensure_engine_on_path()`
+    (the same self-location-first resolver `_derive_machine()` above already uses, so
+    this file has exactly one CLAUDE_KLABAUTER_ROOT resolution path instead of two that could
+    drift apart), and the completion-log query calls
+    `coordinator_core.ops.ceremony.records_query.query_records` in-process — no `node`
+    gate, because query-completions.py (what that gate used to guard) is itself already
+    fully native and spawns no node subprocess.
 
     Return contract (unchanged from the retired bridge version): always an int; 0
     covers BOTH "query ran and found nothing" and "native query seam unavailable" —
@@ -228,10 +229,7 @@ def _completion_count(root: str, date: str) -> int:
     this preserves rather than introduces the non-distinction. Never raises.
     """
     try:
-        from cc_invoke import _resolve_claude_klabauter_root
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        _ensure_claude_klabauter_on_path()
         from coordinator_core.ops.ceremony.records_query import query_records
         records = query_records("completion", Path(root), where=f"created={date}")
     except (RuntimeError, ImportError, SystemExit):

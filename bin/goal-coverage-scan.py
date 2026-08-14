@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """goal-coverage-scan.py — Read-only backward-teeth detector for active goals.
 
@@ -15,7 +14,7 @@ flags zero-coverage active goals so a human can decide whether to spin off a
 stub — mirrors detect-initiative-candidates' surface-and-confirm shape one
 cadence-step over (the initiative-govern sweep).
 
-Spec backlink: docs/plans/2026-07-13-close-weekly-goal-loop.md § C5 (AC5);
+Spec backlink: DoE-claude:pln-close-the-weekly-goal-loop-yam-d31316 § C5 (AC5);
 state/review-trail/findings/2026-07-22-goal-coverage-scan-port-blocked.md
 (the blocked-then-cleared port attempt this file completes — the native
 records.query op's `goal` type-coverage gap that blocked the original port
@@ -95,7 +94,7 @@ from records_query import query_records  # noqa: E402  (sys.path-dependent)
 # here so the scan is ready to pick up real data the moment those schemas
 # are wired, at the cost of four no-op query calls per goal in the meantime.
 #
-# Spec backlink: docs/plans/2026-07-13-close-weekly-goal-loop.md § C4/AC4, § C5/DEC-3
+# Spec backlink: DoE-claude:pln-close-the-weekly-goal-loop-yam-d31316 § C4/AC4, § C5/DEC-3
 COVERAGE_TYPES = ["handoff", "plan", "debt", "bug", "improvement"]
 
 

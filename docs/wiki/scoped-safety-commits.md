@@ -16,7 +16,7 @@
 | Invocation | Sites | Flag |
 |---|---|---|
 | `--blanket` | `/workstream-start`, `/update-docs` (Phase 0 `:51`, Phase 8b `:53`+`:71`, Phase 9 `:212`), `pipelines/relay-protocol.md:160`, `pipelines/artifact-distillation/PIPELINE.md:358` | `--blanket` with matching `CLAUDE_INVOKING_COMMAND={workstream-start, update-docs, relay-protocol, distillation}` |
-| `--expected-branch` | **SUPERSEDED by M4 (see the PM's commit-model ruling)** — subagents no longer commit at all, so the carve-out this row describes has no caller; `agents/executor.md`'s self-commit path is removed | ~~`--expected-branch <name>` per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic~~ |
+| `--expected-branch` | **SUPERSEDED by M4 (see the PM's commit-model ruling)** — subagents do not commit at all, so the carve-out this row describes has no caller; `agents/executor.md`'s self-commit path is removed | ~~`--expected-branch <name>` per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic~~ |
 
 Raw `coordinator-safe-commit "<subject>"` (no flags) is **deprecated**.
 
@@ -77,9 +77,9 @@ The session directory is created on first touch (or at `/workstream-start`). It 
 
 **Negative-spec — this exclusion is about PARSING, never about attribution.** SC-DR-001 rejected shell-parsing on static-analysis grounds alone (see Decision Records). It does not license the inverse reading that some *other* write-time detector would be admissible if only it avoided parsing: no write-time detector attributes soundly either, because a post-hoc mtime or `git status` delta bracketing a Bash call cannot distinguish "my Bash wrote this" from "a live peer wrote it during my Bash call." **The architecture never attributes Bash writes at write time and does not need to** — detection is session-local and post-hoc; *attribution is resolved at read time, by subtraction, biased safe* (Component 2: mtime is included only where no other active session claims the path; Component 3's Foreign-set subtract; `:146`'s named residual). Any future proposal to close a Bash-write gap belongs at the read-time projection, not at the hook matcher.
 
-**Release events (ratified by a sibling-repo decision).** `touched.txt` is a record of *currently-claimed* work, not a durable history, so a session may release a path it has committed clean. Release is an **append**, never a deletion: deletion needs read-modify-write on a file whose lock-free append discipline exists to forbid exactly that. `T <path>` claims, `R <path>` releases, last event wins per path, a bare line is a legacy `T`. Every reader therefore needs a last-event-wins projection, not a bare line set. **Confirmed against the engine writer 2026-08-03** (`coordinator_core/ops/session/scope.py` — `compute_scope` folds through `parse_touch_event`; `project_self_scope` and `project_peer_claims` both project last-event-wins rather than pruning): a reader that greps for a path and stops at the first hit reads a released path as still held.
+**Release events (ratified by a sibling-repo decision).** `touched.txt` is a record of *currently-claimed* work, not a durable history, so a session may release a path it has committed clean. Release is an **append**, never a deletion: deletion needs read-modify-write on a file whose lock-free append discipline exists to forbid exactly that. `T <path>` claims, `R <path>` releases, last event wins per path, a bare line is a legacy `T`. Every reader therefore needs a last-event-wins projection, not a bare line set. **Confirmed against the engine writer** (`coordinator_core/ops/session/scope.py` — `compute_scope` folds through `parse_touch_event`; `project_self_scope` and `project_peer_claims` both project last-event-wins rather than pruning): a reader that greps for a path and stops at the first hit reads a released path as still held.
 
-**Historical logs carry a shape the current writer no longer emits.** Pre-2026-08-03 entries were relativized against `<repo>/.git` rather than the worktree root, producing `../`-shaped paths — roughly 40 of 50 touch-lists in the engine repo's tree at the time of the fix. The writer now derives the main worktree root from the common dir and normalizes, and the fan-out receiver fail-closed rejects absolute and `../` entries, but existing files were not retroactively repaired and no repair/regenerate decision has been taken. A reader over historical touch-lists must expect the old shape and reject rather than resolve it.
+**Touch-list entries written before 2026-08-03 carry a shape the current writer does not produce.** They are relativized against `<repo>/.git` rather than the worktree root, producing `../`-shaped paths. The writer derives the main worktree root from the common dir and normalizes, and the fan-out receiver fail-closed rejects absolute and `../` entries, but existing files are not retroactively repaired. A reader over historical touch-lists must expect the old shape and reject rather than resolve it. The date is the discriminant a reader needs to tell which files are affected — it is data, not a dateline.
 
 Release interacts with the Bash-write exclusion above: a path released after a clean commit and then re-dirtied through Bash has no claim re-recorded, and a co-toucher finds no owner. Resolve that at the read-time projection, and resolve it *asymmetrically* — the one log, two readers, opposite safe defaults:
 
@@ -146,8 +146,8 @@ Default posture: warn-only. **Strict (blocking) mode IS live**, not dormant — 
 
 **Do NOT flip `COORDINATOR_SCOPE_STRICT=1` globally without first confirming the false-positive source below is fixed on your install.** On an unpatched install, Check 5's advisory computes `MY_SCOPE` via `compute_scope()` alone, which has no notion of `.git/coordinator-sessions/.agents/<agent_id>/touched.txt` (the per-dispatched-subagent touch record — Component 7 above) — only the EM session's own `touched.txt` plus mtime. A file edited *only* by a dispatched executor/subagent (never by an EM-context tool call) is therefore invisible to the advisory's scope set and gets warned "likely owned by orphan" even though it is legitimately the EM's own fan-out output — `coordinator-safe-commit`'s actual commit-time scope computation unions in `my_agent_touched(session_id, "broadened")` (bin/coordinator-safe-commit ~:1304-1318) and would have staged the same file cleanly. **On a patched install:** `check_validate_commit`'s Check 5 performs the same union before comparing against staged files, so the advisory previews what the real commit-time helper would actually do. On an unpatched install, a large fraction of "orphan" warnings observed in a session with any subagent dispatch are false positives of exactly this shape — under strict mode, those would hard-block every dispatch-produced commit. Verify your install has the fix (grep for `my_agent_touched` inside `check_validate_commit` in `dispatch_checks.py`) before relying on strict mode's false-positive rate being low.
 
-**The `.agents` fix is no longer the binding constraint on a global flip — § 149's hazard class
-is, and it is now measured.** A fleet-wide read of every
+**The binding constraint on a global flip is § 149's unattributed-warning hazard class, not the
+`.agents` fix — and that hazard class is measured.** A fleet-wide read of every
 `.git/coordinator-sessions/*/scope-warnings.log` across nine coordinator-enabled repos
 found **6197 foreign-staged warning lines across 188 sessions, of which 6078 — 98.1% —
 carry no owning session at all** ("unknown owner", formerly "orphan"); only 119 (1.9%) attribute to
@@ -216,8 +216,8 @@ The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lower
 
 > **SUPERSEDED.** This section describes a carve-out that let `agents/executor.md` self-commit
 > under a deterministic branch guard. Per the PM's commit-model ruling (the subagent
-> commit model — AC6), subagents no longer commit at all: the executor writes/edits and reports
-> back, the EM commits. Claude-Klabauter's M4 PreToolUse guard (`coordinator_core/bash_guards/`) now denies
+> commit model — AC6), subagents do not commit at all: the executor writes/edits and reports
+> back, the EM commits. The coordinator engine's M4 PreToolUse guard (`coordinator_core/bash_guards/`) denies
 > any `git commit` — plain or via `coordinator-safe-commit` — that resolves to a Sonnet/Haiku
 > subagent context, deleting the em-only-gate branch rather than bypassing it. The
 > `--expected-branch` bypass this section documents is removed with it. Left in place, not
@@ -305,9 +305,9 @@ Bypasses scope guard. Logged to `.git/coordinator-sessions/<id>/overrides.log` f
 
 The following ceremonies use blanket staging by design:
 
-**`/workstream-start`** — fires autonomously ("Do not ask permission") and multiple times per day, so the original rationale ("concurrent-sweep risk is structurally low, user just initiated the session") no longer holds. The carve-out is now safe for a different reason: **the blanket path subtracts live-sibling-claimed paths by construction**. Before committing, the helper computes a Foreign set — paths claimed by a live sibling session's `touched.txt`, minus the own session's claims, minus agent-claimed paths — and **unstages those paths via `git reset HEAD --`**, leaving them untouched in the sibling's tree. True orphans (dirty files claimed by no live session, mtime > `started_at`) are still captured. The subject (`"chore: workstream-start sweep — pre-orientation capture"`) is honest about the sweep intent.
+**`/workstream-start`** — fires autonomously ("Do not ask permission") and multiple times per day, so the carve-out's safety does not rest on "concurrent-sweep risk is structurally low, user just initiated the session". The carve-out is safe because **the blanket path subtracts live-sibling-claimed paths by construction**. Before committing, the helper computes a Foreign set — paths claimed by a live sibling session's `touched.txt`, minus the own session's claims, minus agent-claimed paths — and **unstages those paths via `git reset HEAD --`**, leaving them untouched in the sibling's tree. True orphans (dirty files claimed by no live session, mtime > `started_at`) are still captured. The subject (`"chore: workstream-start sweep — pre-orientation capture"`) is honest about the sweep intent.
 
-In other words: the blanket path no longer sweeps the whole tree unconditionally — it sweeps (tree minus sibling claims). `/workstream-start`'s autonomy and frequency are safe because the mechanism is **sibling-safe-by-construction**, not because concurrency is rare.
+In other words: the blanket path does not sweep the whole tree unconditionally — it sweeps (tree minus sibling claims). `/workstream-start`'s autonomy and frequency are safe because the mechanism is **sibling-safe-by-construction**, not because concurrency is rare.
 
 **`/update-docs`**, **`relay-protocol`**, **`distillation`** — run serially (one Sonnet executor per ceremony) so the lessons.md:207 concurrent-callers mechanism cannot arise. Also benefit from the sibling-subtract.
 
@@ -348,7 +348,7 @@ The Bash-PreToolUse scope guard starts in warn-only mode. Every warning is logge
 
 All three at the plugin's live-install `${CLAUDE_PLUGIN_ROOT}/bin/`
 
-**Retired 2026-07-22:** soak instrumentation (`scope-flip-readiness`, `scope-soak-enable`,
+**Retired:** soak instrumentation (`scope-flip-readiness`, `scope-soak-enable`,
 `scope-warning-resolve`) deleted as producer-less. The producer, `validate-commit.sh`, was
 removed earlier (folded into the coordinator engine's `check_validate_commit` PreToolUse
 dispatcher). At the time these tools were retired the strict-mode Check 5 branch they soaked
@@ -373,7 +373,7 @@ consumes this log must ignore the resolution field or fail loud on it, never agg
 
 **Pre-flip verification:** Before setting `COORDINATOR_SCOPE_STRICT=1`, empirically confirm the Claude Code PreToolUse deny contract — that a non-zero exit code from the hook is recognized as a deny and surfaces a usable message to the EM. Do not flip strict mode without this verification.
 
-**Also verify the false-positive fix landed (2026-07-26)** before flipping — see § Component 4's
+**Also verify the false-positive fix landed** before flipping — see § Component 4's
 "Do NOT flip … without first confirming" paragraph. Without it, strict mode hard-blocks every
 commit touching a dispatched-subagent-only edit, which is common under this project's
 fan-out-by-default dispatch doctrine — a session with any executor dispatch would wedge.
@@ -438,7 +438,7 @@ the `--include-orphans` flag is not yet available — it lacks the overlap gate 
 
 Your session hasn't touched any files via tracked tools, and mtime fallback found nothing after subtraction. Check:
 - Does `.git/coordinator-sessions/<id>/touched.txt` exist? If not, the session directory wasn't initialized — the hook may not have fired yet (first session with no tracked edits).
-- Is the session id resolving correctly? `echo $CLAUDE_CODE_SESSION_ID` (the platform-injected, authoritative source) — it should match a `.git/coordinator-sessions/<id>/` dir. The `.current-session-id` sentinel is last-writer-wins and only a fallback for old Claude Code; if it flips between reads, two sessions are live and you should trust the env var.
+- Is the session id resolving correctly? `echo $CLAUDE_CODE_SESSION_ID` (the platform-injected, authoritative source, and the only source — resolution is env-only) — it should match a `.git/coordinator-sessions/<id>/` dir. If it flips between reads, two sessions are live.
 - Did you only make Bash-driven edits? Those fall to mtime — they'll appear if another session doesn't claim them.
 
 **"I'm on a different branch than my session started on"**
@@ -481,7 +481,7 @@ Fix: `CLAUDE_CODE_SESSION_ID` inserted as the first resolution source above the 
 
 If you are on an old coordinator version and the sentinel is racing: verify with `echo $CLAUDE_CODE_SESSION_ID` from a Bash tool call — if it prints a value, the resolver should pick it up. If the resolver still falls through, the fix is not yet installed; run `/coordinator:install` to update.
 
-**Performance note — `cs_live_session_ids` 170× speedup (2026-05-23)**
+**Performance note — `cs_live_session_ids` 170× speedup**
 
 If session-start or commit feels slow (~30s), the likely cause is the old `cs_live_session_ids` implementation: it called `_cs_read_meta_field` (sed/jq subprocesses) and `_cs_iso_to_epoch` (date/python subprocess) per session directory — ~600ms/dir on Windows Git Bash, ~29s total with 250+ accumulated dead dirs.
 
@@ -521,7 +521,7 @@ Session-init blanket commits (`coordinator-safe-commit --blanket`) previously ra
 
 ### Blanket-vs-scoped race detection
 
-The `--blanket` path now subtracts live-sibling-claimed paths before staging (Foreign = sibling `touched.txt` claims − own ∪ agent), so sibling-staged paths are automatically excluded. The calling-skill diff-check (`git diff --cached --name-only` before `--blanket`) remains useful as a belt-and-suspenders: if unrecognized paths are staged and the sibling-subtract didn't catch them (TOCTOU edge), abort and surface to PM. The pre-check is no longer the sole mitigation — it is a secondary confirmation that the subtract worked as expected.
+The `--blanket` path now subtracts live-sibling-claimed paths before staging (Foreign = sibling `touched.txt` claims − own ∪ agent), so sibling-staged paths are automatically excluded. The calling-skill diff-check (`git diff --cached --name-only` before `--blanket`) remains useful as a belt-and-suspenders: if unrecognized paths are staged and the sibling-subtract didn't catch them (TOCTOU edge), abort and surface to PM. The pre-check is not the sole mitigation — it is a secondary confirmation that the subtract worked as expected.
 
 ### Pre-staging reset hazard — `git reset` before explicit-path fallback
 
@@ -644,7 +644,7 @@ git fsck --lost-found                       # dangling blob recovery
 git reflog --date=iso                       # find the reset that swallowed your edits
 ```
 
-Pair this with the post-executor verify rule: `git diff --stat` + `git log --oneline -- <expected-paths>` on every dispatch return. Substantive work on disk but missing from git history → recovery probe; zero working-tree presence → redispatch.
+If a dispatch return leaves substantive work on disk but it's missing from git history, that's the tell to fall back to the recovery probe above; genuinely empty working-tree presence means redispatch instead.
 
 ### Large unstaged diff in shared files = active peer session
 
@@ -672,7 +672,7 @@ The whole concurrency catalog above is EM-vs-EM (two interactive sessions sharin
 
 Manually editing a shared file to remove a sibling EM's uncommitted change, committing, then editing it back is a hazardous scope-isolation technique. If a concurrent session commits the sibling's change between your edit-out and your commit, your edit-out commit becomes a silent revert of their work when it lands. Prefer committing shared files wholesale when the sibling's change is a legitimate in-progress edit on the shared surface, or use `git stash push -- <file>` / `git stash pop` with explicit verification (see the stash-pop warning above). The edit-out/commit/edit-back pattern has no concurrency-safe execution window on a shared branch.
 
-*Source: self `state/lessons.md` (central-promoted 2026-05-29).*
+*Source: self `state/lessons.md`.*
 
 ### Stash-pop primitive for cross-EM file isolation at dispatch time
 
@@ -695,7 +695,7 @@ Substrate-changes-attribution:
 
 ### `git commit -- <pathspec>` drops mixed new+modified-tracked files silently
 
-`git commit -m "..." -- <paths>` applies the pathspec as a *filter on the index*, and the filter interacts with file state in a way that silently drops paths. When `<paths>` mixes brand-new (untracked-but-just-`git add`ed) files with already-tracked-modified files, a pathspec-scoped commit can land the tracked modifications but omit the new files (or the reverse) depending on what was staged at commit time — the commit subject claims the full set, `git show --stat HEAD` shows a subset. **Rule.** After any `git add -- <paths> && git commit -m "..." -- <paths>` that mixes new and modified-tracked files, run `git status` and `git show --stat HEAD` and confirm every intended path landed; a `commit-message-says-X-but-diff-says-Y` gap is the silent failure shape. Pairs with § "Post-commit `git show --stat` verification on shared branches" — that rule catches sibling absorption; this one catches your own pathspec dropping a path it should have carried. (source: a real incident on a sibling repo.) **Same underlying bug as** § "`git commit -- <paths>` pathspec silently drops modified-tracked files when mixed with new untracked files" below — that section's Discipline paragraph gives the shared-branch-safe fix (split into two scoped, still-pathspec'd commits), which composes with the post-commit verification here rather than replacing it.
+`git commit -m "..." -- <paths>` applies the pathspec as a *filter on the index*, and the filter interacts with file state in a way that silently drops paths. When `<paths>` mixes brand-new (untracked-but-just-`git add`ed) files with already-tracked-modified files, a pathspec-scoped commit can land the tracked modifications but omit the new files (or the reverse) depending on what was staged at commit time — the commit subject claims the full set, `git show --stat HEAD` shows a subset. **Rule.** After any `git add -- <paths> && git commit -m "..." -- <paths>` that mixes new and modified-tracked files, run `git --no-optional-locks status` and `git show --stat HEAD` and confirm every intended path landed; a `commit-message-says-X-but-diff-says-Y` gap is the silent failure shape. Pairs with § "Post-commit `git show --stat` verification on shared branches" — that rule catches sibling absorption; this one catches your own pathspec dropping a path it should have carried. (source: a real incident on a sibling repo.) **Same underlying bug as** § "`git commit -- <paths>` pathspec silently drops modified-tracked files when mixed with new untracked files" below — that section's Discipline paragraph gives the shared-branch-safe fix (split into two scoped, still-pathspec'd commits), which composes with the post-commit verification here rather than replacing it.
 
 ### Exec-bit does NOT survive a pathspec commit — chmod the worktree, not just the index
 
@@ -744,7 +744,7 @@ The upstream plugin source lives in the doctrine-authoring repo, resolved via th
 
 *Decision:* No. They're workstream-specific by definition. The handoff doc names the workstream; the `--scope-from` flag uses that declaration. Making them carve-outs would reintroduce the audit-trail bug at precisely the highest-traffic moments. The former `/handoff:133` instruction ("stage everything, don't try to separate workstreams") was the primary generator of the bug and was reversed in Phase 0.
 
-*Alternatives considered:* Carve-out with "honest" subjects (rejected — doesn't solve concurrent contamination). Per-session branches (rejected — too heavyweight for regular use; worktrees are the right answer for genuinely parallel feature work).
+*Alternatives considered:* Carve-out with "honest" subjects (rejected — doesn't solve concurrent contamination). Per-session branches (rejected — too heavyweight for regular use, and on a shared checkout a branch belongs to the tree, not the session. Worktrees are not the escape hatch either: they are banned fleet-wide at the tool seam. Parallel work is separated by disjoint file scope, which is what scoped staging enforces).
 
 **SC-DR-003 — Warn-only soak before deny-mode flip**
 
@@ -771,9 +771,9 @@ The upstream plugin source lives in the doctrine-authoring repo, resolved via th
 **SC-DR-006 — `--expected-branch` is helper-side, not doctrine-only — SUPERSEDED by M4**
 
 > **Superseded, not deleted.** Per the PM's commit-model ruling (AC6, the subagent
-> commit model) and the coordinator engine's M4 enforcement gate, executors no longer commit at all — this
+> commit model) and the coordinator engine's M4 enforcement gate, executors do not commit at all — this
 > decision's premise (that *some* executor-side commit path needs a deterministic branch guard)
-> no longer holds. Kept here for the decision trail; do not cite as current doctrine.
+> does not hold. Kept here for the decision trail; do not cite as current doctrine.
 
 *Problem:* Wrong-branch commits from agents whose dispatching EM didn't verify branch state. Doctrine alone hadn't held.
 
@@ -791,7 +791,7 @@ The upstream plugin source lives in the doctrine-authoring repo, resolved via th
 
 > **Carve-out (2), the executor branch-gate, is superseded, not deleted.** Per the PM's
 > commit-model ruling (AC6) and the coordinator engine's M4 enforcement gate, `agents/executor.md`
-> no longer commits — it writes/edits and reports back, the EM commits. The `--expected-branch`
+> does not commit — it writes/edits and reports back, the EM commits. The `--expected-branch`
 > bypass this carve-out names has no caller left. Carve-out (1), the sweep-ceremony `--blanket`
 > allow-list, is unaffected (those are EM-driven ceremonies, not subagent self-commit). See
 > § 8 above and M4.
@@ -807,19 +807,19 @@ The PM-accepted empirical rule (`feedback_safe_commit_unreliable.md`) was alread
 
 *Decision:* Invert the default. **Plain `git add -- <paths> && git commit -m "<subject>" -- <paths>` is the doctrinal default for scoped commits.** `coordinator-safe-commit` is reserved for:
 
-1. **Sweep ceremonies (`--blanket`):** `/workstream-start`, `/update-docs` (Phase 0, 8b, 9), `pipelines/relay-protocol.md`, `pipelines/artifact-distillation/PIPELINE.md`. Each runs a single executor serially per ceremony — the lessons.md:207 concurrent-callers mechanism cannot arise. `--blanket` gate accepts `CLAUDE_INVOKING_COMMAND ∈ {workstream-start, update-docs, relay-protocol, distillation}`. (`/workday-complete` was removed from this list — it migrated to `workday-complete-step2_5-dirty-tree.py` and no longer uses `--blanket`.)
-2. ~~**Executor branch-gate (`--expected-branch`):** `agents/executor.md` only, preserved per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic and cannot enforce branch gating via doctrine alone.~~ **SUPERSEDED by M4 (the PM's commit-model ruling) — the executor no longer commits, so this carve-out has no caller.**
+1. **Sweep ceremonies (`--blanket`):** `/workstream-start`, `/update-docs` (Phase 0, 8b, 9), `pipelines/relay-protocol.md`, `pipelines/artifact-distillation/PIPELINE.md`. Each runs a single executor serially per ceremony — the lessons.md:207 concurrent-callers mechanism cannot arise. `--blanket` gate accepts `CLAUDE_INVOKING_COMMAND ∈ {workstream-start, update-docs, relay-protocol, distillation}`. (`/workday-complete` is not on this list — it uses `workday-complete-step2_5-dirty-tree.py` and does not use `--blanket`.)
+2. ~~**Executor branch-gate (`--expected-branch`):** `agents/executor.md` only, preserved per **SC-DR-006** — only the bash helper fails-closed on wrong-branch; LLM executors are non-deterministic and cannot enforce branch gating via doctrine alone.~~ **SUPERSEDED by M4 (the PM's commit-model ruling) — the executor does not commit, so this carve-out has no caller.**
 
 Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 
-*Cross-references:* SC-DR-002 (exhaustive-scope contract now lives in plain-git callers via path-list enumeration from handoff frontmatter `scope:` block — git-pathspec syntax works directly with `git add`). SC-DR-006 (executor branch-gate carve-out preserved). SC-DR-007 (troubleshooting-note burn-in supersession: the inversion makes the note's "helper misidentified your session" rationale moot — non-sweep callers no longer touch the helper).
+*Cross-references:* SC-DR-002 (exhaustive-scope contract now lives in plain-git callers via path-list enumeration from handoff frontmatter `scope:` block — git-pathspec syntax works directly with `git add`). SC-DR-006 (executor branch-gate carve-out preserved). SC-DR-007 (troubleshooting-note burn-in supersession: the inversion makes the note's "helper misidentified your session" rationale moot — non-sweep callers do not touch the helper).
 
 *Open derivative work (not in SC-DR-008 scope):*
 - Silent-no-op fix in helper: HEAD-unchanged sentinel + `if ! git commit ...; then echo FAIL; exit 2; fi` wrapper on all commit-attempting paths (`do_scoped`, `do_scope_from`, `do_override`, `do_blanket`, orphan-claim subpaths).
 - pytest harness for hooks + helper (coord-improvement-queue line 272).
 - Session-detection substrate rebuild — would be required only if the helper is ever re-promoted to default; demote avoids the need.
 
-**SC-DR-009 — Session-id resolution: `CLAUDE_CODE_SESSION_ID` not `CLAUDE_SESSION_ID` (2026-05-23)**
+**SC-DR-009 — Session-id resolution: `CLAUDE_CODE_SESSION_ID` not `CLAUDE_SESSION_ID`**
 
 *Problem:* Four resolvers checked `CLAUDE_SESSION_ID`, which no Claude Code version exports. The platform's actual variable is `CLAUDE_CODE_SESSION_ID` (available since Claude Code 2.1.150 for tool subprocesses). Resolution always fell through to the `.current-session-id` sentinel — a last-writer-wins file that races under concurrent sessions.
 
@@ -836,7 +836,7 @@ Raw `coordinator-safe-commit "<subject>"` (no flags) is deprecated.
 `git add -- <file>` stages the WHOLE file regardless of which hunks are yours. When `git add -p` (interactive hunk selection) is blocked, there is no mechanical isolation path. Stalling (waiting for the sibling to commit) risks losing your own work if your context compacts or the session ends. Silent absorption is dishonest and misattributes the sibling's code to your subject.
 
 **Procedure when you detect the union situation:**
-1. Before committing a shared hot file, `git diff -- <file> | grep` for foreign workstream markers (commit-message keywords, variable names, function names specific to the sibling's workstream) to confirm the union.
+1. Before committing a shared hot file, `git --no-optional-locks diff -- <file> | grep` for foreign workstream markers (commit-message keywords, variable names, function names specific to the sibling's workstream) to confirm the union.
 2. Commit the file explicit-path with a commit-body `NOTE:` crediting the sibling workstream: what was absorbed, that it will be reviewed at their workstream-complete, that you authored none of the absorbed hunks.
 3. Hand the PM a one-line relay so the sibling EM knows their work landed under your SHA and does not re-commit it.
 4. Scope your own code review to EXCLUDE the absorbed foreign hunks — name them out-of-scope in your reviewer brief.
@@ -867,7 +867,7 @@ Fix-forward when you find absorbed registrations: commit the referenced impls+te
 
 During a release, an unreviewed change was discarded via `git checkout HEAD -- <paths>`. Later, a `git stash pop` (the stash had captured the discarded change before the checkout) returned it to the working tree. Because the subsequent publish/percolate script copied from the **working tree** (not from a committed ref), the resurrected change percolated to the OSS repo unnoticed — caught only at cleanup.
 
-**Rule.** A `git checkout HEAD` discard is not durable across a stash round-trip. Before any publish/percolate operation that copies the **working tree** (vs. a committed ref): re-diff the tree against HEAD (`git diff -- HEAD`) to check for changes you thought you discarded. Or publish from a committed ref explicitly, not from `$PWD`. Composes with §36 (stash-pop-after-no-op applies stale unrelated stash) — the resurrection mechanism is the same.
+**Rule.** A `git checkout HEAD` discard is not durable across a stash round-trip. Before any publish/percolate operation that copies the **working tree** (vs. a committed ref): re-diff the tree against HEAD (`git --no-optional-locks diff -- HEAD`) to check for changes you thought you discarded. Or publish from a committed ref explicitly, not from `$PWD`. Composes with §36 (stash-pop-after-no-op applies stale unrelated stash) — the resurrection mechanism is the same.
 
 ## SC-DR-012 — A Pre-Commit "No Stray Staged" Check That Prints But Doesn't Halt Is Theater
 
@@ -875,7 +875,7 @@ During a release, an unreviewed change was discarded via `git checkout HEAD -- <
 
 ## concurrent git add -A silently absorbs in-flight executor output
 
-A concurrent `git add -A` sweep (lint, format, or distill ceremony) on the shared branch silently absorbs another EM's in-flight executor output — files the other executor just wrote get committed under the sweeping EM's name before the executor has a chance to commit them. Rule: commit each chunk scoped + immediately after the executor returns; verify on disk not chat. Apply: after every executor returns, run `git diff --stat` to confirm expected files are present, then commit with explicit paths `git add -- <paths>` before doing any broad sweep.
+A concurrent `git add -A` sweep (lint, format, or distill ceremony) on the shared branch silently absorbs another EM's in-flight executor output — files the other executor just wrote get committed under the sweeping EM's name before the executor has a chance to commit them. Rule: commit each chunk scoped and immediately after the executor returns, verified against disk rather than chat — explicit paths (`git add -- <paths>`), before any broad sweep runs.
 
 **A pre-commit "no stray staged" check that prints but doesn't halt is theater.** Under concurrent EMs, the check must unstage or abort on detection — echoing the offending path then committing anyway (the `grep … || echo` shape) re-attributes a sibling's work.
 
@@ -960,12 +960,12 @@ rm -f "$TMPIDX"
 
 Two things about this sequence that are easy to get wrong:
 
-- **Resolve `HEAD` once and pass it through, and land with the 4-argument `update-ref`.** A tempting shorthand is `git commit-tree "$TREE" -p HEAD -m "<subject>"` followed by the 2-argument `git update-ref HEAD <new>`. Don't — that resolves `HEAD` a second time, independently, at landing, and the 2-argument form writes whatever value you give it with no check that `HEAD` still points where you think. If a peer commits in the window between building `$TREE` and landing it, that second resolution silently lands your commit on top of a `HEAD` your composed tree never accounted for — and because the peer's commit is still reachable from the branch, nothing about the result looks wrong; the peer's changes are simply gone from the tip your commit describes. The 4-argument form — `git update-ref HEAD "$NEW" "$OLD"` — is a compare-and-swap: it only moves `HEAD` if `HEAD` still equals `$OLD`, and fails loud with a nonzero exit otherwise. **If it fails, stop and rebuild from scratch — re-resolve `$OLD`, redo the private-index staging, recompute `$TREE`, recompose `$NEW` — rather than retrying the same `update-ref`.** The tree you already built was composed against the stale parent; retrying the landing step alone re-lands a commit whose parent no longer matches reality.
+- **Resolve `HEAD` once and pass it through, and land with the 4-argument `update-ref`.** A tempting shorthand is `git commit-tree "$TREE" -p HEAD -m "<subject>"` followed by the 2-argument `git update-ref HEAD <new>`. Don't — that resolves `HEAD` a second time, independently, at landing, and the 2-argument form writes whatever value you give it with no check that `HEAD` still points where you think. If a peer commits in the window between building `$TREE` and landing it, that second resolution silently lands your commit on top of a `HEAD` your composed tree never accounted for — and because the peer's commit is still reachable from the branch, nothing about the result looks wrong; the peer's changes are simply gone from the tip your commit describes. The 4-argument form — `git update-ref HEAD "$NEW" "$OLD"` — is a compare-and-swap: it only moves `HEAD` if `HEAD` still equals `$OLD`, and fails loud with a nonzero exit otherwise. **If it fails, stop and rebuild from scratch — re-resolve `$OLD`, redo the private-index staging, recompute `$TREE`, recompose `$NEW` — rather than retrying the same `update-ref`.** The tree you already built was composed against the stale parent; retrying the landing step alone re-lands a commit whose parent does not match reality.
 - **`git commit-tree` fires no hooks at all** — not `pre-commit`, not `commit-msg`, and not `prepare-commit-msg`. If your repo's `prepare-commit-msg` hook stamps trailers into every ordinary commit (for example a session or deliverable identifier), a commit made this way will not get them; the plumbing path bypasses the entire hook chain by design. Reproduce whatever the hook would have added directly in the `-m` message (or write the message to a file and pass it via `-F`) before calling `commit-tree`, rather than assuming it will be added for you.
 
 Verified clean on both axes: it neither reads the worktree nor touches the shared index, and it leaves a peer's staged entries and worktree edits exactly as it found them. The agree-case bullet above is unaffected — the ordinary `git add -- <paths> && git commit -- <paths>` remains correct and is still the overwhelmingly common path.
 
-**This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is `ceremony.scoped_git_commit` (`coordinator_core/ops/ceremony/scoped_git_commit.py`): it takes the path set, fails loud on an empty set or a directory pathspec, and computes the branch itself from `diverging_paths()` (`coordinator_core/git/divergence.py`) rather than asking the caller to classify the horn — agree takes `git add -- <paths> && git commit -F <msg> -- <paths>`; diverge takes the private-index sequence above (HEAD captured once, `commit-tree -p <old>`, 4-argument compare-and-swap `update-ref`). **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is no longer the fallback advice; call the op.
+**This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is `ceremony.scoped_git_commit` (`coordinator_core/ops/ceremony/scoped_git_commit.py`): it takes the path set, fails loud on an empty set or a directory pathspec, and computes the branch itself from `diverging_paths()` (`coordinator_core/git/divergence.py`) rather than asking the caller to classify the horn — agree takes `git add -- <paths> && git commit -F <msg> -- <paths>`; diverge takes the private-index sequence above (HEAD captured once, `commit-tree -p <old>`, 4-argument compare-and-swap `update-ref`). **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is not the fallback advice; call the op.
 
 **Never resolve this by widening.** `git add -A` / `git add .` / `git commit -a` remain hard-denied (SC-DR-014's structural floor stands, unchanged). This ruling makes scoped committing *safer*, never optional.
 
@@ -1113,15 +1113,15 @@ Alternatively, drop the trailing `-- <paths>` restriction entirely and rely on t
 
 ## Atomic `git add` — a Stale Pathspec Fatals and Stages NOTHING
 
-`git add -- <paths>` is **atomic on pathspec error**: if any one pathspec no longer matches a working-tree file, the whole `add` fatals (`did not match any files`) and stages *nothing* — not "everything except the bad path". Two common triggers produce this, and both are dangerous because a commit that follows in the same `&&`-chain either short-circuits (dropping your work) or, if pathspec-less, absorbs whatever a peer pre-staged.
+`git add -- <paths>` is **atomic on pathspec error**: if any one pathspec does not match a working-tree file, the whole `add` fatals (`did not match any files`) and stages *nothing* — not "everything except the bad path". Two common triggers produce this, and both are dangerous because a commit that follows in the same `&&`-chain either short-circuits (dropping your work) or, if pathspec-less, absorbs whatever a peer pre-staged.
 
 ### Re-adding a `git mv`'d source path fatals the whole add
 
-After `git mv a b`, the source `a` is no longer a working-tree file. Running `git add -- a b c` fatals on pathspec `a` and stages **nothing** (atomic). A following pathspec-less `git commit` then commits from whatever is already in the index — on a shared branch, that absorbs peer-staged entries under your subject. **Rule.** Never re-add a `git mv`'d source path. `git mv` already staged both halves of the rename; add only genuinely-dirty *destination* / new paths, always commit with explicit `-- <paths>`, and verify `git diff --cached --name-only` before committing. (Source: DoE, concurrent-EM `work/*`.)
+After `git mv a b`, the source `a` is not a working-tree file. Running `git add -- a b c` fatals on pathspec `a` and stages **nothing** (atomic). A following pathspec-less `git commit` then commits from whatever is already in the index — on a shared branch, that absorbs peer-staged entries under your subject. **Rule.** Never re-add a `git mv`'d source path. `git mv` already staged both halves of the rename; add only genuinely-dirty *destination* / new paths, always commit with explicit `-- <paths>`, and verify `git diff --cached --name-only` before committing. (Source: doctrine plane, concurrent-EM `work/*`.)
 
 ### `git add` of an already-`git rm`'d path fatals and silently skips an `&&`-chained commit
 
-Listing a path you already `git rm`'d in a later `git add -- <paths>` makes git fatal (`did not match any files`) for the same reason — the path is gone from the working tree. If the commit is `&&`-chained after the add (`git add -- <paths> && git commit ...`), the short-circuit **skips the commit entirely**, and only files staged by a *prior* call land. **Rule.** In scoped-commit ceremonies, stage deletions separately (or let the earlier `git rm` stand) and do NOT re-list removed paths in a subsequent `git add`. (Source: DoE.)
+Listing a path you already `git rm`'d in a later `git add -- <paths>` makes git fatal (`did not match any files`) for the same reason — the path is gone from the working tree. If the commit is `&&`-chained after the add (`git add -- <paths> && git commit ...`), the short-circuit **skips the commit entirely**, and only files staged by a *prior* call land. **Rule.** In scoped-commit ceremonies, stage deletions separately (or let the earlier `git rm` stand) and do NOT re-list removed paths in a subsequent `git add`. (Source: doctrine plane.)
 
 Both cases share one discipline: a pathspec list handed to `git add` must contain only paths that still exist in the working tree. Deletions and renames are already staged by `git rm` / `git mv` — re-naming them is not a no-op, it is a fatal that stages nothing.
 
@@ -1133,12 +1133,14 @@ Both cases share one discipline: a pathspec list handed to `git add` must contai
 
 **Rule.** When a `git add -- <paths>` + `git commit` sequence hits a pre-commit hook failure, the window between the failure and the retry commit is a concurrency race: a sibling session running `git add -A` or `coordinator-safe-commit --blanket` can sweep all your staged files into their commit under their subject. When you retry, `git status` shows "nothing to commit" — your code is correct on HEAD but misattributed to the sibling's commit message.
 
-*Empirical basis (DoE follow-up 2):* Had 4 files Edit/Write-staged (snippet, executor.md, tripwires, fan-out-dispatch.py), ran scoped `git add -- <paths>`, hit a pre-commit exec-bit failure on a 5th file. While fixing the exec-bit, a sibling session swept all 5 files under their commit (`chunk-2(executor-no-self-commit-em-only-gate): regression-net test — 12 assertions green`). On retry: "nothing to commit." Confirmed via `git log --all -- <path>` on each file.
+*Empirical basis (doctrine-plane follow-up 2):* Had 4 files Edit/Write-staged (snippet, executor.md, tripwires, fan-out-dispatch.py), ran scoped `git add -- <paths>`, hit a pre-commit exec-bit failure on a 5th file. While fixing the exec-bit, a sibling session swept all 5 files under their commit (`chunk-2(executor-no-self-commit-em-only-gate): regression-net test — 12 assertions green`). On retry: "nothing to commit." Confirmed via `git log --all -- <path>` on each file.
 
 **Discipline on pre-commit failure in a shared branch:**
-1. Immediately re-run `git status` before any retry — the staged snapshot from the failed commit is not durable.
+1. Immediately re-run `git --no-optional-locks status` before any retry — the staged snapshot from the failed commit is not durable.
 2. Run `git log --oneline -- <path>` on each of your expected files to confirm they haven't been absorbed.
-3. Treat the gap between `git add` and `git commit` as a race window that resets at every pre-commit failure; re-stage explicitly from `git status` before retrying.
+3. Treat the gap between `git add` and `git commit` as a race window that resets at every pre-commit failure; re-stage explicitly from `git --no-optional-locks status` before retrying.
+
+(`--no-optional-locks` avoids the `.git/index.lock` contention a manual `git status`/`git diff` read otherwise adds — it must sit between `git` and the subcommand, or the command hard-fails; `git diff --cached` and `git ls-files -m` don't need it. It earns a place here because this is a genuine forensic step fired only after an incident — a pre-commit failure already happened. A routine "before every commit" git-read mandate doesn't get the flag; it gets cut outright, since a diligent EM reads the tree without being told to.)
 
 This is the consuming-side failure mode of the blanket-add hazard catalogued in § `git commit` without trailing `-- <pathspec>` — your files can be absorbed even when YOUR commit discipline is correct, if a sibling violates it.
 
@@ -1150,7 +1152,7 @@ This is the consuming-side failure mode of the blanket-add hazard catalogued in 
 
 **Rule.** `coordinator-safe-commit` commits on the happy path. Invoking it without `--dry-run` to verify it works — or to confirm gate behavior — will land a real commit, including committing any staged content under whatever subject string you passed.
 
-*Empirical basis (DoE follow-up 8):* Shipped `coordinator-safe-commit --expected-owner em-only` to prevent executor self-commits, then immediately invoked it as a smoke test with `coordinator-safe-commit --expected-owner em-only "test"` (env unset). The gate passed (correct — EM context), and the script ran through to commit, landing Chunk 1's content under subject literally `"test"` . The EM committed exactly the eager-helpful pattern the gate was designed to prevent on the executor side.
+*Empirical basis (doctrine-plane follow-up 8):* Shipped `coordinator-safe-commit --expected-owner em-only` to prevent executor self-commits, then immediately invoked it as a smoke test with `coordinator-safe-commit --expected-owner em-only "test"` (env unset). The gate passed (correct — EM context), and the script ran through to commit, landing Chunk 1's content under subject literally `"test"` . The EM committed exactly the eager-helpful pattern the gate was designed to prevent on the executor side.
 
 **Use `--dry-run` whenever the helper is the unit under test:**
 ```bash
@@ -1190,7 +1192,7 @@ Detail lines with `backticks` and $(literals) survive verbatim.
 MSG
 ```
 
-The single-quoted heredoc delimiter (`'MSG'`) suppresses all expansion, so the body is committed literally. (Source: DoE.)
+The single-quoted heredoc delimiter (`'MSG'`) suppresses all expansion, so the body is committed literally. (Source: doctrine plane.)
 
 ## SC-DR-018 — A Whole-Tree `git stash` Is a Destructive Op Against Every Live Peer
 
@@ -1264,7 +1266,7 @@ predecessor handoff records two blanket-commit incidents earlier the same day.*
 
 ## SC-DR-017 — Check 7's "no signal" premise is retired; the solo bare-commit exemption must consult Check 6's touch-list comparison
 
-**Ruling (doctrine, DoE): the guard asymmetry reported against the coordinator engine's bash-guard
+**Ruling (doctrine, doctrine plane): the guard asymmetry reported against the coordinator engine's bash-guard
 dispatch checks is real, and the fix is to make the solo-bare-commit escalation (Check 7) consult
 the same touch-list signal Check 6 already computes, rather than leave that shape permanently
 advisory-only.**
@@ -1303,8 +1305,8 @@ availability.
 narrowly on Check 7's own exemption rationale.
 
 **Implementation is the coordinator engine's** (own `bash_guards` dispatch-checks module) — this
-DoE record is the ruling the engine implementation should read, per SC-DR-014/SC-DR-008 both being
-DoE decision records. Route the code change onward via cross-repo memo, pinned to the sender's
+doctrine-plane record is the ruling the engine implementation should read, per SC-DR-014/SC-DR-008 both being
+doctrine-plane decision records. Route the code change onward via cross-repo memo, pinned to the sender's
 cited engine-tree SHA; this repo carries no copy of that module to edit.
 
 **The second, smaller ask in the same memo — `git add -A -- <explicit paths>` being denied when
@@ -1319,7 +1321,7 @@ the gap was in this page's discoverability, not in the guard.
 
 ## SC-DR-019 — Exposure Under a Refusal Is Duration × Dirty-Set; Shrink the Set, and Make the Pathspec Prove Its Provenance
 
-**Ruling (doctrine, DoE): a scoped-commit refusal is per-path, not per-commit. A session honoring
+**Ruling (doctrine, doctrine plane): a scoped-commit refusal is per-path, not per-commit. A session honoring
 a refusal commits the uncontested remainder immediately and waits holding only the contested
 path. Separately: a pathspec must be provenance-bearing, not merely well-formed — and an ordinary
 commit that stages a live peer's claimed path emits a derived attribution trailer.**
@@ -1364,7 +1366,7 @@ per-path breakdown forces the waiting session to re-derive the split by hand, wh
 friction that makes sitting-on-everything the path of least resistance. Per-path refusal reporting
 is the engine's surface, not this one; routed onward by memo.
 
-**Landed engine-side 2026-08-03** (`coordinator_core/ops/session/scope_report.py` ::
+**Landed engine-side** (`coordinator_core/ops/session/scope_report.py` ::
 `assert_paths_in_session_scope`, engine plane). The refusal had been returning
 on the *first* denied path; it now enumerates every denied path with its own classification, names
 the uncontested remainder as a directly re-invocable pathspec, says so in words when that
@@ -1404,10 +1406,14 @@ The rule made textual, because a rule that exists only as a code path is one nob
 review:
 
 > **Rule.** A pathspec must be **provenance-bearing** — carried from an executor's touched-files
-> set or a plan chunk's `surface:` list — never assembled by surveying the dirty tree.
-> Form-checking a pathspec (explicit, non-blanket, no `-A`) verifies shape only; a well-formed
-> pathspec sourced from `git status` is the sweeping harm laundered into a compliant-looking
-> commit.
+> set — never assembled by surveying the dirty tree. Form-checking a pathspec (explicit,
+> non-blanket, no `-A`) verifies shape only; a well-formed pathspec sourced from `git status` is
+> the sweeping harm laundered into a compliant-looking commit.
+>
+> A plan chunk's `surface:` list is **not** provenance: it states intent, not what was written, and
+> is unenforceable at the recording site — a wrong declaration would falsely *grant* a path rather
+> than merely withhold one. See `A-CLAIM-IS-WHAT-YOU-WROTE-NOT-WHAT-YOU-PLANNED` in
+> `coordinator/docs/wiki/coordinator-tripwires.md`.
 
 This already binds fleet EMs via `snippets/em-operating-doctrine.md`; it belongs here so it is
 greppable at the point of use. **SC-DR-017 is its nearest neighbour** and reached the same
@@ -1437,7 +1443,7 @@ wake; and it is **compatible with warn-only by construction**, recording rather 
 it costs the ratified posture nothing.
 
 **Implementation is the engine's** (`coordinator_core`, alongside Check 5's existing owner
-resolution) — this DoE record is the ruling that implementation should read, in the SC-DR-017
+resolution) — this doctrine-plane record is the ruling that implementation should read, in the SC-DR-017
 pattern. This repo carries no copy of that module to edit.
 
 ### What this ruling does NOT do
@@ -1506,7 +1512,7 @@ the answer for that case. Counting it as scope inherits that hazard unchanged ra
 it, which is the correct outcome: same operation, same treatment, one rule instead of two.
 
 **Implementation is the engine's** (`coordinator_core/bash_guards`, `_bt_commit_has_explicit_pathspec`)
-— this DoE record is the ruling that implementation should read, in the SC-DR-017 pattern. This repo
+— this doctrine-plane record is the ruling that implementation should read, in the SC-DR-017 pattern. This repo
 carries no copy of that module to edit. The escalation oracle needs rows in the *unseparated*
 spelling for both halves of the compound shape; every existing row using the separator form is why
 the `git add` gap went uncovered, and the same blind spot exists here until positional-form rows
@@ -1526,7 +1532,7 @@ Greppable token: `SEPARATOR-IS-DISAMBIGUATION-NOT-SCOPE`. Registered in
 
 ## SC-DR-021 — A claim may be self-reported, but only of writes that ACTUALLY happened; an intended `surface:` is not a claim
 
-**Ruling (doctrine, DoE): `T` denotes a claim, not a detection — the touch hook is one producer of
+**Ruling (doctrine, doctrine plane): `T` denotes a claim, not a detection — the touch hook is one producer of
 claim events, never the definition of one. A second producer is therefore legitimate, and one has
 landed. But the line that matters is drawn *inside* claim-space, not at its edge: a producer may
 report paths it actually wrote, and may never report paths it intends to write. A dispatch-time
@@ -1641,7 +1647,7 @@ Greppable token: `A-CLAIM-IS-WHAT-YOU-WROTE-NOT-WHAT-YOU-PLANNED`. Registered in
 
 ## SC-DR-022 — Orphan adoption is an operator's answer to a refusal, never an agent's default; the (d2) residual resolves in the adoption direction
 
-**Ruling (doctrine, DoE), the two halves separately:**
+**Ruling (doctrine, doctrine plane), the two halves separately:**
 
 1. **Yes** — a cross-repo engine write left unclaimed at a sink the engine deliberately refuses to
    claim into is **legitimately adopted with `--include-orphans`**, by an operator, on the *named

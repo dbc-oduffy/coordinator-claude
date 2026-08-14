@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 capture-fan-out-threshold.sh — CLI trampoline over claude-klabauter
@@ -39,7 +38,7 @@ this is a config-writer gate script: CLAUDE_KLABAUTER_ROOT resolution failure or
 import failure here MUST propagate as a non-zero exit so the install phase
 fails loud rather than silently skipping the threshold capture.
 
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
 
 DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a
 plain in-process `import ... as _op_main` + `sys.exit(op_main(argv))` tail, so

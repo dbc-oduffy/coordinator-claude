@@ -252,7 +252,7 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
     # GUARD-ON-RUNNER-CONTRACT's identical clause): append, never insert at
     # index 0 -- the hooks dir (inserted at the top of this module, before
     # this point) must stay AHEAD of the sibling engine root on sys.path,
-    # so a module-name collision resolves toward the DoE-local helper.
+    # so a module-name collision resolves toward the doctrine-plane-local helper.
     if engine_root_str not in sys.path:
         sys.path.append(engine_root_str)
     try:

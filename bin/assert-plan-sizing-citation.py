@@ -1,5 +1,5 @@
 """
-assert-plan-sizing-citation.py — CLI trampoline over claude-klabauter
+assert-plan-sizing-citation.py — CLI trampoline over the engine repo's
 coordinator_core.ops.assert_plan_sizing_citation.
 
 AC4 gate for the plan sizing-citation gate: asserts zero dangling
@@ -17,10 +17,10 @@ macOS/Linux; the co-located `.cmd` twin is the Windows entrypoint.
 
 Exit convention: this is a fail-loud GATE script (asserts zero dangling
 sizing_object citations), NOT a never-block hook like coordinator-auto-push —
-a claude-klabauter-link failure (CLAUDE_KLABAUTER_ROOT unresolved, module not importable) exits 1
+an engine-link failure (CLAUDE_KLABAUTER_ROOT unresolved, module not importable) exits 1
 here, not 0, so the failure is visible rather than silently swallowed.
 
-Spec backlink: docs/plans/2026-08-06-plan-sizing-citation-gate.md § C3 / AC4 / AC6
+Spec backlink: pln-plan-sizing-citation-gate-scaf-45eaed § C3 / AC4 / AC6
 """
 
 from __future__ import annotations

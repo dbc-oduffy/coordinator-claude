@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 refresh-plugin-live-install.py — Managed refresh for a registered plugin's live install.
 
-Spec backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md §Chunk 2
+Spec backlink: docs/plans/2026-05-21-plugin-source-live-mirror-doctrine.md §Chunk 2 [DEAD-CITATION: plan file never committed to this repo]
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E2, chunk E2-e)
 Port of: refresh-plugin-live-install.sh (DoE 9a00683c, 2026-07-21) — naked-Python
 port, no bash in the middle: git/uv/pip are still invoked as subprocesses, which is
@@ -61,7 +60,6 @@ import hashlib
 import json
 import os
 import re
-import shlex
 import shutil
 import signal
 import subprocess
@@ -71,7 +69,30 @@ import urllib.parse
 from pathlib import Path
 
 PROG = "refresh-plugin-live-install.py"
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+GENERATES = []  # writes live_path (a registered plugin's live checkout under the Claude plugins dir), the refresh audit log, and snapshot dirs — all under the operator's Claude home, outside claude-klabauter's own tree (abs-path-ok: descriptive prose, not a resolve site)
+
+
+def _no_console_kwargs() -> dict:
+    """Deferred coordinator_core import — matches this file's CLAUDE_KLABAUTER_ROOT
+    bootstrap posture (see ``_import_registry_deps``) so ``--help``/usage
+    paths never pay a CLAUDE_KLABAUTER_ROOT resolution cost. On any CLAUDE_KLABAUTER_ROOT
+    resolution/import failure, falls back to the same suppression kwargs
+    computed inline (zero imports beyond ``subprocess``) rather than
+    silently dropping console suppression -- a resolution failure must
+    never turn a quiet spawn into a visible console window.
+    """
+    try:
+        from cc_invoke import _resolve_claude_klabauter_root
+
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's bootstrap posture
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 _HELP_TEXT = """\
 Usage: refresh-plugin-live-install.py <plugin> [--force] [--interactive]
@@ -120,6 +141,8 @@ def eprint(*args, **kwargs) -> None:
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
+
+from win_argv import win_safe_shlex_split  # noqa: E402
 
 
 def _import_registry_deps():
@@ -227,56 +250,26 @@ class ArgvCommandError(ValueError):
     """
 
 
-def _win_safe_shlex_split(cmd_str: str) -> list[str]:
-    """``shlex.split`` equivalent that does not mangle backslashes.
-
-    Bare ``shlex.split`` (POSIX mode) treats ``\\`` as a C-style escape
-    character, so a Windows-authored drive-letter path with backslash
-    separators (abs-path-ok: illustrative example, not a real path —
-    ``C:\\Users\\bob\\tools\\refresh.exe``) is silently stripped down to
-    ``C:Usersbobtoolsrefresh.exe``. ``posix=False`` is NOT the fix: it also
-    stops stripping the surrounding quote characters from a quoted token
-    (``"hello world"`` splits to the literal 4-char token ``"hello`` plus
-    ``world"`` retaining the quotes), which regresses the argv-only
-    contract's quoted-token handling that existing callers/tests rely on.
-
-    This keeps posix quote-stripping/whitespace-splitting semantics
-    (identical to ``shlex.split`` for quoting and for unbalanced-quote
-    ``ValueError``\\ s) while disabling backslash escape processing, so
-    backslash path separators pass through untouched.
-
-    Negative-spec — the one deliberate tokenization divergence: a backslash
-    can be an escape character or a path separator, never both, and this
-    repo is Windows-first. So a POSIX-style escaped space (``a\\ b``) is NO
-    longer one token ``a b``; it tokenizes as ``a\\`` and ``b``. An operator
-    escaping spaces that way must quote the value instead (``"a b"``), which
-    works identically on both platforms. Verified equivalent to the sibling
-    copy in ``coordinator-ceremony-hook.py`` across a 20-case corpus
-    covering quoting, globs, unicode, and unbalanced quotes.
-    """
-    lexer = shlex.shlex(cmd_str, posix=True)
-    lexer.whitespace_split = True
-    lexer.escape = ""
-    return list(lexer)
-
-
 def _parse_argv_command(
     cmd_str: str, source_desc: str, resolve_cwd: Path | None = None
 ) -> list[str]:
     """Parse a configured command string into argv, POSIX-shlex rules on every
     platform (portable token splitting only — no shell metacharacter support).
 
-    Windows note: this uses ``_win_safe_shlex_split`` (posix-mode quote
-    stripping/whitespace-splitting, with backslash escaping disabled) rather
-    than bare ``shlex.split`` or ``posix=False`` — see that helper's
+    Windows note: this uses ``win_argv.win_safe_shlex_split`` (posix-mode
+    quote stripping/whitespace-splitting, with backslash escaping disabled)
+    rather than bare ``shlex.split`` or ``posix=False`` — see that helper's
     docstring. Review: bare POSIX-mode ``shlex.split`` silently stripped
     backslashes from a Windows-authored value containing native ``\\`` path
     separators (e.g. a drive-letter path with backslash separators —
     abs-path-ok: illustrative example, not a real path), and the mangled
     path then surfaced verbatim in the ``ArgvCommandError`` diagnostic below
-    — misattributing a path the operator never typed. ``_win_safe_shlex_split``
-    preserves the backslashes; quote-stripping and unbalanced-quote detection
-    are unchanged from POSIX-mode ``shlex.split``.
+    — misattributing a path the operator never typed.
+    ``win_argv.win_safe_shlex_split`` preserves the backslashes; quote
+    stripping and unbalanced-quote detection match POSIX-mode
+    ``shlex.split`` only for backslash-free input. Once a backslash is
+    present the two diverge in both directions — see that helper's
+    docstring for the mechanism and worked examples.
 
     ``resolve_cwd``, if given, is the directory the eventual ``subprocess.run``
     will actually execute under (its ``cwd=``) — used ONLY as a second
@@ -292,7 +285,7 @@ def _parse_argv_command(
     first token.
     """
     try:
-        argv = _win_safe_shlex_split(cmd_str)
+        argv = win_safe_shlex_split(cmd_str)
     except ValueError as exc:
         raise ArgvCommandError(
             f"{source_desc} is not a valid argv-only command ({exc}). "
@@ -321,7 +314,7 @@ def _git(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
         ["git", "-C", str(cwd), *args],
         capture_output=True,
         text=True,
-        creationflags=_NO_WINDOW,
+        **_no_console_kwargs(),
     )
 
 
@@ -1252,7 +1245,7 @@ def _handle_copy_install(
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=_NO_WINDOW,
+            **_no_console_kwargs(),
         )
         if r.returncode != 0:
             post_flight_clean = False
@@ -1452,7 +1445,7 @@ def _handle_editable_sibling_venv(
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=_NO_WINDOW,
+            **_no_console_kwargs(),
         )
         if r.returncode != 0:
             post_flight_clean = False
@@ -1504,7 +1497,7 @@ def _handle_default(
             env=child_env(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=_NO_WINDOW,
+            **_no_console_kwargs(),
         )
         if r.returncode != 0:
             clean_tree_ok = False
@@ -1680,7 +1673,7 @@ def _handle_default(
                 env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                creationflags=_NO_WINDOW,
+                **_no_console_kwargs(),
             )
             if r.returncode != 0:
                 post_flight_clean = False

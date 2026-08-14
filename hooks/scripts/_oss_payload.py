@@ -91,6 +91,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from _engine_root import resolve_claude_klabauter_root
+from _win_portability import no_console_creationflags
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -277,6 +278,7 @@ def _git_ls_files(repo_root: Path, pathspec: str) -> tuple:
         capture_output=True,
         text=True,
         check=True,
+        **no_console_creationflags(),
     )
     return tuple(line for line in result.stdout.splitlines() if line)
 
@@ -315,6 +317,7 @@ def _git_ls_files_batch(repo_root: Path, pathspecs: tuple) -> dict:
         capture_output=True,
         text=True,
         check=True,
+        **no_console_creationflags(),
     )
     matched = [line for line in result.stdout.splitlines() if line]
     out = {p: [] for p in pathspecs}

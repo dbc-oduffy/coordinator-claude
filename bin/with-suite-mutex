@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""with-suite-mutex — repo-agnostic acquiring wrapper for the machine-wide
+test-suite mutex (``coordinator_core.testing.suite_mutex``, DR-088 layer 6).
+
+WHY THIS EXISTS: the mutex's READ side (the ``bash_guards`` deny check) has
+always worked, but its TAKE side was wired into exactly two callers in this
+repo — ``coordinator_core/testing/full_runner.py`` and
+``coordinator/bin/validate-fast-and-packageability.py``. Every other way a
+suite actually gets run (a bare ``pytest``, ``pnpm run tier:fast``, a
+consumer-repo's own runner script) took nothing, so ``holder()`` was
+effectively always ``None`` and layer 6 never fired for those paths. This
+wrapper closes that gap by being a generic acquire-run-release shell around
+an ARBITRARY command, so any repo/runner can opt in with the same one-liner
+regardless of whether it speaks pytest, pnpm, or a bespoke script.
+
+USAGE
+    with-suite-mutex [--owner-label LABEL] -- <command> [args...]
+
+    with-suite-mutex -- pnpm run tier:fast
+    with-suite-mutex -- python3 -m pytest -m 'not cadence'
+    with-suite-mutex --owner-label workday-complete -- python3 bin/run-full-test-suite.py --yes
+
+A literal ``--`` followed by at least one token is REQUIRED — mirrors
+``coordinator/bin/scoped-git-commit``'s own hard requirement for a `--` and a
+non-empty operand, and its refusal to offer an unscoped form. There is no
+"everything after the flags is the command" fallback: an accidentally-eaten
+flag-looking child argument must never silently swallow into this wrapper's
+own flag parsing.
+
+PID SEMANTICS (load-bearing — see ``suite_mutex``'s module docstring,
+"PID-LIVENESS"): this wrapper is a short-lived acquirer that does not itself
+run the suite — it spawns a child process and waits on it. The module
+docstring is explicit that such a caller MUST pass ``pid=`` explicitly,
+because the PID recorded in the lock's metadata is the sole liveness signal;
+recording this wrapper's own ``os.getpid()`` would make the lock look dead
+the instant the child inherits the terminal and this process's stack frame
+returns from ``acquire()`` — in the worst case immediately if the OS reuses
+the wrapper's PID for something else before the child exits. The lock is
+therefore acquired with ``pid=child.pid``, taken from the ``subprocess.Popen``
+handle after spawn.
+
+EXIT CODE is the child's, verbatim — this wrapper never coerces a suite
+failure into a wrapper success or vice versa.
+
+RELEASE ON EVERY EXIT PATH: normal completion, non-zero child exit, an
+exception before/after spawn, and Ctrl-C/SIGINT. Achieved by running the
+child inside ``suite_mutex.held(...)``'s own context manager rather than a
+hand-rolled acquire/release pair — its ``finally`` releases whenever
+``acquire()`` actually won, matching the module's own contract.
+
+SPAWN-THEN-ACQUIRE ORDERING (the actual PID chicken/egg): ``acquire()``
+needs the child's PID at acquisition time (see PID SEMANTICS above), but the
+child's PID does not exist until after it is spawned — and spawning it
+unconditionally before acquiring would let two concurrent wrapper
+invocations both start real work before either wins the mutex, defeating
+serialization entirely. This wrapper resolves the ordering by spawning the
+child, then suspending it (via ``psutil.Process.suspend()``, the same
+cross-platform primitive ``suite_mutex``'s own liveness check already
+depends on for ``pid_alive``), acquiring the mutex with the now-known child
+PID, and only then resuming it.
+
+KNOWN GAP — suspend is NOT atomic with spawn: ``Popen()`` and ``.suspend()``
+are two separate syscalls, so a child that runs to completion inside that
+window (before this process reaches ``.suspend()``) executes fully
+unserialized against a concurrent invocation; ``suspend()`` then raises
+``NoSuchProcess``, swallowed below, and the mutex is still acquired against
+the correct (already-exited) child PID, so no lock-metadata corruption
+results — only the serialization guarantee is weakened for such fast
+children. Closing this fully would mean ``CREATE_SUSPENDED`` on Windows or a
+POSIX self-``SIGSTOP`` ``preexec_fn``, both platform-specific spawn-flag
+changes; deliberately not done here — see review escalation, and the
+CREATE_NO_WINDOW negative-spec above for why touching spawn flags on this
+line is treated as a tradeoff, not a silent fix.
+
+WAIT POSTURE: copies ``full_runner.py``'s and
+``validate-fast-and-packageability.py``'s posture and message shape exactly
+— wait up to ``suite_mutex.MUTEX_WAIT_SECS``, and on timeout print the
+current holder and PROCEED UNSERIALIZED with a warning, rather than
+refusing. This is a resource control, not an authorization gate; refusing to
+run at all here would turn a serialization aid into a spurious failure.
+
+Negative-spec — what this wrapper is NOT:
+    - NOT runner-aware. It knows nothing about pytest, pnpm, node, or any
+      other test tool — it execs whatever argv follows ``--`` unmodified.
+      Do not add runner-specific flag parsing here.
+    - NOT a retry loop, a log capturer, or an output filter — stdout/stderr
+      are inherited straight from the child, unmodified.
+    - NOT an authorization check — it takes the same mutex the
+      ``bash_guards`` deny-side already reads; it does not replace or
+      duplicate tier/grant enforcement.
+"""
+
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+from typing import List, Optional, Tuple
+
+import psutil
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before the coordinator_core import
+# below: this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+# this bin/ directory, not the checkout root (and this CLI is deliberately
+# repo-agnostic — resolved off this file's own location, never off cwd or
+# the calling repo). Same bootstrap as coordinator/bin/coordinator-lesson-add
+# (9b979ee5f).
+require_engine_on_path(__file__)
+
+from coordinator_core.testing import suite_mutex  # noqa: E402
+
+_DEFAULT_OWNER_PREFIX = "with-suite-mutex"
+
+
+def _install_signal_handlers() -> None:
+    """Route SIGTERM/SIGBREAK through the same KeyboardInterrupt cleanup path
+    as Ctrl-C, so a lock acquired by this wrapper is released on every
+    interrupt style a caller (or a fleet-wide process reaper) might send —
+    not only a literal Ctrl-C, whose default handler already raises
+    ``KeyboardInterrupt``. Best-effort: a signal absent on this platform (no
+    ``SIGBREAK`` off Windows) or one the runtime refuses to rebind is a
+    silent no-op, never a startup failure.
+    """
+
+    def _handler(signum, frame):  # noqa: ANN001 - stdlib signal handler shape
+        raise KeyboardInterrupt()
+
+    for name in ("SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _handler)
+        except (ValueError, OSError):
+            pass
+
+
+def _parse_args(argv: List[str]) -> Tuple[Optional[str], List[str]]:
+    """Parse ``argv`` into ``(owner_label, command)``.
+
+    Returns ``(None, [])`` (with an error already printed) on a malformed
+    invocation — no ``--``, or a ``--`` with nothing after it. Every flag
+    MUST appear before the ``--`` separator; nothing after it is
+    interpreted, matching ``scoped-git-commit``'s own hard split.
+    """
+    if "--" not in argv:
+        print(
+            "with-suite-mutex: missing required `--` separator before the command.\n"
+            "Usage: with-suite-mutex [--owner-label LABEL] -- <command> [args...]",
+            file=sys.stderr,
+        )
+        return None, []
+
+    sep_index = argv.index("--")
+    flags = argv[:sep_index]
+    command = argv[sep_index + 1 :]
+
+    if not command:
+        print(
+            "with-suite-mutex: `--` must be followed by at least one command token.\n"
+            "Usage: with-suite-mutex [--owner-label LABEL] -- <command> [args...]",
+            file=sys.stderr,
+        )
+        return None, []
+
+    owner_label: Optional[str] = None
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        if flag == "--owner-label":
+            if i + 1 >= len(flags):
+                print("with-suite-mutex: --owner-label requires a value.", file=sys.stderr)
+                return None, []
+            owner_label = flags[i + 1]
+            i += 2
+            continue
+        if flag.startswith("--owner-label="):
+            owner_label = flag.split("=", 1)[1]
+            i += 1
+            continue
+        print(f"with-suite-mutex: unrecognized flag {flag!r}.", file=sys.stderr)
+        return None, []
+
+    return owner_label, command
+
+
+def _wait_interruptible(process: "subprocess.Popen[bytes]") -> int:
+    """Wait for ``process`` to exit while staying responsive to signals.
+
+    ``Popen.wait()`` with no timeout blocks inside a single uninterruptible
+    OS wait call on Windows (``WaitForSingleObject`` with an infinite
+    timeout) — a signal delivered mid-wait (Ctrl-C, Ctrl-Break, SIGTERM) is
+    not observed by the Python interpreter until that call returns, which
+    defeats this wrapper's release-on-interrupt contract. Polling with a
+    short timeout instead gives the interpreter a periodic chance to notice
+    a pending signal and raise, on every platform.
+    """
+    while True:
+        try:
+            return process.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def main(argv: List[str]) -> int:
+    _install_signal_handlers()
+    owner_label, command = _parse_args(argv)
+    if not command:
+        return 2
+
+    prefix = owner_label if owner_label else _DEFAULT_OWNER_PREFIX
+    owner = suite_mutex.mutex_owner(prefix)
+    cmd_str = " ".join(command)
+
+    # Deliberately NO creationflags here (in particular, NOT CREATE_NO_WINDOW):
+    # this wrapper's whole point is a live, streaming pass-through of the
+    # child's stdout/stderr -- neither stream is redirected to a pipe, so
+    # the child inherits the parent's real console handles. CREATE_NO_WINDOW
+    # allocates a NEW hidden console for a console-subsystem child instead of
+    # inheriting the caller's, which silently discards everything the child
+    # writes when nothing is there to capture it via a pipe. That flag is the
+    # right call for a fire-and-forget background spawn (CLAUDE.md's Windows
+    # console-subprocess-discipline default) but wrong here, where visible,
+    # live output IS the requirement -- see the module docstring.
+    process = subprocess.Popen(command)
+    try:
+        ps_process = psutil.Process(process.pid)
+    except psutil.Error:
+        # Review: coordinator:code-reviewer -- Popen() succeeded but the
+        # child was already gone/transitioning by the time we looked it up
+        # (extremely fast exit). Reap it like every other exit path does,
+        # rather than propagating with no cleanup at all.
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
+
+    def _resume_then_escalate() -> None:
+        """Resume-then-escalate cleanup for a child that may still be
+        SUSPENDED when we're forced off the happy path.
+
+        Review: coordinator:code-reviewer -- a process stopped via
+        ``psutil.Process.suspend()`` (SIGSTOP on POSIX) does not act on a
+        pending SIGTERM until it is resumed or killed outright; resuming
+        first is required or ``terminate()`` below is silently held pending
+        forever, leaving a suspended orphan for the lock's 45-minute stale
+        TTL.
+        """
+        try:
+            ps_process.resume()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+
+    try:
+        ps_process.suspend()
+    except psutil.NoSuchProcess:
+        # Exited (or never truly scheduled) before we could suspend it --
+        # nothing left to serialize against; fall through and let
+        # process.wait() report its real exit code below.
+        pass
+    except psutil.AccessDenied:
+        # Cannot suspend on this platform/process -- degrade to "spawned
+        # already running" rather than failing the whole invocation; the
+        # mutex is still acquired against the correct (child) PID.
+        pass
+
+    try:
+        with suite_mutex.held(
+            owner, cmd_str, timeout=suite_mutex.MUTEX_WAIT_SECS, pid=process.pid
+        ) as acquired:
+            if not acquired:
+                current = suite_mutex.holder() or {}
+                print(
+                    "[WARN] suite mutex held by %s for %ss — proceeding unserialized"
+                    % (current.get("owner", "<unknown>"), int(suite_mutex.MUTEX_WAIT_SECS)),
+                    file=sys.stderr,
+                )
+            try:
+                ps_process.resume()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            return _wait_interruptible(process)
+    except BaseException:
+        # Review: coordinator:code-reviewer -- covers KeyboardInterrupt AND
+        # every other exception (lock-file I/O error, corrupt meta.json,
+        # a non-NoSuchProcess/AccessDenied raise out of resume() above,
+        # etc). The previous bare `finally` only `terminate()`d without
+        # resuming first, which left a SIGSTOP'd child permanently unable
+        # to observe that SIGTERM -- an unreaped, suspended orphan.
+        _resume_then_escalate()
+        raise
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

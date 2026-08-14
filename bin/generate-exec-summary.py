@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """generate-exec-summary.py — CLI trampoline regenerating a repo's exec-summary doc.
 
@@ -20,7 +19,7 @@ repo-setup as a best-effort cadence-step doc generator, never a merge gate.
 #
 # Spec backlink: docs/plans/2026-07-03-exec-summary-per-repo-brief.md § C2
 # Spec backlink: docs/wiki/exec-summary-artifact.md § Generator contract
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 #
 # Usage:
 #   generate-exec-summary.py [--check]
@@ -62,6 +61,22 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+# Generator-provenance declaration (C2, generator_provenance.py's AST reader).
+# THIS file is a thin CLI trampoline (see module docstring) -- `sources`
+# names the real implementation locus, `coordinator_core/ops/generate_exec_summary.py`
+# (all derivation/emission logic lives there), never this shim's own path
+# (§ Mechanism correction, docs/plans/2026-08-13-generator-output-staleness-
+# detector.md). `stamp_key` reuses `docs/exec-summary.md`'s existing
+# frontmatter key verbatim -- see that file's `generator:`/`generated:` pair,
+# already read by coordinator_core/ops/emit/sections/exec_summary.py.
+GENERATES = [
+    {
+        "artifact": "docs/exec-summary.md",
+        "stamp_key": "generated",
+        "sources": ["coordinator_core/ops/generate_exec_summary.py"],
+    },
+]
 
 
 def _import_runner():

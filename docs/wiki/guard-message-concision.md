@@ -6,6 +6,11 @@
 >
 > **Two caps exist, in two units — start at [#which-cap-is-mine](#which-cap-is-mine) and take the
 > row for your surface before using any number below.**
+>
+> **Upstream of this page: should the guard exist at all?**
+> [`guard-proportionality.md`](guard-proportionality.md) decides whether a fact earns silence, a
+> warn, or a block — answer that first, because a perfectly concise deny message for a guard that
+> should have said nothing is wasted work.
 
 ---
 
@@ -105,8 +110,8 @@ redirect naturally lands short once the teaching is removed from it.
 A rule's operativeness is a property of what it forbids or permits, never a property of how many
 words it takes to say so. Compressing a message toward the cap is safe; deleting or thinning the
 part of a rule that states its permission boundary is not a compression — it is turning a
-forbidden action into one that now reads as permitted, silently, because the message that used to
-say otherwise no longer says anything at all.
+forbidden action into one that reads as permitted, silently, because the message says nothing
+about the boundary at all.
 
 This is the one place where "make it shorter" and "make it correct" can point in different
 directions, so hold the boundary fixed and compress everything else around it. If a message cannot
@@ -118,8 +123,8 @@ of the explanation here, not for cutting the boundary itself.
 An override key, an environment kill-switch, or a documented bypass path is exactly the kind of
 detail a shortened message has no room to restate in full. When a message is tightened toward the
 cap, that detail moves to this wiki rather than being dropped — a reader who needs the override
-should be able to follow the message's pointer here and find it, not lose it because the message
-that used to carry it got shorter. A guard message losing its only stated escape hatch is a
+should be able to follow the message's pointer here and find it, not lose it to a shortened
+message that fails to carry it. A guard message losing its only stated escape hatch is a
 regression, not a trim, even when the resulting message is well within budget.
 
 ---
@@ -750,7 +755,7 @@ that means losing:
 - the built-in's **read-only tool restriction** (a teammate spawn's `tools` falls back to `"*"`);
 - the built-in's **own system prompt**;
 - the mechanism that omits the ambient project-instructions corpus from the child's context (a
-  teammate spawn no longer omits it).
+  teammate spawn includes it).
 
 It also costs roughly **31k more tokens** than an unnamed dispatch of the same built-in.
 

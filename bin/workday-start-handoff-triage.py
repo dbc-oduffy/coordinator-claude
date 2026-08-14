@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday-start-handoff-triage.py — self-contained naked-Python port of the
 `/workday-start` Step 0.8 / Step 1.1 / Step 1.2 orientation-triage logic.
 
@@ -121,23 +120,111 @@ def _frontmatter_status_is_executing(frontmatter_lines: list[str]) -> bool:
     return False
 
 
-def _git_last_commit_epoch(plan_path: Path) -> int | None:
+# --------------------------------------------------------------------------
+# DELIBERATE DUPLICATION NOTICE (do not consolidate onto draft_plan_aging):
+#
+# `coordinator_core/ops/draft_plan_aging.py::list_stale_executing` computes a
+# closely-related "stale status:executing plan" answer, but the two diverge
+# on FOUR observable axes and must stay independent implementations:
+#   1. prefix vs exact status match — this file's `status:` match is a
+#      documented-deliberate PREFIX match (see `_frontmatter_status_is_executing`
+#      docstring), preserved verbatim from the original bash; draft_plan_aging
+#      matches exact "executing".
+#   2. `>=` vs `>` staleness threshold comparison.
+#   3. sidecar-file skipping (draft_plan_aging excludes checker sidecars;
+#      this file does not).
+#   4. UTC-calendar (`date.today()`) vs epoch-floor (`// 86400`) age arithmetic.
+# Re-pointing this CLI at draft_plan_aging would silently change behavior on
+# all four axes to buy a performance win that in-place git-call batching
+# (below) already delivers without the behavior change. Do not import from
+# draft_plan_aging here.
+# --------------------------------------------------------------------------
+
+
+def _git_last_commit_epochs_batch(plan_paths: list[Path]) -> dict[Path, int | None]:
+    """Resolve each `plan_paths` entry's most-recent-commit epoch via ONE
+    multi-pathspec `git log` walk plus in-memory grouping, instead of one
+    `git log -1 -- <path>` subprocess per plan (the N+1 git-spawn class this
+    batching chunk exists to close).
+
+    This is a per-path last-touch-timestamp query, not a range query (no
+    positive/negative ref sets to combine) — `reachable(...) \\ reachable(...)`
+    set-subtraction collapse does not apply here, so a single combined walk
+    is a safe batching shape (see `emit/sections/handoffs.py`'s
+    `_resolve_shipped_in_dates` for the sibling batching-plus-reconciliation
+    pattern this mirrors).
+
+    The walk is reverse-chronological by default, so for each requested path
+    the FIRST commit in the output that touches it is that path's most
+    recent commit — matching `git log -1 -- <path>` exactly.
+
+    Absence is never defaulted: every requested path is reconciled against
+    what the walk actually returned, and any path the walk never touches
+    (never committed, or git failure) is explicitly mapped to None rather
+    than silently omitted from the returned dict.
+    """
+    result: dict[Path, int | None] = {p: None for p in plan_paths}
+    if not plan_paths:
+        return result
+    # `git log --name-only` reports paths repo-root-relative regardless of
+    # how the pathspec argument itself was spelled, so normalize both the
+    # pathspecs sent to git and the lookup key off the CWD-relative form
+    # (the CLI's own callers always pass CWD-relative plan paths in
+    # practice; the relpath call is a no-op for those).
+    relspecs = [os.path.relpath(str(p)) for p in plan_paths]
+    pathspecs = [Path(r).as_posix() for r in relspecs]
     try:
         proc = subprocess.run(
-            ["git", "log", "-1", "--format=%ct", "--", str(plan_path)],
+            [
+                "git", "log",
+                "--format=%x01%ct",
+                "--name-only",
+                # Merge commits print NO file-list line under plain
+                # --name-only (git suppresses it by default for merges,
+                # even ones that survive history simplification under a
+                # pathspec because they are non-TREESAME to every parent).
+                # Without this, a path whose most recent touch was a
+                # conflict-resolution merge silently attributes to the
+                # next, older commit that does print a name line — a
+                # stale timestamp with no error signal. A kept merge under
+                # default simplification is always non-TREESAME to its
+                # first parent (implied by non-TREESAME-to-every-parent),
+                # so first-parent diffing always emits its file list.
+                "--diff-merges=first-parent",
+                "--",
+                *pathspecs,
+            ],
             capture_output=True,
             text=True,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
-        return None
-    out = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not out:
-        return None
-    try:
-        return int(out)
-    except ValueError:
-        return None
+        return result
+    if proc.returncode != 0 or not proc.stdout:
+        return result
+
+    posix_to_path = {
+        Path(r).as_posix(): p for r, p in zip(relspecs, plan_paths)
+    }
+    matched: set[str] = set()
+    current_epoch: int | None = None
+    for raw_line in proc.stdout.replace("\r", "").splitlines():
+        if raw_line.startswith("\x01"):
+            try:
+                current_epoch = int(raw_line[1:])
+            except ValueError:
+                current_epoch = None
+            continue
+        if not raw_line or current_epoch is None:
+            continue
+        name = raw_line.strip()
+        if name in matched:
+            continue
+        target = posix_to_path.get(name)
+        if target is not None:
+            result[target] = current_epoch
+            matched.add(name)
+    return result
 
 
 def find_stale_executing_plans(
@@ -156,14 +243,21 @@ def find_stale_executing_plans(
     if not directory.is_dir():
         return []
     reference_time = time.time() if now is None else now
-    results: list[str] = []
+
+    executing_paths: list[Path] = []
     for plan_path in sorted(directory.glob("*.md")):
         if not plan_path.is_file():
             continue
         frontmatter_lines = _read_frontmatter_lines(plan_path)
         if not _frontmatter_status_is_executing(frontmatter_lines):
             continue
-        last_commit_epoch = _git_last_commit_epoch(plan_path)
+        executing_paths.append(plan_path)
+
+    epochs = _git_last_commit_epochs_batch(executing_paths)
+
+    results: list[str] = []
+    for plan_path in executing_paths:
+        last_commit_epoch = epochs.get(plan_path)
         if last_commit_epoch is None:
             continue
         age_days = int((reference_time - last_commit_epoch) // 86400)

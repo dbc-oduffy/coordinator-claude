@@ -6,7 +6,7 @@ registration (background-by-default enforcement for Agent tool dispatches)
 with ONE python3 hook entry -- zero Git-Bash cold-start per Agent dispatch
 on Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 REROUTE-gate LOGIC (coordinator_core.hooks.nudge_foreground_agent_dispatch,
 registered under the JSON-RPC method hooks.nudge_foreground_agent_dispatch).

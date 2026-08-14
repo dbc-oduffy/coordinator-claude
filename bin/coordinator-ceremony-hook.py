@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """coordinator-ceremony-hook.py <canonical-ceremony-name>
 
@@ -9,7 +8,7 @@ consumer repo can register its own opt-in advisory command (e.g. "publish
 settled end-of-day state to an external store or dashboard") without a
 bespoke terminal step per ceremony.
 
-Spec backlink: docs/plans/2026-07-08-ceremony-post-command-hook-seam.md
+Spec backlink: DoE-claude:pln-generic-per-repo-post-ceremony-25af09
   § "The seam (contract pinned in C1)", § "Helper shape (C1)"
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave E3-c)
 
@@ -23,7 +22,8 @@ Contract (unchanged from the bash oracle, except `main(argv)`'s own indexing
           (bin/coordinator-resolve-validation-cmd.py), loaded under a guard
           (see § Guarded import below).
           Empty/absent key -> silent no-op, exit 0, NO output.
-  Repo root — git rev-parse --show-toplevel, falling back to cwd.
+  Repo root — resolved via `lib.repo_identity.resolve_checked_repo_root`
+          (memoized, non-spawning), falling back to cwd on UNRESOLVED.
   Execution — ARGV-ONLY (breaking change, PM-ruled 2026-08-06: full argv-mode,
           no compatibility path, no per-key opt-in). The configured value is
           parsed with `shlex.split` and exec'd directly — no `shell=True`, no
@@ -35,10 +35,11 @@ Contract (unchanged from the bash oracle, except `main(argv)`'s own indexing
           executable, e.g. a `VAR=value` prefix). A wrapper script is the
           supported way to get shell semantics — write the shell logic in a
           script file and point the config key at that script.
-  Windows note — parsing uses `_win_safe_shlex_split`, not bare `shlex.split`
-          or `posix=False` (`posix=False` is still never used — that would be
-          a shell-mode fallback the argv-only ruling forbids, and it also
-          regresses quoted-token handling). `_win_safe_shlex_split` keeps
+  Windows note — parsing uses `win_argv.win_safe_shlex_split`, not bare
+          `shlex.split` or `posix=False` (`posix=False` is still never used
+          — that would be a shell-mode fallback the argv-only ruling
+          forbids, and it also regresses quoted-token handling).
+          `win_argv.win_safe_shlex_split` keeps
           POSIX-mode quote-stripping/whitespace-splitting but disables
           backslash-escape processing, so a configured value with native
           backslash path separators survives intact instead of being
@@ -76,6 +77,23 @@ a bareword `import` statement — the resolver's on-disk filename is
 hyphenated (`coordinator-resolve-validation-cmd.py`, a bin/-resident CLI),
 and a hyphen is not a valid Python identifier character.
 
+The `bin/lib` imports (`cc_invoke`, `win_argv.win_safe_shlex_split`), the
+late `coordinator_core.win_portability.no_console_creationflags` import, and
+the `repo_identity.resolve_checked_repo_root` import are loaded the same
+lazy-and-guarded way, each inside its own try/except, for the identical
+AC13 reason — a missing/unimportable sibling module must degrade to a
+WARN+exit-0 path naming that sibling, not crash this helper at import time.
+Each guard's WARN names the dependency that actually failed (bin/lib,
+resolver, coordinator_core, or repo_identity) — do not collapse the wording
+back to one shared string; see the inline comments at each guard.
+
+Structural floor: the `if __name__ == "__main__":` block additionally wraps
+`main()` in a broad `except Exception` that WARNs to stderr and exits 0 —
+a backstop for an UNANTICIPATED escape (this session found three separate
+ImportError escapes from per-import guards before this floor existed). It
+does not replace the per-import guards, which produce specific, actionable
+diagnostics the floor cannot.
+
 Negative-spec: do NOT add a COORDINATOR_*_POST_COMMAND env override, do NOT
 read the command from a memo/handoff/work-branch baton, and do NOT let any
 error path exit non-zero — every branch below terminates via `return 0`.
@@ -100,14 +118,15 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import shlex
 import subprocess
 import sys
 
 _PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _RVC_PATH = os.path.join(_PLUGIN_ROOT, "bin", "coordinator-resolve-validation-cmd.py")
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_LIB_DIR = os.path.join(_PLUGIN_ROOT, "bin", "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
 _KNOWN_CEREMONIES = (
     "workday-start",
@@ -121,44 +140,6 @@ _KNOWN_CEREMONIES = (
 # (DoE c187f5b9, 2026-07-21) this hook used to source for
 # cs_read_local_md_key / _cs_metachar_warn / _cs_redact_for_diag. See
 # that module's read_local_md_key / _metachar_warn / _redact_for_diag.
-
-
-def _win_safe_shlex_split(cmd_str: str) -> list[str]:
-    """``shlex.split`` equivalent that does not mangle backslashes.
-
-    Bare ``shlex.split`` (POSIX mode) treats ``\\`` as a C-style escape
-    character, so a Windows-authored drive-letter path with backslash
-    separators (``C:\\Users\\bob\\tools\\refresh.exe``, abs-path-ok:
-    illustrative example, not a real path) is silently stripped down to
-    ``C:Usersbobtoolsrefresh.exe``. That mangled path then surfaced verbatim
-    in this hook's WARN diagnostic, misattributing a path the operator
-    never typed — see the module docstring's Windows note.
-
-    ``posix=False`` is NOT the fix and is NOT used here: it also stops
-    stripping the surrounding quote characters from a quoted token
-    (``"hello world"`` splits to the literal 4-char token ``"hello`` plus
-    ``world"``, quotes retained), regressing the argv-only contract's
-    quoted-token handling this hook's existing tests rely on (e.g. the
-    secret-redaction test's quoted URL).
-
-    This keeps posix quote-stripping/whitespace-splitting semantics
-    (identical to ``shlex.split`` for quoting and for unbalanced-quote
-    ``ValueError``\\ s) while disabling backslash escape processing, so
-    backslash path separators pass through untouched.
-
-    Negative-spec — the one deliberate tokenization divergence: a backslash
-    can be an escape character or a path separator, never both, and this
-    repo is Windows-first. So a POSIX-style escaped space (``a\\ b``) is NO
-    longer one token ``a b``; it tokenizes as ``a\\`` and ``b``. An operator
-    escaping spaces that way must quote the value instead (``"a b"``), which
-    works identically on both platforms. Verified equivalent to the sibling
-    copy in ``refresh-plugin-live-install.py`` across a 20-case corpus
-    covering quoting, globs, unicode, and unbalanced quotes.
-    """
-    lexer = shlex.shlex(cmd_str, posix=True)
-    lexer.whitespace_split = True
-    lexer.escape = ""
-    return list(lexer)
 
 
 def main(argv: list[str]) -> int:
@@ -175,10 +156,24 @@ def main(argv: list[str]) -> int:
 
     key = ceremony.replace("-", "_") + "_post_command"
 
-    # Guarded import — mirrors the bash oracle's guarded `source` (AC13): a
-    # missing/unimportable resolver module must WARN and exit 0, never crash
-    # this helper. The exit-0-always contract (see module docstring) must
-    # hold independent of this dependency being present.
+    # Guarded import (AC13) — see module docstring § "Guarded import". Do not
+    # re-flatten this back to an unguarded import.
+    try:
+        import cc_invoke
+        from win_argv import win_safe_shlex_split
+
+        cc_invoke.ensure_engine_on_path(__file__)
+    except ImportError as exc:
+        # Review: distinct message from the resolver guard below — this one
+        # names the bin/lib sibling (cc_invoke/win_argv), not the resolver.
+        print(
+            f"[coordinator-ceremony-hook] WARN: bin/lib module unavailable "
+            f"({exc}) — skipping hook",
+            file=sys.stderr,
+        )
+        return 0
+
+    # Guarded import (AC13) — see module docstring § "Guarded import".
     try:
         if not os.path.isfile(_RVC_PATH):
             raise ImportError(f"resolver not found at {_RVC_PATH}")
@@ -203,16 +198,25 @@ def main(argv: list[str]) -> int:
         )
         return 0
 
+    # Guarded import (AC13) — see module docstring § "Guarded import".
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
+        from repo_identity import resolve_checked_repo_root
+    except ImportError as exc:
+        print(
+            f"[coordinator-ceremony-hook] WARN: repo_identity module unavailable "
+            f"({exc}) — skipping hook",
+            file=sys.stderr,
         )
-        repo_root = result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else os.getcwd()
-    except OSError:
+        return 0
+
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if repo_root is None:
         repo_root = os.getcwd()
+    elif verdict["verdict"] == "MISMATCH":
+        # DR-277: this hook DISPATCHES a configured post-command, it does not
+        # itself write into the resolved root -- warn and proceed rather than
+        # refuse. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     cmd = rvc.read_local_md_key(repo_root, key)
 
@@ -224,16 +228,16 @@ def main(argv: list[str]) -> int:
     redacted = rvc._redact_for_diag(cmd)
 
     # Argv-only contract (PM-ruled 2026-08-06, breaking change): no shell=True,
-    # no compatibility path. _win_safe_shlex_split failure (e.g. an
+    # no compatibility path. win_argv.win_safe_shlex_split failure (e.g. an
     # unterminated quote) is a hard, clearly-diagnosed skip — not a crash,
     # not a silent no-op, and NOT a fallback to shell execution.
     # Review: renamed from `argv` (shadowed the function parameter of the same
     # name, a readability trap for anyone tracing argv through this function).
-    # Review: switched from bare `shlex.split` to `_win_safe_shlex_split` —
-    # the former silently stripped backslashes from a Windows-authored path,
+    # Review: switched from bare `shlex.split` to `win_argv.win_safe_shlex_split`
+    # — the former silently stripped backslashes from a Windows-authored path,
     # then echoed the mangled result back in this hook's own diagnostics.
     try:
-        post_argv = _win_safe_shlex_split(cmd)
+        post_argv = win_safe_shlex_split(cmd)
     except ValueError as exc:
         print(
             f"[coordinator-ceremony-hook] WARN: {ceremony} post-command ('{key}') "
@@ -257,6 +261,8 @@ def main(argv: list[str]) -> int:
     print(f"[coordinator-ceremony-hook] {ceremony}: running: {redacted}", file=sys.stderr)
 
     try:
+        from coordinator_core.win_portability import no_console_creationflags
+
         # PWD env override: subprocess.run(cwd=...) chdir()s the child before
         # exec, but does NOT update an inherited $PWD env var. A shell's `pwd`
         # builtin trusts a stale-but-device/inode-matching $PWD over its own
@@ -273,9 +279,20 @@ def main(argv: list[str]) -> int:
             env=child_env,
             stdout=sys.stderr,
             stderr=sys.stderr,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
         rc = proc.returncode
+    except ImportError as exc:
+        # Review: widened alongside the bin/lib and resolver guards above —
+        # an unimportable coordinator_core (partial live-install mirror) is
+        # the identical failure mode; it must degrade to WARN+0, not escape
+        # main()'s ALWAYS-0 contract.
+        print(
+            f"[coordinator-ceremony-hook] WARN: coordinator_core module unavailable "
+            f"({exc}) — skipping {ceremony} post-command: {redacted}",
+            file=sys.stderr,
+        )
+        return 0
     except OSError as exc:
         print(
             f"[coordinator-ceremony-hook] WARN: {ceremony} post-command failed to "
@@ -299,4 +316,24 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    # Structural floor (negative-spec): this session found THREE separate
+    # ImportError escapes from main()'s per-import guards (cc_invoke/win_argv,
+    # no_console_creationflags, repo_identity) before this floor existed —
+    # each fixed individually, whack-a-mole. This is the backstop so a
+    # fourth unanticipated escape (any exception, not just ImportError)
+    # still honors the docstring's "Exit codes: ALWAYS 0" contract instead
+    # of crashing the calling ceremony. It does NOT replace the per-import
+    # guards above — those name the specific missing module; this can only
+    # say "something failed." Do not remove the per-import guards on the
+    # assumption this floor makes them redundant.
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as exc:  # noqa: BLE001 — structural floor, see comment above
+        print(
+            f"[coordinator-ceremony-hook] WARN: unhandled {type(exc).__name__}: {exc} "
+            "— skipping hook",
+            file=sys.stderr,
+        )
+        sys.exit(0)

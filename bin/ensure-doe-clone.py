@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 ensure-doe-clone.py — CLI trampoline over claude-klabauter coordinator_core.ops.ensure_doe_clone.
@@ -11,7 +10,7 @@ call — see coordinator_core.ops.ensure_doe_clone's own docstring for the
 full design rationale and negative-spec (this trampoline owns no logic of
 its own beyond the standard CLAUDE_KLABAUTER_ROOT resolve-and-import dance).
 
-Spec backlink: docs/plans/2026-07-23-skills-carry-no-code-extirpation.md § M3/D9
+Spec backlink: DoE-claude:pln-extirpate-pasted-code-from-em--0f42e9 § M3/D9
 """
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-install-singularity.py — canonical-install-locus invariant probe.
 
 Thin DoE-side (contract) trampoline over claude-klabauter's

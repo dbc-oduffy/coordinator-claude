@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """handoff-has-live-children.py — reverse-membership guard: is a handoff still a live parent?
 
@@ -35,7 +34,7 @@ Single-liveness-source contract: the answer comes from the native op, NEVER a lo
 or a second live-set computation. The `--live-set-json` flag from the pre-DR-215 era is
 retired; coordinator_core owns live-set resolution internally.
 
-Spec backlink: docs/plans/2026-07-06-dr215-fleet-ops-ceremony-wiring.md § C6 / KD-5 / AC8
+Spec backlink: DoE-claude:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 § C6 / KD-5 / AC8
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1, unit W1b)
 
 Usage:
@@ -65,9 +64,21 @@ import cc_invoke  # noqa: E402
 
 PROG = "handoff-has-live-children.py"
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise trigger
-# under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+def _no_console_kw() -> dict:
+    """Lazily resolve the engine root onto sys.path (self-location-first via
+    cc_invoke.ensure_engine_on_path — see that function's docstring), then
+    splat the canonical no-console-window kwarg. ``{}`` on any resolution/
+    import failure (fail-open)."""
+    try:
+        if cc_invoke.ensure_engine_on_path(__file__) is None:
+            return {}
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:
+        return {}
+
 
 _DEFAULT_EDGE_KINDS = "predecessor,additional_predecessors,forked_from"
 
@@ -92,7 +103,7 @@ def _resolve_repo_root(candidate_abs: str) -> str | None:
             ["git", "-C", os.path.dirname(candidate_abs), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError:
         return None

@@ -48,6 +48,7 @@ import argparse
 import filecmp
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Callable, Iterable
@@ -56,6 +57,7 @@ from .ignore import (
     PercolateIgnoreMatcher as IgnoreMatcher,
     load_percolate_ignore as _load_percolate_ignore_patterns,
 )
+from .publish_modes import argparse_mode_choices
 
 
 def load_ignore(path: Path | None) -> IgnoreMatcher:
@@ -67,6 +69,44 @@ def load_ignore(path: Path | None) -> IgnoreMatcher:
 # ---------------------------------------------------------------------------
 # Skip rules common to both modes
 # ---------------------------------------------------------------------------
+# Structural build-artifact exclusion — the twin of `coordinator/bin/publish.py::
+# _is_structurally_never_published`'s `__pycache__`/`.pyc`/`.pyo` handling
+# (that function's own `_STRUCTURAL_NEVER_PUBLISHED_DIR_NAMES`/`_SUFFIXES`
+# comment carries the full rationale: these are locally-generated Python
+# bytecode artifacts, recreated by anything that RUNS Python in a
+# destination clone, never present in a restricted source tree, and never
+# something any row's sync copies — treating their mere presence at the
+# destination as an orphan-sweep signal is a false positive by construction.
+# Deliberately NOT sharing one Python object with publish.py's copy: that
+# function is keyed to a `(path, repo_root)` pair walking a FULL repo tree
+# (including `.git/`, which this module never syncs to/from and which
+# `_archived_or_orphan`'s dotfile-adjacent callers already keep out of scope
+# — see `_sync_mirror_top_level_files`'s `not p.name.startswith(".")` and the
+# orphan-sweep's own `non_dot_dst` filter), while this module's callers pass
+# POSIX-relative rel_path strings (sub-plugin-relative or bare top-level
+# names) with no `repo_root` in scope. Same `__pycache__`/`.pyc`/`.pyo`
+# vocabulary, kept identical char-for-char below; `.git` is intentionally
+# absent here because it can never appear as sync input in this module.
+_STRUCTURAL_BUILD_ARTIFACT_DIR_NAMES = ("__pycache__",)
+_STRUCTURAL_BUILD_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
+
+
+def _is_structural_build_artifact(rel_path: str) -> bool:
+    """True iff `rel_path` (a POSIX-relative path, or a bare top-level
+    directory/file name) is a locally-generated Python build artifact that
+    must never count as orphaned, published, or deletable content — see the
+    module-level comment above this function for the full rationale and its
+    relationship to `coordinator/bin/publish.py::
+    _is_structurally_never_published`. Matches ANY path segment equal to
+    `__pycache__` (so a nested `sub/pkg/__pycache__/foo.pyc` is caught, not
+    just a top-level one) or a bare `.pyc`/`.pyo` suffix on the final
+    segment (the rare pre-`__pycache__`-layout stray bytecode file)."""
+    parts = rel_path.split("/")
+    if any(part in _STRUCTURAL_BUILD_ARTIFACT_DIR_NAMES for part in parts):
+        return True
+    return parts[-1].endswith(_STRUCTURAL_BUILD_ARTIFACT_SUFFIXES)
+
+
 def _archived_or_orphan(rel_path: str) -> bool:
     """Defense-in-depth filters that match bash logic verbatim.
 
@@ -78,6 +118,8 @@ def _archived_or_orphan(rel_path: str) -> bool:
         return True
     if rel_path.rsplit("/", 1)[-1] == ".orphaned_at":
         return True
+    if _is_structural_build_artifact(rel_path):
+        return True
     return False
 
 
@@ -87,24 +129,27 @@ def _archived_or_orphan(rel_path: str) -> bool:
 def _needs_copy(src: Path, dst: Path) -> bool:
     """Decide whether dst needs (re)copying from src.
 
-    Copy iff: dst missing, OR size differs, OR src mtime > dst mtime, OR
-    (size-equal AND mtime tie-or-older) AND bytes differ.
+    Copy iff: dst missing, OR size differs, OR (size-equal AND) bytes
+    differ. Content-only — deliberately NOT mtime-gated (§ removed
+    "src mtime > dst mtime" branch, task brief "Deliverable 3 — honest
+    change reporting"): source rows are materialized from a committed ref
+    via `git archive` + extraction (`publish.py::_extract_git_archive`),
+    so every source file's mtime is the extraction timestamp — always
+    "now", always newer than any prior destination file regardless of
+    whether the underlying bytes changed. An mtime-newer trigger therefore
+    logged `UPDATE:`/performed a copy on EVERY materialized row, every
+    run, even when the destination's tracked git diff was empty. Dropping
+    it makes this the same byte-identical-is-unchanged contract
+    `publish.py::files_differ` now holds, and is what makes `--delta`'s
+    destination-drift detection sound: an untouched destination stays
+    byte-identical across runs.
 
-    The trailing byte-compare is the content-aware fallback for the
-    same-size + not-newer minority — the silent-skip class the prior
-    mtime-only gate missed when a dest `git reset --hard` refreshed dest
-    mtimes and a same-byte-length content change (e.g. version bump
-    `2.5.1` → `2.7.0`) would otherwise be skipped.
-
-    Perf bound on this leg differs from the bash files_differ leg:
-    filecmp.cmp is an in-process read+memcmp with NO per-file subprocess
-    fork, so the 2026-05-20 Cygwin/MSYS heap-fragmentation incident (a
-    fork-storm class) cannot return here regardless of how many files
-    fall through. Cost in the pathological all-mtime-tie case (e.g. after
-    a dest hard-reset) is RAM/IO bound — for the coordinator main mirror
-    (~800 same-size files) that is ~800 in-process memcmps, tolerable.
-    Contrast: bash files_differ DOES fork cmp per file and relies on a
-    leg-size bound (~70 manifest entries) for its perf safety."""
+    Perf bound: filecmp.cmp is an in-process read+memcmp with NO per-file
+    subprocess fork, so the 2026-05-20 Cygwin/MSYS heap-fragmentation
+    incident (a fork-storm class) cannot return here regardless of how
+    many files fall through. Cost in the all-same-size case is RAM/IO
+    bound — for the coordinator main mirror (~800 same-size files) that
+    is ~800 in-process memcmps, tolerable."""
     if not dst.is_file():
         return True
     try:
@@ -120,9 +165,7 @@ def _needs_copy(src: Path, dst: Path) -> bool:
         return True
     if s_src.st_size != s_dst.st_size:
         return True
-    if s_src.st_mtime > s_dst.st_mtime:
-        return True
-    # Size-equal + mtime tie-or-older: bounded byte compare.
+    # Size-equal: bounded byte compare.
     # Zero-byte short-circuit: two empty files are always byte-equal.
     if s_src.st_size == 0:
         return False
@@ -526,7 +569,10 @@ def sync_mirror(
     # Distinct local name (orphan_name) so the outer loop's plugin_name is never
     # shadowed if this block is ever moved inside it.
     if dst_dir.is_dir():
-        non_dot_dst = [p for p in sorted(dst_dir.iterdir()) if p.is_dir() and not p.name.startswith(".")]
+        non_dot_dst = [
+            p for p in sorted(dst_dir.iterdir())
+            if p.is_dir() and not p.name.startswith(".") and not _is_structural_build_artifact(p.name)
+        ]
         orphans = [
             p for p in non_dot_dst
             if not (src_dir / p.name).is_dir() and p.name not in renamed_dir_names
@@ -708,11 +754,148 @@ def sync_flat_mirror(
 
 
 # ---------------------------------------------------------------------------
+# `repo-cut` one-shot bootstrap (docs/plans/2026-08-10-repo-cut-the-fourth-
+# mode-and-the-table.md, chunk C7b). NOT part of the source-repo port this
+# module otherwise is (see module docstring's "Three cuts... nothing else") —
+# a genuinely new addition, authored here because `check_publish_sync_
+# contract` (`publish.py`) validates every mode's `entry_point` as an
+# attribute of WHICHEVER module wins the `_import_publish_sync` seam, exactly
+# like `sync_mirror`/`sync_flat_mirror` (AC7); a bootstrap function living
+# only in `publish.py` would never be reachable through that seam.
+# ---------------------------------------------------------------------------
+class RepoCutBootstrapError(RuntimeError):
+    """Raised by `sync_repo_cut` when a `git` step of the one-shot bootstrap
+    (init / config / add / commit) exits non-zero. Fatal by design — a
+    failed bootstrap leaves no safe partial state to recover from other than
+    aborting the whole publish run, matching every other unrecoverable `git`
+    failure this driver already fails loud on."""
+
+
+def _run_git(dest_dir: Path, *args: str) -> None:
+    result = subprocess.run(
+        ["git", "-C", str(dest_dir), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        # Bounded — an unbounded git stderr blob (a looping hook, a credential
+        # helper prompt) would otherwise fold in full, uncapped, to this
+        # exception's message, which propagates through publish.py into
+        # whatever surface reports it. No existing truncation convention in
+        # this module to match; this is a fresh, conservative cap, not a
+        # widening of one already in place elsewhere.
+        stderr = result.stderr.strip()
+        if len(stderr) > 2000:
+            stderr = stderr[:2000] + f"... [{len(result.stderr.strip()) - 2000} more chars truncated]"
+        raise RepoCutBootstrapError(
+            f"repo-cut bootstrap: 'git {' '.join(args)}' failed in {dest_dir} "
+            f"(exit {result.returncode}): {stderr}"
+        )
+
+
+def _repo_cut_is_bootstrapped(dest_dir: Path) -> bool:
+    """AC6's explicit positive check: `dest_dir` already carries a `.git`
+    entry AND a resolvable HEAD commit. Deliberately not an exception-swallow
+    around a repeated `git init` (`git init` on an existing repo is itself
+    harmless, but silently re-running it would make "already cut" and
+    "genuinely virgin" indistinguishable to a caller deciding whether to
+    warn)."""
+    if not (dest_dir / ".git").exists():
+        return False
+    result = subprocess.run(
+        ["git", "-C", str(dest_dir), "rev-parse", "--verify", "-q", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def sync_repo_cut(dest_dir: Path, dry_run: bool) -> bool:
+    """One-shot `repo-cut` bootstrap: `git init` a virgin `dest_dir`, set
+    `core.autocrlf true` (AC4 — this is what protects the payload's line
+    endings, per `git-config`'s "same as setting `text=auto` on all files"),
+    set `core.safecrlf false` EXPLICITLY (an inherited global
+    `core.safecrlf=true` would otherwise make `git add` ERROR rather than
+    warn on an irreversible conversion, turning the bootstrap commit into a
+    hard failure on an otherwise-correct machine), then write and commit
+    `.gitattributes` as the FIRST commit, before any payload is staged
+    (AC4 — retained for `-text`/`binary` overrides, `working-tree-encoding`,
+    and `filter=`/LFS, none of which `core.autocrlf` or a later
+    `git add --renormalize` protects; NOT for line-ending protection, which
+    is `core.autocrlf`'s job alone).
+
+    Runs strictly AHEAD of `publish.py::_ensure_dest_ready` in the caller —
+    that check refuses a destination with no `.git` ancestor at all, so a
+    virgin `dest_dir` must already be a git repo by the time it runs.
+
+    A `repo-cut` row's publish SOURCE must itself be inside a git work tree
+    with a committed HEAD (AC11) — enforced upstream, before this function is
+    ever reached, by the pre-existing `run_pre_sync_gates`/
+    `_git_materialize_ref` gate in `publish.py`; not re-checked here.
+
+    Operator precondition (undocumented until Review: code-reviewer P2,
+    2026-08-10): the final `git commit` relies on an inherited global
+    `user.name`/`user.email` — this function sets neither. On a machine
+    with no global git identity configured, `_run_git` raises
+    `RepoCutBootstrapError` loudly (fatal by design, not silent) rather
+    than committing under a fabricated identity. This is exactly the
+    cut-a-brand-new-repo path, where a minimal/fresh machine is likeliest
+    to lack one. Documenting rather than setting a repo-local identity here
+    is the deliberate choice: inventing an author identity on the
+    operator's behalf is its own defect, distinct from failing loud on a
+    genuinely missing precondition.
+
+    Concurrency (Review: code-reviewer P2, 2026-08-10): `_repo_cut_is_
+    bootstrapped`'s check and this function's `git init`/`add`/`commit`
+    body are not atomic in isolation — a TOCTOU window exists between them.
+    In practice this is a documented no-op, not a live hazard: every
+    `process_target` call that can reach this function runs inside
+    `publish.py::main()`'s per-destination advisory lock
+    (`lock_repo_roots`/`_publish_held_lock`), acquired up front for every
+    resolved destination root across the WHOLE row loop, strictly before
+    any row's `process_target` (and therefore this function) runs. Two
+    concurrent `publish.py` invocations targeting the same virgin
+    `dest_dir` already fail loud at lock-acquisition time — "another
+    publish is running against it" — before either reaches this check. A
+    caller that invokes this function directly, bypassing `publish.py::
+    main()`'s lock, reopens the window; no lock is taken inside this
+    function itself.
+
+    AC6 (one-shot, not a durable row): a second call against an already-cut
+    `dest_dir` (`_repo_cut_is_bootstrapped` is True) takes the ordinary
+    projection path — no re-init, no re-commit of `.gitattributes`, no
+    identity disturbance — and returns `False`.
+
+    `dry_run` reports without mutating: an already-cut destination still
+    returns `False`; a virgin one returns `True` without creating `dest_dir`
+    or invoking `git` at all, matching every other sync dispatcher's
+    non-mutating preview contract.
+
+    Returns `True` iff this call actually performed the bootstrap.
+    """
+    if _repo_cut_is_bootstrapped(dest_dir):
+        return False
+    if dry_run:
+        return True
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    _run_git(dest_dir, "init", "-q")
+    _run_git(dest_dir, "config", "core.autocrlf", "true")
+    _run_git(dest_dir, "config", "core.safecrlf", "false")
+    (dest_dir / ".gitattributes").write_text("* text=auto\n", encoding="utf-8")
+    _run_git(dest_dir, "add", ".gitattributes")
+    _run_git(dest_dir, "commit", "-m", "repo-cut: bootstrap .gitattributes")
+    return True
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("mode", choices=("mirror", "flat-mirror"))
+    p.add_argument("mode", choices=argparse_mode_choices())
     p.add_argument("src", type=Path)
     p.add_argument("dst", type=Path)
     p.add_argument("--ignore", type=Path, default=None, help="Path to .percolate-ignore")

@@ -130,7 +130,7 @@ source dir, not from the restricted allowlist tree this module builds.
 That ordering is deliberate in the bash original and must be preserved
 when publish.py wires this module together with ignore.py.
 
-Spec backlink: docs/plans/2026-07-04-doe-maximalist-execution-plugin-dir.md
+Spec backlink: DoE-claude:pln-doe-maximalist-execution-plugi-6d808d
                § W5.1
 Port: docs/plans/2026-07-21-percolate-python-port.md (chunk C-W1c).
 Multi-source: state/subagent-share/5bae563a-448a-4c5e-96ef-2de84498bd09/
@@ -784,6 +784,15 @@ def build_allowlisted_source(
     # never rebuild per entry.
     matcher_cache: dict[Path, PercolateIgnoreMatcher] = {}
 
+    # Entries this build cannot resolve against their root (§ AC18(c)
+    # fail-closed above) — collected across the WHOLE entry set rather than
+    # raised at the first miss, so one abort names every stale token instead
+    # of one. The prior first-miss-only raise made a commit that deleted N
+    # allowlisted paths (e.g. a batch dead-script retirement) surface as N
+    # sequential publish failures, each requiring a full re-run to find the
+    # next name — see the task brief this fix implements, "Defect 2".
+    unresolved_entries: list[str] = []
+
     for entry in sorted(entry_roots):
         root = entry_roots[entry]
 
@@ -828,13 +837,17 @@ def build_allowlisted_source(
             else:
                 shutil.copy2(src_path, tmp_src / entry)
         else:
-            shutil.rmtree(tmp_src, ignore_errors=True)
-            raise AllowlistError(
-                f"_build_allowlisted_source: allowlist entry '{entry}' not found "
-                f"under source root '{root}' (resolved: '{src_path}'). Fail-closed "
-                "per AC18(c) — an absent entry is indistinguishable from a typo'd or "
-                "wrong-rooted one and must abort, not silently narrow the publish set."
-            )
+            unresolved_entries.append(f"'{entry}' (resolved: '{src_path}')")
+
+    if unresolved_entries:
+        shutil.rmtree(tmp_src, ignore_errors=True)
+        raise AllowlistError(
+            f"_build_allowlisted_source: {len(unresolved_entries)} allowlist entry(ies) "
+            f"not found under their source root(s): {'; '.join(unresolved_entries)}. "
+            "Fail-closed per AC18(c) — an absent entry is indistinguishable from a "
+            "typo'd or wrong-rooted one and must abort, not silently narrow the "
+            "publish set."
+        )
 
     if multi_source:
         composed = _compose_percolate_ignore(entry_roots, stderr=stderr)

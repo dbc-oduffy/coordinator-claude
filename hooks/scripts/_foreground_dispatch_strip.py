@@ -132,13 +132,22 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
 from typing import Any, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _message_envelope import resolve_wiki_citation  # noqa: E402
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 
 _BG_CAPABLE_MARKER_NAME = ".harness-bg-capable"
 _FOREGROUND_OK_MARKER_NAME = ".foreground-ok"
+
+#: Repo-relative literal, resolved for the reader by `resolve_wiki_citation()`
+#: at render time (below) rather than emitted verbatim -- same mechanism the
+#: 16 `_message_envelope`-routed hooks use for their `_WIKI_ANCHOR` sites.
+_UNLOCK_DOC_CITATION = "coordinator/docs/wiki/guard-unlock-channel.md"
 
 _REROUTE_NOTICE = (
     "[foreground gate] this Agent dispatch was rewritten to run_in_background: true and "
@@ -147,11 +156,9 @@ _REROUTE_NOTICE = (
     "foreground subagent LOCKS THE EM IN PLACE, unable to issue the rest of its wave, "
     "reconcile plans, or answer the PM until it returns. This notice fires on EVERY "
     "reroute, not just the first, by design -- a silenced notice is how a broken reroute "
-    "went undetected for a whole session before (2026-07-30). Escape hatch for rare "
-    "legitimate foreground (inline result needed for the very next statement): touch "
-    "{foreground_ok_path} -- with that sentinel present, "
-    "foreground dispatches pass through unrewritten for the rest of the session."
-)
+    "went undetected for a whole session before (2026-07-30). Rare legitimate foreground "
+    "need: see {unlock_doc}."
+).format(unlock_doc=resolve_wiki_citation(_UNLOCK_DOC_CITATION))
 
 _DENY_MESSAGE = (
     "[foreground gate] denied: this Agent dispatch chose run_in_background: false (or "
@@ -159,12 +166,10 @@ _DENY_MESSAGE = (
     "rewritable tool_input -- either tool_input was not forwarded, or it is missing the "
     "`prompt` key the Agent tool schema requires. Rewriting without `prompt` would dispatch "
     "a subagent with no instructions, silently -- worse than this deny. Reissue the call "
-    "with a complete tool_input and run_in_background: true. Escape hatch for rare "
-    "legitimate foreground (inline result needed for the very next statement): touch "
-    "{foreground_ok_path} -- with that sentinel present, "
-    "foreground dispatches pass through unrewritten for the rest of the session. Doctrine: "
+    "with a complete tool_input and run_in_background: true. Rare legitimate foreground "
+    "need: see {unlock_doc}. Doctrine: "
     "coordinator/snippets/em-operating-doctrine.md § How to Dispatch."
-)
+).format(unlock_doc=resolve_wiki_citation(_UNLOCK_DOC_CITATION))
 
 
 def _git_root(start: str) -> str:
@@ -354,30 +359,15 @@ def compute_foreground_reroute(
         except Exception:
             pass
 
-    effective_sid = sid if sid else "<session_id>"
-
-    if git_dir:
-        foreground_ok_path = str(_foreground_ok_path(git_dir, effective_sid))
-    else:
-        # git-dir resolution failed -- do not assert a literal path shape
-        # that may not be where the marker actually lands (that literal-vs-
-        # resolved mismatch is exactly the defect this branch exists to
-        # avoid). Describe the location instead of asserting a possibly-false
-        # literal.
-        foreground_ok_path = (
-            "<this session's resolved git common dir>/coordinator-sessions/"
-            f"{effective_sid}/{_FOREGROUND_OK_MARKER_NAME}"
-        )
-
     if isinstance(tool_input, dict) and tool_input.get("prompt"):
         return (
             "reroute",
             True,
-            _REROUTE_NOTICE.format(foreground_ok_path=foreground_ok_path),
+            _REROUTE_NOTICE,
         )
 
     return (
         "deny",
         None,
-        _DENY_MESSAGE.format(foreground_ok_path=foreground_ok_path),
+        _DENY_MESSAGE,
     )

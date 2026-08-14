@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """verify-orientation-cache-sync.py — Schema verifier for state/orientation_cache.md.
 
@@ -19,7 +18,7 @@ bin/regenerate-orientation-cache.
 # Schema:       plugins/coordinator/pipelines/workday-start-internals.md § 5.5
 # Producer:     plugins/coordinator/bin/regenerate-orientation-cache (still DoE bash)
 # Port source:  coordinator/bin/verify-orientation-cache-sync.py (this file, prior bash body; see git log)
-# Spec backlink (port): docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink (port): DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 #
 # Division of labor: this trampoline resolves REPO_ROOT / STATE_ROOT / CACHE_FILE
 # (reusing the native 5-rule resolver `coordinator_core.state_root`, imported
@@ -50,35 +49,32 @@ bin/regenerate-orientation-cache.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
-
-_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-_SUBPROCESS_TIMEOUT_SECS = 10
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _resolve_repo_root() -> str:
-    """Mirror `git rev-parse --show-toplevel 2>/dev/null || pwd`."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=_SUBPROCESS_TIMEOUT_SECS,
-            stdin=subprocess.DEVNULL,
-            creationflags=_CREATIONFLAGS,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    """Resolve the repo root via the checked resolver (coordinator/bin/lib/repo_identity.py).
+
+    READER script (AC10): this entry dispatches into the verify op, which is
+    read-only (no write path anywhere in this trampoline or the op it calls —
+    it only sys.exit()s on verify outcomes). On a positive MISMATCH, warn to
+    stderr and proceed with the resolved root rather than refuse — DR-277
+    exists to prevent a write into a foreign tree, and there is no write here
+    to protect. UNRESOLVED never refuses either (DR-277, AC4).
+    """
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+    if not root:
         return os.getcwd()
-    if result.returncode != 0 or not result.stdout.strip():
-        return os.getcwd()
-    return result.stdout.strip()
+    return root
 
 
 def _resolve_state_root() -> str:
@@ -130,7 +126,16 @@ def main() -> None:
         print(f"verify-orientation-cache-sync: no cache file at {cache_file} — nothing to verify")
         sys.exit(0)
 
-    repo_root = _resolve_repo_root()
+    # Review: code-reviewer P3 — _resolve_repo_root() re-resolves CLAUDE_KLABAUTER_ROOT
+    # unguarded; safe today only because _resolve_state_root() above already
+    # proved resolution succeeds, but the redundant call sat outside any
+    # try/except, inconsistent with this file's own established pattern of
+    # catching RuntimeError at every other CLAUDE_KLABAUTER_ROOT-touching call site.
+    try:
+        repo_root = _resolve_repo_root()
+    except RuntimeError as exc:
+        print(f"verify-orientation-cache-sync: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        sys.exit(2)
 
     try:
         op_main = _import_op_main()

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator/bin/workday-start-advisory-counters.py — naked-Python CLI porting three
@@ -77,15 +76,15 @@ from typing import Any
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 try:
-    _CLAUDE_KLABAUTER_ROOT = Path(resolve_colocated_claude_klabauter_root(__file__))
+    _CLAUDE_KLABAUTER_ROOT = Path(require_colocated_engine_on_path(__file__))
 except RuntimeError as _exc:
     print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
-if str(_CLAUDE_KLABAUTER_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CLAUDE_KLABAUTER_ROOT))
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 try:
     import yaml  # noqa: E402
@@ -271,7 +270,7 @@ def _run_git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess:
         cwd=str(repo_root),
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
 
@@ -328,7 +327,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workday-start-advisory-counters.py",
         description=(
-            "Advisory counters for DoE-claude's /workday-start ceremony: "
+            "Advisory counters for the coordinator doctrine repo's /workday-start ceremony: "
             "improvement-queue depth, push-failure log stats, local-only-ahead "
             "branch check. Each subcommand prints one line of JSON and always "
             "exits 0."

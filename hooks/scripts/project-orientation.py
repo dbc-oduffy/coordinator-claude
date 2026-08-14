@@ -25,7 +25,7 @@ pointer-FILE read only (AC8, recipe § 4), mirroring `session-init.py`'s
 `_resolve_claude_klabauter_root_fast()` shape and `preuse-write-dispatch.py`'s
 `_resolve_claude_klabauter_root()` "no bash, no probe chain" philosophy — no
 env/registry/marker ladder, no subprocess re-spawn. The common case (any
-sibling repo, e.g. DoE-claude itself) never touches claude-klabauter at all: state root
+sibling repo, e.g. this repo itself) never touches the engine repo at all: state root
 is a direct `<repo_root>/state` join, zero subprocess.
 
 AC8 boot-race hook (recipe § 4): this hook and `session-init.py` are the ONLY
@@ -104,6 +104,7 @@ Any resolution/import error along non-essential paths degrades gracefully
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
 import subprocess
@@ -181,17 +182,45 @@ def _w(text: str) -> None:
 
 # ---------------------------------------------------------------------------
 # claude-klabauter-root / state-root resolution (AC8: fast local path, no probe chain)
-# Mirrors session-init.py lines ~122-130, 419-427 verbatim (same shape,
-# duplicated locally rather than imported — matches the sibling AC8 hook so
-# both stubs degrade identically if `_claude_home.py` is ever unavailable).
+# Mirrors session-init.py lines ~122-130, 419-427 verbatim (same shape).
 # ---------------------------------------------------------------------------
 
 
 def _claude_home() -> Path:
-    # Review: coordinator:code-reviewer — Path.home() (not os.path.expanduser)
-    # fails loud (RuntimeError) instead of silently returning the literal "~"
-    # when every home rung is unset. Both call sites below degrade per this
-    # hook's fail-open contract rather than letting the RuntimeError escape.
+    """Resolve the $HOME analog — canonical source, with a fail-open local fallback.
+
+    The engine now exports a canonical resolver (`coordinator/lib/claude-home/
+    _claude_home.py`), reachable zero-subprocess through an importable seam
+    (`coordinator/lib/claude_home_shim.py`, `resolve_home_base()` / `home_dir()`).
+    This function prefers that canonical source when the engine root is
+    resolvable on this machine, via the existing native (no-subprocess,
+    no-probe-chain) root resolver `_resolve_claude_klabauter_root_native()` already
+    used elsewhere in this file.
+
+    Fail-open per this hook's session-boot contract (module docstring): if
+    the engine is absent, unresolvable, or the shim import fails for any
+    reason, this degrades to the ORIGINAL local ladder below rather than
+    raising or blocking boot. The local ladder is retained deliberately as
+    that documented degradation path, not as leftover duplication.
+
+    Review: coordinator:code-reviewer — Path.home() (not os.path.expanduser)
+    fails loud (RuntimeError) instead of silently returning the literal "~"
+    when every home rung is unset. Both call sites below degrade per this
+    hook's fail-open contract rather than letting the RuntimeError escape.
+    """
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root_native()
+        if claude_klabauter_root:
+            claude_klabauter_lib = str(Path(claude_klabauter_root) / "coordinator" / "lib")
+            if claude_klabauter_lib not in sys.path:
+                sys.path.insert(0, claude_klabauter_lib)
+            from claude_home_shim import resolve_home_base as _seam_resolve_home
+
+            return _seam_resolve_home()
+    except Exception:
+        pass
+
+    # Local fallback ladder — used when the engine or its shim is unreachable.
     v = os.environ.get("CLAUDE_HOME")
     if v:
         return Path(v)
@@ -320,10 +349,10 @@ def _canon(path: str) -> str:
 def resolve_state_root(repo_root: Optional[str], boot: bool = False) -> str:
     """Port of `coordinator_state_root` (Rule 5, default/no --central).
 
-    Common case (any sibling repo, e.g. DoE-claude itself): zero-subprocess
-    `<repo_root>/state` join — never touches claude-klabauter. Only when the current
+    Common case (any sibling repo, e.g. the doctrine repo itself): zero-subprocess
+    `<repo_root>/state` join — never touches the engine repo. Only when the current
     repo root IS the coordinator meta-repo (`~/.claude`) does this redirect
-    to claude-klabauter's `state/` dir via the fast pointer-file read above — the rare
+    to the engine repo's `state/` dir via the fast pointer-file read above — the rare
     branch the retired `session-init.py`'s own `coordinator_state_root` bash function
     also took. This is a deliberate zero-bash-subprocess IMPROVEMENT over
     `session-init.py::_state_root()` (which used to shell out to the
@@ -361,7 +390,7 @@ def resolve_state_root(repo_root: Optional[str], boot: bool = False) -> str:
     if not is_meta:
         return str(Path(repo_root) / "state")
 
-    # Rare branch: current repo root IS ~/.claude — state lives in claude-klabauter.
+    # Rare branch: current repo root IS ~/.claude — state lives in the engine repo.
     claude_klabauter_root = _resolve_claude_klabauter_root_fast()
     if claude_klabauter_root:
         return str(Path(claude_klabauter_root) / "state")
@@ -421,7 +450,7 @@ def _resolve_generator(name: str, repo_root: Optional[str]) -> Optional[str]:
     `<claude_klabauter_root>/coordinator/bin/<name>`, resolved zero-subprocess via
     `_resolve_claude_klabauter_root_native()`. Rung 4 exists because `generate-repomap.py`
     and `generate-exec-summary.py` were both migrated wholesale to
-    claude-klabauter (commit b644d5a9) and no longer live under rung 1 in DoE-claude
+    the engine repo (commit b644d5a9) and no longer live under rung 1 in this repo
     — without this rung the staleness banners below fail open (silently never
     fire) on every machine with a resolvable sibling checkout, which is worse
     than an error because nothing surfaces the gap. Returns None (loud-enough
@@ -460,97 +489,378 @@ def _mtime_epoch(path: Path) -> Optional[int]:
         return None
 
 
-def repomap_staleness_banner(repo_root: Optional[str]) -> None:
-    if os.environ.get("COORDINATOR_REPOMAP_STATUS_OFF"):
+def _staleness_banner(
+    repo_root: Optional[str],
+    *,
+    env_off_var: str,
+    label: str,
+    get_age_hours,
+    stale_threshold: int,
+    very_stale_threshold: int,
+    stale_message,
+    very_stale_message,
+    generator_name: Optional[str] = None,
+    unresolvable_artifact_desc: Optional[str] = None,
+) -> None:
+    """Table-driven core shared by every staleness banner below.
+
+    One row per banner: `(artifact-age-getter, thresholds, message
+    formatters, OPTIONAL generator rung)`. `generator_name` is deliberately
+    optional and per-row, not a required field forced onto every caller —
+    see `peer_recheck_staleness_banner`, which passes `generator_name=None`
+    because it has no generator CLI to point at (this repo tracks zero
+    files under `coordinator/bin/`). Forcing that gate onto a row with no
+    generator would make the banner silently never fire — the exact bug
+    `_resolve_generator()`'s docstring says the rung exists to fix for the
+    rows that DO have one.
+
+    `get_age_hours(repo_root) -> Optional[int]` folds each row's own
+    existence/read logic (single-file mtime for repomap/exec-summary,
+    oldest-across-directory for peer re-check) and returns `None` to
+    silently skip the banner (artifact/dir absent, unreadable, etc.) —
+    preserves each banner's original silent-when-absent semantics exactly.
+    """
+    if os.environ.get(env_off_var):
         print(
-            "[coordinator] repomap staleness banner: disabled via "
-            "COORDINATOR_REPOMAP_STATUS_OFF",
+            f"[coordinator] {label}: disabled via {env_off_var}",
             file=sys.stderr,
         )
         return
 
-    rm_repomap = Path(repo_root or ".") / ".claude" / "repomap.md"
-    if not rm_repomap.is_file():
+    age_hours = get_age_hours(repo_root)
+    if age_hours is None:
         return
-    epoch = _mtime_epoch(rm_repomap)
-    if epoch is None:
-        return
-    age_hours = (int(time.time()) - epoch) // 3600
-    # Review: code-reviewer — _resolve_generator() is only worth its
-    # is_file()/PATH/registry-read cost when a banner is actually owed;
-    # gate it behind the cheap existence check above rather than paying it
-    # unconditionally on every --lightweight boot.
-    rm_gen = _resolve_generator("generate-repomap.py", repo_root)
-    if not rm_gen:
-        if age_hours >= 24:
-            # The banner is suppressed (no generate-repomap.py CLI to point at),
-            # but that suppression must not be SILENT — surface it to stderr so
-            # the gap is diagnosable rather than reproducing the original bug
-            # (generator migrated to claude-klabauter, banner quietly never fires).
-            print(
-                f"[coordinator] repomap staleness banner: repo map is "
-                f"{age_hours}h old but generate-repomap.py is unresolvable "
-                "(checked coordinator/bin/, $PATH, <repo>/bin/, and the "
-                "claude-klabauter sibling) — see _resolve_generator() in "
-                "project-orientation.py",
-                file=sys.stderr,
-            )
-        return
-    if age_hours >= 168:
+
+    generator_path: Optional[str] = None
+    if generator_name is not None:
+        # Review: code-reviewer — _resolve_generator() is only worth its
+        # is_file()/PATH/registry-read cost when a banner is actually owed;
+        # gate it behind the cheap age/existence check above rather than
+        # paying it unconditionally on every --lightweight boot.
+        generator_path = _resolve_generator(generator_name, repo_root)
+        if not generator_path:
+            if age_hours >= stale_threshold:
+                # The banner is suppressed (no generator CLI to point at),
+                # but that suppression must not be SILENT — surface it to
+                # stderr so the gap is diagnosable rather than reproducing
+                # the original bug (generator script migrated to the
+                # sibling engine repo, banner quietly never fires).
+                print(
+                    f"[coordinator] {label}: {unresolvable_artifact_desc} is "
+                    f"{age_hours}h old but {generator_name} is unresolvable "
+                    "(checked coordinator/bin/, $PATH, <repo>/bin/, and the "
+                    "sibling engine repo's bin/) — see _resolve_generator() "
+                    "in project-orientation.py",
+                    file=sys.stderr,
+                )
+            return
+
+    if age_hours >= very_stale_threshold:
         _w("\n")
-        _w(
+        _w(very_stale_message(age_hours, generator_path))
+    elif age_hours >= stale_threshold:
+        _w(stale_message(age_hours, generator_path))
+
+
+def repomap_staleness_banner(repo_root: Optional[str]) -> None:
+    def _get_age_hours(rr: Optional[str]) -> Optional[int]:
+        rm_repomap = Path(rr or ".") / ".claude" / "repomap.md"
+        if not rm_repomap.is_file():
+            return None
+        epoch = _mtime_epoch(rm_repomap)
+        if epoch is None:
+            return None
+        return (int(time.time()) - epoch) // 3600
+
+    _staleness_banner(
+        repo_root,
+        env_off_var="COORDINATOR_REPOMAP_STATUS_OFF",
+        label="repomap staleness banner",
+        get_age_hours=_get_age_hours,
+        stale_threshold=24,
+        very_stale_threshold=168,
+        generator_name="generate-repomap.py",
+        unresolvable_artifact_desc="repo map",
+        very_stale_message=lambda age_hours, gen: (
             f"── ⚠ Repo map VERY STALE: {age_hours}h old — regenerate: "
-            f"{rm_gen} (or /update-docs) ──\n"
-        )
-    elif age_hours >= 24:
-        _w(
+            f"{gen} (or /update-docs) ──\n"
+        ),
+        stale_message=lambda age_hours, gen: (
             f"── Repo map stale: {age_hours}h old — refresh via "
-            f"/update-docs or {rm_gen} ──\n"
-        )
+            f"/update-docs or {gen} ──\n"
+        ),
+    )
 
 
 def exec_summary_staleness_banner(repo_root: Optional[str]) -> None:
-    if os.environ.get("COORDINATOR_EXECSUMMARY_STATUS_OFF"):
+    def _get_age_hours(rr: Optional[str]) -> Optional[int]:
+        es_doc = Path(rr or ".") / "docs" / "exec-summary.md"
+        if not es_doc.is_file():
+            return None
+        epoch = _mtime_epoch(es_doc)
+        if epoch is None:
+            return None
+        return (int(time.time()) - epoch) // 3600
+
+    _staleness_banner(
+        repo_root,
+        env_off_var="COORDINATOR_EXECSUMMARY_STATUS_OFF",
+        label="exec-summary staleness banner",
+        get_age_hours=_get_age_hours,
+        stale_threshold=24,
+        very_stale_threshold=168,
+        generator_name="generate-exec-summary.py",
+        unresolvable_artifact_desc="exec-summary",
+        very_stale_message=lambda age_hours, gen: (
+            f"── ⚠ Exec-summary VERY STALE: {age_hours}h old — refresh: "
+            f"{gen} ──\n"
+        ),
+        stale_message=lambda age_hours, gen: (
+            f"── Exec-summary stale: {age_hours}h old — refresh via "
+            f"{gen} (or /workweek-start) ──\n"
+        ),
+    )
+
+
+def _parse_peer_last_checked_epoch(raw: str) -> int:
+    """`last_checked` scalar (read via `_extract_cache_field`) -> UTC epoch.
+
+    Empty / literal `null` (the schema-legal never-checked value,
+    `coordinator/schemas/peer-set-entry.schema.json`) / unparseable all
+    resolve to epoch 0 rather than being skipped — never-checked and
+    off-schema garbage both sort as maximally stale, so a malformed or
+    not-yet-run peer entry cannot hide from the banner by omission.
+    """
+    if not raw or raw.lower() == "null":
+        return 0
+    try:
+        dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+    except Exception:
+        return 0
+
+
+def peer_recheck_staleness_banner(repo_root: Optional[str]) -> None:
+    """Has this repo's peer set (`state/peers/*.yaml`, schema:
+    `coordinator/schemas/peer-set-entry.schema.json`) gone stale since its
+    last code-comparison re-check?
+
+    Modeled on `repomap_staleness_banner` / `exec_summary_staleness_banner`
+    above — env kill-switch, cheap existence check first, epoch-based age
+    read, two thresholds — with ONE deliberate departure: this banner does
+    NOT gate on `_resolve_generator()`. Both siblings suppress themselves
+    when no generator CLI resolves for a docs-regeneration script; a peer
+    re-check has no CLI to point at (this repo tracks zero files under
+    `coordinator/bin/` — CLAUDE.md § Build & Test), so copying that rung
+    would make the banner silently never fire — see
+    `archive/specs/2026-08/2026-08-11-decentralize-code-comparison.md` § Substrate
+    verified. Points the operator at the code-comparison dispatch/driver
+    doc instead of a resolved binary path.
+
+    Silent when `state/peers/` is absent or empty — most repos have no peer
+    set yet, and a banner nagging every session in every repo is worse than
+    none.
+
+    Thresholds are day-scale (168h / 720h), not the hour-scale 24h/168h used
+    by the repomap/exec-summary siblings — those track artifacts that drift
+    with every commit; a peer re-check is explicitly "periodic" (plan
+    Problem statement), so a same-day nudge would be noise.
+    """
+    def _get_age_hours(rr: Optional[str]) -> Optional[int]:
+        peers_dir = Path(rr or ".") / "state" / "peers"
+        if not peers_dir.is_dir():
+            return None
+        try:
+            entries = [
+                p
+                for p in peers_dir.iterdir()
+                if p.is_file() and p.suffix in (".yaml", ".yml")
+            ]
+        except Exception:
+            return None
+        if not entries:
+            return None
+
+        oldest_epoch: Optional[int] = None
+        for entry in entries:
+            try:
+                text = entry.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            raw = _extract_cache_field(text, "last_checked")
+            epoch = _parse_peer_last_checked_epoch(raw)
+            if oldest_epoch is None or epoch < oldest_epoch:
+                oldest_epoch = epoch
+
+        if oldest_epoch is None:
+            return None
+        return (int(time.time()) - oldest_epoch) // 3600
+
+    _staleness_banner(
+        repo_root,
+        env_off_var="COORDINATOR_PEER_RECHECK_STATUS_OFF",
+        label="peer re-check staleness banner",
+        get_age_hours=_get_age_hours,
+        stale_threshold=168,
+        very_stale_threshold=720,
+        generator_name=None,
+        # _gen is always None here (generator_name=None above -> no generator CLI for
+        # this row) — kept as a param only to match the shared _staleness_banner callback
+        # shape, not referenced in either message below.
+        very_stale_message=lambda age_hours, _gen: (
+            f"── ⚠ Peer set VERY STALE: oldest re-check {age_hours}h old — "
+            "run a code-comparison re-check against your peers (see "
+            "state/peers/*.yaml, coordinator/pipelines/deep-research/"
+            "repo-driver.md) ──\n"
+        ),
+        stale_message=lambda age_hours, _gen: (
+            f"── Peer set stale: oldest re-check {age_hours}h old — consider "
+            "a code-comparison re-check against your peers "
+            "(state/peers/*.yaml) ──\n"
+        ),
+    )
+
+
+def harness_version_drift_banner(repo_root: Optional[str]) -> None:
+    """Has the installed Claude Code harness moved past the version our vendored docs were
+    last reconciled against?
+
+    Reads the version STORE on disk (`~/.local/share/claude/versions/`) rather than shelling
+    out to `claude --version` — this box's standing P0 is hook spawn cost, and this banner
+    sits on the SessionStart boot path, so a subprocess here is a direct latency tax on every
+    session's first token. `os.listdir`/`Path.iterdir` only, zero spawns, matching this file's
+    boot-mandate.
+
+    `reconciled_against_harness_version` (see `state/reference/anthropic-docs/
+    reconciled-against.json`) means "the version whose LIVE BEHAVIOUR we last checked our
+    surface against" — NOT "the doc text is current". A pin can be perfectly correct on prose
+    while the harness has already shipped several releases past it; this banner is the signal
+    that gap has grown, not a claim the docs themselves are stale.
+
+    Backlink: state/audits/2026-08-08-coordinator-claude-code-capability-delta.md.
+    """
+    if os.environ.get("COORDINATOR_HARNESS_DRIFT_STATUS_OFF"):
         print(
-            "[coordinator] exec-summary staleness banner: disabled via "
-            "COORDINATOR_EXECSUMMARY_STATUS_OFF",
+            "[coordinator] harness drift banner: disabled via "
+            "COORDINATOR_HARNESS_DRIFT_STATUS_OFF",
             file=sys.stderr,
         )
         return
 
-    es_doc = Path(repo_root or ".") / "docs" / "exec-summary.md"
-    if not es_doc.is_file():
+    pin_path = (
+        Path(repo_root or ".")
+        / "state"
+        / "reference"
+        / "anthropic-docs"
+        / "reconciled-against.json"
+    )
+    if not pin_path.is_file():
         return
-    epoch = _mtime_epoch(es_doc)
-    if epoch is None:
+
+    try:
+        pin_text = pin_path.read_text(encoding="utf-8")
+    except Exception:
         return
-    age_hours = (int(time.time()) - epoch) // 3600
-    # Review: code-reviewer — same hot-path gating rationale as
-    # repomap_staleness_banner above.
-    es_gen = _resolve_generator("generate-exec-summary.py", repo_root)
-    if not es_gen:
-        if age_hours >= 24:
-            # Same diagnosable-suppression rationale as repomap_staleness_banner
-            # above — do not vanish silently when the generator is unresolvable.
-            print(
-                f"[coordinator] exec-summary staleness banner: exec-summary is "
-                f"{age_hours}h old but generate-exec-summary.py is unresolvable "
-                "(checked coordinator/bin/, $PATH, <repo>/bin/, and the "
-                "claude-klabauter sibling) — see _resolve_generator() in "
-                "project-orientation.py",
-                file=sys.stderr,
-            )
+
+    # A pin file that is PRESENT but unreadable-as-JSON, or missing its one
+    # load-bearing key, is the failure this banner is least able to survive
+    # quietly: the drift it exists to report becomes permanently invisible, and
+    # looks identical to "no drift." Same diagnosable-suppression rationale as
+    # repomap_staleness_banner / exec_summary_staleness_banner above. An ABSENT
+    # pin stays silent by design (an OSS consumer without the doc corpus).
+    try:
+        pin_data = json.loads(pin_text)
+    except Exception:
+        print(
+            f"[coordinator] harness drift banner: pin file {pin_path} is present "
+            "but not parseable as JSON — drift detection is silently disabled "
+            "until it is repaired",
+            file=sys.stderr,
+        )
         return
-    if age_hours >= 168:
+
+    pinned = (
+        pin_data.get("reconciled_against_harness_version")
+        if isinstance(pin_data, dict)
+        else None
+    )
+    if not isinstance(pinned, str) or not pinned:
+        print(
+            f"[coordinator] harness drift banner: pin file {pin_path} carries no "
+            "usable 'reconciled_against_harness_version' — drift detection is "
+            "silently disabled until it is repaired",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        home = _claude_home()
+    except Exception:
+        return
+
+    versions_dir = home / ".local" / "share" / "claude" / "versions"
+    try:
+        if not versions_dir.is_dir():
+            return
+    except Exception:
+        return
+
+    try:
+        entries = os.listdir(versions_dir)
+    except Exception:
+        return
+
+    def _parse(v: str) -> Optional[tuple]:
+        parts = v.split(".")
+        if not parts:
+            return None
+        out = []
+        for p in parts:
+            if not p.isdigit():
+                return None
+            out.append(int(p))
+        return tuple(out)
+
+    pinned_tuple = _parse(pinned)
+    if pinned_tuple is None:
+        return
+
+    newest_tuple: Optional[tuple] = None
+    newest_str: Optional[str] = None
+    for entry in entries:
+        candidate = _parse(entry)
+        if candidate is None:
+            continue
+        if newest_tuple is None or candidate > newest_tuple:
+            newest_tuple = candidate
+            newest_str = entry
+
+    if newest_tuple is None or newest_str is None:
+        return
+
+    if newest_tuple <= pinned_tuple:
+        return
+
+    leading_match = newest_tuple[:-1] == pinned_tuple[:-1] and len(newest_tuple) == len(pinned_tuple)
+    if leading_match:
+        n = newest_tuple[-1] - pinned_tuple[-1]
+        n_desc = f"{n} release(s)"
+    else:
+        n_desc = "major/minor move"
+
+    small_patch_move = leading_match and (newest_tuple[-1] - pinned_tuple[-1]) < 5
+
+    if small_patch_move:
+        _w(
+            f"── Harness moved: {pinned} → {newest_str} ({n_desc}) — vendored Claude Code "
+            f"docs reconciled at {pinned}; re-read what shipped in the gap ──\n"
+        )
+    else:
         _w("\n")
         _w(
-            f"── ⚠ Exec-summary VERY STALE: {age_hours}h old — refresh: "
-            f"{es_gen} ──\n"
-        )
-    elif age_hours >= 24:
-        _w(
-            f"── Exec-summary stale: {age_hours}h old — refresh via "
-            f"{es_gen} (or /workweek-start) ──\n"
+            f"── ⚠ Harness drift: {pinned} → {newest_str} — vendored Claude Code docs are "
+            f"{n_desc} behind; re-read the delta and re-pin "
+            "state/reference/anthropic-docs/reconciled-against.json ──\n"
         )
 
 
@@ -580,6 +890,18 @@ def engine_resolution_banner() -> None:
     copy of the pointer contract in a consumer. Which CLASS answered is the
     signal DR-129 asked for; which sha is a question for a surface that already
     parses the pointer.
+
+    Publish-mirror roster leg (2026-08-08): after the class line, one line is
+    emitted per registered `publish.mirrors.*` entry naming it as NOT a peer
+    repo. This leg is deliberately UNCONDITIONAL on `klass` — the incident it
+    fixes (an agent meeting a mirror path, finding it adjacent to the
+    `repos.*` sibling-receiver namespace, and inferring "peer repo, memo and
+    relay, don't edit") happened on the live-working-tree branch, not the
+    published-engine one, so gating the roster on `klass` would silently miss
+    the exact case it exists to cover. It shares this function's one
+    fail-open try/except rather than getting its own, so a resolver import
+    failure degrades the whole banner the same way it already does — no new
+    failure mode.
     """
     try:
         _hooks_dir = str(Path(__file__).resolve().parent)
@@ -589,6 +911,7 @@ def engine_resolution_banner() -> None:
             RESOLUTION_LIVE_WORKING_TREE,
             RESOLUTION_RESOLVED_ENGINE,
             resolve_claude_klabauter_root_with_class,
+            resolve_publish_mirror_roster,
         )
 
         _root, klass = resolve_claude_klabauter_root_with_class()
@@ -601,6 +924,17 @@ def engine_resolution_banner() -> None:
         _w("── Engine: published engine mirror ──\n")
     elif klass == RESOLUTION_LIVE_WORKING_TREE:
         _w("── Engine: sibling LIVE working tree — uncommitted edits execute ──\n")
+
+    try:
+        roster = resolve_publish_mirror_roster()
+    except Exception:
+        roster = []
+
+    for mirror_path, owner in roster:
+        _w(
+            f"── Publish mirror (not a peer repo): {mirror_path} — owned by "
+            f"{owner} ──\n"
+        )
 
 
 def _read_current_full_sha_boot(repo_root: Optional[str]) -> str:
@@ -1027,11 +1361,13 @@ def _cache_relevant_pathspecs(repo_root: str) -> list:
 
 
 def _extract_cache_field(cache_text: str, key: str) -> str:
-    """Frontmatter-line scraper shared by every `<key>: <value>` read off the cache text.
+    """Frontmatter-line scraper shared by every `<key>: <value>` line-scrape across the
+    orientation-cache and peer-entry file families (schema table,
+    `coordinator/pipelines/workday-start-internals.md`, and
+    `coordinator/schemas/peer-set-entry.schema.json` respectively).
 
-    Deliberately line-oriented rather than a YAML parse — the cache frontmatter is a flat,
-    single-line-per-field block by construction (schema table,
-    `coordinator/pipelines/workday-start-internals.md`), and a full YAML dependency would be
+    Deliberately line-oriented rather than a YAML parse — both families are flat,
+    single-line-per-field blocks by construction, and a full YAML dependency would be
     disproportionate to reading one scalar.
     """
     prefix = f"{key}:"
@@ -1040,6 +1376,10 @@ def _extract_cache_field(cache_text: str, key: str) -> str:
             val = line[len(prefix):]
             val = val.strip()
             val = val.strip("\"'")
+            # Strips all internal spaces too, not just the leading/trailing ones stripped
+            # above — fine for the scalar fields read so far, but a future caller reusing
+            # this helper against a field that legitimately contains spaces (e.g. a peer
+            # `notes` field) would get silently corrupted output.
             val = val.replace(" ", "")
             return val
     return ""
@@ -1405,6 +1745,14 @@ def main(argv: list) -> int:
         except Exception:
             pass
         try:
+            peer_recheck_staleness_banner(repo_root)
+        except Exception:
+            pass
+        try:
+            harness_version_drift_banner(repo_root)
+        except Exception:
+            pass
+        try:
             orientation_cache_staleness_banner(repo_root, cache_text)
         except Exception:
             pass
@@ -1441,6 +1789,14 @@ def main(argv: list) -> int:
         pass
     try:
         exec_summary_staleness_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        peer_recheck_staleness_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        harness_version_drift_banner(repo_root)
     except Exception:
         pass
     try:

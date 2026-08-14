@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-debt-backlog.py — one-shot migration of state/debt-backlog.md table rows
 and bullet-list entries into per-entry YAML files via coordinator-queue-append.
@@ -56,6 +55,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _queue_append_locator import find_queue_append_cmd  # noqa: E402
 
 # ── Constants ──────────────────────────────────────────────────────────────────
+
+MUTATES = ["state/debt-backlog.md", "state/debt-backlog/*.yaml", "state/migrate-debt-backlog-dryrun-*.json"]
 
 DEFAULT_INPUT = os.path.join("state", "debt-backlog.md")
 DRYRUN_GLOB = os.path.join("state", "migrate-debt-backlog-dryrun-*.json")

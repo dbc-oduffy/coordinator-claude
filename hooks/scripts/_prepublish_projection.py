@@ -35,7 +35,7 @@ THE HARD CONSTRAINT THIS MODULE HONORS
     calling a real function, and why).
 
 ROW MODEL
-    `setup/publish-targets.portable` — the one ratified, portable, DoE-owned config of
+    `setup/publish-targets.portable` — the one ratified, portable, doctrine-plane-owned config of
     what publishes where (see that file's own header for the field grammar). Every row
     in the file today lands in `publish-mirror:coordinator_claude` (five active rows); this
     module does not special-case that, it just derives scope from the file, same as
@@ -95,7 +95,11 @@ _HOOKS_SCRIPTS_DIR = REPO_ROOT / "coordinator" / "hooks" / "scripts"
 if str(_HOOKS_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_HOOKS_SCRIPTS_DIR))
 
-from _engine_root import resolve_claude_klabauter_root  # noqa: E402
+from _engine_root import (  # noqa: E402
+    RESOLUTION_LIVE_WORKING_TREE,
+    resolve_claude_klabauter_root,
+    resolve_claude_klabauter_root_with_class,
+)
 
 PUBLISH_TARGETS_PATH = REPO_ROOT / "setup" / "publish-targets.portable"
 STORE_PATH = REPO_ROOT / "setup" / "percolate-hooks" / "percolate-store.yaml"
@@ -214,13 +218,66 @@ def _import_percolate_allowlist():
 def _import_percolate_store():
     """Import the engine-plane sibling repo's `coordinator_core.percolate.store` for `resolve_target` --
     the REAL base+target composition function, used here only to read the composed
-    `basename_rename` table (§ `_apply_basename_rename`)."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if str(claude_klabauter_root) not in sys.path:
-        sys.path.insert(0, str(claude_klabauter_root))
-    import coordinator_core.percolate.store as store_module  # noqa: PLC0415
+    `basename_rename` table (§ `_apply_basename_rename`).
 
-    return store_module
+    Capability-checked, not root-trusting: `_resolve_claude_klabauter_root()` (via
+    `_engine_root.resolve_claude_klabauter_root()`) may hand back the PUBLISHED-ENGINE
+    MIRROR rung (`repos.claude_klabauter`) ahead of the live-tree rung once
+    that key is registered on this machine -- and a published mirror is not
+    guaranteed to carry `coordinator_core/percolate/` (it is publish-content,
+    not engine-source; observed absent on the 2026-08-12-registered
+    claude-klabauter mirror while `coordinator/lib/percolate/allowlist.py`,
+    consumed separately by `_import_percolate_allowlist`, IS present there).
+    So: resolve the root as usual, but if it lacks
+    `coordinator_core/percolate/store.py`, fall through to the live-working-tree
+    rung (`resolve_claude_klabauter_root_with_class`'s class-reporting resolver, or a
+    direct `repos.claude_klabauter` registry read) before importing. Only raise
+    `ProjectionUnavailableError` when NEITHER root carries the module -- this
+    projector's percolate dependency is real and must not be silenced.
+    """
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    candidates = [claude_klabauter_root]
+
+    if not (claude_klabauter_root / "coordinator_core" / "percolate" / "store.py").is_file():
+        live_root: "Path | None" = None
+        try:
+            live_root_str, resolution_class = resolve_claude_klabauter_root_with_class()
+            if resolution_class == RESOLUTION_LIVE_WORKING_TREE and live_root_str:
+                live_root = Path(live_root_str)
+        except Exception:
+            live_root = None
+
+        if live_root is None:
+            try:
+                from _engine_root import (  # noqa: PLC0415
+                    _registry_value,
+                    _settings_home_registry_dir,
+                )
+
+                reg_dir = _settings_home_registry_dir()
+                v = _registry_value(reg_dir, "repos.claude_klabauter")
+                if v and Path(v).is_dir():
+                    live_root = Path(v)
+            except Exception:
+                live_root = None
+
+        if live_root is not None and live_root != claude_klabauter_root:
+            candidates.append(live_root)
+
+    for root in candidates:
+        if (root / "coordinator_core" / "percolate" / "store.py").is_file():
+            if str(root) not in sys.path:
+                sys.path.insert(0, str(root))
+            import coordinator_core.percolate.store as store_module  # noqa: PLC0415
+
+            return store_module
+
+    raise ProjectionUnavailableError(
+        "coordinator_core.percolate.store not found under any resolved engine "
+        f"root ({', '.join(str(c) for c in candidates)}) -- the published-engine "
+        "mirror rung omits coordinator_core/percolate and no live working tree "
+        "carries it either."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +898,7 @@ def check_citations(projection: Projection, *, claude_klabauter_root: "Path | No
             if citation.kind == "bare-path":
                 raw = citation.raw_target.split(":")[0] if re.search(r":\d+$", citation.raw_target) else citation.raw_target
                 # Every row sources from somewhere under `coordinator/` (§ ROW MODEL) --
-                # a bare-path citation is authored SOURCE-relative (the DoE convention),
+                # a bare-path citation is authored SOURCE-relative (the doctrine-plane convention),
                 # so the prefix must be stripped before comparing against `published`,
                 # which is already dest-relative (coordinator/ implicitly stripped by
                 # every row's own source_subpath resolution).

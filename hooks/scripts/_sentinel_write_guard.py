@@ -38,11 +38,36 @@ sentinel path. Deletion tools are not in the guarded matcher set, so
 `rm`/deletion always stays available through other surfaces, and removing
 a sentinel to re-lock its boundary remains the sanctioned recovery path
 every sentinel-gated guard relies on.
+
+`reconstruct_after` re-export
+-------------------------------
+This module also re-exports `reconstruct_after`, resolving to the ENGINE
+implementation (`coordinator_core.write_guards._sentinel_write_guard
+.reconstruct_after`), not a local reimplementation. `preuse-write-dispatch
+.py` puts `_HOOKS_DIR` (this directory) on `sys.path` ahead of the engine
+root (clause 8 of `_guard_runner_contract.py`), so a bare
+`_sentinel_write_guard` import always binds THIS file, not the engine's
+module of the same basename -- the engine copy is never reachable that
+way. The package-qualified name `coordinator_core.write_guards
+._sentinel_write_guard` has no such collision, which is what makes this
+re-export resolve to the one real implementation instead of shadowing it.
+
+If the engine root cannot be resolved, or the import otherwise fails,
+`reconstruct_after` falls back to a stub returning `None` unconditionally.
+`None` is the established unreconstructable/fail-open signal every caller
+of this function already honours as "cannot compute, do not deny". In
+production this fallback is largely unreachable: `preuse-write-dispatch
+.main()` already returns fail-open ALLOW before any guard runs when the
+engine is unresolvable, so the guards that call `reconstruct_after` do not
+execute at all in that state. The stub exists for a pytest or
+partial-deploy environment where this module is imported without its
+sibling engine checkout present.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 
 _PATH_KEYS = ("file_path", "notebook_path", "path")
 
@@ -127,3 +152,36 @@ def sentinel_write_denial(
             "permissionDecisionReason": reason,
         }
     }
+
+
+def _reconstruct_after_stub(tool_name: str, tool_input: dict, before: str) -> "str | None":
+    """Fail-open fallback bound to `reconstruct_after` when the engine
+    implementation cannot be imported. See the module docstring's
+    "`reconstruct_after` re-export" section for why `None` unconditionally
+    is the correct fallback rather than a local reimplementation."""
+    return None
+
+
+try:
+    from _engine_root import resolve_claude_klabauter_root as _resolve_engine_root
+
+    _engine_root = _resolve_engine_root()
+except Exception:
+    _engine_root = None
+
+if _engine_root:
+    try:
+        if _engine_root not in sys.path:
+            sys.path.insert(0, _engine_root)
+        from coordinator_core.write_guards._sentinel_write_guard import (
+            reconstruct_after,
+        )
+    except Exception as _exc:
+        print(
+            f"_sentinel_write_guard: engine reconstruct_after import failed, "
+            f"falling back to stub: {_exc!r}",
+            file=sys.stderr,
+        )
+        reconstruct_after = _reconstruct_after_stub
+else:
+    reconstruct_after = _reconstruct_after_stub

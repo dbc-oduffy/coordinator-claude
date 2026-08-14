@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """percolate-preflight-scratch-publish.py — hook-exercising scratch-publish gate for the C6 percolation cutover.
 
@@ -55,7 +54,7 @@ Exit codes:
     3 — engine-link/transport failure (CLAUDE_KLABAUTER_ROOT unresolvable or
         coordinator_core.ops.percolate_preflight_scratch_publish not importable)
 
-Spec backlink: docs/plans/2026-07-09-doe-percolation-source-prep-and-genericize.md § C6/AC8
+Spec backlink: DoE-claude:pln-doe-source-of-truth-percolatio-4722b4 § C6/AC8
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
 Review note: the Director of Engineering F2 — running the transform bin directly does not exercise whether the
 post_rsync-phase engine dispatch resolves DEPERSONALIZE_BIN from DoE; this script closes
@@ -78,7 +77,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_engine_on_path  # noqa: E402
 
 
 def _resolve_coordinator_root() -> str:
@@ -105,12 +104,17 @@ def _resolve_coordinator_root() -> str:
     because this script's on-disk location is not necessarily its content-authoritative
     location -- e.g. if this file itself is ever copied/mirrored into another repo or a
     discovered-repo checkout as part of a publish run, __file__ would resolve to that
-    OTHER tree's coordinator/ dir, not this repo's own. _resolve_claude_klabauter_root()'s registry
-    ladder (already used a few lines below, in _import_main(), for the exact same
-    "where is the engine checkout" question) is invocation-location-independent and is
-    the established pattern this repo already relies on for that reason. Reusing it here
-    keeps a single resolution authority for "where is the engine repo" instead of two divergent
-    ones that could someday answer differently.
+    OTHER tree's coordinator/ dir, not this repo's own. For that reason this call site
+    deliberately keeps using the bare `_resolve_claude_klabauter_root()` (env -> settings-home
+    pointer -> machine-local registry, NO self-location rung) rather than the newer
+    `require_engine_on_path()` (used a few lines below, in `_import_main()`, for a
+    call site where self-location IS safe): `require_engine_on_path()` wraps
+    `resolve_engine_root()`'s same env-first ladder, which consults __file__
+    ahead of the registry, which is exactly the failure mode this docstring documents
+    -- a copied/mirrored script would self-locate into the wrong tree instead of
+    falling through to the registry. `_resolve_claude_klabauter_root()`'s pointer/registry-only
+    ladder is invocation-location-independent and is the established pattern this
+    repo already relies on for that reason.
 
     Fails loud (sys.exit(2), matching the op's own usage-error exit code)
     if _resolve_claude_klabauter_root() cannot resolve: this is a pre-flight gate script, not a
@@ -136,16 +140,44 @@ def _import_main():
     """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
 
     Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
+    self-location walk-up from this file -> settings-home pointer file ->
+    machine-local registry) via `require_engine_on_path()` (which wraps
+    `resolve_engine_root()`'s same ladder), rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here (this is not a hot per-commit path, but the
     module's own dependency shell-outs to publish.py/the guards are already
     subprocess hops -- no benefit to adding a second envelope hop on top).
+    Unlike `_resolve_coordinator_root()` above, self-location is safe here:
+    this call resolves the engine checkout this SAME file lives in for its
+    own in-process import, not a path reported to describe a possibly-copied
+    script.
+
+    That "safe" claim is narrower than `_resolve_coordinator_root()`'s
+    rejection of self-location reads: it depends on this trampoline never
+    being EXECUTED from inside a materialized copy of itself, not on
+    self-location being safe in general (`_resolve_coordinator_root()`
+    above still deliberately avoids `__file__` for that reason). Verified
+    only this much: `publish.py::_git_materialize_ref` shadow trees ARE
+    full copies of this repo (git-archive of the whole toplevel at a
+    commit sha, so they carry both `coordinator_core/` and
+    `pyproject.toml` and WOULD satisfy `_walk_up_to_checkout`'s probe if
+    self-located into) but every checked publish.py call site that reads
+    from a shadow tree (the `subprocess.run` sites invoking
+    `check-registry-codename-leak.py`/`check-persona-slug-leak.py`/the
+    version-consistency gate, plus the file-copy paths) treats it as a
+    read-only COPY SOURCE, never as something re-executed in-process or
+    re-invoked as this script. Not chased: every possible invocation
+    surface, including an operator manually `cd`-ing into a materialized
+    shadow tree and hand-running this script from there. If a future
+    change ever causes this trampoline to be invoked from inside a
+    `_git_materialize_ref` shadow root, self-location here would resolve
+    into that (possibly stale/different-revision) shadow tree, and this
+    call site would need to move back to the bare
+    `_resolve_claude_klabauter_root()` ladder like `_resolve_coordinator_root()`
+    above. — Review: code-reviewer P2 finding + EM ruling, 2026-08-07.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_engine_on_path(__file__)
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

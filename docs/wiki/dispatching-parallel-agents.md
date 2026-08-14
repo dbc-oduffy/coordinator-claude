@@ -29,15 +29,15 @@ When you have multiple unrelated failures (different test files, different subsy
 
 **(b) Count your own fanout.** If any agents in the wave are themselves orchestrators (an Opus session delegating to subagents), multiply before dispatching — a wave of 4 orchestrators each spawning 6 sub-agents is a 24-agent wave you own, not a 4-agent wave. Most leaf workers (executors, reviewers, simple file-scoped scouts) spawn nothing and count at face value. Pipeline runners (architecture-survey, bug-sweep), research scouts running web or codebase surveys, and any deep-research subagent ARE orchestrators for counting purposes — apply rule (b) to them. The original "6-8" fear was always about orchestrator-multiplication, not about leaf-worker load; rule (b) addresses the actual risk.
 
-**The `min(16, cpu_cores - 2)` cap is real but scoped to Workflow scripts only.** It is platform-enforced by the Workflow runtime on `agent()` calls inside a Workflow script, per the Workflow tool contract. It does NOT apply to the manual fan-out path (`fan-out-dispatch.sh` / Agent-tool). The manual path has **no automatic structural backstop on concurrency** now that the numeric cap-breach HARD STOP was removed — rules (a) and (b) plus the cores-scaled NOTE below are the guards, by design (PM-affirmed). (This is distinct from the chunk-shape suitability HARD STOP at § Executing a Fan-Out Wave → Step 0.5, which is about *what* a chunk contains, not *how many* agents run.) Do NOT let the Workflow cap appear to cover a path it does not.
+**The `min(16, cpu_cores - 2)` cap is real but scoped to Workflow scripts only.** It is platform-enforced by the Workflow runtime on `agent()` calls inside a Workflow script, per the Workflow tool contract. It does NOT apply to the manual fan-out path (`fan-out-dispatch.py` / Agent-tool). The manual path has **no automatic structural backstop on concurrency** now that the numeric cap-breach HARD STOP was removed — rules (a) and (b) plus the cores-scaled NOTE below are the guards, by design (PM-affirmed). (This is distinct from the chunk-shape suitability HARD STOP at § Executing a Fan-Out Wave → Step 0.5, which is about *what* a chunk contains, not *how many* agents run.) Do NOT let the Workflow cap appear to cover a path it does not.
 
 A custom research harness has a SECOND, LOWER ceiling beneath the Workflow cap: the **web-tool throttle**. When a Workflow (or any hand-authored fan-out) fans out web-tool/agent research calls — WebSearch, WebFetch, or agents that themselves call them — a concurrency-triggered server-side rate limit (`429 "Server is temporarily limiting requests (not your usage limit)"`) trips well below the `min(16, cpu−2)` Workflow cap. The Workflow cap is exactly the kind of "path it does not cover" warned about above: it bounds total concurrent `agent()` calls, not concurrent web-tool callers. So any hand-authored Workflow that fans out web research MUST respect the same effective ceiling the canonical `/deep-research` skill enforces: **≤5 concurrent web-tool callers**. That is the canonical pipeline's specialist-phase peak — its phases run strictly serialized (scout, THEN ≤5 specialists concurrently, THEN 1 sweep agent (Opus)), so the safe number is the ≤5 specialist count, NOT the full teammate roster total. Over-cap web fan-out self-throttles **indistinguishably from a platform gate** — see `coordinator-tripwires.md` § RE-FIRE-INTO-THROTTLE for the re-fire anti-pattern. The upstream cause is the most common EM failure mode — hand-rolling a workflow with raw `Agent()` calls instead of using the skill: EM bypasses the skill → harness exceeds the ceiling → 429 → misdiagnosis.
 
-**Maximize utilization; memory is the real ceiling, not cores.** Because we optimize for speed, the target is to **maximize** hardware utilization without degrading the machine — not to stay under some agent count. Core count is not a cap: a CPU time-slices far more than `cores` concurrent tasks, so past `~n` agents you do not stop, you begin paying a scheduling-contention tax (returns taper, they don't cliff). CPU and GPU parallelize gracefully under that tax; the dimension that actually degrades the machine is **memory commit (RAM and VRAM)**. So the resource to be careful about is memory, and CPU/GPU saturation is fine. The cores-scaled threshold below is a first-cut proxy for "where parallel returns start tapering"; its higher-value successor — a memory-commit-aware signal — now ships as `coordinator/bin/probe-memory-headroom.py` (cross-platform best-effort RAM/VRAM read), wired into `fan-out-dispatch.sh` as the "headroom tight" NOTE below.
+**Maximize utilization; memory is the real ceiling, not cores.** Because we optimize for speed, the target is to **maximize** hardware utilization without degrading the machine — not to stay under some agent count. Core count is not a cap: a CPU time-slices far more than `cores` concurrent tasks, so past `~n` agents you do not stop, you begin paying a scheduling-contention tax (returns taper, they don't cliff). CPU and GPU parallelize gracefully under that tax; the dimension that actually degrades the machine is **memory commit (RAM and VRAM)**. So the resource to be careful about is memory, and CPU/GPU saturation is fine. The cores-scaled threshold below is a first-cut proxy for "where parallel returns start tapering"; its higher-value successor — a memory-commit-aware signal — now ships as `coordinator/bin/probe-memory-headroom.py` (cross-platform best-effort RAM/VRAM read), wired into `fan-out-dispatch.py` as the "headroom tight" NOTE below.
 
-**Large-wave NOTE (a speed-taper advisory, not a gate).** When a wave reaches the machine-local `fan_out.large_wave_threshold` (set once at `coordinator:install` as `3 × logical_cores`, overridable via `LARGE_WAVE_THRESHOLD` env var, fallback `16` pre-setup), `fan-out-dispatch.sh` emits a soft NOTE recommending the pilot→expand ramp and reminding the EM to count orchestrator fanout. **The threshold is an advisory, not a cap** — it marks where parallel returns *may start tapering* (per the principle above), a prompt to watch throughput (and memory), not a ceiling to stop at. On the manual fan-out path — which has no automatic structural backstop — this NOTE is the sole hardware-legible signal the EM gets; framed as an offer-shaped nudge (design-as-offers — lead with the alternative, don't just flag the violation), never a HARD STOP demanding PM authorisation. The **only** HARD GATE in the fan-out path is the file-overlap collision (§ EM File-Overlap Pre-Dispatch Pass) — a real correctness gate unrelated to concurrency.
+**Large-wave NOTE (a speed-taper advisory, not a gate).** When a wave reaches the machine-local `fan_out.large_wave_threshold` (set once at `coordinator:install` as `3 × logical_cores`, overridable via `LARGE_WAVE_THRESHOLD` env var, fallback `16` pre-setup), `fan-out-dispatch.py` emits a soft NOTE recommending the pilot→expand ramp and reminding the EM to count orchestrator fanout. **The threshold is an advisory, not a cap** — it marks where parallel returns *may start tapering* (per the principle above), a prompt to watch throughput (and memory), not a ceiling to stop at. On the manual fan-out path — which has no automatic structural backstop — this NOTE is the sole hardware-legible signal the EM gets; framed as an offer-shaped nudge (design-as-offers — lead with the alternative, don't just flag the violation), never a HARD STOP demanding PM authorisation. The **only** HARD GATE in the fan-out path is the file-overlap collision (§ EM File-Overlap Pre-Dispatch Pass) — a real correctness gate unrelated to concurrency.
 
-**Headroom-tight NOTE (the memory-commit-aware successor signal).** Alongside the cores-proxy NOTE, `fan-out-dispatch.sh` runs `coordinator/bin/probe-memory-headroom.py` and emits a *distinct* soft NOTE — phrased "memory headroom is tight", never "large wave" — whenever free RAM or free VRAM is below a floor (`fan_out.min_ram_headroom_mb` / `fan_out.min_vram_headroom_mb`, env-overridable via `FAN_OUT_MIN_{RAM,VRAM}_HEADROOM_MB`; defaults 4096 / 2048 MB). This is the higher-value signal because it fires on what *actually* degrades the machine — a loaded machine trips it regardless of wave size, so a 2-agent wave on a memory-starved box gets the nudge a core-count proxy would miss.
+**Headroom-tight NOTE (the memory-commit-aware successor signal).** Alongside the cores-proxy NOTE, `fan-out-dispatch.py` runs `coordinator/bin/probe-memory-headroom.py` and emits a *distinct* soft NOTE — phrased "memory headroom is tight", never "large wave" — whenever free RAM or free VRAM is below a floor (`fan_out.min_ram_headroom_mb` / `fan_out.min_vram_headroom_mb`, env-overridable via `FAN_OUT_MIN_{RAM,VRAM}_HEADROOM_MB`; defaults 4096 / 2048 MB). This is the higher-value signal because it fires on what *actually* degrades the machine — a loaded machine trips it regardless of wave size, so a 2-agent wave on a memory-starved box gets the nudge a core-count proxy would miss.
 
 *Why no setup-time capture for the floor keys (unlike `large_wave_threshold`):* the cores threshold is `3 × logical_cores`, so it must be machine-derived at `coordinator:install`. The memory floors are *absolute* safety margins — a healthy machine should keep ~4 GB RAM / ~2 GB VRAM free no matter how big it is — so a hardcoded universal default is correct and a per-machine capture helper would be ceremony. Operators tune via the env vars or a one-line `machine-local set` only if their workload's per-agent footprint differs. When the cores-proxy NOTE fires, it now also appends the live headroom readout. The probe degrades gracefully: an unsupported platform or absent GPU yields `unknown` and the path falls back to the cores proxy alone. VRAM is NVIDIA-only (`nvidia-smi`); the two NOTE phrasings are kept disjoint by design so the cores-proxy regression net stays valid on a tight CI runner.
 
@@ -131,7 +131,7 @@ The opposite failure of the file-overlap pass: over-sequencing parallel-safe wor
 
 Gate 1 is *write* overlap: two executors *editing* the same path. Two — or seven — executors that all *read* a common source module and *write* to entirely disjoint targets have zero write-overlap and parallelize freely. The same holds for a shared *import interface*: when N new modules all import a *pinned* contract (a signature/schema written down per § Author vs. verify), importing it is a read, not a write, and does not serialize their authoring. **The recurring misclassification:** a plan justifies "one executor, N modules, file-overlap blocks parallelism" when the only thing shared is a read-only source plus a pinned import — that is read-overlap dressed as write-overlap, and the correct shape is an N-way fan-out, not one fat executor. The discriminating question is never "do these chunks touch a common file?" but "do these chunks *write* a common file?" — only the second is a gate.
 
-**Empirical motivation (claude-central).** A plan handed one executor 7 new modules sharing only a read-only `semantic.py` and an inventory-pinned import interface; the "file-overlap → serial" framing was accepted without challenge until the PM flagged it. The fix added a per-chunk fan-out-suitability gate at both plan-authoring time (`skills/plan/SKILL.md` Branch C) and fan-out-dispatch time (§ Executing a Fan-Out Wave → Step 0.5, below), plus a mechanical fat-chunk NOTE in `fan-out-dispatch.sh`.
+**Empirical motivation (claude-central).** A plan handed one executor 7 new modules sharing only a read-only `semantic.py` and an inventory-pinned import interface; the "file-overlap → serial" framing was accepted without challenge until the PM flagged it. The fix added a per-chunk fan-out-suitability gate at both plan-authoring time (`skills/plan/SKILL.md` Branch C) and fan-out-dispatch time (§ Executing a Fan-Out Wave → Step 0.5, below), plus a mechanical fat-chunk NOTE in `fan-out-dispatch.py`.
 
 **Author vs. verify — output-consumption and contract-change gate *verification*, not *authoring*.**
 
@@ -313,7 +313,7 @@ disagree on its value, the wave's budget model is silently wrong. The failure mo
 brief (or each integrator filling a chunk's cell) carrying its own copy of the number, which drifts.
 
 **Rule:** pin every shared fan-out scalar ONCE as a named constant in the serial keystone — the
-single artifact the whole wave reads (the plan's wave-map table, or the `fan-out-dispatch.sh`
+single artifact the whole wave reads (the plan's wave-map table, or the `fan-out-dispatch.py`
 TSV header). Downstream chunks and integrators *reference* the named constant; they do not restate
 its value. **Integrators fill cells against the pinned authority; the EM owns the budget model** —
 changing a load-bearing scalar is an EM-level edit to the keystone, not a per-chunk edit. This is
@@ -329,7 +329,7 @@ wave fans out, or concurrent authors drift against an unstated number.
 
 **Fan-out is a methodology execution follows, not a skill to invoke.** There is no `/fan-out`
 command — that verb collides with native Claude Code vocabulary. The
-dispatch ceremony lives in two places: the compiler (`fan-out-dispatch.sh`, a bin script) and
+dispatch ceremony lives in two places: the compiler (`fan-out-dispatch.py`, a bin script) and
 *these steps*, which the EM follows from `execute-plan` Phase 1.5 (the plan-mediated path) or
 inline whenever it has ≥2 independent tasks with no plan doc (the ad-hoc path). Both paths run the
 same steps; only the entry differs.
@@ -338,13 +338,22 @@ same steps; only the entry differs.
 
 **Do not author fan-out prompts by hand.** The compiler does the mechanical ceremony:
 
-- **`fan-out-dispatch.sh` (compiler)** — takes a TSV wave-spec (one row per chunk: `<chunk-id>\t<brief-or-@file>\t<comma-separated-files>` with an optional 4th column, see below), runs the file-overlap intersection and fails loud on any collision, then emits paste-ready scoped executor prompts — each containing the chunk brief, an In/Out-of-scope peer block (sourced from `snippets/peer-scope-block.md`), the destructive-action prohibition, and the disk-first verification preamble. Run once per wave; paste the emitted blocks as executor dispatch prompts.
+- **`fan-out-dispatch.py` (compiler)** — takes a TSV wave-spec (one row per chunk: `<chunk-id>\t<brief-or-@file>\t<comma-separated-files>` with an optional 4th column, see below), runs the file-overlap intersection and fails loud on any collision, then emits paste-ready scoped executor prompts — each containing the chunk brief, an In/Out-of-scope peer block (sourced from `snippets/peer-scope-block.md`), the destructive-action prohibition, and the disk-first verification preamble. Run once per wave; paste the emitted blocks as executor dispatch prompts.
 
 **Optional 4th-column `@interface` pin.** A TSV row may carry a 4th tab-separated field of the form `<symbol>@<producer-relative-path>`. This declares that the chunk is a consumer of a pinned interface (`<symbol>`) that the producer chunk is expected to have written to `<producer-relative-path>`. The compiler greps the symbol in that path and, if absent, emits an **offer-shaped NOTE** on stderr naming the serial-predecessor-wave shape as the remediation. This is a **post-hoc observer, not a gate**: exit code is 0, and dispatch blocks are emitted regardless. If the interface is present, no NOTE is emitted (silent on pass). Three-field rows (no pin) are unchanged — the 4th column is fully backward-compatible. For the pinned-interface concept and when it matters, see § Read-Overlap Is NOT Write-Overlap and § Dispatch-Gate Taxonomy → Author vs. verify.
 
 Running the helper collapses the ceremony (overlap audit, peer-block authoring, branch capture,
 large-wave NOTE, pinned-interface check) into one EM-side call — the path of least resistance is the correct path. The
 helper cannot call `Agent`, so the dispatch and the EM-serial commit are the EM's steps below.
+
+**`plan-task-brief.py` is the `@file` form's spine-driven producer.** Given `(plan-path, task-id)`,
+it emits exactly the brief text the `@file` form above reads — the producer half of that consumer.
+It is a sibling-plane CLI surface, hosted where the executable coordinator-bin surface lives (not
+this repo, which carries no `bin/`). Field filter: `title`/`surface`/`change_kind`/`body` in (`id`
+may head the brief as a label), everything else out — the filter is an allowlist, so a spine-schema
+field added later cannot leak into a dispatch prompt by default. Scope: read-only
+(zero writes to the plan file), ad-hoc single-task dispatch — explicitly not the `execute-plan`
+Phase 1.5/1.6 ceremony path above.
 
 ### The Steps
 
@@ -369,11 +378,11 @@ chunking was wrong (re-split inline, or route a larger substrate drift back thro
 `coordinator:plan` Branch D). This is the gate whose absence produced the **2026-05-29 "one agent
 authors 7 modules" failure** (a plan handed one executor 7 modules sharing only a read-only
 `semantic.py` + a pinned import; see § Read-Overlap Is NOT Write-Overlap). The mechanical backstop:
-`fan-out-dispatch.sh` emits a per-chunk `NOTE:` when a chunk lists ≥4 files — a soft offer-shaped
+`fan-out-dispatch.py` emits a per-chunk `NOTE:` when a chunk lists ≥4 files — a soft offer-shaped
 prompt to confirm coherence or re-chunk. **The plan-authoring twin of this gate lives in
 `skills/plan/SKILL.md` Branch C** (caught at plan-write time); this is the dispatch-time twin.
 
-**Step 1 — Run the overlap pass.** `bash fan-out-dispatch.sh --spec <spec-file>` (or pipe TSV).
+**Step 1 — Run the overlap pass.** `bash fan-out-dispatch.py --spec <spec-file>` (or pipe TSV).
 **HARD GATE:** non-zero exit = file-overlap collision — print the report, STOP, do NOT dispatch;
 the only valid next actions are revise-the-spec-and-re-run or split into sequenced waves. This is
 the only HARD GATE in the fan-out path (a correctness gate, unrelated to concurrency).
@@ -390,7 +399,7 @@ do not await one before firing the next. Verify each emitted block carries the d
 prohibition before dispatching. Dispatch all with `mode: "auto"`.
 
 **Step 4 — EM-serial commit (after the wave returns).** Collect every file each executor touched
-(verify with `git status`); verify each output **on disk** (non-trivial size, correct content —
+; verify each output **on disk** (non-trivial size, correct content —
 never accept a `DONE` chat message as proof). Commit the wave via `ceremony.scoped_git_commit`
 (`coordinator_core/ops/ceremony/scoped_git_commit.py`) with the wave's
 `worktree_root`/`paths`/`message` — it selects the safe commit mechanism for you; **never
@@ -427,18 +436,34 @@ discipline, agent-call ceiling (`min(16, cpu_cores − 2)`), and skeleton, see �
 
 ## Workflow-Spawned Agents Never Receive `contract_blocks` — Check Before Choosing the Vehicle
 
-`contract_blocks:` prose (`coordinator/subagent-sandbox-policy.yaml`) reaches a dispatched agent's
-prompt only via `coordinator/hooks/scripts/enforce-agent-dispatch-mode.py`, which
-`coordinator/hooks/hooks.json` registers on matcher `Agent`. A Workflow's per-`agent()` spawns are
-not `Agent` tool calls, so that hook never fires for them, and **a Workflow-spawned agent receives
-none of its injected contract blocks** — no findings-body template, no sidecar-frontmatter
-contract, no Context7 bootstrap, none of it, for that dispatch.
+`coordinator/hooks/scripts/enforce-agent-dispatch-mode.py`, which `coordinator/hooks/hooks.json`
+registers on matcher `Agent`, is the sole emit-gate for everything a dispatched child receives at
+spawn time. Its own module docstring carries the current, labelled breakdown (Concern A onward) —
+that docstring is the authority for what the gate does today; this passage doesn't transcribe the
+count, because that count has drifted every time the gate grew a leg and each drift has produced a
+downstream error. A Workflow's per-`agent()` spawns are not `Agent` tool calls, so that hook never
+fires for them, and **a Workflow-spawned agent arrives uncatered, not merely blockless** — whatever
+the gate currently does, none of it happens for that dispatch: no injected contract blocks (no
+findings-body template, no sidecar-frontmatter contract, no Context7 bootstrap), no provisioned
+sidecar, no mode elevation, no role framing. This is worse than blockless for a
+`coordinator:executor`-typed child specifically: two of its blocks (`provisioned-scaffold-precedence`,
+`run-report-citizenship`) assert its run-report sidecar exists, so a child that somehow retained
+blocks without the matching provisioning would be handed a false premise plus a pre-emptive
+instruction not to raise the alarm about the missing scaffold.
+
+**Role framing has no roster.** The `contract_blocks`-gated legs are gated on the roster lookup in
+`subagent-sandbox-policy.yaml`, so an agent type absent from that roster genuinely loses nothing
+there. Role framing is computed unconditionally — outside the roster lookup, the dedup guard, and
+the permission escape hatch — and so applies to every dispatched agent regardless of roster
+membership. "This agent type is on no roster, therefore Workflow-safe" is an invalid inference for
+role framing, for any agent type.
 
 **Measured, not inferred.** Same `subagent_type` (`coordinator:staff-eng`), asked whether a string
 that could only arrive by injection was present in its own prompt. Via the `Agent` tool: present.
-Via a Workflow `agent()` call: absent — 3/3 across staff-eng, executor, and enricher. The
-discriminator has to be an injection-only string: the resident hand-written wording is present in
-both cases, so a naive presence check reads as healthy either way and will not catch this.
+Via a Workflow `agent()` call: absent — 3/3 across staff-eng, executor, and enricher, for the
+roster-gated legs. The discriminator has to be an injection-only string: the resident hand-written
+wording is present in both cases, so a naive presence check reads as healthy either way and will
+not catch this.
 
 **This is not fixable from either repo's hook surface today.** A `Workflow` tool call carries a
 whole script, not a per-agent `subagent_type`, so there is nothing for a PreToolUse hook on matcher
@@ -446,8 +471,9 @@ whole script, not a per-agent `subagent_type`, so there is nothing for a PreTool
 `agent()`. Treat this as a live defect being worked around, not a settled design.
 
 **How to check whether a given agent is affected:** does its `subagent_type` carry a
-`contract_blocks` row in `coordinator/subagent-sandbox-policy.yaml`? At time of writing, 32 of 33
-agents do. In practice this means a plan wave of coordinator-typed agents whose behavior depends on
+`contract_blocks` row in `coordinator/subagent-sandbox-policy.yaml`? 33 of 34 agents do — count via
+`ls coordinator/agents/*.md` against the `contract_blocks:` keys in
+`coordinator/subagent-sandbox-policy.yaml` (only `coordinator:git-commit-agent` lacks a row). In practice this means a plan wave of coordinator-typed agents whose behavior depends on
 their injected blocks belongs on the `Agent` path, not a Workflow `agent()` call, until the seam is
 closed — see `skills/execute-plan/SKILL.md` § Phase 1.6 QUALIFIES list, which names this as a
 licensed reason to hand-dispatch rather than a rationalization to resist.
@@ -456,11 +482,11 @@ licensed reason to hand-dispatch rather than a rationalization to resist.
 
 Concurrent executors see disk state, not each other's intent. When Executor B is dispatched for Chunk 5 in parallel with Executor A for Chunk 3, B may "helpfully" extend scope on noticing Chunk 3's expected output not yet on disk — either redoing A's work, fixing what looks broken at A's seam, or papering over an unfinished contract. The result is overlapping writes on what was meant to be disjoint scope.
 
-**Mitigation:** every dispatch prompt in a parallel wave carries an explicit **In-scope / Out-of-scope** block that names peer chunks by ID. The canonical template for this block lives at `snippets/peer-scope-block.md` — `fan-out-dispatch.sh` injects it automatically. When authoring prompts manually, source the block from that snippet rather than duplicating it inline.
+**Mitigation:** every dispatch prompt in a parallel wave carries an explicit **In-scope / Out-of-scope** block that names peer chunks by ID. The canonical template for this block lives at `snippets/peer-scope-block.md` — `fan-out-dispatch.py` injects it automatically. When authoring prompts manually, source the block from that snippet rather than duplicating it inline.
 
 This composes with the existing destructive-action prohibition and the disk-first verification preamble. All three are non-optional in parallel-wave prompts.
 
-**Plan frontmatter is also peer-scope — OOS it explicitly.** When N executors fan out from a single governing plan, they will race on the plan's frontmatter `status:`/`progress:` lines unless those fields are named out-of-scope in every brief. EM owns the plan's status; executors own only their declared in-scope files. Empirical (distill-manifests, 3× in one session): every chunk whose brief omitted the plan-doc OOS line flipped `status:`; the one chunk that included it did not. **Structural fix:** `fan-out-dispatch.sh` injects `docs/plans/<this-plan>.md` (frontmatter especially) into the DEFAULT out-of-scope block automatically — don't rely on EM-per-brief discipline under fan-out load.
+**Plan frontmatter is also peer-scope — OOS it explicitly.** When N executors fan out from a single governing plan, they will race on the plan's frontmatter `status:`/`progress:` lines unless those fields are named out-of-scope in every brief. EM owns the plan's status; executors own only their declared in-scope files. Empirical (distill-manifests, 3× in one session): every chunk whose brief omitted the plan-doc OOS line flipped `status:`; the one chunk that included it did not. **Structural fix:** `fan-out-dispatch.py` injects `docs/plans/<this-plan>.md` (frontmatter especially) into the DEFAULT out-of-scope block automatically — don't rely on EM-per-brief discipline under fan-out load.
 
 **Why this is structural, not cosmetic:** Sonnet executors at wave-time are pattern-matching for "what does this codebase expect to exist." A missing file at a known path reads as "broken state, fix it" rather than "peer wave hasn't landed yet, unrelated." The prompt is the only signal that distinguishes the two.
 
@@ -468,7 +494,7 @@ This composes with the existing destructive-action prohibition and the disk-firs
 
 ## Worktree vs. Same-Worktree Dispatch
 
-**Git worktrees are structurally banned for parallel agent dispatch, fleet-wide.** All dispatch — parallel or sequential — runs in the current, shared working tree. There is no worktree-based dispatch mode to select between; this section's title is retained for inbound-reference stability, but the choice it once described no longer exists.
+**Git worktrees are structurally banned for parallel agent dispatch, fleet-wide.** All dispatch — parallel or sequential — runs in the current, shared working tree. There is no worktree-based dispatch mode to select between; this section's title is retained for inbound-reference stability, but the choice it once described does not exist.
 
 **Why.** Two reasons, both structural, not situational:
 - **Windows degradation.** Windows is the primary machine and audience. Git worktrees degrade badly there, in ways that don't show up on a Unix-only development loop.
@@ -961,7 +987,11 @@ Concurrent EMs on a shared branch can fold each other's plan work simply by read
 
 The doctrine floor in `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch ("Scouts are disk-first") names ~10% Sonnet under load hallucinating TEXT ONLY. **At parallel write-capable fan-out > 5, that rate spikes hard — to 50–60% on small-many-subdir sweeps under concurrent load.** A 9-parallel-Sonnet wave with disjoint scope and identical brief shape produced one executor that wrote ZERO marks despite a `DONE: 39 marks across 8 files` report, plus two more whose reports overstated landed-file counts by 3–4×. Pattern correlates with chunk size (small + many subdirs → high hallucination rate) and parallel-load.
 
+**Measurement provenance:** this 50–60% figure is from a single incident — one 9-parallel wave — measured at or before 2026-07-04, against the harness and Sonnet build current at that time. One incident is enough to justify the cap, not enough to call the rate precise; treat 50–60% as an order-of-magnitude finding, not a calibrated constant.
+
 **How to apply:** (1) hard-cap parallel write-capable executor fan-out at 5; for larger surfaces, dispatch in waves of 5 with EM-verification between. (2) On any fan-out, EM verifies actual on-disk state via `grep -lr <expected-token> <scope>/ | wc -l` and compares to reported counts — disk is the only signal that counts; reports merge what was *attempted* with what *landed*. (3) For homogeneous-shape mechanical sweeps, prefer a single deterministic script over N agent dispatches — agents are appropriate for judgment, not bulk mechanical marking.
+
+**Re-measurement:** item (2)'s verification step IS the re-test instrument — it does not need a dedicated exercise. The next genuinely-wide mechanical sweep that runs item (2) is the re-measurement; do not manufacture a sweep solely to re-test this cap, and do not relax the cap ahead of a landed re-measurement. A 50–60% silent-write-failure rate is re-measured before relaxing, not after — until fresh numbers land, the cap holds at 5.
 
 ## Diagnose-Then-Fix — Split the Brief; Frame the Cause as Hypothesis
 
@@ -1025,7 +1055,7 @@ Stub-lay before parallel fan-out turns file-overlapped chunks into write-disjoin
 
 The failure mode: when batching ~N files across waves by hand, 1-2 files silently slip out of every batch. No error signal fires — the missing files simply never get a dispatch, and the coverage gap is invisible until a standing parity test runs against the full directory. (observed empirically: two files slipped out of both batch waves; a standing parity test caught them.)
 
-**Structural alternative:** generate every dispatch row FROM the glob output so coverage is total by construction. `fan-out-dispatch.sh` with a glob-derived TSV spec closes this gap on the compiler side; the standing invariant test closes it on the verification side. Pick at least one.
+**Structural alternative:** generate every dispatch row FROM the glob output so coverage is total by construction. `fan-out-dispatch.py` with a glob-derived TSV spec closes this gap on the compiler side; the standing invariant test closes it on the verification side. Pick at least one.
 
 ## fan-out wave sizing by file count not alpha-halving
 
@@ -1073,7 +1103,7 @@ A memo describing shipped work plus its lockstep wiki update *feel* like "after 
 
 Fan-out prompts (especially Haiku inventory dispatches) carry a deliverable-only constraint as a single phrasing rule: "Produce <artifact at <path>>. Out-of-scope: everything else." The constraint must name the artifact and its disk path, never the negative space alone.
 
-Empirically, inventory prompts framed as "do NOT do X, Y, Z" produce TEXT-ONLY dumps at 2-3× the rate of prompts framed as "produce <artifact>". Haiku-on-write tasks confabulate the artifact when the constraint reads as a list of prohibitions rather than a single positive deliverable. The phrasing is enforced in the producer skill (fan-out-dispatch.sh templates), not in per-call EM judgment.
+Empirically, inventory prompts framed as "do NOT do X, Y, Z" produce TEXT-ONLY dumps at 2-3× the rate of prompts framed as "produce <artifact>". Haiku-on-write tasks confabulate the artifact when the constraint reads as a list of prohibitions rather than a single positive deliverable. The phrasing is enforced in the producer skill (fan-out-dispatch.py templates), not in per-call EM judgment.
 
 ## Synthesizer / integrator discipline — read-in-full before append
 
@@ -1089,7 +1119,7 @@ Executor reports fabricate commit attribution under load (~30% Haiku, ~10% Sonne
 
 The spotter (EM) owns ground-truth verification, not the executor. Constraint-adherence checks fire on every return, not just on failures.
 
-**Recovery after crash or timeout.** Files written before failure persist — partial output is the common case, not the exception. `git status` against the expected scope, diff the partial output against the spec, then dispatch a remainder-executor for the gap and EM-commit the union. **Never re-dispatch from scratch over partial work.** Two related tells:
+**Recovery after crash or timeout.** Files written before failure persist — partial output is the common case, not the exception. `git --no-optional-locks status` against the expected scope, diff the partial output against the spec, then dispatch a remainder-executor for the gap and EM-commit the union. **Never re-dispatch from scratch over partial work.** Two related tells:
 
 - **Orphan `.tmp.<pid>.<nanos>` files = Edit atomic-write crash** — diff against the target before deleting.
 - **Apply-agent stall:** redispatch vs. resume differs on disk, not chat — substantive work gets `SendMessage`, zero tool-use gets redispatch.
@@ -1098,9 +1128,9 @@ The spotter (EM) owns ground-truth verification, not the executor. Constraint-ad
 ## Tool Self-Health Checks Lie
 
 A tool reporting its own "OK" status is not the same evidence as a round-trip test exercising the
-real producer/consumer seam. Treat a dispatched agent's self-reported health or success claim as a
-hypothesis, not ground truth — verify against disk (`git show`/`git diff`, the actual artifact) the
-same way § Executor commit-fidelity and ground-truth verification above does for commit claims.
+real producer/consumer seam. A dispatched agent's self-reported health or success claim is a
+hypothesis, not ground truth — disk (`git show`/`git diff`, the actual artifact) is what confirms it,
+the same way § Executor commit-fidelity and ground-truth verification above does for commit claims.
 
 
 ## Zero-Tool-Use Returns — Read `tool_uses`, Don't Infer From `idleReason`
@@ -1208,7 +1238,7 @@ directly-invoked-op probe, not the post-restart observation.
 
 **Empirical basis (architecture-survey re-bootstrap).** 99 Phase-1 chunks were dispatched in 3 hand-written Agent batches (A01–C04, C05–D18, E01–H12); D19–D26 fell in the seam between batch 2's tail and batch 3's start and were never launched. The gap was invisible until a disk completeness sweep (`comm` of present output files against the chunk manifest).
 
-**Rule:** when manual batching is unavoidable, after firing each batch, run `comm -23 <(sort dispatched-labels.txt) <(sort full-manifest.txt)` and verify the output is empty before declaring the batch sent. The structural alternative — generate every dispatch FROM the manifest so coverage is total by construction — is the `fan-out-dispatch.sh` model and avoids the hand-batching hazard entirely.
+**Rule:** when manual batching is unavoidable, after firing each batch, run `comm -23 <(sort dispatched-labels.txt) <(sort full-manifest.txt)` and verify the output is empty before declaring the batch sent. The structural alternative — generate every dispatch FROM the manifest so coverage is total by construction — is the `fan-out-dispatch.py` model and avoids the hand-batching hazard entirely.
 
 ## Commit Each Verified Wave Immediately — Concurrent Sweeps Delete Uncommitted Executor Output
 
@@ -1252,7 +1282,7 @@ The § Dispatch-Gate Taxonomy default (output-consumption gates *verification*, 
 
 When splitting a plan chunk at ledger-construction (C9 → C9a/C9b), cross-check the plan's `scope:` block **and** the chunk body's named files — not just the chunk's `surface:` field. A `surface:` field is a hand-maintained summary that silently drifts from the fuller `scope:` frontmatter and the files the chunk body names in prose; decomposing off the `surface:` field alone drops whatever the summary omitted.
 
-**Empirical basis (2026-07-13).** Splitting C9 into C9a/C9b off its `surface:` field dropped `dispatch-sidecar-three-role-contract.md` — a file present in the C9 `scope:` frontmatter and named in the C9 body, but absent from the `surface:` summary. The AC (AC7) required it; the drop was caught only at final AC-coverage review. Enumerate the union of `scope:` + body-named files when decomposing, and diff the split's write-set against that union before dispatch.
+**Empirical basis.** Splitting C9 into C9a/C9b off its `surface:` field dropped `dispatch-sidecar-three-role-contract.md` — a file present in the C9 `scope:` frontmatter and named in the C9 body, but absent from the `surface:` summary. The AC (AC7) required it; the drop was caught only at final AC-coverage review. Enumerate the union of `scope:` + body-named files when decomposing, and diff the split's write-set against that union before dispatch.
 
 ## Bypass-Posture Host Silently Elevates Children — `COORDINATOR_AGENT_MODE_OK` Must Be Pre-Set in Process Env
 

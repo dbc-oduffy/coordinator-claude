@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
+GENERATES = []  # writes only ~/.claude/settings.json, its .settings-last-good.*.json backups, and machine-local registry.local.toml — all outside claude-klabauter's own tracked tree
+
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
 if str(_REPO_ROOT) not in sys.path:
@@ -152,13 +154,24 @@ def resolve_config_dir(explicit: Optional[str] = None) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def check_settings_json(config_dir: Path, settings_path: Optional[Path] = None) -> Finding:
+def check_settings_json(
+    config_dir: Path,
+    settings_path: Optional[Path] = None,
+    host_is_windows: Optional[bool] = None,
+) -> Finding:
     """Layer 1 (AC-3 #1). Missing -> BROKEN. Invalid JSON -> BROKEN with the
     parse error. Valid -> classify every `command` string's hook paths via
     `guard_foreign_platform_paths.detect_foreign_platform_paths` (claude-klabauter's
     own module — no DoE-side import needed; this check's classifier is
     already resident in this repo, confirming the build-sequence step 1
     reusability check the design doc calls for).
+
+    `host_is_windows` (default: `detect_foreign_platform_paths`'s own
+    `os.name == "nt"` ambient detection) exists purely for AC-6 testability
+    — mirrors the parameter the underlying detector already exposes one
+    layer down. Production callers (`run_diagnose`/`main()`) never pass it,
+    so a live run always classifies against the machine it is actually
+    running on; only tests pin a platform explicitly.
     """
     path = settings_path or (config_dir / "settings.json")
     if not path.is_file():
@@ -188,7 +201,7 @@ def check_settings_json(config_dir: Path, settings_path: Optional[Path] = None) 
             None,
         )
 
-    findings = detect_foreign_platform_paths(data)
+    findings = detect_foreign_platform_paths(data, host_is_windows=host_is_windows)
     if findings:
         pointers = ", ".join(f.pointer for f in findings[:5])
         more = f" (+{len(findings) - 5} more)" if len(findings) > 5 else ""
@@ -379,16 +392,26 @@ def check_launcher_staleness(config_dir: Path) -> Finding:
 
 
 _WIN_DRIVE_ABS_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_POSIX_ABS_RE = re.compile(r"^/[^/]")
 
 
 def _looks_absolute(value: str) -> bool:
-    """True for a POSIX-absolute path (`Path.is_absolute()`) OR a
-    Windows drive-absolute path (`C:\\...`/`C:/...`). `Path.is_absolute()`
-    alone is platform-dependent — a Windows-shaped string is NOT absolute
-    under a POSIX-flavoured `Path`, and the reverse — so a test running on
-    macOS asserting a Windows `USERPROFILE` value must not spuriously WARN.
+    """True for a POSIX-absolute path (`Path.is_absolute()`, or explicitly a
+    leading `/segment`) OR a Windows drive-absolute path (`C:\\...`/`C:/...`).
+    `Path.is_absolute()` alone is platform-dependent — a Windows-shaped
+    string is NOT absolute under a POSIX-flavoured `Path`, and a POSIX-shaped
+    string is NOT absolute under a Windows-flavoured `Path` (no drive
+    anchor) — so a test running on macOS asserting a Windows `USERPROFILE`
+    value, or a test running on Windows asserting a POSIX `HOME` value, must
+    not spuriously WARN either direction. Both explicit regexes exist for
+    exactly this reason — `Path.is_absolute()` alone only covers whichever
+    platform this process happens to be running on.
     """
-    return Path(value).is_absolute() or bool(_WIN_DRIVE_ABS_RE.match(value))
+    return (
+        Path(value).is_absolute()
+        or bool(_WIN_DRIVE_ABS_RE.match(value))
+        or bool(_POSIX_ABS_RE.match(value))
+    )
 
 
 def check_home_resolution(env: Optional[dict] = None) -> Finding:
@@ -436,10 +459,12 @@ def check_defender_exclusions(is_windows: Optional[bool] = None, timeout: float 
         return Finding("defender-exclusions", STATUS_UNKNOWN, "powershell.exe not found on PATH", None)
 
     try:
+        from coordinator_core.win_portability import no_console_creationflags
+
         proc = subprocess.run(
             [ps, "-NoProfile", "-Command", "Get-MpPreference | Select-Object -ExpandProperty ExclusionProcess"],
             capture_output=True, text=True, timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return Finding("defender-exclusions", STATUS_UNKNOWN, f"powershell.exe timed out after {timeout}s", None)

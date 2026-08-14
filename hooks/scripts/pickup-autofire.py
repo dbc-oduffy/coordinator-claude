@@ -3,7 +3,7 @@
 
 Purpose: when the EM (or a peer session) types `/pickup <artifact-path>`, this
 hook fires ahead of `UserPromptSubmit`, computes the pickup decision object via
-the claude-klabauter-side `pickup-assemble brief` CLI, and injects a rendered summary as
+the engine-side `pickup-assemble brief` CLI, and injects a rendered summary as
 `additionalContext` — so the brief already exists by the time the EM's own
 turn starts acting on the command. When the computed decision reads
 `coast: clear` with zero unresolved `judgment_points`, the hook ALSO fires the
@@ -65,7 +65,7 @@ Safety envelope (AC9), each clause load-bearing:
 
 Never overrides a denied claim — there is no override code path in this
 module at all; `_should_apply` only returns True on `coast: clear`, which
-`compute_coast` (claude-klabauter-side) never reports when `claim_grant.verdict ==
+`compute_coast` (engine-side) never reports when `claim_grant.verdict ==
 "denied"` (a denied claim always reads `coast: blocked`).
 
 Install-surface note (recorded, not discovered at dogfood): the spike found
@@ -89,9 +89,9 @@ invocation shapes and settle it empirically. See this chunk's final report
 for the current disposition.
 
 Cross-repo consumer contract (negative-spec, closes the discharge-test gap
-flagged in review): this hook is a HARD consumer of the claude-klabauter
-`pickup-assemble brief`/`apply` CLI's output shape, pinned as of claude-klabauter
-commit `67828ff1` and the `main()` branch at
+flagged in review): this hook is a HARD consumer of the engine repo's
+`pickup-assemble brief`/`apply` CLI's output shape, pinned as of the engine
+repo's commit `67828ff1` and the `main()` branch at
 `coordinator_core/pickup_assemble/__init__.py:3868-3886` that emits it:
   - **N==1** grab → the CLI prints a BARE decision object (`{...}`), never a
     wrapped envelope.
@@ -106,9 +106,9 @@ commit `67828ff1` and the `main()` branch at
     whole payload — this hook does not itself compute or re-derive that
     number; it only decodes whatever JSON the CLI already emitted to
     stdout.
-A future claude-klabauter-side change to this shape (e.g. switching to a wrapper
+A future engine-side change to this shape (e.g. switching to a wrapper
 envelope) breaks this hook silently (fail-open swallows the parse failure
-into "no output") unless a round-trip contract fixture on the claude-klabauter side
+into "no output") unless a round-trip contract fixture on the engine side
 also pins it — see chunk C7's cross-repo ask.
 """
 
@@ -122,6 +122,28 @@ import sys
 import tempfile
 import time
 from pathlib import Path, PureWindowsPath
+
+# --- C3 producer-capture engine-import seam (docs/plans/2026-08-12-producer-
+# axis-on-the-baton-contract.md D1/D3/D6) -------------------------------------
+#
+# `_engine_root.py` is the one seam every hook in this directory imports from
+# to reach `coordinator_core` (see its own module docstring) -- reused here
+# rather than re-deriving a second root-resolution ladder. Producer capture
+# calls `coordinator_core.session.shape.producer_set` directly (a plain
+# library function, not a registered `coordinator_core.hooks` advisory op),
+# so it does not need the `ipc.dispatch_message` JSON-RPC indirection the
+# sibling hooks in this directory use for their own bookkeeping ops.
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
+except Exception:
+    # Defensive fallback -- a hook script copied/deployed WITHOUT its sibling
+    # _engine_root.py (e.g. an isolated test harness, or a partial deploy)
+    # must still fail-open rather than crash on import.
+    def _resolve_claude_klabauter_root() -> str | None:
+        return None
 
 # --- Constants -------------------------------------------------------------
 
@@ -183,7 +205,7 @@ _CONTEXT_BUDGET_CHARS = 10_000
 
 # DEC-1 — prose-tail delimiter. Whitespace-tolerant (NOT a literal single-
 # space " -- " string split, which would miss a double-space paste like
-# "a.md  --  prose") to mirror claude-klabauter's own whitespace-bounded `\s+AND\s+`
+# "a.md  --  prose") to mirror the engine repo's own whitespace-bounded `\s+AND\s+`
 # token (`split_artifact_args`, `pickup_assemble/__init__.py:3739`).
 _PROSE_SPLIT_RE = re.compile(r"\s+--\s+|\s+--$")
 
@@ -192,15 +214,15 @@ def split_prose_tail(command_args: str) -> tuple[str, str | None]:
     """Split `command_args` into `(path_string, prose_or_None)` on the FIRST
     match of `_PROSE_SPLIT_RE` (DEC-1). The left side is the AND-joined path
     string later handed to `pickup-assemble brief` UNCHANGED; the right side
-    is free-text prose rendered as an EM-facing note and never sent to
-    claude-klabauter. Absent a match, returns `(command_args, None)` — byte-identical
+    is free-text prose rendered as an EM-facing note and never sent to the
+    engine repo. Absent a match, returns `(command_args, None)` — byte-identical
     to today's single-string path (AC4's "path resolution is byte-identical
     with vs. without the tail").
 
     Prose-strip happens BEFORE any ` AND ` splitting (that split is
-    claude-klabauter-side, via `split_artifact_args`), so prose text may itself
+    engine-side, via `split_artifact_args`), so prose text may itself
     contain ` AND ` harmlessly — it is isolated on this side of the ` -- `
-    delimiter before claude-klabauter ever sees the path string.
+    delimiter before the engine repo ever sees the path string.
     """
     parts = _PROSE_SPLIT_RE.split(command_args, maxsplit=1)
     if len(parts) == 2:
@@ -442,34 +464,113 @@ def should_apply(decision: dict) -> bool:
 # --- additionalContext rendering (AC9d) --------------------------------------
 
 
-def _write_pointer_file(
-    decisions: list[dict], session_id: str, prompt_id: str
-) -> Path | None:
-    """Best-effort: write the WHOLE decoded payload to ONE session-scoped
-    tempfile and return its path (DEC-4), so a budget-constrained rendered
-    summary can still point somewhere complete. Returns None on any failure
-    — the render simply omits the pointer segment in that case, never
-    raises.
+def _resolve_repo_root() -> Path | None:
+    """Zero-spawn mirror of the engine repo's `apply.py::resolve_repo_root` (default
+    `start=None` -> `Path.cwd()`, then `git rev-parse --show-toplevel`).
 
-    N==1 writes the bare decision object itself (`decisions[0]`), NOT a
-    one-element list — this is what keeps the pointer-file content
-    byte-identical to the pre-existing single-object behavior (AC3). N>1
-    writes the full list, in order, to the same filename shape.
+    Docs/plans/2026-08-07-pickup-hold-path-decision-file-has-no-pr.md — the
+    engine resolves the repo root from the SAME cwd this hook's own process
+    already has: `_run_pickup_assemble` never overrides the child's `cwd`,
+    so the `apply`/`brief` subprocess inherits this hook process's own OS
+    cwd (not `payload["cwd"]`, which is only advisory). Reimplemented here
+    as a pure-Python upward walk for a `.git` entry (directory for a normal
+    clone; worktrees are banned by doctrine, so no file-vs-dir branch is
+    needed) rather than shelling out to `git rev-parse` -- this hook's own
+    zero-spawn discipline (see `resolve_settings_home`'s sibling resolvers
+    in `_engine_root.py`), and `rev-parse --show-toplevel` itself performs
+    exactly this upward walk, so the two resolutions land on the same
+    answer for any non-worktree checkout.
+
+    Returns None when undeterminable -- callers treat that identically to
+    any other decision-file-write failure (AC5): omit the pointer segment,
+    never raise.
     """
     try:
-        tag = session_id or "unknown-session"
-        suffix = prompt_id or str(os.getpid())
-        path = Path(tempfile.gettempdir()) / f"pickup-autofire-{tag}-{suffix}.json"
-        payload = decisions[0] if len(decisions) == 1 else decisions
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        return path
+        cwd = Path.cwd()
     except OSError:
         return None
+    try:
+        for candidate in (cwd, *cwd.parents):
+            if (candidate / ".git").exists():
+                return candidate
+    except OSError:
+        return None
+    return None
+
+
+def _sanitize_for_filename(value: str) -> str:
+    """Byte-for-byte mirror of the engine repo's
+    `coordinator_core/pickup_assemble/apply.py::_sanitize_for_filename`
+    (resolve the engine repo's root via `machine-local get repos.claude_klabauter`) --
+    collapses BOTH path separators to `__` so a session id or artifact path
+    round-trips into one flat filename component. Docs/plans/2026-08-07-
+    pickup-hold-path-decision-file-has-no-pr.md, AC1: this hook and
+    `apply.py::_session_decision_file_path` must compute the identical
+    filename from the identical two inputs, independently."""
+    return value.replace("/", "__").replace("\\", "__")
+
+
+def _session_decision_file_path(repo_root: Path, session_id: str, artifact_path: str) -> Path:
+    """Byte-for-byte mirror of the engine repo's
+    `apply.py::_session_decision_file_path`/`_session_decision_file_dir` --
+    "the ONE deterministic location both the auto-fire hook and `apply`
+    independently compute from the same two inputs (session id, artifact
+    path)". `.git` is used directly (never a worktree `.git`-file
+    redirection lookup) because worktrees are banned by doctrine -- see
+    `_resolve_repo_root`'s docstring."""
+    name = f"{_sanitize_for_filename(session_id)}__{_sanitize_for_filename(artifact_path)}.json"
+    return repo_root / ".git" / "coordinator-sessions" / "decisions" / name
+
+
+def _write_decision_files(decisions: list[dict], session_id: str) -> list[Path]:
+    """Best-effort: write EACH decoded decision to its own engine-computed
+    path (`_session_decision_file_path`), keyed off that baton's OWN
+    resolved `artifact.path` -- one file per baton, never a shared file
+    holding a list (AC2). This is the hold-path discharge location the engine
+    repo's `apply.py::_read_session_dispositions` actually reads
+    (docs/plans/2026-08-07-pickup-hold-path-decision-file-has-no-pr.md);
+    the previous `_write_pointer_file` wrote a tempfile no engine code path
+    ever consumed.
+
+    A decision with a missing/empty `artifact.path` is skipped without
+    raising (AC3), mirroring DEC-3's own skip-without-raising behaviour for
+    an error-object baton carrying no path -- sibling batons in the same
+    grab still get their files.
+
+    Total-function, same contract `_write_pointer_file` held (AC5): the
+    whole operation is wrapped in ONE try/except, so any `OSError`
+    (unresolvable repo root, unwritable `.git`, missing dir, permission)
+    degrades the WHOLE call to `[]` -- the render then omits the pointer
+    segment entirely, never a partial pointer to a file that could not be
+    fully written. Never raises.
+    """
+    repo_root = _resolve_repo_root()
+    if repo_root is None:
+        return []
+    tag = session_id or "unknown-session"
+    written: list[Path] = []
+    try:
+        for decision in decisions:
+            artifact = decision.get("artifact")
+            artifact_path = (
+                (artifact or {}).get("path") if isinstance(artifact, dict) else None
+            )
+            if not (isinstance(artifact_path, str) and artifact_path):
+                continue  # AC3 -- skip a pathless baton without raising
+            path = _session_decision_file_path(repo_root, tag, artifact_path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(decision, indent=2, sort_keys=True), encoding="utf-8"
+            )
+            written.append(path)
+    except OSError:
+        return []
+    return written
 
 
 def _your_call_text(decision: dict) -> str | None:
     """C4b: render the guidance-bearing `judgment_points[].dispositions[]`
-    entries (C4's `guidance` field, landed claude-klabauter-side on `_KIND_DISPOSITIONS`)
+    entries (C4's `guidance` field, landed engine-side on `_KIND_DISPOSITIONS`)
     as a "Your call" prose block — one bullet per disposition that carries
     non-empty `value` + `guidance`. Dispositions with no `guidance` (e.g.
     `build_untrusted_gate_judgment_point` entries, or a pre-C4 decision
@@ -633,14 +734,23 @@ def _decision_segments(
 
 def render_additional_context(
     decisions: list[dict],
-    pointer_path: Path | None,
+    pointer_paths: list[Path],
     prose: str | None = None,
 ) -> str:
     """Render the `additionalContext` string per the AC9(d)/AC14/AC15/DEC-4
     priority list, generalized to N decoded batons: an optional EM-facing
     prose note (DEC-1/AC4) first, then per-baton `narration -> verdict ->
-    next_move -> your_call`, then the shared pointer line, then per-baton
-    evidence.
+    next_move -> your_call`, then the pointer line naming the engine-path
+    decision file(s) the EM should edit, then per-baton evidence.
+
+    `pointer_paths` (docs/plans/2026-08-07-pickup-hold-path-decision-file-
+    has-no-pr.md, AC4) is the list `_write_decision_files` actually wrote --
+    ZERO or more paths, never a single shared pointer file. N==1 (exactly
+    one path) keeps the pre-existing "Full decision object: <path>" wording
+    (AC7 -- only the underlying value moved from a tempfile to the engine
+    path). N>1 (or N==0 written against N>1 decisions) names every written
+    path on its own line so the EM is never pointed at a file `apply` will
+    not read.
 
     `your_call` (C4b) is the promoted "Your call" prose block rendering each
     guidance-bearing `judgment_points[].dispositions[]` entry's `value` +
@@ -691,12 +801,13 @@ def render_additional_context(
         protected.append(("next_move", next_move_text))
         protected.append(("your_call", your_call_text))
 
-    if pointer_path is None:
+    if not pointer_paths:
         pointer_text = None
-    elif multi:
-        pointer_text = f"Full decision payload (N={len(decisions)}): {pointer_path}"
+    elif len(pointer_paths) == 1:
+        pointer_text = f"Full decision object: {pointer_paths[0]}"
     else:
-        pointer_text = f"Full decision object: {pointer_path}"
+        listing = "\n".join(f"  - {p}" for p in pointer_paths)
+        pointer_text = f"Full decision payload (N={len(pointer_paths)}):\n{listing}"
 
     droppable: list[tuple[str, str | None]] = []
     if pointer_text:
@@ -820,6 +931,139 @@ def _log_probe_event(payload: dict) -> None:
         pass
 
 
+# --- C3: producer capture at UserPromptExpansion -----------------------------
+#
+# Spec: docs/plans/2026-08-12-producer-axis-on-the-baton-contract.md chunk C3;
+# D1 (host inside this existing registration, no third one), D3 (capture only
+# on a CONFIRMED typed slash-command turn -- the value otherwise persists
+# until the next one, per the seam's own empirical firing pattern), D6 (write
+# the namespaced `producer.typed_command` record via the engine entrypoint,
+# never hand-write `session-shape.json`).
+
+
+def _log_producer_capture_failure(
+    session_id: str, typed_command: str | None, reason: str
+) -> None:
+    """Best-effort append to the SAME probe log `_log_probe_event` already
+    writes (`_probe_log_path`) -- this file's one existing diagnostic
+    channel, reused rather than a second one invented, so a failed capture is
+    discoverable by grep instead of degrading into a legitimate-looking
+    absence.
+
+    Never raises (mirrors `_log_probe_event`'s own contract) -- a hot-path
+    hook that crashed while trying to report a failure would be strictly
+    worse than the failure itself, on a machine running a dozen-plus
+    concurrent sessions through this same code path.
+
+    This is NOT the `unresolved` in-band signal `producer_set`'s own contract
+    reserves for "the field was expected and did not resolve" (see
+    `_capture_producer`, which writes that value itself when applicable) --
+    a lock failure means NOTHING was written to `session-shape.json` at all,
+    so there is no on-disk record to mark as unresolved; this out-of-band log
+    line is the only surface that failure gets.
+    """
+    try:
+        record = {
+            "ts": time.time(),
+            "event": "producer_capture_failed",
+            "session_id": session_id,
+            "typed_command": typed_command,
+            "reason": reason,
+        }
+        log_path = _probe_log_path()
+        with log_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, sort_keys=True) + "\n")
+    except Exception:
+        # Broader than OSError on purpose: the docstring above promises this
+        # never raises, and `main`'s last-resort guard now calls this function to
+        # report a defect that reached it. A narrower catch would let a path- or
+        # serialization-level failure escape the reporter itself and surface in
+        # the harness — the one outcome worse than the failure being reported.
+        pass
+
+
+def _capture_producer(
+    payload: dict, command_name: str, session_id: str, cwd: str | None
+) -> None:
+    """Capture the typed command for THIS turn into `session-shape.json`'s
+    namespaced `producer` record, via the engine's `producer_set` entrypoint
+    (never a direct write -- D2/D6).
+
+    Fires ONLY on a turn `expansion_type` confirms is a typed slash command
+    (D3's empirical basis: every observed firing was `command_source:
+    "plugin"` / `expansion_type: "slash_command"`, and the corrected
+    staleness bound holds the value stable across every OTHER turn until the
+    next one) -- checking `expansion_type` directly rather than assuming
+    every firing of this hook is itself a slash-command turn, per the plan's
+    explicit instruction not to assume that.
+
+    Three outcomes, per D6's contract on `producer_set`'s `typed_command`
+    parameter:
+      - a confirmed slash command whose `command_name` normalizes to a
+        non-empty string -> that normalized name (the common case).
+      - a confirmed slash command whose `command_name` did not resolve to a
+        usable string -> `"unresolved"` (D6's in-band "the field was
+        expected and did not resolve" signal -- NOT silently skipped, which
+        would read identically to "nothing typed", a collapse AC-3 forbids).
+      - anything not confirmed a slash command -> no call at all, leaving
+        the prior value in place per D3's persistence bound.
+
+    A `False` return from `producer_set` (lock acquisition failed -- nothing
+    was written) is surfaced via `_log_producer_capture_failure`, never
+    swallowed and never inferred as success (AC-7). Never raises -- every
+    step here degrades to a silent no-op or a logged failure, matching this
+    file's fail-open convention for every other subsystem it drives.
+    """
+    if payload.get("expansion_type") != "slash_command":
+        return  # not a confirmed slash-command turn -- leave prior value (D3)
+
+    typed_command = command_name if command_name else "unresolved"
+
+    if not session_id:
+        # Review: code-reviewer -- unlike the not-a-slash-command gate above
+        # (an intentional D3 no-op), this is a genuine failure: a CONFIRMED
+        # slash-command turn with nothing to key the write against. Must log,
+        # not bare-return, or it collapses into the same silent skip AC-7
+        # forbids on every other branch in this function.
+        _log_producer_capture_failure(session_id or "", typed_command, "missing_session_id")
+        return
+
+    root = _resolve_claude_klabauter_root()
+    if not root:
+        # Fail OPEN (never crash the hot path) but not SILENT: an unresolvable
+        # engine means every baton minted this session carries no producer, and
+        # an unlogged skip here is indistinguishable from "nothing was typed" --
+        # the legitimate-looking absence AC-7 exists to forbid.
+        _log_producer_capture_failure(session_id, typed_command, "engine_unresolvable")
+        return
+
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+    try:
+        from coordinator_core.session import shape as _shape
+    except Exception:
+        # Same reasoning as the unresolvable-root branch above: open, not silent.
+        _log_producer_capture_failure(session_id, typed_command, "engine_unimportable")
+        return
+
+    try:
+        ok = _shape.producer_set(session_id, typed_command=typed_command, cwd=cwd)
+    except Exception as exc:
+        # producer_set raises only on an out-of-contract typed_command value
+        # (never str/None, or an empty string) -- this call always passes a
+        # non-empty str, so this branch should be unreachable in practice.
+        # Guarded anyway: a hot-path hook must never let a defect here become
+        # an unhandled exception (AC-7's "loud" is a log line, not a raise).
+        _log_producer_capture_failure(
+            session_id, typed_command, f"producer_set_raised:{type(exc).__name__}"
+        )
+        return
+
+    if not ok:
+        _log_producer_capture_failure(session_id, typed_command, "lock_failed")
+
+
 # --- Mutating half (AC9a) ----------------------------------------------------
 
 
@@ -835,7 +1079,7 @@ def _fire_apply(script_path: Path, artifact_path: str, session_id: str) -> None:
 
     Never overrides a denied claim: this function is only ever called by
     `main()` when `should_apply()` returned True, which requires `coast ==
-    "clear"` — a state `compute_coast` (claude-klabauter-side) never reports when the
+    "clear"` — a state `compute_coast` (engine-side) never reports when the
     claim was denied.
     """
     if not session_id:
@@ -870,13 +1114,40 @@ def main(stdin_text: str | None = None) -> int:
     _log_probe_event(payload)
 
     command_name = _normalize_command_name(payload.get("command_name"))
+
+    session_id = payload.get("session_id")
+    session_id = session_id if isinstance(session_id, str) else ""
+
+    cwd_value = payload.get("cwd")
+    cwd_value = cwd_value if isinstance(cwd_value, str) else None
+
+    # C3: capture the typed command for EVERY confirmed slash-command turn,
+    # not just the pickup/baton-grab verbs the rest of this hook reacts to --
+    # never let this crash the hot-path hook (AC-7's "loud" is the log line
+    # inside `_capture_producer` itself, not an unhandled exception here).
+    try:
+        _capture_producer(payload, command_name, session_id, cwd_value)
+    except Exception as exc:
+        # `_capture_producer` documents itself as never-raising, so this guard is
+        # unreachable by design and exists only so a defect inside it cannot take
+        # down a hook that fires on every prompt for every session on this
+        # machine. It still must not be the one silent hole in the capture path:
+        # a bare `pass` here would make exactly the unlogged skip AC-7 forbids,
+        # and would hide the bug that reached it.
+        # Review: code-reviewer -- normalize the same way `_capture_producer`'s
+        # own internal calls do (command_name or "unresolved"), so this
+        # outer-guard record's `typed_command` field is directly comparable
+        # to the inner ones when grepping the probe log.
+        _log_producer_capture_failure(
+            session_id,
+            command_name if command_name else "unresolved",
+            f"capture_raised:{type(exc).__name__}",
+        )
+
     is_pickup = command_name in _PICKUP_COMMAND_NAMES
     is_baton_grab = command_name in _BATON_GRAB_COMMAND_NAMES
     if not (is_pickup or is_baton_grab):
         return 0  # not a baton-taking verb -- silent pass
-
-    session_id = payload.get("session_id")
-    session_id = session_id if isinstance(session_id, str) else ""
 
     command_args = payload.get("command_args")
     command_args = command_args.strip() if isinstance(command_args, str) else ""
@@ -894,9 +1165,6 @@ def main(stdin_text: str | None = None) -> int:
         path_string = extract_baton_paths(path_string)
     if not path_string:
         return 0  # prose-only invocation -- nothing to compute a brief against
-
-    prompt_id = payload.get("prompt_id")
-    prompt_id = prompt_id if isinstance(prompt_id, str) else ""
 
     settings_home = resolve_settings_home()
     script_path = resolve_pickup_assemble_bin(settings_home)
@@ -928,8 +1196,8 @@ def main(stdin_text: str | None = None) -> int:
         if isinstance(apply_path, str) and apply_path:
             _fire_apply(script_path, apply_path, session_id)
 
-    pointer_path = _write_pointer_file(decisions, session_id, prompt_id)
-    additional_context = render_additional_context(decisions, pointer_path, prose)
+    pointer_paths = _write_decision_files(decisions, session_id)
+    additional_context = render_additional_context(decisions, pointer_paths, prose)
     if not additional_context:
         return 0
 

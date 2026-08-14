@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """archive-paper-trail.py — archive a research-session paper-trail workdir via fleet.archive_paper_trail.
 
@@ -76,6 +75,8 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
 
+cc_invoke.ensure_engine_on_path(__file__)
+
 _USAGE_FAIL = 2
 _TRANSPORT_FAIL = 3
 _ARCHIVE_DEGRADED = 4
@@ -90,11 +91,13 @@ def _resolve_repo_root(positional: str | None) -> str | None:
     if positional:
         return positional
     try:
+        from coordinator_core.win_portability import no_console_creationflags
+
         proc = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except OSError:
         return None

@@ -1,11 +1,15 @@
-#!/usr/bin/env python3
 """
-detect-staged-rollback — CLI trampoline over claude-klabauter
+detect-staged-rollback — CLI trampoline over the engine-repo's
 coordinator_core.ops.detect_staged_rollback.
 
-Read-and-report only against git; never mutates a repo. Not wired into any
-commit path — see the module docstring on coordinator_core.ops.detect_staged_rollback
-for why, and for the two named thresholds this detector fires on.
+Read-and-report only against git; never mutates a repo. This IS wired into
+Claude-klabauter's commit path — it is the sole entry in
+coordinator_core.ops.install_claude_klabauter_precommit_hook._GATE_REGISTRY, the
+registry that installs `.git/hooks/pre-commit`, which invokes this trampoline
+directly. See the module docstring on
+coordinator_core.ops.detect_staged_rollback for the two checks it runs (a
+staged-blob rollback detector and a staged mass-deletion tripwire), their
+thresholds, and their independent overrides.
 
 Usage:
     detect-staged-rollback [repo-root]
@@ -18,8 +22,11 @@ Usage:
 
 Exit codes:
     0 — clean (no rollback candidates, or candidates below threshold, or
-        COORDINATOR_OVERRIDE_PRECOMMIT_STAGED_ROLLBACK set)
-    1 — a staged-rollback finding crossed the breadth/depth threshold
+        COORDINATOR_OVERRIDE_PRECOMMIT_STAGED_ROLLBACK set; and no
+        mass-deletion finding, or one below threshold, or
+        COORDINATOR_OVERRIDE_PRECOMMIT_MASS_DELETION set)
+    1 — a staged-rollback finding crossed the breadth/depth threshold, and/or
+        a mass-deletion finding crossed the ratio/floor threshold
     2 — CLAUDE_KLABAUTER_ROOT resolution / import failure (this trampoline's own
         transport failure) OR a usage error from the op (unknown option).
         Both mean "the check never ran"; the stderr message distinguishes

@@ -30,6 +30,21 @@ rather than keeping a second copy of the regexes:
     ratchet test. Uses `iter_violations()` against each file's full current
     text and compares the per-file COUNT to a checked-in baseline.
 
+Two governed file CLASSES, one shared module
+----------------------------------------------
+`scope_class(path)` names which of two classes a path belongs to --
+`"doctrine"` (the prose corpus documented above, governed by
+`DOCTRINE_MD_DIRS`/`DOCTRINE_SCHEMAS_DIR`) or `"config"` (a repo-root
+`coordinator.local.md`, resolved from the CANDIDATE PATH's own nearest
+`.git` ancestor, never by comparison against this module's `REPO_ROOT` --
+`REPO_ROOT` names the plugin's own tree, which is the wrong repo for every
+sibling that mirrors this module). `is_in_scope()` stays the boolean either
+class implies. The config class is scanned by its own, tier-free predicate
+(`_scan_config_line`) rather than the prose rules above -- config debt wears
+none of the shapes those rules were tuned to catch. Both classes route
+through `iter_violations()`/`new_violations()` via an explicit
+`is_config`/`is_json` caller-supplied selector, never a path sniff.
+
 Two confidence tiers, not one
 ------------------------------
 `Violation.confidence` is `"high"` or `"ambiguous"`. HIGH-confidence hits are
@@ -207,14 +222,102 @@ class Violation:
 # Scope
 # ---------------------------------------------------------------------------
 
+#: Basename of the config-class file this module also governs -- a
+#: repo-root `coordinator.local.md`, resolved from the CANDIDATE PATH's own
+#: nearest `.git` ancestor (see `_find_repo_root`), never from `REPO_ROOT`
+#: (the plugin's own tree -- see module docstring's "Two governed file
+#: CLASSES" section for why an appended `DOCTRINE_MD_DIRS` entry can never
+#: reach a sibling repo's config).
+_CONFIG_FILE_BASENAME = "coordinator.local.md"
 
-def is_in_scope(path: Path) -> bool:
-    """True for an in-scope `.md` file under `DOCTRINE_MD_DIRS`, or a
-    `*.schema.json` file directly inside `DOCTRINE_SCHEMAS_DIR`."""
+#: Bound on the upward walk `_find_repo_root` performs -- this runs on the
+#: hook hot path, so the walk must terminate even against a pathological
+#: input (a target with no `.git` ancestor within any plausible repo depth).
+_REPO_ROOT_WALK_MAX_DEPTH = 32
+
+
+def _find_repo_root(path: Path) -> "Path | None":
+    """Walk up from `path`'s parent directory for a sibling `.git` entry,
+    stat-only (`Path.exists()`, never a `git rev-parse` subprocess -- this
+    runs on the hook hot path), bounded by `_REPO_ROOT_WALK_MAX_DEPTH`.
+    Returns `None` if no `.git` ancestor is found within the bound, or if
+    the walk reaches a filesystem root first."""
+    current = path.parent
+    for _ in range(_REPO_ROOT_WALK_MAX_DEPTH):
+        try:
+            found = (current / ".git").exists()
+        except OSError:
+            return None
+        if found:
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
+
+
+def surface_of(path: Path) -> "str | None":
+    """Which of the five `DOCTRINE_MD_DIRS` surfaces `path` belongs to --
+    `"skills"`, `"agents"`, `"commands"`, `"snippets"`, or `"wiki"` -- or
+    `None` if `path` is not an in-scope `.md` file under any of them.
+
+    A sibling accessor to `scope_class()`, added for the doctrinal surface
+    weight ratchet (C8, docs/plans/2026-08-13-doctrinal-surface-weight-
+    ratchet.md, § D6/D7). `scope_class()`'s three-value contract
+    (`"doctrine"`/`"config"`/`None`) cannot distinguish WHICH doctrine
+    surface a path is on -- only that it is one -- and the ratio guard
+    (`guard-doctrine-surface-ratio.py`) needs the surface name to select a
+    tier table. This composes `DOCTRINE_MD_DIRS` internally, exactly the
+    same population `scope_class()` already walks, rather than re-deriving
+    it: reuse of `DOCTRINE_MD_DIRS`, not a second population scoper.
+    `scope_class()`'s own return shape and suite are untouched by this
+    addition.
+
+    Returns the matching `DOCTRINE_MD_DIRS` root's directory name --
+    `"skills"`, `"agents"`, `"commands"`, `"snippets"`, `"wiki"` -- which is
+    also the exact surface key `coordinator/lib/doctrine_surface_tiers.py`'s
+    `tier_boundaries_for(surface)` and the C2 baseline
+    (`coordinator/tests/baselines/doctrine-surface-weight.json`) both key
+    on. Non-`.md` files (e.g. `*.schema.json`, which `scope_class()` also
+    recognises as `"doctrine"`) are not one of the five measured surfaces
+    and return `None` here, even though `scope_class()` would return
+    `"doctrine"` for them -- the two functions answer different questions.
+    """
     try:
         resolved = path.resolve()
     except Exception:
-        return False
+        return None
+    if resolved.suffix != ".md":
+        return None
+    for root in DOCTRINE_MD_DIRS:
+        try:
+            rel = resolved.relative_to(root)
+        except ValueError:
+            continue
+        if _EXEMPT_PATH_SEGMENTS.intersection(rel.parts[:-1]):
+            return None
+        return root.name
+    return None
+
+
+def scope_class(path: Path) -> "str | None":
+    """Which governed class `path` belongs to -- `"doctrine"`, `"config"`,
+    or `None` (out of scope). `is_in_scope()` is this function's boolean
+    projection; callers that need to treat the two classes differently
+    (the guard, the ratchet) call this directly instead."""
+    try:
+        resolved = path.resolve()
+    except Exception:
+        return None
+
+    if resolved.name == _CONFIG_FILE_BASENAME:
+        repo_root = _find_repo_root(resolved)
+        if repo_root is not None and resolved.parent == repo_root:
+            return "config"
+        # No `.git` ancestor, or the file isn't directly at that root --
+        # degrade to out-of-scope, never a false in-scope.
+        return None
 
     if resolved.suffix == ".md":
         for root in DOCTRINE_MD_DIRS:
@@ -223,18 +326,37 @@ def is_in_scope(path: Path) -> bool:
             except ValueError:
                 continue
             if _EXEMPT_PATH_SEGMENTS.intersection(rel.parts[:-1]):
-                return False
-            return True
-        return False
+                return None
+            return "doctrine"
+        return None
 
     if resolved.name.endswith(".schema.json"):
-        return resolved.parent == DOCTRINE_SCHEMAS_DIR.resolve()
+        if resolved.parent == DOCTRINE_SCHEMAS_DIR.resolve():
+            return "doctrine"
+        return None
 
-    return False
+    return None
+
+
+def is_in_scope(path: Path) -> bool:
+    """True for an in-scope `.md` file under `DOCTRINE_MD_DIRS`, a
+    `*.schema.json` file directly inside `DOCTRINE_SCHEMAS_DIR`, or a
+    repo-root `coordinator.local.md` (see `scope_class`)."""
+    return scope_class(path) is not None
 
 
 def iter_doctrine_surface_files() -> Iterable[Path]:
-    """Every in-scope file, sorted for deterministic reporting."""
+    """Every in-scope file, sorted for deterministic reporting -- the
+    doctrine-class corpus (`DOCTRINE_MD_DIRS`/`DOCTRINE_SCHEMAS_DIR`), plus
+    THIS repo's own config-class file if it exists (C4, config-file-class
+    plan): the ratchet this function feeds governs the config class too, so
+    a repo-root `coordinator.local.md` accretion is caught by the same
+    shrink-only budget rather than being exempted from the very ratchet its
+    own plan exists to extend. `REPO_ROOT`-relative here is correct (unlike
+    `scope_class`'s general classification of an arbitrary write target,
+    which must never use `REPO_ROOT` -- see that function's docstring):
+    this is enumerating THIS repo's OWN file for THIS repo's own ratchet
+    run, not classifying a payload path that could belong to any repo."""
     for root in DOCTRINE_MD_DIRS:
         if not root.is_dir():
             continue
@@ -245,6 +367,9 @@ def iter_doctrine_surface_files() -> Iterable[Path]:
         for path in sorted(DOCTRINE_SCHEMAS_DIR.glob("*.schema.json")):
             if is_in_scope(path):
                 yield path
+    config_path = REPO_ROOT / _CONFIG_FILE_BASENAME
+    if scope_class(config_path) == "config":
+        yield config_path
 
 
 # ---------------------------------------------------------------------------
@@ -276,13 +401,42 @@ def _dequote_leading(line: str) -> str:
     return stripped
 
 
+#: Inline code spans and quoted runs, anywhere in a line — the spans in which a
+#: forbidden phrase is being NAMED rather than used.
+_MENTION_SPAN = re.compile(
+    r"`[^`]*`"           # `this used to`
+    r'|"[^"]*"'          # "this used to"
+    r"|“[^”]*”"  # curly-quoted
+)
+
+
+def _strip_mentions(line: str) -> str:
+    """Blank out code spans and quotations so a MENTION of a forbidden phrase
+    does not read as a USE of it.
+
+    Doctrine that names the shapes it forbids — this repo's tripwire registry
+    row, a plan's ruling table, a skill briefing an executor — must be able to
+    quote them verbatim. Without this, the guard's own documentation trips the
+    guard, and the corpus learns to describe the shapes obliquely instead of
+    naming them, which costs the greppability the doctrine depends on.
+
+    Replaces each span with spaces rather than deleting it, so downstream
+    offsets into the returned string still line up with the original.
+    """
+    return _MENTION_SPAN.sub(lambda m: " " * len(m.group()), line)
+
+
 # ---------------------------------------------------------------------------
 # High-confidence rules
 # ---------------------------------------------------------------------------
 
 _ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _TOKEN = re.compile(r"\S+")
-_TOKEN_STRIP = ".,;:()[]\"'"
+#: `*` included so an italic-wrapped bare date token (`*2026-07-09.*`)
+#: strips down to a recognizable ISO date -- needed for
+#: `_bare_dated_parenthetical_hit`'s italic-span leg to see it as a date
+#: token at all (the token boundary otherwise includes the asterisks).
+_TOKEN_STRIP = ".,;:()[]\"'*"
 
 #: History-verb stems/phrases. Matched as a substring search over the whole
 #: line (multi-word phrases like "used to"/"no longer"/"ruled down" can't be
@@ -304,10 +458,48 @@ _HISTORY_VERB = re.compile(
     r"formerly|previously|renam\w*|amend\w*|narrow\w*|re-?spec'?d|"
     r"ruled\s+down|used\s+to|no\s+longer|"
     r"demoted|promoted|added|landed|shipped|completion|reversed|"
-    r"relocated|moved|dropped|restored|widened|corrected|confirmed"
+    r"relocated|moved|dropped|restored|widened|corrected|confirmed|"
+    r"bumped"
     r")(?![\w.-])",
     re.IGNORECASE,
 )
+
+#: Standalone changelog-narration phrases that must fire on their own -- NO
+#: co-located date or `_HISTORY_VERB` hit required (C7/plan Rulings). Each
+#: is a phrase whose presence alone, anywhere on a scannable line, is the
+#: changelog shape: "this used to work like X", "no longer applies",
+#: "the new version handles Y". Deliberately NOT folded into
+#: `_HISTORY_VERB` -- that constant only drives the proximity-gated
+#: verb-near-date rule, and these must fire WITHOUT a date at all.
+#: Deliberately narrower than a bare `\bused\s+to\b` -- that blanket form
+#: false-positived on the FUNCTIONAL "is used to <verb>" construction
+#: (`"RECEIVER-ROUTING-CRITICAL — used to determine delivery target"`,
+#: `"used to produce the audited synthesis"` in schema descriptions), which
+#: is present-tense purpose prose, not history narration. The plan's named
+#: shapes are specifically "this used to…" and "used to be…"; both keep the
+#: subject/copula immediately adjacent to "used to", which the functional
+#: construction never does.
+_USED_TO_STANDALONE = re.compile(
+    r"\b(this|it|that|they|which)\s+used\s+to\b|\bused\s+to\s+be\b", re.IGNORECASE
+)
+_NO_LONGER_STANDALONE = re.compile(r"\bno\s+longer\b(?!\s+than\b)", re.IGNORECASE)
+_NEW_VERSION_STANDALONE = re.compile(
+    r"\bnew\s+version\s+has\b|\bthe\s+new\s+version\b", re.IGNORECASE
+)
+
+#: `UPDATE:` as a paragraph/line preamble -- distinct from `_ORIGIN_HEADER`'s
+#: `Update <date>:` form, which requires a co-located date. This fires on a
+#: bare `UPDATE:` preamble with no date required.
+_UPDATE_PREAMBLE = re.compile(r"^UPDATE\s*:", re.IGNORECASE)
+
+#: `PM decision:`/`PM ruling:` used as a DATELINE/ATTRIBUTION PREAMBLE --
+#: i.e. leading the line/paragraph, colon-terminated, standing in for a
+#: changelog dateline ("PM decision: retired the old flag."). Distinct from
+#: the inline `_PM_RULING` ambiguous rule below, which matches the phrase
+#: ANYWHERE on a line and requires a date/verb signal to fire at all -- a
+#: leading dateline-shaped construction is unconditionally the changelog
+#: shape regardless of what follows it.
+_PM_DATELINE_PREAMBLE = re.compile(r"^PM\s+(decision|ruling)\s*:", re.IGNORECASE)
 
 _TOKEN_PROXIMITY_WINDOW = 15
 
@@ -454,9 +646,23 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
     if not fingerprint:
         return []
 
+    #: The doctrine-prose class's own use of the retirement-exemption
+    #: marker -- same marker/semantics as the config class (C1(c)): it
+    #: exempts the DATE-attached legs only (verb-near-date, bare dated
+    #: parenthetical, provenance tags), never the phrase-only rules below,
+    #: which carry no date to exempt.
+    exempt_date = bool(_RETIREMENT_EXEMPTION_MARKER.search(line))
+
+    # The date-attached legs read the mention-stripped line for the same reason
+    # the phrase-only legs do: a dated example quoted inside a code span or
+    # quotation is being shown, not asserted. `_strip_mentions` substitutes
+    # equal-length runs of spaces, so every offset below still indexes into the
+    # original line and `all_token_spans` stays aligned.
+    scannable = _strip_mentions(line)
+
     all_token_spans = [(m.start(), m.end()) for m in _TOKEN.finditer(line)]
-    date_spans = _date_token_positions(line)
-    verb_matches = list(_HISTORY_VERB.finditer(line))
+    date_spans = [] if exempt_date else _date_token_positions(scannable)
+    verb_matches = list(_HISTORY_VERB.finditer(scannable))
 
     read_tolerance = bool(_READ_TOLERANCE_CUES.search(line))
 
@@ -521,7 +727,7 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
                 )
             )
 
-    if _ITALIC_PROVENANCE.search(line):
+    if not exempt_date and _ITALIC_PROVENANCE.search(line):
         violations.append(
             Violation(
                 line_no,
@@ -532,7 +738,7 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             )
         )
 
-    if _DR_CHAIN.search(line) or _SUPERSEDED_DATE.search(line):
+    if not exempt_date and (_DR_CHAIN.search(line) or _SUPERSEDED_DATE.search(line)):
         # Avoid double-counting a line already caught by verb_date_hit for
         # the same underlying "superseded <date>" text.
         if not verb_date_hit:
@@ -559,7 +765,12 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             )
         )
 
-    if not violations and date_spans and _bare_dated_parenthetical_hit(line, date_spans):
+    if (
+        not violations
+        and not exempt_date
+        and date_spans
+        and _bare_dated_parenthetical_hit(line, date_spans)
+    ):
         violations.append(
             Violation(
                 line_no,
@@ -570,12 +781,152 @@ def _scan_text_line(line: str, line_no: int) -> "list[Violation]":
             )
         )
 
+    # ---- Phrase-only shapes: fire unconditionally, no co-located date or
+    # ---- `_HISTORY_VERB` hit required (C7/plan Rulings). ----
+    # A phrase inside a code span or quotation marks is being MENTIONED, not
+    # used — doctrine that names these shapes (this file's own tripwire row, the
+    # plan's ruling table) must be able to quote them without tripping the
+    # guard that forbids them. Same use/mention discrimination the preamble legs
+    # below get from `dequoted`.
+    mention_free = _strip_mentions(line)
+
+    if _USED_TO_STANDALONE.search(mention_free):
+        violations.append(
+            Violation(line_no, "history phrase (used to)", _excerpt(line), fingerprint, "high")
+        )
+
+    if _NO_LONGER_STANDALONE.search(mention_free):
+        violations.append(
+            Violation(line_no, "history phrase (no longer)", _excerpt(line), fingerprint, "high")
+        )
+
+    if _NEW_VERSION_STANDALONE.search(mention_free):
+        violations.append(
+            Violation(
+                line_no,
+                "history phrase (new version has / the new version)",
+                _excerpt(line),
+                fingerprint,
+                "high",
+            )
+        )
+
+    if _UPDATE_PREAMBLE.match(dequoted):
+        violations.append(
+            Violation(
+                line_no,
+                "changelog-shaped section header (bare UPDATE: preamble)",
+                _excerpt(line),
+                fingerprint,
+                "high",
+            )
+        )
+
+    if _PM_DATELINE_PREAMBLE.match(dequoted):
+        violations.append(
+            Violation(
+                line_no,
+                "PM decision:/PM ruling: used as dateline preamble",
+                _excerpt(line),
+                fingerprint,
+                "high",
+            )
+        )
+
     return violations
 
 
-def _iter_markdown_violations(text: str) -> "list[Violation]":
-    lines = text.split("\n")
+# ---------------------------------------------------------------------------
+# Config-class rules -- a separate, blunter, tier-free scan (C1(b)). Every
+# hit is `confidence="high"`, no proximity condition, no verb requirement --
+# deliberately unlike `_scan_text_line` above, which this does NOT share or
+# call. Reuses `_date_token_positions` (already excludes a date fused into a
+# path/filename token) and the `Violation`/`_violation_key` shapes so
+# `new_violations()` works unchanged over the new kinds.
+# ---------------------------------------------------------------------------
+
+#: A bare `DR-\d+` id, ANY occurrence -- deliberately unlike the prose path
+#: (`_scan_text_line`), which exempts a lone `DR-` citation as a live rule
+#: reference. Same `(?<![\w.-])`/`(?![\w.-])` boundary as `_HISTORY_VERB` so
+#: a `DR-1` inside a longer identifier never counts as a standalone id.
+_CONFIG_DR_ID = re.compile(r"(?<![\w.-])DR-\d+(?![\w.-])")
+
+#: Path fragments that name a rot-prone location -- a pointer into one of
+#: these is stale the moment the memo is actioned or the handoff archived.
+#: Matched as a plain substring search (not token-bounded): a config line
+#: citing one of these paths is the violation regardless of what surrounds
+#: it on the line.
+_CONFIG_ROT_PATH_RE = re.compile(r"cross-repo/inbox/|archive/|state/handoffs/")
+
+#: The retirement-exemption marker (C1(c)) -- CLAUDE.md § Conventions'
+#: carve-out for a retirement whose ABSENCE is the operative rule, made
+#: mechanical. Exempts a line from the DATE leg only. Not the
+#: rot-prone-path leg (no retirement rationale needs a live handoff
+#: pointer), and NOT the bare-`DR-` leg: a bare `DR-127` also reads as a
+#: plan-local `DR-N` or a sibling repo's id, so it identifies no single
+#: record. A retirement clause cites its record path-qualified, which
+#: `_CONFIG_DR_ID`'s `(?![\w.-])` boundary already lets through
+#: unflagged -- so exempting the leg would license only the one citation
+#: shape that cannot be resolved.
+_RETIREMENT_EXEMPTION_MARKER = re.compile(
+    r"<!--\s*doctrine-retirement-exemption:\s*[^>]*-->", re.IGNORECASE
+)
+
+
+def _scan_config_line(line: str, line_no: int) -> "list[Violation]":
+    """Config-file class predicate for one already-frontmatter/fence-
+    filtered line. Every violation is high-confidence and unconditional --
+    see module-level comment above.
+
+    Single backticks do not exempt a citation. Only a fenced block or the
+    `<!-- doctrine-retirement-exemption: ... -->` marker escapes this
+    scan."""
+    fingerprint = " ".join(line.split())
+    if not fingerprint:
+        return []
+
     violations: list = []
+    exempt_date = bool(_RETIREMENT_EXEMPTION_MARKER.search(line))
+
+    if not exempt_date:
+        for _start, _end in _date_token_positions(line):
+            violations.append(
+                Violation(line_no, "config: bare ISO date", _excerpt(line), fingerprint, "high")
+            )
+    for _m in _CONFIG_DR_ID.finditer(line):
+        violations.append(
+            Violation(line_no, "config: bare DR-<id>", _excerpt(line), fingerprint, "high")
+        )
+
+    for _m in _CONFIG_ROT_PATH_RE.finditer(line):
+        violations.append(
+            Violation(
+                line_no,
+                "config: rot-prone path reference (cross-repo/inbox, archive, or "
+                "state/handoffs)",
+                _excerpt(line),
+                fingerprint,
+                "high",
+            )
+        )
+
+    return violations
+
+
+def _iter_config_violations(text: str) -> "list[Violation]":
+    violations: list = []
+    for line_no, line in _iter_scannable_lines(text):
+        violations.extend(_scan_config_line(line, line_no))
+    return violations
+
+
+def _iter_scannable_lines(text: str) -> "Iterable[tuple[int, str]]":
+    """`(line_no, line)` for every line of `text` NOT inside the frontmatter
+    block (first `---`-delimited region) or a fenced code block -- the walk
+    shared by both the doctrine-prose scan and the config-class scan (C1(b):
+    skipping frontmatter/fences is load-bearing for the config class, since
+    the operative config lives in frontmatter)."""
+    lines = text.split("\n")
     in_fence = False
     in_frontmatter = False
 
@@ -597,8 +948,13 @@ def _iter_markdown_violations(text: str) -> "list[Violation]":
         if in_fence:
             continue
 
-        violations.extend(_scan_text_line(line, line_no))
+        yield line_no, line
 
+
+def _iter_markdown_violations(text: str) -> "list[Violation]":
+    violations: list = []
+    for line_no, line in _iter_scannable_lines(text):
+        violations.extend(_scan_text_line(line, line_no))
     return violations
 
 
@@ -638,15 +994,22 @@ def _iter_schema_json_violations(text: str) -> "list[Violation]":
     return violations
 
 
-def iter_violations(text: str, *, is_json: bool = False) -> "list[Violation]":
-    """Every changelog-prose violation in `text`, in traversal order.
+def iter_violations(
+    text: str, *, is_json: bool = False, is_config: bool = False
+) -> "list[Violation]":
+    """Every violation in `text`, in traversal order.
 
-    `is_json` selects the schema-file walk over the markdown line-scan; the
-    caller (which already knows the file's path/extension) decides. Pure
-    function over already-loaded text, same shape as its `_prompt_surface_
-    citations.py` sibling -- the caller decides whether that text is a whole
-    file (the ratchet test) or a reconstructed before/after (the hook, via
-    `new_violations`)."""
+    `is_config` selects the config-class scan (`_scan_config_line`) over the
+    doctrine-prose walk; `is_json` (checked only when `is_config` is False)
+    selects the schema-file walk over the markdown line-scan. Both are
+    explicit caller-supplied selectors -- the caller (which already knows
+    the file's `scope_class`) decides; this stays a pure text function, no
+    path sniffing inside it. Pure function over already-loaded text, same
+    shape as its `_prompt_surface_citations.py` sibling -- the caller
+    decides whether that text is a whole file (the ratchet test) or a
+    reconstructed before/after (the hook, via `new_violations`)."""
+    if is_config:
+        return _iter_config_violations(text)
     if is_json:
         return _iter_schema_json_violations(text)
     return _iter_markdown_violations(text)
@@ -659,13 +1022,19 @@ def _violation_key(v: Violation) -> tuple:
     return (v.kind, v.confidence, v.line_fingerprint)
 
 
-def new_violations(before: str, after: str, *, is_json: bool = False) -> "list[Violation]":
+def new_violations(
+    before: str, after: str, *, is_json: bool = False, is_config: bool = False
+) -> "list[Violation]":
     """Violations present in `after` that were NOT already present in
     `before`, as a multiset difference -- see `_prompt_surface_citations.
     new_violations` for the full "why this makes an advisory safe against
-    legacy debt" reasoning; identical shape here."""
-    before_counts = Counter(_violation_key(v) for v in iter_violations(before, is_json=is_json))
-    after_violations = iter_violations(after, is_json=is_json)
+    legacy debt" reasoning; identical shape here. `is_config`/`is_json`
+    forward to `iter_violations()` unchanged -- see its docstring."""
+    before_counts = Counter(
+        _violation_key(v)
+        for v in iter_violations(before, is_json=is_json, is_config=is_config)
+    )
+    after_violations = iter_violations(after, is_json=is_json, is_config=is_config)
     after_counts = Counter(_violation_key(v) for v in after_violations)
     delta = after_counts - before_counts
     if not delta:

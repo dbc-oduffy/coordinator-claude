@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
-bin/check-auto-reconcile.sh -- CLI trampoline over claude-klabauter's
+bin/check-auto-reconcile.sh -- CLI trampoline over the engine repo's
 coordinator_core.ops.check_auto_reconcile, rendering the "handoff.reconcile_open"
 op's surfaced[] list for the DoE fleet /workday-start Morning Briefing.
 
-Purpose: surface claude-klabauter's registered handoff.reconcile_open op during fleet
+Purpose: surface the engine repo's registered handoff.reconcile_open op during fleet
 /workday-start, mirroring how check-engine-drift.py nudges on the
 engine.drift probe. This is a READ-CONSUMER only -- this script itself never
 writes anything and never passes a dry_run flag of its own, forced or
@@ -31,7 +30,7 @@ resolves to. A stale negative-spec asserting "does not write anything" on a
 now-write-capable path is exactly the kind of claim that gets trusted later
 without re-checking -- see the corrected Negative-spec below.
 
-Invoke contract: claude-klabauter's coordinator_core.ops.check_auto_reconcile.get_response()
+Invoke contract: the engine repo's coordinator_core.ops.check_auto_reconcile.get_response()
 runs the already-registered "handoff.reconcile_open" op in-process (no
 subprocess hop) and returns the bare JSON-RPC 2.0 response dict:
   Success: {"jsonrpc":"2.0","id":1,"result":{"reconciled":[...],
@@ -47,35 +46,43 @@ health probe is out of scope and not this repo's call to make).
 
 Dual silent-skip rule (mirrors check-engine-drift.py's error-silent rule,
 doubled for this op's provisional-registration window):
-  (a) CLAUDE_KLABAUTER_ROOT cannot resolve (no claude-klabauter checkout on this machine) --
+  (a) CLAUDE_KLABAUTER_ROOT cannot resolve (no engine checkout on this machine) --
       a fleet-topology fact, not a health regression.
-  (b) .error present in the envelope, or the claude-klabauter-side module/op is not
+  (b) .error present in the envelope, or the engine-side module/op is not
       importable (provisional-op rollout window) -- DoE is a consumer and
-      must never nag about claude-klabauter's activation state.
+      must never nag about the engine repo's activation state.
 Both cases: exit 0, no output, no error.
 
 Render rule (offers-not-nags): result.surfaced empty or missing -> silent
 (nothing to report). result.surfaced non-empty -> one line per entry:
   [auto-reconcile] <handoff_id>: <reason> — <evidence>
 (the " — <evidence>" tail is omitted when evidence is empty/missing).
+result.gates_cleared[] additionally renders one would-flip line per entry
+where dry_run is truthy AND blocker_ids is non-empty (a dry-run clear/narrow
+verdict never reaches surfaced[] -- see handoff_reconcile.py's routing
+docstring -- so this is the only operator-visible signal it produces):
+  [auto-reconcile] <handoff_id>: gate cleared — would flip awaiting_gate →
+  <target> (dry-run, not applied) — blockers: <ids>
+An entry with empty blocker_ids (the non-dry-run vacuous no-op shape) is
+never rendered -- nothing to announce.
 Malformed/unparseable JSON -> silent, never crash. Exit 0 always.
 
-Rendering is deliberately self-contained (no claude-klabauter import) so the
+Rendering is deliberately self-contained (no engine import) so the
 COORDINATOR_AUTO_RECONCILE_JSON test seam below can exercise it without any
-Claude-klabauter checkout registered anywhere -- envelope-parsing/rendering is a DoE-side
-concern; claude-klabauter's module owns only the dispatch step.
+engine checkout registered anywhere -- envelope-parsing/rendering is a DoE-side
+concern; the engine repo's module owns only the dispatch step.
 
 Test seam (test-only): when COORDINATOR_AUTO_RECONCILE_JSON is set and
-non-empty, its value is used AS the invoke output -- the actual claude-klabauter call
+non-empty, its value is used AS the invoke output -- the actual engine-repo call
 below is skipped entirely -- and parsed normally. This lets
 check-auto-reconcile.test.sh drive the rendering logic without a live op
-or a real claude-klabauter checkout. The seam is checked BEFORE the CLAUDE_KLABAUTER_ROOT gate
+or a real engine checkout. The seam is checked BEFORE the CLAUDE_KLABAUTER_ROOT gate
 below, same ordering rationale as check-engine-drift.py.
 
-Spec backlink: docs/plans/2026-07-13-doe-auto-reconcile-adopt.md (C1) +
+Spec backlink: DoE-claude:pln-doe-side-adoption-of-claude-klabauter-au-284ced (C1) +
 cross-repo/inbox/2026-07-13-claude-klabauter-em-claude-klabauter-auto-reconcile-wire-surfaces.md
 
-Claude-klabauter-side dispatch: coordinator_core/ops/check_auto_reconcile.py::get_response().
+Engine-side dispatch: coordinator_core/ops/check_auto_reconcile.py::get_response().
 
 Negative-spec:
   - THIS SCRIPT does NOT write anything itself, and does NOT pass a dry_run
@@ -89,11 +96,12 @@ Negative-spec:
     guarantee that invoking it is side-effect-free end to end. Any dry_run
     flag it does not pass belongs to policy_loader.py's own fail-closed
     default (true on any absent/malformed policy), not to this script.
-  - Does NOT hardcode CLAUDE_KLABAUTER_ROOT -- resolves via cc_invoke._resolve_claude_klabauter_root()
-    (bin/lib/cc_invoke.py).
-  - Does NOT hard-error or nag when the op is unregistered/claude-klabauter absent --
+  - Does NOT hardcode CLAUDE_KLABAUTER_ROOT -- resolves via cc_invoke.ensure_engine_on_path()
+    (bin/lib/cc_invoke.py): CLAUDE_KLABAUTER_ROOT env -> self-location walk-up to the
+    enclosing engine checkout -> the pointer-file/registry ladder.
+  - Does NOT hard-error or nag when the op is unregistered/engine absent --
     degrades to a fully silent skip (exit 0, no output). DoE is a consumer;
-    it must never nag about claude-klabauter's activation state.
+    it must never nag about the engine repo's activation state.
 """
 
 from __future__ import annotations
@@ -106,13 +114,18 @@ from typing import Any, Dict, List, Optional
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import ensure_engine_on_path  # noqa: E402
 
 
 def _render(response: Any) -> List[str]:
-    """Render result.surfaced[] as one '[auto-reconcile] ...' line per entry.
+    """Render result.surfaced[] as one '[auto-reconcile] ...' line per entry,
+    PLUS one dry-run would-flip line per qualifying result.gates_cleared[]
+    entry (clear/narrow verdicts computed under dry_run=true never reach
+    surfaced[] -- see handoff_reconcile.py's D1/gate_evidence docstring
+    sections -- so this second pass is the only operator-visible signal a
+    dry-run gate-clear produces at all).
 
-    Self-contained (no claude-klabauter import) -- see module docstring.
+    Self-contained (no engine import) -- see module docstring.
     """
     if not isinstance(response, dict):
         return []
@@ -123,7 +136,7 @@ def _render(response: Any) -> List[str]:
         return []
     surfaced = result.get("surfaced") or []
     if not isinstance(surfaced, list):
-        return []
+        surfaced = []
     lines: List[str] = []
     for entry in surfaced:
         if not isinstance(entry, dict):
@@ -135,12 +148,30 @@ def _render(response: Any) -> List[str]:
         if evidence:
             line += " — {}".format(evidence)
         lines.append(line)
+
+    gates_cleared = result.get("gates_cleared") or []
+    if not isinstance(gates_cleared, list):
+        gates_cleared = []
+    for entry in gates_cleared:
+        if not isinstance(entry, dict):
+            continue
+        blocker_ids = entry.get("blocker_ids") or []
+        if not entry.get("dry_run") or not isinstance(blocker_ids, list) or not blocker_ids:
+            continue
+        handoff_id = str(entry.get("handoff_id", "")).replace("\n", " ").replace("\r", " ")
+        verdict = str(entry.get("verdict", "")).replace("\n", " ").replace("\r", " ")
+        blockers = ", ".join(str(b).replace("\n", " ").replace("\r", " ") for b in blocker_ids)
+        target = "ready_to_fire" if verdict == "clear" else "awaiting_gate (narrowed)"
+        lines.append(
+            "[auto-reconcile] {}: gate cleared — would flip awaiting_gate → {} "
+            "(dry-run, not applied) — blockers: {}".format(handoff_id, target, blockers)
+        )
     return lines
 
 
 def _get_raw_response() -> Optional[Dict[str, Any]]:
     """Return the parsed JSON-RPC response dict, or None on any silent-skip
-    condition (test-seam malformed JSON, CLAUDE_KLABAUTER_ROOT unresolved, claude-klabauter
+    condition (test-seam malformed JSON, CLAUDE_KLABAUTER_ROOT unresolved, engine
     module/op not importable, dispatch failure)."""
     raw_env = os.environ.get("COORDINATOR_AUTO_RECONCILE_JSON", "")
     if raw_env:
@@ -149,14 +180,9 @@ def _get_raw_response() -> Optional[Dict[str, Any]]:
         except Exception:
             return None
 
-    try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-    except RuntimeError:
-        return None
+    claude_klabauter_root = ensure_engine_on_path(__file__)
     if not claude_klabauter_root:
         return None
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
 
     try:
         from coordinator_core.ops.check_auto_reconcile import get_response

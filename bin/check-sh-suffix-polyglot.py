@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """bin/check-sh-suffix-polyglot.py — Tripwire: SH-SUFFIX-POLYGLOT-RATCHET
 
 Purpose: Prevents NEW `.sh`-suffixed sh/python polyglot trampolines from being
@@ -13,7 +12,7 @@ files repo-wide are pure-Python bodies wearing a bash costume) and a real
 per-invocation cost: the sh-shim re-exec measures ~326ms/invocation on Windows
 versus invoking the same Python body directly (1306ms via the shim vs 980ms
 direct, byte-identical output — see state/audits/2026-07-20-sh-suffixed-
-python-trampolines.md in the DoE-claude clone, not this repo; the path is
+python-trampolines.md in the coordinator doctrine repo's clone, not this repo; the path is
 qualified deliberately, and its absence here is not evidence it is missing).
 
 This is a RATCHET, not a retroactive gate: 136 pre-existing offenders are
@@ -46,7 +45,7 @@ coordinator/bin/coordinator-write-review-trail-facade.test.sh, genuine bash
 that calls `command -v python3` at line 40 — not a trampoline, not in-class).
 
 Spec backlink: state/audits/2026-07-20-sh-suffixed-python-trampolines.md
-  (DoE-claude clone — see the citation above for why this path does not
+  (coordinator doctrine repo clone — see the citation above for why this path does not
   resolve in this repo)
 Doctrine: docs/wiki/cross-platform-shell-portability.md § sh/python trampoline
 Companion check: coordinator/bin/check-bin-sh-polyglot.py (asserts every

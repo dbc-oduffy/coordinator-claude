@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """doctor-catalog-gen.py — SSOT metadata block generator for coordinator-doctor.md.
 
 Purpose: read bin/doctor-probes.toml and emit a compact markdown metadata
@@ -49,6 +48,8 @@ if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 
 from coordinator_data_root import data_root  # noqa: E402
+
+GENERATES = []  # --write targets coordinator-doctor.md at the resolved wiki path, which resolves to DoE-claude's coordinator/docs/wiki/ tree (this repo has no coordinator/docs/) — a cross-repo write, never into claude-klabauter's own tree (see module docstring "Cross-repo write note")
 
 # ---------------------------------------------------------------------------
 # Sentinel markers (must stay byte-identical across all write/check operations)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """sweep-actioned-memos.py — archive actioned cross-repo memos via fleet.archive_actioned_memos.
 
@@ -70,15 +69,15 @@ _MAX_REPORTED_FAILURES = 10
 
 
 def _import_housekeeping_seam():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import `housekeeping_liveness.{stamp_liveness,ARCHIVE_SWEEPS}`.
+    """Resolve CLAUDE_KLABAUTER_ROOT (self-location-first) and import
+    `housekeeping_liveness.{stamp_liveness,ARCHIVE_SWEEPS}`.
 
     Mirrors `sweep-boot.py::_import_housekeeping_seam` / `sweep-terminal-plans.py`'s copy —
     best-effort; returns None on any resolution/import failure.
     """
     try:
-        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        if cc_invoke.ensure_engine_on_path(__file__) is None:
+            return None
         from coordinator_core.ops.ceremony.housekeeping_liveness import (
             ARCHIVE_SWEEPS,
             stamp_liveness,
@@ -118,9 +117,9 @@ def _resolve_repo_root(positional: list[str]) -> str | None:
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **cc_invoke._no_console_kw(cc_invoke.resolve_engine_root(__file__)),  # popup-safe-env-suppressed
         )
-    except OSError:
+    except (OSError, RuntimeError):
         return None
     resolved = (proc.stdout or "").strip()
     if proc.returncode != 0 or not resolved:

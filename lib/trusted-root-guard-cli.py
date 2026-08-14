@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """trusted-root-guard-cli.py — Python-native CLI trampoline over claude-klabauter
 coordinator_core.trusted_root_guard.coordinator_trusted_root_guard_or_exit.
 
@@ -35,7 +34,7 @@ Exit codes (parity with the former bash sourced-lib function's contract):
       the business-rejection code above (porter addendum §3/3b) — a
       claude-klabauter-link failure must not read as "untrusted root".
 
-Spec backlink: docs/plans/2026-07-19-bash-clean-slate-residual-migration.md
+Spec backlink: docs/plans/2026-07-19-bash-clean-slate-residual-migration.md [DEAD-CITATION: plan file never committed to this repo]
                § unit-coordinator-session-family
 Canonical trust-core: coordinator_core.trusted_root_guard (claude-klabauter) —
                        prose/trust-core doc-of-record remains

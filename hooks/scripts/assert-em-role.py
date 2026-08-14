@@ -172,6 +172,131 @@ def _read_stdin(timeout: float = 2.0) -> str:
     return box["data"]
 
 
+def _resolve_claude_config_dir() -> Path | None:
+    """Resolve `<claude-config>` -- the harness's own session-registry root.
+
+    Deliberately NOT an import of the fleet's control-plane engine module
+    (this hook must degrade cleanly even when that engine is entirely
+    absent from the machine): a minimal, self-contained mirror of that
+    engine's own `claude_config_dir()` precedence (`CLAUDE_CONFIG_DIR` env
+    override, else `CLAUDE_HOME`-or-home / ".claude"). Returns None on any
+    resolution failure -- caller degrades to omitting the contention line,
+    never to an error.
+    """
+    override = os.environ.get("CLAUDE_CONFIG_DIR")
+    if override:
+        try:
+            return Path(override).resolve()
+        except OSError:
+            return None
+    home_override = os.environ.get("CLAUDE_HOME")
+    try:
+        home = Path(home_override).resolve() if home_override else Path.home()
+    except OSError:
+        return None
+    return home / ".claude"
+
+
+def _compute_contention(repo_root: Path | None, session_id: str | None, timeout: float = 0.3):
+    """Best-effort, bounded (repo_count, box_count) of *registered sessions*
+    -- never a claim about what they are doing (brief: tasks/2026-08-13-
+    addressability-retraction/briefs/C4.md "no claim about peer internal
+    state" -- the harness registry's own `status` field is never read here).
+
+    Source: the harness's own session registry,
+    `<claude-config>/sessions/*.json` -- one file per registered session
+    process, box-wide, written by the harness itself (not by coordinator).
+    Reading it directly as plain JSON keeps this hook independent of any
+    other engine module being installed at all. `repo_root` (already
+    resolved by `_consumer_repo_root`) is matched against each record's
+    `cwd` field walked up to its nearest `.git` ancestor, so a peer opened
+    in a subdirectory still counts. The current session (by `sessionId`) is
+    excluded from both counts via `exclude_session_id`.
+
+    NEVER PERSISTED: computed fresh, nothing written to disk. Runs inside a
+    daemon thread with a hard `join` timeout -- mirrors `_read_stdin`'s
+    bounded-read shape above -- so a slow or huge registry directory cannot
+    hang this SessionStart hook. Returns None on ANY failure or timeout;
+    caller MUST degrade to omitting the contention line entirely, never to
+    a boot error, hang, or partial payload.
+
+    `timeout` default is deliberately 0.3s, not the ~2ms typical-case cost
+    measured in normal operation: this timeout STACKS on top of `main()`'s
+    pre-existing `_read_stdin(2.0)` bound in the same synchronous call
+    path, so the combined worst-case hook latency is `_read_stdin`'s bound
+    plus this one -- a future edit raising this default quietly doubles
+    (or worse) that combined bound. This is best-effort, existence-only
+    peer data that degrades to omitting a line on timeout; it has no claim
+    on the boot path's latency budget, so keep this value small. Do not
+    raise it without re-deriving the combined worst-case bound.
+
+    Nested-`.git` note: a peer whose `cwd` resolves to a subdirectory of a
+    NESTED git repo (e.g. a submodule) under `repo_root` is deliberately
+    NOT counted into `repo_count` -- the ancestor walk below breaks at the
+    first `.git`-bearing directory it meets, before ever reaching
+    `repo_root`, so a submodule-nested peer reads as "a different repo"
+    rather than as part of this one. This is intentional, not an
+    accidental side effect of loop order: a nested repo genuinely is a
+    distinct repo for this count's purposes.
+    """
+    if repo_root is None:
+        return None
+
+    box = {"result": None}
+
+    def _work(exclude_session_id: str | None) -> None:
+        try:
+            config_dir = _resolve_claude_config_dir()
+            if config_dir is None:
+                return
+            sessions_dir = config_dir / "sessions"
+            if not sessions_dir.is_dir():
+                return
+            repo_count = 0
+            box_count = 0
+            for entry in sessions_dir.glob("*.json"):
+                try:
+                    record = json.loads(entry.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if exclude_session_id and record.get("sessionId") == exclude_session_id:
+                    continue
+                box_count += 1
+                raw_cwd = record.get("cwd")
+                if not isinstance(raw_cwd, str) or not raw_cwd:
+                    continue
+                try:
+                    cwd_path = Path(raw_cwd).resolve()
+                except OSError:
+                    continue
+                for directory in (cwd_path, *cwd_path.parents):
+                    if directory == repo_root:
+                        repo_count += 1
+                        break
+                    if (directory / ".git").exists():
+                        break
+            box["result"] = (repo_count, box_count)
+        except Exception:
+            box["result"] = None
+
+    t = threading.Thread(target=_work, args=(session_id,), daemon=True)
+    t.start()
+    t.join(timeout)
+    return box["result"]
+
+
+_PEER_READ_POINTER = (
+    "assert-em-role: {repo_count} other session(s) registered in this repo, "
+    "{box_count} on this machine -- existence only, never what they are doing. "
+    "Peer-read: session-liveness-cli resolves; artifact_owner is a capability "
+    "with no fresh-install command line. A count "
+    "is not a stand-down signal and not permission to send -- weigh the "
+    "sync-vs-async gate before sending.\n\n"
+)
+
+
 def _w(text: str) -> None:
     """Write raw UTF-8 bytes to stdout -- NOT print()/sys.stdout.write().
 
@@ -255,6 +380,16 @@ def main(argv: list) -> int:
 
         _w(snippet_text)
         _w("\n")
+
+    session_id = payload.get("session_id") if isinstance(payload.get("session_id"), str) else None
+    contention = _compute_contention(repo_root, session_id)
+    if contention is not None and any(contention):
+        repo_count, box_count = contention
+        try:
+            _w(_PEER_READ_POINTER.format(repo_count=repo_count, box_count=box_count))
+        except Exception:
+            pass  # degrade-and-continue -- a future stray brace in the
+            # literal prose must not abort the whole hook
 
     return 0
 

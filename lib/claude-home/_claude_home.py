@@ -67,6 +67,13 @@ Importable from Python callers that prefer not to shell out:
     cfg  = claude_config_path()       # ~/.claude.json
     sh   = settings_home()            # the coordinator settings home
 
+`coordinator/lib/claude-home/` is a hyphenated directory and cannot be
+imported as a normal package. Callers outside this directory that want
+`resolve_home_base()` / `home_dir()` without hand-rolling `sys.path` or
+`importlib` work should import the sibling shim instead:
+
+    from claude_home_shim import resolve_home_base, home_dir
+
 JSON read/write helpers for ~/.claude.json (generic primitives for any
 install script that touches the config; atomic-write semantics + BOM-tolerant
 read + JSONDecodeError enriched with file path):
@@ -114,7 +121,7 @@ def _warn_machine_local_divergence_once(message: str) -> None:
     Silenced after the first call so repeated divergence checks do not flood
     stderr.
 
-    Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     global _legacy_machine_local_divergence_warned
     if not _legacy_machine_local_divergence_warned:
@@ -130,7 +137,7 @@ def _warn_machine_local_deprecated_once(message: str) -> None:
     Silenced after the first call so repeated machine_local_dir() lookups
     do not flood stderr.
 
-    Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     global _legacy_machine_local_deprecated_warned
     if not _legacy_machine_local_deprecated_warned:
@@ -191,6 +198,31 @@ def home_dir() -> Path:
     return Path.home()
 
 
+def resolve_home_base() -> Path:
+    """Return the resolved $HOME analog — an importable alias for home_dir().
+
+    Identical resolution to home_dir() (see its docstring for the precedence
+    chain); this name exists so consumers that only need the base directory
+    have a self-describing import target next to claude_home_dir() /
+    claude_config_path() / settings_home(), without reaching for the more
+    ambiguously-named home_dir(). Additive — home_dir() is unchanged and
+    remains the canonical implementation; this function is a one-way alias
+    that delegates to it (home_dir() itself delegates to nothing).
+
+    No production caller imports resolve_home_base() (or the
+    claude_home_shim re-export) yet — every existing home-resolution site in
+    coordinator_core/ and coordinator/ still hand-rolls its own
+    `os.environ.get(...) or ... or expanduser(...)` ladder inline. Until
+    those sites are migrated onto this seam, "no order left to get wrong" is
+    aspirational for this export specifically: the rung-order lint is
+    currently the only thing guarding those ~30 hand-rolled sites, not this
+    function.
+
+    Spec backlink: pln-home-resolution-gate-family-ma-e5c146 § C6
+    """
+    return home_dir()
+
+
 def claude_home_dir() -> Path:
     """Return the resolved ~/.claude/ directory (Claude Central install)."""
     return home_dir() / ".claude"
@@ -224,7 +256,7 @@ def settings_home() -> Path:
         sibling-to-~/.claude semantics are deliberate — see design doc).
       - Does NOT read any file from the settings home (pure location lookup).
 
-    Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     override = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if override is not None:
@@ -263,7 +295,7 @@ def machine_local_dir() -> Path:
 
     Use settings_home() for the settings-home root itself.
 
-    Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     new = settings_home() / "machine-local"
     legacy = claude_home_dir() / "machine-local"
@@ -374,7 +406,7 @@ def _check_machine_local_divergence() -> None:
     symlink at ~/.claude/machine-local → <settings-home>/machine-local resolves
     to the SAME realpath and MUST NOT trigger a warning.
 
-    Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C1
+    Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C1
     """
     legacy = claude_home_dir() / "machine-local"
     new = settings_home() / "machine-local"

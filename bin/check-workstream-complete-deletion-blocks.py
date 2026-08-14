@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-workstream-complete-deletion-blocks.py — CLI trampoline over claude-klabauter
@@ -40,7 +39,7 @@ docstring):
   3 — environment error (not in a git repo)
 
 Spec backlink: docs/plans/2026-06-15-workstream-complete-self-clean.md (Chunk 6)
-Spec backlink: docs/plans/2026-07-16-wsc-pure-python-tail-rebuild.md § C3 (AC10)
+Spec backlink: pln-rebuild-the-wsc-commit-ceremon-f7c2a0 § C3 (AC10)
 Doctrine: docs/wiki/cruft-sweep-cadence.md § Three-layer design (Layer 3)
 
 DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a

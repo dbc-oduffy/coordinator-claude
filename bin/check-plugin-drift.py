@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-plugin-drift.py — CLI trampoline over claude-klabauter
@@ -24,7 +23,7 @@ class); 2 — argument error or registry-read failure.
 Environment: MACHINE_LOCAL_REGISTRY_DIR, HOME, CURRENT_PYPROJECT_HASH_OVERRIDE
 (consumed by the plugin-live-install refresh's post-flight invocation).
 
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md § T3a-g2/T3b
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
 Port of: coordinator/bin/check-plugin-drift.py (dd820339^ recovered pre-stub body)
 """
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """lib/read_mirrors.py — plugin.mirrors registry parser.
 
 Port of: read-mirrors.sh (DoE 721a71f4, 2026-07-21). Single source of truth

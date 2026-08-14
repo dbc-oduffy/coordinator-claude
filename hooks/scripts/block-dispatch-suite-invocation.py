@@ -115,8 +115,9 @@ matcher in hooks.json -- first-deny-wins in registration order
 (hook-best-practices.md § Multi-hook deny aggregation) -- so a suite-
 invocation deny is never shadowed by that hook's own (unrelated) verdict.
 
-ADVISORY LEG -- the directory-breadth nudge (added 2026-07-28). Additive
-over everything above, and it NEVER denies. Gap this closes: DR-088 R9
+PRECISION LEG -- the directory-breadth refusal. Additive over everything
+above, and it denies on the same contract as the identity leg. Gap this
+closes: DR-088 R9
 (claude-klabauter's PreToolUse(Bash) layer 3 precision leg) correctly refuses a
 directory positional to a DISPATCHED agent -- Tier T is file-and-node-id
 precision for a subagent -- but that refusal fires at the dispatched
@@ -131,18 +132,39 @@ unrunnable as written.
 
 This leg fires when the dispatch text names a pytest invocation carrying
 a bare DIRECTORY positional in imperative position -- the same shape R9
-will refuse downstream -- and, on stdout, offers the better alternative
-(name node ids or explicit file paths) and states plainly that a
-dispatched agent cannot run the directory form and will narrow, so
-verifying the breadth the brief named is the EM's own job afterwards. A
-directory-scoped brief is NOT wrong -- an EM intending to verify breadth
-itself post-dispatch has every right to write one -- so this leg is
-strictly a design-as-offers nudge, never a gate.
+will refuse downstream -- and denies it, leading with the alternative
+(name the touched test files or node ids).
 
-Precedence -- deny wins. This leg is only reached when the identity deny
-leg above did NOT already fire (`matches`/`imperative` empty); a dispatch
-that is ALSO suite-shaped-imperative gets the deny, not the advisory, and
-the advisory is never emitted alongside a deny for the same tool call.
+Why this is a deny and not the nudge it shipped as (2026-07-28 to
+2026-08-07). The nudge was authored on the premise that a directory-scoped
+brief is legitimate authoring an EM might intend, so blocking it would be
+the DR-058 failure mode. Two facts retired that premise:
+
+  - DR-088 § Decision already rules that "a dispatch brief must never
+    contain a Tier-F or Tier-U command," and that "a brief carrying one is
+    malformed regardless of what the agent subsequently does with it." A
+    directory positional IS the fast tier for the repos in this fleet
+    (this doctrine-plane repo's own `fast_test_cmd` is `<runner> coordinator/tests`), so the
+    nudge left the guard silent on precisely the shape the ratified rule
+    names as malformed. The layer enforced the half of R9 that was cheap
+    and left the half that mattered to prose.
+  - Measured 2026-08-07: an EM under no time pressure wrote suite runs
+    plus baseline-diffs into three briefs at once, against a doctrine that
+    says a green targeted test suffices to commit. The observed failure is
+    not an EM who needs reminding, it is a generic verify-before-commit
+    reflex that outvotes specific doctrine -- the exact "correct rule
+    written down and lost to louder instructions" mechanism DR-088 was
+    raised over. A nudge is another quiet line for that reflex to outvote.
+
+The override hatches are what preserves the legitimate case: an EM that
+genuinely intends to verify breadth itself post-dispatch says so in one
+marker line and proceeds. That is design-as-offers with the offer kept and
+the default inverted -- not a gate with no exception path.
+
+Precedence -- one envelope per call. This leg is only reached when the
+identity leg above did NOT already fire (`matches`/`imperative` empty), so
+a dispatch that is ALSO suite-shaped-imperative gets that leg's deny and
+never both.
 
 Classification is 100% claude-klabauter's, same boundary as the deny leg above:
 `coordinator_core.bash_guards.check_test_suite_invocation.
@@ -169,11 +191,9 @@ hatches (env var, sentinel file, in-prompt marker) are checked earlier in
 dispatch that already carries one of them never reaches this leg either,
 so there is no separate override surface to build here.
 
-Envelope shape -- advisory, NOT deny: `{"hookSpecificOutput":
-{"hookEventName": "PreToolUse", "additionalContext": "<msg>"}}` on
-stdout, exit 0. Never `permissionDecision: "deny"`. Mirrors
-`nudge-em-code-dispatch.py` / `nudge-multiwave-workflow.py`'s advisory
-contract, per `coordinator/docs/pretooluse-deny-contract.md`.
+Envelope shape -- deny, identical to the identity leg: `permissionDecision:
+"deny"` + `permissionDecisionReason` on stdout, exit 0, per
+`coordinator/docs/pretooluse-deny-contract.md`. exit 1 does NOT block.
 
 Spec backlink: cross-repo/inbox/2026-07-28-example-market-data-repo-em-dispatched-agent-scoped-test-breadth.md
 Spec backlink: docs/plans/2026-07-23-dr-088-ladder-enforcement-layers.md § C8
@@ -242,7 +262,7 @@ def _git_root() -> "Optional[str]":
     same constraint as _engine_root.py). Walks upward from the session's
     cwd -- NOT this script's own on-disk location (that would resolve
     the coordinator *plugin source tree*, which is only the same repo as
-    the session's working tree in the DoE-claude dogfood case; anywhere
+    the session's working tree in the doctrine-plane dogfood case; anywhere
     else it silently points the sentinel lookup at the wrong repo). This
     mirrors `_classify()`'s own `cwd=os.getcwd()` assumption two
     functions below. Any failure returns None -- the sentinel check is
@@ -419,9 +439,19 @@ def _classify_precision(text: str) -> "list[Any]":
         return []
 
 
-def _precision_advisory_envelope(text: str) -> "Optional[dict[str, Any]]":
-    """Build the advisory `hookSpecificOutput` envelope for a directory-
-    scoped imperative match, or None if there is nothing to advise on.
+def _precision_deny_envelope(text: str) -> "Optional[dict[str, Any]]":
+    """Build the DENY `hookSpecificOutput` envelope for a directory-scoped
+    imperative match, or None if there is nothing to refuse.
+
+    Negative spec -- this leg does NOT refuse file-path or node-id scoped
+    briefs. Tier T is precisely what a dispatched agent is entitled to, and
+    a brief naming the caller's own test files or a `path::test_name` node
+    id carries no blast radius (DR-088 R9's carve-out). Only a bare
+    DIRECTORY positional is refused here, because a directory positional in
+    a brief is the fast tier in disguise: it is what an EM writes when it
+    means "run the suite", and R9 already refuses it downstream at the
+    dispatched agent's own Bash call.
+
     Never raises -- any unexpected shape from `_classify_precision`'s
     return value (missing `.directory_args`, missing `.matched_text`, etc.)
     degrades to None (silent allow), same fail-open contract as the rest
@@ -442,15 +472,16 @@ def _precision_advisory_envelope(text: str) -> "Optional[dict[str, Any]]":
         dirs_desc = ", ".join(repr(d) for d in directory_args) or "a directory"
 
         message = compose(
-            f"{detected} targets directory {dirs_desc} -- DR-088 R9 "
-            "refuses it downstream, so name file paths or node ids "
-            "instead.",
+            f"{detected} targets directory {dirs_desc} -- a brief may not "
+            "carry a Tier-F/U command. Name the touched test files or node "
+            "ids, or use the documented per-dispatch override.",
             anchor=_WIKI_ANCHOR,
         )
         return {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
-                "additionalContext": render(message),
+                "permissionDecision": "deny",
+                "permissionDecisionReason": render(message),
             }
         }
     except Exception:
@@ -466,11 +497,21 @@ def _compose_precision_deny_reason(
     short; the full three-hatch override rationale, the remediation-vs-
     reword distinction, and the classifier-defect note all relocated to
     `_WIKI_ANCHOR` (see the relocation fragment this hook's conversion
-    produced)."""
+    produced).
+
+    2026-08-11 (PM-raised finding): no longer interpolates
+    `_OVERRIDE_MARKER_PREFIX` into the composed prose. The prior render
+    handed the reader a working, ready-to-paste override incantation
+    inline in deny text -- a pasteable marker an agent can add to its own
+    next prompt, not merely a bare setting name. The override still
+    exists and still works (`_has_override_marker` is unchanged); the
+    prose now only states that a documented override exists, and
+    `_WIKI_ANCHOR` -- already appended by `render()` -- is the one place
+    its exact syntax is spelled out."""
     del matched_text, remediation  # now covered by the wiki anchor, not restated per-deny
     message = compose(
-        f"{tool_name}: Tier-{tier} suite command ({detected}) -- add "
-        f"{_OVERRIDE_MARKER_PREFIX} <reason> to override.",
+        f"{tool_name}: Tier-{tier} suite command ({detected}) -- overridable "
+        "for this one dispatch; see the doc for how.",
         anchor=_WIKI_ANCHOR,
     )
     return render(message)
@@ -524,10 +565,10 @@ def main() -> int:
     matches = _classify(text)
     imperative = [m for m in matches if getattr(m, "position", "") == "imperative"] if matches else []
     if not imperative:
-        # Deny leg didn't fire -- try the advisory leg (directory-breadth
-        # nudge). Deny wins by construction: we only reach here once the
-        # deny leg above has already declined to fire for this dispatch.
-        envelope = _precision_advisory_envelope(text)
+        # Identity leg didn't fire -- try the precision leg (directory
+        # breadth). Reached only once the leg above has already declined,
+        # so exactly one envelope is ever emitted per tool call.
+        envelope = _precision_deny_envelope(text)
         if envelope is None:
             return 0
         sys.stdout.write(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")))

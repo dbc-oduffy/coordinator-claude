@@ -20,7 +20,7 @@ order: 1
 
 Name the delta in the re-dispatch brief ("amendment touched §X and the slate table;
 scope your check to those"). A full re-run is correct only when the amendment was
-structural enough that the prior pass's coverage no longer holds.
+structural enough that the prior pass's coverage fails to hold.
 
 Both checks below fire independently — a plan can be non-trivial AND cite C++/UE APIs, in which case both workers run.
 

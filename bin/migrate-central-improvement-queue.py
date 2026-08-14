@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-central-improvement-queue.py — one-shot migration of the universal central
 improvement queue from prose (state/coordinator-improvement-queue.md) into structured
@@ -33,6 +32,8 @@ import argparse
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
+
+GENERATES = []  # default input/output default to ~/.claude/state/... -- a different repo, outside claude-klabauter's tracked tree
 
 DEFAULT_INPUT = os.path.join(
     os.path.expanduser("~"), ".claude", "state", "coordinator-improvement-queue.md"

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """untested-platform-advisory.py — warn once at ceremony start when the running
 platform is declared-but-untested (packageability contract point 4).
 
@@ -34,7 +33,7 @@ out, no `/etc/os-release` read); the manifest path is derived from `__file__`
 via `pathlib`/`os.path` (no `expanduser("~")`/`HOME` dependency — this script
 never needs the user's home directory, only its own on-disk location).
 
-Spec backlink: docs/plans/2026-07-20-tested-platforms-teeth-windows-honest.md § C4
+Spec backlink: DoE-claude:pln-platform-verified-is-a-distinc-a076aa § C4
 """
 from __future__ import annotations
 

@@ -15,7 +15,7 @@ table is reproduced in each guard clause below via inline comments.
 
 Candidate-resolution seam: claude-klabauter's `goal.match_candidates` op
 (coordinator_core/ops/goals_match.py — already exists, so this port is the "thin
-DoE stub" branch of the migration brief, not a from-scratch reimplementation).
+doctrine-plane stub" branch of the migration brief, not a from-scratch reimplementation).
 This port calls that op in-process (import + direct handler invocation,
 `preuse-write-dispatch.py` `_resolve_claude_klabauter_root()` shape) rather than
 spawning a bash veneer + subprocess — one fewer process per nudge, and it

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """lib/coordinator_currency.py — Per-repo coordinator currency stamp: write + read.
 
 Purpose: records which COORDINATOR_SCHEMA_VERSION a project's scaffolding was

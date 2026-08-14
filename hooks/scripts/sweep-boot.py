@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""sweep-boot.py — DoE-resident trampoline over the claude-klabauter sweep-boot.py.
+"""sweep-boot.py — doctrine-plane-resident trampoline over the control-plane engine's sweep-boot.py.
 
 Purpose: `coordinator/bin/` (incl. `sweep-boot.py`) migrated to claude-klabauter
 on 2026-07-22 (commit b644d5a9). `hooks.json`'s SessionStart entry invokes a
-DoE-resident path via `${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py` — a
+doctrine-plane-resident path via `${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py` — a
 literal JSON string that cannot carry a resolution ladder (env → registry →
 sibling walk). This trampoline lives at the JSON-referenced location instead,
 resolves claude-klabauter via the shared `_engine_root` seam, and execs the
@@ -37,7 +37,7 @@ this trampoline's own already-best-effort, fail-open contract.
 Spec backlink: cross-repo unbreak pass following b644d5a9 (coordinator
 bin/lib migration to claude-klabauter), verify-sweep survivor B.1.
 Spec backlink: cross-repo/inbox/2026-07-23-claude-klabauter-em-wsc-tail-doe-ask-list.md
-  § "Ready now" item 4 — the DoE-side half of the fail-loud fix.
+  § "Ready now" item 4 — the doctrine-plane-side half of the fail-loud fix.
 Spec backlink: claude-klabauter commit 0822ea47 ("C20: make the boot-sweep
   transport fail loud instead of fail silent") — the child-side half this
   trampoline-level half is compatible with, not a second competing surface.
@@ -208,10 +208,11 @@ def _resolve_this_repo_root() -> str | None:
     from a prior session's transport timeout.
 
     Deliberately NOT `Path(__file__)`-based: this file's `__file__` lives under the
-    DoE-claude source tree regardless of which consumer repo's session invoked it (live
+    doctrine-source tree regardless of which consumer repo's session invoked it (live
     `--plugin-dir` resolution — see repo CLAUDE.md § Architecture), so a `__file__`-based
-    root would silently mis-file every non-DoE-claude session's failure record into
-    DoE-claude's own `state/` tree instead of the session's actual repo.
+    root would silently mis-file every session running from a different consumer repo's
+    failure record into the doctrine-source repo's own `state/` tree instead of the
+    session's actual repo.
     """
     try:
         result = subprocess.run(
@@ -302,11 +303,45 @@ _FRONTMATTER_KV_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$")
 
 
 def _claude_home() -> Path:
-    """Mirrors `project-orientation.py::_claude_home()` exactly — kept as a local copy
-    rather than a cross-hook import (each SessionStart hook script resolves its own
-    settings-home independently; see this module's own trampoline precedent above for
-    why sibling hook scripts don't import each other).
+    """Resolves the $HOME analog for this hook's own settings-home lookup.
+
+    Sources from the engine's canonical resolver (`resolve_home_base()` in the
+    `_claude_home` module, reached via the importable `claude_home_shim` seam
+    at the resolved engine root — that module's own directory is hyphenated
+    and not import-able directly) when the engine is reachable, so this hook
+    shares ONE canonical HOME/USERPROFILE/CLAUDE_HOME precedence chain with
+    the rest of the fleet instead of a second hand-maintained ladder.
+
+    Falls back to the local two-rung ladder below (CLAUDE_HOME env var, else
+    `Path.home()`) on ANY resolution failure — the engine root unresolved,
+    the engine clone missing that module, or the shim raising on import (e.g.
+    malformed CLAUDE_HOME, which the canonical resolver treats as a hard
+    `ValueError` rather than a silent fallthrough). This hook is a fail-open
+    SessionStart hook (module docstring) and must never raise or block boot
+    on a settings-home lookup; the local fallback is the documented
+    degradation path, not dead code to delete once the shim exists.
+
+    Was previously a documented verbatim copy of
+    `project-orientation.py::_claude_home()` (own local ladder, no shared
+    source) — superseded now that the engine exports a canonical resolver
+    reachable without spawning a subprocess. `project-orientation.py` is
+    being converged onto the same seam by a separate, concurrent change; this
+    function stays self-contained (no cross-import of that sibling file)
+    since each SessionStart hook script resolves its own settings-home
+    independently.
     """
+    try:
+        claude_klabauter_root = resolve_claude_klabauter_root()
+        if claude_klabauter_root:
+            lib_dir = os.path.join(claude_klabauter_root, "coordinator", "lib")
+            if lib_dir not in sys.path:
+                sys.path.insert(0, lib_dir)
+            from claude_home_shim import resolve_home_base
+
+            return resolve_home_base()
+    except Exception:
+        pass
+
     v = os.environ.get("CLAUDE_HOME")
     if v:
         return Path(v)
@@ -617,7 +652,8 @@ def _load_global_doctrine_mirror_module():
     `importlib.util.spec_from_file_location` from `Path(__file__)`, matching
     the pattern this repo's own hook tests already use for the same reason
     (e.g. `coordinator/tests/test_sweep_boot_orientation_selfheal.py`'s
-    `_load_module`, `coordinator/hooks/scripts/tests/test_pickup_autofire.py`).
+    `_load_module` helper, and the sibling hook-scripts test suite's own
+    equivalent).
 
     Returns None on ANY import failure (missing sibling file, syntax error,
     partial deploy) -- the caller below treats that identically to "nothing
@@ -674,9 +710,11 @@ def _derive_global_doctrine_mirror() -> None:
         if not module._is_dev_repo():
             return
         tracked = module._tracked_path()
-        if not tracked.is_file():
-            return
-        module._derive_live_copy(tracked)
+        if tracked.is_file():
+            module._derive_live_copy(tracked, module._live_path())
+        for rules_tracked in module._tracked_rules_files():
+            rules_live = module._live_rules_dir() / rules_tracked.name
+            module._derive_live_copy(rules_tracked, rules_live)
     except Exception as exc:
         print(
             f"sweep-boot.py: WARN: global-doctrine mirror derivation raised — {exc}",

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """append-plan-session.py — plan.append_session native trampoline (DR-216, strang-10).
 
@@ -7,8 +6,9 @@ finish-strangler per T2-g1 — the pre-facade legacy body is retired, not a fall
 trigger). Windows de-bash campaign (Category B, shape-(b) per-op trampoline):
 replaces the bash forwarder append-plan-session.sh, which sourced
 coordinator/lib/strangler-facade.sh (strangle_route_mutation) + coordinator-session.sh.
-No shell is spawned by this module (`git rev-parse` runs via subprocess.run() with
-an argv list, never through a shell string).
+No shell is spawned by this module (repo-root resolution runs via
+repo_identity.resolve_checked_repo_root(), which shells out to `git rev-parse`
+via subprocess.run() with an argv list, never through a shell string).
 
 Two-state routing model (inherited from cc_invoke.route()/route_mutation()):
   State 2 (seam present + invoke succeeds) -> native op ran.
@@ -36,7 +36,7 @@ Code releases without that env var. When unresolved, session_id is sent as JSON
 null and the op falls back to its own CLAUDE_CODE_SESSION_ID env read
 (completion_ops.py:591-592) — a no-op in that case since tier 3 already tried it.
 
-Spec backlink: docs/plans/2026-07-06-ceremony-as-pipeline-2-doe-land-d-slice.md
+Spec backlink: DoE-claude:pln-ceremony-as-pipeline-2-land-th-aa5ace
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1b)
 
 Usage (unchanged from the bash facade — zero caller-arg repoints):
@@ -59,6 +59,17 @@ Negative-spec (retired transport patterns — DO NOT reintroduce):
       below is the sole (partial, tiers-1-3-only) session-id resolver.
     - Does NOT fall back to a direct-write/legacy body on any State-1/2/3 outcome —
       legacy_append_plan_session() below only ever raises.
+    - Does NOT assume `coordinator_core` is ambiently importable. Only `bin/lib`
+      lands on sys.path from the script dir, so a box without an editable install
+      of the engine (and the `~/.coordinator-claude-settings/bin` trampoline, which
+      `runpy.run_path`s this file without touching sys.path) died at import time on
+      `ModuleNotFoundError: coordinator_core` — advisory-only at the call site, so
+      plan<->session links silently stopped being recorded. The engine root is now
+      resolved via cc_invoke.ensure_engine_on_path() before the import, and the
+      import itself fails OPEN to an inline reproduction of the primitive's
+      contract: console suppression is a nicety, and losing it must not take the
+      whole CLI down with it. The op dispatch below still fails LOUD (rc=2) when
+      the engine is genuinely absent.
 """
 from __future__ import annotations
 
@@ -72,10 +83,20 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+cc_invoke.ensure_engine_on_path(__file__)
+
+try:
+    from coordinator_core.win_portability import (
+        no_console_creationflags as _no_console_creationflags,
+    )
+except ImportError:  # engine root unresolvable — see the negative-spec block above
+
+    def _no_console_creationflags() -> dict:
+        if os.name != "nt":
+            return {}
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 _SESSION_ID_ENV_TIERS = (
     "COORDINATOR_SESSION_ID",
@@ -94,25 +115,17 @@ def _resolve_session_id() -> str:
 
 
 def _resolve_repo_root() -> str | None:
-    """Resolve the current git worktree root from PWD.
+    """Resolve the current git worktree root via the checked resolver.
 
-    Mirrors strangler-facade.sh's `git -C "$PWD" rev-parse --show-toplevel`
-    (standalone-repo assumption; no explicit repo-root positional arg).
-    Returns None on failure (caller maps this to exit 1, matching the bash
-    oracle's `return 1` on the same failure).
+    READER classification (DR-277 / plan C5): MISMATCH is advisory only --
+    warn to stderr and proceed with the resolved root. Returns None only when
+    no root at all could be resolved (caller maps this to exit 1, matching
+    the bash oracle's `return 1` on the same failure). UNRESOLVED never
+    refuses (AC4).
     """
-    try:
-        result = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
     return root
 
 

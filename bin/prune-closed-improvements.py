@@ -33,7 +33,8 @@ Usage:
 
     --dry-run    preview only (Call 1 results reported; Call 2 skipped, no git-mv).
     --repo-root  explicit repo root for both the read seam and the git-mv +
-                 self-commit (default: `git rev-parse --show-toplevel` from the
+                 self-commit (default: the checked resolver's answer,
+                 `lib.repo_identity.resolve_checked_repo_root`, from the
                  CALLING process's cwd, falling back to cwd itself) — same
                  data-loss-risk rationale as prune-closed-bugs.py's --repo-root
                  (this op also git-mv's + deletes on the caller's behalf).
@@ -64,7 +65,6 @@ Spec backlink: docs/decisions/DR-115-queue-shape-is-a-scope-collision-not-a-stal
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -73,6 +73,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
 from cc_invoke import route  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 # coordinator_core is co-located in this same repo (the engine plane) --
 # resolvable only from the repo root, which is not on sys.path when this
@@ -94,19 +95,17 @@ def _no_fallback() -> None:
 
 
 def _resolve_repo_root() -> str:
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        resolved = (proc.stdout or "").strip()
-        if proc.returncode == 0 and resolved:
-            return resolved
-    except OSError:
-        pass
-    return os.getcwd()
+    """Resolve the repo root via the checked resolver (repo_identity).
+
+    READER classification (DR-277 / plan C5): MISMATCH is advisory only --
+    warn to stderr and proceed with the resolved root; UNRESOLVED never
+    refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
+    preserving this script's pre-existing best-effort behavior.
+    """
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+    return root or os.getcwd()
 
 
 def main(argv: list[str] | None = None) -> int:

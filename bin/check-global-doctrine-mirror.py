@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
-"""check-global-doctrine-mirror.py -- drift probe for the DoE-claude in-repo
+"""check-global-doctrine-mirror.py -- drift probe for the coordinator doctrine repo's in-repo
 mirror of the operator's global doctrine (`~/.claude/CLAUDE.md` and
 `~/.claude/CLAUDE.local.md`), tracked at repo-root `global-doctrine/`.
 
@@ -14,7 +13,7 @@ was possible was an out-of-band `.example-doctrine-mirror-repo` backup living OU
 `~/.claude`'s blast radius. A mirror is only worth keeping if a
 re-initialization of `~/.claude` cannot also destroy it -- that requires the
 mirror to live in a DIFFERENT repo with its OWN independent git history,
-which is exactly what `global-doctrine/` at the DoE-claude repo root is.
+which is exactly what `global-doctrine/` at the coordinator doctrine repo root is.
 
 Direction of truth (load-bearing, do not invert): `global-doctrine/` is
 AUTHORITATIVE -- it is the AUTHORING surface. `~/.claude` is the DERIVED live
@@ -27,7 +26,7 @@ carrying the old direction (repointed 2026-07-31). Until that ruling
 backstop. A reader who remembers that shape must find out here that it
 changed deliberately rather than assume this probe regressed. What changed:
 `global-doctrine/CLAUDE.md` became the place doctrine is actually authored,
-and a whole enforcement envelope now keys on it -- the DoE-claude PostToolUse
+and a whole enforcement envelope now keys on it -- the coordinator doctrine repo's PostToolUse
 hook `derive-global-doctrine-live-copy.py` (which re-derives `~/.claude` on
 every write to the tracked file), the invariant test
 `coordinator/tests/test_global_doctrine_tracked_copy.py`, and the CLAUDE.md
@@ -48,7 +47,7 @@ mirror still lives in a different repo with its own independent git history,
 so a re-initialization of `~/.claude` cannot destroy it. It is now the
 original rather than the copy.
 
-Placement (load-bearing): `global-doctrine/` lives at the DoE-claude REPO
+Placement (load-bearing): `global-doctrine/` lives at the coordinator doctrine repo's REPO
 ROOT, never under `coordinator/`. `coordinator/` is the percolation SOURCE
 directory for the OSS `coordinator-claude` publish mirror -- the operator's
 global doctrine carries personal identity content (§ Owner: name,
@@ -67,11 +66,11 @@ probe is inert noise on any OSS install that has no `global-doctrine/`
 mirror at all.
 
 Silent-skip contract: when `global-doctrine/` does not exist relative to the
-resolved DoE-claude repo root, this probe exits 0 with no output -- never a
+resolved coordinator doctrine repo root, this probe exits 0 with no output -- never a
 warning. This is the "silent skip (opt-in)" arm of the coordinator's
 path-resolution doctrine (§ Build For Someone Else's Machine): absence of
 the mirror is the expected, correct state on every OSS
-install and on any DoE-claude clone that predates this feature, not a health
+install and on any coordinator doctrine repo clone that predates this feature, not a health
 regression to nag about.
 
 Usage:
@@ -84,7 +83,7 @@ Exit codes:
     1 -- DRIFT: at least one mirrored file differs from its ~/.claude
          counterpart, is missing on one side, or is missing on BOTH sides
          (there is no both-absent skip -- see the negative-spec entry),
-         OR the DoE-claude repo root is unresolvable (see
+         OR the coordinator doctrine repo root is unresolvable (see
          _repo_root()'s docstring) -- this is a gate/probe script, so an
          unresolvable root fails loud rather than masquerading as the
          mirror-absent silent-skip case.
@@ -93,7 +92,7 @@ Environment:
     CLAUDE_HOME -- overrides the `~/.claude` resolution root (defaults to
                    `$HOME/.claude`), matching the convention documented in
                    `coordinator/bin/count-distill-backlog.py`.
-    DOE_ROOT / REPO_DOE_CLAUDE -- overrides the DoE-claude repo root that
+    DOE_ROOT / REPO_DOE_CLAUDE -- overrides the coordinator doctrine repo root that
                    owns `global-doctrine/` (see _repo_root()). Consulted via
                    the shared coordinator_registry.doe_root() resolver
                    (env var -> machine-local repos.doe_claude -> raise);
@@ -126,9 +125,9 @@ Negative-spec (hard-won):
       CLAUDE_HOME / os.path.expanduser("~"), so this runs on any machine.
     - Does NOT dump the full 27KB diff on drift -- caps the difflib excerpt
       (see _DIFF_EXCERPT_LINES) so a hit does not flood the session.
-    - Does NOT derive the DoE-claude repo root from this script's own
+    - Does NOT derive the coordinator doctrine repo root from this script's own
       __file__ location -- this script migrated to claude-klabauter while
-      `global-doctrine/` stayed in DoE-claude; self-location resolution
+      `global-doctrine/` stayed in the coordinator doctrine repo; self-location resolution
       would silently and permanently no-op the mirror-absent skip path
       instead of ever comparing anything. See _repo_root()'s docstring.
 
@@ -170,7 +169,12 @@ def _claude_home() -> str:
     """Resolve `~/.claude`, honoring CLAUDE_HOME per the documented
     `${CLAUDE_HOME:-$HOME}/.claude` convention (matches
     coordinator/bin/count-distill-backlog.py's `_resolve_root()`)."""
-    base = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+    base = (
+        os.environ.get("CLAUDE_HOME")
+        or os.environ.get("HOME")
+        or os.environ.get("USERPROFILE")
+        or os.path.expanduser("~")
+    )
     return os.path.join(base, ".claude")
 
 
@@ -202,7 +206,7 @@ def _repo_root() -> str:
         return doe_root()
     except _DoeUnresolvable as exc:
         sys.stderr.write(
-            f"{PROG}: cannot resolve the DoE-claude repo root ({exc}). Set "
+            f"{PROG}: cannot resolve the coordinator doctrine repo root ({exc}). Set "
             "repos.doe_claude in the machine-local registry, or set the "
             "DOE_ROOT / REPO_DOE_CLAUDE env var.\n"
         )

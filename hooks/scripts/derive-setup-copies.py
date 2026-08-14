@@ -89,7 +89,7 @@ import json
 import shutil
 import sys
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
@@ -393,7 +393,7 @@ def main() -> int:
         return 0
 
     try:
-        written = Path(file_path).resolve()
+        written = Path(PureWindowsPath(file_path).as_posix()).resolve()
     except Exception:
         return 0
 

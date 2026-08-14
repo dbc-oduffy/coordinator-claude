@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-bug-backlog.py — one-shot migration of open bug entries from the
 state/bug-backlog.md markdown table into structured per-entry YAML files via
@@ -53,6 +52,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _queue_append_locator import find_queue_append_cmd  # noqa: E402
 
 # ── Constants ──────────────────────────────────────────────────────────────────
+
+MUTATES = ["state/bug-backlog.md", "state/bug-backlog/*.yaml", "state/migrate-bug-backlog-dryrun-*.json"]
 
 DEFAULT_INPUT = os.path.join("state", "bug-backlog.md")
 DRYRUN_PREFIX = os.path.join("state", "migrate-bug-backlog-dryrun-")

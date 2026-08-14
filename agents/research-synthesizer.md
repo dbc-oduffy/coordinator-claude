@@ -3,7 +3,7 @@ name: research-synthesizer
 description: "Opus web-research sweep — blocked until specialists finish, runs an adversarial coverage check, fills gaps, writes the summary."
 model: opus
 effort: medium
-tools: ["Read", "Write", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: blue
 access-mode: read-write
 ---

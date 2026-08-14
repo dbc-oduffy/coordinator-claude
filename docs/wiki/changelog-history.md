@@ -223,7 +223,7 @@ CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inl
 - `git branch --show-current` Windows case-fragility: `coordinator-auto-push` canonicalizes via `git for-each-ref` before push, eliminating mixed-case daily-branch push failures.
 
 ### Removed
-- **`remember` plugin removed.** Agent-summarized session memory (rolling daily/weekly/archive files under `.remember/`) was duplicating the work the handoff/commit/plan pipeline already does, at worse fidelity, with its own staleness modes and Windows-path-quirks. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. Rationale captured in the loop-closure chapter of the (now-retired) evolution doc set. Live references purged from README, `setup/install.sh`, `docs/architecture.md`, `docs/getting-started.md`, `docs/agent-install.md`, `docs/safety.md`. `setup/patch-remember-plugin.sh` deleted. Historical references in older changelog entries and in the registry-submission-readiness design plan (2026-04-01) left intact as historical record.
+- **`remember` plugin removed.** Agent-summarized session memory (rolling daily/weekly/archive files under `.remember/`) was duplicating the work the handoff/commit/plan pipeline already does, at worse fidelity, with its own staleness modes and Windows-path-quirks. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. Rationale captured in the loop-closure chapter of the (now-retired) evolution doc set. Live references purged from README, `setup/install.sh`, `docs/architecture.md`, `docs/getting-started.md`, `docs/agent-install.md`, `docs/safety.md`. `setup/patch-remember-plugin.sh` deleted. Historical references in older changelog entries and in the registry-submission-readiness design plan left intact as historical record.
 
 ## [1.10.0] — 2026-05-06
 
@@ -251,7 +251,7 @@ Four themes in this release: workday/workweek cadence split, layered reviewer-pr
 - `/pickup` enhancement is additive; same-day handoffs (the common case) are unaffected.
 
 ### Design source
-The originating design plan (2026-05-04, workweek-cadence-split) was reviewed by the Staff Engineer, APPROVED_WITH_NOTES — all findings folded in.
+The originating design plan (workweek-cadence-split) was reviewed by the Staff Engineer, APPROVED_WITH_NOTES — all findings folded in.
 
 ### Theme B — Reviewer premise challenge (layered W1–W5 defense)
 
@@ -268,7 +268,7 @@ Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 example
 - Calibration block byte-identical across all reviewers (`verify-calibration-sync` clean).
 
 #### Design source
-The originating design plan (2026-05-04, reviewer-premise-challenge) was reviewed by the Staff Engineer, APPROVED_WITH_NOTES — all 7 findings integrated.
+The originating design plan (reviewer-premise-challenge) was reviewed by the Staff Engineer, APPROVED_WITH_NOTES — all 7 findings integrated.
 
 #### Note
 The same source-side commit also carried an early-write probe addition to `plugins/deep-research/agents/repo-specialist.md` — orthogonal to the W1–W5 work but mixed into the same commit and percolated together via `publish.sh`.

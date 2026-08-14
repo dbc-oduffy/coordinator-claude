@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """debash-scorecard.py — how close is the DoE tree to zero `.sh`?
 
 Answers "have we rid ourselves of bash yet?" as a number, not an investigation.

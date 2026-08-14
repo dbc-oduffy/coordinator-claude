@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 register-discovered-repos.py — CLI trampoline over claude-klabauter
 coordinator_core.ops.register_discovered_repos.

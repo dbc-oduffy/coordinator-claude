@@ -21,7 +21,7 @@ The behavioral lever is the **tier-4 rationale rule**: every Agent dispatch for 
 | Tier | Name | Budget | Surfaces |
 |------|------|--------|----------|
 | 0 | Boot context | always loaded, ~9.9K + ~7.1K tokens measured (was claimed ≤2K — corrected, see below) | `orientation_cache.md`, `CLAUDE.md` (auto-loaded), session memory pointers |
-| 1 | Curated narrative | ≤8K tokens per fetch, on demand | `docs/wiki/`, `docs/architecture/`, `docs/decisions/`, `docs/project-tracker.md` |
+| 1 | Curated narrative | ≤8K tokens per fetch, on demand | `docs/wiki/`, `docs/architecture/`, `docs/decisions/` |
 | 2 | Structured query | ≤2K tokens per query | `bin/query-records`, `mcp__*project-rag*__*`, `/workday-start` freshness table |
 | 3 | Targeted code/grep | ≤4K tokens per call | `Read` of a known path, `grep` (via Bash) for a specific symbol, `find` (via Bash) for discovery |
 | 4 | Sonnet scout | Offloaded to subagent | `Explore`, `general-purpose` Sonnet, `coordinator:repo-scout`, `feature-dev:code-explorer` |
@@ -185,7 +185,7 @@ The pattern composes with the Tier-4 rationale rule in §7 — the rationale pre
 When a scout dispatch deliberately restricts the read surface — "investigate <feature> but DO NOT load <other-file>", or "summarize section N of a long artifact" — the brief must specify *how* the scope restriction works at the tool level, not just state it as a "skip" instruction:
 
 - **Section-scoped reads use `Read` with `offset:` + `limit:`** to load only the relevant slice. Telling the scout "ignore the rest of the file" without `offset`/`limit` invites accidental full-file reads that blow the scout's context budget and contaminate the analysis with off-topic content.
-- **Post-write scan pattern.** When the scope restriction is "do not touch file X," combine it with a post-write verification step: the EM, after `DONE`, runs `git status --porcelain -- <restricted-paths>` and treats any modification as a quarantine event (see `scout-and-dispatch-discipline.md` § Scout output discipline).
+- **Post-write scan pattern.** When the scope restriction is "do not touch file X," a post-`DONE` `git status --porcelain -- <restricted-paths>` is what surfaces a modification as a quarantine event (see `scout-and-dispatch-discipline.md` § Scout output discipline).
 - **Quarantine reads of contaminated output.** When inspecting a rogue subagent's quarantined output (see scout-and-dispatch-discipline § Quarantine rogue subagent output), use `Read` with `offset`/`limit` over the quarantined copy — do not pipe through `cat` or load the whole rogue file into EM context. The whole point of quarantine is to keep the contamination off the EM's reasoning surface.
 
 Without explicit mechanics, "skip this file" instructions decay into trust-the-scout and produce the contamination they were meant to prevent.
@@ -202,7 +202,7 @@ Before drafting a plan that adds a diagnostic probe / log line / counter to inve
 
 ## Procedural-Overrides-Declarative Comprehension Trap
 
-In agent comprehension, procedural-overrides-declarative when the two disagree — declarative doctrine (CLAUDE.md, wiki rule) loses to procedural surface context (a step-by-step script, a skill body) in practice. Verify procedural surfaces against declarative doctrine before trusting what the procedural surface narrates. Apply: when a procedural surface (skill step, hook script, install procedure) conflicts with declarative doctrine (CLAUDE.md rule, wiki principle), treat the procedural surface as drift and resolve it explicitly — don't silently adopt the procedural behavior. (doe_escalation: DoE should assess whether procedural-surface validation belongs as a tip in CLAUDE.md § Verification Before Done.)
+In agent comprehension, procedural-overrides-declarative when the two disagree — declarative doctrine (CLAUDE.md, wiki rule) loses to procedural surface context (a step-by-step script, a skill body) in practice. Verify procedural surfaces against declarative doctrine before trusting what the procedural surface narrates. Apply: when a procedural surface (skill step, hook script, install procedure) conflicts with declarative doctrine (CLAUDE.md rule, wiki principle), treat the procedural surface as drift and resolve it explicitly — don't silently adopt the procedural behavior. (doe_escalation: the doctrine owner should assess whether procedural-surface validation belongs as a tip in CLAUDE.md § Verification Before Done.)
 
 ## 11. The meta-repo's `projects/` directory is the canonical per-folder activity record
 

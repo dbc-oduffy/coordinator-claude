@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 """learn-lessons-age-sweep.py — completed-central-run cutoff derivation +
 routed-id/orphan-strip-list cross-check for the coordinator:learn-lessons skill.
 
 Two independent, self-contained subcommands ported from embedded bash/inline-Python
-fences in `coordinator/skills/learn-lessons/SKILL.md` (DoE-claude) so the skill can
+fences in `coordinator/skills/learn-lessons/SKILL.md` (coordinator doctrine repo) so the skill can
 call a real, unit-tested script by name instead of hand-composing shell/heredoc logic
 in prose:
 
@@ -24,7 +23,7 @@ in prose:
                        sibling is the 2026-06-14-shape mistake — strip without
                        route, doctrine loss.
 
-Spec backlink: coordinator/skills/learn-lessons/SKILL.md (DoE-claude)
+Spec backlink: coordinator/skills/learn-lessons/SKILL.md (coordinator doctrine repo)
   § Phase 4.5 — Local-Mode Age-Sweep (Bound the File) [cutoff subcommand]
   § Phase 5 — Authorization and Apply § Strip-list orphan-rejection
     [check-strip-orphans subcommand]

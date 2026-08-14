@@ -48,6 +48,7 @@ load failure is loud in CI even though it is silent-and-narrowing at hook time.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import re
 from collections import Counter
@@ -68,6 +69,23 @@ PROMPT_SURFACE_DIRS = (
     REPO_ROOT / "coordinator" / "snippets",
     REPO_ROOT / "coordinator" / "pipelines",
 )
+
+#: `coordinator/hooks/` (C3, docs/plans/2026-08-13-doe-guard-text-trust-failure-
+#: coverage.md) -- a SEPARATE tree from `PROMPT_SURFACE_DIRS` above because it is
+#: governed on `.py` source (guard/hook scripts carrying `_WIKI_ANCHOR`-shaped
+#: string literals and citation-bearing docstrings/comments), not `.md` prose.
+#: Prior to this chunk the detector's corpus excluded `hooks/` entirely, which is
+#: exactly why unresolvable anchors accumulated there unseen while every `.md`
+#: prompt surface was held to zero. `resolve_wiki_citation()`
+#: (`_message_envelope.py`) rewrites a `docs/wiki/<page>.md` (optionally
+#: `coordinator/`-prefixed) citation into an absolute path anchored at the real
+#: plugin root AT RENDER TIME -- so a hook-resident `_WIKI_ANCHOR` holding that
+#: literal is resolvable-at-rest and must NOT be flagged on that basis alone; the
+#: existing SEED_WIKIS/REAL_WIKI_PAGES membership checks below already capture
+#: the orthogonal question (does the target page exist/percolate at all), so no
+#: separate resolution rule is needed here -- widening the corpus to include this
+#: tree is sufficient for the existing classification logic to apply to it.
+PY_SURFACE_DIRS = (REPO_ROOT / "coordinator" / "hooks",)
 
 _TESTS_DIR = REPO_ROOT / "coordinator" / "tests"
 
@@ -145,16 +163,23 @@ class Violation:
 
 
 def is_in_scope(path: Path) -> bool:
-    """True if `path` is a `*.md` file under one of `PROMPT_SURFACE_DIRS`,
-    excluding `tests/`/`fixtures/` subdirectories anywhere in the relative
-    path (see `_EXEMPT_PATH_SEGMENTS`)."""
+    """True if `path` is a `*.md` file under one of `PROMPT_SURFACE_DIRS`, OR a
+    `*.py` file under `PY_SURFACE_DIRS` (`coordinator/hooks/`) -- excluding
+    `tests/`/`fixtures/` subdirectories anywhere in the relative path (see
+    `_EXEMPT_PATH_SEGMENTS`) in either case."""
     try:
         resolved = path.resolve()
     except Exception:
         return False
-    if resolved.suffix != ".md":
+
+    if resolved.suffix == ".md":
+        candidate_roots = PROMPT_SURFACE_DIRS
+    elif resolved.suffix == ".py":
+        candidate_roots = PY_SURFACE_DIRS
+    else:
         return False
-    for root in PROMPT_SURFACE_DIRS:
+
+    for root in candidate_roots:
         try:
             rel = resolved.relative_to(root)
         except ValueError:
@@ -166,12 +191,18 @@ def is_in_scope(path: Path) -> bool:
 
 
 def iter_prompt_surface_files() -> Iterable[Path]:
-    """Every in-scope file under the five prompt-surface trees, sorted for
-    determinism."""
+    """Every in-scope file under the prompt-surface `.md` trees and the
+    `.py` hooks tree, sorted for determinism."""
     for root in PROMPT_SURFACE_DIRS:
         if not root.is_dir():
             continue
         for path in sorted(root.rglob("*.md")):
+            if is_in_scope(path):
+                yield path
+    for root in PY_SURFACE_DIRS:
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*.py")):
             if is_in_scope(path):
                 yield path
 
@@ -237,7 +268,10 @@ def _literal_sentinel_spans(line: str) -> "list[tuple[int, int]]":
     it would change a wire value, so an existing install's marker would stop
     matching and the installer would append a duplicate block. The id is data
     here, exactly like the `BEGIN`/`END` fence markers and routing pairs the
-    provenance gate exempts as wiring rather than prose.
+    provenance gate exempts as wiring rather than prose. That `DR-148` is
+    frozen historical numbering: the live record is
+    `docs/decisions/DR-166-require-bash4-on-macos.md`, and the sentinel does
+    not follow it.
 
     Deliberately narrow: the span must look like a comment/marker literal (it
     starts with a `#` comment introducer). A DR id inside any other code span
@@ -390,12 +424,332 @@ def _neutralize_structural_comments(text: str) -> str:
     return _HTML_COMMENT.sub(_replace, text)
 
 
-def iter_violations(text: str) -> list:
+# ---------------------------------------------------------------------------
+# `.py` scope narrowing — EMITTED MESSAGE TEXT ONLY (C3 rescope,
+# docs/plans/2026-08-13-doe-guard-text-trust-failure-coverage.md)
+#
+# Why a `.py` hook needs a narrower rule than a `.md` prompt surface: a `.md`
+# file under PROMPT_SURFACE_DIRS is emitted to a reader WHOLESALE, so every
+# citation in it is something an agent is expected to resolve. A `.py` hook
+# is not — only the message strings it actually sends an agent (stderr,
+# hookSpecificOutput dict keys, or the `_message_envelope` compose/emit seam)
+# ever reach a reader. Its module docstring, inline comments, and Review:
+# provenance lines are read by a HUMAN maintaining the source, never
+# forwarded anywhere — and per CLAUDE.md § Implementation Standards
+# ("RAG-bait exception. Purpose docstrings, spec backlinks, negative-spec
+# blocks: required") a spec-backlinked docstring citing docs/plans/ or a
+# bare DR- id there is a REQUIRED convention, not a defect. Flagging it is
+# the miscalibration this rescope corrects — restricting the `.py` leg
+# structurally (an AST reachability rule) rather than adding a denylist of
+# comment/docstring prefixes, which would silently miss the next syntactic
+# shape provenance shows up in.
+#
+# Reuses the same emission-site taxonomy as
+# `coordinator/tests/fixtures/hook-message-sweeps/population_scan.py`'s
+# `scan_emission_sites()` (stderr write, stdout.buffer write, `print(...,
+# file=sys.stderr)`, a `hookSpecificOutput` dict-literal key, a subscript
+# assignment to one of those keys, and the `_message_envelope`
+# compose/emit seam) rather than re-deriving a second detection of what
+# counts as "emission" — that module's own docstring is the source of the
+# taxonomy this section deliberately mirrors instead of importing directly
+# (population_scan.py's own file-selection is scoped to non-underscore
+# `coordinator/hooks/scripts/` files only, narrower than PY_SURFACE_DIRS,
+# and it returns line numbers only, not the argument/value AST subtree this
+# section needs to walk for string literals) -- see that module's own
+# docstring for the negative-spec this mirrors: not a text grep, an AST scan
+# over the file's *executed* body.
+# ---------------------------------------------------------------------------
+
+_PY_EMISSION_DICT_KEYS = frozenset(
+    {"additionalContext", "systemMessage", "permissionDecisionReason"}
+)
+_PY_ENVELOPE_CALLABLES = frozenset({"compose", "emit"})
+_PY_STDERR_NAMES = frozenset({"stderr"})
+
+
+def _py_is_stderr_attr(node: "ast.AST") -> bool:
+    """`sys.stderr` or any attribute chain rooted at it (`sys.stderr.buffer`)."""
+    if not isinstance(node, ast.Attribute):
+        return False
+    if (
+        node.attr in _PY_STDERR_NAMES
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "sys"
+    ):
+        return True
+    return _py_is_stderr_attr(node.value)
+
+
+def _py_is_stdout_buffer_attr(node: "ast.AST") -> bool:
+    """`sys.stdout.buffer` only — the byte-fidelity idiom, deliberately
+    narrower than `_py_is_stderr_attr` (a bare `sys.stdout.write(...)` does
+    not, by itself, indicate a guard-prose emission channel)."""
+    if not isinstance(node, ast.Attribute) or node.attr != "buffer":
+        return False
+    value = node.value
+    return (
+        isinstance(value, ast.Attribute)
+        and value.attr == "stdout"
+        and isinstance(value.value, ast.Name)
+        and value.value.id == "sys"
+    )
+
+
+def _py_envelope_import_bindings(tree: "ast.AST") -> "tuple[set, dict]":
+    """Local names bound to the `_message_envelope` module, and local names
+    bound directly to its `compose`/`emit` callables — see
+    `population_scan.py::_envelope_import_bindings`, mirrored here."""
+    module_aliases: "set" = set()
+    callable_aliases: "dict" = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "_message_envelope":
+                    module_aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module != "_message_envelope":
+                continue
+            for alias in node.names:
+                if alias.name in _PY_ENVELOPE_CALLABLES:
+                    callable_aliases[alias.asname or alias.name] = alias.name
+    return module_aliases, callable_aliases
+
+
+def _py_emission_value_nodes(tree: "ast.AST") -> "list[ast.AST]":
+    """The argument/value AST subtree carrying the PAYLOAD at each real
+    emission site in `tree` — not the whole call/dict node, just the part
+    that becomes text a reader sees."""
+    module_aliases, callable_aliases = _py_envelope_import_bindings(tree)
+    values: "list[ast.AST]" = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr in _PY_ENVELOPE_CALLABLES
+                and isinstance(func.value, ast.Name)
+                and func.value.id in module_aliases
+            ) or (isinstance(func, ast.Name) and func.id in callable_aliases):
+                values.extend(node.args)
+                values.extend(kw.value for kw in node.keywords)
+            elif (
+                isinstance(func, ast.Attribute)
+                and func.attr == "write"
+                and (_py_is_stderr_attr(func.value) or _py_is_stdout_buffer_attr(func.value))
+            ):
+                values.extend(node.args)
+            elif isinstance(func, ast.Name) and func.id == "print":
+                if any(
+                    kw.arg == "file" and _py_is_stderr_attr(kw.value)
+                    for kw in node.keywords
+                ):
+                    values.extend(node.args)
+
+        if isinstance(node, ast.Dict):
+            for key, val in zip(node.keys, node.values):
+                if (
+                    isinstance(key, ast.Constant)
+                    and isinstance(key.value, str)
+                    and key.value in _PY_EMISSION_DICT_KEYS
+                ):
+                    values.append(val)
+
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.slice, ast.Constant)
+                    and isinstance(target.slice.value, str)
+                    and target.slice.value in _PY_EMISSION_DICT_KEYS
+                ):
+                    values.append(node.value)
+
+    return values
+
+
+def _py_name_definitions(tree: "ast.AST") -> "dict[str, list]":
+    """`name -> [value-expr, ...]` for every simple `Assign`/`AnnAssign`/
+    `AugAssign` to a bare `Name` anywhere in the module — deliberately
+    scope-agnostic (no per-function shadowing analysis) because the failure
+    mode this guards against is a false NEGATIVE (missing a real emitted
+    citation because the slice under-traced), and over-tracing a same-named
+    local in an unrelated function only risks pulling in a few extra
+    genuinely-code string literals, never a docstring/comment — those are
+    never reachable from an emission-site value node in the first place.
+
+    `AugAssign` (`nudge += "..." + wrap(...)`) is traced on the same footing
+    as `Assign` — wrapping-not-reachability (F1,
+    em-finding-wrap-is-not-reachability.md): a message built incrementally
+    via `+=` is exactly as reachable from its eventual emission site as one
+    built via a single `=`, and the accumulate-then-emit shape is the common
+    one for a multi-part nudge string. Omitting it let a citation embedded
+    in an `+=` RHS go untraced regardless of whether it was wrapped in a
+    format-resolving helper — the wrap was never itself special-cased here;
+    the gap was this reachability trace silently stopping at the first
+    `AugAssign`, independent of SEED_WIKIS/REAL_WIKI_PAGES membership, which
+    is judged unchanged once the line is in scope."""
+    defs: "dict[str, list]" = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    defs.setdefault(target.id, []).append(node.value)
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            if isinstance(node.target, ast.Name):
+                defs.setdefault(node.target.id, []).append(node.value)
+        elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            defs.setdefault(node.target.id, []).append(node.value)
+    return defs
+
+
+def _py_local_function_params(tree: "ast.AST") -> "dict[str, list]":
+    """`function-name -> [positional-and-keyword param names in signature
+    order, *args name if present, **kwargs name if present]` for every
+    `def`/`async def` in `tree` (module-level or nested — deliberately
+    scope-agnostic, same rationale as `_py_name_definitions`)."""
+    params: "dict[str, list]" = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names = [a.arg for a in node.args.posonlyargs]
+            names.extend(a.arg for a in node.args.args)
+            names.extend(a.arg for a in node.args.kwonlyargs)
+            params[node.name] = names
+    return params
+
+
+def _py_param_bindings(tree: "ast.AST") -> "dict[str, list]":
+    """`param-name -> [argument-value-expr, ...]` collected from every call
+    site in `tree` to a LOCALLY-DEFINED function, matched by call target
+    name against `_py_local_function_params`. Closes the reachability gap a
+    parameter boundary otherwise creates: an emission site that hands its
+    payload to a module-local wrapper function (e.g. `_emit_advisory(parts,
+    ...)`) as a parameter, rather than composing it inline, previously
+    dead-ended at that parameter — a bare function parameter is never an
+    `Assign` target, so `_py_name_definitions` alone never resolves it back
+    to the caller-built strings actually passed in. Positional args bind by
+    signature position; keyword args bind by name; a call target that isn't
+    a bare `Name` (a method call, an attribute, a dynamically-computed
+    callable) is skipped — deliberately scope-agnostic and over-inclusive
+    like its sibling, never under-inclusive, since the failure mode being
+    guarded against is a false NEGATIVE."""
+    local_params = _py_local_function_params(tree)
+    bindings: "dict[str, list]" = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            continue
+        sig = local_params.get(node.func.id)
+        if sig is None:
+            continue
+        for index, arg in enumerate(node.args):
+            if index < len(sig):
+                bindings.setdefault(sig[index], []).append(arg)
+        for kw in node.keywords:
+            if kw.arg is not None and kw.arg in sig:
+                bindings.setdefault(kw.arg, []).append(kw.value)
+    return bindings
+
+
+def _emitted_line_numbers(text: str) -> "set | None":
+    """Every line number in `text` (a `.py` hook's source) that is
+    STRUCTURALLY reachable from a real emission site — i.e. actually
+    becomes part of a message an agent reads. Returns `None` on a parse
+    failure (caller must then fall back to treating the whole file as
+    in-scope rather than silently narrowing to nothing).
+
+    Traces three kinds of reachability from each emission site's value node:
+    a string literal (`ast.Constant`, including the literal segments of an
+    f-string) directly inside it, a bare `Name` reference inside it resolved
+    (transitively) against every simple module-level/function-level
+    assignment to that name, and — closing the gap `_py_param_bindings`
+    exists for — a `Name` that resolves to a locally-defined function's
+    PARAMETER, resolved (transitively) against every argument expression
+    passed to that parameter at any local call site. This is what lets a
+    hook that builds its message in a `_TEXT = ("...")` constant, an
+    f-string interpolating a helper's return value, OR a module-local
+    `_emit_advisory(parts, ...)`-style wrapper that receives its payload as
+    a parameter, still get its real citations checked — the property this
+    guards is "does this string end up in front of an agent", not "is this
+    string a direct literal argument".
+
+    KNOWN LIMITATION (untraced direction — RETURN, not parameter): this
+    closes the IN direction (payload flows INTO a local helper via a
+    parameter) but not the OUT direction (payload flows OUT of a local
+    helper via its `return`, back to a `Name` the caller then emits). A
+    `Name` resolved to a bare `Call` targeting a locally-defined function is
+    walked only as the `Call` node itself (the call and its argument
+    expressions) — never descended into that function's own body, where the
+    real citation-building lines live. Confirmed live in this repo:
+    `runtime-tripwire-em-check.py`'s `push_failure_msg =
+    _check_push_failures(git_root, session_id)`, whose `.format(...) +
+    resolve_wiki_citation(...)` lines live inside `_check_push_failures`
+    itself and are invisible to this trace. No live violation results today
+    because that call site already wraps its citations correctly, but a
+    future edit inside such a helper that reintroduces a bare
+    `docs/wiki/...` literal would pass this `.py`-scoped lint silently. Fix
+    shape (not yet implemented): mirror `_py_param_bindings` in the other
+    direction — for a `Name` resolved to a `Call` targeting a
+    locally-defined function, also walk that function's `Return` statement
+    values as additional definition sources. A regression test pinning this
+    gap belongs in `coordinator/tests/test_prompt_surfaces_cite_resolvably.py`
+    — not added here; test authorship is out of this module's own write
+    scope for this dispatch."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+
+    defs = _py_name_definitions(tree)
+    for name, values in _py_param_bindings(tree).items():
+        defs.setdefault(name, []).extend(values)
+    lines: "set" = set()
+    visited_names: "set" = set()
+    stack: "list" = list(_py_emission_value_nodes(tree))
+
+    while stack:
+        node = stack.pop()
+        if node is None:
+            continue
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
+                start = sub.lineno
+                end = getattr(sub, "end_lineno", start) or start
+                lines.update(range(start, end + 1))
+            elif isinstance(sub, ast.Name) and sub.id not in visited_names:
+                visited_names.add(sub.id)
+                stack.extend(defs.get(sub.id, ()))
+
+    return lines
+
+
+def _restrict_text_to_lines(text: str, keep: "set") -> str:
+    """`text` with every line NOT in `keep` blanked out (length/line-count
+    preserved, same technique as `_neutralize_structural_comments`, so line
+    numbers in reported violations stay accurate)."""
+    lines = text.split("\n")
+    return "\n".join(line if (i + 1) in keep else "" for i, line in enumerate(lines))
+
+
+def iter_violations(text: str, *, path: "Path | None" = None) -> list:
     """Every unresolvable-citation violation in `text`, in line order.
 
     Pure function over already-loaded text — the caller decides whether that
     text is a whole file (the ratchet test) or a reconstructed before/after
-    (the hook, via `new_violations`)."""
+    (the hook, via `new_violations`).
+
+    `path` is optional and additive: when given AND its suffix is `.py`,
+    scanning is first restricted to lines reachable from a real emission
+    site (see `_emitted_line_numbers` above) — this is what keeps a
+    `.py` hook's module docstring / inline comments / `# Review:`
+    provenance lines out of scope while still catching a genuinely
+    unresolvable citation inside text an agent actually receives. Omitting
+    `path` (the existing call shape every consumer of this module already
+    uses) preserves the prior full-text behaviour exactly — this is a
+    strictly additive, opt-in narrowing, not a default-on behaviour change."""
+    if path is not None and path.suffix == ".py":
+        emitted = _emitted_line_numbers(text)
+        if emitted is not None:
+            text = _restrict_text_to_lines(text, emitted)
     text = _neutralize_structural_comments(text)
     lines = text.split("\n")
     violations: list = []
@@ -501,9 +855,14 @@ def _violation_key(v: Violation) -> tuple:
     return (v.kind, v.line_fingerprint)
 
 
-def new_violations(before: str, after: str) -> list:
+def new_violations(before: str, after: str, *, path: "Path | None" = None) -> list:
     """Violations present in `after` that were NOT already present in
     `before`, as a multiset difference keyed by `_violation_key`.
+
+    `path` is optional and forwarded unchanged to `iter_violations` on both
+    sides of the diff (see that function's docstring) — omitting it (every
+    existing caller, including `guard-prompt-surface-citations.py`) keeps
+    this function's behaviour exactly as before.
 
     This is what makes a hard-deny guard built on this function safe against
     the existing corpus's ~550 legacy violations: a file that already has a
@@ -516,8 +875,8 @@ def new_violations(before: str, after: str) -> list:
     count; that re-flags every legacy violation on every future edit to the
     same file, which is exactly the wedge this function exists to avoid.
     """
-    before_counts = Counter(_violation_key(v) for v in iter_violations(before))
-    after_violations = iter_violations(after)
+    before_counts = Counter(_violation_key(v) for v in iter_violations(before, path=path))
+    after_violations = iter_violations(after, path=path)
     after_counts = Counter(_violation_key(v) for v in after_violations)
     delta = after_counts - before_counts
     if not delta:

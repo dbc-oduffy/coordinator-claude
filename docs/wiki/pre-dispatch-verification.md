@@ -109,7 +109,7 @@ A closed enum (a `deployment_state`, a `language` tag, a schema version, an emit
 
 ### Extending a previously-binary assumption to a third value — grep EVERY site that branched on the old binary
 
-When a value that used to be effectively binary gains a third state (a device flag that was yes/no becomes a three-way choice; a status that was ok/fail becomes ok/degraded/fail), the migration is complete only when EVERY site that branched on the old binary is updated — not just the producer. The dangerous misses are sibling *consumers* that still read the old boolean: a classifier reading an availability flag as a hard "wedge" verdict reports the degraded-but-fine third state as broken forever on every machine in that state.
+When a value that was previously effectively binary gains a third state (a device flag that was yes/no becomes a three-way choice; a status that was ok/fail becomes ok/degraded/fail), the migration is complete only when EVERY site that branched on the old binary is updated — not just the producer. The dangerous misses are sibling *consumers* that still read the old boolean: a classifier reading an availability flag as a hard "wedge" verdict reports the degraded-but-fine third state as broken forever on every machine in that state.
 
 **How to apply.** Grep every branch on the old binary predicate (`== false`, `if not X`, ternaries, and the negation forms) across producers AND consumers before declaring the ternary migration landed; each is a mirror site the way a closed-enum member is.
 
@@ -171,11 +171,11 @@ Before a plan prescribes a new test fixture (`tests/_*_fixture.py`, `conftest.py
 
 ## Post-Heavy-Churn Bug-Sweeps Need a Verify-First Executor Contract
 
-After a period of heavy commits on a shared surface, sweep agents anchor on historical code shapes that intervening commits have already fixed. The result: sweepers flag issues against lines that no longer exist, then "fix" code by re-introducing the very shapes the churn removed. **Contract:** every bug-sweep executor dispatched post-heavy-churn must read the CURRENT line at the cited locus before taking any action. If the line already reflects the intended fix, the executor is a no-op for that item. Cite the read-back as evidence in the sweep report. (Complements § Verdict-Only Investigator Pass — that rule covers multi-cluster triage BEFORE fix-dispatch; this rule covers per-item verification DURING fix-dispatch.)
+After a period of heavy commits on a shared surface, sweep agents anchor on historical code shapes that intervening commits have already fixed. The result: sweepers flag issues against lines that do not exist, then "fix" code by re-introducing the very shapes the churn removed. **Contract:** every bug-sweep executor dispatched post-heavy-churn must read the CURRENT line at the cited locus before taking any action. If the line already reflects the intended fix, the executor is a no-op for that item. Cite the read-back as evidence in the sweep report. (Complements § Verdict-Only Investigator Pass — that rule covers multi-cluster triage BEFORE fix-dispatch; this rule covers per-item verification DURING fix-dispatch.)
 
 ## `git log --name-only` Lists Adds AND Deletes — Verify Against HEAD Before Declaring Uncatalogued
 
-`git log --name-only` (and `--diff-filter` without explicit `A` / `M`) includes deleted files in its output alongside additions. When using git log to enumerate "emergent" or "uncatalogued" files that need architecture-survey treatment, verify each candidate against `HEAD` state before declaring it uncatalogued — a file appearing in `git log --name-only` may have been deleted and no longer exist at HEAD, making it spurious drift inventory. Run `git ls-files -- <path>` or `ls <path>` to confirm HEAD presence before actioning.
+`git log --name-only` (and `--diff-filter` without explicit `A` / `M`) includes deleted files in its output alongside additions. When using git log to enumerate "emergent" or "uncatalogued" files that need architecture-survey treatment, verify each candidate against `HEAD` state before declaring it uncatalogued — a file appearing in `git log --name-only` may have been deleted and absent at HEAD, making it spurious drift inventory. Run `git ls-files -- <path>` or `ls <path>` to confirm HEAD presence before actioning.
 
 ## Measure Blast Radius Before Framing the Fix Shape
 
@@ -216,6 +216,16 @@ A handoff or roadmap stub citing `file:line` fix-loci is hypothesis about where 
 - **A strangler migration relocates the PRODUCTION writer the audit cited — trace fix-loci to their live writer before planning.** A spinoff handoff cited `file:line` loci in one repo for silent-overwrite fixes in several append/promote operations. At plan-write, disk showed a strangler migration had relocated the PRIMARY production writers into a sibling repo's engine layer — the originally-cited code was only the seam-absent legacy fallback. Naïvely "fixing" the cited legacy write ships a fix that never touches the production silent-loss path. The right move split scope: fix the legacy fallbacks defensively AND route the relocated loci via the proper cross-repo channel. Composes with § Enumerate EVERY Writer of a Path — a strangler migration is exactly the off-the-main-wave writer a single-locus mental model misses.
 
 - **A wrong PATH with a right SUBSTRATE is a premise fix, not a blocker — repo-search before declaring absence.** A stub cited a skill-directory path that turned out nonexistent; the real surface was a differently-named command file. A single failed `ls` is NOT "substrate absent" — repo-search for the concept first, and carry the path correction into the plan as a premise fix rather than surfacing a false blocker to the PM. The citation was stale on path but the work was real; the plan-author's job is to correct it, not bounce it.
+
+## Never Brief a Role for a Capability Its Definition Withholds
+
+**Check the brief's asks against the target's `tools:` line and Tools Policy before dispatching. A brief requesting a withheld capability is malformed at authoring time — nothing refuses it, so the agent declines at runtime, already spawned and paid for.**
+
+The role's own declaration does not prevent this: the pull to brief past it comes from the task genuinely needing the capability, and reads as stronger than the boundary.
+
+**How to apply.** Name the role holding each capability the brief asks for. If the target withholds it, dispatch a second role that has it — not a louder brief, and never a widened tool grant on the role whose boundary is the point. Canonical instance: `reviewer-routed-workers.md` § Execution rides alongside the reviewer, never inside it.
+
+**Corollary.** A runtime decline is evidence about the brief, not the agent. Static-only findings from a static-only reviewer are the expected shape; filing that as a capability gap in the *role* misfiles the defect.
 
 ## Related
 

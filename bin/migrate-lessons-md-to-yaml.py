@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-lessons-md-to-yaml.py -- one-shot migration of state/lessons.md entries
 into per-entry YAML files under state/lessons/.
@@ -41,10 +40,23 @@ import argparse
 import subprocess
 from pathlib import Path
 
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+import cc_invoke  # noqa: E402
+
+cc_invoke.ensure_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Constants and patterns
 # ---------------------------------------------------------------------------
+
+MUTATES = ["state/lessons.md", "state/lessons/*.yaml", "state/migrate-lessons-dryrun-*.json"]
 
 DATE_PATTERN = re.compile(r'\b(\d{4}-\d{2}-\d{2})\b')
 
@@ -84,17 +96,29 @@ def _extract_target_wiki(text: str) -> str | None:
 
 
 def _detect_from_repo() -> str:
-    """Detect from_repo registry shortname from cwd git root basename."""
-    try:
-        result = subprocess.run(
-            ['git', 'rev-parse', '--show-toplevel'],
-            capture_output=True, text=True, check=True,
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-        )
-        root = Path(result.stdout.strip())
-        return root.name
-    except Exception:
+    """Detect from_repo registry shortname from the checked-resolver repo root's
+    basename. WRITER (AC10): both cmd_dry_run (JSON classification report via
+    output_path.write_text) and cmd_apply (per-entry YAML via
+    out_path.write_text, plus git rm) write real artifacts, and both call this
+    before their first write. A positive MISMATCH refuses HERE, before any
+    write lands — the DR-277 carve-out ("prevents a write into a foreign
+    tree") licenses the hard deny. UNRESOLVED never refuses (DR-277, AC4).
+
+    Review: code-reviewer (nit) — this resolved root only labels the
+    from_repo field; it does NOT scope where cmd_dry_run/cmd_apply actually
+    write. Both write targets (`Path('state') / ...`, and
+    `args.output_dir`, default `'state/lessons'`) are resolved relative to
+    `os.getcwd()`, never to this function's resolved root -- on a MATCH
+    verdict the two coincide by construction, but they are two different
+    notions of "where."
+    """
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if repo_root is None:
         return 'unknown'
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+        sys.exit(1)
+    return Path(repo_root).name
 
 
 def _make_filename(entry: dict, idx: int, seen_slugs: set) -> str:
@@ -476,7 +500,7 @@ def cmd_apply(args: argparse.Namespace) -> None:
         result = subprocess.run(
             ['git', 'rm', str(lessons_md)],
             capture_output=True, text=True,
-            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            **no_console_creationflags()
         )
         if result.returncode != 0:
             print(

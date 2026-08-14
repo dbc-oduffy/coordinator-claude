@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 learn-lessons-roots — CLI trampoline over claude-klabauter coordinator_core.ops.learn_lessons_roots.
@@ -83,7 +82,12 @@ def _fallback_claude_home() -> str:
     """Best-effort local re-derivation of just the $CLAUDE_HOME line — used ONLY
     when the claude-klabauter module itself is unreachable, so this never-block helper still
     emits its one unconditional guarantee (contract rule 1) instead of nothing."""
-    base = os.environ.get("CLAUDE_HOME") or os.path.expanduser("~")
+    base = (
+        os.environ.get("CLAUDE_HOME")
+        or os.environ.get("HOME")
+        or os.environ.get("USERPROFILE")
+        or os.path.expanduser("~")
+    )
     return os.path.join(base, ".claude")
 
 

@@ -1,0 +1,159 @@
+"""
+coordinator/bin/static-check — optional pyright wrapper a confined executor
+can invoke as `python3 coordinator/bin/static-check <path>...`.
+
+Spec backlink: state/improvement-queue/2026-08-11-a-confined-executor-cannot-verify-any-st-9b6d190ee07e.yaml
+Shell-out carve-out row: docs/reference/shell-out-carve-outs.md (class f)
+
+WHY THIS EXISTS
+    A dispatched executor's Bash allowlist is pytest-only: `python3 -c` is
+    denied unconditionally, and until this file existed there was no in-repo
+    script invocable as `python3 <script>` to trace a static-typing finding.
+    A brief asking a worker to "leave zero new Pyright errors" had no way to
+    be answered from inside the sandbox.
+
+WHAT THIS REPORTS — ABSOLUTE COUNTS, NOT A DIFF
+    Every run of this tool reports the TOTAL error/warning count pyright
+    finds in the given paths right now. It does NOT compute or store a
+    baseline, and it does NOT diff against git history or a prior run. To
+    answer "did my edit introduce zero NEW errors," the caller must run this
+    tool TWICE: once before editing (to note the baseline count) and once
+    after (to compare). Building baseline/diff machinery is explicitly out of
+    scope for this tool — it reports what pyright says, right now, full stop.
+
+WHY PYRIGHT MAY BE ABSENT — AND WHY THAT IS NOT A FAILURE
+    pyright is a Node.js tool. This repo requires NO Node runtime for its own
+    work (coordinator_core/frontmatter/tests/test_no_node_schema_shellout.py
+    is the standing gate for that rule). Nothing in coordinator_core, no hot
+    path, and no test may depend on pyright being installed. This script
+    therefore treats a missing pyright as a normal, expected outcome: it
+    prints a single unambiguous UNAVAILABLE line and exits 0. That line is a
+    truthful answer a worker can paste into a dispatch report — the failure
+    mode this tool closes is a worker having no way to answer at all, and a
+    wrapper that dies obscurely on a machine without pyright would leave that
+    exact worker exactly as stuck.
+
+USAGE
+    python3 coordinator/bin/static-check <path> [<path> ...]
+
+EXIT CODES
+    0 — pyright unavailable (UNAVAILABLE verdict), OR pyright ran with zero
+        errors (warnings may still be present).
+    1 — pyright ran and reported one or more errors.
+    2 — usage error (no paths given).
+"""
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+
+_TAG = "static-check"
+
+# Windows PATH resolution can land the resolvable name as "pyright.cmd"
+# rather than bare "pyright" (npm-installed global shims are batch files on
+# Windows) -- try both, bare name first since that's what POSIX and most
+# Windows shells resolve directly.
+_PYRIGHT_CANDIDATES = ("pyright", "pyright.cmd")
+
+_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
+def resolve_pyright() -> str | None:
+    """Return an absolute/resolvable pyright executable path, or None.
+
+    Deliberately PATH-only (`shutil.which`) -- never a hardcoded absolute
+    path, which would be machine-local and rot the moment this ships to a
+    different box.
+    """
+    for candidate in _PYRIGHT_CANDIDATES:
+        found = shutil.which(candidate)
+        if found:
+            return found
+    return None
+
+
+def run_pyright(pyright_bin: str, paths: list[str]) -> tuple[int, dict | None, str]:
+    """Run pyright --outputjson over paths. Returns (returncode, parsed_json_or_None, stderr)."""
+    cp = subprocess.run(
+        [pyright_bin, "--outputjson", *paths],
+        capture_output=True,
+        text=True,
+        creationflags=_CREATIONFLAGS,
+        check=False,
+    )
+    try:
+        parsed = json.loads(cp.stdout)
+    except json.JSONDecodeError:
+        parsed = None
+    return cp.returncode, parsed, cp.stderr
+
+
+def summarize(parsed: dict) -> tuple[str, int, int]:
+    """Build a compact per-file summary and return (summary_text, error_count, warning_count).
+
+    Reads pyright's --outputjson shape: generalDiagnostics[] entries carry
+    `file`, `severity` ("error"/"warning"/"information"), `message`, and a
+    `range.start.line` (0-based); `summary` carries pre-aggregated counts.
+    """
+    diagnostics = parsed.get("generalDiagnostics", [])
+    by_file: dict[str, list[dict]] = {}
+    for diag in diagnostics:
+        by_file.setdefault(diag.get("file", "<unknown>"), []).append(diag)
+
+    lines: list[str] = []
+    for file_path in sorted(by_file):
+        entries = by_file[file_path]
+        lines.append(f"{file_path}:")
+        for diag in entries:
+            severity = diag.get("severity", "?")
+            line_no = diag.get("range", {}).get("start", {}).get("line")
+            line_disp = (line_no + 1) if isinstance(line_no, int) else "?"
+            message = diag.get("message", "").splitlines()[0] if diag.get("message") else ""
+            rule = diag.get("rule")
+            rule_disp = f" [{rule}]" if rule else ""
+            lines.append(f"  {line_disp}: {severity}: {message}{rule_disp}")
+
+    summary = parsed.get("summary", {})
+    error_count = summary.get("errorCount", sum(1 for d in diagnostics if d.get("severity") == "error"))
+    warning_count = summary.get(
+        "warningCount", sum(1 for d in diagnostics if d.get("severity") == "warning")
+    )
+    return "\n".join(lines), error_count, warning_count
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if not args:
+        print(f"{_TAG}: usage: static-check <path> [<path> ...]", file=sys.stderr)
+        return 2
+
+    pyright_bin = resolve_pyright()
+    if not pyright_bin:
+        print(
+            f"{_TAG}: verdict=UNAVAILABLE -- pyright not found on PATH "
+            f"(tried: {', '.join(_PYRIGHT_CANDIDATES)}). This is expected on a "
+            f"machine without the optional Node/pyright toolchain; static "
+            f"checking is not a hard dependency of this repo."
+        )
+        return 0
+
+    returncode, parsed, stderr = run_pyright(pyright_bin, args)
+    if parsed is None:
+        print(
+            f"{_TAG}: verdict=UNAVAILABLE -- pyright ran (rc={returncode}) but its "
+            f"output did not parse as JSON. stderr: {stderr.strip()}",
+            file=sys.stderr,
+        )
+        return 0
+
+    summary_text, error_count, warning_count = summarize(parsed)
+    if summary_text:
+        print(summary_text)
+    print(f"{_TAG}: verdict=CHECKED errors={error_count} warnings={warning_count}")
+    return 1 if error_count else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

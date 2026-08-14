@@ -59,8 +59,10 @@ def find_cli_cmd(caller_dir: str, cli_name: str) -> list[str] | None:
         if result.returncode == 0:
             return [candidate]
 
-    sibling = os.path.join(caller_dir, cli_name)
-    if os.path.exists(sibling):
+    for sibling_candidate in (cli_name, cli_name + ".py"):
+        sibling = os.path.join(caller_dir, sibling_candidate)
+        if not os.path.exists(sibling):
+            continue
         try:
             result = subprocess.run(  # popup-intentional-last-resort
                 [sys.executable, sibling, "--help"],

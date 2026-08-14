@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-persona-slug-leak.py — CLI trampoline over claude-klabauter
@@ -36,7 +35,7 @@ percolate-preflight-scratch-publish.py) — fail-loud on claude-klabauter-link f
 never-block auto-push shape (which always exits 0). A silently-skipped
 persona-slug guard is a publish-safety regression, not a benign no-op.
 
-Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 """
 
 from __future__ import annotations

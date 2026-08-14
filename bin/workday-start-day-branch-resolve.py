@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator/bin/workday-start-day-branch-resolve.py — native port of two genuine
@@ -67,7 +66,7 @@ Negative-spec (do NOT reintroduce while touching this file):
 
 Spec backlink: DoE-claude commands/workday-start.md § Step -1 (Session Reaper),
 § Step 0.45 (Post-Step-0 Span Assertion)
-Spec backlink: docs/plans/2026-07-23-extirpate-bash-from-workday-start.md § WDS-1
+Spec backlink: docs/plans/2026-07-23-extirpate-bash-from-workday-start.md § WDS-1 [DEAD-CITATION: plan file never committed to this repo]
 """
 from __future__ import annotations
 
@@ -78,10 +77,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Generator-provenance declaration (generator_provenance.py). cmd_reap_log's
+# only write is a best-effort append to ~/.claude/logs/coordinator-reap.log --
+# outside the tracked repo tree; span-assert is read-only.
+GENERATES = []
+
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root, child_env  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
 
 _GIT_TIMEOUT = 10
 
@@ -89,10 +93,29 @@ _GIT_TIMEOUT = 10
 def _ensure_claude_klabauter_on_path() -> str:
     """Resolve+push this checkout's own root onto sys.path (self-colocated —
     this file lives at coordinator/bin/ inside the claude-klabauter checkout itself)."""
-    claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    return claude_klabauter_root
+    return require_colocated_engine_on_path(__file__)
+
+
+def _no_console_kw() -> dict:
+    """Splat-ready Windows console-suppression kwarg. Falls back to the same
+    suppression kwargs computed inline (zero imports beyond ``subprocess``) on
+    any resolution failure, rather than silently dropping console suppression —
+    a resolution failure must never turn a quiet spawn into a visible console
+    window (Review: code-reviewer P2 — matched to the pattern ccbdbecc2 applied
+    to sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py)."""
+    try:
+        _ensure_claude_klabauter_on_path()
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
+        # `{}` off Windows, matching the primitive's own POSIX contract exactly --
+        # `{"creationflags": 0}` splats harmlessly too, but a substitute that
+        # disagrees with the thing it substitutes for is a trap for any caller
+        # comparing against `no_console_creationflags()`.
+        if os.name != "nt":
+            return {}
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +135,7 @@ def _run_reap_sessions() -> str:
             text=True,
             timeout=60,
             env=child_env(),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_kw(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"workday-start-day-branch-resolve.py: reap-sessions.py invocation failed (continuing): {exc}", file=sys.stderr)
@@ -149,7 +172,7 @@ def _current_branch() -> str:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_kw(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""

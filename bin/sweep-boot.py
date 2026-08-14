@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """sweep-boot.py — native trampoline over session.boot_sweep.
 
@@ -66,9 +65,9 @@ stamping the same key later is additive, not a double-count. Both side
 channels are best-effort and never raise into this trampoline's own
 already-best-effort ceremony contract.
 
-Spec backlink: docs/plans/2026-07-06-strang-11-b8-session-init-op-absorption.md § C2 / AC7
+Spec backlink: pln-strang-11-b8-session-init-boot-f78455 § C2 / AC7
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Pinned pattern, Wave 1b
-Spec backlink: docs/plans/2026-07-23-wsc-tail-slim-down.md § C20
+Spec backlink: pln-wsc-tail-slim-down-op-scoped-c-e9a265 § C20
 DR-215: single-process four-class sweep replaces four separate cc_invoke cold-starts.
 
 Negative-spec: this module never sources or shells to strangler-facade.sh,
@@ -90,7 +89,7 @@ _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from cc_invoke import RouteMutationError, _resolve_claude_klabauter_root, route_mutation  # noqa: E402
+from cc_invoke import RouteMutationError, _no_console_kw, _resolve_claude_klabauter_root, route_mutation  # noqa: E402
 from sweep_argv import parse_repo_root_argv  # noqa: E402
 
 _OP = "session.boot_sweep"
@@ -168,11 +167,6 @@ def _stamp_archive_sweeps_liveness(repo_root: str) -> None:
     except Exception:  # noqa: BLE001 -- never raise out of a best-effort liveness stamp
         pass
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-
 def _legacy_fn() -> Any:
     """No-bash-fallback marker — big-bang cutover per the de-bash campaign.
 
@@ -192,6 +186,18 @@ def _legacy_fn() -> Any:
     )
 
 
+def _no_console_kw_safe() -> dict:
+    """``_no_console_kw`` needs a resolved CLAUDE_KLABAUTER_ROOT, which can raise
+    RuntimeError; on any resolution failure, fall back to the same
+    suppression kwargs computed inline (zero imports beyond ``subprocess``)
+    rather than silently dropping console suppression -- a resolution
+    failure must never turn a quiet spawn into a visible console window."""
+    try:
+        return _no_console_kw(_resolve_claude_klabauter_root())
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's transport posture
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def _resolve_repo_root(explicit: str | None) -> str | None:
     """Resolve repo_root — explicit arg wins; else `git rev-parse --show-toplevel`."""
     if explicit:
@@ -201,7 +207,7 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw_safe(),
         )
     except OSError:
         return None
@@ -239,6 +245,10 @@ def main(argv: list[str] | None = None) -> int:
         return early_exit
     explicit_repo_root = positional[0] if len(positional) >= 1 and positional[0] else None
     state_common_dir = positional[1] if len(positional) >= 2 and positional[1] else None
+
+    from coordinator_core.install.forwarder_self_heal import self_heal_forwarders
+
+    self_heal_forwarders()
 
     repo_root = _resolve_repo_root(explicit_repo_root)
     if not repo_root:

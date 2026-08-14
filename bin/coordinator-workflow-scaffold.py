@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """coordinator-workflow-scaffold.py — DoE-side veneer over the claude-klabauter
 workflow.scaffold op.
@@ -70,7 +69,7 @@ implement the skeleton-stamper engine itself — thin transport veneer only.
 #       @register_op("workflow.scaffold") in workflow_scaffold.py; this exit code
 #       does NOT imply the op is unshipped.)
 #
-# Spec backlink: docs/plans/2026-07-12-workflow-skeleton-stamper-claude-klabauter-engine.md
+# Spec backlink: pln-workflow-skeleton-stamper-maki-adab0d
 #
 # Negative-spec:
 #   - Does NOT write to disk itself when --out is omitted (stdout only).
@@ -92,6 +91,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import StructuralPinError, cc_invoke_bare  # noqa: E402
 
+GENERATES = []  # writes only to the caller-supplied --out path (or stdout when omitted) — no fixed tracked artifact
 
 _PROG = "coordinator-workflow-scaffold.py"
 

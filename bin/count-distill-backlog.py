@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """count-distill-backlog.py — heuristic count of completion-log entries pending
 wiki distillation.
@@ -89,7 +88,7 @@ def _resolve_root() -> str:
         return doe_root()
     except _DoeUnresolvable as exc:
         print(
-            f"{PROG}: cannot resolve the DoE-claude repo root ({exc}). "
+            f"{PROG}: cannot resolve the coordinator doctrine repo root ({exc}). "
             "Set repos.doe_claude in the machine-local registry, or set the "
             "DOE_ROOT/REPO_DOE_CLAUDE env var, or set CLAUDE_HOME directly.",
             file=sys.stderr,

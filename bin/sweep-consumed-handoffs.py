@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """sweep-consumed-handoffs.py — on-demand single-family archival sweep for CONSUMED
 handoffs, via session.sweep_consumed_handoffs.
@@ -24,7 +23,11 @@ Usage:
     --dry-run    Preview candidates without mutating anything — no git-mv, no
                  shipped_in stamp, no WARN-marker write, no commit. See
                  session.sweep_consumed_handoffs' own dry_run docstring: a preview may
-                 UNDER-count relative to a live run, never over-count.
+                 UNDER-count relative to a live run against act-time terminality drift
+                 only (a candidate going re-live between preview and act), never
+                 over-count that residual. Dest-collision is checked in the preview
+                 itself, so a colliding candidate is excluded from WOULD-archive rather
+                 than being a source of over-count.
     <repo_root>  Optional; defaults to `git rev-parse --show-toplevel`.
 
 Stdout contract: a human-readable summary — archived (or would-archive) count, and every
@@ -45,7 +48,7 @@ Exit codes:
     1 — op-level setup error (bad repo_root / state_common_dir).
     2 — transport failure (native seam absent, spawn error) or op-level partial failure.
 
-Spec backlink: docs/plans/2026-07-23-wsc-tail-slim-down.md § C21
+Spec backlink: pln-wsc-tail-slim-down-op-scoped-c-e9a265 § C21
 Wraps: session.sweep_consumed_handoffs (native op)
 
 Liveness stamp (C2, 2026-07-23 wsc-tail-slim-down): a genuinely successful, non-dry-run
@@ -67,21 +70,19 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
 from sweep_argv import parse_repo_root_argv  # noqa: E402
-
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _USAGE = "usage: python3 sweep-consumed-handoffs.py [-h] [--dry-run] [<repo_root>]"
 
 
 def _import_housekeeping_seam():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import `housekeeping_liveness.{stamp_liveness,ARCHIVE_SWEEPS}`.
+    """Resolve CLAUDE_KLABAUTER_ROOT (self-location-first) and import
+    `housekeeping_liveness.{stamp_liveness,ARCHIVE_SWEEPS}`.
 
     Mirrors `sweep-boot.py::_import_housekeeping_seam` / the copies in the sibling
     per-class CLIs -- best-effort; returns None on any resolution/import failure.
     """
     try:
-        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        if cc_invoke.ensure_engine_on_path(__file__) is None:
+            return None
         from coordinator_core.ops.ceremony.housekeeping_liveness import (
             ARCHIVE_SWEEPS,
             stamp_liveness,
@@ -120,9 +121,9 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **cc_invoke._no_console_kw(cc_invoke.resolve_engine_root(__file__)),  # popup-safe-env-suppressed
         )
-    except OSError:
+    except (OSError, RuntimeError):
         return None
     resolved = (proc.stdout or "").strip()
     if proc.returncode != 0 or not resolved:

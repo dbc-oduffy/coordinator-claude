@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """probe-memory-headroom.py — best-effort cross-platform RAM/VRAM headroom probe.
 
@@ -65,7 +64,7 @@ Exit codes:
     2  usage error (unrecognized argument)
 
 Spec backlink: docs/plans/2026-05-30-organic-ramp-concurrency-doctrine.md SS111-114 (successor signal)
-Spec backlink: docs/plans/2026-06-27-coordinator-watchdog.md
+Spec backlink: docs/plans/2026-06-27-coordinator-watchdog.md [DEAD-CITATION: plan file never committed to this repo]
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Plan C, Wave E3-d)
 """
 from __future__ import annotations
@@ -77,9 +76,20 @@ import subprocess
 import sys
 from typing import Optional
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before the coordinator_core import
+# below: this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+# this bin/ directory, not the checkout root. Same bootstrap as
+# coordinator/bin/coordinator-lesson-add (9b979ee5f).
+_ENGINE_ROOT = require_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 
 def _bounded(secs: float, cmd: list[str]) -> Optional[str]:
@@ -96,7 +106,7 @@ def _bounded(secs: float, cmd: list[str]) -> Optional[str]:
             capture_output=True,
             text=True,
             timeout=secs,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -188,15 +198,15 @@ def _ram_from_macos() -> tuple[Optional[int], Optional[int]]:
     try:
         total_bytes_out = subprocess.run(
             ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=5,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
         pagesize_out = subprocess.run(
             ["sysctl", "-n", "hw.pagesize"], capture_output=True, text=True, timeout=5,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
         stats_out = subprocess.run(
             ["vm_stat"], capture_output=True, text=True, timeout=5,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None, None

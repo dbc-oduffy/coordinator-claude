@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """lib/coordinator_safe_name.py — cross-platform safe filename component primitives.
 
 Port of: coordinator-safe-name.sh (DoE 721a71f4, 2026-07-21). Defines the canonical NTFS-illegal charset and
@@ -117,6 +116,10 @@ _USAGE = """Usage: coordinator-safe-name <timestamp|slug|check> [args...]
 def main(argv: list[str]) -> int:
     subcommand = argv[1] if len(argv) > 1 else ""
     rest = argv[2:]
+
+    if subcommand in ("--help", "-h"):
+        print(_USAGE, end="")
+        return 0
 
     if subcommand == "timestamp":
         mode = "--now"

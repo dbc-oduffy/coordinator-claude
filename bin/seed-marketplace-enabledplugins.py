@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Idempotently seed enabledPlugins[<plugin>@<marketplace>] for every present
 marketplace-sibling plugin into settings.local.json.
 
@@ -6,7 +5,7 @@ Purpose: a fresh **inline** coordinator install (`claude --plugin-dir
 <clone>/coordinator`) never writes any `enabledPlugins` entry for a
 marketplace-sibling repo (project-rag, project-rag-ue-addon,
 Example-game-workbench-repo, example-cockpit-repo, example-market-data-repo, example-store-repo,
-Claude-klabauter, ...) — the plugin's slash commands stay dark until someone
+the engine repo, ...) — the plugin's slash commands stay dark until someone
 hand-authors the key. This seeder derives, at `coordinator:install` time,
 which siblings are actually checked out on THIS machine (registry-driven)
 and what `<plugin>@<marketplace>` key(s) each one needs (manifest-driven),
@@ -50,14 +49,14 @@ dual-identity anti-pattern, `docs/wiki/dual-identity-module-hazard.md`) —
 `registry.local.toml` is read directly here with stdlib `tomllib`, which is
 a plain file read, not a resolution-layer / write-path import.
 Negative-spec: does NOT resurrect `platform-localize.sh` — this reuses the
-merge *idiom* (codex / claude-klabauter's shipped `seed_enabled_plugins.py` shape),
-not the file.
+merge *idiom* (codex / the engine repo's shipped `seed_enabled_plugins.py`
+shape), not the file.
 
-Spec backlink: docs/plans/2026-07-16-seed-marketplace-enabledplugins-at-install.md
+Spec backlink: DoE-claude:pln-seed-marketplace-sibling-enabl-4806a8
   § D1 (C1) — AC1, AC2, AC3, AC4, AC5. § D4 (C6) — AC9 (registration).
-Twin: claude-klabauter's shipped `scripts/seed_enabled_plugins.py` (f4e165e9)
+Twin: the engine repo's shipped `scripts/seed_enabled_plugins.py` (f4e165e9)
   — same shape, differs only in TARGET (settings.local.json here, not
-  settings.json) and SCOPE (all detected siblings here, not just claude-klabauter).
+  settings.json) and SCOPE (all detected siblings here, not just the engine repo).
 
 D4 (registration, the Director of Engineering F1's PM-ratified co-scope): enablement alone
 (`enabledPlugins[<plugin>@<marketplace>] = true`) is inert on a genuinely
@@ -81,10 +80,10 @@ on a genuinely fresh box `~/.claude/plugins/<name>` does not exist yet
 (nothing has ever been installed there) — registering a directory-source
 `path` that doesn't exist would leave the marketplace exactly as dark as
 before. Empirical check on this Mac (`~/.claude/settings.local.json` +
-`~/.claude/plugins/known_marketplaces.json`) shows `claude-klabauter`'s
-registered `path`/`installLocation` (`~/.claude/plugins/claude-klabauter`) is
-itself a symlink BACK to its `repos.*` checkout (`/Users/example-operator/X/
-Claude-klabauter`) — i.e. the real, pre-existing, manifest-bearing directory
+`~/.claude/plugins/known_marketplaces.json`) shows the engine repo's
+registered `path`/`installLocation` (`~/.claude/plugins/<engine-repo-name>`) is
+itself a symlink BACK to its `repos.*` checkout — i.e. the real, pre-existing,
+manifest-bearing directory
 is the checkout; `~/.claude/plugins/<name>` is, at best, downstream of it.
 Pointing registration directly at the checkout is the fresh-box-correct
 choice; it also matches D1's own manifest-discovery output 1:1, so no new
@@ -112,8 +111,8 @@ if sys.version_info < (3, 11):
 
 import tomllib  # stdlib, 3.11+
 
-# coordinator_core is engine-owned (claude-klabauter), not on sys.path by default for a
-# coordinator/bin script (DoE-side) — resolve this script's own co-located
+# coordinator_core is engine-owned (this repo), not on sys.path by default for
+# a coordinator/bin script (DoE-side) — resolve this script's own co-located
 # CLAUDE_KLABAUTER_ROOT (self-location-first, never a machine-local registry lookup for
 # a checkout this script already lives inside) rather than importing
 # coordinator_core.machine_resolver/_machine_local in-process, per this
@@ -121,11 +120,9 @@ import tomllib  # stdlib, 3.11+
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
-_CLAUDE_KLABAUTER_ROOT = resolve_colocated_claude_klabauter_root(__file__)
-if _CLAUDE_KLABAUTER_ROOT not in sys.path:
-    sys.path.insert(0, _CLAUDE_KLABAUTER_ROOT)
+_CLAUDE_KLABAUTER_ROOT = require_colocated_engine_on_path(__file__)
 from coordinator_core.install.write_surface import (  # noqa: E402
     ShapedClause,
     WriteSurfaceDeclaration,
@@ -135,6 +132,8 @@ from coordinator_core.install.write_surface import (  # noqa: E402
 # Marketplace name never seeded as an enabledPlugins key — the inline install
 # loads coordinator live via --plugin-dir, so it has no marketplace entry to
 # enable. See module docstring "No coordinator self-entry" above.
+GENERATES = []  # writes settings.local.json and known_marketplaces.json under the resolved Claude home/settings-home (module docstring: "Only settings.local.json (gitignored, per-machine)") — outside claude-klabauter's own tracked tree
+
 _COORDINATOR_MARKETPLACE_NAME = "coordinator-claude"
 
 # Subpaths (relative to a sibling repo root) searched for a marketplace
@@ -496,7 +495,7 @@ def _read_settings_dict(path: pathlib.Path) -> tuple[dict | None, str | None]:
     Returns (data, None) on success — data is {} when the file is absent
     (fine, not an error). Returns (None, error_message) on malformed JSON,
     a non-object top level, or a non-dict enabledPlugins — the read-fail-loud
-    integrity contract (claude-klabauter's shape): never overwrite a file we can't
+    integrity contract (the engine repo's shape): never overwrite a file we can't
     fully trust the shape of.
     """
     if not path.is_file():
@@ -558,7 +557,7 @@ def _read_marketplaces_dict(path: pathlib.Path) -> tuple[dict | None, str | None
 def _atomic_write(target: pathlib.Path, data: dict) -> None:
     """Write data to target atomically via a sibling temp file.
 
-    Mirrors claude-klabauter's shipped seed_enabled_plugins.py::_atomic_write: resolve()
+    Mirrors the engine repo's shipped seed_enabled_plugins.py::_atomic_write: resolve()
     before the swap (symlinked settings.local.json is written through, not
     replaced), preserve the destination's existing file mode across the swap
     (mkstemp always creates 0600), mkdir(parents=True) first (settings dir

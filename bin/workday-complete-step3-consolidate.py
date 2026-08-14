@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday-complete-step3-consolidate.py — Step 3 Branch Consolidation for /workday-complete.
 
 Encapsulates the deterministic branch-consolidation procedure from
@@ -172,6 +171,8 @@ def main(argv: list[str]) -> int:
         _err(f"[step3] ERROR: lib not found — CLAUDE_KLABAUTER_ROOT resolution failed: {exc}")
         return 5
 
+    from coordinator_core.win_portability import no_console_creationflags
+
     # Step 3.0 — sync-main
     if dry_run:
         _err("[step3] DRY-RUN: would run sync-main.py")
@@ -180,7 +181,7 @@ def main(argv: list[str]) -> int:
         sm = subprocess.run(
             [sys.executable, _BIN_SYNC_MAIN], stdout=sys.stderr, stderr=sys.stderr,
             env=child_env(),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
         if sm.returncode != 0:
             _err("[step3] sync-main: FAILED")
@@ -199,7 +200,7 @@ def main(argv: list[str]) -> int:
         try:
             cb = subprocess.run(
                 [sys.executable, _BIN_CURRENT_BRANCH], capture_output=True, text=True,
-                timeout=15, env=child_env(), creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                timeout=15, env=child_env(), **no_console_creationflags(),
             )
             current_branch = cb.stdout.strip() if cb.returncode == 0 else ""
         except (OSError, subprocess.TimeoutExpired):

@@ -15,7 +15,7 @@ docstring). The two legs are idempotent (same 60s throttle bucket, same
 write), so this ONE stub file services both hook events unchanged -- no
 event-name branching needed, since the op only reads session_id.
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 bookkeeping LOGIC (coordinator_core.hooks.session_heartbeat, registered under
 the JSON-RPC method "hooks.session_heartbeat"). The engine is imported and run

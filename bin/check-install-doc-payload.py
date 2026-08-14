@@ -77,6 +77,36 @@ MECHANISM (the load-bearing design choice)
     an explicit glob (relative to `--tree`); `--recursive` extends the
     default glob to `**/*.md`.
 
+    FOREIGN-REPO MARKER (`foreign-repo:<repo-name>/<relative-script-path>`)
+    A command that legitimately resolves inside a NAMED SIBLING repo, not
+    the tree under test, cannot be expressed as a plain relative path — this
+    gate resolves every unmarked candidate against `--tree` and nothing
+    else, by design. A doc author who needs to say "this path is real, but
+    it lives in the other repo you just cloned" marks the token
+    `foreign-repo:<repo-name>/<relative-script-path>` (e.g.
+    `foreign-repo:claude-klabauter/scripts/setup.py`) inside a code span.
+    This is checked for WELL-FORMEDNESS only — a repo-name segment, then a
+    relative path ending in one of the tracked script extensions, no `..`
+    traversal, no absolute/drive-rooted/drive-relative path, no leading `\`
+    or UNC path (`\\host\share\...`), no `<`/`>` placeholder chars — and is
+    never resolved against `--tree`; the marker's whole point is
+    that the referenced file is NOT expected to exist in the tree under
+    test. A malformed marker (empty repo-name segment, a path that escapes
+    with `..`, an absolute path, a non-script extension) is still a
+    Finding — the marker is not a blanket skip, it is a narrow, checked
+    escape hatch. An unmarked path that does not resolve in `--tree` fails
+    exactly as before; this section does not change that.
+
+    This is deliberately a DIFFERENT mechanism from the pre-existing
+    `<clone-dir>/scripts/setup.py`-style angle-bracket placeholder (see
+    `extract_script_paths`'s `<`/`>` skip) that some install docs already
+    use for "substitute your own clone path here" — that form is a
+    prose-readability placeholder with no repo identity and is invisible to
+    this gate by construction (it never becomes a candidate token at all).
+    The foreign-repo marker is additive: it does not require migrating any
+    existing `<...>`-placeholder command, and both forms are expected to
+    keep appearing side by side in the same doc.
+
     A SECOND, independent check runs over the same doc set: every Markdown
     inline link/image target (`[text](target)` / `![alt](target)`) is
     resolved relative to the LINKING doc's own directory (standard Markdown
@@ -144,7 +174,7 @@ WIRING (not performed by this module — see report / docstring below)
     executor owns `publish.py` for this dispatch.
 
 Spec backlink: state/audits/2026-08-05-klabauter-scrub-and-gate-both-silent.md
-Spec backlink: docs/plans/2026-07-31-claude-klabauter-oss-release.md
+Spec backlink: pln-claude-klabauter-oss-release-e-50bd5d
 """
 from __future__ import annotations
 
@@ -159,6 +189,17 @@ _SCRIPT_EXT_RE = re.compile(r"^[A-Za-z0-9_./\\-]+\.(py|cmd|ps1|sh|bat)$", re.IGN
 _FLAG_CONSUMING_NEXT = {"-c", "-m"}
 _TOKEN_RE = re.compile(r"'[^']*'|\"[^\"]*\"|\S+")
 _WINDOWS_ABS_RE = re.compile(r"^[A-Za-z]:[\\/]")
+# Drive-relative Windows form (`C:setup.py`, no separator after the colon):
+# resolves against that drive's current directory rather than being purely
+# relative, so it must be caught alongside the drive-rooted form above.
+_WINDOWS_DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+# Foreign-repo marker: `foreign-repo:<repo-name>/<relative-script-path>`.
+# See module docstring's FOREIGN-REPO MARKER section for the rationale and
+# the distinction from the pre-existing `<clone-dir>/...` placeholder form.
+_FOREIGN_REPO_PREFIX = "foreign-repo:"
+_FOREIGN_REPO_RE = re.compile(r"^foreign-repo:([^/]+)/(.+)$")
+_REPO_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 # Markdown inline link/image target: `[text](target)` / `![alt](target)`.
 # Matches both (the `!` prefix for an image is outside the `[...]` group, so
@@ -194,7 +235,22 @@ class Finding:
             doc_rel = self.doc.relative_to(tree_root)
         except ValueError:
             doc_rel = self.doc
-        noun = "command references" if self.kind == "command" else "link points at"
+        if self.kind == "command":
+            noun = "command references"
+        elif self.kind == "link":
+            noun = "link points at"
+        else:
+            noun = "foreign-repo reference"
+        if self.kind == "foreign-repo":
+            where = (
+                "which is not a well-formed foreign-repo marker "
+                "(expected `foreign-repo:<repo-name>/<relative-script-path>`, "
+                "no `..` traversal, no absolute path, tracked script extension)"
+            )
+            return (
+                f"{doc_rel}:{self.lineno}: {noun} {self.missing_path!r}, {where}. "
+                f"Offending line: {self.context.strip()!r}"
+            )
         where = f"which does not exist in the published tree ({tree_root})"
         if self.searched_dirs:
             where = (
@@ -245,6 +301,54 @@ def extract_script_paths(snippet: str) -> List[str]:
         if _SCRIPT_EXT_RE.match(tok):
             paths.append(tok)
     return paths
+
+
+def extract_foreign_repo_refs(snippet: str) -> List[str]:
+    """Return every `foreign-repo:...`-prefixed token in *snippet*, well-formed
+    or not — `parse_foreign_repo_ref` validates each one. Tokenized the same
+    way as `extract_script_paths` so a marker sitting alongside other
+    command tokens (flags, the interpreter name, ...) on the same code-span
+    line is still found.
+    """
+    return [tok for tok in _tokenize(snippet) if tok.startswith(_FOREIGN_REPO_PREFIX)]
+
+
+def parse_foreign_repo_ref(tok: str) -> Optional[tuple]:
+    """Validate a `foreign-repo:...`-prefixed *tok* for well-formedness.
+
+    Returns `(repo_name, relative_path)` (with `relative_path`'s backslashes
+    normalized to `/`) when *tok* is well-formed. Returns `("", tok)` when
+    *tok* carries the marker prefix but fails validation — malformed, not
+    absent, so callers can still raise a Finding for it (this marker is a
+    narrow, checked escape hatch, not a blanket skip — see module docstring).
+    Returns `None` only if *tok* does not start with the marker prefix at
+    all (not expected given `extract_foreign_repo_refs`'s own filter, but
+    kept for callers that pass arbitrary tokens).
+
+    Negative-spec: rejects an empty/malformed repo-name segment, a leading
+    `/` or `\` (including a UNC path, e.g. a leading `\\host\share\...`), a
+    Windows drive-rooted or drive-relative path (a drive letter immediately
+    followed by `:`), any `..` path segment, a `<`/`>` placeholder character,
+    and any extension outside the tracked script set.
+    """
+    if not tok.startswith(_FOREIGN_REPO_PREFIX):
+        return None
+    m = _FOREIGN_REPO_RE.match(tok)
+    if not m:
+        return ("", tok)
+    repo_name, rel_path = m.group(1), m.group(2)
+    if not _REPO_NAME_RE.match(repo_name):
+        return ("", tok)
+    if "<" in rel_path or ">" in rel_path:
+        return ("", tok)
+    if rel_path.startswith(("/", "\\")) or _WINDOWS_ABS_RE.match(rel_path) or _WINDOWS_DRIVE_RE.match(rel_path):
+        return ("", tok)
+    normalized = rel_path.replace("\\", "/")
+    if any(seg == ".." for seg in normalized.split("/")):
+        return ("", tok)
+    if not _SCRIPT_EXT_RE.match(normalized):
+        return ("", tok)
+    return (repo_name, normalized)
 
 
 def _iter_code_spans(text: str) -> Iterator[tuple]:
@@ -380,6 +484,21 @@ def check_tree(
 
     for doc, text in loaded:
         for lineno, snippet, context in _iter_code_spans(text):
+            for raw_tok in extract_foreign_repo_refs(snippet):
+                parsed = parse_foreign_repo_ref(raw_tok)
+                if parsed is None:
+                    continue
+                repo_name, _rel_path = parsed
+                if not repo_name:
+                    findings.append(
+                        Finding(
+                            doc=doc, lineno=lineno, context=context,
+                            missing_path=raw_tok, kind="foreign-repo",
+                        )
+                    )
+                # else: well-formed marker -- accepted, never resolved
+                # against tree_root (see module docstring).
+
             for raw_path in extract_script_paths(snippet):
                 normalized = raw_path.replace("\\", "/")
                 if "/" in normalized:

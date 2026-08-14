@@ -19,6 +19,16 @@ curatable, and are computed here rather than hand-listed — see
     which specific token it is — this is ONE SHAPE RULE
     (`is_identifier_shape_operative`), not four entries, and it covers every
     future sibling name with no per-name edit either.
+  - A MINTED STABLE ARTIFACT ID whose slug carries a sibling repo's name as a
+    `-`-delimited component (`pln-claude-klabauter-driven-ceremony-redesig-c7fe9a`) is
+    a citation of a private DOCUMENT, not a mention of a private REPO. It is
+    the same class as the `docs/plans/<slug>.md § Cn` path form the shape
+    rule above already exempts incidentally — a path's `.md` supplies the dot
+    that rule's precondition demands — and the fleet's spec-backlink
+    convention now mints ids in place of those paths, so the two shapes cite
+    the same record and cost an OSS reader the same string. This is a second
+    SHAPE RULE (`is_stable_artifact_id`) keyed off the RATIFIED id scheme,
+    not a per-id list.
 
 What is left, `IRREDUCIBLE_LITERALS` below, is the residue neither rule
 reaches: a BARE sibling-repo-name string that a live fallback mechanism
@@ -41,11 +51,27 @@ use the identical word, which is the actual defect this ratchet exists to
 catch, not a case for the exemption to swallow. Scoping to the named site
 keeps the exemption exactly as wide as its own justification and no wider.
 
-SIBLING_REPO_NAMES is sourced from `_oss_payload._ENGINE_REPO_NAME` rather
-than re-declared here — the one sibling repo this fleet's OSS-payload
-machinery already knows about, kept to a single source of truth. A future
-second sibling gets added there (and its `source_map` row), not invented
-here first.
+SIBLING_REPO_RECORD is a name-keyed record assembled from TWO distinct
+sources, because it answers two distinct questions:
+
+  - "which sibling does the publish `source_map` route to" is sourced from
+    `_oss_payload._ENGINE_REPO_NAME` — the one sibling repo this fleet's
+    OSS-payload machinery already knows about, kept to a single source of
+    truth. A future second sibling gets added there (and its `source_map`
+    row), not invented here first. This arm alone is subject to fail-open
+    degradation: an `_oss_payload` import failure narrows it to nothing.
+  - "can an OSS reader follow this pointer" is a DIFFERENT question — one
+    `_ENGINE_REPO_NAME` cannot answer for this repo: private,
+    published verbatim to the OSS mirror, with every property the detector
+    guards, but with no `source_map` row and never one, because it is not a
+    publish-routing target. Those two names are declared as literals below
+    (`_PINNED_UNREACHABLE_RECORD`) rather than sourced from any table — see
+    that constant's own docstring for why no such table exists in this repo
+    to derive from. This arm is NOT subject to fail-open degradation: it is
+    declared in-module and resolves on a fresh clone by construction.
+
+`SIBLING_REPO_NAMES` is kept as a derived tuple view over the union, for
+callers that only need the bare name set.
 """
 
 from __future__ import annotations
@@ -58,24 +84,101 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 _MCP_TOPOLOGY_PATH = REPO_ROOT / "coordinator" / "mcp-topology.yaml"
 
 
-def _sibling_repo_names() -> tuple:
+def _engine_sibling_record() -> dict:
     """Fail-open, matching every other loader in this module and in
     `_prompt_surface_locality.py`: an import or attribute-read failure
-    degrades to an EMPTY tuple, never a hardcoded copy of the name this
+    degrades to an EMPTY dict, never a hardcoded copy of the name this
     function exists to source from a single place. A hardcoded fallback here
     would silently keep working on a stale value if `_oss_payload` is ever
     renamed or the engine repo's canonical name changes, instead of
-    surfacing the drift."""
+    surfacing the drift.
+
+    The record's `short_forms`/`case_sensitive` reproduce exactly the legacy
+    derive-from-trailing-part, case-insensitive behavior
+    `_prompt_surface_locality._normalize_sibling_record` used to compute
+    from a bare tuple, so this split does not change matching behavior for
+    the engine-sibling name."""
     try:
         import _oss_payload  # local import: avoids a hard import-time dependency
     except Exception:
-        return ()
+        return {}
     name = getattr(_oss_payload, "_ENGINE_REPO_NAME", None)
-    return (name,) if isinstance(name, str) and name else ()
+    if not (isinstance(name, str) and name):
+        return {}
+    norm = name.replace("-", "_")
+    parts = norm.split("_")
+    short_forms = (parts[-1],) if len(parts) > 1 else ()
+    return {
+        name: {
+            "is_engine_sibling": True,
+            "oss_reachable": False,
+            "short_forms": short_forms,
+            "aliases": (),
+            "case_sensitive": False,
+        }
+    }
 
 
-#: The one sibling repo known to this fleet's OSS-payload machinery today.
-SIBLING_REPO_NAMES: tuple = _sibling_repo_names()
+#: Declared literals, not derived from any table — see module docstring.
+#: No in-repo table plays that role here on a fresh OSS clone with no
+#: machine-local registry present (the plan's Anti-scope entry rules out the
+#: candidates: `_ENGINE_REPO_NAME` answers the sibling-routing question, not
+#: the OSS-reachability one; the machine-local `repos.*` registry and
+#: `.doe-root` are runtime-detected and absent by design on a fresh install;
+#: `percolate-store.yaml`'s keep-set governs the publish transform, not
+#: detector input). The first name below is this repo: private, published
+#: verbatim to the OSS mirror, with no `source_map` row and never one,
+#: because it is not a publish-routing target. The second is its short
+#: form, declared separately because `_sibling_name_pattern` derives short
+#: forms only from a record entry's own declared `short_forms`, never from
+#: another entry's name.
+_PINNED_UNREACHABLE_RECORD: dict = {
+    "DoE-claude": {
+        "is_engine_sibling": False,
+        "oss_reachable": False,
+        "short_forms": (),
+        "aliases": (),
+        "case_sensitive": True,
+    },
+    "DoE": {
+        "is_engine_sibling": False,
+        "oss_reachable": False,
+        "short_forms": (),
+        # Review: no-op duplicate of this entry's own key (already in
+        # `forms` via `_sibling_name_pattern`'s `{name, norm}` seed);
+        # `()` matches the sibling entry's convention for "no distinct
+        # alias declared".
+        "aliases": (),
+        "case_sensitive": True,
+    },
+}
+
+
+def _sibling_repo_record() -> dict:
+    """The union: the engine-sibling arm (fail-open, may be empty) plus the
+    pinned-unreachable literals (never empty, resolve on a fresh clone by
+    construction — see module docstring's fail-open interaction note)."""
+    record: dict = {}
+    record.update(_engine_sibling_record())
+    record.update(_PINNED_UNREACHABLE_RECORD)
+    return record
+
+
+#: Name-keyed record — see module docstring. The consumer
+#: (`_prompt_surface_locality._raw_sibling_source`) looks for this exact
+#: attribute name first, falling back to the legacy `SIBLING_REPO_NAMES`
+#: tuple when absent.
+SIBLING_REPO_RECORD: dict = _sibling_repo_record()
+
+#: Derived view over `SIBLING_REPO_RECORD` — kept exported for other callers
+#: that still read the bare name tuple. Filtered to `oss_reachable is False`
+#: to match `_prompt_surface_locality.SIBLING_REPO_NAMES`'s filter — this
+#: identifier means the same thing in both modules; a future
+#: `oss_reachable: True` entry stays excluded from BOTH exports rather than
+#: silently drifting into one and not the other.
+SIBLING_REPO_NAMES: tuple = tuple(
+    name for name, data in SIBLING_REPO_RECORD.items() if data.get("oss_reachable") is False
+)
 
 #: Genuinely irreducible bare-literal residue. See module docstring's ENTRY
 #: CRITERION before adding to this tuple. Each entry is a
@@ -89,7 +192,7 @@ IRREDUCIBLE_LITERALS: tuple = (
     (
         "claude-klabauter",
         "coordinator/hooks/scripts/_engine_root.py",
-        108,
+        112,
         "the `_CLAUDE_KLABAUTER_SIBLING_DIR_NAME` constant — the ONE site this "
         "dirname is written, read by the rung-3 sibling-directory "
         "auto-discovery fallback (`repo_root.parent / <it>`). There is "
@@ -114,18 +217,104 @@ def _normalize(token: str) -> str:
     return token.lower().replace("-", "_")
 
 
-def is_identifier_shape_operative(token: str, sibling_names: Iterable = SIBLING_REPO_NAMES) -> bool:
-    """True if `token` is an identifier-shaped string (env var, dotted or
-    hyphenated registry key) that carries one of `sibling_names` as a
-    `_`/`.`-delimited COMPONENT — not merely a substring, so this does not
-    fire on an unrelated word that happens to contain the same letters.
+def _strip_trailing_sentence_period(token: str) -> str:
+    """`token` with any trailing `.` run removed.
 
-    Independent of which specific token it is (`CLAUDE_KLABAUTER_ROOT` vs
-    `REPO_CLAUDE_KLABAUTER` vs `repos.claude_klabauter` vs
-    `plugin.mirrors.claude-klabauter.source_path`) — that is the point: one
-    shape rule instead of four hand-curated entries, generalizing to any
-    future sibling name with no per-name edit.
+    Callers recover a token by extending over identifier-shaped characters,
+    which include `.` — so a sibling name that merely ENDS A PROSE SENTENCE
+    arrives here carrying the sentence's period and reads as dotted SHAPE
+    with no dotted CONTENT. Stripping it is what keeps the shape rule from
+    exempting the single most natural place for an attribution defect to
+    occur. A dot with an actual component after it (`claude_klabauter.module`)
+    is not trailing and is untouched."""
+    return token.rstrip(".")
+
+
+#: The ratified stable-ID prefixes, one per artifact type, all four minted by
+#: `coordinator-doc-new`'s `_mint_artifact_id` off one uniqueness basis —
+#: hence one pattern, not four. Canonical:
+#: `coordinator/docs/wiki/canonical-artifact-shapes.md` § Stable-ID table
+#: (`plan.schema.json` `plan_id`, `handoff.schema.json` `handoff_id`,
+#: `completion-entry.schema.json` `completion_id`, `mint-deliverable-id.py`
+#: `deliverable_id`).
+STABLE_ID_PREFIXES: tuple = ("pln", "dlv", "hnd", "cmp")
+
+#: `<prefix>-<slug>-<6hex>`, anchored whole-token. Deliberately the STRICT
+#: minted shape the ratified schema patterns declare
+#: (`^hnd-[a-z0-9-]+-[0-9a-f]{6}$` and its siblings): lowercase only, and the
+#: 6-hex uniqueness suffix REQUIRED. That suffix is what holds this rule to
+#: citations — an ordinary hyphenated prose phrase, or a bare sibling-repo
+#: name standing alone, fails the anchor and the suffix both.
+#:
+#: Negative spec: `dlv-<stub_id>` (the roadmap-stub deliverable form
+#: `plan.schema.json` also permits) carries no 6-hex suffix and is NOT
+#: matched. Admitting a suffix-free shape would widen this to any
+#: `dlv-`-prefixed hyphenated phrase, and no such id carrying a sibling-repo
+#: name exists in the corpus to validate the widening against.
+_STABLE_ARTIFACT_ID = re.compile(
+    r"^(?:" + "|".join(STABLE_ID_PREFIXES) + r")-[a-z0-9-]+-[0-9a-f]{6}$"
+)
+
+
+def is_stable_artifact_id(token: str, sibling_names: Iterable = SIBLING_REPO_NAMES) -> bool:
+    """True if `token` is a minted stable artifact id whose slug carries one
+    of `sibling_names` as a `-`-delimited COMPONENT — the fleet's
+    spec-backlink citation form (`coordinator/docs/wiki/coordinator-tripwires/
+    spec-backlink-cites-the-minted-id-not-the-path.md`).
+
+    A citation of a private DOCUMENT, not a mention of a private REPO: it
+    names a record an OSS reader cannot open, exactly as the older
+    `docs/plans/<slug>.md § Cn` path form did, and costs that reader the same
+    string either way. The path form clears `is_identifier_shape_operative`
+    incidentally — its `.md` extension supplies the dot that shape rule's
+    precondition demands — so exempting it while flagging the id form is
+    detector narrowness dating from before the ids existed, not a policy
+    distinction between the two shapes.
+
+    Component-matched, not substring-matched, for the same reason
+    `is_identifier_shape_operative` is: an unrelated slug word that merely
+    contains the same letters must not fire.
+
+    Negative spec: a BARE sibling-repo name in prose is not an id and stays a
+    violation — it fails `_STABLE_ARTIFACT_ID`'s prefix anchor and its
+    required 6-hex suffix. That strictness is this rule's entire narrowness
+    guarantee; loosening either end swallows attribution prose.
     """
+    token = _strip_trailing_sentence_period(token)
+    if not _STABLE_ARTIFACT_ID.match(token):
+        return False
+    normalized = _normalize(token)
+    for name in sibling_names:
+        norm_name = _normalize(name)
+        candidates = {norm_name, norm_name.rsplit("_", 1)[-1]}
+        for candidate in candidates:
+            if re.search(rf"(?:^|_){re.escape(candidate)}(?:_|$)", normalized):
+                return True
+    return False
+
+
+def is_identifier_shape_operative(token: str, sibling_names: Iterable = SIBLING_REPO_NAMES) -> bool:
+    """True if `token` is an identifier-shaped string that carries one of
+    `sibling_names` as a delimited COMPONENT — not merely a substring, so
+    this does not fire on an unrelated word that happens to contain the same
+    letters. Two shapes qualify, and this is the single entry point the
+    detector calls for both:
+
+      - an env var, or a dotted/hyphenated registry key
+        (`CLAUDE_KLABAUTER_ROOT`, `REPO_CLAUDE_KLABAUTER`, `repos.claude_klabauter`,
+        `plugin.mirrors.claude-klabauter.source_path`);
+      - a minted stable artifact id — see `is_stable_artifact_id`.
+
+    Independent of which specific token it is — that is the point: shape
+    rules instead of hand-curated entries, generalizing to any future sibling
+    name with no per-name edit.
+
+    Negative spec: a trailing sentence-period is not attribute access. See
+    `_strip_trailing_sentence_period`.
+    """
+    token = _strip_trailing_sentence_period(token)
+    if is_stable_artifact_id(token, sibling_names):
+        return True
     if "_" not in token and "." not in token:
         # A bare hyphenated-or-plain word — the sibling name standing alone,
         # in either its full or short form — with no `_`/`.` at all is not
@@ -144,7 +333,10 @@ def is_identifier_shape_operative(token: str, sibling_names: Iterable = SIBLING_
         # repo is hyphen-only-delimited today (dotted keys are the shape
         # actually in use), so the gap is unexercised — left as-is rather
         # than widening the precondition against a shape with no current
-        # example to validate it against.
+        # example to validate it against. The one hyphen-only shape that IS
+        # exercised — the minted stable artifact id — is matched above by
+        # `is_stable_artifact_id`, on its own anchored pattern, precisely so
+        # this precondition does not have to be loosened to admit it.
         return False
 
     normalized = _normalize(token)

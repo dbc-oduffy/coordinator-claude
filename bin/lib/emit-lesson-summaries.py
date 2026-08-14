@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """emit-lesson-summaries.py — union-join {state/lessons/} ∪ {lessons-outbox/} ∪ {lessons-outbox/drained/}
 into a JSON array of LessonSummary records for the cockpit snapshot emitter.
 
@@ -27,6 +26,24 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _no_console_kw() -> dict:
+    """Splat-ready Windows console-suppression kwarg. This module lives inside
+    the engine checkout itself (coordinator/bin/lib/<this file>), so
+    the engine root is this file's own repo root — three levels up — rather
+    than a registry lookup. ``{}`` on any resolution/import failure (fail-open,
+    matches every `except Exception: "unknown"`/timeout-tolerant call site here).
+    """
+    try:
+        claude_klabauter_root = str(Path(__file__).resolve().parents[3])
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -638,7 +655,7 @@ def _git_branch(repo_root: Path) -> str:
         r = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "--abbrev-ref", "HEAD"],
             capture_output=True, text=True, timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_kw(),
         )
         return r.stdout.strip() if r.returncode == 0 else "unknown"
     except Exception:
@@ -650,7 +667,7 @@ def _git_sha(repo_root: Path) -> str:
         r = subprocess.run(
             ["git", "-C", str(repo_root), "rev-parse", "HEAD"],
             capture_output=True, text=True, timeout=5,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_kw(),
         )
         return r.stdout.strip() if r.returncode == 0 else "unknown"
     except Exception:

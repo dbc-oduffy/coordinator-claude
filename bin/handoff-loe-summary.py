@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """handoff-loe-summary.py — Read helper: compute the /handoff Session Ledger
 row in one call.
@@ -70,13 +69,26 @@ import subprocess
 import sys
 from types import ModuleType
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+
+def _no_console_kw() -> dict:
+    """Lazily resolve claude_klabauter_root onto sys.path, then splat the canonical
+    no-console-window kwarg. ``{}`` on any resolution failure (fail-open)."""
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:
+        return {}
 
 # Fallback LoE fields, mirroring the bash block's error-handling ladder:
 # `LOE=$(... 2>/dev/null || echo '{"agent_dispatches":0,"opus_dispatches":0,
@@ -156,7 +168,7 @@ def _recent_commits(limit: int) -> str:
             ["git", "log", "--oneline", f"-{limit}", "--format=%h"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError:
         return ""

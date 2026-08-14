@@ -133,14 +133,25 @@ def in_scope(path: pathlib.Path) -> bool:
 
 
 def get_tracked_files() -> list[pathlib.Path]:
+    """Every candidate file under cwd, git-tracked where cwd is a checkout.
+
+    Both callers are in scope and only one of them has an index: CI runs this
+    inside the repo, where tracked-files is the right oracle (untracked scratch
+    must not fail the gate), while the percolate `identity_check` guard runs it
+    against a staging tree that is not a git work tree at all. Walking is the
+    correct oracle there — every file present IS the payload about to publish.
+    """
     try:
         result = subprocess.run(
             ["git", "ls-files", "--cached"],
             capture_output=True, text=True, check=True,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"error: cannot list tracked files: {e}", file=sys.stderr)
-        sys.exit(1)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return [
+            p.relative_to(pathlib.Path.cwd())
+            for p in pathlib.Path.cwd().rglob("*")
+            if p.is_file() and ".git" not in p.parts
+        ]
     return [pathlib.Path(f) for f in result.stdout.strip().splitlines() if f]
 
 
@@ -154,9 +165,10 @@ def find_match(line: str) -> str | None:
         # CASE_SENSITIVE_ONLY_DIGESTS. Both other casings are the technical
         # token: lowercase is the parameter/placeholder form (`sid: str`,
         # `<sid>`) and ALL-CAPS is the environment-variable and prose-acronym
-        # form (`SID="${SID:-unknown}"`, "SID-disambiguated"). A display name in
-        # human-facing prose is written `Sid`, and that is the only form that
-        # must not reach the public layer.
+        # form (`SID="${SID:-unknown}"`, "SID-disambiguated"). A display name
+        # in human-facing prose is written with an initial capital and the
+        # rest lowercase (Title Case), and that is the only form that must
+        # not reach the public layer.
         if digest in CASE_SENSITIVE_ONLY_DIGESTS and not (
             raw[:1].isupper() and not raw.isupper()
         ):

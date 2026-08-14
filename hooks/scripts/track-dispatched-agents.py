@@ -1,12 +1,26 @@
 #!/usr/bin/env python3
-"""PostToolUse(Agent) naked-Python bookkeeping dispatcher.
+"""SubagentStart + PostToolUse(Agent) naked-Python bookkeeping dispatcher.
+
+C3 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) split
+the write across two events. `SubagentStart` carries `agent_id`/`agent_type`
+as first-class fields and fires before the agent-dies-early failure mode
+that motivated this move; it makes the CREATE call, identity-only (see
+`_build_subagent_start_params`). `PostToolUse(Agent)` -- the original
+registration this module replaced the former bash cascade for -- is reduced
+to the ENRICH call, supplying the real `subagent_type` and the real resolved
+`dispatched_model`. Both calls go through the same engine op
+(`hooks.track_dispatched_agents`); its shared collision resolver treats an
+existing "unknown" subagent_type as an enrichable placeholder, so the create
+call's identity-only shape is what routes the second call onto the enrich
+branch instead of the idempotent-dedup branch that would otherwise discard
+the real model. See `_SUBAGENT_START_PLACEHOLDER_TYPE`.
 
 Replaces the former bash PostToolUse(Agent)
 registration (agentId/model/subagent_type bookkeeping writes) with ONE
 `python3` hook entry -- zero Git-Bash cold-start per Agent-tool return on
 Windows (each bash.exe spawn costs 200-500ms; this is the whole point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
 the raw PostToolUse payload, extract the same flat scalars the legacy bash
 cascade computed, resolve the claude-klabauter engine, hand it the mapped params, relay
 its stdout. Claude-klabauter owns the write LOGIC (coordinator_core.hooks.
@@ -23,6 +37,9 @@ Contract (mirrors the retired bash hook it replaces):
   stdout  -- NOTHING (this op returns no_advisory() unconditionally; its
              product is the on-disk write side-effect, not stdout)
   exit 0  -- always (advisory bookkeeping; never blocks the Agent tool call)
+  As of the posttooluse-non-fire diagnostic, `main()` also appends one line
+  to a scratch canary log before any other processing; see
+  `_write_posttooluse_agent_canary`.
 
 stdin -> params mapping (op scope "common_dir" -- REQUIRES _origin_worktree;
 see coordinator_core/ipc.py _OP_KEY_SCOPE["hooks.track_dispatched_agents"] =
@@ -37,18 +54,24 @@ those same cascades over the raw JSON payload before calling the op --
 mirroring the retired bash hook's extraction logic exactly (see
 _extract_dispatch_fields below), not just relaying stdin keys 1:1.
 
+On PostToolUse(Agent) (enrich call):
     session_id                <- stdin["session_id"]                          (top level)
     dispatched_agent_id       <- stdin["tool_response"]["agentId"]            (pass a, camelCase)
     dispatched_agent_id_snake <- stdin["tool_response"]["agent_id"]           (pass a, snake_case)
-                                  regex last-resort (pass a2, bash step) folds
-                                  into dispatched_agent_id when both of the above
-                                  are absent -- mirrors bash's single AGENT_ID
-                                  cascade landing in the op's primary field.
     dispatched_model           <- tool_response.resolvedModel
                                    -> tool_response.model
                                    -> tool_input.model
                                    -> "" (handler itself defaults "" to "unknown")
     subagent_type               <- tool_input.subagent_type -> "" (handler defaults "unknown")
+
+On SubagentStart (create call, see `_build_subagent_start_params`):
+    session_id                <- stdin["session_id"]                          (top level)
+    dispatched_agent_id       <- stdin["agent_id"]                            (top level)
+    dispatched_model           <- _SUBAGENT_START_PLACEHOLDER_TYPE ("unknown", never resolved)
+    subagent_type               <- _SUBAGENT_START_PLACEHOLDER_TYPE ("unknown", never the real
+                                    stdin["agent_type"] -- see module docstring: writing the real
+                                    type here would land the enrich call on the idempotent-dedup
+                                    branch instead of the enrich branch, stranding model)
 
 Handler-side validation NOT replicated here (belongs to claude-klabauter, not this
 stub): agent-id format guard (bare-hex >=12 / teammate canonical id), the
@@ -71,13 +94,18 @@ fail-open as every other seam (see W2-stub-contract.md § 3's caveat: this is a
 functional regression vs a resolvable cwd, but a safe one -- absent cwd never
 crashes or writes partial state).
 
-Tool-name gate: the legacy bash exits 0 immediately unless
-tool_name == "Agent" (matcher scoping done in-script, not via hooks.json
-matcher alone, historically). This stub preserves that same early-out --
-running the extraction cascade and a full IPC dispatch on every non-Agent
-PostToolUse event would be pure waste (the op has no tool_name gate of its
-own; the docstring's "R-1" contract assumes the caller already scoped to
-Agent-tool returns).
+Event branch: `main()` dispatches on `hook_event_name`. On `SubagentStart`
+it runs the create path unconditionally (there is no tool-name gate on this
+event -- every fire carries a dispatched agent's identity). On `PostToolUse`
+it preserves the legacy tool-name gate: the retired bash hook exited 0
+immediately unless tool_name == "Agent" (matcher scoping done in-script, not
+via hooks.json matcher alone, historically); this stub keeps that same
+early-out -- running the extraction cascade and a full IPC dispatch on every
+non-Agent PostToolUse event would be pure waste (the op has no tool_name
+gate of its own; the docstring's "R-1" contract assumes the caller already
+scoped to Agent-tool returns). Any other hook_event_name value is unreached
+in registered use (this script is only ever invoked as SubagentStart or
+PostToolUse) and falls through to fail-open.
 
 Graceful degradation -- REQUIRED: any failure to resolve/import/run the
 Claude-klabauter engine, or to parse stdin, falls through to fail-open (exit 0, no
@@ -97,9 +125,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import sys
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -140,18 +168,20 @@ except Exception:
         return None
 
 
-# Last-resort regex fallback (bash step a2): bounded char class stops at the
-# JSON backslash-escape boundary; mirrors the retired bash hook's
-# `agent_?id:[[:space:]]*\"?([A-Za-z0-9_.@-]+)` bash =~ match applied over the
-# tool_response substring of the raw payload text.
-_AGENT_ID_REGEX_FALLBACK = re.compile(r'agent_?id["\s:]*\\?"?([A-Za-z0-9_.@-]+)', re.IGNORECASE)
+# Identity-only create placeholder (C3): sent as BOTH dispatched_model and
+# subagent_type on the SubagentStart call. Matches PLACEHOLDER_TYPE in the
+# engine's collision resolver -- writing this literal (never the real,
+# available stdin["agent_type"]) is what routes the later PostToolUse(Agent)
+# enrich call onto the enrich-in-place branch instead of idempotent-dedup;
+# see the module docstring.
+_SUBAGENT_START_PLACEHOLDER_TYPE = "unknown"
 
 
 def _extract_dispatch_fields(payload: dict) -> dict[str, str]:
-    """Run the same three-pass agent-id / four-source model cascade as the bash hook.
+    """Run the same agent-id / four-source model cascade as the bash hook.
 
-    Mirrors the retired bash hook's steps (a)/(a2)/(c) exactly, operating on
-    the already-parsed JSON dict instead of raw-text slicing. Returns "" for any
+    Mirrors the retired bash hook's steps (a)/(c) exactly, operating on the
+    already-parsed JSON dict instead of raw-text slicing. Returns "" for any
     field that cannot be resolved -- the op handler's own field()/fallback logic
     treats "" as absent, matching mcp_tool's own convention.
     """
@@ -166,18 +196,6 @@ def _extract_dispatch_fields(payload: dict) -> dict[str, str]:
     dispatched_agent_id = tool_response.get("agentId") or ""
     # (a) fallback: snake_case agent_id (named Agent-Teams teammates).
     dispatched_agent_id_snake = tool_response.get("agent_id") or ""
-
-    # (a2) last-resort: regex over the tool_response substring, folded into the
-    # primary (camelCase) field when BOTH direct-key passes came up empty --
-    # mirrors the bash script's single AGENT_ID cascade landing in one variable.
-    if not dispatched_agent_id and not dispatched_agent_id_snake:
-        try:
-            tail = json.dumps(tool_response, ensure_ascii=False)
-        except Exception:
-            tail = ""
-        m = _AGENT_ID_REGEX_FALLBACK.search(tail)
-        if m:
-            dispatched_agent_id = m.group(1)
 
     # (c) model: resolvedModel -> model (both tool_response) -> tool_input.model -> "".
     dispatched_model = (
@@ -198,8 +216,117 @@ def _extract_dispatch_fields(payload: dict) -> dict[str, str]:
     }
 
 
+def _build_subagent_start_params(payload: dict) -> dict[str, str] | None:
+    """Build the identity-only create-call params from a SubagentStart payload.
+
+    Returns None when the identity field is absent -- the caller degrades to
+    fail-open rather than dispatching a params dict with no agent_id.
+    """
+    agent_id = payload.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id:
+        return None
+    return {
+        "dispatched_agent_id": agent_id,
+        "dispatched_agent_id_snake": "",
+        "dispatched_model": _SUBAGENT_START_PLACEHOLDER_TYPE,
+        "subagent_type": _SUBAGENT_START_PLACEHOLDER_TYPE,
+    }
+
+
+def _write_posttooluse_agent_canary(raw: str) -> None:
+    """Diagnostic scaffolding for
+    state/bug-backlog/2026-08-10-posttooluse-agent-does-not-fire-for-some-8c1d40be9f2a.yaml.
+
+    Discriminates whether the PostToolUse(Agent) hook PROCESS ever started
+    on a given Agent-tool return: a line present in the canary log means
+    this process ran at least this far, so a missing dispatched-agents.txt /
+    agent-audit.jsonl row on that spawn is a downstream (in-process) failure;
+    a line absent means the harness never delivered or killed the chain
+    before this point. Both consumer writers are already exonerated by
+    replay (fast, always-exit-0) -- this canary is the only thing that can
+    tell the two remaining hypotheses apart. Remove once that bug is closed
+    and the discriminator is no longer needed.
+
+    Parses `raw` only (the SAME stdin string `main()` already read via its
+    single `_read_stdin()` call) -- never reads stdin itself, so it cannot
+    starve `main()`'s own read on a machine running many concurrent
+    sessions. Wrapped entirely in try/except: an unwritable path, a full
+    disk, or a malformed payload degrades to "no canary line", never to a
+    broken hook -- this function's whole contract is fail-open.
+    """
+    try:
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            payload = {}
+    except Exception:
+        payload = {}
+
+    try:
+        tool_name = payload.get("tool_name") or ""
+        session_id = payload.get("session_id") or ""
+        cwd = payload.get("cwd") or None
+
+        tool_response = payload.get("tool_response")
+        if not isinstance(tool_response, dict):
+            tool_response = {}
+        agent_id = tool_response.get("agentId") or tool_response.get("agent_id") or ""
+
+        probe = Path(cwd).resolve() if isinstance(cwd, str) and cwd else Path.cwd()
+        git_dir = None
+        for candidate in (probe, *probe.parents):
+            marker = candidate / ".git"
+            if marker.is_dir():
+                git_dir = marker
+                break
+            if marker.is_file():
+                raw_pointer = marker.read_text(encoding="utf-8", errors="replace")
+                if not raw_pointer.startswith("gitdir:"):
+                    return
+                pointer = raw_pointer[len("gitdir:"):].strip()
+                if not pointer:
+                    return
+                pointer_path = Path(pointer)
+                if not pointer_path.is_absolute():
+                    pointer_path = (candidate / pointer_path).resolve()
+                git_dir = pointer_path
+                break
+        if git_dir is None:
+            return
+
+        commondir_file = git_dir / "commondir"
+        if commondir_file.is_file():
+            raw_common = commondir_file.read_text(encoding="utf-8", errors="replace").strip()
+            if not raw_common:
+                return
+            common_path = Path(raw_common)
+            if not common_path.is_absolute():
+                common_path = (git_dir / common_path).resolve()
+            common_dir = common_path
+        else:
+            common_dir = git_dir
+
+        log_dir = common_dir / "coordinator-sessions" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        line = f"{stamp}\t{tool_name}\t{session_id}\t{agent_id}\n"
+        # Windows append-atomicity for concurrent writers is NOT independently
+        # verified here (see finding 1 in the 0d753c61e canary review, and the
+        # closure note in the linked bug-backlog entry): a torn/interleaved
+        # line under concurrent CRT "a"-mode writes is an accepted false
+        # negative for this discriminator -- a present-but-malformed line
+        # still proves the process ran this far, which is the only question
+        # this canary exists to answer.
+        with (log_dir / "posttooluse-agent-canary.log").open(
+            "a", encoding="utf-8"
+        ) as fh:
+            fh.write(line)
+    except Exception:
+        return
+
+
 def main() -> int:
     raw = _read_stdin()
+    _write_posttooluse_agent_canary(raw)
 
     try:
         payload: Any = json.loads(raw)
@@ -208,15 +335,52 @@ def main() -> int:
     except Exception:
         payload = {}
 
+    event = payload.get("hook_event_name")
+
+    if event == "SubagentStart":
+        fields = _build_subagent_start_params(payload)
+        if fields is None:
+            return 0  # fail-open -- missing identity field, nothing to write
+        session_id = payload.get("session_id") or ""
+        cwd = payload.get("cwd") or None
+        params = {
+            "session_id": session_id if isinstance(session_id, str) else "",
+            **fields,
+        }
+        return _dispatch_bookkeeping_write(cwd, params)
+
+    # PostToolUse(Agent) enrich path -- unreached hook_event_name values
+    # (this script is only ever registered on SubagentStart and PostToolUse)
+    # fall through this branch and hit the tool-name gate below, which
+    # returns 0 on anything but an Agent-tool return.
+
     # Tool-name gate (mirrors bash line 82): only Agent-tool returns carry a
     # dispatched agentId worth bookkeeping. Cheap early-out before any engine
     # resolution / IPC dispatch cost.
     if payload.get("tool_name") != "Agent":
         return 0
 
+    session_id = payload.get("session_id") or ""
+    cwd = payload.get("cwd") or None
+
+    fields = _extract_dispatch_fields(payload)
+
+    params = {
+        "session_id": session_id if isinstance(session_id, str) else "",
+        **fields,
+    }
+
+    return _dispatch_bookkeeping_write(cwd, params)
+
+
+def _dispatch_bookkeeping_write(cwd: Any, params: dict) -> int:
+    """Shared IPC seam for both the SubagentStart create call and the
+    PostToolUse(Agent) enrich call -- same op, same in-process dispatch, same
+    fail-open contract on either side.
+    """
     root = _resolve_claude_klabauter_root()
     if not root:
-        return 0  # fail-open -- claude-klabauter unresolvable on this machine
+        return 0  # fail-open -- engine unresolvable on this machine
 
     if root not in sys.path:
         sys.path.insert(0, root)
@@ -234,16 +398,6 @@ def main() -> int:
     except Exception:
         return 0  # engine unimportable -> fail-open
 
-    session_id = payload.get("session_id") or ""
-    cwd = payload.get("cwd") or None
-
-    fields = _extract_dispatch_fields(payload)
-
-    params = {
-        "session_id": session_id if isinstance(session_id, str) else "",
-        **fields,
-    }
-
     msg: dict = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -259,7 +413,7 @@ def main() -> int:
     try:
         asyncio.run(dispatch_message(msg))
     except Exception:
-        return 0  # any engine failure -> fail-open (never brick an Agent-tool return)
+        return 0  # any engine failure -> fail-open (never brick a hook fire)
 
     # No stdout relay: this op is MUTATING bookkeeping (dedup/append to
     # dispatched-agents.txt + the em-session-id.txt back-pointer), never

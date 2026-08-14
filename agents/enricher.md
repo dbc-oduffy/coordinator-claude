@@ -4,7 +4,7 @@ description: "Enriches plan stubs pre-execution; maintains live plan bodies and 
 model: sonnet
 effort: low
 color: blue
-tools: ["Read", "Bash", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Bash", "PowerShell", "Edit", "Write", "ToolSearch", "WebFetch", "WebSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
 
@@ -58,8 +58,9 @@ you were given to enrich.
 `.go`, `.rs`, `.swift`, `.kt`, `.uasset`, `.ini`, unless it's a plan doc) — research only.
 
 **Windows console-subprocess discipline.** A stub step spawning a console-subsystem child on
-Windows (`powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe`; `git.exe` is GUI-subsystem,
-exempt) via `subprocess.run`/`Popen`/`os.system` MUST pass
+Windows (`powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe`, `git.exe` — `git.exe` is NOT
+exempt, measured to pop in ~50ms with redirection not suppressing it) via
+`subprocess.run`/`Popen`/`os.system` MUST pass
 `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` (or the project's
 `no_console_creationflags()` helper) — never a bare `0x08000000` or unguarded
 `subprocess.CREATE_NO_WINDOW`, which raises `ValueError` on macOS/Linux. `.ps1`: add

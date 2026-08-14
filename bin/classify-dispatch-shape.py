@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """classify-dispatch-shape.py — CLI trampoline over the claude-klabauter dispatch-shape
 classify op (Flag 9 post-hoc dispatch-shape observer).

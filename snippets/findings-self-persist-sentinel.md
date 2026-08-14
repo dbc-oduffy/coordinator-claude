@@ -1,4 +1,4 @@
-<!-- Not vestigial: reviewer/persona agents no longer use this mechanism (they Edit a
+<!-- Not vestigial: reviewer/persona agents do not use this mechanism (they Edit a
      pre-provisioned state/subagent-share/<session-id>/<provision_key>.md path instead). This
      snippet's one remaining live role is the general findings-deliverable EM-persist fallback
      for a no-Bash / Write-blocked findings agent (any agent, not just reviewers) that cannot
@@ -63,7 +63,7 @@ directly and never goes through that hook's Bash-command classification. If you 
 yourself reaching for a Bash heredoc to persist a findings sidecar that already exists, that is
 the wrong tool for this job; use Edit instead. (This is the self-scaffolding-findings-agent copy of
 this guidance — `snippets/persona-persisting-findings.md` carries a parallel copy for the
-reviewer/persona-agent audience that this file's header says no longer uses this mechanism.)
+reviewer/persona-agent audience that this file's header says does not use this mechanism.)
 
 **Discipline (not a guard):** the Edit write-sandbox confinement was
 removed — nothing structurally blocks an Edit outside `state/review-trail/findings/` anymore. You

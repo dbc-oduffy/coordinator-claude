@@ -53,8 +53,8 @@ this hook never falls back to a guessed session key. No usable
 `session_id` in the payload means there is nothing to rescue, not license
 to guess whose dirty tree it is.
 
-Spec backlink: DoE-claude state/sizings/2026-07-31-safe-commit-offer-at-
-session-stop-events.yaml.
+Spec backlink: state/sizings/2026-07-31-safe-commit-offer-at-
+session-stop-events.yaml (this repo).
 """
 
 from __future__ import annotations

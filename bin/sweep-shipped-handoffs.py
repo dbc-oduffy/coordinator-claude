@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """sweep-shipped-handoffs.py — batch sweep: find terminal handoffs, archive via
 the native fleet.archive_completed_handoffs op.
@@ -83,7 +82,7 @@ bash fallback — a genuinely seam-absent install surfaces as a transport
 failure (RuntimeError), caught below and logged (best-effort ceremony),
 candidates retained for the next sweep.
 
-Spec backlink: docs/plans/2026-07-01-shipped-handoff-archive-sweep.md
+Spec backlink: pln-shipped-handoff-archive-sweep-d61d01
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Wave F1 (facade collapse)
 Wraps: fleet.archive_completed_handoffs (native op, bulk primitive)
 
@@ -103,7 +102,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -112,6 +110,7 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _ensure_claude_klabauter_on_path() -> str:
@@ -123,11 +122,15 @@ def _ensure_claude_klabauter_on_path() -> str:
     the root or re-inserting it independently. (`_LIB_DIR` above is a
     different root — the `coordinator/bin/lib` dir for `cc_invoke` itself
     — and is not part of this dedup.)
+
+    Resolves self-location-first (this script's own enclosing checkout)
+    ahead of the pointer-file/registry rungs — see
+    `cc_invoke.resolve_engine_root`'s docstring. Raises RuntimeError,
+    same as the ladder it replaces, when every rung misses; callers that
+    catch RuntimeError around this (`_resolve_state_root`,
+    `_resolve_repo_root`) keep working unchanged.
     """
-    claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    return claude_klabauter_root
+    return cc_invoke.require_engine_on_path(__file__)
 
 
 def _import_housekeeping_seam():
@@ -292,17 +295,56 @@ def _strip_quotes(value: str) -> str:
     return value
 
 
-def _git_cat_file_e(sha: str, cwd: str) -> bool:
+def _batch_resolve_shipped_shas(shas: "set[str]", cwd: str) -> "dict[str, bool]":
+    """Batch-resolve MANY `shipped_in` SHA tokens to commit-existence in ONE
+    `git cat-file --batch-check` spawn (C11) -- replaces the retired
+    `_git_cat_file_e`'s one-spawn-per-handoff `git cat-file -e <sha>^{commit}`.
+
+    Adopts `coordinator_core.coverage._batch_check_hex_tokens` AS-IS (the
+    site's own safe-primitive map -- Task C site 8 -- rules this an
+    unconditionally-safe OBJECT-existence batch, not a RANGE batch: each
+    stdin line is resolved independently, so the rev-list set-algebra
+    forbidding this class for RANGE batching never applies here). Each token
+    is fed as `<sha>^{{commit}}` -- the same peel-to-commit expression the
+    retired per-item call used -- so a tag or other non-commit object is
+    correctly rejected rather than accepted as resolved.
+
+    Reconciliation (§ anti-scope 25): `_batch_check_hex_tokens` is documented
+    (its own docstring) to return exactly one entry per requested token --
+    an unresolved token maps to None, it is never OMITTED from the returned
+    dict. This function does not assume that contract holds silently: it
+    reconciles the returned key set against every peeled token requested and
+    treats ANY token absent from the returned mapping as unresolved
+    (fail-closed, same disposition as an explicit None) -- absence is never
+    read as "resolved". Mirrors the reconciliation shape of
+    `emit/sections/handoffs.py::_resolve_shipped_in_dates` (prefix-match
+    against a `matched` set), adapted here to a batch-check dict lookup
+    rather than a prefix-match, since `--batch-check` already returns one
+    line per input token in order.
+
+    Returns {sha: True_if_resolves_to_a_commit}. On any resolution failure
+    (import/transport), every requested sha resolves to False -- the same
+    fail-closed posture `_git_cat_file_e` had on an OSError/RuntimeError.
+    """
+    if not shas:
+        return {}
+    tokens = sorted(shas)
+    peeled = {sha: f"{sha}^{{commit}}" for sha in tokens}
     try:
-        proc = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
-            cwd=cwd,
-            capture_output=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return proc.returncode == 0
-    except OSError:
-        return False
+        _ensure_claude_klabauter_on_path()
+        from coordinator_core.coverage import _batch_check_hex_tokens  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 -- fail-closed, mirrors _git_cat_file_e's except clause
+        return {sha: False for sha in tokens}
+    try:
+        raw = _batch_check_hex_tokens(list(peeled.values()), cwd)
+    except (OSError, RuntimeError):
+        return {sha: False for sha in tokens}
+    out: dict[str, bool] = {}
+    for sha in tokens:
+        token = peeled[sha]
+        # § anti-scope 25 reconciliation: an absent key is unresolved, never resolved.
+        out[sha] = token in raw and raw[token] is not None
+    return out
 
 
 def _resolve_state_root(repo_root: str) -> str:
@@ -346,27 +388,16 @@ def _no_fallback() -> None:
     )
 
 
-def _resolve_repo_root() -> str | None:
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except OSError:
-        return None
-    resolved = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not resolved:
-        return None
-    return resolved
-
-
 def main(argv: list[str] | None = None) -> int:
-    git_repo_root = _resolve_repo_root()
+    git_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if git_repo_root is None:
         print("sweep-shipped-handoffs.py: not inside a git repo", file=sys.stderr)
         return 2
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277: this is a READER (no write into resolved root beyond its
+        # own archive-completed-handoffs op, gated separately) -- warn and
+        # proceed rather than refuse. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     try:
         state_root = _resolve_state_root(git_repo_root)
@@ -412,6 +443,14 @@ def main(argv: list[str] | None = None) -> int:
 
     now_secs = time.time()
 
+    # Two-pass: (1) enumerate + parse frontmatter, collecting every distinct
+    # shipped_in SHA that needs a resolvability check; (2) batch-resolve all
+    # of them in ONE `git cat-file --batch-check` spawn (C11) rather than one
+    # spawn per shipped handoff, then apply the same per-file disposition
+    # logic as before against the resolved map.
+    scan_results: list[tuple[str, dict[str, str], str]] = []
+    shipped_shas: set[str] = set()
+
     if os.path.isdir(handoffs_dir):
         for name in sorted(os.listdir(handoffs_dir)):
             if not name.endswith(".md"):
@@ -428,37 +467,47 @@ def main(argv: list[str] | None = None) -> int:
             if not _is_archive_candidate(deployment_state, terminal_states):
                 continue
 
+            scan_results.append((f, fields, deployment_state))
+
             if deployment_state == "shipped":
-                shipped_in = _strip_quotes(fields.get("shipped_in", ""))
-                sha = shipped_in
-                if not sha or sha == "null" or not _git_cat_file_e(sha, repo_root):
-                    # Recount-at-apply-time (DR-084 Addendum 2026-07-22(b)):
-                    # staleness is derived fresh, right here, from THIS
-                    # file's current on-disk mtime -- never from a count
-                    # cached earlier in the run -- so the escape decision
-                    # below always acts on the live state, not a snapshot.
-                    stale = False
-                    try:
-                        mtime = os.stat(f).st_mtime
-                        stale = (now_secs - mtime) >= stale_threshold_secs
-                    except OSError:
-                        pass
+                sha = _strip_quotes(fields.get("shipped_in", ""))
+                if sha and sha != "null":
+                    shipped_shas.add(sha)
 
-                    if stale and sha and sha != "null" and _stamp_unresolvable_escape(f, repo_root, sha):
-                        # C9/AC15 escape: dead SHA recorded honestly in a
-                        # non-discriminant field, shipped_in_kind untouched
-                        # -- this handoff now joins the ordinary archive
-                        # candidates instead of being retained forever.
-                        escaped += 1
-                        candidates.append(f)
-                        continue
+    resolved_shas = _batch_resolve_shipped_shas(shipped_shas, repo_root)
 
-                    unresolvable += 1
-                    if stale:
-                        stale_unresolvable += 1
+    for f, fields, deployment_state in scan_results:
+        if deployment_state == "shipped":
+            shipped_in = _strip_quotes(fields.get("shipped_in", ""))
+            sha = shipped_in
+            if not sha or sha == "null" or not resolved_shas.get(sha, False):
+                # Recount-at-apply-time (DR-084 Addendum 2026-07-22(b)):
+                # staleness is derived fresh, right here, from THIS
+                # file's current on-disk mtime -- never from a count
+                # cached earlier in the run -- so the escape decision
+                # below always acts on the live state, not a snapshot.
+                stale = False
+                try:
+                    mtime = os.stat(f).st_mtime
+                    stale = (now_secs - mtime) >= stale_threshold_secs
+                except OSError:
+                    pass
+
+                if stale and sha and sha != "null" and _stamp_unresolvable_escape(f, repo_root, sha):
+                    # C9/AC15 escape: dead SHA recorded honestly in a
+                    # non-discriminant field, shipped_in_kind untouched
+                    # -- this handoff now joins the ordinary archive
+                    # candidates instead of being retained forever.
+                    escaped += 1
+                    candidates.append(f)
                     continue
 
-            candidates.append(f)
+                unresolvable += 1
+                if stale:
+                    stale_unresolvable += 1
+                continue
+
+        candidates.append(f)
 
     dispatch_failed = False
 

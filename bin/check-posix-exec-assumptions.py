@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """check-posix-exec-assumptions.py — CLI trampoline over
 coordinator_core.ops.check_posix_exec_assumptions.
 

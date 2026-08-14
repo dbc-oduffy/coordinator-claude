@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 workday-complete-reconcile.py — /workday-complete Step 1.5 (cruft-sweep
@@ -66,15 +65,31 @@ import sys
 from datetime import date
 from pathlib import Path
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
+import cc_invoke  # noqa: E402
 from cc_invoke import _resolve_claude_klabauter_root, child_env  # noqa: E402
+
+
+def _no_console_kw() -> dict:
+    """Windows: suppresses the console popup a subprocess.run(...) would
+    otherwise trigger under the headless Claude Code Bash-tool parent.
+    Splat-ready; empty dict elsewhere / on any resolution failure."""
+    return cc_invoke._no_console_kw(_resolve_claude_klabauter_root())
+
+
+def _no_console_passthrough_kw() -> dict:
+    """`_no_console_kw` for a child whose output must reach the operator.
+
+    Console suppression alone makes the child bind its standard handles to the
+    window-less console CREATE_NO_WINDOW allocates instead of inheriting this
+    process's, so its output is lost. See
+    `cc_invoke._no_console_passthrough_kw` for the mechanism.
+    """
+    return cc_invoke._no_console_passthrough_kw(_resolve_claude_klabauter_root())
+
 
 _APPENDED_RE = re.compile(r"appended=(\d+)")
 
@@ -123,7 +138,7 @@ def _authored_by_field(content: str) -> str:
 
 
 def _default_cruft_sweep_bin() -> str:
-    return os.path.join(_BIN_DIR, "cruft-sweep")
+    return os.path.join(_BIN_DIR, "cruft-sweep.py")
 
 
 def _cruft_sweep_argv(cruft_sweep_bin: str) -> list[str]:
@@ -156,7 +171,7 @@ def _cruft_sweep_log_path(state_root_script: str) -> str:
             capture_output=True,
             text=True,
             env=child_env(),
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
         central_root = result.stdout.strip()
         if result.returncode == 0 and central_root:
@@ -182,7 +197,7 @@ def run_cruft_sweep(
     try:
         result = subprocess.run(
             [*_cruft_sweep_argv(cruft_sweep_bin), "--class", "all", "--apply", "--quiet"],
-            creationflags=_NO_WINDOW,
+            **_no_console_passthrough_kw(),
         )
         rc = result.returncode
     except OSError as exc:
@@ -209,16 +224,33 @@ def run_cruft_sweep(
 
 
 def _resolve_session_id() -> str:
-    """Tiered session-id resolution mirroring the bash oracle: env var first,
-    then the on-disk sentinel file. Returns "" when neither resolves.
+    """Delegates to ``coordinator_core.session.core.resolve_session_id``
+    (KS-6, 2026-08-07): the full 3-tier ``SESSION_ENV_PRECEDENCE`` ladder
+    (``COORDINATOR_SESSION_ID``, ``CLAUDE_SESSION_ID``,
+    ``CLAUDE_CODE_SESSION_ID``), widened from the prior
+    ``CLAUDE_CODE_SESSION_ID``-only read to match the canonical reference —
+    see that constant's own docstring for the prior break-class defect two
+    disagreeing copies of this ladder caused. Returns "" when unresolved,
+    including on an import/CLAUDE_KLABAUTER_ROOT resolution failure (fail-soft,
+    mirroring ``_resolve_live_session_ids``' own degrade contract just
+    below) — degrading to "session unknown" is the pre-existing behaviour
+    of this function's own env-var-only predecessor, never a hard failure.
+
+    The `.current-session-id` sentinel tier that used to sit here was
+    REMOVED (KS-4, 2026-08-07): unsound under concurrency (documented
+    last-writer-wins across concurrent sessions sharing one worktree — see
+    coordinator_core/bash_guards/guard_inprocess_search.py ~L84) AND its
+    sole writer (session-init.py, the DoE-claude SessionStart hook) was
+    deleted by PM directive 2026-07-15 — no production writer survives.
     """
-    sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    if sid:
-        return sid
-    sentinel = os.path.join(".git", "coordinator-sessions", ".current-session-id")
     try:
-        return Path(sentinel).read_text(encoding="utf-8").strip()
-    except OSError:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.session.core import resolve_session_id
+
+        return resolve_session_id()
+    except Exception:  # noqa: BLE001 — fail-soft, matches the prior env-only read's contract
         return ""
 
 
@@ -271,7 +303,7 @@ def _run_reconcile_append(
             capture_output=True,
             text=True,
             env=child_env(),
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError as exc:
         return 1, str(exc)
@@ -287,7 +319,7 @@ def _git_add(entry_path: str) -> None:
         subprocess.run(
             ["git", "add", "--", entry_path],
             capture_output=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError:
         pass

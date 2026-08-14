@@ -22,7 +22,7 @@ Registry files use TOML. Keys are dotted strings; values are strings (or arrays 
 ```toml
 schema = 1
 
-"repos.coordinator_claude"     = "/path/to/coordinator-claude"
+"repos.my_service"             = "/path/to/my-service"
 "repos.project_rag"            = "/path/to/project-rag"
 "unreal.install_root"          = "/path/to/UnrealEngine"
 ```
@@ -32,14 +32,14 @@ schema = 1
 schema = 1
 
 [repos]
-coordinator_claude = "/path/to/coordinator-claude"
-project_rag        = "/path/to/project-rag"
+my_service  = "/path/to/my-service"
+project_rag = "/path/to/project-rag"
 
 [unreal]
 install_root = "/path/to/UnrealEngine"
 ```
 
-Both forms produce the same dotted keys (`repos.coordinator_claude`, `unreal.install_root`). The reader flattens nested tables at load time via `_flatten_nested`. You may mix both forms in the same file.
+Both forms produce the same dotted keys (`repos.my_service`, `unreal.install_root`). The reader flattens nested tables at load time via `_flatten_nested`. You may mix both forms in the same file.
 
 **Concern-file namespaces** (`unreal.*`, `cuda.*`) do NOT resolve through the registry's flatten path — they resolve exclusively from their concern file (`unreal.toml` / `unreal.local.toml`) when that concern is listed in the `concerns` array. Keys with a concern prefix in `registry.toml` are ignored (a warning is emitted). See the Concern files section below.
 
@@ -82,8 +82,8 @@ The PM operates from Machine-a (Windows, repos under a drive-rooted path) and a 
 ```toml
 schema = 1
 
-"repos.coordinator_claude" = ""
-"repos.project_rag"        = ""
+"repos.my_service"  = ""
+"repos.project_rag" = ""
 ```
 
 **`registry.local.toml` on Machine-a** (gitignored, never committed) — each value is a Windows
@@ -92,16 +92,16 @@ directory):
 ```toml
 schema = 1
 
-"repos.coordinator_claude" = "<Machine-a's own drive-rooted path>/coordinator-claude"
-"repos.project_rag"        = "<Machine-a's own drive-rooted path>/project-rag"
+"repos.my_service"  = "<Machine-a's own drive-rooted path>/my-service"
+"repos.project_rag" = "<Machine-a's own drive-rooted path>/project-rag"
 ```
 
 **`registry.local.toml` on Mac** (gitignored, never committed):
 ```toml
 schema = 1
 
-"repos.coordinator_claude" = "~/work/coordinator-claude"
-"repos.project_rag"        = "~/work/project-rag"
+"repos.my_service"  = "~/work/my-service"
+"repos.project_rag" = "~/work/project-rag"
 ```
 
 Same key, different machine-specific values. The `.local` file is gitignored on both machines so there are no merge conflicts. The git-tracked `registry.toml` carries the shared baseline (key declarations, schema) and travels via git pull. Single-machine operators can put all values directly in `registry.toml` and skip the `.local` layer entirely — the split is opt-in.

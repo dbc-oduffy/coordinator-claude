@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """setup-verify.py — imperative logic ported out of the coordinator-claude
 `/coordinator:setup` chain-walk skill (DoE-claude
 `coordinator/skills/setup/SKILL.md`) into a naked-Python CLI.
@@ -85,6 +84,9 @@ from pathlib import Path
 # Step 1 (SKILL.md) — layout detection (flat publish-repo vs. nested working-repo)
 # ---------------------------------------------------------------------------
 
+GENERATES = []  # cmd_visited_init writes the chain-walk visited-set under <settings-home>/coordinator-claude/chain-walk-<uuid>.json (settings-home, outside claude-klabauter's own tree); every other subcommand is read-only
+
+
 def cmd_layout(args: argparse.Namespace) -> int:
     plugin_root = Path(args.plugin_root).resolve()
     flat_agent_md = plugin_root / "docs" / "install" / "AGENT.md"
@@ -115,11 +117,15 @@ def cmd_layout(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _default_settings_home() -> str:
-    return (
-        os.environ.get("COORDINATOR_SETTINGS_HOME")
-        or os.environ.get("CLAUDE_HOME")
-        or os.path.join(os.path.expanduser("~"), ".coordinator-claude-settings")
+    explicit = os.environ.get("COORDINATOR_SETTINGS_HOME") or os.environ.get("CLAUDE_HOME")
+    if explicit:
+        return explicit
+    home = (
+        os.environ.get("HOME")
+        or os.environ.get("USERPROFILE")
+        or os.path.expanduser("~")
     )
+    return os.path.join(home, ".coordinator-claude-settings")
 
 
 def cmd_visited_init(args: argparse.Namespace) -> int:
@@ -191,7 +197,15 @@ def cmd_check_override_flags(args: argparse.Namespace) -> int:
 # coordinator-owned hooks named in hooks.json by path, not a blanket *.sh
 # count (blanket passes vacuously when coordinator's hooks are absent but
 # other *.sh files happen to exist).
-_HOOK_COMMAND_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(\S+\.sh)")
+#
+# negative-spec: the extension alternation must NOT be narrowed back to a
+# single language. This regex was `(\S+\.sh)` while every coordinator hook had
+# already migrated to naked Python under the no-new-bash rule, so it matched
+# zero of 42 registered hooks and the probe reported "none detected" — exit 0,
+# forever blind, which is the same vacuous pass F6 above was raised to kill.
+# An extension list is load-bearing here: widen it when a new hook language
+# lands, never shrink it.
+_HOOK_COMMAND_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(\S+\.(?:py|sh))")
 
 
 def _walk_hook_commands(obj):
@@ -206,6 +220,25 @@ def _walk_hook_commands(obj):
     elif isinstance(obj, list):
         for v in obj:
             yield from _walk_hook_commands(v)
+
+
+def _count_hook_commands(obj) -> int:
+    """Count every "command" key in the tree, matched by the pattern or not.
+
+    The discriminator between a hooks.json that genuinely registers nothing and
+    one whose entries the pattern can no longer recognise — the difference
+    between a benign WARN and a blind probe.
+    """
+    total = 0
+    if isinstance(obj, dict):
+        if isinstance(obj.get("command"), str):
+            total += 1
+        for v in obj.values():
+            total += _count_hook_commands(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            total += _count_hook_commands(v)
+    return total
 
 
 def cmd_check_hooks(args: argparse.Namespace) -> int:
@@ -250,6 +283,25 @@ def cmd_check_hooks(args: argparse.Namespace) -> int:
     if present:
         print(f"PASS — {len(present)} coordinator-owned hook file(s) verified present on disk")
         return 0
+
+    total_commands = _count_hook_commands(data)
+    if total_commands:
+        print(
+            f"FAIL — {hooks_json} registers {total_commands} hook command(s), but none "
+            "matched the coordinator-owned pattern, so this probe verified nothing.",
+            file=sys.stderr,
+        )
+        print(
+            f"  pattern: {_HOOK_COMMAND_RE.pattern}",
+            file=sys.stderr,
+        )
+        print(
+            "  A registered-but-unrecognised hook set means the probe has gone blind, "
+            "not that the hooks are absent — widen the extension alternation in "
+            "_HOOK_COMMAND_RE to cover the language the hooks now use.",
+            file=sys.stderr,
+        )
+        return 1
 
     print("[WARN] No coordinator-owned hook scripts detected in hooks.json", file=sys.stderr)
     return 0

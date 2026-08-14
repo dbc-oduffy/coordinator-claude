@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator/bin/coordinator-publish.py — namespaced canonical alias for
 `coordinator/bin/publish.py` (the percolate publish driver).
 

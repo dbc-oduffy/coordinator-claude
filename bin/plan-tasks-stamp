@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""
+plan-tasks-stamp — CLI trampoline over claude-klabauter's plan.tasks.mutate 'stamp'
+verb, exposing it on PATH for the first time.
+
+Purpose: plan.tasks.mutate's stamp verb (coordinator_core/ops/
+plan_tasks_mutate.py, function `_stamp`) updates non-reserved fields on N
+task-spine rows in one atomic, all-or-nothing batch. It already has a
+trampoline for its sibling `resolve` verb (coordinator/bin/plan-tasks-
+resolve), but `stamp` itself has no invocation seam on PATH — the only way
+to reach it was a hand-composed JSON-RPC blob. This trampoline is the fix.
+It holds NO domain logic of its own — every gate (non-empty updates list,
+per-row id requirement, the reserved-field refusal, schema validation) is
+enforced by `_stamp` itself.
+
+No shebang line (POSIX-EXEC-ASSUMPTION-GUARD, 2026-07-28 PM ruling) — this
+is a bare extensionless polyglot entrypoint, invoked via its own
+coordinator/bin/plan-tasks-stamp.cmd Windows launcher (which resolves a
+Python interpreter and runs this file directly) or via an explicit
+python coordinator/bin/plan-tasks-stamp ... call on POSIX. Modeled on
+coordinator/bin/plan-tasks-resolve's own bootstrap shape.
+
+What `stamp` does: given one or more --id rows and a shared set of
+--set key=value fields, it writes those fields onto every named row in a
+single atomic batch, then validates the whole spine before committing. It
+does not interpret what any field means — `disposition`/`disposition_ref`/
+`disposition_detail` are refused outright (D4: those three fields are
+`resolve`'s surface exclusively, and this trampoline fails fast on them
+locally, naming plan-tasks-resolve as the CLI covering that verb, before
+the op-side refusal would catch the same thing on a round trip).
+
+Unlike `resolve`, `stamp` carries no per-row rationale field that a shared
+value across ids could silently launder — every `--set` in a call applies
+identically to every named `--id`, and that is the whole contract, not an
+approximation of one. So repeatable --id is unrestricted here (every named
+row, one atomic batch), and this trampoline deliberately does NOT carry
+plan-tasks-resolve's `_MULTI_ID_ONLY_FOR_CODED_MESSAGE` restriction — do
+not add it back by analogy; the two verbs' batching semantics differ for a
+reason, not by oversight.
+
+--set values are parsed with `yaml.safe_load` so `pm_approved=true` becomes
+the Python boolean `True`, not the string `"true"` — `resolve`'s legacy PM-
+approval check tests `is not True` identity, and a stringly-typed value
+would silently fail that check downstream. Values that do not parse as a
+YAML scalar fall back to the raw string.
+
+Usage:
+  plan-tasks-stamp --plan <plan-path> --id <row-id> [--id <row-id> ...] \\
+      --set <key=value> [--set <key=value> ...]
+
+Exit codes:
+  0 — stamp applied.
+  1 — op-level refusal (MutateAbort: unknown id, duplicate id in batch,
+      malformed/absent spine, schema-invalid resulting row, ...) or plan
+      not found.
+  2 — usage error (bad args, no --id, no --set, a reserved disposition
+      field named in --set) or transport failure (CLAUDE_KLABAUTER_ROOT unresolvable,
+      coordinator_core.invoke seam absent/broken).
+
+Spec backlink: coordinator_core/ops/plan_tasks_mutate.py (_stamp)
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+import yaml
+
+_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_BIN_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+import cc_invoke  # noqa: E402
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before any coordinator_core import —
+# this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0]
+# is this bin/ directory, not the checkout root. Same bootstrap as
+# coordinator/bin/plan-tasks-resolve and coordinator/bin/coordinator-
+# lesson-add (9b979ee5f).
+_ENGINE_ROOT = require_engine_on_path(__file__)
+
+_OP = "plan.tasks.mutate"
+
+# Mirrors `_STAMP_RESERVED_DISPOSITION_FIELDS` in plan_tasks_mutate.py —
+# these three fields are resolve's surface exclusively (D4). Checked here
+# too so a locally-refused batch never makes the round trip.
+_RESERVED_DISPOSITION_FIELDS = frozenset(
+    {"disposition", "disposition_ref", "disposition_detail"}
+)
+
+
+def _parse_set_value(raw: str) -> object:
+    """Parse a `--set` value half as a YAML scalar.
+
+    `pm_approved=true` must become the Python boolean `True`, not the
+    string `"true"` — resolve's legacy PM-approval gate checks `is not
+    True` identity, so a stringly-typed value would silently fail that
+    check downstream of this trampoline. Falls back to the raw string on
+    any parse failure or non-scalar result, rather than raising — a
+    caller writing a value that happens to look like broken YAML (e.g. a
+    trailing colon in free text) should still be able to set it verbatim.
+    """
+    try:
+        parsed = yaml.safe_load(raw)
+    except yaml.YAMLError:
+        return raw
+    if isinstance(parsed, (dict, list)):
+        return raw
+    return parsed
+
+
+def _parse_set_arg(item: str) -> tuple[str, object]:
+    if "=" not in item:
+        raise argparse.ArgumentTypeError(f"--set value {item!r} is not in key=value form")
+    key, _, raw_value = item.partition("=")
+    key = key.strip()
+    if not key:
+        raise argparse.ArgumentTypeError(f"--set value {item!r} has an empty key")
+    return key, _parse_set_value(raw_value)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="plan-tasks-stamp",
+        description=(
+            "Update non-reserved fields on N plan '## Tasks' spine rows, "
+            "in one atomic call, via plan.tasks.mutate's stamp verb."
+        ),
+    )
+    parser.add_argument(
+        "--plan", required=True, dest="plan_path", help="path to the plan file (docs/plans/...)"
+    )
+    parser.add_argument(
+        "--id",
+        action="append",
+        dest="task_ids",
+        default=[],
+        required=True,
+        help="the task row's id — repeatable; every --set applies to every named id",
+    )
+    parser.add_argument(
+        "--set",
+        action="append",
+        dest="sets",
+        default=[],
+        required=True,
+        type=_parse_set_arg,
+        help="key=value to write on every named row — repeatable",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    fields: dict[str, object] = {}
+    for key, value in args.sets:
+        fields[key] = value
+
+    reserved_present = _RESERVED_DISPOSITION_FIELDS & set(fields.keys())
+    if reserved_present:
+        names = ", ".join(sorted(reserved_present))
+        parser.error(
+            f"--set carries reserved field(s) {names} — these belong to "
+            "the resolve verb, not stamp; use plan-tasks-resolve instead."
+        )
+
+    updates = [{"id": task_id, **fields} for task_id in args.task_ids]
+
+    repo_root = os.getcwd()
+    try:
+        from coordinator_core.win_portability import no_console_creationflags  # noqa: F401
+        import subprocess
+
+        proc = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            **no_console_creationflags(),
+        )
+        resolved = (proc.stdout or "").strip()
+        if proc.returncode == 0 and resolved:
+            repo_root = resolved
+    except OSError:
+        pass
+
+    def _no_legacy() -> None:
+        raise RuntimeError(
+            "plan-tasks-stamp: coordinator_core.invoke seam absent — no legacy "
+            "path exists for plan.tasks.mutate. Verify CLAUDE_KLABAUTER_ROOT and the "
+            "claude-klabauter coordinator_core install."
+        )
+
+    try:
+        result = cc_invoke.route_mutation(
+            _OP,
+            {"verb": "stamp", "plan_path": args.plan_path, "updates": updates},
+            repo_root,
+            _no_legacy,
+        )
+    except cc_invoke.RouteMutationError as exc:
+        print(f"plan-tasks-stamp: {exc}", file=sys.stderr)
+        result_obj = exc.result if isinstance(exc.result, dict) else {}
+        raw = result_obj.get("exit_code")
+        try:
+            code = int(raw) if raw is not None else 1
+        except (TypeError, ValueError):
+            code = 1
+        return code if code != 0 else 1
+    except RuntimeError as exc:
+        print(f"plan-tasks-stamp: {exc}", file=sys.stderr)
+        return 2
+
+    message = result.get("message", "") if isinstance(result, dict) else ""
+    if message:
+        print(message)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

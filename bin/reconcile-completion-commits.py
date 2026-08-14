@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """reconcile-completion-commits.py — completion.reconcile_commits native trampoline.
 
@@ -134,7 +133,6 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
 import sys
 import tempfile
 
@@ -144,10 +142,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402
-
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _SESSION_ID_ENV_TIERS = (
     "COORDINATOR_SESSION_ID",
@@ -159,6 +154,8 @@ _ID_ALLOWLIST_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
 _USAGE = "Usage: reconcile-completion-commits.py [--append] [--session-id <id>] <entry-path>"
 
+GENERATES = []  # writes only to `entry_path`, an arbitrary caller-supplied completion-entry file (commits:/late_commits: frontmatter fold) — no fixed repo artifact
+
 
 def _resolve_session_id_env() -> str:
     """Tiers 1-3 of the 4-tier chain — see module docstring for the tier-4 carve-out."""
@@ -169,26 +166,27 @@ def _resolve_session_id_env() -> str:
     return ""
 
 
-def _resolve_repo_root() -> str | None:
-    """Resolve the current git worktree root from PWD.
+def _resolve_repo_root() -> tuple[str | None, str | None]:
+    """Resolve the current git worktree root via the checked resolver.
 
-    Mirrors strangler-facade.sh's `git -C "$PWD" rev-parse --show-toplevel`
-    (standalone-repo assumption; no explicit repo-root positional arg).
-    Returns None on failure.
+    WRITER script: this entry mutates the resolved repo (`commits:` /
+    `late_commits:` frontmatter). Returns (root, mismatch_message) — on a
+    positive MISMATCH, root is None and mismatch_message is the pre-rendered
+    refusal text (DR-277 carve-out: prevents a write into a foreign tree).
+    UNRESOLVED never refuses (DR-277, AC4).
     """
-    try:
-        result = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        return None, verdict["message"]
+    if not root:
+        # No git root resolved from cwd at all -- distinct from the
+        # MISMATCH identity gate above (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing at the call
+        # site below is not the AC4 "UNRESOLVED never refuses" carve-out
+        # being violated. mismatch_message stays None so the caller prints
+        # its own generic no-repo message rather than a MISMATCH string.
+        return None, None
+    return root, None
 
 
 def legacy_reconcile_commits() -> None:
@@ -524,12 +522,15 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    repo_root = _resolve_repo_root()
+    repo_root, mismatch_message = _resolve_repo_root()
     if repo_root is None:
-        print(
-            f"reconcile-completion-commits.py: cannot resolve git repo root from {os.getcwd()}",
-            file=sys.stderr,
-        )
+        if mismatch_message:
+            print(mismatch_message, file=sys.stderr)
+        else:
+            print(
+                f"reconcile-completion-commits.py: cannot resolve git repo root from {os.getcwd()}",
+                file=sys.stderr,
+            )
         return 2
 
     # ---------------------------------------------------------------------

@@ -31,6 +31,15 @@
 #
 # Usage:
 #   scoped-git-commit -m "<subject>" -- <path> [<path>...]
+#   scoped-git-commit -F <path> -- <path> [<path>...]
+#   scoped-git-commit -F - -- <path> [<path>...]
+#     Reads the subject from <path> (or stdin, for `-F -`) instead of `-m`,
+#     mirroring `git commit -F`. `-m` and `-F` are mutually exclusive. Exists
+#     to give agents a way out of the here-string trap on this seam: `-m`
+#     forces a multi-line message through a single argv token, and this
+#     fleet's Windows box has already mangled a commit subject once via the
+#     PowerShell `@'...'@` idiom used from the Bash tool (a literal `@` became
+#     the subject; exit 0; damage visible only in `git log --format=%s`).
 #   scoped-git-commit -m "<subject>" --repo <worktree-root> -- <path>...
 #     Stages exactly <paths>, commits them under <subject>, and pushes when a
 #     remote exists. Selects the agree-case form vs. the private-index form
@@ -38,7 +47,10 @@
 #     directory named in <paths> is expanded (2026-08-06) to its dirty
 #     TRACKED files beneath it and each is classified individually — never
 #     untracked content, and a directory with nothing dirty tracked beneath
-#     it still refuses (see the op's own docstring). MUTATING.
+#     it still refuses (see the op's own docstring). Still never STAGES an
+#     untracked file beneath a named directory (2026-08-12) — but now SAYS
+#     SO in the output (count, a capped path sample, and the invocation to
+#     include them explicitly) instead of silently omitting it. MUTATING.
 #   scoped-git-commit --json ...
 #     Emit the op's raw result envelope instead of the human line.
 #
@@ -61,9 +73,18 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import route_mutation  # noqa: E402
+from cc_invoke import ensure_engine_on_path, route_mutation  # noqa: E402
+from raw_cmdline_recovery import recover_windows_argv  # noqa: E402
 
 _OP = "ceremony.scoped_git_commit"
+
+#: The .cmd launcher's own basename — used by `recover_windows_argv` to
+#: locate where this invocation's own arguments begin within the raw
+#: `%CMDCMDLINE%` capture (see `raw_cmdline_recovery` module docstring for
+#: the full caret-eating-defect recovery contract; this CLI is one of the
+#: two `_RAW_CMDLINE_ENTRYPOINTS` members, alongside
+#: `coordinator-write-review-trail.py`, sharing that module's implementation).
+_LAUNCHER_CMD_NAME = "scoped-git-commit.cmd"
 
 _EXIT_OK = 0
 _EXIT_BUSINESS_FAIL = 1
@@ -71,19 +92,32 @@ _EXIT_USAGE = 2
 _EXIT_TRANSPORT_FAIL = 3
 
 _USAGE = (
-    "usage: scoped-git-commit -m \"<subject>\" [--repo <worktree-root>] [--json]\n"
-    "                        [--include-orphans] -- <path> [<path>...]\n"
+    "usage: scoped-git-commit (-m \"<subject>\" | -F <path>) [--repo <worktree-root>]\n"
+    "                        [--json] [--include-orphans]\n"
+    "                        [--deliverable-id <id>] -- <path> [<path>...]\n"
     "\n"
     "Stages and commits exactly <paths> via claude-klabauter's ceremony.scoped_git_commit,\n"
     "which selects the agree-case form vs. the private-index form from\n"
     "index/worktree state. The `--` separator and at least one path are\n"
     "REQUIRED: this CLI has no unscoped mode by construction.\n"
     "\n"
-    "--include-orphans adopts NAMED orphan paths (dirty, claimed by no session,\n"
-    "not a live peer) among the paths already listed after `--` — it never\n"
-    "widens the pathspec itself. Reach for it only after the op has actually\n"
-    "refused a path with its orphan-specific message; it is a deliberate\n"
-    "response to that refusal, not a default posture.\n"
+    "-F <path> reads the commit subject from <path> (UTF-8) instead of the\n"
+    "argv-embedded `-m` form -- `-F -` reads it from stdin, mirroring\n"
+    "`git commit -F`. Mutually exclusive with -m.\n"
+    "\n"
+    "--deliverable-id <id> (C7a, docs/plans/2026-08-10-a-commit-trailer-\n"
+    "that-names-the-session.md) forwards a caller-supplied deliverable_id to\n"
+    "the op's own `deliverable_id` param -- see that param's own docstring\n"
+    "(coordinator_core/ops/ceremony/scoped_git_commit.py) for validation and\n"
+    "current wiring: accepted and validated here, then forwarded all the way\n"
+    "to commit_scoped() (validated again there per AC19 before either commit\n"
+    "mechanism runs).\n"
+    "\n"
+    "--include-orphans is RETIRED (accepted for backward compatibility, no\n"
+    "effect on any outcome): the ceremony.scoped_git_commit op's own claim-\n"
+    "conflict gate already lets a not-live claimant's path through without\n"
+    "needing an opt-in, so there is no remaining semantics for this flag to\n"
+    "relax. See that op's own docstring for the current gate's shape.\n"
 )
 
 
@@ -91,8 +125,27 @@ class _Usage(Exception):
     """Argument-shape rejection — mapped to exit 2, never to a guess."""
 
 
-def _parse_args(argv: list[str]) -> tuple[str, str | None, list[str], bool, bool]:
-    """`-m <subject> [--repo <root>] [--json] [--include-orphans] -- <paths>...`.
+def _read_message_file(path: str) -> str:
+    """Reads `-F <path>`'s subject -- `-F -` reads stdin, mirroring
+    `git commit -F -`. UTF-8 explicit (this box is Windows; the platform
+    default encoding mangles non-ASCII bodies). A missing/unreadable path
+    fails loud and early -- before any staging or git invocation -- rather
+    than falling through to an empty subject.
+    """
+    if path == "-":
+        return sys.stdin.read()
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except OSError as exc:
+        raise _Usage("-F %s: cannot read file: %s" % (path, exc))
+
+
+def _parse_args(
+    argv: list[str],
+) -> tuple[str, str | None, list[str], bool, bool, str | None, list[str]]:
+    """`(-m <subject> | -F <path>) [--repo <root>] [--json] [--include-orphans]
+    [--deliverable-id <id>] -- <paths>...`.
 
     Hand-rolled rather than argparse because the `--` separator is load-bearing
     here in git's own sense (everything after it is a pathspec, never a flag)
@@ -100,17 +153,39 @@ def _parse_args(argv: list[str]) -> tuple[str, str | None, list[str], bool, bool
     could require it.
     """
     subject: str | None = None
+    message_file: str | None = None
     repo: str | None = None
     as_json = False
     include_orphans = False
+    deliverable_id: str | None = None
     paths: list[str] = []
     saw_separator = False
 
+    mangled_cr_paths: list[str] = []
     i = 0
     n = len(argv)
     while i < n:
         tok = argv[i]
         if saw_separator:
+            # 2026-08-10 fix (P1 live incident): a caller composing the
+            # pathspec from a CRLF-authored file via unquoted
+            # `$(cat file | tr '\n' ' ')` gets a trailing `\r` glued onto
+            # every token but the last -- `tr` only ever sees `\n`, so the
+            # `\r` half of each CRLF survives into the shell word. No real
+            # path can legitimately end in a carriage return, so a trailing
+            # `\r` here is unambiguous transport damage, never a caller's
+            # actual intent -- stripped rather than passed through to land
+            # on `explicit_stage()`'s "genuinely absent" branch as 54
+            # separate, individually-plausible-looking false declines (the
+            # incident shape: 1 clean path -- the one with no trailing `\r`
+            # -- committed; the other 54 were refused with a reason that
+            # was, in isolation, indistinguishable from a real absence).
+            # Every stripped token is named on stderr, not silently fixed --
+            # a caller whose shell composition is producing mangled input
+            # needs to know, even though this run now proceeds correctly.
+            if tok.endswith("\r"):
+                mangled_cr_paths.append(tok)
+                tok = tok[:-1]
             paths.append(tok)
             i += 1
             continue
@@ -121,7 +196,25 @@ def _parse_args(argv: list[str]) -> tuple[str, str | None, list[str], bool, bool
         if tok in ("-m", "--message"):
             if i + 1 >= n:
                 raise _Usage("%s requires a subject argument." % tok)
+            # A second -m must fail loud, not silently overwrite the first: this
+            # tool takes exactly one subject and does NOT concatenate repeated
+            # -m like `git commit` does. On the live shared commit path, a
+            # silent overwrite discards operator-authored content before the
+            # commit lands.
+            if subject is not None:
+                raise _Usage(
+                    "a second %s was given; this tool takes exactly one "
+                    "subject and does not concatenate repeated -m like "
+                    "`git commit` does. Use -F/--file for a multi-paragraph "
+                    "message." % tok
+                )
             subject = argv[i + 1]
+            i += 2
+            continue
+        if tok in ("-F", "--file"):
+            if i + 1 >= n:
+                raise _Usage("%s requires a path argument." % tok)
+            message_file = argv[i + 1]
             i += 2
             continue
         if tok == "--repo":
@@ -138,20 +231,60 @@ def _parse_args(argv: list[str]) -> tuple[str, str | None, list[str], bool, bool
             include_orphans = True
             i += 1
             continue
+        if tok == "--deliverable-id":
+            if i + 1 >= n:
+                raise _Usage("--deliverable-id requires an id argument.")
+            deliverable_id = argv[i + 1]
+            i += 2
+            continue
         if tok in ("-h", "--help"):
             raise _Usage("")
         raise _Usage("unrecognized argument %r (paths go after `--`)." % tok)
 
-    if subject is None:
-        raise _Usage("-m \"<subject>\" is required.")
+    if subject is not None and message_file is not None:
+        raise _Usage("-m and -F are mutually exclusive; pass only one.")
+    if subject is None and message_file is None:
+        raise _Usage("-m \"<subject>\" or -F <path> is required.")
+    if message_file is not None:
+        subject = _read_message_file(message_file)
     if not saw_separator:
+        forwarder_path = os.path.abspath(__file__)
         raise _Usage(
             "the `-- <paths>` separator is required — this CLI has no unscoped "
-            "mode. Name the paths this commit owns."
+            "mode. Name the paths this commit owns. From PowerShell, quote it as "
+            "'--' — PowerShell's binder consumes a bare `--` while parsing the "
+            "call to this script, so it never reaches this CLI. On a Restricted "
+            "execution policy (the Windows 11 default, where the .ps1 launcher "
+            "never runs), invoke `python %s ...` instead — it preserves argv "
+            "intact regardless of policy." % forwarder_path
         )
     if not paths:
         raise _Usage("`--` was given with no paths after it.")
-    return subject, repo, paths, as_json, include_orphans
+    return subject, repo, paths, as_json, include_orphans, deliverable_id, mangled_cr_paths
+
+
+def _preflight_reap_stale_lock(worktree_root: str) -> None:
+    """Best-effort orphaned-`.git/index.lock` self-heal, run once before this
+    CLI's own git call lands on the pre-flight path.
+
+    `guard_reap_stale_git_lock`'s PreToolUse guard only recognizes a bare
+    `git` in command position (`_seg_resolved_git_subcommand`) — a
+    `scoped-git-commit` invocation never matches it, even from the repo
+    root, so the engine's own sanctioned commit wrapper had no self-heal of
+    its own (state/bug-backlog/2026-08-12-scoped-git-commit-is-not-a-raw-
+    git-invoc-f4fff3a626fa.yaml, P1). A guard that pattern-matches command
+    text can never cover every wrapper; the wrapper has to self-heal.
+
+    Thin trampoline over the shared leaf policy,
+    `coordinator_core.lock_preflight.preflight_reap_stale_lock` — see that
+    module's docstring for the full contract, negative-spec, and why BOTH
+    this CLI and `ops/ceremony/commit_pipeline.py::run_commit_pipeline` call
+    it (deliberately, not duplicatively).
+    """
+    ensure_engine_on_path(os.path.abspath(__file__))
+    from coordinator_core.lock_preflight import preflight_reap_stale_lock
+
+    preflight_reap_stale_lock(worktree_root)
 
 
 def _worktree_root(explicit: str | None) -> str:
@@ -204,44 +337,25 @@ _PUSH_NOTES = {
     "push-failed": "PUSH FAILED — commit is local only",
     "unconfirmed": "push unconfirmed — re-check, do not re-push",
     "no-remote": "no remote",
+    # 2026-08-10 fix: a bare "declined" push-state note (falling through to
+    # the `elif push_state:` branch below before this key existed) rendered
+    # as the single word "(declined)" on EVERY commit this branch-policy
+    # ever declines a push for -- including a fully clean, nothing-else-
+    # wrong commit -- and read identically to a PATH decline
+    # (`_declined_note`'s "DECLINED N named path(s)"). Two unrelated facts
+    # sharing one word made "declined" useless as a signal either way. This
+    # note is now unambiguous prose naming what was declined (the PUSH, by
+    # branch policy) so it can never be misread as a path-level refusal.
+    "declined": "push declined by branch policy — commit is local only",
 }
 
-# Human renderings of the op's `ownership_gate.verdict`. Same mapping shape as
-# `_PUSH_NOTES` rather than prose inlined into `_render`, for the same reason:
-# a new verdict arm is one row here, not a new branch. Sourced from
-# example-cockpit-repo-em's 2026-08-04 consumer-side probe — the op's ownership gate
-# emitted text ONLY when it DENIED, so a successful run printed
-# `committed <sha> (pushed)` and a reader could not tell whether the gate had
-# evaluated at all. An ALLOW that leaves no trace is indistinguishable from an
-# absent gate in every transcript that matters.
-_OWNERSHIP_NOTES = {
-    "allowed": "allowed",
-    "denied": "DENIED",
-    "helper-unimportable": "NOT EVALUATED (helper unimportable)",
-    "not-evaluated-clean-pathspec": "not evaluated (clean pathspec)",
-}
-
-
-def _ownership_note(result: dict) -> str:
-    """Render the op's `ownership_gate` verdict as a compact, greppable
-    suffix, or "" when the engine across the seam did not send one.
-
-    Deliberately additive and never load-bearing: an older engine (no
-    `ownership_gate` key) renders exactly the line it rendered before, and an
-    unrecognized verdict string is passed through verbatim rather than
-    dropped — an unknown decision the caller can still read beats a silent
-    one, which is the whole defect this suffix closes.
-    """
-    gate = result.get("ownership_gate")
-    if not isinstance(gate, dict):
-        return ""
-    verdict = str(gate.get("verdict") or "unknown")
-    owner = gate.get("owner_session_id") or "unknown"
-    return " [ownership=%s owner=%s include_orphans=%s]" % (
-        _OWNERSHIP_NOTES.get(verdict, verdict),
-        owner,
-        "true" if gate.get("include_orphans") else "false",
-    )
+# Negative-spec: the op's `ownership_gate` response key (and this CLI's
+# rendering of it, `_OWNERSHIP_NOTES`/`_ownership_note`) was deliberately
+# excised 2026-08-08 (commits de277165 + e90cdfb2; archived spec
+# archive/specs/2026-08/2026-08-08-claim-index-the-commit-gate-never-had.md).
+# `ceremony.scoped_git_commit` now enforces via `_check_claim_conflicts`
+# (O(pathspec): allows an unclaimed path, denies only a live peer's claim)
+# and never emits `ownership_gate` at all. Do not re-add a renderer for it.
 
 
 def _declined_note(result: dict) -> str:
@@ -273,6 +387,65 @@ def _declined_note(result: dict) -> str:
     return " — DECLINED %d named path(s), NOT committed: %s" % (
         len(parts),
         "; ".join(parts),
+    )
+
+
+def _worktree_excluded_note(result: dict) -> str:
+    """Renders the op's `worktree_excluded` as a LOUD operator-facing suffix,
+    or "" when the engine did not send one.
+
+    state/bug-backlog/2026-08-10-scoped-git-commit-reports-success-while-
+    334e90d707f9.yaml: the private-index branch commits a diverged path's
+    STAGED content, not its worktree content — a legitimate success, but a
+    bare `committed <sha>` is indistinguishable from "your worktree edits
+    are in this commit", which they are not. Applied only where `committed`
+    is true (the op never sets this key otherwise) — see `_render`'s own
+    call site.
+    """
+    excluded = result.get("worktree_excluded") or []
+    if not isinstance(excluded, list) or not excluded:
+        return ""
+    return " — WARNING: worktree edits to %d named path(s) NOT included (staged/index content committed instead): %s" % (
+        len(excluded),
+        ", ".join(str(p) for p in excluded),
+    )
+
+
+def _untracked_omitted_note(result: dict, paths: list[str], repo: str | None) -> str:
+    """Renders the op's `untracked_paths_omitted` as an operator-facing
+    suffix, or "" when the engine did not send one.
+
+    state/bug-backlog/2026-08-12-scoped-git-commit-silently-omits-
+    untracked-files-in-a-pathspec.yaml: a directory named in the pathspec
+    silently dropped every untracked file beneath it, with nothing in the
+    output saying so -- caught only by an unprompted `git status`
+    afterward, which is not a mechanism. Applied on EVERY branch of
+    `main()`'s printed line (success and refusal alike), mirroring
+    `_declined_note`/`_worktree_excluded_note`'s own "success is where
+    nobody looks" rationale. Reporting only -- untracked files are, by
+    design, never swept into the commit; this never changes exit code.
+    """
+    info = result.get("untracked_paths_omitted")
+    if not isinstance(info, dict):
+        return ""
+    listed = info.get("paths") or []
+    if not listed:
+        return ""
+    count = info.get("count", len(listed))
+    truncated = info.get("truncated", False)
+    shown = ", ".join(str(p) for p in listed)
+    if truncated:
+        shown += " (and %d more)" % (count - len(listed))
+    repo_flag = " --repo %s" % repo if repo else ""
+    include_cmd = 'scoped-git-commit -m "<subject>"%s -- %s %s' % (
+        repo_flag, " ".join(paths), " ".join(str(p) for p in listed)
+    )
+    return (
+        " — NOTE: %d untracked file(s) beneath the named directory "
+        "pathspec were NOT staged (untracked files are never swept into a "
+        "commit by naming their parent directory, by design): %s — to "
+        "include them, name them explicitly, e.g.: %s"
+        % (count, shown, include_cmd)
     )
 
 
@@ -314,6 +487,17 @@ def _exit_code_for_result(result: dict) -> int:
     rejected pathspec (`"error"` key, no `"committed"` key at all) — is
     `_EXIT_BUSINESS_FAIL`: the op ran, and nothing landed.
     """
+    # 2026-08-10 fix (P1 live incident: a 55-path commit that landed 1 path
+    # and DECLINED 54 still printed "committed <sha>" and exited 0 -- a
+    # caller checking the return code alone, the whole point of a return
+    # code, saw success). Scoped to exactly the incident's own shape --
+    # `committed: true` alongside a non-empty `declined_paths` -- and never
+    # wider: `committed: false` with a lone declined path (e.g. a caller
+    # naming one nonexistent path with nothing else to commit) is the
+    # pre-existing benign "nothing to commit" outcome and stays `_EXIT_OK`
+    # unless one of the branches below already says otherwise.
+    if result.get("committed") and _declined_note(result):
+        return _EXIT_BUSINESS_FAIL
     if result.get("committed"):
         return _EXIT_OK
     if result.get("error"):
@@ -327,8 +511,8 @@ def _render(result: dict) -> str:
     # Both suffixes ride every branch, the success branch included — success is
     # where nobody looks, and it is the branch both defects were reported on.
     declined_note = _declined_note(result)
-    ownership_note = _ownership_note(result)
     if result.get("committed"):
+        worktree_excluded_note = _worktree_excluded_note(result)
         sha = result.get("sha") or "?"
         push_state = result.get("push_state")
         if push_state in _PUSH_NOTES:
@@ -342,8 +526,18 @@ def _render(result: dict) -> str:
             push_note = {True: "pushed", False: "push unconfirmed", None: "no remote"}.get(
                 result.get("pushed"), str(result.get("pushed"))
             )
+        # 2026-08-10 fix (P1 live incident): a run that DECLINED any named
+        # path must never lead with the word "committed" -- a caller reading
+        # only the first word (or grepping for "^committed") saw success on
+        # a run that silently dropped 54 of 55 named paths. Leading with
+        # "PARTIAL" makes the decline the headline, not a trailing clause a
+        # reader has to keep scanning for.
+        if declined_note:
+            return "PARTIAL — committed %s (%s)%s%s" % (
+                sha[:12], push_note, declined_note, worktree_excluded_note
+            )
         return "committed %s (%s)%s%s" % (
-            sha[:12], push_note, declined_note, ownership_note
+            sha[:12], push_note, declined_note, worktree_excluded_note
         )
     # The engine distinguishes THREE no-commit outcomes and says so in its own
     # response: a benign already-committed no-op ("reason": "empty-commit-set"),
@@ -363,18 +557,19 @@ def _render(result: dict) -> str:
     # naming its cause, a benign no-op carries only the exit code.
     explanatory = _explanatory_diagnostics(result)
     if explanatory:
-        return "REFUSED — no commit landed: %s%s%s" % (
+        return "REFUSED — no commit landed: %s%s" % (
             "; ".join(explanatory),
             declined_note,
-            ownership_note,
         )
     reason = result.get("reason") or "nothing to commit"
-    return "no commit landed: %s%s%s" % (reason, declined_note, ownership_note)
+    return "no commit landed: %s%s" % (reason, declined_note)
 
 
 def main(argv: list[str]) -> int:
     try:
-        subject, repo, paths, as_json, include_orphans = _parse_args(argv)
+        subject, repo, paths, as_json, include_orphans, deliverable_id, mangled_cr_paths = (
+            _parse_args(argv)
+        )
         worktree_root = _worktree_root(repo)
     except _Usage as exc:
         message = str(exc)
@@ -383,12 +578,32 @@ def main(argv: list[str]) -> int:
         print(_USAGE, file=sys.stderr)
         return _EXIT_USAGE
 
+    _preflight_reap_stale_lock(worktree_root)
+
+    if mangled_cr_paths:
+        # Never silent (see `_parse_args`'s own comment on this strip): the
+        # run proceeds with the corrected paths, but the caller's own
+        # pathspec composition produced transport damage and needs to know,
+        # or it recurs on every future invocation built the same way.
+        print(
+            "scoped-git-commit: warning: stripped a trailing carriage "
+            "return ('\\r') from %d named path(s) -- your pathspec looks "
+            "like it was built from a CRLF-authored file via something "
+            "like `$(cat file | tr '\\n' ' ')`, which only translates the "
+            "'\\n' half of CRLF and leaves '\\r' glued to every token but "
+            "the last. Affected: %s"
+            % (len(mangled_cr_paths), ", ".join(repr(p) for p in mangled_cr_paths)),
+            file=sys.stderr,
+        )
+
     params = {
         "worktree_root": worktree_root,
         "paths": paths,
         "message": subject,
         "include_orphans": include_orphans,
     }
+    if deliverable_id is not None:
+        params["deliverable_id"] = deliverable_id
     try:
         result = route_mutation(_OP, params, worktree_root, _legacy_absent)
     except RuntimeError as exc:
@@ -407,9 +622,9 @@ def main(argv: list[str]) -> int:
     if as_json:
         print(json.dumps(result, indent=2, sort_keys=True))
     else:
-        print(_render(result))
+        print(_render(result) + _untracked_omitted_note(result, paths, repo))
     return _exit_code_for_result(result)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)))

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """agent-worktree-sweep.py — CLI trampoline over the claude-klabauter worktree-sweep op.
 
@@ -42,7 +41,7 @@ coordinator_core.ops.agent_worktree_sweep for the actual scan/reap logic.
 # Port source: coordinator/bin/agent-worktree-sweep.py (DoE-claude, this file,
 # 307-line bash oracle retired on this cutover; see git log)
 # Ported to: coordinator_core/ops/agent_worktree_sweep.py (claude-klabauter)
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 
 import os
 import sys

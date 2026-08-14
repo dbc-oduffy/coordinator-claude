@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday-complete-args-and-validate.py — /workday-complete front-door arg
 parsing + cross-machine targeted-wrap guard + Step-1 validate invocation.
 
@@ -134,12 +133,19 @@ def _current_machine() -> str:
     coordinator_core.machine_resolver.compute_machine — a subprocess spawn to
     invoke Python from inside a Python-adjacent bash block. Since this CLI
     already runs under Python, that spawn collapses to a plain import.
-    """
-    from cc_invoke import _resolve_claude_klabauter_root
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    Deliberately uses `require_engine_on_path` (env-first ladder, raises
+    RuntimeError with remediation text on total miss), not
+    `ensure_engine_on_path` (swallows to None) — this function is unguarded by
+    design; its only caller,
+    `cmd_check_cross_machine`, prints the raised exception's message verbatim
+    to the operator, so a resolution failure must keep the "machine-local set
+    repos.claude_klabauter ..." remediation text intact rather than degrading
+    to a bare, non-actionable ImportError.
+    """
+    import cc_invoke
+
+    cc_invoke.require_engine_on_path(__file__)
     from coordinator_core.machine_resolver import compute_machine
 
     return compute_machine()
@@ -193,7 +199,19 @@ def cmd_run_step1(extra: list[str]) -> int:
         )
         return 1
 
+    import cc_invoke
     from cc_invoke import child_env
+
+    # Review: code-reviewer P2 — resolve_engine_root() can raise RuntimeError
+    # on this, the primary dispatch path of a workday ceremony step, with no
+    # prior CLAUDE_KLABAUTER_ROOT resolution anywhere upstream in this codepath; an
+    # uncaught raise here was a regression versus the pre-diff code, which
+    # never depended on resolution succeeding. Mirrors cmd_check_cross_machine's
+    # own established local try/except pattern around _current_machine().
+    try:
+        no_console_kw = cc_invoke._no_console_kw(cc_invoke.resolve_engine_root(__file__))
+    except (RuntimeError, ImportError):
+        no_console_kw = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
     proc = subprocess.run(
         [sys.executable, step1_path, *extra],
@@ -201,7 +219,7 @@ def cmd_run_step1(extra: list[str]) -> int:
         stderr=None,  # forward step1's stderr straight through, uncaptured
         text=True,
         env=child_env(),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_kw,
     )
     if proc.stdout:
         sys.stdout.write(proc.stdout)

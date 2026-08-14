@@ -4,7 +4,7 @@ description: "Synthesizes chunk-reviewer outputs plus 3 specialist workers into 
 model: sonnet
 effort: low
 access-mode: read-write
-tools: ["Read", "Write", "Bash"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell"]
 ---
 
 <!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Content search is `grep` via Bash; file location is `find` via Bash. -->

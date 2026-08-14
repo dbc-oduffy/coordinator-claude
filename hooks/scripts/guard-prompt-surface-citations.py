@@ -1,3 +1,9 @@
+# guard-not-a-hook-entrypoint -- invoked via the in-process guard runner's
+# REAL_GUARD_REGISTRY (coordinator/hooks/scripts/_guard_runner.py), which
+# preuse-write-dispatch.py's own hooks.json PreToolUse(Write|Edit|MultiEdit)
+# registration calls in-process (C4, docs/plans/2026-08-06-hook-spawn-fan-
+# in-finish-and-extend.md). This basename is deliberately never referenced
+# literally in hooks.json text -- that IS the mechanism, not an omission.
 """PreToolUse hook (matcher: Write|Edit|MultiEdit): warns on a write that
 introduces a NEW unresolvable citation into a coordinator prompt surface.
 
@@ -87,7 +93,7 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _sentinel_write_guard import extract_target_path  # noqa: E402
+from _sentinel_write_guard import extract_target_path, reconstruct_after  # noqa: E402
 from _prompt_surface_citations import is_in_scope, new_violations  # noqa: E402
 from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, Message, compose, emit  # noqa: E402
 
@@ -97,58 +103,6 @@ _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
 #: citation is a problem and the two legitimate exits -- see
 #: `state/relocations/guard-message-cap/guard-prompt-surface-citations.py.md`.
 _WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#prompt-surface-citations"
-
-
-def _reconstruct_after(tool_name: str, tool_input: dict, before: str) -> "str | None":
-    if tool_name == "Write":
-        content = tool_input.get("content")
-        return content if isinstance(content, str) else None
-
-    if tool_name == "Edit":
-        old_s = tool_input.get("old_string")
-        new_s = tool_input.get("new_string")
-        if not isinstance(old_s, str) or not isinstance(new_s, str):
-            return None
-        if old_s == "":
-            return new_s
-        if old_s not in before:
-            return None
-        # Review: coordinator:code-reviewer -- F1: mirror check-claude-md-size.py's
-        # replace_all handling. A single-replace here undercounts a `replace_all`
-        # write that introduces the same new citation in several places.
-        return (
-            before.replace(old_s, new_s)
-            if tool_input.get("replace_all")
-            else before.replace(old_s, new_s, 1)
-        )
-
-    if tool_name == "MultiEdit":
-        edits = tool_input.get("edits")
-        if not isinstance(edits, list):
-            return None
-        text = before
-        for edit in edits:
-            if not isinstance(edit, dict):
-                return None
-            old_s = edit.get("old_string")
-            new_s = edit.get("new_string")
-            if not isinstance(old_s, str) or not isinstance(new_s, str):
-                return None
-            if old_s == "":
-                text = new_s
-                continue
-            if old_s not in text:
-                return None
-            # Review: coordinator:code-reviewer -- F1: mirror check-claude-md-size.py's
-            # per-edit replace_all handling.
-            text = (
-                text.replace(old_s, new_s)
-                if edit.get("replace_all")
-                else text.replace(old_s, new_s, 1)
-            )
-        return text
-
-    return None
 
 
 def _deny_reason(target: str, violations: list) -> str:
@@ -169,8 +123,8 @@ def _deny_reason(target: str, violations: list) -> str:
     if len(kinds) > len(shown):
         kinds_text += f", +{len(kinds) - len(shown)} more"
     return (
-        f"{target} adds {len(violations)} citation(s) unresolvable outside "
-        f"this clone ({kinds_text}). Inline it, or add to the OSS seed wiki "
+        f"{target}: {len(violations)} citation(s) unresolvable outside "
+        f"clone ({kinds_text}). Inline it, or add to OSS seed wiki "
         "allowlist."
     )
 
@@ -218,7 +172,7 @@ def main() -> int:
     except Exception:
         return 0
 
-    after = _reconstruct_after(payload.get("tool_name", ""), tool_input, before)
+    after = reconstruct_after(payload.get("tool_name", ""), tool_input, before)
     if after is None:
         return 0
 

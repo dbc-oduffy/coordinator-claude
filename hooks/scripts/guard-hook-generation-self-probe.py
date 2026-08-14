@@ -7,7 +7,7 @@ into boot. The op existed fully built and tested with a registered
 and no other caller referenced it anywhere — an inert guard, one that runs
 nowhere hides its own defects. This stub is the wiring.
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out, same
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out, same
 split guard-settings-integrity.py and guard-foreign-platform-paths.py already
 use): resolve the claude-klabauter engine, call its guard function IN-PROCESS, relay its
 returned text. Claude-klabauter owns the guard LOGIC.
@@ -77,7 +77,7 @@ Source (equivalent shim pair): coordinator/hooks/scripts/guard-settings-integrit
     coordinator/hooks/scripts/guard-foreign-platform-paths.py
 Engine: coordinator_core.ops.session.guard_hook_generation_self_probe.run_self_probe
     (claude-klabauter)
-Spec backlink: DoE-claude dispatch state/subagent-share/
+Spec backlink: doctrine-repo dispatch state/subagent-share/
     992e179e-735d-49f2-825f-7151aad850ea/coordinatorexecutor-1f3e8af6.md
     (2026-07-29) — wires the previously-inert self-probe guard into
     SessionStart.
@@ -116,9 +116,9 @@ def _resolve_this_repo_root() -> str | None:
     """Resolve the repo THIS hook is running in (cwd-based) — the destination
     for the housekeeping-failures log, NOT the claude-klabauter root. Mirrors
     sweep-boot.py's own `_resolve_this_repo_root` exactly (same rationale:
-    `__file__` lives under the DoE-claude source tree regardless of which
+    `__file__` lives under the doctrine-plane source tree regardless of which
     consumer repo's session invoked it via live `--plugin-dir` resolution, so
-    a `__file__`-based root would mis-file every non-DoE-claude session's
+    a `__file__`-based root would mis-file every non-doctrine-plane session's
     failure record)."""
     import subprocess
 

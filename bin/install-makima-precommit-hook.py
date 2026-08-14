@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 install-claude-klabauter-precommit-hook — CLI trampoline over claude-klabauter
 coordinator_core.ops.install_claude_klabauter_precommit_hook.
