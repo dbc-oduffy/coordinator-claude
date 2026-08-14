@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 register-coordinator-mirror.py — CLI trampoline over claude-klabauter
 coordinator_core.ops.register_coordinator_mirror.
@@ -94,7 +93,12 @@ def _claude_home_argv(*args: str) -> list:
         # the primary machine per DoE-claude CLAUDE.md § Runtime conventions).
         # Swapped so settings-home wins whenever both candidates exist; the
         # mirror candidate is retained, tried last.
-        home = os.environ.get("CLAUDE_HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
+        home = (
+            os.environ.get("CLAUDE_HOME")
+            or os.environ.get("HOME")
+            or os.environ.get("USERPROFILE")
+            or os.path.expanduser("~")
+        )
         for cand in (
             os.path.join(home, ".coordinator-claude-settings", "bin", "claude-home.cmd"),
             os.path.join(home, ".claude", "bin", "claude-home.cmd"),

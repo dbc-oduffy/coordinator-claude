@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# .percolate-identity — per-operator identity tokens for the publish driver (coordinator/bin/publish.py) audit.
+#
+# Copy this file to .percolate-identity (no .example) and edit with your own
+# values. The file is parsed by the publish driver's (coordinator/bin/publish.py)
+# PercolateIdentity / parse_percolate_identity early in startup; it is gitignored
+# (machine-specific). This is the SINGLE canonical home for machine-runtime
+# identity tokens (machine slugs, codenames, secondary drive paths, project
+# codenames). It is NOT the same as the percolate transform's org-slug
+# substitution config, which owns the org-slug SUBSTITUTION vocabulary
+# (operator-name → role-name rewrites for the publish transform). Those are
+# distinct contracts — detection vs. substitution. Never add machine slugs to
+# the org-slug substitution config; never add org-slug substitution rules here.
+#
+# IMPORTANT: if this file is absent or PERSONAL_REVIEW_PATTERNS is empty, the
+# Phase-4 audit's machine-slug detection is disabled. For coordinator-claude* and
+# deep-research-claude* mirror/flat-mirror targets, the publish driver (coordinator/bin/publish.py) emits an explicit
+# WARNING (and continues) in this case; for other targets it skips quietly. Either
+# way this file must be populated on every machine that runs percolate against a
+# public mirror target. The percolate SKILL.md Step 2c
+# also surfaces a visible note when this file is absent or unpopulated so the EM
+# knows the identity-token net is down.
+#
+# See ~/.claude/plugins/coordinator/docs/wiki/percolate-setup.md
+#
+# PARSER CAVEATS (claude-klabauter `coordinator/lib/percolate/phase4_audit.py` parses this file's
+# three arrays via regex + shlex — it never executes the file):
+#   1. The closing `)` of each array MUST be on its own line — a one-liner
+#      `FOO=(a b)` silently parses to `[]`. Keep the multi-line form below.
+#   2. A missing array degrades silently to an empty list (no error, no warning).
+#      If you delete or rename an array, the audit gate quietly stops using it.
+#
+# ---------------------------------------------------------------------------
+# PERSONAL_EXPECTED_PATTERNS
+#   Tokens the audit gate skips when found in publishable files. These are
+#   expected matches that need no action — your name, your org slug, your
+#   working-branch prefix, etc.
+#
+#   Example:
+#     PERSONAL_EXPECTED_PATTERNS=(
+#       'mycompany-internal'
+#       "M'Surname"
+#       'My Full Name'
+#       'work/my-machine/'
+#     )
+# ---------------------------------------------------------------------------
+PERSONAL_EXPECTED_PATTERNS=()
+
+# ---------------------------------------------------------------------------
+# PERSONAL_REVIEW_PATTERNS
+#   PCRE patterns the audit gate FLAGS for review when found. These are paths
+#   or usernames specific to your machine that should not ship into publish
+#   repos. the publish driver (coordinator/bin/publish.py) already auto-derives generic patterns from $HOME and the
+#   drive letter of $SCRIPT_DIR; use this array for anything else that is
+#   uniquely yours (machine hostnames, secondary drives, project codenames).
+#
+#   Patterns are evaluated via Perl PCRE (perl_match in the publish driver (coordinator/bin/publish.py)), so \b
+#   word-boundaries and lookaheads work. Escape backslashes for shell quoting
+#   (use '\\\\' for one literal backslash in JSON-encoded strings, '\\' for one
+#   literal backslash in raw paths).
+#
+#   Three classes of operator-private token belong here:
+#     (a) Private company org — any internal org slug that must not ship.
+#     (b) Private repo/project codename — any internal codename referenced
+#         in docstrings, branch names, or comments that must not ship.
+#     (c) Machine slugs — any hostname or machine identifier referenced in
+#         docstrings, branch-naming examples, or path examples.
+#
+#   Example:
+#     PERSONAL_REVIEW_PATTERNS=(
+#       '\bmymachine\b'        # class (c): machine slug
+#       '\bMy-Codename\b'      # class (b): project codename
+#       '\bMyOrg-Internal\b'   # class (a): private company org
+#       'D:\\\\Projects'   # foreign-path-ok: sample redaction pattern — the path shape is the thing being matched
+#       'D:\\Projects'     # foreign-path-ok: sample redaction pattern — the path shape is the thing being matched
+#     )
+# ---------------------------------------------------------------------------
+PERSONAL_REVIEW_PATTERNS=()
+
+# ---------------------------------------------------------------------------
+# PERSONAL_ALLOW_TOKENS
+#   Tokens added to the `\boduffy\b`-style identity allow regex. If your
+#   PERSONAL_REVIEW_PATTERNS catches a bare-identifier shape (e.g. your
+#   surname or GitHub login appearing alone), put the FULL allowed forms
+#   here — anything in the file that does NOT match these patterns will be
+#   flagged for review.
+#
+#   These are merged into the audit's `allow_re` alternation, so write each
+#   entry as a regex fragment.
+#
+#   Example:
+#     PERSONAL_ALLOW_TOKENS=(
+#       'mycompany-internal'
+#       "M'Surname"
+#     )
+# ---------------------------------------------------------------------------
+PERSONAL_ALLOW_TOKENS=()

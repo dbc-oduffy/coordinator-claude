@@ -1,0 +1,175 @@
+# chunk-commits — CLI trampoline over claude-klabauter's `ceremony.chunk_commits` op
+# (coordinator_core/ops/ceremony/chunk_commits.py): answers "did chunk <id>
+# of plan <path> commit?" as a nameable, invocable-by-name command.
+#
+# WHY THIS FILE EXISTS: the op was registered and correct, with NO
+# caller-reachable entrypoint — the exact failure this repo's own doctrine
+# names (docs/plans/2026-08-10-chunk-commit-liveness-becomes-a-nameable.md,
+# Anti-scope: "a registered op with no settings-home forwarder reads as
+# shipped and is unreachable from any skill"). DoE's `execute-plan/SKILL.md`
+# needs this answer and cannot embed raw git reads (skills carry no shell),
+# so this forwarder is the seam that makes the op nameable from a shell.
+#
+# Same shape as coordinator/bin/scoped-git-commit — a thin trampoline over
+# cc_invoke's route() (not route_mutation(): this op's result is a bare
+# LIST, not a dict, and route_mutation() assumes a dict-shaped result to
+# inspect for exit_code/failed/error; the chunk_commits op instead raises
+# ValueError/RuntimeError on any real failure, which cc_invoke's own
+# envelope ladder already turns into a raised RuntimeError — a plain
+# route() already gets AC6's fail-loud contract for free).
+#
+# Usage:
+#   chunk-commits <plan-path> <chunk-id> [--json]
+#     Prints the chunk's commits (sha + subject), one per line, oldest
+#     first. An empty result (chunk never ran) prints nothing and exits 0
+#     — empty and error are never the same outcome (AC6): an unresolvable
+#     plan path, or a plan with no add-commit, raises and exits non-zero.
+#   chunk-commits --json <plan-path> <chunk-id>
+#     Emit the op's raw JSON list instead of the human line-per-commit form.
+#
+# Exit codes:
+#   0 — query ran; result may be an empty list (chunk never committed).
+#   1 — business failure (op refusal: unresolvable plan path, no add-commit,
+#       underlying git failure).
+#   2 — usage error.
+#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / seam absent).
+#
+# Spec backlink: pln-chunk-commit-liveness-becomes-c77555 § C3
+from __future__ import annotations
+"""chunk-commits — see the # comment block above for the RAG-bait purpose
+text (the shebang line makes THIS triple-quoted string a discarded
+expression statement, not the module __doc__ — same convention as
+scoped-git-commit)."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import route  # noqa: E402
+
+_OP = "ceremony.chunk_commits"
+
+_EXIT_OK = 0
+_EXIT_BUSINESS_FAIL = 1
+_EXIT_USAGE = 2
+_EXIT_TRANSPORT_FAIL = 3
+
+_USAGE = (
+    "usage: chunk-commits [--json] <plan-path> <chunk-id>\n"
+    "\n"
+    "Queries claude-klabauter's ceremony.chunk_commits op for the commits of chunk\n"
+    "<chunk-id> in plan <plan-path>, scoped to the plan's own add-commit..HEAD\n"
+    "(never a caller-widenable range — see the op's own docstring). Returns a\n"
+    "LIST of commits, not a boolean: an empty list (exit 0) means the chunk\n"
+    "never ran; an unresolvable plan path or a plan with no add-commit fails\n"
+    "loud (non-zero) instead.\n"
+    "\n"
+    "--json emits the op's raw JSON list instead of the human line-per-commit\n"
+    "rendering (\"<sha> <subject>\").\n"
+)
+
+
+class _Usage(Exception):
+    """Argument-shape rejection — mapped to exit 2, never to a guess."""
+
+
+def _parse_args(argv: list[str]) -> tuple[str, str, bool]:
+    """`[--json] <plan-path> <chunk-id>` — order-independent for the flag."""
+    as_json = False
+    positionals: list[str] = []
+    for tok in argv:
+        if tok == "--json":
+            as_json = True
+            continue
+        if tok in ("-h", "--help"):
+            raise _Usage("")
+        if tok.startswith("-") and tok != "-":
+            raise _Usage("unrecognized argument %r." % tok)
+        positionals.append(tok)
+
+    if len(positionals) != 2:
+        raise _Usage(
+            "expected exactly 2 positional arguments (<plan-path> <chunk-id>), "
+            "got %d." % len(positionals)
+        )
+    plan_path, chunk_id = positionals
+    return plan_path, chunk_id, as_json
+
+
+def _legacy_absent() -> None:
+    """State-1 (claude-klabauter seam absent) has no bash predecessor to fall back to —
+    this CLI is native-only from birth. Raising here lets `route()` wrap the
+    failure in its own four-rung CLAUDE_KLABAUTER_ROOT remediation message rather than
+    this file re-deriving one."""
+    raise RuntimeError(
+        "chunk-commits has no legacy fallback: it is a thin trampoline over "
+        "claude-klabauter's %s op and needs the coordinator_core seam present." % _OP
+    )
+
+
+def _render(commits: list[dict]) -> str:
+    """One line per commit, `<sha> <subject>` — oldest first, matching the
+    op's own documented return order. Empty input renders as an empty
+    string (deliberately no "no commits" banner: piping this into a script
+    that counts lines must see zero lines, not one line of prose, for a
+    chunk that never ran)."""
+    lines = []
+    for entry in commits:
+        sha = str(entry.get("sha", "?"))
+        subject = str(entry.get("subject", ""))
+        lines.append("%s %s" % (sha, subject))
+    return "\n".join(lines)
+
+
+def main(argv: list[str]) -> int:
+    try:
+        plan_path, chunk_id, as_json = _parse_args(argv)
+    except _Usage as exc:
+        message = str(exc)
+        if message:
+            print("chunk-commits: %s" % message, file=sys.stderr)
+        print(_USAGE, file=sys.stderr)
+        return _EXIT_USAGE
+
+    # repo_root: this op is scope "none" (resolves its own git repo from
+    # plan_path itself — see the op's own docstring) so this value is never
+    # forwarded as --repo (see cc_invoke._should_pass_repo); cwd is passed
+    # only to satisfy route()'s signature.
+    #
+    # plan_path absolutization: the op resolves plan_path with
+    # Path(plan_path).resolve() against the OP PROCESS's cwd, not the
+    # caller's — and through this forwarder those are NOT the same cwd. A
+    # relative plan_path forwarded verbatim silently answers from the
+    # engine's own tree at exit 0 (an empty list, indistinguishable from "no
+    # commits yet") instead of the caller's repo. Absolutize here, against
+    # this forwarder's own cwd (which IS the caller's cwd), before it ever
+    # reaches the op. An already-absolute path (native-Windows or POSIX
+    # spelling) passes through with its meaning unchanged.
+    repo_root = os.getcwd()
+    plan_path = str(Path(plan_path).resolve())
+    params = {"plan_path": plan_path, "chunk_id": chunk_id}
+    try:
+        result = route(_OP, params, repo_root, _legacy_absent)
+    except RuntimeError as exc:
+        print("chunk-commits: %s" % exc, file=sys.stderr)
+        return _EXIT_BUSINESS_FAIL
+
+    if not isinstance(result, list):
+        print("chunk-commits: unexpected op result shape: %r" % (result,), file=sys.stderr)
+        return _EXIT_BUSINESS_FAIL
+
+    if as_json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        rendered = _render(result)
+        if rendered:
+            print(rendered)
+    return _EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -3,7 +3,7 @@ name: research-specialist
 description: "Sonnet web-research specialist — deep-reads a scout's source corpus, verifies claims, writes claims.json + summary.md."
 model: sonnet
 effort: medium
-tools: ["Read", "Write", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: green
 access-mode: read-write
 ---

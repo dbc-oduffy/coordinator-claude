@@ -262,6 +262,10 @@ _OBSERVED_ENGINE_CITATION_PREFIXES = (
 # ---------------------------------------------------------------------------
 
 _PLACEHOLDER_CHARS = ("<", ">", "*", "{", "}", "$", "[", "]")
+#: A trailing segment that is only an ellipsis marks prose elision, not a
+#: citation target — `coordinator/lib/…` names the shape of a path, never a
+#: file. Prose about citations is not itself a citation.
+_ELISION_SEGMENTS = ("…", "...")
 #: Derived from extensions actually observed among `coordinator/`-anchored
 #: citations in the corpus (measured alongside the other narrowing decisions
 #: in this module) — not a general-purpose extension allowlist.
@@ -559,6 +563,8 @@ def iter_engine_boundary_targets(text: str) -> "set[str]":
             if any(ch in rel_str for ch in _PLACEHOLDER_CHARS):
                 continue
             parts = rel_str.split("/")
+            if parts[-1] in _ELISION_SEGMENTS:
+                continue
             entry = parts[1] if len(parts) > 1 else ""
             if entry in ("bin", "lib", "scripts"):
                 targets.add(rel_str)

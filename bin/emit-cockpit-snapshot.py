@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """emit-cockpit-snapshot.py — native Python entry routing artifact.emit.
 
@@ -49,13 +48,14 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
+import halted_marker  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def legacy_emit() -> None:
@@ -72,27 +72,29 @@ def legacy_emit() -> None:
 
 
 def _resolve_repo_root() -> str:
-    """Resolve the repo root from CWD via git (mirrors the pre-port bash body's
-    own strangle_route resolution — standalone-repo assumption, no worktrees).
+    """Resolve the repo root via the checked resolver (coordinator/bin/lib/repo_identity.py).
+
+    WRITER script: this entry mutates the resolved repo (artifact.emit), so a
+    positive MISMATCH refuses before any write lands -- the DR-277 carve-out
+    ("prevents a write into a foreign tree") is what licenses the hard deny
+    here. UNRESOLVED never refuses (DR-277, AC4) -- a degenerate/absent
+    anchor must not turn this into a fleet-wide outage.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except OSError as exc:
-        print(f"emit-cockpit-snapshot: cannot resolve git repo root: {exc}", file=sys.stderr)
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
         sys.exit(1)
-    resolved = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not resolved:
+    if not root:
+        # No git root resolved from cwd at all -- distinct from the
+        # MISMATCH identity gate above (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing here is not the
+        # AC4 "UNRESOLVED never refuses" carve-out being violated.
         print(
             f"emit-cockpit-snapshot: cannot resolve git repo root from {os.getcwd()}",
             file=sys.stderr,
         )
         sys.exit(1)
-    return resolved
+    return root
 
 
 def _parse_args(argv: list[str]) -> dict[str, object]:
@@ -127,6 +129,18 @@ def main(argv: list[str] | None = None) -> int:
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+
+    # The DR-287 halt marker sits beside the canonical artifact and stamps the
+    # `emitted_at` it was written against. An on-demand emission advances the
+    # artifact without touching the marker, so the stamp would lag the bytes
+    # until the next ceremony close in this repo happened to re-sync it —
+    # a consumer bridging on this entry point (example-cockpit-repo's pre-`store:build`
+    # invocation, DR-287 § Open direction) would read a stale stamp over fresh
+    # data. Re-stamp, never remove: the cadence is still halted, the artifact
+    # advanced because somebody asked. Skipped under `--out`, which writes
+    # somewhere the marker does not describe.
+    if "out" not in params:
+        halted_marker.sync_halted_marker(repo_root)
 
     # STDOUT PASSTHROUGH (parity with the bash oracle's cc_invoke stdout
     # pass-through): the bare native result is re-emitted on stdout.

@@ -13,12 +13,12 @@ written in a wiki.
 
 NEVER used by a Category-B (DR-118 pointer/relay) hook. DR-118
 (`docs/decisions/DR-118-doe-resident-transport-seam-is-a-pointer.md`) rules
-that a DoE-resident transport seam holds no message policy of its own --
+that a doctrine-plane-resident transport seam holds no message policy of its own --
 "resolve, hand over, translate, degrade unconditionally at every step -- no
 fail-open policy, no detection policy of its own." A Category-B shim's
 prose is authored on the sibling engine plane and relayed verbatim
 (`_engine_root.run_stop_hook_pointer_shim` and its siblings); routing it
-through this envelope would hand a DoE-resident transport seam message
+through this envelope would hand a doctrine-plane-resident transport seam message
 policy DR-118 forbids it from holding. Category-A hooks own their own
 prose and are exactly what this module is for.
 
@@ -53,12 +53,34 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 #: The cap, defined once. C3 (the exception manifest) and C4 (the five-leg
 #: gate test) import this constant; they do not redeclare it. See the plan's
 #: "The cap is five separately-testable legs" section for how 280 was
 #: derived from a working exemplar, not chosen for round-numberedness.
+#:
+#: RULED (2026-08-13, `docs/plans/2026-08-13-doe-guard-text-trust-failure-
+#: coverage.md` chunk C6, AC7): kept at 280 CHARS, deliberately NOT
+#: converged with the sibling control-plane engine's own 220-BYTE guard-
+#: message cap. Two independent reasons, either sufficient on its own:
+#:   1. Different corpora. 280 was derived here against THIS repo's own
+#:      Category-A hook population (`docs/plans/2026-08-02-guard-message-
+#:      character-cap.md`'s "working exemplar" derivation); the sibling
+#:      figure was derived against a different corpus entirely. A shared
+#:      number would be true of neither corpus by construction -- two
+#:      different real distributions coincidentally sharing a digit.
+#:   2. Different units. The sibling figure counts BYTES; this ceiling
+#:      counts Python `len(str)` CHARS. Reassigning 280 to mean bytes, or
+#:      rescaling it to a byte-equivalent, would change what the 26 tests
+#:      currently passing against it actually measure, for no
+#:      corpus-derived reason.
+#: Converging the two numbers on sight is a number-matching move, not a
+#: corpus-derived one -- exactly what this repo's own Anti-scope for this
+#: chunk warns against. If a future measured Category-A distribution
+#: genuinely outgrows 280, that is grounds to re-derive a NEW char ceiling
+#: from THIS corpus, never to borrow the sibling's byte figure.
 CEILING = 280
 
 #: Environment variable that switches `emit()` from writing a hook's real
@@ -109,7 +131,16 @@ class Message:
 #: (gated on the presence of `$`) rather than folding `${}:=,@%+~` into the
 #: base charset outright, so a bare colon-bearing prose token (e.g. `Note:`)
 #: does not newly slip through just because the base charset widened.
-_COMMAND_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./\\-]+$")
+#: A Windows drive-letter prefix -- a single letter immediately followed by
+#: `:` and a path separator -- is admitted as an optional leading segment,
+#: mirroring the identical narrow carve-out `_PROSE_PUNCT_RE` already
+#: applies to the SAME shape (see that regex's own comment). This is the
+#: only new thing the widened charset admits: a bare drive-letter colon at
+#: the very start of the token, still followed by a separator. It does not
+#: admit a colon anywhere else in the token (a mid-token colon, or a
+#: trailing prose colon, still fail), so a genuinely malformed alternative
+#: block is no more likely to pass than before.
+_COMMAND_TOKEN_RE = re.compile(r"^(?:[A-Za-z]:[\\/])?[A-Za-z0-9_./\\-]+$")
 _SHELL_VAR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./\\${}:=,@%+~-]+$")
 _SENTENCE_END_RE = re.compile(r"[.!?]\s*$")
 #: A comma/semicolon/em-dash, or a colon that is not part of a
@@ -304,8 +335,100 @@ def compose(
 
 
 # --------------------------------------------------------------------------
-# Rendering (pure) and emission (impure) -- attaches to the existing hook
-# seam, does not create a parallel one.
+# Wiki-citation resolution -- the C2 seam fix.
+#
+# Every `_WIKI_ANCHOR` constant across the 16 converted hooks (and the
+# hand-rolled "Reference: docs/wiki/..." strings in the two runtime-tripwire
+# hooks) is authored as a `coordinator/docs/wiki/<page>.md#<slug>`-shaped
+# literal. That literal is REPO-RELATIVE: it resolves only from this source
+# repo's own root, and 404s for a reader in any OTHER repo the plugin is
+# installed into (verified live from project-rag's checkout -- see the C2
+# dispatch report). `render()` was appending it verbatim ("See <anchor>."),
+# per the standing reviewer note in `derive-global-doctrine-live-copy.py`
+# that a bare fragment (no path at all) is even less useful -- that note is
+# correct and is why the fix is NOT to strip the path down, but to resolve
+# it against the plugin root the hook is ACTUALLY running from.
+#
+# `_coordinator_dir()` is deliberately NOT `os.environ["CLAUDE_PLUGIN_ROOT"]`.
+# `enforce-agent-dispatch-mode.py`'s "Concern B" note records that env var
+# as an "undeclared ... dependency" not reliably present/correct in a hook
+# subprocess's own environment. What IS reliable: this very module's own
+# `__file__`. Every hook that carries a `_WIKI_ANCHOR` lives at
+# `<coordinator-dir>/hooks/scripts/<hook>.py` in EVERY install shape (this
+# dev source tree, or a `--plugin-dir`-resolved installed copy) -- that is a
+# structural fact of the plugin layout, not an inherited value that can go
+# missing or point somewhere else.
+# --------------------------------------------------------------------------
+
+#: `docs/wiki/`, optionally `coordinator/`-prefixed -- the two forms
+#: observed across the 16 `_WIKI_ANCHOR` constants and the six hand-rolled
+#: runtime-tripwire "Reference:" citations (see the C2 plan chunk body for
+#: the full site list).
+_WIKI_CITATION_RE = re.compile(r"(?:coordinator/)?docs/wiki/([A-Za-z0-9_.-]+\.md)")
+
+
+def _coordinator_dir() -> "Path":
+    """The `coordinator/` directory THIS process is actually running from.
+    `_message_envelope.py` itself lives at
+    `<coordinator-dir>/hooks/scripts/_message_envelope.py`, so its own
+    resolved parent-of-parent-of-parent IS `coordinator/` -- in BOTH install
+    shapes: the source-repo layout (where `coordinator/` IS the plugin
+    root) and an installed layout (where the true plugin root sits one
+    level ABOVE this same `coordinator/` subdirectory; see this repo's own
+    CLAUDE.md § Architecture). This function returns the `coordinator/`
+    directory itself in either case, never the true plugin root of an
+    installed layout -- hence the name, not `plugin_root`. Callers
+    resolving `docs/wiki/` are unaffected by that offset, since `docs/wiki/`
+    lives under `coordinator/` in both layouts -- but a future caller
+    resolving something that genuinely lives at the true plugin root (one
+    level up from here in the installed case) must not assume this
+    function's return value already is that root. Renamed from the prior
+    `plugin_root()` (module-private, no external call site referenced that
+    name -- verified via a repo-wide grep before the rename) because the old
+    name overclaimed: it collided with a genuinely different `plugin_root`
+    concept already in use elsewhere in this directory (e.g.
+    `assert-em-role.py`, `project-orientation.py`), and its return value is
+    the plugin root only in the source-repo layout, not the installed one."""
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def resolve_wiki_citation(text: str) -> str:
+    """Rewrite every `docs/wiki/<page>.md` citation embedded in `text`
+    (optionally `coordinator/`-prefixed, per `_WIKI_CITATION_RE`) into an
+    absolute path anchored at `_coordinator_dir()`, preserving whatever precedes
+    and follows the matched `docs/wiki/<page>.md` substring (a `#slug`
+    fragment, a ` § SECTION` locator, surrounding prose) untouched. A `text`
+    carrying no such citation is returned unchanged. Pure -- no I/O beyond
+    the `__file__`-derived path computation `_coordinator_dir()` already does.
+
+    Guards against double-mangling an already-resolved or foreign-anchored
+    citation: `_WIKI_CITATION_RE` only anchors on the immediately-preceding
+    optional `coordinator/` literal, not on the start of the whole path
+    token, so a match embedded inside a longer existing absolute-path prefix
+    (e.g. a citation some earlier call already resolved, or a foreign
+    `/other/root/coordinator/docs/wiki/<page>.md`) would otherwise have only its
+    `coordinator/docs/wiki/<page>.md` suffix replaced, leaving the unrelated
+    prefix concatenated in front of the new absolute path -- a broken hybrid
+    string. A match is only substituted when it starts at the beginning of
+    `text` or immediately follows whitespace/an opening delimiter (never
+    mid-token, as it would inside an already-resolved absolute path); any
+    other match is left untouched rather than partially rewritten. No
+    current call site passes an already-resolved or foreign-prefixed
+    citation -- this is defensive, not a fix for a live defect."""
+
+    def _sub(match: "re.Match[str]") -> str:
+        start = match.start()
+        if start > 0 and text[start - 1] not in " \t\n(['\"`":
+            return match.group(0)
+        return str(_coordinator_dir() / "docs" / "wiki" / match.group(1))
+
+    return _WIKI_CITATION_RE.sub(_sub, text)
+
+
+# --------------------------------------------------------------------------
+# Rendering (pure*) and emission (impure) -- attaches to the existing hook
+# seam, does not create a parallel one. (*`render()` reads `__file__` via
+# `resolve_wiki_citation()` -- no environment/network/process I/O.)
 # --------------------------------------------------------------------------
 
 
@@ -313,14 +436,16 @@ def render(message: Message) -> str:
     """Flatten `message` to the text a real (non-measurement) channel
     carries: the prose, then the alternative re-fenced in triple backticks
     (if present), then a trailing pointer at the wiki anchor (if present).
-    Pure -- no I/O."""
+    The anchor is resolved via `resolve_wiki_citation()` (see above) so the
+    emitted pointer resolves for the reader wherever they are, not only from
+    this source repo's own cwd."""
     parts = [message.prose]
     if message.alternative:
         parts.append("")
         parts.append("```\n" + message.alternative.rstrip("\n") + "\n```")
     if message.anchor:
         parts.append("")
-        parts.append(f"See {message.anchor}.")
+        parts.append(f"See {resolve_wiki_citation(message.anchor)}.")
     return "\n".join(parts)
 
 

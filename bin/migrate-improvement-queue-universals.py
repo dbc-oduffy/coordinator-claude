@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-improvement-queue-universals.py — one-shot migration of [universal]+central-wiki
 entries from a per-project improvement-queue.md into the structured lessons-outbox.

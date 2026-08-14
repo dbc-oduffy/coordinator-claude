@@ -219,7 +219,7 @@ plausible extension, not an oversight.
 Staleness and content verification are surfaced together as **one doc-health gate with two
 signal types**, each finding carrying its own reason, rather than as two separate ceremony
 steps to reconcile. A document can be fresh-but-wrong (recently touched, but citing
-something no longer true) or stale-but-still-accurate (untouched for a long stretch, but
+something not true anymore) or stale-but-still-accurate (untouched for a long stretch, but
 everything it says still holds) — collapsing the two into a single "needs attention"
 flag would erase a distinction the reader actually needs; keeping them as two full separate
 ceremony batteries would double the surfaces to reconcile for no benefit. One gate, two

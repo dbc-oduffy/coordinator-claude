@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday_ceremony_lib — shared helpers for the workday-ceremony Python entrypoints.
 
 Consumed by the native ports of the four /workday-{start,complete} ceremony step
@@ -36,6 +35,17 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
+
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _THIS_DIR not in sys.path:
+    sys.path.insert(0, _THIS_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+_ENGINE_ROOT = require_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +86,7 @@ def git(
         env=env,
         check=check,
         timeout=timeout,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
 

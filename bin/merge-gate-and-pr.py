@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """merge-gate-and-pr.py — merge-time imperative logic ported off the bash
 fences embedded in DoE-claude coordinator/skills/merging-to-main/SKILL.md.
@@ -36,7 +35,7 @@ Subcommands (argv[1] selects):
       halts (exit 1) if it is younger than 300 seconds, unless --force is
       given (mirrors the skill's `--force-merge-active-branch` escape hatch).
 
-Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md
+Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md [DEAD-CITATION: plan file never committed to this repo]
   (M3 chunk MTM-2 — merging-to-main review-coverage gate / PR body / active-
   branch merge guard). Source: DoE-claude
   coordinator/skills/merging-to-main/SKILL.md §§ Step 1.5, Step 1.65, Step 4.
@@ -59,6 +58,20 @@ import subprocess
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before the coordinator_core import
+# below: this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+# this bin/ directory, not the checkout root. Same bootstrap as
+# coordinator/bin/coordinator-lesson-add (9b979ee5f).
+require_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +89,7 @@ def _run_review_coverage_gate(range_arg: str | None) -> tuple[int, str, str]:
         capture_output=True,
         text=True,
         check=False,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # popup-safe-env-suppressed
+        **no_console_creationflags(),  # popup-safe-env-suppressed
     )
     return proc.returncode, proc.stdout, proc.stderr
 
@@ -105,9 +118,9 @@ def cmd_coverage_gate(args: argparse.Namespace) -> int:
             print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
         print("", file=sys.stderr)
         print(
-            "Remediation offer: dispatch coordinator:review-code over the "
-            "uncovered commits listed above, then re-run /merge-to-main. "
-            "This is an offer, not a halt — the gate does not block on it.",
+            "The gate does not block on this — but the commits above are "
+            "still owed a review. Remedy: dispatch coordinator:review-code "
+            "over them, then re-run /merge-to-main.",
             file=sys.stderr,
         )
         overridden = args.override or os.environ.get(

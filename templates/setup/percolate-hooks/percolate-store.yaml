@@ -1,0 +1,1260 @@
+# percolate-store.yaml -- production DoE percolate-store (FINISH_OP migration).
+#
+# This is the DoE-owned production deliverable claude-klabauter's percolation engine
+# (claude-klabauter/coordinator_core/percolate/) consumes via the `percolate.run`
+# op. It replaces the CONTENT of 11 of the 15 `.sh` scripts under
+# coordinator/templates/setup/percolate-hooks/ (the transform-kind data those
+# scripts hand-executed is now declarative store data; the scripts themselves
+# either become thin `percolate.run` trampolines or are deleted outright --
+# that decision is the publish-driver's, out of scope for this store).
+#
+# NOT the test fixture. Claude-klabauter/coordinator_core/percolate/tests/fixtures/
+# doe-store.yaml is a REPRESENTATIVE SLICE used only by that repo's own parity
+# test; this file is the full, load-bearing production table.
+#
+# Spec backlinks:
+#   - DoE-claude tasks/2026-07-16-clean-slate-recon/finish-op-percolate-recipe.md
+#     (composition rules, hook taxonomy, per-hook migration recipe -- READ FIRST)
+#   - claude-klabauter coordinator_core/frontmatter/schemas/percolate-store.schema.json
+#     (shape this file validates against)
+#   - claude-klabauter coordinator_core/percolate/codename_provenance_seed.py
+#     (byte-for-byte source of the depersonalize/basename_rename tables below --
+#     oracle-verified during BIG_PORT; do not hand-edit values here without
+#     re-syncing that module)
+#   - coordinator/bin/publish-time-transform.sh (RETIRED — deleted from this
+#     repo by the percolate-python-port cutover; was the source of the persona
+#     substitute table, PATH_REWRITE_SOURCES/DESTS, EXCLUDED_PREFIXES.
+#     Review: code-reviewer — confirmed 404 on disk; kept as a historical
+#     citation for the tables below, which were derived from it before
+#     retirement, not as a claim the file still exists.)
+#
+# C-W3 disposition (docs/plans/2026-07-21-percolate-python-port.md) of the 7
+# hook-behaviors originally deferred as non-declarative: 5 are now wired IN
+# THIS STORE against claude-klabauter's shipped engine primitives (ec766767) --
+# create-if-absent inject (.persona-names-allowlist), the runtime-sourced
+# `pattern_source` leak-check resolver (resolver lives in claude-klabauter's ops
+# layer; as of 2026-07-23 every target below also carries a
+# `no-residual-pattern` guard entry that consumes it -- see each target's
+# own guards: block, and cross-repo/inbox/2026-07-23-claude-klabauter-em-
+# bash-remnant-kill-answers.md Ask 1(b)), `source-glob-present` (empty-source
+# guard), `severity: "info"` (rewrite-target-sanity canary), and the 2
+# standalone Shape E guard hooks (dispatched by coordinator/bin/publish.py
+# `dispatch_standalone_guards`, not phase-wired). 1 (basename-allowlist lint)
+# is closed in-engine, no store action. 1 (AC2b extensionless-shebang sniff)
+# is expressed by the `extensionless-shebang-absent` guard kind -- see the
+# coordinator-claude target's guards: block below. Cosmetic case-variant
+# parity is a separately-accepted gap (unrelated to this list). See the
+# executor's run report `## Deferred: non-declarative patterns` section for
+# the original 7-item enumeration.
+schema_version: "1.0.0"
+
+base:
+  hooks:
+    - path-rewrite
+    - substitute
+    - stem-rewrite
+    - depersonalize
+    - basename-rename
+    - file-surface
+
+  # Mirrors publish-time-transform.sh's FILES-candidate glob (line ~498) plus
+  # its extensionless-shebang sniff (line ~500-517) and EXCLUDED_PREFIXES /
+  # EXCLUDED_BASENAMES (lines ~461-473).
+  #
+  # Translation caveat: EXCLUDED_PREFIXES in the bash oracle are TWO-SEGMENT,
+  # rel-path-anchored prefixes ("docs/plans/", "docs/research/", "docs/decisions/",
+  # "docs/specs/") -- a raw string-prefix test against the walk root. The store
+  # schema's exclude_prefixes (coordinator_core/percolate/surface.py
+  # matches_exclude_prefix) matches by SEGMENT-EXACT anywhere in the relative
+  # path, not by rel-path-anchored string prefix -- there is no compound
+  # "docs/plans" primitive. Approximated below as bare single-segment excludes
+  # (plans, research, decisions, specs) alongside the single-segment ones
+  # (archive, tasks, experiments, evals) -- broader than the bash oracle (would
+  # also exclude e.g. a top-level plans/ dir, not just docs/plans/), never
+  # narrower. Flagged in this executor's run report; not a blocking ambiguity
+  # since the targets that inherit this file_surface unmodified (coordinator-claude,
+  # coordinator-claude-toplevel-install, coordinator-claude-toplevel-wiki) do not
+  # currently contain docs/plans-shaped subtrees in their swept content.
+  file_surface:
+    include_extensions:
+      - "*.md"
+      - "*.sh"
+      - "*.py"
+      - "*.json"
+      - "*.ts"
+      - "*.toml"
+      - "*.js"
+      - "*.mjs"
+      - "*.ps1"
+      - "*.cmd"
+    shebang_prefixes:
+      - "#!"
+    exclude_prefixes:
+      - "archive"
+      - "tasks"
+      - "experiments"
+      - "evals"
+      - "plans"
+      - "research"
+      - "decisions"
+      - "specs"
+    exclude_basenames:
+      - "publish-time-transform.sh"
+      - "check-persona-names.py"
+      # These two carry the literal codename vocabulary the checker matches on;
+      # transforming them would leave it unable to recognize what it exists to
+      # catch. Exact basenames, not the former `*depersonalize*` glob: that
+      # wildcard also exempted a downstream data template, which then shipped a
+      # private repo name raw because the sweep never read it. Claude-klabauter's
+      # store carries the identical narrowing.
+      - "depersonalize.py"
+      - "test_depersonalize.py"
+    # Deliberately EMPTY, and empty is the end-state, not a gap: both entries
+    # this list ever held were removed 2026-08-05, and the exact-basenames-over-
+    # wildcards direction means the next exemption belongs in
+    # `exclude_basenames` above rather than here.
+    #
+    # `*codename_provenance*` was REMOVED 2026-08-05 — dead in this row. It
+    # targeted `coordinator_core/percolate/codename_provenance_seed.py`, which is
+    # claude-klabauter-resident and outside the `coordinator/bin,lib` surface routed into
+    # this store's targets, so it excluded nothing here. Ruled jointly with
+    # claude-klabauter-em, whose drift-test floor is gated on a live glob-based
+    # exemption as of `8d47a2642` and so tolerates this list being empty.
+    #
+    # `*check-persona*` was REMOVED 2026-08-05 — the same wildcard defect the
+    # comment above records for `*depersonalize*`, one entry later. It was
+    # ratified for `check-persona-names.py` (exact-listed above, and genuinely
+    # unable to scrub itself), but it also silently exempted
+    # `bin/check-persona-slug-leak.{py,cmd}`, whose docstring named the whole
+    # persona roster in plaintext and shipped it to the public mirror unswept.
+    # That trampoline holds no matcher vocabulary of its own — the patterns live
+    # in the engine's `time_transform.py` — so it has no claim to the exemption
+    # and is now swept like everything else.
+    exclude_globs: []
+
+  # Mirrors PATH_REWRITE_SOURCES / PATH_REWRITE_DESTS (publish-time-transform.sh
+  # ~line 416-429): the static 5-plugin floor. discovery_scan_dir mirrors the
+  # script's dynamic plugin-discovery loop (~line 540-548) that extends the
+  # floor with any additional plugin dirs found under $TARGET/plugins at
+  # runtime.
+  path_rewrite:
+    seed:
+      - src: "plugins/coordinator/"
+        dst: "plugins/coordinator/"
+      - src: "plugins/data-science/"
+        dst: "plugins/data-science/"
+      - src: "plugins/game-dev/"
+        dst: "plugins/game-dev/"
+      - src: "plugins/web-dev/"
+        dst: "plugins/web-dev/"
+      - src: "plugins/deep-research/"
+        dst: "plugins/deep-research/"
+    discovery_scan_dir: "plugins"
+
+  # Persona-name table -- mirrors publish-time-transform.sh's NAME_TO_ROLE /
+  # ORDERED_KEYS (lines ~208-275). Lowercase-slug forms carry
+  # functional_hold:true, mirroring LOWERCASE_SLUG_KEYS (line ~290) -- these
+  # collide with parsed-value line shapes (JSON schema `reviewer` enums,
+  # agent-definition `"reviewer": "<slug>"` examples) and must be held, not
+  # blanket-rewritten. Lowercase "sid" is DELIBERATELY ABSENT (bash oracle's own
+  # negative-spec, line ~222-227): it collides catastrophically with the
+  # pervasive session_id abbreviation ("local sid=", "--sid", "em_sid", etc.) --
+  # do not re-add without a fresh precedent-setting fix upstream in the bash
+  # oracle first.
+  substitute:
+    # DR-146 (published mirror resolver collapses to a single rung): on this
+    # (DoE-source) plane, `_engine_root.py::resolve_claude_klabauter_root`'s docstring
+    # correctly names rung 2's registry key ("repos.claude_klabauter") as
+    # distinct from rung 0's ("repos.claude_klabauter"). Post-percolation the
+    # depersonalize table's claude_klabauter -> claude_klabauter mapping (below)
+    # collapses rung 2's key onto rung 0's identical string, which would leave
+    # this docstring naming two rungs as reading two distinct keys when they
+    # read the same one -- self-contradictory prose on a reader's only view of
+    # the module. This entry corrects ONLY the published copy's prose (runs
+    # ahead of depersonalize, per the engine's fixed pass order) to describe
+    # that reality; the executable ladder and the DoE-plane docstring (which
+    # genuinely has two distinct keys to name) are untouched. Audit:
+    # state/audits/2026-08-07-oss-mirror-rung-collapse.md. Decision: docs/
+    # decisions/DR-146-published-mirror-resolver-collapses-to-a-single-rung-docstrings-should-say-so.md
+    # `substitute` is applied line-by-line (coordinator_core.percolate.substitute
+    # .apply_substitutions splits on `text.splitlines`) -- a key cannot itself
+    # span lines, so the two-line source passage is corrected as two entries,
+    # one per source line; the second entry's replacement VALUE embeds its own
+    # `\n`s to grow the passage to five published lines.
+    # match_mode: plain (not the auto-detected word-boundary default) -- both
+    # keys open on a non-word character (leading spaces / a literal quote)
+    # abutting another non-word character (the preceding newline / space) in
+    # situ, so a `\b` anchor at that position never fires; these are meant as
+    # exact literal substrings anyway, not word-generic terms.
+    - key: "      3. machine-local registry TOML (see `_registry_value`) -- on this
+         mirror it reads the SAME registry key as rung 0"
+      value: "      3. machine-local registry TOML (see `_registry_value`) -- on this\n         mirror it reads the SAME registry key as rung 0"
+      match_mode: "plain"
+    - key: "         \"repos.claude_klabauter\" (dir must exist)"
+      value: "         (\"repos.claude_klabauter\"); the two-rung distinction this\n         ladder preserves on the engine-source plane collapses to one\n         key here (dir must exist)"
+      match_mode: "plain"
+    - key: "UXReviewerFinding"
+      value: "UXReviewerFinding"
+    - key: "the Staff Engineer"
+      value: "the Staff Engineer"
+    - key: "the Director of Engineering"
+      value: "the Director of Engineering"
+    - key: "the Director of Engineering"
+      value: "the Director of Engineering"
+    - key: "the VP-Product Reviewer"
+      value: "the VP-Product Reviewer"
+    - key: "the Game Dev Reviewer"
+      value: "the Game Dev Reviewer"
+    - key: "the Front-End Reviewer"
+      value: "the Front-End Reviewer"
+    - key: "the Front-End Reviewer"
+      value: "the Front-End Reviewer"
+    - key: "the UX Reviewer"
+      value: "the UX Reviewer"
+    - key: "the Data Science Reviewer"
+      value: "the Data Science Reviewer"
+    - key: "the Staff Engineer"
+      value: "the Staff Engineer"
+      functional_hold: true
+    - key: "the UX Reviewer"
+      value: "the UX Reviewer"
+      functional_hold: true
+    - key: "the Front-End Reviewer"
+      value: "the Front-End Reviewer"
+      functional_hold: true
+    - key: "the Director of Engineering"
+      value: "the Director of Engineering"
+      functional_hold: true
+    - key: "the Data Science Reviewer"
+      value: "the Data Science Reviewer"
+      functional_hold: true
+    - key: "the VP-Product Reviewer"
+      value: "the VP-Product Reviewer"
+      functional_hold: true
+
+  # Boundary-free glued-identifier stem map -- mirrors codename_provenance_seed.py
+  # CODENAME_STEM_MAP / CODENAME_STEM_KEYS (D7). Applied as a SEPARATE pass
+  # after the exact-key depersonalize pass (engine.py content-transform sweep
+  # ordering: path-rewrite -> exact-substitute -> depersonalize -> stem-rewrite ->
+  # cosmetic -> basename-rename). Values are the underscore-form lowercase placeholder used
+  # inside glued identifiers (claude_klabauter_root=, claude_klabauterRoot) -- NOT the hyphenated
+  # prose placeholder from the depersonalize table below, which remains
+  # authoritative for hyphen/prose contexts via the exact-key depersonalize path.
+  stem_rewrite:
+    claude-klabauter: "claude_klabauter"
+    example-game-repo: "example_game_repo"
+
+  # Codename/provenance depersonalize table -- byte-for-byte transcription of
+  # codename_provenance_seed.py's CODENAME_TO_PLACEHOLDER (D6-D10), oracle-
+  # verified during BIG_PORT (test_codename_provenance_seed.py). All entries
+  # are token_class "vocabulary" (rewritten, never kept verbatim) -- none of
+  # these codenames are "attribution" class, and none require the mixed+private
+  # refusal path. Ordering here is for human readability only; longest-match-
+  # first firing order is engine-derived from key length (§ schema
+  # substituteEntry doc), never store-declared, so declaration order below
+  # carries no runtime significance.
+  #
+  # Negative-spec (transcribed verbatim from the bash oracle's own D9 comment,
+  # PM go-live decision 2026-07-10): DoE-claude / doe_claude / DOE_CLAUDE and
+  # all compound forms are DELIBERATELY ABSENT below -- DoE-claude is a
+  # KEEP-SET token, not a private codename to depersonalize. Do not re-add
+  # without a fresh PM ratification overriding that decision.
+  depersonalize:
+    - key: "example-game-workbench-repo"
+      placeholder: "example-game-workbench-repo"
+      token_class: "vocabulary"
+    - key: "example_game_workbench_repo"
+      placeholder: "example_game_workbench_repo"
+      token_class: "vocabulary"
+    - key: "MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO"
+      placeholder: "MACHINE_LOCAL_REPOS_EXAMPLE_GAME_WORKBENCH_REPO"
+      token_class: "vocabulary"
+    - key: "example-doctrine-mirror-repo"
+      placeholder: "example-doctrine-mirror-repo"
+      token_class: "vocabulary"
+    - key: "example_doctrine_mirror_repo"
+      placeholder: "example_doctrine_mirror_repo"
+      token_class: "vocabulary"
+    - key: "example-game-repo"
+      placeholder: "example-game-repo"
+      token_class: "vocabulary"
+    - key: "example-game-repo"
+      placeholder: "example-game-repo"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_GAME_REPO_"
+      placeholder: "EXAMPLE_GAME_REPO_"
+      token_class: "vocabulary"
+    - key: "example-sim-repo"
+      placeholder: "example-sim-repo"
+      token_class: "vocabulary"
+    - key: "example-sim-repo"
+      placeholder: "example-sim-repo"
+      token_class: "vocabulary"
+    - key: "example-sim-repo"
+      placeholder: "example-sim-repo"
+      token_class: "vocabulary"
+    # NOTE (revised, code-review Finding 1): bash oracle's "example-sim-repo" ->
+    # "exampleSimRepo" (camelCase-glued-identifier form) IS now covered here, via
+    # the same-canonical placeholder rather than the seed's divergent camelCase one.
+    # store.py's single-placeholder-per-codename invariant (canonical = key.lower())
+    # rejects a DIVERGENT placeholder for a lowered canonical already claimed --
+    # "example-sim-repo" (lowered) already maps to "example-sim-repo" via the entries
+    # above/below -- but it does NOT require every case-form's placeholder to look
+    # pretty. Mirroring the exact tradeoff already accepted for the
+    # cockpit/claude-klabauter/example-voice-system case_variants:true entries (accept a
+    # cosmetically-different-cased placeholder rather than leave a codename
+    # unscrubbed), the entry below reuses "example-sim-repo" verbatim under the
+    # exact-key "example-sim-repo" so the camelCase form substitutes and closes the leak.
+    - key: "example-sim-repo"
+      placeholder: "example-sim-repo"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_SIM_REPO_"
+      placeholder: "EXAMPLE_SIM_REPO_"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_SIM_REPO_API"
+      placeholder: "EXAMPLE_SIM_REPO_API"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_SIM_REPO_something"
+      placeholder: "EXAMPLE_SIM_REPO_something"
+      token_class: "vocabulary"
+    - key: "_EXAMPLE_SIM_REPO_ROOT"
+      placeholder: "_EXAMPLE_SIM_REPO_ROOT"
+      token_class: "vocabulary"
+    - key: "example-cockpit-repo"
+      placeholder: "example-cockpit-repo"
+      token_class: "vocabulary"
+    - key: "example_cockpit_repo"
+      placeholder: "example_cockpit_repo"
+      token_class: "vocabulary"
+    # NOTE: bash oracle hand-authors "cockpit"->"cockpit" and "Cockpit"->"Cockpit" as a
+    # case-PRESERVING pair (capitalized key gets a capitalized placeholder, for readable
+    # prose substitution). store.py's single-placeholder-per-codename invariant
+    # (canonical = key.lower()) hard-rejects this: both keys lower to "cockpit" but the
+    # placeholders diverge in case. Historically the engine's case_variants:true mechanism
+    # did NOT case-preserve either (§ store.py _case_variants / expand_case_variants -- every
+    # generated case-form of a key shared the SAME placeholder string verbatim), so this was
+    # temporarily resolved by collapsing to ONE canonical (lowercase-hyphen) placeholder for
+    # every case-form -- a flagged behavior loss (a sentence-capitalized "Cockpit" substituted
+    # to lowercase "cockpit" rather than "Cockpit"), affecting 3 codenames total in this table
+    # (cockpit/Cockpit, claude-klabauter/Claude-Klabauter, example-voice-system/Example-Voice-System).
+    # RESOLVED 2026-07-24: claude-klabauter's engine now ships the per-case-variant primitive that was
+    # requested here -- the opt-in `case_variant_placeholders: true` field (case-PRESERVING
+    # sibling of case_variants). Each of these 3 entries now sets it, restoring the bash
+    # oracle's case-preserving pairing (Cockpit->Cockpit, CLAUDE-KLABAUTER->CLAUDE-KLABAUTER,
+    # etc.) via engine primitive rather than a hand-authored per-case row. The single-
+    # placeholder-per-codename invariant still guards divergent HAND-AUTHORED entries; it is
+    # bypassed only for THIS entry's own engine-generated case rows. (The "example-sim-repo" entry
+    # above remains on the canonical-collapse path, code-review Finding 1.)
+    - key: "cockpit"
+      placeholder: "cockpit"
+      token_class: "vocabulary"
+      case_variants: true
+      case_variant_placeholders: true
+    - key: "example-stats-repo"
+      placeholder: "example-stats-repo"
+      token_class: "vocabulary"
+    - key: "example_stats_repo"
+      placeholder: "example_stats_repo"
+      token_class: "vocabulary"
+    - key: "example-league-data-repo"
+      placeholder: "example-league-data-repo"
+      token_class: "vocabulary"
+    - key: "example_league_data_repo"
+      placeholder: "example_league_data_repo"
+      token_class: "vocabulary"
+    - key: "example-os-repo"
+      placeholder: "example-os-repo"
+      token_class: "vocabulary"
+    - key: "example-os-repo"
+      placeholder: "example-os-repo"
+      token_class: "vocabulary"
+    - key: "EXAMPLE-OS-REPO"
+      placeholder: "EXAMPLE-OS-REPO"
+      token_class: "vocabulary"
+    - key: "example-store-repo"
+      placeholder: "example-store-repo"
+      token_class: "vocabulary"
+    - key: "example_store_repo"
+      placeholder: "example_store_repo"
+      token_class: "vocabulary"
+    - key: "example-repo"
+      placeholder: "example-repo"
+      token_class: "vocabulary"
+    - key: "example_repo"
+      placeholder: "example_repo"
+      token_class: "vocabulary"
+    - key: "example-repo"
+      placeholder: "example-repo"
+      token_class: "vocabulary"
+    - key: "example-repo"
+      placeholder: "example-repo"
+      token_class: "vocabulary"
+    - key: "example-initiative"
+      placeholder: "example-initiative"
+      token_class: "vocabulary"
+    - key: "example-workstream"
+      placeholder: "example-workstream"
+      token_class: "vocabulary"
+    - key: "example_workstream"
+      placeholder: "example_workstream"
+      token_class: "vocabulary"
+    - key: "claude-klabauter"
+      placeholder: "claude-klabauter"
+      token_class: "vocabulary"
+    - key: "claude_klabauter"
+      placeholder: "claude_klabauter"
+      token_class: "vocabulary"
+    # Same engine-vs-bash-oracle case-preservation conflict as "cockpit" above (see that
+    # entry's comment for the full explanation + the 2026-07-24 resolution). Now case-
+    # PRESERVING via case_variant_placeholders:true: "Claude-Klabauter" substitutes to Title-case
+    # "Claude-Klabauter" (matching the bash oracle's intent) rather than the
+    # lowercase-hyphen collapse the bare case_variants:true previously forced.
+    - key: "claude-klabauter"
+      placeholder: "claude-klabauter"
+      token_class: "vocabulary"
+      case_variants: true
+      case_variant_placeholders: true
+    - key: "MACHINE_LOCAL_REPOS_CLAUDE_KLABAUTER_REPO"
+      placeholder: "MACHINE_LOCAL_REPOS_CLAUDE_KLABAUTER_REPO"
+      token_class: "vocabulary"
+    - key: "CLAUDE_KLABAUTER_ROOT"
+      placeholder: "CLAUDE_KLABAUTER_ROOT"
+      token_class: "vocabulary"
+    - key: "coordinator_claude_klabauter_root"
+      placeholder: "coordinator_claude_klabauter_root"
+      token_class: "vocabulary"
+    - key: "CLAUDE_KLABAUTER_ROOT_RESOLVED"
+      placeholder: "CLAUDE_KLABAUTER_ROOT_RESOLVED"
+      token_class: "vocabulary"
+    - key: "CLAUDE_KLABAUTER_ROOT_ENV"
+      placeholder: "CLAUDE_KLABAUTER_ROOT_ENV"
+      token_class: "vocabulary"
+    - key: "COORDINATOR_CLAUDE_KLABAUTER_DOCTOR_STALE_SEC"
+      placeholder: "COORDINATOR_CLAUDE_KLABAUTER_DOCTOR_STALE_SEC"
+      token_class: "vocabulary"
+    - key: "COORDINATOR_CLAUDE_KLABAUTER_DENY_AUTHORITATIVE"
+      placeholder: "COORDINATOR_CLAUDE_KLABAUTER_DENY_AUTHORITATIVE"
+      token_class: "vocabulary"
+    - key: "_CLAUDE_KLABAUTER_ROOT_SH"
+      placeholder: "_CLAUDE_KLABAUTER_ROOT_SH"
+      token_class: "vocabulary"
+    - key: "_CLAUDE_KLABAUTER_ROOT_RESOLVED"
+      placeholder: "_CLAUDE_KLABAUTER_ROOT_RESOLVED"
+      token_class: "vocabulary"
+    - key: "_HOOK_CLAUDE_KLABAUTER_ROOT"
+      placeholder: "_HOOK_CLAUDE_KLABAUTER_ROOT"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_GAME_REPO_ROOT"
+      placeholder: "EXAMPLE_GAME_REPO_ROOT"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_GAME_REPO_PROJECT_ROOT"
+      placeholder: "EXAMPLE_GAME_REPO_PROJECT_ROOT"
+      token_class: "vocabulary"
+    - key: "EXAMPLE_GAME_REPO_UMBRELLA_INSTALL"
+      placeholder: "EXAMPLE_GAME_REPO_UMBRELLA_INSTALL"
+      token_class: "vocabulary"
+    - key: "_EXAMPLE_GAME_REPO_ROOT"
+      placeholder: "_EXAMPLE_GAME_REPO_ROOT"
+      token_class: "vocabulary"
+    - key: "example_game_repo_recover"
+      placeholder: "example_game_repo_recover"
+      token_class: "vocabulary"
+    - key: "ExampleGameRepoProjectRag"
+      placeholder: "ExampleGameRepoProjectRag"
+      token_class: "vocabulary"
+    - key: "examplegamerepoprojectrag"
+      placeholder: "examplegamerepoprojectrag"
+      token_class: "vocabulary"
+    - key: "EXAMPLEGAMEREPOPROJECTRAG"
+      placeholder: "EXAMPLEGAMEREPOPROJECTRAG"
+      token_class: "vocabulary"
+    - key: "Saved/ExampleGameRepoProjectRag"
+      placeholder: "Saved/ExampleGameRepoProjectRag"
+      token_class: "vocabulary"
+    # Basename-rename companion entries (D6): textual references to the OLD
+    # basename elsewhere in the tree (source/./exec/doc citations) resolve to
+    # the NEW basename via these exact-key entries; the ACTUAL file rename is a
+    # separate basename_rename entry below (applied LAST, after all content
+    # substitution, per engine.py's load-bearing internal ordering).
+    - key: "coordinator-claude-klabauter-root.sh"
+      placeholder: "coordinator-claude-klabauter-root.sh"
+      token_class: "vocabulary"
+    - key: "migrate-state-to-claude-klabauter.sh"
+      placeholder: "migrate-state-to-claude-klabauter.sh"
+      token_class: "vocabulary"
+    - key: "check-claude-klabauter-doctor-sentinel.sh"
+      placeholder: "check-claude-klabauter-doctor-sentinel.sh"
+      token_class: "vocabulary"
+    - key: "claude-klabauter-4th-class-ref-manifest.md"
+      placeholder: "claude-klabauter-4th-class-ref-manifest.md"
+      token_class: "vocabulary"
+    # Same engine-vs-bash-oracle case-preservation conflict as "cockpit"/"claude-klabauter" above.
+    # RESOLVED 2026-07-24 via case_variant_placeholders:true (see the "cockpit" comment):
+    # "Example-Voice-System" now case-PRESERVES to Title-case "Example-Voice-System" rather than the
+    # lowercase-hyphen "example-voice-system" the bare case_variants:true previously forced.
+    - key: "example-voice-system"
+      placeholder: "example-voice-system"
+      token_class: "vocabulary"
+      case_variants: true
+      case_variant_placeholders: true
+    - key: "example-market-data-repo"
+      placeholder: "example-market-data-repo"
+      token_class: "vocabulary"
+    - key: "example_market_data_repo"
+      placeholder: "example_market_data_repo"
+      token_class: "vocabulary"
+    # /Users/example-operator (D8): anchored to the FULL path prefix, never the bare  # abs-path-ok: depersonalisation rule key -- the literal prefix IS the pattern this rule strips
+    # "oduffy" substring, so the public dbc-oduffy org handle is never touched.
+    - key: "/Users/example-operator"  # abs-path-ok: depersonalisation rule key -- the literal prefix IS the pattern this rule strips
+      placeholder: "/Users/example-operator"  # abs-path-ok: depersonalisation rule key -- the literal prefix IS the pattern this rule strips
+      token_class: "vocabulary"
+    - key: "Users-example-operator"
+      placeholder: "Users-example-operator"
+      token_class: "vocabulary"
+    # Machine slugs -> role names. These are the operator's physical machines,
+    # and they appear in published prose mostly as BRANCH prefixes
+    # (`work/<machine>/<dates>`) and as live-probe attributions ("probe on X
+    # (macOS)"). To an OSS reader the codename carries no information at all --
+    # it cannot be looked up, and it reads as a proper noun that must matter.
+    # The role name keeps the branch CONVENTION legible (that branches are
+    # per-machine) while dropping the unresolvable token. Convention is the one
+    # already prescribed by bin/depersonalize-identity.example.yaml class 3:
+    # first machine = machine-a, second = machine-b, and so on.
+    #
+    # ONE PLACEHOLDER PER PHYSICAL MACHINE, not per spelling. Machine-c below
+    # has THREE live slugs -- the persisted branch slug, its unhyphenated form,
+    # and the hostname the same box actually reports -- and the corpus contains
+    # a passage narrating precisely that split. Mapping them to different role
+    # names would hand the OSS reader two machines where there is one, which is
+    # a worse failure than the raw codename: it invents a fact.
+    # Every case form gets its OWN key, exactly as example-os-repo/example-os-repo above do.
+    # `case_variants: true` is NOT sufficient here and was measured, not assumed:
+    # it expands to Title/UPPER of the whole key, so it covers "Bettaair" but not
+    # "Machine-c", and it left `Machine-a` (30 live occurrences) and `Machine-c` (13)
+    # substituting to nothing at all. Placeholders are written case-preservingly
+    # (Machine-a -> Machine-a alongside machine-a -> machine-a); the store's
+    # single-placeholder-per-codename check canonicalizes BOTH key and
+    # placeholder before comparing, so that is one codename mapping to one
+    # placeholder, not a divergence. Grouping below is longest-first per machine
+    # for READABILITY only -- order_entries re-sorts every entry by -len(key) at
+    # apply time, so declaration order here is not load-bearing.
+    #
+    # The hand-authored list is now checked rather than trusted: the store
+    # validator requires every camel-case key to carry its all-lower and
+    # all-UPPER siblings, so a forgotten spelling fails the load instead of
+    # silently publishing the private codename. Adding a machine here means
+    # adding its three forms; the validator will name any you miss.
+    # Generation is not an option here regardless: `Machine-c`/`Machine-b`/
+    # `Machine-c` are camel-case keys, which `case_variants: true` cannot derive
+    # from a lowercase canonical (see the "Bettaair" note above) -- this family
+    # stays hand-authored on that ground alone.
+    # (Historical note: an earlier revision of this comment also cited a second,
+    # now-fixed reason -- `case_variant_placeholders` used to turn a hyphenated
+    # placeholder like "machine-a" into "Machine-A", capitalizing the machine-
+    # slug suffix as if it were an initial. Claude-klabauter's store.py now
+    # title-cases a substitution target segment-by-segment and leaves a
+    # single-letter segment alone, so "machine-a" -> "Machine-a" is safe under
+    # `case_variant_placeholders` too. That fix does not change anything here --
+    # the camel-key limitation above is sufficient on its own to keep this
+    # family hand-authored.)
+    - key: "Machine-a"
+      placeholder: "Machine-a"
+      token_class: "vocabulary"
+    - key: "machine-a"
+      placeholder: "machine-a"
+      token_class: "vocabulary"
+    - key: "MACHINE-A"
+      placeholder: "MACHINE-A"
+      token_class: "vocabulary"
+    - key: "Machine-b"
+      placeholder: "Machine-b"
+      token_class: "vocabulary"
+    - key: "machine-b"
+      placeholder: "machine-b"
+      token_class: "vocabulary"
+    - key: "MACHINE-B"
+      placeholder: "MACHINE-B"
+      token_class: "vocabulary"
+    - key: "Machine-c"
+      placeholder: "Machine-c"
+      token_class: "vocabulary"
+    - key: "machine-c"
+      placeholder: "machine-c"
+      token_class: "vocabulary"
+    - key: "MACHINE-C"
+      placeholder: "MACHINE-C"
+      token_class: "vocabulary"
+    - key: "Machine-c"
+      placeholder: "Machine-c"
+      token_class: "vocabulary"
+    - key: "machine-c"
+      placeholder: "machine-c"
+      token_class: "vocabulary"
+    - key: "MACHINE-C"
+      placeholder: "MACHINE-C"
+      token_class: "vocabulary"
+    - key: "Machine-c"
+      placeholder: "Machine-c"
+      token_class: "vocabulary"
+    - key: "machine-c"
+      placeholder: "machine-c"
+      token_class: "vocabulary"
+    - key: "MACHINE-C"
+      placeholder: "MACHINE-C"
+      token_class: "vocabulary"
+    # Private org / account slugs. Same anchoring discipline as /Users/example-operator  # abs-path-ok: depersonalisation rule key -- the literal prefix IS the pattern this rule strips
+    # above: both keys carry a suffix, never a bare "oduffy", so the public
+    # dbc-oduffy attribution handle is left untouched.
+    - key: "example-org"
+      placeholder: "example-org"
+      token_class: "vocabulary"
+    - key: "example-custom-plugins"
+      placeholder: "example-custom-plugins"
+      token_class: "vocabulary"
+    - key: "Example-Interactive"
+      placeholder: "Example-Interactive"
+      token_class: "vocabulary"
+    - key: "example-interactive"
+      placeholder: "example-interactive"
+      token_class: "vocabulary"
+    - key: "EXAMPLE-INTERACTIVE"
+      placeholder: "EXAMPLE-INTERACTIVE"
+      token_class: "vocabulary"
+
+  # File-rename table -- mirrors publish-time-transform.sh's
+  # CODENAME_BASENAME_RENAMES / rename_codename_basenames() (lines ~682-687).
+  # Hand-synced with the four basename-shaped depersonalize entries above (the
+  # bash oracle keeps these as two independently-maintained tables by design,
+  # not derived from one another -- see that function's own header comment on
+  # why a clean derivation was rejected). Applied LAST by the engine, after
+  # every other content-transform step (engine.py load-bearing ordering).
+  basename_rename:
+    - src: "coordinator-claude-klabauter-root.sh"
+      dst: "coordinator-claude-klabauter-root.sh"
+    - src: "migrate-state-to-claude-klabauter.sh"
+      dst: "migrate-state-to-claude-klabauter.sh"
+    - src: "check-claude-klabauter-doctor-sentinel.sh"
+      dst: "check-claude-klabauter-doctor-sentinel.sh"
+    - src: "claude-klabauter-4th-class-ref-manifest.md"
+      dst: "claude-klabauter-4th-class-ref-manifest.md"
+
+targets:
+  # Mirrors coordinator-claude/post-rsync/10-transform.sh (full-tree sweep, no
+  # scope-narrowing), coordinator-claude/post-rsync/20-inject-oss-only-skills.sh
+  # (inject), coordinator-claude/pre-rsync/10-guard-no-game-dev.sh (guard,
+  # Shape E -- see run report), coordinator-claude/pre-ci/10-assert-inert-
+  # doctrine-only.sh (guard, AC2a-AC4 -- AC2b via the extensionless-shebang-absent
+  # kind, see that guard entry below).
+  coordinator-claude:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - sentinel-strip
+      - basename-rename
+      - inject
+      - guard
+    # `coordinator:percolate-only` marker pair -- registers the pre-existing
+    # coordinator/templates/*.tmpl + coordinator/templates/postures/*.md
+    # "distribution artifact, not this repo's own doctrine" preamble blocks
+    # (coordinator/templates/CLAUDE.md.tmpl and the three
+    # postures/*.md files) for mechanical removal before publish -- this is the
+    # only target whose allowlist (setup/publish-targets.portable) carries any of
+    # those four files, so no other target needs this entry. See
+    # coordinator_core/percolate/strip_sentinel.py (claude-klabauter) for the
+    # engine-side mechanism this registers into.
+    sentinel_strip:
+      - start_marker: ""
+    inject:
+      # Confirmed 2026-07-17: coordinator/dist/oss-only-skills/ currently has
+      # exactly one child directory (coordinator-update) -- this static entry
+      # covers the full inject surface as of this check.
+      - src: "<coordinator-content-root>/dist/oss-only-skills/coordinator-update"
+        dst: "skills/coordinator-update"
+        required_children:
+          - "SKILL.md"
+      # C-W3 item 1 -- coordinator-claude/post-rsync/10-transform.sh's
+      # `.persona-names-allowlist` scaffold-if-absent step (finish-op-
+      # percolate-recipe.md §2.1 step 1 / §4 item 1) was resolved by this
+      # `create-if-absent` entry, but the 2026-08-05 mirror rebuild made it
+      # redundant and destructive: `coordinator-claude-publish-repo-toplevel`'s
+      # own `inject` (added same day, § that section's comment) now copies the
+      # WHOLE `.github` tree -- including `.persona-names-allowlist` -- to this
+      # same target root, `mode: "overwrite"`. Both entries' `dst` therefore
+      # overlap under one target (`publish-mirror:coordinator_claude`, both
+      # rows' `dest_subdir` empty -- § that section's comment); `_copy_tree_overwrite`
+      # prunes/overwrites the whole subtree it owns, so leaving this
+      # `create-if-absent` entry in place would not protect an
+      # operator-customized allowlist -- the sibling entry clobbers it anyway,
+      # it would just make the outcome depend on entry-list order. Removed
+      # rather than reconciled: the engine's inject schema has no per-file
+      # exclude for a tree copy (`run_inject`/`_copy_tree_overwrite`,
+      # claude-klabauter), so the file's source of truth is now the
+      # dist-committed copy at
+      # dist/mirror-native/coordinator-claude/.github/.persona-names-allowlist,
+      # not an operator-editable mirror-repo file.
+    guards:
+      # Shape E (§3.5 of the recipe) -- checks the SOURCE tree
+      # ($HOME/.claude/plugins/coordinator-claude/game-dev), NOT target_root.
+      # run_pre_rsync's phase function does not dispatch guards at all, and
+      # run_post_rsync/run_pre_ci dispatch this SAME section['guards'] list
+      # against target_root -- if invoked via those phase calls this entry
+      # checks target_root/game-dev (vacuously true, not the intended source
+      # check). C-W3 item 7: `coordinator/bin/publish.py`
+      # `dispatch_standalone_guards` invokes this exact entry as a standalone
+      # `guards.run_guards()` call against the SOURCE root (`effective_source_dir`),
+      # never via `percolate.run(phase=...)`. This store-declared copy stays
+      # (still dispatched normally at post_rsync/pre_ci, checking
+      # target_root/game-dev) -- harmless-but-vacuous, not removed, since the
+      # store has no per-entry "standalone-only, skip at phase-dispatch"
+      # primitive.
+      - kind: "source-dir-absent"
+        params:
+          path: "game-dev"
+        override_env: "COORDINATOR_OVERRIDE_GAMEDEV_GUARD"
+      # Pre-inject layout-detection guard (recipe §3.2 correction): flat v3
+      # plugin manifest must exist before injecting skills/.
+      - kind: "dirs-present"
+        params:
+          paths:
+            - ".claude-plugin/plugin.json"
+      # RESOLVED 2026-08-01 (C5): AC2a/AC2b/AC2c (forbidden-script-globs,
+      # extensionless-shebang-absent, dirs-absent over bin/hooks/lib) asserted
+      # a doctrine-only, no-executable-surface shape for this row. `d4a566c99`
+      # (2026-07-26) widened this row's own allowlist
+      # (setup/publish-targets.portable) to publish bin,lib,hooks as a real
+      # executable surface (bin/lib routed from claude-klabauter via
+      # source_map; hooks from this repo) and did not touch this guards
+      # block, leaving the three assertions asserting the opposite of what
+      # the row now ships. Branch determined on evidence, not inferred from
+      # the store alone: neither the fire-and-block nor the inert-and-silent
+      # branch has been exercised -- no coordinator-claude publish (dry-run
+      # or real) has completed since d4a566c99. The mirror clone
+      # (~/X/coordinator-claude) has main == origin/main at 9a8d7b2c9
+      # (2026-07-10, pre-dates the widening by 16 days); its own bin/hooks/lib
+      # directory mtimes are 2026-07-13; setup/percolate-state/*.lastsync
+      # entries for this target family all pin the same pre-widening SHA;
+      # and state/percolate-v3/*.log run records are all dated 2026-07-06
+      # through 2026-07-10. Removed rather than narrowed: the row's whole
+      # premise (no scripts ship) is gone, not merely mis-scoped, so a
+      # narrowed version would still assert something false about the
+      # row's own allowlist. What the row actually still guarantees against
+      # bin/hooks/lib is AC4 (skills/agents/commands survive) plus the
+      # no-residual-pattern leak oracles, which are not plugin-shape
+      # assertions and were never contradictory.
+      #
+      # RESOLVED 2026-08-01 (C5, second pass): AC3 (`dirs-absent` over
+      # `hooks/hooks.json`) removed as the FOURTH instance of the same
+      # contradiction, on the same evidence. The C5 pass above left it
+      # standing on the belief it was non-contradictory; that was wrong.
+      # `d4a566c99` allowlisted `hooks` as this row's third entry, and the
+      # publish write-set carries `UPDATE: hooks.json` under `--- hooks ---`,
+      # so the row ships exactly the file AC3 asserted absent. Reported by
+      # claude-klabauter-em after the first completed republish since the
+      # widening failed post_rsync on it (cross-repo/inbox/2026-08-01-project-
+      # claude-klabauter-em-ac3-dirs-absent-hooks-json-is-the-fourth-contradiction.md) --
+      # the same never-executed-so-never-noticed cause as the other three:
+      # removing them only let the run reach this one.
+      #
+      # Removed rather than narrowed, and the narrowing option was weighed
+      # rather than skipped. AC3's intent ("no executable hook wiring ships")
+      # is obsolete, not mis-stated: `hooks.json` is the plugin's hook
+      # MANIFEST, so shipping `hooks/scripts/` without it would publish an
+      # unwired, inert surface -- the manifest's presence is now the row's
+      # intent, not its violation. `dirs-absent` is a binary presence
+      # assertion with nothing left to narrow to, and content-level
+      # protection over the manifest is already carried by the
+      # no-residual-pattern leak oracles below, whose `include_extensions`
+      # covers `*.json`. Verified at removal time: `coordinator/hooks/
+      # hooks.json` is at zero hits for host/user/repo-path and machine-slug
+      # leaks, so this is not trading a shape guard for an open hole.
+      # AC4: doctrine survived -- skills/agents/commands exist, and the
+      # skill-embedded template dir survives the over-strip regression guard.
+      - kind: "dirs-present"
+        params:
+          paths:
+            - "skills"
+            - "agents"
+            - "commands"
+            - "skills/new-project/templates/next-app/src/lib"
+      # C-W3 item 2 -- registry codename-leak guard (2026-07-23 rollout,
+      # see cross-repo/inbox/2026-07-23-claude-klabauter-em-bash-remnant-
+      # kill-answers.md Ask 1(b)). The engine seam (percolate_run.py:98,134)
+      # has forwarded a registry-derived alternation resolver into
+      # post_rsync/pre_ci unconditionally since ec766767 -- this store
+      # carried zero entries declaring `pattern_source: {registry_codenames:
+      # true}` to consume it, so the backstop never fired on the publish
+      # path. Shape per claude-klabauter's coordinator/tests/
+      # test_percolate_deferred.py:399-402.
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+      # Gendered-pronoun publish-output backstop. Not tied to any one source
+      # file or fix -- this is a standing boundary check over what actually
+      # SHIPS to the OSS mirror, independent of anyone's belief about which
+      # source files percolate. (It would have caught the scoping error behind
+      # an earlier draft of this comment, which cited a specific source file's
+      # substitute pairs as its justification: that file was never in this
+      # target's publish allowlist and never shipped, so there was nothing for
+      # those pairs to backstop. The guard itself is unaffected by that error --
+      # it inspects the actual rsynced tree, not anyone's model of it.)
+      # `params.pattern` is a static literal regex (schema-supported alternative to
+      # `pattern_source`; no engine change needed -- `check_no_residual_pattern`
+      # (claude-klabauter coordinator_core/percolate/guards.py) already accepts either).
+      # Mirrors `coordinator/tests/test_percolating_surfaces_carry_no_gendered_pronouns.py`'s
+      # own `GENDERED_PRONOUN` pattern verbatim (source-side gate); this is the same
+      # check re-run POST-transform, over the actual publish output.
+      #
+      # `include_extensions` is `*.md` -- PROSE ONLY. The SAME list this
+      # store's own `base.file_surface.include_extensions` walks (PM direction,
+      # 2026-07-30: cover the whole published surface, not prose alone -- a
+      # gendered pronoun could otherwise enter a published Python docstring, a
+      # JSON `description` field, or a `.ps1`/`.cmd` comment with nothing to catch
+      # it). Verified at widening time: all non-`.md` published files were at zero
+      # hits, so this is a coverage-hole close, not a live-leak fix. If a future
+      # widening ever needs a DIFFERENT extension set than `file_surface`'s own,
+      # split the alias here rather than silently diverging -- the two lists are
+      # deliberately the same list right now, not independently maintained twins.
+      # `s/he` is boundary-anchored on BOTH sides. Unanchored it matches inside
+      # ordinary paths -- `schemas/health`, `users/help.md`, `docs/this/here` all
+      # contain the literal `s/he` -- and published prose cites paths like
+      # those constantly. On a PUBLISH guard that misfire is worse than a false
+      # finding in a test: it fails the percolation over a pronoun that was never
+      # there. The leading `\b` carries the fix (in `schemas/health` the `s`
+      # follows a word character, so no boundary exists there).
+      - kind: "no-residual-pattern"
+        params:
+          pattern: '(?i)\b(he|him|his|she|her|hers|himself|herself)\b|he\s+or\s+she|\(s\)he|\bs/he\b'
+          include_extensions:
+            - "*.md"
+
+  # Mirrors coordinator-claude-publish-repo-docs/post-rsync/10-transform.sh.
+  # target_dir = the publish repo's docs/ (maxdepth-1 files only in the bash
+  # oracle). file_surface has no native maxdepth primitive (recipe §2.1
+  # caveat) -- approximated via exclude_prefixes naming every subdirectory
+  # owned by another percolation target. Maintenance burden identical to the
+  # bash oracle's hardcoded scope comment, just moved into YAML: a new
+  # subdirectory target added later needs this list updated by hand.
+  coordinator-claude-publish-repo-docs:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - basename-rename
+      - guard
+    file_surface:
+      # exclude_prefixes REPLACES (not unions with) base's list -- shallow-merge
+      # is per-key (recipe finish-op-percolate-recipe.md:88-91), and this key is
+      # fully redeclared here. Omitting archive/tasks/experiments/evals from this
+      # target's list (present in base) is verified-intentional: this target's
+      # scope is the publish repo's docs/ subtree, which does not contain
+      # docs/archive, docs/tasks, docs/experiments, or docs/evals subdirs.
+      exclude_prefixes:
+        - "wiki"
+        - "decisions"
+        - "evolution"
+        - "plans"
+        - "research"
+        - "specs"
+    guards:
+      # C-W3 item 2 -- registry codename-leak guard (2026-07-23 rollout).
+      # This target carried no `guard` hook at all before this rollout;
+      # see the coordinator-claude target's guards: block above for the
+      # full rationale (cross-repo/inbox/2026-07-23-claude-klabauter-em-
+      # bash-remnant-kill-answers.md Ask 1(b)).
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+
+  # Mirrors coordinator-claude-publish-repo-setup/post-rsync/10-transform.sh.
+  # target_dir is already narrow (the publish repo's setup/ subtree only, per
+  # that hook's own scope comment) -- no file_surface override needed; base's
+  # file_surface + full-tree sweep is scoped correctly by target_root alone.
+  # No scaffold, no verification gate, no leak-guard in the bash oracle for
+  # this target -- none carried into the store (nothing to carry).
+  coordinator-claude-publish-repo-setup:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - basename-rename
+      - guard
+    guards:
+      # C-W3 item 2 -- registry codename-leak guard (2026-07-23 rollout).
+      # This target carried no `guard` hook at all before this rollout;
+      # see the coordinator-claude target's guards: block above for the
+      # full rationale (cross-repo/inbox/2026-07-23-claude-klabauter-em-
+      # bash-remnant-kill-answers.md Ask 1(b)).
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+
+  # Mirrors coordinator-claude-publish-repo-toplevel/post-rsync/10-transform.sh
+  # (maxdepth-1 sweep at the publish repo ROOT) and .../pre-rsync/10-prune-
+  # stale-handoff-cruft.sh (guard, Shape E). exclude_prefixes enumerated from
+  # the actual coordinator-claude publish-repo checkout's top-level directory
+  # set (verified on disk 2026-07-17, not fabricated) -- same maxdepth-1
+  # approximation caveat as coordinator-claude-publish-repo-docs above.
+  coordinator-claude-publish-repo-toplevel:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - basename-rename
+      - inject
+      - guard
+    file_surface:
+      # exclude_prefixes REPLACES (not unions with) base's list -- shallow-merge
+      # is per-key (recipe finish-op-percolate-recipe.md:88-91), and this key is
+      # fully redeclared here. Omitting archive/tasks/experiments/evals from this
+      # target's list (present in base) is verified-intentional: this target's
+      # top-level archive/ and tasks/ are pruned separately by the
+      # "prune-stale-paths" guard below (archive/handoffs, tasks/handoffs), and
+      # the "always full-tree sweep" design principle (recipe §1.7) argues for
+      # sweeping remaining content here rather than excluding it.
+      exclude_prefixes:
+        - ".claude-plugin"
+        - ".git"
+        - ".github"
+        - "agents"
+        - "bin"
+        - "commands"
+        - "docs"
+        - "hooks"
+        - "lib"
+        - "skills"
+        - "whoami"
+    # The mirror's own CI harness (33 files: run-all-checks.py and the checkers it
+    # drives, allowlists, issue/PR templates, workflows). Homed at
+    # dist/mirror-native/coordinator-claude/.github/ after a clean-slate mirror
+    # rebuild (2026-08-05) found it existing ONLY in the publish repo, authored
+    # nowhere in source -- the mirror could not be reconstructed from this tree,
+    # and wiping it took the end-of-run identity gate's own checker with it.
+    # Direct precedent: claude-klabauter's claude-klabauter block
+    # (setup/percolate-hooks/percolate-store.yaml:1203-1242), same failure mode,
+    # same resolution.
+    #
+    # THIS ROW, not the `coordinator-claude` mirror row: inject resolves `dst`
+    # against `target.dest_dir` (= dest_root/dest_subdir). (Review: code-reviewer,
+    # 2026-08-05 -- corrected a false uniqueness claim here: this row and the
+    # `coordinator-claude` row both carry an empty `dest_subdir` in
+    # setup/publish-targets.portable, so both resolve `dst` to the mirror repo
+    # ROOT -- this row is not unique in that respect.) The actual reason this
+    # row hosts the `.github` inject rather than `coordinator-claude`: this
+    # section (`-publish-repo-toplevel`) owns the publish repo's TOP-LEVEL
+    # directory furniture (README, CI harness, issue/PR templates -- § this
+    # section's own header comment), a distinct content domain from
+    # `coordinator-claude`'s job of mirroring the plugin's own machinery
+    # (bin/lib/agents/skills/etc. from `plugin-source:coordinator-claude`).
+    # `.github`'s CI harness belongs with the repo-toplevel content it
+    # governs, not the plugin-content mirror, even though both rows' `dst`
+    # happen to coincide at the mirror repo root.
+    #
+    # `inject` rather than a publish row is structural, not preference: inject
+    # dispatches AFTER the content-transform sweep, so check-persona-names.py's
+    # BANNED vocabulary -- literal fleet codenames, by construction -- is not
+    # itself rewritten into placeholders, which would leave the checker reporting
+    # green over a dirty tree. This target's own `exclude_prefixes` above already
+    # carries `.github` for the same reason, as does base's `exclude_basenames`
+    # (check-persona-names.py) and `exclude_globs` (*check-persona*).
+    #
+    # Survives this row's own flat-mirror sweep: Phase 2 deletes top-level FILES
+    # only, never directories (setup/publish_sync.py:877), so an injected
+    # `.github/` is not reaped between passes.
+    inject:
+      - src: "<coordinator-content-root>/dist/mirror-native/coordinator-claude/.github"
+        dst: ".github"
+        required_children:
+          - "scripts/run-all-checks.py"
+          - "scripts/check-persona-names.py"
+    guards:
+      # Shape E (§3.5/§2.7 of the recipe) -- must run pre-rsync (before the
+      # sync's delete-list computation), but run_pre_rsync's phase function
+      # does not dispatch guards at all (only the preserve-destination-native
+      # backup leg). This entry IS target-root-relative (unlike the game-dev
+      # guard above) so it functions correctly if invoked via run_post_rsync's
+      # guard dispatch too -- just later than the bash oracle's original
+      # pre-sync timing. C-W3 item 7: `coordinator/bin/publish.py`
+      # `dispatch_standalone_guards` now ALSO fires this exact entry as a
+      # standalone `guards.run_guards()` call against `target.dest_dir`,
+      # pre-sync, to match the retired hook's original timing -- this
+      # store-declared copy stays (dispatched normally at post_rsync/pre_ci
+      # too), which is harmless: `prune-stale-paths` is idempotent, so a
+      # second pass over already-pruned paths is a no-op.
+      - kind: "prune-stale-paths"
+        params:
+          paths:
+            - "archive/handoffs"
+            - "tasks/handoffs"
+      # C-W3 item 2 -- registry codename-leak guard (2026-07-23 rollout).
+      # See the coordinator-claude target's guards: block above for the
+      # full rationale (cross-repo/inbox/2026-07-23-claude-klabauter-em-
+      # bash-remnant-kill-answers.md Ask 1(b)).
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+
+  # repo-cut -- the one-shot bootstrap kind (docs/plans/2026-08-08-cut-new-repos-
+  # through-the-percolation-engine.md, C6/C7) that creates and registers a new
+  # cut repo. This section's ONLY job is delivering the guard-test payload
+  # (the six coordinator/tests/templates/*.py tripwire tests plus their shared
+  # root-resolution helper) into the new repo's tree.
+  #
+  # `inject`, never `flat-mirror`, and the reason is written here because it is
+  # expensive to rediscover: flat-mirror's Phase 2 delete-sweep
+  # (setup/publish_sync.py:874, sync_flat_mirror) removes a destination file
+  # whose source has since disappeared -- pointed at a cut repo's guard tests,
+  # that sweep would delete a consumer's own guard test out from under them the
+  # moment this store's copy of it is renamed, moved, or removed. Inject does
+  # not sweep; it only ever adds.
+  #
+  # Every guard entry below uses `mode: create-if-absent`
+  # (percolate-store.schema.json:258-261) -- never `overwrite`, and never
+  # flat-mirror. `create-if-absent` copies only when dst is absent, so a
+  # consumer's customized copy of a guard test is never clobbered on a re-run,
+  # while a repo that is missing the test still gets it filled in. This is the
+  # same non-degrading-convergence principle C6 states for repo-cut as a whole
+  # (a one-shot bootstrap, not a durable row that re-runs creation) applied one
+  # level down, to the field.
+  #
+  # `_tripwire_root.py` (landed by a peer chunk under
+  # coordinator/tests/templates/, not created or edited here) is a
+  # REQUIRED CHILD of every guard entry below, expressed via `required_children`
+  # rather than as its own separate inject entry: a guard template delivered
+  # without it cannot resolve its own repo root, so the dependency belongs on
+  # each entry that needs it, not floating as an independently-optional row.
+  #
+  # OWNERSHIP against DR-PERCOLATE-001
+  # (coordinator/docs/decisions/DR-PERCOLATE-001-publish-rows-owned-by-the-consuming-repo.md):
+  # the DR rules "ownership follows consumption," but the rows below stay
+  # DoE-owned and do not transfer once the cut repo exists -- this is the DR's
+  # own "Not decided here" carve-out, on stronger grounds than the DR's own
+  # coordinator-claude example: the repo-cut consumer does not exist yet when
+  # these rows are authored, so it cannot author its own config, and the rows
+  # encode fleet-wide doctrine (canonical structure, guard delivery, line-ending
+  # policy) rather than any one target's release-specific configuration. A cut
+  # repo that later wants to diverge does so via a row-level override in its
+  # own tree, not a transfer of these seed rows.
+  repo-cut:
+    hooks:
+      - inject
+    inject:
+      - src: "<coordinator-content-root>/tests/templates/test_foreign_platform_paths.py"
+        dst: "tests/templates/test_foreign_platform_paths.py"
+        mode: "create-if-absent"
+        required_children:
+          - "_tripwire_root.py"
+      - src: "<coordinator-content-root>/tests/templates/test_guard_wiring_completeness.py"
+        dst: "tests/templates/test_guard_wiring_completeness.py"
+        mode: "create-if-absent"
+        required_children:
+          - "_tripwire_root.py"
+      - src: "<coordinator-content-root>/tests/templates/test_machine_local_state_tracked.py"
+        dst: "tests/templates/test_machine_local_state_tracked.py"
+        mode: "create-if-absent"
+        required_children:
+          - "_tripwire_root.py"
+      - src: "<coordinator-content-root>/tests/templates/test_no_bare_console_subprocess.py"
+        dst: "tests/templates/test_no_bare_console_subprocess.py"
+        mode: "create-if-absent"
+        required_children:
+          - "_tripwire_root.py"
+      - src: "<coordinator-content-root>/tests/templates/test_no_bare_python_spawn.py"
+        dst: "tests/templates/test_no_bare_python_spawn.py"
+        mode: "create-if-absent"
+        required_children:
+          - "_tripwire_root.py"
+      - src: "<coordinator-content-root>/tests/templates/test_registry_toml_machine_paths.py"
+        dst: "tests/templates/test_registry_toml_machine_paths.py"
+        mode: "create-if-absent"
+        required_children:
+          - "_tripwire_root.py"
+
+  # Mirrors coordinator-claude-toplevel-install/post-rsync/10-transform.sh.
+  # target_dir is already narrow (a flat install-mirror target) -- no
+  # file_surface override needed. No leak-guard in the bash oracle's
+  # equivalent form for this target's specific hook; this target now
+  # carries the registry codename-leak guard directly (C-W3 item 2,
+  # 2026-07-23 rollout -- see the coordinator-claude target's guards:
+  # block above for rationale).
+  coordinator-claude-toplevel-install:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - basename-rename
+      - guard
+    guards:
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+
+  # Worked example (recipe §3.3) -- the cleanest 1:1 mapping. Mirrors the
+  # PAIRED pre-rsync/10-backup-allowlist.sh + post-rsync/10-restore-
+  # allowlist.sh (preserve-destination-native), post-rsync/20-transform.sh
+  # (content sweep), and post-rsync/30-verify-toplevel-wiki.sh (guards --
+  # checks 1/4/6 declarable (1's content-match half now `severity: "info"`,
+  # 6 now `source-glob-present`, both C-W3); check 2 (dynamic leak pattern) is
+  # wired via `params.pattern_source` + claude-klabauter's registry resolver (C-W3
+  # item 2, 2026-07-23 rollout) and now declared below via this target's own
+  # `no-residual-pattern` guard entry, mirroring the coordinator-claude
+  # target's leak-check entry pattern; 5 (store-authoring lint, not a
+  # runtime guard) is CLOSED 2026-07-24 -- claude-klabauter ships it as the named
+  # `lint_store` engine primitive (store.py, = validate_store_dict incl.
+  # the `_check_basename_allowlist_no_separator` no-`/` check on
+  # preserve_destination_native.basename_allowlist entries); a dev-time
+  # lint by design, not wired into this target's runtime guards block).
+  #
+  # sentinel_home_override deliberately NOT set: DoE's bash convention used
+  # $HOME/.claude/setup/percolate-state, but inject.py's sentinel_home_override
+  # is consumed via bare `Path(override)` with no ~/$HOME expansion -- a
+  # literal "$HOME/..." string would resolve to a bogus relative path
+  # (a literal directory named "$HOME"), not the user's home. Since there is no
+  # portable way to express "the operator's home" as a static YAML string here,
+  # this target accepts the engine's own portable default
+  # (~/.local/state/percolate) rather than fight the field's literal-path
+  # contract. Purely an internal sentinel-location implementation detail, not
+  # user-visible; both backup and restore consult the SAME default
+  # consistently.
+  coordinator-claude-toplevel-wiki:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - basename-rename
+      - guard
+    guards:
+      # Check 6 (empty-source guard) -- C-W3 item 3, resolved by the
+      # `source-glob-present` primitive (ec766767): asserts the SOURCE tree
+      # (not target_root) has >=1 `.md` file. Dispatches against `source_root`
+      # -- REQUIRES the driver to pass `source_root` on every `percolate.run`
+      # call this entry's phase runs in (§ coordinator/bin/publish.py
+      # `dispatch_percolate_post_rsync`/`_pre_ci`, which already do
+      # unconditionally as of C-W2); a missing `source_root` is a loud
+      # `GuardCheckError` from `guards.run_guard`, never a silent
+      # wrong-tree check. Checks below are in the bash oracle's own numbered
+      # order.
+      - kind: "source-glob-present"
+        params:
+          glob: "*.md"
+          # include_extensions is REQUIRED here, not inherited from this
+          # target's `file_surface.include_extensions` -- guards.py's
+          # `_walk_for_guard` only ever reads scoping params off the guard
+          # ENTRY's own `params` (§ that function's docstring: "omitting
+          # them yields the routine's own defaults... no includes match"),
+          # never the section's `file_surface`. Without this, the walk
+          # includes nothing and the guard always reports "no file
+          # matching *.md", even when .md files are present -- verified via
+          # coordinator/tests/test_percolate_deferred.py
+          # TestSourceGlobPresent (a `.md`-only-source case failed until
+          # this param was added).
+          include_extensions:
+            - "*.md"
+      # Check 4 (file-count delta): expected count is the caller-supplied
+      # effective_source_count (computed by the driver from the wiki source
+      # dir against file-surface exclusions, e.g. .percolate-ignore), not a
+      # store-declared expected_count -- percolate.run's caller must pass
+      # effective_source_count for this entry to evaluate correctly.
+      #
+      # `include_extensions` is REQUIRED here for the same reason as the
+      # source-glob-present entry above -- `_walk_for_guard` reads scoping
+      # params off the guard ENTRY's own `params`, never the section's
+      # `file_surface`, and an empty include list matches NOTHING. Omitting
+      # it makes the OBSERVED count structurally 0 on every run against any
+      # tree, so the guard fails a materially correct publish.
+      - kind: "file-count-delta"
+        params:
+          tolerance: 0
+          include_extensions:
+            - "*.md"
+      # C-W3 item 2 -- registry codename-leak guard (2026-07-23 rollout).
+      # See the coordinator-claude target's guards: block above for the
+      # full rationale (cross-repo/inbox/2026-07-23-claude-klabauter-em-
+      # bash-remnant-kill-answers.md Ask 1(b)).
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"

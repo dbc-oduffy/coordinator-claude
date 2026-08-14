@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-rag-state.py — CLI trampoline over claude-klabauter coordinator_core.ops.check_rag_state.
@@ -10,7 +9,7 @@ co-located pytest (test_check_rag_state.py, 16 tests).
 
 Port source: coordinator/bin/check-rag-state.py (this file, pre-port bash body
 retired; see git log)
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
 
 This is a **direct-import trampoline** (template-variant #1) — no JSON-RPC
 op registration, no cc_invoke() round trip. `check-rag-state.py` is invoked

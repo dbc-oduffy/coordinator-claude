@@ -9,7 +9,7 @@ oracles implement IDENTICAL logic (bounded upward directory-marker walk, one fil
 stat, two `git` subprocess calls); no pwsh-only primitive exists anywhere in
 the pair, so there is nothing here that requires the stays-bash fallback.
 
-DoE owns only this thin PLUMBING shim (same shape as preuse-write-dispatch.py):
+The doctrine plane owns only this thin PLUMBING shim (same shape as preuse-write-dispatch.py):
 resolve the claude-klabauter engine, hand it the cwd, relay its stdout banner verbatim.
 Claude-klabauter owns the detection LOGIC (`coordinator_core.hooks.project_rag_detect`).
 The engine is imported and run IN-PROCESS - no bash, no pwsh, no `python3 -m`

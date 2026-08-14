@@ -54,7 +54,7 @@
 # Cluster: machine-local — the <settings-home>/machine-local/ registry substrate
 # (relocated from ~/.claude/machine-local/ by durable-substrate-to-settings-home plan;
 # compat symlink retained at ~/.claude/machine-local during the phase-2 transition window)
-# Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md § C6
+# Spec backlink: DoE-claude:pln-relocate-durable-coordinator-s-d48415 § C6
 # ---------------------------------------------------------------------------
 
 [[probe]]
@@ -295,7 +295,7 @@ fix = "none"
 symptom_keywords = ["hardware absent", "hardware.cores missing", "hardware.ram_gb missing", "hardware capacity", "worker cap", "capacity budget", "hardware SSOT"]
 triage = false
 severity_if_fail = "degraded"
-remediation = "hardware.cores / hardware.ram_gb absent from machine-local. Remediation depends on your install path: (1) coordinator:install users — re-run coordinator:install Phase 3 (the hardware-audit step seeds these values via lib/detect-hardware.sh); (2) OSS setup/install.sh users — re-run setup/install.sh (the --setup-only path seeds hardware.* via the same detector). After re-running, verify with: machine-local get hardware.cores"
+remediation = "hardware.cores / hardware.ram_gb absent from machine-local. Remediation depends on your install path: (1) coordinator:install users — re-run coordinator:install Phase 3 (the hardware-audit step seeds these values via lib/detect-hardware.py); (2) OSS setup/install.sh users — re-run setup/install.sh (the --setup-only path seeds hardware.* via the same detector). After re-running, verify with: machine-local get hardware.cores"
 
 [[probe]]
 id = "P-17"

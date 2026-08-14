@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """PostToolUse(Write|Edit|MultiEdit) AND SessionStart hook: re-derive the
-live global CLAUDE.md copy whenever the TRACKED source may have changed.
+live global CLAUDE.md copy AND the live `~/.claude/rules/*.md` mirror
+whenever their TRACKED sources may have changed.
 
 Why this exists — the mirror direction is TRACKED -> LIVE, not the reverse:
 `global-doctrine/CLAUDE.md` (tracked, in this repo) is the authoring target;
@@ -21,15 +22,21 @@ changes. SessionStart closes that gap; Write|Edit stays registered
 alongside it for immediacy on the tool-mediated path.
 
 OSS-CLOBBER HAZARD -- read `_is_dev_repo()` before touching the gate below.
-`~/.claude/CLAUDE.md` is the OPERATOR'S OWN global config. For anyone
-running the OSS coordinator-claude distribution it has nothing to do with
-this repo, and this hook must NEVER derive into it there. On a Write|Edit
-match the incidental protection was "an OSS install has no
-global-doctrine/CLAUDE.md, so the path never matches" -- SessionStart
-carries no file_path payload to run that same incidental check against, so
-the dev-repo sentinel gate below is load-bearing, not defense-in-depth, for
-that trigger. It must be impossible by construction for a non-dev checkout
-to reach the copy, not merely unlikely.
+`~/.claude/CLAUDE.md` and `~/.claude/rules/` are the OPERATOR'S OWN global
+config. For anyone running the OSS coordinator-claude distribution they
+have nothing to do with this repo, and this hook must NEVER derive into
+them there. On a Write|Edit match the incidental protection was "an OSS
+install has no global-doctrine/CLAUDE.md (or global-doctrine/rules/), so
+the path never matches" -- SessionStart carries no file_path payload to run
+that same incidental check against, so the dev-repo sentinel gate below is
+load-bearing, not defense-in-depth, for that trigger. It must be impossible
+by construction for a non-dev checkout to reach either mirrored target, not
+merely unlikely.
+
+The `rules/*.md` mirror is copy-in only, never prune: a file present in the
+live `~/.claude/rules/` but absent from tracked `global-doctrine/rules/` is
+left completely alone -- never deleted, moved, or warned-about. The
+operator may keep rules files there that this repo does not own.
 
 Contract (matches the house PostToolUse-advisory convention used by
 nudge-initiative-goals-ladder.py -- exit 2 + stderr reaches the model's next
@@ -143,6 +150,30 @@ def _live_path() -> Path:
     return Path.home() / ".claude" / "CLAUDE.md"
 
 
+def _tracked_rules_dir() -> Path:
+    return _repo_root() / "global-doctrine" / "rules"
+
+
+def _live_rules_dir() -> Path:
+    return Path.home() / ".claude" / "rules"
+
+
+def _tracked_rules_files() -> list[Path]:
+    """Every tracked `*.md` file under `global-doctrine/rules/`, sorted for
+    deterministic derivation order. Copy-in only -- the caller mirrors each
+    of these into the live rules dir, and NEVER deletes a live file absent
+    here (see module docstring's prune-safety contract). Returns an empty
+    list on a missing directory or any read error -- fails open, matching
+    every other non-owned-path guard in this module."""
+    rules_dir = _tracked_rules_dir()
+    try:
+        if not rules_dir.is_dir():
+            return []
+        return sorted(p for p in rules_dir.iterdir() if p.is_file() and p.suffix == ".md")
+    except Exception:
+        return []
+
+
 def _dev_sentinel_path() -> Path:
     return _repo_root() / ".coordinator-dev-repo"
 
@@ -151,7 +182,7 @@ def _is_dev_repo() -> bool:
     """OSS-clobber gate -- fail CLOSED on any uncertainty.
 
     `~/.claude/CLAUDE.md` is the OPERATOR'S OWN global config, not this
-    repo's to write outside a DoE-claude dev checkout. `.coordinator-dev-
+    repo's to write outside a doctrine-repo dev checkout. `.coordinator-dev-
     repo` is deliberately at the REPO ROOT (not under `coordinator/`) so it
     does NOT percolate to the OSS `coordinator-claude` publish -- that is
     what makes its presence a valid dev-vs-OSS discriminant rather than a
@@ -187,8 +218,12 @@ def _compose_success_message(live: Path, tracked: Path, source_bytes: bytes):
     return compose(prose, anchor=_WIKI_ANCHOR)
 
 
-def _derive_live_copy(tracked: Path) -> int:
-    """Shared read/compare/write path for both invocation modes.
+def _derive_live_copy(tracked: Path, live: Path) -> int:
+    """Shared read/compare/write path for both invocation modes and both
+    mirrored targets (the single `CLAUDE.md` and each `global-doctrine/
+    rules/*.md` file) -- `tracked`/`live` are passed explicitly by the
+    caller rather than hardcoded, so this one function drives every mirrored
+    pair.
 
     Silent (return 0) when the live copy is already byte-identical to the
     tracked source -- see the module docstring's contract table and
@@ -197,8 +232,6 @@ def _derive_live_copy(tracked: Path) -> int:
     a real derivation happens (drift found and corrected) or a read/write
     failure occurs.
     """
-    live = _live_path()
-
     # NOTE (review-integrator): this hook has the same CRLF byte-fidelity
     # bug as Finding 2 (bypasses `emit()`, writes `render()`'s output via
     # text-mode `sys.stderr.write`) but the fix is NOT applied here -- see
@@ -270,12 +303,16 @@ def main() -> int:
     session_start_mode = hook_event_name == "SessionStart"
 
     if session_start_mode:
+        exit_code = 0
         tracked = _tracked_path()
-        if not tracked.is_file():
-            return 0
-        return _derive_live_copy(tracked)
+        if tracked.is_file():
+            exit_code = max(exit_code, _derive_live_copy(tracked, _live_path()))
+        for rules_tracked in _tracked_rules_files():
+            rules_live = _live_rules_dir() / rules_tracked.name
+            exit_code = max(exit_code, _derive_live_copy(rules_tracked, rules_live))
+        return exit_code
 
-    # --- Existing Write|Edit payload-driven behaviour, unchanged ---
+    # --- Existing Write|Edit payload-driven behaviour ---
     if not file_path:
         return 0
 
@@ -296,11 +333,26 @@ def main() -> int:
     # Windows NTFS), so a differently-cased file_path for the same physical
     # file would fail to match here -- a fail-open miss (degrades
     # gracefully; not a false positive), left unguarded as an accepted edge
-    # case.
-    if resolved != tracked_resolved:
-        return 0
+    # case. Same caveat applies to the rules-dir match added below.
+    if resolved == tracked_resolved:
+        return _derive_live_copy(tracked, _live_path())
 
-    return _derive_live_copy(tracked)
+    rules_dir = _tracked_rules_dir()
+    try:
+        rules_dir_resolved = rules_dir.resolve()
+    except Exception:
+        rules_dir_resolved = rules_dir
+
+    try:
+        resolved.relative_to(rules_dir_resolved)
+        under_rules_dir = True
+    except ValueError:
+        under_rules_dir = False
+
+    if under_rules_dir and resolved.suffix == ".md" and resolved.is_file():
+        return _derive_live_copy(resolved, _live_rules_dir() / resolved.name)
+
+    return 0
 
 
 if __name__ == "__main__":

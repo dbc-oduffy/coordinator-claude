@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """parallel-review-orthogonality-guard.py — pre-dispatch guard + weekly-slice
 snapshot ops for coordinator:parallel-code-review (DoE-claude
@@ -70,10 +69,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before the coordinator_core import
+# below: this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+# this bin/ directory, not the checkout root. Same bootstrap as
+# coordinator/bin/coordinator-lesson-add (9b979ee5f).
+require_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _PROG = "parallel-review-orthogonality-guard.py"
 _BIN_DIR = Path(__file__).resolve().parent
@@ -96,7 +111,7 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess:
         [sys.executable, *argv],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
 
@@ -131,7 +146,7 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
         if rev_parse.returncode != 0 or not rev_parse.stdout.strip():
             print(f"{_PROG}: snapshot: cannot resolve git repo root from cwd", file=sys.stderr)

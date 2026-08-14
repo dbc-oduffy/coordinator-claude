@@ -113,7 +113,7 @@ the higher tier — not for paying the higher tier on matching-shaped work.
 
 <!-- provenance: 2026-08-06-14h38 / c12-014 -->
 **A field case where a demotion had to be reverted, and why it was less clean than it looked.**
-The DR-135/136/137 cycle ran a persona at the lower (low) tier in production and found it missed
+One field cycle ran a persona at the lower (low) tier in production and found it missed
 three major issues that the medium tier caught. Before treating that as a simple "restore the
 higher tier" result, the misses were traced individually: two were recovered by a downstream
 check regardless of which tier produced the miss, and the third was actually in a different

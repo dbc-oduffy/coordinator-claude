@@ -10,7 +10,7 @@ discharges it? If the operator remembers, the work is not finished." The
 2026-08-06 in-process prototype proved the mechanism works; this module is
 the durable, greppable statement of the contract that proof was promoted
 into, registered alongside it in
-`coordinator/docs/wiki/coordinator-tripwires.md` under the
+`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry.md` under the
 `GUARD-ON-RUNNER-CONTRACT` token (same commit, per the greppability rule).
 
 Sibling module, not a `preuse-write-dispatch.py` docstring/constant surface
@@ -76,9 +76,9 @@ CONTRACT MINIMUM (every enrolled guard must satisfy all of the following)
    `sys.path` (see `_engine_root.py`'s engine-root resolver), it MUST use
    `sys.path.append`, never `sys.path.insert(0, …)` -- the hooks directory
    (`coordinator/hooks/scripts/`) must stay AHEAD of the sibling engine
-   root on `sys.path` so a module-NAME collision between a DoE-local
+   root on `sys.path` so a module-NAME collision between a doctrine-plane-local
    helper and a same-named engine-side module resolves toward the
-   DoE-local helper. If a caller needs the engine root resolved first for
+   doctrine-plane-local helper. If a caller needs the engine root resolved first for
    some other reason, it must restore the hooks dir to the front of
    `sys.path` before the guard-import phase runs, not leave the engine
    root ahead of it permanently.
@@ -162,6 +162,7 @@ Shared vocabulary
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import PureWindowsPath
 from typing import FrozenSet, Optional, Tuple
 
 #: Greppable registry token for this contract, registered in
@@ -219,7 +220,21 @@ class GuardScopeDescriptor:
     (e.g. `("coordinator/hooks/scripts/",)`); empty means "no directory
     restriction" (checked by `path_suffixes` alone, if any).
 
-    A descriptor with BOTH fields empty is never in scope (matches
+    `basenames`: a frozenset of exact filename basenames (e.g.
+    `{"coordinator.local.md"}`) that match REGARDLESS of directory --
+    an OR alternative to the `path_suffixes`+`directory_substrings` pair,
+    not a further restriction on it (C1/C3, config-file-class plan). Added
+    because the two-field form above cannot express "suffix A confined to
+    these dirs, OR suffix B matching anywhere": a repo-root
+    `coordinator.local.md` carries no `coordinator/`-prefixed directory
+    segment, so it can never satisfy `directory_substrings` however that
+    tuple is widened, and widening `directory_substrings` to admit it would
+    also admit every OTHER path ending `.md` at any repo root -- a real
+    over-match, not the deliberate overapproximation this class already
+    accepts elsewhere. `basenames` matching is separator-normalized the
+    same way `directory_substrings` is (see `matches()`).
+
+    A descriptor with ALL THREE fields empty is never in scope (matches
     nothing) -- an enrolled guard must declare at least one restriction, or
     its entry is a bug (it would defeat lazy import by always matching).
     """
@@ -227,23 +242,65 @@ class GuardScopeDescriptor:
     guard_module: str
     path_suffixes: FrozenSet[str] = field(default_factory=frozenset)
     directory_substrings: Tuple[str, ...] = ()
+    basenames: FrozenSet[str] = field(default_factory=frozenset)
 
     def matches(self, target_path: Optional[str]) -> bool:
         """Pure, import-free scope check. `target_path` is the raw
         (possibly `None`) path string extracted from the hook payload --
         this function does no filesystem I/O and imports nothing beyond
-        what this module already imports at the top."""
+        what this module already imports at the top.
+
+        `directory_substrings` are declared forward-slash-only (e.g.
+        `"setup/"`), but `target_path` is a raw payload string that on
+        Windows is backslash-separated (`...templates\\setup\\...`) -- a
+        bare `in` check against the declared substring silently
+        under-matched every Windows call, which is how a real Windows
+        write to an in-scope directory produced a false "out of scope"
+        and the guard never fired. Normalized to forward slashes for the
+        directory-substring check only (host-neutral: a no-op on a POSIX
+        path, which already uses `/`); `path_suffixes` needs no such
+        normalization since `endswith` on a filename suffix does not
+        depend on the separator.
+
+        `basenames`, when declared, is checked FIRST and independently: a
+        match there returns `True` immediately, regardless of
+        `path_suffixes`/`directory_substrings` -- an OR, not an AND, with
+        the suffix+directory pair (see the class docstring for why the
+        existing two-field form cannot express this). The basename is
+        extracted from the same separator-normalized path the
+        directory-substring check uses, so a `coordinator.local.md` target
+        matches on both POSIX and backslash-separated Windows payload
+        strings.
+
+        Residual, unclosed by this or any separator-normalization scheme:
+        `PureWindowsPath` parses `\\` as a separator unconditionally, on
+        every host, so a POSIX path whose leaf genuinely contains a literal
+        backslash character (legal, if unusual, on POSIX) is still mangled
+        here -- exactly as the bare `.replace("\\", "/")` this replaced
+        was. This function does not claim to close that case; it only fixes
+        the Windows-payload under-match described above.
+        """
         if not target_path:
             return False
-        if not self.path_suffixes and not self.directory_substrings:
+        if not self.path_suffixes and not self.directory_substrings and not self.basenames:
             return False
+
+        if self.basenames:
+            normalized_path = PureWindowsPath(target_path).as_posix()
+            basename = normalized_path.rsplit("/", 1)[-1]
+            if basename in self.basenames:
+                return True
+            if not self.path_suffixes and not self.directory_substrings:
+                return False
+
         suffix_ok = True
         if self.path_suffixes:
             suffix_ok = any(target_path.endswith(suf) for suf in self.path_suffixes)
         if not suffix_ok:
             return False
         if self.directory_substrings:
-            return any(sub in target_path for sub in self.directory_substrings)
+            normalized_path = PureWindowsPath(target_path).as_posix()
+            return any(sub in normalized_path for sub in self.directory_substrings)
         return True
 
 
@@ -270,6 +327,9 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
     "guard-prompt-surface-citations.py",
     "check-claude-md-size.py",
     "guard-doctrine-changelog-prose.py",
+    "guard-test-tree-git-fixture-spawn.py",
+    "guard-python-syntax-on-write.py",
+    "guard-doctrine-surface-ratio.py",
 )
 
 #: `guard-doctrine-changelog-prose.py`'s `GuardScopeDescriptor` (C3b). Lives
@@ -307,6 +367,20 @@ ENROLLED_GUARD_MODULES: Tuple[str, ...] = (
 #: hardcoded path list, so a sixth governed tree added to either constant
 #: fails that test loud instead of this descriptor silently ceasing to
 #: fire on it.
+#:
+#: C3 (config-file-class plan): the guard also now governs a THIRD, disjoint
+#: shape -- a repo-root `coordinator.local.md`, which carries no
+#: `coordinator/`-prefixed directory segment and so can never satisfy
+#: `directory_substrings` above however that tuple is widened (that AND
+#: relationship, and why appending to `directory_substrings` is the wrong
+#: fix, is `GuardScopeDescriptor.matches()`'s own docstring). Expressed via
+#: the new `basenames` field rather than a second registry entry for this
+#: guard: `_guard_runner.REAL_GUARD_REGISTRY` (out of this plan's file
+#: scope) wires exactly ONE descriptor per `RegisteredGuard`, so a second
+#: descriptor object would need a second registry entry the C1a/C3b
+#: ordering discipline this contract documents does not provide a seam
+#: for -- widening the one descriptor object already referenced there is
+#: the change that reaches the runner without touching it.
 DOCTRINE_CHANGELOG_PROSE_SCOPE_DESCRIPTOR = GuardScopeDescriptor(
     guard_module="guard-doctrine-changelog-prose.py",
     path_suffixes=frozenset({".md", ".schema.json"}),
@@ -317,6 +391,39 @@ DOCTRINE_CHANGELOG_PROSE_SCOPE_DESCRIPTOR = GuardScopeDescriptor(
         "coordinator/snippets/",
         "coordinator/docs/wiki/",
         "coordinator/schemas/",
+    ),
+    basenames=frozenset({"coordinator.local.md"}),
+)
+
+
+#: `guard-doctrine-surface-ratio.py`'s `GuardScopeDescriptor` (C8,
+#: docs/plans/2026-08-13-doctrinal-surface-weight-ratchet.md). Lives HERE,
+#: not in the guard's own body module, for the identical reason
+#: `DOCTRINE_CHANGELOG_PROSE_SCOPE_DESCRIPTOR` above does (contract clause
+#: 12, "import-free and live OUTSIDE the guard's own body module") -- the
+#: guard's real scope predicate, `_doctrine_changelog_prose.surface_of`,
+#: needs that module's `DOCTRINE_MD_DIRS` constant, and building the
+#: descriptor from it would defeat clause 12's lazy-import point.
+#: The guard's REAL scope is a `.md` file under one of the five
+#: `_doctrine_changelog_prose.DOCTRINE_MD_DIRS` trees (`.schema.json` is
+#: NOT one of the five measured surfaces this guard prices, unlike the
+#: changelog-prose guard's own scope, so it is deliberately absent from
+#: `path_suffixes` here). This descriptor pairs `path_suffixes` with
+#: `directory_substrings` built from the same five governed trees -- a
+#: strict superset of `surface_of`'s real predicate (it does not
+#: additionally exclude the `tests`/`fixtures` subdirectory carve-out
+#: `surface_of` applies), so it can never under-match, at the cost of
+#: over-matching a handful of paths the real predicate would reject once
+#: imported.
+GUARD_DOCTRINE_SURFACE_RATIO_SCOPE_DESCRIPTOR = GuardScopeDescriptor(
+    guard_module="guard-doctrine-surface-ratio.py",
+    path_suffixes=frozenset({".md"}),
+    directory_substrings=(
+        "coordinator/skills/",
+        "coordinator/agents/",
+        "coordinator/commands/",
+        "coordinator/snippets/",
+        "coordinator/docs/wiki/",
     ),
 )
 

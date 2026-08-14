@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """install-sandbox-check.py — CLI trampoline validating a sandbox clean-install shape.
 
@@ -45,7 +44,7 @@ and hands it to that module.
 # Purpose (Tier 2 doc): Tier 2 (running-in-Claude-Code) cannot run inside a
 # subagent/this process — it is printed as a DEFERRED manual gate at the end
 # of every run, unchanged from the bash oracle.
-# Spec backlink: docs/plans/2026-07-04-doe-maximalist-execution-plugin-dir.md § W4.1
+# Spec backlink: DoE-claude:pln-doe-maximalist-execution-plugi-6d808d § W4.1
 #   AC-W4.1: "Sandbox clean-install produces thin ~/.claude + cloned DoE + wired wrapper"
 # Doctrine: docs/wiki/install-surface-completeness.md § Running-in-Claude-Code
 #
@@ -97,7 +96,7 @@ def _resolve_coordinator_root() -> str:
         root = doe_root()
     except _DoeUnresolvable as exc:
         print(
-            f"install-sandbox-check: cannot resolve the DoE-claude repo root ({exc}). "
+            f"install-sandbox-check: cannot resolve the coordinator doctrine repo root ({exc}). "
             "Set repos.doe_claude in the machine-local registry, or set the "
             "REPO_DOE_CLAUDE (or legacy DOE_ROOT) env var, or pass --coordinator-root "
             "explicitly.",

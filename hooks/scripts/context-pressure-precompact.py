@@ -5,7 +5,7 @@ not at boot, so this stub is exempt from the AC8 boot-race fast-path
 constraint that governs `session-init.py`/`project-orientation.py`'s
 Claude-klabauter-root resolution (recipe § 4).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out):
 resolve the claude-klabauter engine, hand it the raw stdin payload, let it write the
 two bridge files. Claude-klabauter owns the port LOGIC
 (`coordinator_core.hooks.context_pressure_precompact.run`). The engine is

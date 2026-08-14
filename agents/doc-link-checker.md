@@ -5,7 +5,7 @@ model: sonnet
 effort: low
 color: blue
 access-mode: read-write
-tools: ["Bash", "Read", "WebFetch", "Edit"]
+tools: ["Bash", "PowerShell", "Read", "WebFetch", "Edit"]
 ---
 
 # Doc Link Checker

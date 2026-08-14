@@ -3,7 +3,7 @@ name: research-scout
 description: "Haiku web-research scout — runs scope.md's queries, vets accessibility, writes the shared source corpus. Discovery only."
 model: haiku
 effort: low
-tools: ["WebSearch", "WebFetch", "Write", "Read", "Bash", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["WebSearch", "WebFetch", "Write", "Read", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
 color: yellow
 access-mode: read-write
 ---

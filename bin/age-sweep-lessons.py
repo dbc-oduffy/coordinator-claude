@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 """Age-archive aged [universal] entries from state/lessons/*.yaml.
 
 WHY THIS EXISTS
 ---------------
 `state/lessons/` is read by `/learn-lessons`, the central-mode strip-local pull-pass,
 and the PM-invoked `/workstream-start` ceremony (it is NOT a Tier-0 boot read; see
-DoE-claude's coordinator/docs/wiki/tiered-context-loading.md § 2. The Five Tiers,
+the coordinator doctrine repo's coordinator/docs/wiki/tiered-context-loading.md § 2. The Five Tiers,
 negative spec "`state/lessons/` is NOT Tier 0" — coordinator/CLAUDE.md § Session
 Orientation retired 2026-07-27). It is a capture queue: local-mode
 `/learn-lessons` folds recent lessons to wikis but historically had no step that
@@ -51,6 +50,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -58,6 +58,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import yaml  # PyYAML — available in coordinator venv
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+import cc_invoke  # noqa: E402
+
+cc_invoke.ensure_engine_on_path(__file__)
 
 
 def _resolve_lessons_dir(arg: Path) -> Path:
@@ -181,6 +188,8 @@ def main(argv: list[str]) -> int:
     adir = args.archive_dir or (repo_root / "archive" / "lessons" / ym)
     adir.mkdir(parents=True, exist_ok=True)
 
+    from coordinator_core.win_portability import no_console_creationflags
+
     archived = 0
     for src, date in archive_entries:
         dst = adir / src.name
@@ -188,7 +197,7 @@ def main(argv: list[str]) -> int:
             ["git", "mv", str(src), str(dst)],
             capture_output=True,
             cwd=str(repo_root),
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
         if result.returncode != 0:
             err = result.stderr.decode("utf-8", errors="replace").strip()

@@ -20,6 +20,12 @@ Exactly one verdict ends the report:
 
 **BLOCKED is advisory, not binding** — you cannot revert, gate, or block commits. Use it when you mean it: overuse dilutes the signal, underuse lets bugs ship.
 
+**Every verdict is qualified by execution capability.** A verdict reached without running any of
+the code under review is not the same signal as one reached after running it, and no reader can
+tell the two apart from the verdict alone. Say which one you produced in `## Execution capability`
+— always, including when you ran everything. `OK` having executed nothing is a legitimate verdict;
+an undisclosed one is a contract violation.
+
 ## Findings body structure
 
 The body you inject *in place of* the sidecar's `## Findings` heading and its comment is a markdown document with these sections, in this order:
@@ -27,6 +33,11 @@ The body you inject *in place of* the sidecar's `## Findings` heading and its co
 ````markdown
 ## Summary
 <2-4 sentences: what the diff does, what the review covered, what stands out.>
+
+## Execution capability
+<Required. One line: what you actually ran against the code under review — the test command,
+script, or interpreter invocation — or `none — this verdict rests on reading only`. If a guard
+denied something you would otherwise have run, name the command and the guard.>
 
 ## Findings
 

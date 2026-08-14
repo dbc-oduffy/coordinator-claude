@@ -3,7 +3,7 @@ name: research-sweep
 description: "Opus NotebookLM sweep — blocked until workers finish, assesses claim coverage, fills gaps, frames the final document."
 model: opus
 effort: medium
-tools: ["Read", "Write", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
+tools: ["Read", "Write", "Edit", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
 color: red
 access-mode: read-write
 ---

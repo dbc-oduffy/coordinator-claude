@@ -212,6 +212,20 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 _BIN_DIR = Path(__file__).resolve().parent
+
+_LIB_DIR = str(_BIN_DIR / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before `_git_init_scratch_dest`'s
+# coordinator_core import runs: this file is also published into the
+# claude-klabauter mirror, where coordinator_core is NOT pip-installed and
+# the interpreter's sys.path[0] is this bin/ directory, not the checkout
+# root. Same bootstrap as coordinator/bin/coordinator-lesson-add (9b979ee5f).
+require_engine_on_path(__file__)
+
 _TOPLEVEL_ROW_NAME = "claude-klabauter-publish-repo-toplevel"
 _ROW_NAME_PREFIX = "claude-klabauter"
 
@@ -387,12 +401,14 @@ def _git_init_scratch_dest(scratch_dest_root: Path) -> None:
     `$HOME/X/claude-klabauter` (see module docstring)."""
     import subprocess
 
+    from coordinator_core.win_portability import no_console_creationflags
+
     subprocess.run(
         ["git", "init", "-q", str(scratch_dest_root)],
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
 

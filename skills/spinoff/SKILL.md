@@ -19,15 +19,11 @@ Feed those resolutions back by passing `--decisions` to `apply`: a JSON object m
 
 ## Step 0 — PM-authorization gate (hard requirement)
 
-**Spinoffs require explicit PM authorization. The EM never initiates a spinoff on its own judgment.** If the PM has not typed `/spinoff`, named the skill, or explicitly said "spinoff this" / "make a spinoff for X" / one of its trigger phrases for *this specific topic*, STOP. Do not write a spinoff file.
+**Spinoffs require explicit PM authorization. The EM never initiates one on its own judgment.** Absent `/spinoff`, the skill name, or a trigger phrase directed at *this specific topic*, STOP — write no file. Topic drift counts: an earlier "spinoff that auth thing" does not authorize a later spinoff of "the migration cleanup."
 
-Topic drift counts: an earlier "spinoff that auth thing" does NOT authorize a later spinoff of "the migration cleanup." Each spinoff is its own authorization.
+**Paraphrase is not authorization.** Statements of *eventual intent* — "another session will do this," "we should spin that off sometime," "that's really its own workstream" — are the EM observing a spinoff *might* be warranted, not the PM invoking the primitive. Inferring authorization from intent-shaped prose is the failure this gate exists to catch.
 
-**Paraphrase is not authorization.** A statement of *eventual intent* — "another session will do this," "we should spin that off sometime," "that's really its own workstream," "someone should pick that up" — is the EM observing that a spinoff *might* be warranted. It is NOT the PM invoking the spinoff primitive. The authorizing speech act is the literal trigger: `/spinoff`, the skill name, or a trigger phrase, directed at *this specific topic now*. When you find yourself inferring authorization from intent-shaped prose rather than a literal trigger, STOP and surface the candidate (one-line proposal, below) — do not promote your read of the PM's intent into a write.
-
-If the EM identifies a candidate workstream that *would* warrant a spinoff but the PM has not authorized one, surface it as a one-line proposal — "Candidate spinoff: <slug> — <one-line topic>. Authorize?" — and wait. Do not proceed past Step 0 until the PM says yes.
-
-Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) MUST surface the candidate list and obtain PM authorization before writing any spinoff file. The rest of this skill only runs after authorization.
+No authorization? Surface a one-line proposal — "Candidate spinoff: `<slug>` — `<one-line topic>`. Authorize?" — and wait. Autonomous skills that previously auto-spinoffed (e.g. `/bug-blitz` Phase 2.1) obey this identically. Nothing below Step 0 runs until the PM says yes.
 
 ---
 
@@ -41,17 +37,21 @@ The assembler scaffolds frontmatter and the canonical body-section skeleton; fil
 <!-- spinoff: <YYYY-MM-DD> by current EM during <authoring_session> -->
 ```
 
+**Never hand-write or hand-edit `summary:`.** The scaffolder's normalize pass caps it at 140 characters (`schemas/handoff.schema.json` § `summary`) and runs at creation, *before* your Edits — an over-cap value typed in afterwards re-enters no normalizer, and the schema gate then refuses the claim at `pickup-assemble apply`. The baton is born unclaimable and the cost lands on whoever picks it up. Need a different summary? Pass the title through `baton-assemble`, or keep the hand-written value ≤140.
+
+**`## Acceptance criteria` is a checkbox list — `- [ ]` / `- [x]`, never prose bullets.** The completeness gate at `/workstream-complete` counts boxes under that heading; zero boxes returns `indeterminate`, which reports as a quiet unverified rather than a wrong. A trailing colon or parenthetical on the heading is fine, and a nested `###` under it still counts — only the boxes are load-bearing.
+
 Then mark the fork in the source session's own task tracker (or session memory) so the current EM does not accidentally absorb the work back into the active session, and surface the written path + workstream slug to the PM before returning to the work the current session was already doing. A spinoff is a fork, not a context switch.
 
 ---
 
 ## `origin_*` vs `predecessor` vs `forked_from`
 
-**Origin-provenance is a distinct axis from `predecessor`.** `origin_*` (`origin_session`, `origin_handoff`, `origin_handoff_id`, `origin_plan_id`, `origin_goal_id`) records *where this fork was spawned from* — session, baton, plan, goal. It is DISTINCT from `predecessor` (the continuation spine — always `none` for spinoffs) and from `forked_from` (branch-point ancestry, a handoff-path). Never set `predecessor:` to encode origin provenance; `predecessor: none` is invariant for all spinoff kinds. The assembler resolves and writes the `origin_*` fields; this note exists so you never confuse the axes when hand-adjusting frontmatter.
+**Three distinct axes — never collapse them.** `origin_*` (`origin_session`, `origin_handoff`, `origin_handoff_id`, `origin_plan_id`, `origin_goal_id`) records *where this fork was spawned from*. `predecessor` is the continuation spine — invariantly `none` for every spinoff kind, never a place to encode origin provenance. `forked_from` is branch-point ancestry, a handoff-path.
 
-> **Producer note — `origin_*` is set for you; never hand-set it.** claude-klabauter's `handoff.author_fork` op owns the five `origin_*` fields. It resolves `origin_session` from the current session, then derives `origin_handoff`/`origin_handoff_id` by finding the baton that session currently holds (the handoff whose `claimed_by` matches it); `origin_plan_id`/`origin_goal_id` are caller-supplied. `coordinator-doc-new --type=spinoff` deliberately scaffolds **none** of them — their absence from a freshly-scaffolded file is correct, not a gap to fill in by hand.
+> **Producer note — `origin_*` is set for you; never hand-set it.** The `handoff.author_fork` op owns all five: it resolves `origin_session` from the current session, derives `origin_handoff`/`origin_handoff_id` from the baton that session holds (`claimed_by` match), and takes `origin_plan_id`/`origin_goal_id` from the caller. `coordinator-doc-new --type=spinoff` deliberately scaffolds **none** of them — their absence from a fresh file is correct, not a gap.
 >
-> **`handoff.author_fork` is an op name, not a `bin/` executable.** It appears in the brief's `directives[]` as `"cli": "handoff.author_fork"`, but nothing under `settings-home/bin` answers to that name and invoking it as a shell command exits 127. `baton-assemble apply` dispatches it in-process through its own table. Do NOT build a parallel auto-populator, and do NOT hand-write the fields when the directive appears to fail.
+> **`handoff.author_fork` is an op name, not a `bin/` executable** — it appears in `directives[]` as `"cli": "handoff.author_fork"`, but nothing under `settings-home/bin` answers to it (exit 127); `baton-assemble apply` dispatches it in-process. Do NOT build a parallel auto-populator, and do NOT hand-write the fields when the directive appears to fail.
 
 **Run `apply`, not `brief`, when you mean to author.** `baton-assemble brief` is read-only — it *emits* `directives[]` as data and executes nothing. `baton-assemble apply` is what walks that list and actually mutates. Hand-executing a brief's directives one at a time is the mistake this paragraph exists to prevent: it silently skips every in-process op in the dispatch table, so the spinoff lands with its `origin_*` provenance missing.
 

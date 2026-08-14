@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """percolate-gate.py — naked-Python engine for the `/percolate` skill's
 residual imperative gate logic (DoE-claude coordinator/skills/percolate/SKILL.md).
 
@@ -34,12 +33,20 @@ Subcommands:
 
   scan-secrets --files <file-list-path> [--identity-file <path>]
                [--peer-repos-file <repo-registry.md path>] [--target <name>]
+               [--percolate-root <path>]
       Run the three severity-tier grep-style scan (HIGH credential shapes,
       MEDIUM identity/internal-path/peer-repo shapes, LOW informational)
       over the newline-delimited absolute file paths in <file-list-path>.
       Renders the Step 2c panel to stdout. Exits 2 if any HIGH hit fired
       (publish-blocking contract — mirrors the skill's "HIGH >=1: abort"
-      rule), else 0.
+      rule), else 0. With --percolate-root, the peer-repo-name leg's hits are
+      resolved against <target>'s `percolate-store.yaml` guards: a target
+      declaring a `no-residual-pattern` / `registry_codenames` guard gets
+      those hits rendered in a SEPARATE covered group (read pre-transform;
+      Phase-4's post-rsync audit is the post-transform oracle), never mixed
+      into the plain MEDIUM group the pre-transform read would otherwise
+      misrepresent as an unaddressed leak. Without --percolate-root (or on a
+      target with no such guard), the panel is unchanged.
 
   inverse-drift <target> --percolate-root <path> --dest <dest-path>
                 --files <file-list-path>
@@ -48,6 +55,18 @@ Subcommands:
       <file-list-path> since that anchor. Renders the Step 2d panel.
       Prints `anchor_mode: marker|30day-fallback|marker-stale` on its own
       line first.
+
+  resolve-root [--explain]
+      Fronts `coordinator_core.percolate.runtime_root.
+      coordinator_percolate_runtime_root_explained()`, which walks the four-
+      rung PERCOLATE_ROOT ladder once and returns `(path, rung)`. Bare form
+      prints the resolved absolute path on stdout, one line, exit 0.
+      `--explain` prints `<path>\t<rung>` (tab-separated), where rung is one
+      of the stable labels `env` / `repo-local-git` / `doe-root-pointer` /
+      `shared-install`. On a ladder RuntimeError, its own remediation message
+      reaches stderr verbatim (not reworded) and the subcommand exits 1 with
+      no stdout. Unlike the other subcommands, this one takes NO
+      `--percolate-root` flag -- resolving that root is its entire job.
 
   list-targets --percolate-root <path> [--target <name>]
       Step 1 / Step 5. Resolves the registered target set via
@@ -120,8 +139,21 @@ from typing import List, Optional, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _LIB_DIR = _BIN_DIR.parent / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
+# Both rungs are load-bearing and neither substitutes for the other. `_LIB_DIR`
+# resolves this module's own short-form imports (`from percolate.targets import
+# ...`). `_REPO_ROOT` resolves the ABSOLUTE form those same modules use between
+# themselves -- `coordinator/lib/percolate/targets.py` does `from
+# coordinator.lib.percolate.resolve_target import ...`, which needs the repo
+# root on the path, not the lib dir. With only the lib rung present, the short
+# import resolved and then died one frame deeper on `No module named
+# 'coordinator'`, so EVERY subcommand raised ModuleNotFoundError at its first
+# engine call -- including `scan-secrets`, whose HIGH tier is the publish-
+# blocking credential gate. Failure was invisible to `--help`, which argparse
+# serves without ever entering a subcommand body.
+_REPO_ROOT = _BIN_DIR.parent.parent
+for _rung in (_LIB_DIR, _REPO_ROOT):
+    if str(_rung) not in sys.path:
+        sys.path.insert(0, str(_rung))
 
 
 # ---------------------------------------------------------------------------
@@ -176,13 +208,38 @@ _TIER_HIGH = re.compile(
 # \b support keeps this tier separate from publish.py's PERSONAL_REVIEW_PATTERNS
 # audit; Python's `re` supports \b natively so that constraint does not carry
 # over to this port, but the pattern SET is kept identical for parity).
+#
+# The email-shape alternative requires a non-empty local part directly
+# abutting `@` — a Python decorator (`@pytest.mark.parametrize(`) has no
+# such local part, only leading whitespace, so it no longer collides. The
+# lookahead after `@` excludes RFC 2606 reserved test domains
+# (example.com/.net/.org, and test/invalid/localhost as the domain's
+# complete FINAL label) — never real identity, always fixture data. Both
+# branches require the reserved form to be the whole domain or its trailing
+# label — `(?![A-Za-z0-9.-])` after each alternative rejects a same-label
+# continuation (`test-domain.com`, `invalid-corp.io`) and a further-label
+# continuation (`localhost.internal.example`), so only a genuine reserved
+# suffix (`foo.test`, `sub.example.test`) or the bare `example.com`/`.net`/
+# `.org` domain is exempt — never a bare-word prefix match.
 _TIER_MEDIUM = re.compile(
     r"(~/\.claude/(tasks|projects|memory|plans)/|/x/[a-z-]+|[XxCc]:/[a-z-]+|"
-    r"@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)"
+    r"[A-Za-z0-9._%+-]+@"
+    r"(?!(?:example\.(?:com|net|org)|"
+    r"(?:[A-Za-z0-9-]+\.)*(?:test|invalid|localhost))(?![A-Za-z0-9.-]))"
+    r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)"
 )
 
 # Tier LOW — informational only (40-char hex commit SHAs, doctrine language).
 _TIER_LOW = re.compile(r"(\b[0-9a-f]{40}\b|First Officer Doctrine)")
+
+# Stable, non-prose panel markers for the MEDIUM tier's two-panel render
+# (see `_cmd_scan_secrets`). `percolate-round.py::_count_medium_hits`
+# reads these to find the Panel A/B boundary without pattern-matching on
+# the human-facing header text, which is free to reword. Panel A
+# (informational, pre-transform peer-repo-name reads) is never gate
+# input; Panel B (gating) is what Step 3's medium-hit count consumes.
+_MEDIUM_PANEL_INFORMATIONAL_MARKER = "##SCAN-PANEL:INFORMATIONAL##"
+_MEDIUM_PANEL_GATING_MARKER = "##SCAN-PANEL:GATING##"
 
 
 def _scan_file(path: Path, pattern: re.Pattern) -> List[Tuple[Path, int, str]]:
@@ -227,23 +284,88 @@ def _peer_repo_pattern(peer_repos_file: Optional[Path], target: str) -> Optional
     return re.compile(rf"\b({alternation})\b")
 
 
+def _target_declares_registry_codename_guard(percolate_root: Optional[Path], target: str) -> bool:
+    """Does ``target``'s resolved `percolate-store.yaml` section declare a
+    `no-residual-pattern` guard whose `pattern_source` is a `registry_codenames`
+    descriptor (§ `coordinator_core.ops.percolate_run._registry_pattern_resolver`)?
+
+    This is the same declaration Step 0.6 names as engine-native, and is the
+    ONLY signal this module treats as "the peer-repo scan leg's hits are about
+    to be rewritten by depersonalize before publish, not shipped verbatim as
+    read here". No percolate_root, no target, or a target the store does not
+    declare all resolve to False -- the same outcome as no transform being
+    declared, never a guess. A store that fails to PARSE is left to raise:
+    this function does not swallow a parse failure into a silent False, since
+    that would misreport an unrelated store defect as "no transform covers
+    this target". Deliberately bypasses `store.load_store`'s full
+    `validate_store_dict` pass (stale-baseline reporting and all) -- this is
+    a read-only guard-declaration lookup, not a store-authoring lint, and
+    `load_store`'s validation side effects print to the same stdout this
+    scan renders its panel on.
+    """
+    if percolate_root is None or not target:
+        return False
+    store_path = percolate_root / "setup" / "percolate-hooks" / "percolate-store.yaml"
+    if not store_path.is_file():
+        return False
+
+    import yaml
+
+    from coordinator_core.percolate.store import resolve_target  # noqa: E402
+
+    with store_path.open("r", encoding="utf-8") as fh:
+        store = yaml.safe_load(fh)
+    if not isinstance(store, dict):
+        return False
+
+    try:
+        section = resolve_target(store, target)
+    except KeyError:
+        return False
+
+    for guard in section.get("guards") or []:
+        if guard.get("kind") != "no-residual-pattern":
+            continue
+        pattern_source = (guard.get("params") or {}).get("pattern_source")
+        if isinstance(pattern_source, dict) and pattern_source.get("registry_codenames") is True:
+            return True
+    return False
+
+
 def _cmd_scan_secrets(args: argparse.Namespace) -> int:
     files = _load_file_list(Path(args.files))
 
     high_hits: List[Tuple[Path, int, str]] = []
     medium_hits: List[Tuple[Path, int, str]] = []
+    medium_covered_hits: List[Tuple[Path, int, str]] = []
     low_hits: List[Tuple[Path, int, str]] = []
 
     medium_pattern = _TIER_MEDIUM
     peer_pattern = _peer_repo_pattern(
         Path(args.peer_repos_file) if args.peer_repos_file else None, args.target or ""
     )
+    transform_covers_peer = _target_declares_registry_codename_guard(
+        Path(args.percolate_root) if getattr(args, "percolate_root", None) else None,
+        args.target or "",
+    )
+    if args.target and not getattr(args, "percolate_root", None):
+        # Review: code-reviewer — --target without --percolate-root silently
+        # skips the transform-coverage split with no signal; state it once.
+        print(
+            "  NOTE: --percolate-root not passed — transform-coverage split "
+            "(§ AC1/AC2) skipped; peer-repo-name hits render in the plain "
+            "unsplit group."
+        )
 
     for path in files:
         high_hits.extend(_scan_file(path, _TIER_HIGH))
         medium_hits.extend(_scan_file(path, medium_pattern))
         if peer_pattern is not None:
-            medium_hits.extend(_scan_file(path, peer_pattern))
+            peer_hits = _scan_file(path, peer_pattern)
+            if transform_covers_peer:
+                medium_covered_hits.extend(peer_hits)
+            else:
+                medium_hits.extend(peer_hits)
         low_hits.extend(_scan_file(path, _TIER_LOW))
 
     identity_file = Path(args.identity_file) if args.identity_file else None
@@ -286,6 +408,19 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
     else:
         print("    (none)")
 
+    if transform_covers_peer:
+        print(f"  {_MEDIUM_PANEL_INFORMATIONAL_MARKER}")
+        print(
+            "  MEDIUM -- peer-repo names, read pre-transform (depersonalize runs before "
+            "publish; Phase-4 is the post-transform oracle):"
+        )
+        if medium_covered_hits:
+            for path, lineno, line in medium_covered_hits:
+                print(f"    {path}:{lineno}: {line}")
+        else:
+            print("    (none)")
+
+    print(f"  {_MEDIUM_PANEL_GATING_MARKER}")
     print("  MEDIUM (identity / internal paths / peer-repo names -- surfaces to gate):")
     if medium_hits:
         for path, lineno, line in medium_hits:
@@ -307,6 +442,99 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
 # Step 2d — inverse-drift detection
 # ---------------------------------------------------------------------------
 
+_PATHSPEC_BATCH_BUDGET = 6000
+
+
+def _resolve_target_source_dir(percolate_root: Path, target: str) -> Optional[Path]:
+    """Resolve a target's source dir the same way ``branch0-gate`` does.
+
+    Lets ``inverse-drift`` map a source-built file list onto the destination
+    tree without every caller having to pass ``--source-dir`` — the skill's
+    documented Step 2d invocation predates that flag, and a guard that only
+    works when the caller remembers an argument is the failure mode this
+    resolution exists to remove.
+    """
+    try:
+        from percolate.targets import TargetsError, load_targets  # noqa: E402
+    except ImportError:
+        return None
+
+    try:
+        rows = load_targets(percolate_root / "setup", target_filter=target)
+    except TargetsError:
+        return None
+
+    match = next((row.split("|") for row in rows if row.split("|", 1)[0] == target), None)
+    if match is None or len(match) < 3:
+        return None
+    return Path(match[2])
+
+
+def _git_log_batched(
+    log_cmd_base: List[str],
+    revision_args: List[str],
+    rel_paths: List[str],
+) -> List[str]:
+    """Run ``git log`` over ``rel_paths`` in command-line-safe batches.
+
+    Windows caps a process command line at 32767 characters, and a mirror row
+    can carry hundreds of pathspecs — passing them in one invocation raises
+    ``FileNotFoundError: [WinError 206] The filename or extension is too long``
+    and takes the whole inverse-drift check down with it. ``git log`` has no
+    ``--pathspec-from-file`` (verified against git 2.55: *unrecognized
+    argument*; the flag exists on add/commit/checkout/reset only), so batching
+    is the portable route rather than stdin.
+
+    Negative-spec: batches are a command-line-length concession, NOT a scope
+    narrowing — every pathspec is still queried, and results are unioned by
+    abbreviated SHA so a commit spanning two batches is reported once.
+    """
+    if not rel_paths:
+        return []
+
+    batches: List[List[str]] = []
+    current: List[str] = []
+    current_len = 0
+    for rel in rel_paths:
+        entry_len = len(rel) + 1
+        if current and current_len + entry_len > _PATHSPEC_BATCH_BUDGET:
+            batches.append(current)
+            current = []
+            current_len = 0
+        current.append(rel)
+        current_len += entry_len
+    if current:
+        batches.append(current)
+
+    by_sha: dict = {}
+    for batch in batches:
+        cmd = log_cmd_base + revision_args + ["--"] + batch
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            # A destination with no commits yet is a legitimate "no history,
+            # so no drift" — not the swallowed-error class this raise exists
+            # to expose (WinError 206, bad pathspec, unreadable repo).
+            if "does not have any commits yet" in result.stderr:
+                return []
+            raise RuntimeError(
+                f"git log failed (exit {result.returncode}) on a {len(batch)}-pathspec "
+                f"batch: {result.stderr.strip()}"
+            )
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            sha = line.split(" ", 1)[0]
+            by_sha.setdefault(sha, line)
+
+    # Batching destroys git's own newest-first ordering across batches; the
+    # %ad date (--date=short, so lexically sortable) restores it.
+    def _date_key(line: str) -> str:
+        parts = line.split(" ", 2)
+        return parts[1] if len(parts) > 1 else ""
+
+    return sorted(by_sha.values(), key=_date_key, reverse=True)
+
+
 def _cmd_inverse_drift(args: argparse.Namespace) -> int:
     target = args.target
     percolate_root = Path(args.percolate_root)
@@ -320,12 +548,36 @@ def _cmd_inverse_drift(args: argparse.Namespace) -> int:
         since_ref = marker.read_text(encoding="utf-8").strip()
         anchor_mode = "marker"
 
+    # The Step 2c file list this shares is built from SOURCE paths, so a bare
+    # relative_to(dest) misses on every entry. The old fallback appended the
+    # absolute source path verbatim; git then matched nothing and the check
+    # reported "no drift" unconditionally — a guard that cannot fire is worse
+    # than one that crashes, so an unresolvable path is now fatal.
+    source_dir = Path(args.source_dir) if getattr(args, "source_dir", None) else None
+    if source_dir is None:
+        source_dir = _resolve_target_source_dir(percolate_root, target)
     rel_paths: List[str] = []
+    unresolved: List[str] = []
     for path in files:
-        try:
-            rel_paths.append(str(path.relative_to(dest)))
-        except ValueError:
-            rel_paths.append(str(path))
+        for root in (dest, source_dir):
+            if root is None:
+                continue
+            try:
+                rel_paths.append(str(path.relative_to(root)))
+                break
+            except ValueError:
+                continue
+        else:
+            unresolved.append(str(path))
+
+    if unresolved:
+        print(
+            f"percolate-gate: inverse-drift: {len(unresolved)} path(s) are under neither "
+            f"--dest ({dest}) nor --source-dir ({source_dir}); pass --source-dir so the "
+            f"file list can be mapped onto the destination tree. First: {unresolved[0]}",
+            file=sys.stderr,
+        )
+        return 1
 
     log_cmd_base = ["git", "-C", str(dest), "log", "--no-merges", "--format=%h %ad %s", "--date=short"]
 
@@ -339,12 +591,11 @@ def _cmd_inverse_drift(args: argparse.Namespace) -> int:
             anchor_mode = "marker-stale"
 
     if anchor_mode == "marker":
-        cmd = log_cmd_base + [f"{since_ref}..HEAD", "--"] + rel_paths
+        revision_args = [f"{since_ref}..HEAD"]
     else:
-        cmd = log_cmd_base + ["--since=30 days ago", "--"] + rel_paths
+        revision_args = ["--since=30 days ago"]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    log_lines = [line for line in result.stdout.splitlines() if line.strip()]
+    log_lines = _git_log_batched(log_cmd_base, revision_args, rel_paths)
 
     print(f"anchor_mode: {anchor_mode}")
 
@@ -448,6 +699,28 @@ def _cmd_crlf_diff(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Step 0.5 — resolve-root
+# ---------------------------------------------------------------------------
+
+def _cmd_resolve_root(args: argparse.Namespace) -> int:
+    from coordinator_core.percolate.runtime_root import (  # noqa: E402
+        coordinator_percolate_runtime_root_explained,
+    )
+
+    try:
+        path, rung = coordinator_percolate_runtime_root_explained()
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if args.explain:
+        print(f"{path}\t{rung}")
+    else:
+        print(path)
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Step 1 / Step 5 — list-targets
 # ---------------------------------------------------------------------------
 
@@ -495,6 +768,15 @@ def _build_parser() -> argparse.ArgumentParser:
     p_scan.add_argument("--identity-file", required=False)
     p_scan.add_argument("--peer-repos-file", required=False)
     p_scan.add_argument("--target", required=False)
+    p_scan.add_argument(
+        "--percolate-root",
+        required=False,
+        help=(
+            "Resolves <root>/setup/percolate-hooks/percolate-store.yaml so the peer-repo "
+            "MEDIUM leg can be split by declared transform coverage (§ AC1/AC2). Omitted: "
+            "the panel renders exactly as before this coverage split existed."
+        ),
+    )
     p_scan.set_defaults(func=_cmd_scan_secrets)
 
     p_drift = sub.add_parser("inverse-drift")
@@ -502,7 +784,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p_drift.add_argument("--percolate-root", required=True)
     p_drift.add_argument("--dest", required=True)
     p_drift.add_argument("--files", required=True)
+    p_drift.add_argument("--source-dir", required=False)
     p_drift.set_defaults(func=_cmd_inverse_drift)
+
+    p_resolve_root = sub.add_parser("resolve-root")
+    p_resolve_root.add_argument("--explain", action="store_true")
+    p_resolve_root.set_defaults(func=_cmd_resolve_root)
 
     p_list = sub.add_parser("list-targets")
     p_list.add_argument("--percolate-root", required=True)

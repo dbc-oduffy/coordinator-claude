@@ -34,7 +34,7 @@ token-economics carve-out, plan-frontmatter authorization stamp, content-binding
 
 Planning through review-approval and review-integration stays in one session — that part of the
 pipeline does not change. What changes is the tail: **after review-integration completes, the
-default is no longer same-session `/execute-plan`.** Instead:
+default is a fresh session, not same-session `/execute-plan`.** Instead:
 
 1. The EM asks the PM to approve execution.
 2. On approval, the EM stamps the plan's YAML frontmatter with the authorization of record:
@@ -281,7 +281,7 @@ not paraphrase.
   A future auditor or fresh session reading stamp-absence together with the sentinel must read the
   sentinel's CONTENT, not merely its presence: only content `autonomous` supports treating the run
   as authorized-by-autonomous; content `mise-en-place` means EXCEPTION 3 applies instead. Bare
-  presence is no longer sufficient to conclude "authorized-by-autonomous" — see EXCEPTION 3 for the
+  presence alone is not sufficient to conclude "authorized-by-autonomous" — see EXCEPTION 3 for the
   sibling case.
 
 - **EXCEPTION 2 — token-economics carve-out.** Same-session execution is permitted, narrowly, only
@@ -319,7 +319,7 @@ not paraphrase.
   assumes the executor's tool-output lands in the EM's window. A **background Workflow breaks that
   assumption**: executor tool-output stays out of the EM window entirely (the same property that
   makes a Workflow the default multi-wave vehicle — see `workflow-orchestration.md`), so the
-  saturation the ≤3-task bound guards against no longer applies. Therefore, when the PM *explicitly*
+  saturation the ≤3-task bound guards against does not apply. Therefore, when the PM *explicitly*
   directs same-session execution of a plan larger than 3 tasks, honoring that direction by running
   it via a background Workflow is legitimate — the ≤3-task proxy is moot because the mechanism it
   proxies for is absent. The EM honors the PM direction AND notes the mitigation (Workflow vehicle)
@@ -403,9 +403,9 @@ enforced or referenced:
   read/confirm step, upstream entry points via `/handoff` + `/pickup`.
 - **E5** — `pickup/SKILL.md` + `autonomous/SKILL.md`: Step 1 stamp-verification, `/autonomous`
   exemption.
-- **E6** — global `CLAUDE.md` § Implementation Standards — Extensions (the EM-only clauses this
-  once cited under `coordinator/snippets/em-operating-doctrine.md` no longer have a surviving
-  heading there — the content lives only at the global-CLAUDE.md location now).
+- **E6** — global `CLAUDE.md` § Implementation Standards — Extensions (the EM-only clauses have no
+  surviving heading under `coordinator/snippets/em-operating-doctrine.md` — the content lives only
+  at the global-CLAUDE.md location).
 - **E7** — `writing-plans.md`: execution-mode reorder — fresh session is the DEFAULT, with the
   same-session carve-out documented as the exception.
 - **E8** — `coordinator/commands/mise-en-place.md`: Phase 5/6 sentinel write, and

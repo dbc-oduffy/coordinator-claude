@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import IO, NamedTuple
 
 from coordinator_core.win_portability import is_executable
+from coordinator.lib.percolate.publish_modes import MIRROR_WIRE_NAME
 from coordinator.lib.percolate.resolve_target import (
     resolve_machine_local_bin as _resolve_machine_local_bin_canonical,
 )
@@ -51,7 +52,10 @@ from coordinator.lib.percolate.resolve_target import (
 WIKI_TARGET_NAME = "coordinator-claude-toplevel-wiki"
 INSTALL_TARGET_NAME = "coordinator-claude-toplevel-install"
 MIRROR_TARGET_NAME = "coordinator-claude"
-MIRROR_TARGET_MODE = "mirror"
+# Named-row lookup, not a mode-vocabulary consumer (Problem-table site 5,
+# plan AC2) — reads the `mirror` wire name from C1's single source rather
+# than holding a private copy. The equality test below stays exact.
+MIRROR_TARGET_MODE = MIRROR_WIRE_NAME
 
 
 class DerivedRows(NamedTuple):

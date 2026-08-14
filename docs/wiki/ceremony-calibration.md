@@ -243,10 +243,17 @@ not for a week. The shared `work*` prefix invites reading these three as points 
 the three in step count, but that is incidental to the axis, not derived from it: it is
 work-boxed, full stop, and must not be sized or gated as a smaller version of the time-boxed pair.
 
-**Session terminators.** `/workstream-complete`, `/handoff`, and `/workday-complete` are the three
-*session terminators* — the canonical term for this set (`coordinator/commands/workday-complete.md:101`).
-A ceremony is a session terminator if it ends a session and carries a dirty-tree gate; membership
-is about ending a session, not about cadence, so it cuts across the time-boxed/work-boxed axis
+**Session terminators.** `/workstream-complete`, `/handoff`, `/workday-complete`, and `quick-wrap`
+are the four *session terminators* — the canonical term for this set
+(`coordinator/commands/workday-complete.md:101`). A ceremony is a session terminator if it ends a
+session and carries a dirty-tree gate — the criterion is *engaging* the dirty tree at session
+close, not the specific stop/prompt shape the other three use. `quick-wrap` earns membership via
+its Step 1 `safe-commit-offer` call, which computes and commits the session's safe pathspec: the
+mechanism differs (auto-commit vs. stop/prompt-then-proceed), but the tree state it acts on and
+the point in the session it acts at are the same — it engages whatever is dirty in the session's
+own touch-list at close, exactly where the other three terminators' gates fire. That shared
+engagement point is what the membership criterion below tests, not sameness of mechanism.
+Membership is about ending a session, not about cadence, so it cuts across the time-boxed/work-boxed axis
 above (`/workstream-complete` is work-boxed and still a session terminator; `/workweek-complete` is
 time-boxed and not one — it does not end a single session's work). Do not use "session terminator"
 as a synonym for "daily ceremony" or for the heavy validate/consolidate/merge shape — see

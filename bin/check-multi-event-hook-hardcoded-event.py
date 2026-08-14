@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """bin/check-multi-event-hook-hardcoded-event.py — Tripwire: prevent a hook
 script registered on MORE THAN ONE event in hooks.json from hardcoding the
 `hookEventName` value it emits in its `hookSpecificOutput` envelope.
@@ -43,8 +42,8 @@ Usage:
     --hooks-json <path>   Explicit path to hooks.json. Defaults to
                           hooks/hooks.json resolved via
                           coordinator_data_root.data_root("hooks") (co-located,
-                          then DoE-resident — hooks/ moved to DoE-claude in the
-                          2026-07-22 executable-surface migration; see
+                          then resident in the coordinator doctrine repo — hooks/ moved
+                          there in the 2026-07-22 executable-surface migration; see
                           DR-047).
 
 Exit codes:

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """set-goal-kr-status.py — CLI trampoline over claude-klabauter's goal.set_kr_status op
 (coordinator_core/ops/goal_kr_status.py).
@@ -41,7 +40,7 @@ Exit codes:
         unknown kr_id or a missing status: field, missing goal file, lock
         timeout, malformed envelope).
 
-Spec backlink: docs/plans/2026-07-25-goal-kr-status-provenance-and-bin-door.md
+Spec backlink: docs/plans/2026-07-25-goal-kr-status-provenance-and-bin-door.md [DEAD-CITATION: plan file never committed to this repo]
 Source memo: cross-repo/inbox/2026-07-25-example-market-data-repo-em-goal-engine-seams-and-kr-status-provenance.md
 """
 
@@ -56,23 +55,7 @@ _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import cc_invoke  # noqa: E402
-
-
-def _find_repo_root(start: str) -> str:
-    """Walk upward from `start` looking for a `.git` entry; falls back to
-    `start` itself if none is found (mirrors reassess-goal-krs's own
-    derivation — this is the repo the cc_invoke spawn resolves CLAUDE_KLABAUTER_ROOT
-    relative to, a distinct concern from --repo-root, which is the op's own
-    lock-sidecar placement param).
-    """
-    cur = start
-    while True:
-        if os.path.exists(os.path.join(cur, ".git")):
-            return cur
-        parent = os.path.dirname(cur)
-        if parent == cur:
-            return start
-        cur = parent
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _parse_args(argv: list[str]) -> dict[str, str]:
@@ -155,7 +138,24 @@ def main(argv: list[str]) -> int:
     if parsed["timeout"]:
         params["timeout"] = float(parsed["timeout"])
 
-    cwd_repo_root = _find_repo_root(os.getcwd())
+    cwd_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if cwd_repo_root is None:
+        # No git root resolved from cwd at all -- distinct from the
+        # MISMATCH identity gate below (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing here is not the
+        # AC4 "UNRESOLVED never refuses" carve-out being violated.
+        print(f"set-goal-kr-status: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
+        return 2
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277 named carve-out: this door dispatches goal.set_kr_status,
+        # which rewrites the target goal file's KR status in place (a
+        # locked read-modify-write into the resolved repo's state tree) --
+        # a genuine WRITER, not a diagnostic read. Refuse rather than write
+        # into a foreign tree. UNRESOLVED never refuses (AC4). Distinct
+        # concern from --repo-root, which is the op's own lock-sidecar
+        # placement param and is left untouched.
+        print(verdict["message"], file=sys.stderr)
+        return 2
 
     try:
         result = cc_invoke("goal.set_kr_status", params, cwd_repo_root)

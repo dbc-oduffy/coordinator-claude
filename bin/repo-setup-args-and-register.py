@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """repo-setup-args-and-register.py — naked-Python port of the residual bash
 logic previously embedded in DoE-claude's `coordinator/skills/repo-setup/SKILL.md`.
@@ -81,6 +80,8 @@ _CLAUDE_KLABAUTER_ROOT = _BIN_DIR.parent.parent  # coordinator/bin/.. .. == clau
 if str(_CLAUDE_KLABAUTER_ROOT) not in sys.path:
     sys.path.insert(0, str(_CLAUDE_KLABAUTER_ROOT))
 
+from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # resolve-target-root
@@ -113,7 +114,7 @@ def _is_git_worktree(path: str) -> bool:
             capture_output=True,
             text=True,
             timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -196,7 +197,7 @@ def cmd_whoami_status(args: argparse.Namespace) -> int:
         [python_bin, "-c", "import coordinator_whoami"],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
     if probe.returncode == 0:
         print("whoami_status: ready")
@@ -212,7 +213,7 @@ def cmd_whoami_status(args: argparse.Namespace) -> int:
         [python_bin, "-m", "pip", "install", "-e", whoami_dir],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
     if install.returncode == 0:
         print("whoami_status: installed")
@@ -312,7 +313,7 @@ def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
         python_bin = args.python or "python"
         proc = subprocess.run(
             [python_bin, resolved],
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_passthrough_kwargs(),
         )
         return proc.returncode
 

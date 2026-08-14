@@ -188,6 +188,11 @@
           "type": "boolean"
         }
       }
+    },
+    "required_mcp_surfaces": {
+      "description": "OPTIONAL. MCP-served capabilities this repo's agents depend on, distinct from `system_prerequisites` (machine-level binaries) and `direct_deps` (sibling repos). Two kinds share this array via the `kind` discriminator rather than two parallel top-level fields: `plugin` — a Claude Code marketplace plugin gated by `settings.json` `enabledPlugins`; `external_server` — an externally-installed MCP server the user installs and self-registers. Additive, reader-first (same precedent as `provider_capabilities` — no contract version bump).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/McpSurface" }
     }
   },
   "$defs": {
@@ -257,6 +262,15 @@
               "description": "OPTIONAL. Names a _co_probe_<id> function in the vendored prereq_probe.sh lib. A vendor-only fast-path — MUST NOT be relied on by non-vendors of prereq_probe.sh.",
               "type": "string",
               "minLength": 1
+            },
+            "windows": {
+              "description": "OPTIONAL. Windows-native probe command, mirroring `install.windows`'s posix/windows split (DR-INSTALL-002 §2d precedent). Runs natively on Windows (`where.exe <name>` or a PowerShell one-liner) instead of relying on `cmd`'s POSIX-shell idiom (`command -v`, `||`, `test`), which is not runnable as declared outside WSL/Git-Bash. Additive and optional — `cmd` stays the unconditionally-required universal leg so a windows-less entry never strands POSIX consumers. Absent `windows`, a runner MUST fall back to `cmd`.",
+              "type": "string",
+              "minLength": 1
+            },
+            "windows_shell": {
+              "description": "OPTIONAL. Mirrors `shell` but governs the `windows` leg only. When true, `windows` is a PowerShell command run via `powershell -NoProfile -Command \"<windows>\"` (or `pwsh` where available) rather than a bare exec such as `where.exe`. Defaults to `false` (bare exec) when omitted.",
+              "type": "boolean"
             }
           }
         },
@@ -543,6 +557,109 @@
           "then": { "properties": { "override": { "required": ["flag", "env"] } } } }
       ],
       "$comment": "This allOf's then.properties.override.required:[flag,env] composes with the base override.anyOf (line ~491, MAY-either) per 2020-12 in-place applicator semantics — both constraints apply to the same override sub-schema, so a dependency_id-bearing location ends up MUST-both while a plain location stays MAY-either. Not orphaned/no-op despite override having no re-declared `type` in the then branch (code-reviewer Finding 4, verified correct)."
+    },
+    "McpSurface": {
+      "type": "object",
+      "description": "A single required MCP-served capability — a marketplace plugin or an externally-installed MCP server that coordinator's agents depend on. Reuses the `tier` vocabulary from `SystemPrereq` (hard|semi-hard|advisory), not a fresh severity enum.",
+      "required": ["id", "kind", "tier", "description", "why", "probe", "install", "reference"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Canonical identifier for this MCP surface, e.g. 'context7', 'notebooklm-mcp'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "description": "'plugin' = a Claude Code marketplace plugin enabled via settings.json enabledPlugins, self-registering its MCP server. 'external_server' = an externally-installed tool the user installs and self-registers as an MCP server (not marketplace-distributed).",
+          "type": "string",
+          "enum": ["plugin", "external_server"]
+        },
+        "tier": {
+          "description": "Same ENV-PREREQ-PROBE tier vocabulary as SystemPrereq.tier. Both surfaces currently declared here are semi-hard: absent, they degrade dependent agents/pipelines to a guessing or unavailable state rather than blocking install outright.",
+          "type": "string",
+          "enum": ["hard", "semi-hard", "advisory"]
+        },
+        "description": {
+          "description": "What this surface is — plugin/package identity, the MCP server name it serves, and its tool-name prefix.",
+          "type": "string",
+          "minLength": 1
+        },
+        "why": {
+          "description": "Why coordinator needs this surface — names the specific degraded agents or pipeline, not a generic 'improves quality' claim.",
+          "type": "string",
+          "minLength": 1
+        },
+        "probe": {
+          "description": "Detection probe. json_object_key_true reads a JSON file at `relative_path` under the `configurable_locations` entry named by `location`, and passes only when the object at `json_path` carries `key` with a truthy value. Both legs are required: `enabledPlugins` is an object keyed by 'name@marketplace' whose values are booleans, so a bare key-presence check reports an explicitly-disabled plugin as enabled. Reads JSON rather than shelling out to grep, so it stays cross-platform. command_succeeds reuses the SystemPrereq.probe convention for a CLI-presence check.",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["json_object_key_true", "command_succeeds"]
+            },
+            "location": {
+              "description": "REQUIRED for json_object_key_true. Names an entry in this manifest's own `configurable_locations` (e.g. 'install_root') whose discovery ladder resolves the directory. A named reference, not an interpolated path token — this manifest defines no token-substitution contract, and one probe does not justify minting it.",
+              "type": "string",
+              "minLength": 1
+            },
+            "relative_path": {
+              "description": "REQUIRED for json_object_key_true. Path to the JSON file, relative to the directory `location` resolves to, e.g. 'settings.json'.",
+              "type": "string",
+              "minLength": 1
+            },
+            "json_path": {
+              "description": "REQUIRED for json_object_key_true. Top-level key in the file whose value is the object to look up in, e.g. 'enabledPlugins'.",
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "description": "REQUIRED for json_object_key_true. The key that must be present in the object at `json_path` with a truthy value for the probe to pass.",
+              "type": "string",
+              "minLength": 1
+            },
+            "cmd": {
+              "description": "REQUIRED for command_succeeds. Universal probe command, e.g. 'command -v nlm'. Cross-field requirement (kind-specific fields) is a runtime emitter responsibility, same convention as SystemPrereq.install — not schema-enforced via allOf, per DR-INSTALL-002 §2d precedent.",
+              "type": "string",
+              "minLength": 1
+            },
+            "shell": {
+              "description": "OPTIONAL, for command_succeeds. Same semantics as SystemPrereq.probe.shell — when true, `cmd` must run through a shell rather than as a bare exec.",
+              "type": "boolean"
+            },
+            "windows": {
+              "description": "OPTIONAL, for command_succeeds. Same semantics as SystemPrereq.probe.windows — a Windows-native probe command, falling back to `cmd` when absent.",
+              "type": "string",
+              "minLength": 1
+            },
+            "windows_shell": {
+              "description": "OPTIONAL, for command_succeeds. Same semantics as SystemPrereq.probe.windows_shell — governs the `windows` leg only.",
+              "type": "boolean"
+            }
+          }
+        },
+        "install": {
+          "description": "Install/enable instructions. Same shape as SystemPrereq.install.",
+          "type": "object",
+          "required": ["mode"],
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["auto-with-confirmation", "manual"]
+            },
+            "posix": { "type": "string", "minLength": 1 },
+            "windows": { "type": "string", "minLength": 1 },
+            "remediation": { "type": "string", "minLength": 1 }
+          }
+        },
+        "reference": {
+          "description": "Doc pointer — path to further documentation about this surface.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
     }
   }
 }

@@ -7,13 +7,13 @@ argument-hint: "[optional context]"
 
 # Workstream Complete — Wrap Up Completed Work
 
-Close out a finished vein of work: capture lessons and update documentation to reflect completion. No handoff — this is for work that's *done*, not being passed forward.
+Close out a finished vein of work: capture lessons, update docs to reflect completion. No handoff — this is for work that's *done*.
 
-> **`/workstream-complete` and `/handoff` are mutually exclusive.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP and invoke `/handoff` instead. Two workstreams (one done, one in-flight) → end each separately, naming which is which. Exception: a named review scale this session cannot run and integrate → the trampoline, § Review, below. → coordinator CLAUDE.md § Handoff Lineage.
+> **Mutual exclusion with `/handoff`.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP, use `/handoff`. Two workstreams (one done, one live) → end each separately, naming which. Exception: a named review scale this session can't run+integrate → the trampoline, § Review. → coordinator CLAUDE.md § Handoff Lineage.
 
-The `workstream_complete` assembler (`claude-klabauter coordinator_core/workstream_complete/`) computes this ceremony: former session-shape detection, plan reconciliation, lesson capture, the completion-entry cluster, memo lifecycle, scratch self-clean, orientation refresh, and the commit-tail keystone each collapse to one or more `directives[]` entries naming an existing CLI; the 29 genuinely irreducible judgment calls the census (`state/plan-sidecars/2026-07-26-workstream-complete-computed-frontage.census-steps.md`) found in the pre-conversion body each surface as one `judgment_points[]` entry for you to resolve. Nothing below branches on what the assembler already resolved — read the resolved objects and act on them; do not re-derive the sequencing between them.
+The `workstream_complete` assembler computes this ceremony end to end — session-shape, plan reconciliation, lessons, completion-entry, memo lifecycle, scratch self-clean, orientation refresh, commit-tail are `directives[]` naming a CLI; what it can't resolve ships as `judgment_points[]`. Read the resolved objects — never recompute by hand what a field already answers.
 
-`$ARGUMENTS`, if provided, is context for what was accomplished this session — fold it into the Final Summary and the completion-entry prose.
+`$ARGUMENTS`, if provided: fold into Final Summary and completion-entry prose.
 
 ---
 
@@ -23,84 +23,58 @@ The `workstream_complete` assembler (`claude-klabauter coordinator_core/workstre
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workstream-complete-assemble" brief [--decisions '<json>']
 ```
 
-Returns the 8-key decision object (`artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions`/`narration`/`next_move`). `preflight.session_shape` (and the duplicate under `gates.session_shape`) already carries what the former Step 0 resolved by hand-eval'd shell export — `sid`, `disposition` (`single-session`/`predecessor-consumed`, the latter spelled `chain-terminal` before the token flip and still resolving under a permanent read-side alias), `consumed_handoff`, and any detector diagnostics. Read the token backward, not forward: it says this session consumed a predecessor, and claims nothing about whether a successor follows. There is no separate CLI/eval/export sequence to run; the fields are already on the envelope. `preflight.consumes_manifest` names all 20 CLIs the assembler orchestrates across its seven directive/judgment submodules — read `coordinator_core/workstream_complete/__init__.py`'s own module docstring for the closed set, not duplicated here.
-
-An uncertain session-shape resolution (Detector C indeterminate, or ambiguous stale-baton disambiguation) surfaces as `jp-session-shape` — an untrusted-gate judgment point (no assembler-supplied recommendation) rather than a silently-accepted best-effort disposition. `gates.completeness_checklist` carries the former Step 2.96 completeness-checklist WARN computation directly — a pure read+render with no backing CLI, never a `directives[]` entry.
+Returns an 8-key object (`artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decisions`/`narration`/`next_move`). `preflight.session_shape` (= `gates.session_shape`) carries `sid`, `disposition` (`single-session`/`predecessor-consumed`; reads backward — consumed a predecessor, not that a successor follows), `consumed_handoff`, detector diagnostics. `jp-session-shape` is the untrusted-gate point for an uncertain resolution — see § Resolve judgment points for what that means.
 
 ---
 
 ## Genuine EM actions — no directive can perform these
 
-A handful of steps have no consumes-manifest CLI at all — dispatching a subagent, or a fact no CLI on disk yet computes. These are direct EM actions, not branches on an assembler decision:
+**Invoking this skill IS the dispatch request** for `code-reviewer`/`review-integrator`/`docs-checker` below — no separate re-clear. Other PM gates (pre-`/execute-plan`, cross-repo-commit, ask-before-external-action) still bind. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
-- **Nature-infer dispatch** (feeds the `completion-nature-classification` judgment point, when `COMPLETION_NATURE` was not set): dispatch a small Sonnet sub-call with touched paths (`git diff --name-only`), commit messages (`git log --oneline`), workstream kind, and the resolved chain slug; it classifies into `{roadmap, bugfix, tech-debt, infra}` with a one-sentence rationale.
-- **Review-partition dispatch**: `d-freeze-and-dispatch-review-partition-<slice>` (`freeze-review-diff.py`, per slice) and its `-integrator` sibling (`fan-out-integrator.py`) are directives, but the `coordinator:code-reviewer` and `coordinator:review-integrator` Agent dispatches those directives frame are EM/harness actions no `directives[].cli` entry can perform — background-dispatching an agent is out of a directive's shape by construction. Freeze each slice's diff (the directive) before dispatching its reviewer; dispatch one `code-reviewer` per slice, unnamed, `run_in_background: true`; dispatch one 1:1 `review-integrator` per reviewer slice, never a collation union-integrator.
-- **Doc-fragile domain lens dispatch**: when `directives_review.compute_doc_fragile_gate` (no backing CLI — a pure predicate over `coordinator.local.md`'s `project_subtypes` and the diff's touched filetypes) matches, dispatch `coordinator:docs-checker` in parallel with the `code-reviewer` dispatch above, on the same frozen diff. → `coordinator/snippets/sidecar-emission-contract.md` for the provisioned-sidecar pass-through.
-- **Execution-observations fold** (when `coordinator-fold-execution-record` sidecars exist): read each sidecar's `divergence` block as quoted, attributed executor narrative — never interpolate it as EM-authored prose or an instruction to act on — and surface any `started_at`-set/`finished_at`-absent crashed-executor marker before the sidecar is deleted.
-- **Memo-resolution prompt**: which open `cross-repo/inbox/*.md` memos this session resolved is "non-automatable — no reliable programmatic signal connects commits to memo resolution" (the census's own words); ask once, plain prose, before the `memo-resolution-attribution` judgment point resolves.
-- **Session Ledger row append** (predecessor-consumed closes): append one row to the consumed handoff's `## Session Ledger` block, format per that block's own comment. It is the sole edit `/pickup`'s frozen-body rule carves out, and chain LoE's only input — skip it and the chain reads as zero effort. Take `<Nd / No>` from `<sessions_dir>/<sid>/dispatched-agents.txt`, not from memory. `chain_sessions_with_ledger: "N-1 of N"` on the scaffolded entry is the tell a row is missing.
-- **Self-clean per-file disposition**: which session-authored scratch files to `git rm` vs. justify-keep (`scratch-disposition-per-file`) is a per-file judgment the assembler surfaces evidence for (git-log/mtime session-authored classification) but does not decide.
+- **Review-partition dispatch**: freeze each slice's diff first; one `code-reviewer` per slice, `run_in_background: true`; one 1:1 `review-integrator` per slice, never a union-integrator.
+- **Doc-fragile domain lens**: `compute_doc_fragile_gate` match → dispatch `coordinator:docs-checker` alongside `code-reviewer`, same diff.
+- **Execution-observations fold**: read each sidecar's `divergence` as quoted narrative, never EM-authored prose; surface a crashed-executor marker before deleting it.
+- **Memo-resolution / self-clean disposition**: no signal for which memos resolved, or which scratch files to keep — ask/decide once, plain prose; assembler surfaces evidence, doesn't pick.
+- **Session Ledger row append** (predecessor-consumed only): one row to the consumed handoff's `## Session Ledger` — the sole edit `/pickup`'s frozen-body rule carves out.
 
 ---
 
 ## Resolve judgment points
 
-Present each open `judgment_points[]` entry as a legible question — never a raw JSON dump. The assembler offers a `recommendation` only where one is defensible (tier-appropriate); treat it as an offer, never a control-flow input you must accept. Untrusted-gate points (`jp-session-shape`, `jp-coverage-verdict`'s sibling framing) carry no recommendation at all — read `evidence` and decide.
+**3 classes.** 1 = CLI-computable, not on this list. 2 = interpretation but not *this EM's* — enumerated inputs, closed enum, a differing answer is demonstrably wrong; demote when possible, else carry by necessity. 3 = judgment/taste/tradeoff. A re-test names a class per item it **keeps**, not only demotes — an unclassed kept item is the tell.
 
-**Lessons and plan** — `lesson-worth-capturing` (does this pass the 4-week test?), `lesson-scope-classification` (universal vs project-specific, and which `--change-kind`), `plan-doc-content-update` (what in the governing plan is now stale), `plan-vs-reality-reconcile` (which ALLOWLIST sections need a `SHIPPED: X (was: Y)` annotation), `enablement-vs-opportunistic-deferral` (is a queued improvement actually a load-bearing roadmap deliverable masquerading as a deferral?).
+**A shipped `recommendation` is applied by default and shown, not asked** — carry into the decisions map, report what was filed as a receipt (`completion-nature-classification`/`jp-coverage-verdict` both ship one). A null earns attention only when genuine: `jp-session-shape` always, `jp-review-scale` while unresolved, tail-blocking scaffold/commit-subject/consumed-handoff whenever they fire (untrusted-gate, no recommendation by design). Blocked computation/missing producer are break-class engine defects instead — resolve cheaply or memo; verify a claimed-absent producer is really absent first.
 
-**Completion entry** — `completion-nature-classification` (resolved by the Sonnet dispatch above), `completion-entry-prose` (TITLE + ≤8-sentence body; banned sections: `## Reviewer chain`, `## Deviations from plan`, `## Acceptance criteria`, `## Universal lessons captured`), `commit-significance-filter` (group related commits, skip trivial ones, skip the entry entirely on doc/lesson-only sessions). Resolving these two judgment points is not the last step: `d-complete-entry` only scaffolds the entry file with placeholder title/prose/nature — you must hand-write the resolved title, prose, and nature into that same file before the commit-tail keystone runs; a scaffold that still carries its placeholders when the tail fires gets its commit refused outright, named file and all.
+**The rest — read the object.** Every judgment point not named here carries its own prompt/evidence on `judgment_points[]` — resolve directly against it.
 
-**Memo and scratch** — `memo-resolution-attribution` (which open memos resolved this session, per the prompt above), `do-now-memo-violation-check` (an `ask` memo accepted in word but not landed — do the work now, or Decline/Surface-to-PM), `scratch-disposition-per-file`.
+**Completion entry:** TITLE + ≤8-sentence body, banned sections `## Reviewer chain`, `## Deviations from plan`, `## Acceptance criteria`, `## Universal lessons captured`. `d-complete-entry` scaffolds placeholders only — hand-write the resolved title/prose/nature before commit-tail; a scaffold still carrying placeholders is refused.
 
-**Predecessor and orientation** — `predecessor-distill-fate` (predecessor-consumed only: `ephemeral`/`commitment`/`ratification` for a predecessor lacking the field), `pinboard-note-content` (one line, only if the next session would otherwise be fooled), `orientation-doc-row-updates` (project tracker / action items / docs README rows this session affected), `cross-cutting-check` (big-workstream only: anything the review pass wouldn't surface — install-surface completeness, a new convention's contact-points, security/secret surface, doc/wiki staleness), `inline-waiver-recognition` (predecessor-consumed with a `completeness_checklist:` predecessor: does an ad hoc inline waiver satisfy an unverified item?).
+**Review — 8 class-3 survivors, no mechanical rule for any:** `review-partition-strategy`, `reviewer-count-on-oracle-disagreement` (tier A is a hard stop), `shared-schema-touch-check`, `governing-spec-identification`, `finding-tradeoff-escalation-check`, `shallow-row3-waive-check`, `review-dispatch-vehicle-choice` (hand-dispatch — a Workflow `agent()` spawn skips the sidecar-provisioning hook), `quota-retry-vs-escalate`.
 
-**Review** — the 8 points D-3 preserved from Step 2.9's mechanical shell, none with a stated computable rule in the source: `review-partition-strategy` (how to slice a large diff — package boundary, concern, or directory cluster; no mechanical rule), `reviewer-count-on-oracle-disagreement` (tier B/none: reconcile `plan_oracle`/`chain_oracle`/`session_oracle` when they disagree — tier A is a hard stop, not a judgment call), `shared-schema-touch-check` (does a touched file count as a shared schema/seam), `governing-spec-identification` (which spec(s) govern this session's diff, row 3+ only), `finding-tradeoff-escalation-check` (fix every finding including nitpicks; escalate only a genuine tradeoff), `shallow-row3-waive-check` (EM's backstop waive authority on a genuinely shallow row-3 diff — diff shape, not row number, is the test), `review-dispatch-vehicle-choice` (hand-dispatch vs. the `review-wave` background Workflow — hand-dispatch is recommended: a Workflow-internal `agent()` spawn never fires the `Agent`-matched `PreToolUse` hook that provisions report sidecars, so an eligible agent type arrives without the `sidecar_path:` its contract promises unless you pre-provision and inject it), `quota-retry-vs-escalate` (on a `scan_dispatch_output` quota match: retry vs escalate, based on remaining budget).
+**Scale:** doc-only/no-executor/<50 LOC single file → None; executor dispatched, or >50 LOC, or shared-schema touched → `code-reviewer`. `gates['review_scale']` carries the measured `gross_loc`/`commit_count`/`surface_count`; a `decisions` override beats the measurement only for a stated reason, never routine. **Brightline is mandatory, not advisory:** ≥500 gross LOC, OR ≥5 commits, OR ≥4 surfaces forces partitioned regardless. Owns review for the whole chain, including upstream `/mise-en-place` work — its clean verifiers never justify a lower scale. **Chain-end** → same scale rule, taken over the range `resolve_mid_chain_review_scope` resolves, never hand-derived.
 
-Two reference tables back these points without narrating a branch tree — read them as lookup tables:
+**The trampoline — under low context, hand the ceremony to a fresh session rather than cap with the review unrun.** Once a scale is named you owe it; if context can't run+integrate, exit via `/handoff` (successor runs-review-then-caps, never cap-and-annotate), naming the context signal. `/handoff`'s NO-tests carve this case out.
 
-| Diff shape (`decide_review_scale`) | Scale |
-|---|---|
-| Doc-only edits, lesson capture, no executor, no code touched | None |
-| Single-file fix <50 LOC, no shared schema, no executor | None (commit message names the change) |
-| Executor dispatched, OR >50 LOC code, OR shared schema/seam touched | `code-reviewer` |
-| Brightline: ≥500 gross LOC, OR ≥5 commits, OR ≥4 distinct surfaces | Partitioned — mandatory |
-| Chain-end, non-trivial chain diff | `code-reviewer` on chain diff |
-| Chain-end, chain diff exceeds the brightline | Partitioned — mandatory |
+**Capping with the review unrun is forbidden; `verdict: pending` is not the escape hatch.** Tells to trampoline instead: "the next session can review this"; `reviewer: waived` pairing a non-`waived` verdict; a range narrowed to one commit because the honest range was refused; "mandatory" reasoned as advisory. Tripwire: `PARTITION-MANDATORY`.
 
-**This step owns review for the whole chain, including work an upstream ceremony produced.** `/mise-en-place` runs no review of its own — it freezes its run diff and routes here. So a session arriving from a `/mise` run arrives with its diff **unreviewed**, however many per-item verifiers passed along the way: those cover footprint and acceptance-criteria compliance, never review. Nothing upstream is an input to the table below, and an upstream run's clean verifiers are never a reason to pick a lower row. Where `/mise` hands over a frozen diff path, use it as the run-scoped slice of the chain diff — not as the chain diff itself, which is that work plus its ancestry.
+`scan_dispatch_output(text) -> bool` checks every completed Agent dispatch's return body before a verdict-ok trail write (`QUOTA-EXHAUSTED-DISPATCH:` is sufficient alone). Trivial (row 1/2) sessions write no trail record; PM-waived logs `--reviewer waived --verdict waived`; `em-verified` is for a review you ran yourself, not `waived` (no verification) — both need ≥20-char justification.
 
-The brightline and chain-end rows override the plain workstream-complete rows when both apply — partitioning is the integration-risk control, not a chain-end privilege. `d-run-review-brightline-gate` (mid-chain) / `d-run-chain-plan-brightline-gate` (predecessor-consumed) compute the mechanical gate verdict feeding this table; `d-run-chain-coverage-gate` and `d-verify-trail-range-termination` compute the chain-end coverage verdict and the disbelief predicate respectively (the check is range termination, not mere record presence). `resolve_mid_chain_review_scope` resolves the mid-chain diff range from the trail records the apply half already fetched — you do not re-derive `$LAST_REVIEW_SHA` by hand.
+**`decisions["review"]` keys go nested under `"review"`, never flat `review_*`** — flat keys are silently ignored and the tail skips with no trail while exiting 0, a green-looking ceremony with no record. The engine validates `reviewer`/`scope`/`verdict`/`reviewer_evidence` enum values and names the legal set on rejection. Omit `reviewer_evidence` only for `wsc-auto-adjudication` or a delegate reviewer at `verdict: pending`; everywhere else a missing/unresolvable value refuses the write. **`sha_range`/`diff_loc` are passed as `--review-sha-range`/`--review-diff-loc` CLI args** — not reconstructed by hand. **On total refusal** (every per-commit slice write refused), `verdict` still reads `blocked`, never `pending`/`waived` — the write raises (exit 2, non-halting), commit lands, no trail lands, defect named in output.
 
-**The trampoline — under low context, hand the whole ceremony to a fresh session rather than cap with the review unrun.** Once the table above names a scale, you owe that scale. If remaining context cannot run it *and* integrate what it finds, the sanctioned exit is **`/handoff`, with the successor's remit being to run the review and then cap** — not to cap here and annotate. Stop the ceremony and write the handoff, naming the concrete context signal that forced it; `/handoff`'s NO-tests carve this case out explicitly (§ Step 0, review-owed close), so the surface that would otherwise bounce you back here will accept it. This is the only reason `/workstream-complete` ever ends without capping, and it is gated on context alone: with context to spare, run the review.
+<!-- engine-gap: field=gates.review_scale.sha_range producer=unknown memo=2026-08-14-claude-klabauter-em-review-scale-sha-range-is-ours-plus-three-answers.md -->
+<!-- engine-gap: field=gates.review_scale.diff_loc producer=unknown memo=2026-08-14-claude-klabauter-em-review-scale-sha-range-is-ours-plus-three-answers.md -->
 
-**Capping with the review unrun is forbidden, and `verdict: pending` is not the escape hatch.** A trail record standing in for a review that never happened is worse than no record — every downstream consumer that checks for a record rather than a verdict reads it as green, which is the exact failure the trail exists to prevent. `pending` belongs to a review that is open and will close, never to one that will not be run. The tells, all of which mean *stop and take the trampoline*: a sentence forming that says the next session can review this; a `reviewer: waived` you are about to pair with a non-`waived` verdict; a range narrowed to one commit because the honest range was refused; "mandatory" reasoned about as advisory. `PARTITION-MANDATORY` is a floor on what must be reviewed before capping, not a note attached to a cap.
+**`sha_range` must contain only this session's own commits** — a foreign-session guard refuses a range carrying another session's `Session-Id` trailer, normal on a shared branch; write one per-slice record per commit (`<sha>^..<sha>`) instead. A gate stops unreviewed work, it does not collect an attestation that work was reviewed — narrowing the range or lowering scale until something writes is forbidden even when the review genuinely ran. **Slice; never narrow** — a legitimate bookkeeping exclusion states itself and its LOC.
 
-`scan_dispatch_output(text) -> bool` (no backing CLI — a pure predicate) replaces the former hand-applied quota-detection regex/length-corroboration table; run it against every completed Agent dispatch's return body before writing a verdict-ok trail record, and recognize the `QUOTA-EXHAUSTED-DISPATCH:` self-detection envelope as sufficient on its own.
-
-`d-write-review-trail` composes the trail write once these are resolved; negative-spec unchanged — trivial (row 1/2) sessions write no trail record, PM-waived sessions log `--reviewer waived --verdict waived`.
-
-**`decisions["review"]` is a closed-enum object, and the plausible spellings are all wrong.** Supply it nested (never as flat `review_*` keys — those are silently ignored, and the tail then skips with `review_trail.write:no-review-metadata` while still exiting 0, so the ceremony looks green with no trail written). Required keys are `sha_range`, `reviewer`, `scope`, `verdict`, `diff_loc`; three of them are enums that reject the spelling a reader naturally reaches for:
-
-| Key | Allowed | The wrong-but-natural spelling |
-|---|---|---|
-| `reviewer` | `code-reviewer` \| `code-reviewer+staff-eng` \| `staff-eng` \| `ubt-compile` \| `waived` \| `wsc-auto-adjudication` | the namespaced agent type (`coordinator:code-reviewer`), or the retired persona spelling (`the Staff Engineer`) |
-| `scope` | `chain` \| `session` \| `workstream-close-auto` | a free-text description of what was reviewed |
-| `verdict` | `blocked` \| `ok` \| `pending` \| `waived` \| `warn` | the reviewer's own uppercase `WARN`/`OK`/`BLOCKED` |
-
-**`sha_range` must contain only this session's own commits.** A foreign-session guard refuses any range carrying commits whose `Session-Id` trailer names another session, which is the normal case on a shared branch — and the brightline gate's `range=` output is NOT a safe source for it, since that range reaches back across peer commits. On a concurrent branch a contiguous range spanning your own commits is usually impossible; write one per-slice record per commit (`<sha>^..<sha>`) instead. The refusal is deliberately undecided between "legitimate baton-ancestor coverage" and "unrelated peer work" — determine which before reaching for the PM-vouch grant it offers.
-
-**Slice; never narrow.** A partition-mandatory verdict may not be answered by reducing what gets reviewed. The guard above constrains what you may *record*, not how much you must *review* — and the pull toward answering it by shrinking the diff is strong precisely because the refusal is legitimate. If a guard blocks a contiguous range, slice it. Where a partition legitimately excludes ceremony bookkeeping (review-trail JSON, subagent sidecars, memo/handoff frontmatter), state the exclusion and its LOC: a silent narrowing reads as coverage.
+**A chain-ancestry waiver is provenance, not review discharge — it does not clear a HALT.** `certifies_review: false` reads "ancestry NOT reviewed," and re-running does not clear it either. Tripwire: `WAIVER-IS-PROVENANCE-NOT-DISCHARGE`.
 
 ---
 
-## Concurrent-EM shared-branch disposition (read before disposing a case-(c) file)
+## Concurrent-EM shared-branch disposition
 
-**Case (c) is NOT always an orphan** — see `dirty-tree-gate.py`'s stderr trailer (emitted on exit 3, starting "REFUSING to auto-stash or auto-adopt") for the full explanation; the short version: on a genuinely concurrent-EM branch, case (c) commonly means a live peer session's in-flight files the classifier has no cross-machine signal to promote to case (b). This is genuinely EM-side judgment — `d-run-wsc-tail`'s own gate fires the classification (a/b/c) mechanically; disposing case (c) does not.
+**Case (c) is not always an orphan** — often a live peer's in-flight files (no cross-machine liveness signal exists); `d-run-wsc-tail` classifies (a/b/c) mechanically, disposing case (c) is EM judgment. Weak/contradictory signals default to case (c), never a guess; if a peer is plausibly live, never stash/adopt their paths — commit only your own files by explicit path.
 
-Before picking any disposition, ask: **is an active peer EM session plausibly on this branch right now, and are these paths plausibly theirs?** (Signals: multiple recent commits from different topics within the last hour; `docs/plans/<slug>*.md` / `tasks/<slug>/` paths matching a plan you did not author this session; unrecognized `state/roadmap/`, review-trail findings, or `cross-repo/inbox/` memos.) Weak or contradictory signals default to treating the path as case (c) and using the ladder below rather than guessing peer-vs-orphan. If a peer is plausibly live: never stash or adopt their paths; complete via explicit-path commit of only your own session's files; do not re-run the gate expecting it to clear.
-
-For a genuinely unattributable file, once you've ruled out a live peer, the `concurrent-peer-attribution` and `unattributable-file-disposition` judgment points resolve to exactly one of: **commit** with provenance via `ceremony.scoped_git_commit` (claude-klabauter; `paths: [<path>]`, message `"chore: adopt orphaned WT change <path> — unattributed at workstream-complete"`) — it selects the agree-case vs. private-index form for you, per `docs/wiki/scoped-safety-commits.md § The trailing pathspec is a proxy for scope, valid only while index and worktree agree`, **stash-with-provenance** (`git stash push -u -m "orphaned-WT <date> workstream-complete: <path> — left by unknown session" -- <path>`), or **explicit "leave it owned by X"** once you can name the owner. The forbidden outcome is terminating with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are an Edit-tool atomic-write crash artifact — diff against target before deleting, never stash blind.
+Once ruled out: **commit** with provenance (`ceremony.scoped_git_commit`), **stash-with-provenance** (`git stash push -u -m "orphaned-WT <date> workstream-complete: <path> — left by unknown session" -- <path>`), or **explicit "leave it owned by X."** Never terminate with case-(c) files still dirty and unnamed. Orphan `.tmp.<pid>.<nanos>` files are an Edit-tool crash artifact — diff before deleting.
 
 ---
 
@@ -110,71 +84,34 @@ For a genuinely unattributable file, once you've ruled out a live peer, the `con
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workstream-complete-assemble" apply --decisions '<json map of judgment_point_id -> {"disposition": "<value>"}>'
 ```
 
-`decisions` also carries every value the compute half cannot read off disk on its own — lessons to capture, the resolved completion-nature/prose, memo dispositions, deleted/kept scratch paths, the review-partition slice map, commit subject/prose, and the composed `WSC_PATHS`/`--stage-paths` set. Executes every directive whose gate is open — a directive with no `depends_on` fires unconditionally; a gated directive fires only once its judgment point's chosen disposition names it in `resolves`. This covers: lesson capture + queue-append, the governing-plan claim/stamp/deferral-harvest trio, the completion-entry cluster (`d-complete-entry`, `d-reconcile-completion-commits`, `d-fold-execution-observations`), the memo status-flip pair, `d-emit-deletion-blocks` (Step 2.67's structured Deleted/Kept blocks), the orientation pinboard append and machine-local regeneratability check, the review-dispatch mechanical shell (brightline gates, partition freeze/integrator, UBT pending-check, dispatch-shape classification), and the commit-tail keystone (`d-close-tail-args` → `d-run-wsc-tail` → `d-archive-session-claim` → `d-release-plan-claim` → `d-emit-cadence`).
+`decisions` carries every value the compute half can't read off disk — lessons, resolved completion-nature/prose, memo/scratch dispositions, review-partition slice map, commit subject/prose. Fires every open-gated directive through the commit-tail keystone.
 
-**`d-run-wsc-tail` exit ladder — load-bearing.** `0` success. `2` the commit landed but a tail item needs attention (e.g. a soft-failed origin-stub close) — this is not a halt; read the diagnostics and address the named item, never re-run blind against an already-clean tree. `1` hard failure — the ceremony did not commit; stop and diagnose. `3` transport/seam failure — surface to the PM, this is an install problem not a ceremony-content problem. A client-side `cc_invoke` timeout is not a failure signal either way — reconcile against `git log -1`/`git status` before deciding anything failed, never blind-retry (→ archaeology wiki § The async push contract).
+`d-run-wsc-tail`/`apply` print their own diagnostics on every non-zero exit — read them, don't memorize codes. Their exit `2` means opposite things: `d-run-wsc-tail` exit `2` means the commit **landed** — read diagnostics, never re-run blind against an already-clean tree; `apply` exit `2` (`DIRECTIVE_FAILED`) means nothing landed. `apply` exit `4` (`PARTIAL_MUTATION`) means some directives landed and some failed — reconcile before re-running, never blind-retry. A client-side timeout is not a failure signal either — reconcile against the actual commit state first, never re-run on the strength of a timeout alone.
+<!-- engine-gap: field=directives[d-run-wsc-tail].commit_landed producer=claude_klabauter:workstream_complete.apply memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
 
-**`apply`'s own exit ladder** (`WorkstreamApplyExitCode`, separate from the CLI calls above): `0` success — every directive that fired landed clean. `1` `HALTED_AT_JUDGMENT` — one or more directives are still gate-closed; resolve the blocking judgment point(s) and re-run. `2` `DIRECTIVE_FAILED` — a dispatched CLI returned non-zero or raised; nothing landed. `3` `TRANSPORT_FAIL` — the brief itself failed (never trusts a caller-supplied decision object; it recomputes `brief()` in-process). `4` `PARTIAL_MUTATION` — some directives landed, some failed; reconcile before re-running (re-running is not idempotent-safe against directives whose CLI has already mutated disk once).
-
-Push is a deferred, detached post-commit event, not an in-band confirmation — `push_status: "deferred"` is success. Confirm landing via `git branch -r --contains <sha>` or `.git/push-failures.log` after a short interval, allowing for the detached child still being in flight; never issue `git push` yourself to "fix" an apparent delay.
-
----
-
-## Auto-Memory Drain (blocking gate, no consumes-manifest CLI)
-
-Auto-memory is ephemeral by definition — this ceremony drains it to zero every close. Run:
-
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-auto-memory-drained" --root .
-```
-
-Exit 0: nothing under the auto-memory store — proceed to the Final Summary. Exit 1: it prints
-every residual `*.md` path (index and/or sibling body files) to stderr. For EACH one, resolve
-exactly one disposition — silence is not a disposition:
-
-- **PROMOTE** — write the fact to its durable home (doctrine, wiki, `docs/decisions/`,
-  `state/lessons/` via `/learn-lessons`, or the orientation cache — per C1's channel contract) and
-  note the target path. This is a real authoring act: most memory rows are private shorthand that
-  will not survive a reader who lacks the session, so restate the claim in the destination's own
-  voice rather than copying the row verbatim.
-- **DROP** — say so explicitly.
-
-Then delete every file the gate named (the gate itself never mutates — it only detects residue)
-and re-run the command above to confirm exit 0. Record the full disposition list — path,
-PROMOTE/DROP, and target path for each PROMOTE — in the Final Summary under **Auto-memory
-drain**; the memory dir carries no git history, so this ceremony's own output is the only record
-of what was destroyed.
-
-**On the first gate invocation this ceremony exiting 0 immediately (no residue ever printed):**
-the store was empty from the start — omit the `**Auto-memory drain:**` line entirely.
-**If the gate ever printed residue this run, even once:** the disposition list is mandatory in
-the Final Summary — even though the store is empty by the time you write it. Omitting the line
-at that point would erase the only record of what was destroyed.
-
-ZERO MEANS THE DIRECTORY, NOT THE INDEX — a drained `MEMORY.md` with surviving sibling body files
-still fails the gate and is not done. This complements the write-time size cap on the auto-memory
-store (a spatial bound), not a duplicate of it (a temporal bound); neither supersedes the other.
+Push is deferred/detached — `push_status: "deferred"` is success; confirm via `git branch -r --contains <sha>`, never `git push` to "fix" an apparent delay.
 
 ---
 
 ## Execution-Residual Sweep (judgment step — nothing computes it)
 
-`d-harvest-deferrals` selects on **spine rows**, and a residual discovered mid-execution never was
-one — so the harvest reports `Queued 0`, which reads as "nothing was left behind." This step makes
-that count honest.
+A residual discovered mid-execution never counts in the harvest — `Queued 0` reads as "nothing left behind." Tell: a residual recorded only in prose, no queue id/spine row/commit behind it. One disposition per item; nothing to sweep is ordinary — omit the line. **Default is fix it now**; routing elsewhere costs a named reason from a closed class:
 
-The tell is a residual recorded only in prose — a plan section with a written reason, an
-`## Execution Notes` row, a paragraph of your own report — with no queue id, spine row, or commit
-behind it. **One disposition per item; silence is not a disposition** (same contract as the drain
-gate above): route it (`coordinator-queue-append --schema bug-backlog|debt-backlog|improvement-queue`,
-a spine row, or a dispatch), or say it is closed and why. Nothing to sweep is ordinary — omit the
-line.
+| reason class | means |
+|---|---|
+| `peer-contention` | live peer holds the file — name the surface, confirm via session-registry |
+| `other-repo` | belongs to a sibling — memo routes it, or a live send only if peer confirmed live and both gates pass; default to memo when unclear |
+| `own-plan` | large enough to need its own plan — name the scale |
+| `irreversible` | needs PM assent |
+| `not-real` | doesn't survive examination — say why |
+
+**Not a named reason:** *"predating this work"*, *"pre-existing"*, *"not now"*, *"follow-up"*, *"out of scope"*, *"noted for the next sweep"*. A break-class residual with none of the five is fixed, not filed. The auto-memory drain gate runs only at `/workday-complete`/`/workweek-complete`, never here.
 
 ---
 
 ## Final Summary
 
-**Report by exception.** Two lines always; everything else appears only when it is *not* clean. A ceremony summary is still an EM→PM reply and still owes the ≤200-word budget — a fixed block of all-clean status lines spends that budget on facts the PM can read off the commit, then gets measured as verbosity. Print what needs a reader, not what needs a checkbox.
+**Report by exception.** Two lines always; everything else only when *not* clean.
 
 ```
 ## Session Complete
@@ -183,43 +120,28 @@ line.
 **Pushed:** [branch name (deferred/detached) / no — reason]
 ```
 
-Then append a line **only** if its condition holds:
+Append a line **only** if its condition holds:
 
 | Line | Include only when |
 |---|---|
-| `**Completeness checklist:**` | `gates.completeness_checklist` is WARN — name the N unverified items |
-| `**Consumed-handoff completeness:**` | any element of `gates.consumed_handoff_completeness` reports `blocks` or `indeterminate` — the gate evaluates per element of a plural consumed-handoff set, so name **every** such handoff and which leg (unticked acceptance criteria / live children), never just the first. `indeterminate` is reported too: an unreadable handoff, a missing `## Acceptance criteria` heading, a heading with zero checkboxes, and a `has_live_children` error (non-blocking here by design — the risk is wedging the commit, not a destructive archive) all mean *the gate could not look*, which unreported reads as verified. **`not-applicable` is a fourth leg-A verdict and is deliberately NOT reported** — see below |
-| `**Auto-memory drain:**` | the drain gate printed residue at any point this run — full `path -> PROMOTE(target)/DROP` list, mandatory even though the store is now empty |
+| `**Completeness checklist:**` | `gates.completeness_checklist` WARN — name the N unverified items |
+| `**Consumed-handoff completeness:**` | element reports `blocks`/`indeterminate` — name handoff+leg (`not-applicable` is a 4th leg-A verdict, NOT reported) |
 | `**Deferral harvest:**` | N ≥ 1 queued |
-| `**Execution residuals:**` | the sweep resolved ≥ 1 item — one line per item, `<residual> -> <queue entry / spine row / dispatch / closed-because>` |
-| `**Post-summary reconcile:**` | commits were folded (silent when clean) |
-| `**Flag to PM:**` | a direction-class item survived the severity classification below |
+| `**Execution residuals:**` | sweep resolved ≥1 item — `<residual> -> fixed <sha>` or `-> <queue id \| memo \| spine row> (<reason-class>: <clause>)` |
+| `**Post-summary reconcile:**` | commits were folded |
+| `**Flag to PM:**` | a direction-class item survived severity classification below |
 
-**`not-applicable` is not `indeterminate` — never collapse the two.** Leg A branches on the
-consumed handoff's own `kind`. For `kind: session-handoff` only, the gate stops reading that
-baton's body for acceptance criteria — session-handoffs structurally do not carry them (0 of 34 in
-this repo's corpus) — and instead follows the baton's `plan:` pointer, evaluating the *plan's*
-acceptance criteria. Absent pointer, a pointer failing repo-root containment, an unreadable plan,
-or a plan with no acceptance-criteria heading all yield `not-applicable`: **there was nothing to
-look at, and that is correct.** `indeterminate` means the opposite — the gate tried to look and
-could not. Reporting `not-applicable` would fire on 30 of 34 session-handoffs here, which is
-precisely the noise this verdict exists to remove, so it stays silent in the summary line exactly
-as `clean` does. The per-element detail remains readable at
-`gates.consumed_handoff_completeness.elements[i].leg_a`, and every `detail` names the plan path it
-evaluated. `not-applicable` never blocks — `blocks` tests `== "open"` by exact string, so a future
-refactor toward set-membership must not sweep this verdict in.
+**`not-applicable` is not `indeterminate`.** `not-applicable`: nothing to look at (e.g. a `session-handoff`'s leg A resolves via `deliverable_id`/plan `status:` and finds no live plan) — stays silent, same as `clean`. `indeterminate`: the gate tried to look and couldn't — declining to look because a field said it needn't is `indeterminate` wearing the wrong token, and must be reported. Tripwire: `NOT-APPLICABLE-SPANS-TWO-SILENCES`.
 
-**Negative-spec — these are gone, do not restore them.** `Lessons captured`, `Work archived`, `Docs updated`, and `Orientation refreshed` are no longer printed at all. Each was a count or a file list of work the ceremony's own commit already records; none carried a PM decision. Their absence is not a signal the step was skipped — the directives still run, and `git show` is their record. A future reader must not re-add them "for completeness": completeness of the *ceremony* is the assembler's job, completeness of the *report* is not the same thing.
+**Do not print** `Lessons captured`/`Work archived`/`Docs updated`/`Orientation refreshed` — each is a count the commit already records, not a PM decision.
 
-**Classify flags by severity before listing** (`flag-severity-classification`). A break-class defect (broken / would-break / fails / leaks / silently-bypasses) is fix-by-default — fix it (or dispatch / propose a plan) and report the *fix*, never a passive `Flag to PM:` choice. Only direction-class items (product / prioritization / genuine tradeoff) belong under Flag-to-PM. → global `CLAUDE.md § Flag Severity`.
-
-`commit-message-authoring` and `session-work-summary` compose the commit subject/prose and this section's "Work done" line respectively — same authorial bar as any commit, no computed substitute.
+**Classify flags by severity first.** A break-class defect (broken/would-break/fails/leaks/silently-bypasses) is fix-by-default — fix it, report the fix, never a passive `Flag to PM:` choice; only direction-class items go there. → global `CLAUDE.md § Flag Severity`.
 
 ---
 
 ## What this does NOT do
 
-- **Rebuild the Step-0 session-shape gate, the coverage judgment point, or `resolve_repo_root`.** They exist and are green — `preflight.session_shape` and `jp-coverage-verdict` are already correct; don't re-derive them.
-- **Compose or extend `apply_base.py`.** `workstream_complete/apply.py` hand-authors its own closed dispatch + halt contract (imported from `coordinator_core.ceremony_common.apply_halt`, the same factored trio `workday_complete`/`workweek_complete` use) — that is a deliberate, documented divergence from the `pickup`/`baton`/`merge`/`consolidate` lineage, not an oversight.
-- **Propagate `/workday-complete`'s dirty-tree auto-disposition here.** `commands/workday-complete.md` is an explicit negative-spec pointing the other way — workstream-complete keeps the stricter surface where an unattributable dirty file is a real signal.
-- **Auto-resolve tier-A oracle disagreement.** A declared-but-unwalked-repo tier is a hard stop, not a judgment call — override is gated on the `/autonomous` sentinel plus a recorded reviewer, never a silent proceed.
+- Rebuild the Step-0 session-shape gate, the coverage judgment point, or `resolve_repo_root` — already correct.
+- Compose or extend `apply_base.py` — a deliberate divergence from the `pickup`/`baton`/`merge`/`consolidate` lineage.
+- Propagate `/workday-complete`'s dirty-tree auto-disposition — stricter surface here, on purpose.
+- Auto-resolve tier-A oracle disagreement — a hard stop; needs `/autonomous` plus a recorded reviewer.

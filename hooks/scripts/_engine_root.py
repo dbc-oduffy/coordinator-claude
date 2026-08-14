@@ -11,7 +11,7 @@ the shared Stop-hook transport body for the Family-A pointer-shim pair — see
 that function's own docstring for the full contract.
 
 HARD CONSTRAINT — zero-spawn: these hooks run on the hot-path
-PreToolUse/PostToolUse dispatch, where DoE's own zero-spawn boot mandate
+PreToolUse/PostToolUse dispatch, where this doctrine-plane repo's own zero-spawn boot mandate
 (the 2026-07-15 zero-spawn directive, see `project-orientation.py`)
 requires zero subprocess spawns per invocation — a constraint on this
 repo's hook code in its own right, not derived from any engine-side
@@ -120,6 +120,36 @@ _CLAUDE_KLABAUTER_SIBLING_DIR_NAME = "claude-klabauter"
 #: deliberately does not, so a literal spelled on the consumer side would name
 #: a variable the published resolver no longer reads.
 LIVE_TREE_ENV_VARS = ("REPO_CLAUDE_KLABAUTER", "CLAUDE_KLABAUTER_ROOT")
+
+
+def _warn_fail_open(where: str, exc: BaseException) -> None:
+    """Emit ONE stderr line for a fail-open degrade, then return.
+
+    Why this exists rather than a bare `except Exception: pass`: the
+    resolver's fail-open contract and its observability are two different
+    requirements, and a silent swallow satisfies only the first. A resolver
+    defect (a registry TOML read mid-write, an OSError on a disconnected
+    drive holding a registered published-engine mirror, a NameError from a
+    half-landed edit to the rung ladder) then presents to the consumer as
+    "the engine had nothing to say" — indistinguishable from correct
+    behaviour, which is the failure shape a sibling plane spent two days
+    chasing.
+
+    Deliberately one line, not a traceback: these run on the hot-path hook
+    dispatch, and on the Stop-hook shim path stderr is a contended channel
+    (exit 2 there means "show this to Claude"). The write is itself guarded —
+    a closed or non-writable stderr must never convert a fail-open into a
+    raise.
+    """
+    try:
+        import sys
+
+        sys.stderr.write(
+            f"[_engine_root] fail-open degrade in {where}: "
+            f"{type(exc).__name__}: {exc}\n"
+        )
+    except Exception:
+        pass
 
 
 def _flatten_registry(data: dict, _prefix: str = "") -> dict:
@@ -267,6 +297,124 @@ def _engine_working_repo_roots(reg_dir: Path) -> list[str]:
                 seen[v] = None
 
     return list(seen.keys())
+
+
+def resolve_publish_mirror_roster() -> list[tuple[str, str]]:
+    """Every registered `publish.mirrors.*` entry, as `(path, owner)` pairs.
+
+    Spec: 2026-08-08 publish-mirror-roster-on-the-engine-boot plan. The read
+    side of a write-time guard that already exists: `bump_out_of_repo_tool_write`,
+    `bump_outside_repo_write`, `bump_foreign_repo_write`, and
+    `block_oss_mirror_memo_delivery` all fire on a WRITE to a registered publish
+    mirror, correctly refusing it — but an agent that reasons its way to never
+    writing never reaches one of those guards, and has nothing on the read path
+    to tell it the directory it just met is a publish mirror rather than an
+    ordinary sibling repo. This function is that read-side fact, sourced once
+    so `engine_resolution_banner()` (project-orientation.py) can announce it
+    unprompted on the boot path.
+
+    Negative-spec — why `publish.mirrors.*` and not `repos.claude_klabauter`:
+    `repos.claude_klabauter` resolves to the SAME directory as a publish
+    mirror on some machines, which makes the two look interchangeable. They
+    are not. `repos.claude_klabauter` is the *engine-resolution* rung —
+    already covered by the existing class line in `engine_resolution_banner`,
+    and it exists in `repos.*` for `_resolve_published_engine`'s reason, not
+    this one. Reading it here would conflate the engine seam with the publish
+    seam, and would miss `publish.mirrors.coordinator_claude` (and any other
+    registered mirror with no engine-resolution role) entirely.
+
+    Negative-spec — no `coordinator_core/` existence check: that guard is
+    `_resolve_published_engine`'s, where it distinguishes a half-cloned
+    *engine* checkout from a finished one. A publish mirror is not an engine
+    and carries no such marker; requiring one here would silently empty the
+    roster on every machine, which is exactly the invisible-by-construction
+    failure this function exists to end.
+
+    Mirrors `_engine_working_repo_roots`'s prefix-scan shape: both registry
+    layers are read and flattened independently (`registry.local.toml` then
+    `registry.toml`, via `_flatten_registry`), and both are MERGED — a
+    mirror's `owner` typically lives in the tracked baseline while its
+    per-machine `path` lives in the gitignored local layer (see
+    `docs/wiki/machine-local-registry.md` §5c.2's schema-shape example), so a
+    first-hit-wins read would miss the pairing entirely.
+
+    An entry is included only when `path` is a non-empty string AND
+    `Path(path).is_dir()` — an empty-string value is a declaration sentinel
+    (`_registry_value`'s convention), and a declared-but-nonexistent path is
+    not a directory an agent will ever actually meet. A populated `path` with
+    a missing/empty `owner` is still listed, rendered as the literal
+    `"unknown owner"` rather than dropped — an unowned mirror is still not a
+    peer repo, and dropping it would re-introduce exactly the invisibility
+    this function exists to close.
+
+    De-duplicates on path, preserving first-seen order (local-layer scan
+    first, then tracked-baseline scan — same file order as `_registry_value`
+    and `_engine_working_repo_roots`), so a mirror declared in both layers
+    lists once.
+
+    Zero-spawn, never raises — `[]` on any missing registry, unreadable file,
+    TOML parse error, or filesystem exception, same fail-open contract as
+    every other rung in this module.
+    """
+    try:
+        import tomllib
+    except ImportError:
+        return []
+
+    try:
+        reg_dir = _settings_home_registry_dir()
+    except Exception:
+        return []
+
+    prefix = "publish.mirrors."
+    flattened: list[dict] = []
+    for name in ("registry.local.toml", "registry.toml"):
+        reg = reg_dir / name
+        try:
+            if not reg.is_file():
+                continue
+            with reg.open("rb") as fh:
+                data = tomllib.load(fh)
+            flattened.append(_flatten_registry(data))
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+        except Exception:
+            continue
+
+    # Pass 1: collect every `.owner` across BOTH layers first, so pass 2 can
+    # pair a `.path` found in either layer against an `.owner` that may live
+    # in the OTHER one — see the docstring's merge rationale (the schema
+    # commonly splits owner into the tracked baseline and path into the
+    # gitignored local layer).
+    owners: dict[str, str] = {}
+    for flat in flattened:
+        for k, v in flat.items():
+            if k.startswith(prefix) and k.endswith(".owner") and isinstance(v, str) and v:
+                key = k[len(prefix) : -len(".owner")]
+                owners.setdefault(key, v)
+
+    # Pass 2: collect `.path` entries, first-seen order across the same
+    # local-then-tracked scan, de-duplicated on the resolved path.
+    roster: list[tuple[str, str]] = []
+    seen_paths: dict[str, None] = {}
+    for flat in flattened:
+        for k, v in flat.items():
+            if not (k.startswith(prefix) and k.endswith(".path")):
+                continue
+            key = k[len(prefix) : -len(".path")]
+            if not isinstance(v, str) or not v:
+                continue
+            try:
+                if not Path(v).is_dir():
+                    continue
+            except Exception:
+                continue
+            if v in seen_paths:
+                continue
+            seen_paths[v] = None
+            roster.append((v, owners.get(key) or "unknown owner"))
+
+    return roster
 
 
 def _same_repo_path(a: str, b: str) -> bool:
@@ -454,6 +602,16 @@ def resolve_claude_klabauter_root_with_class() -> tuple[str | None, str]:
     engine-snapshot producer once did (see module docstring, rung 3
     negative-spec):
 
+      0. `env_override = _resolve_live_tree_env_override()` (an explicit
+         `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT` env var pointing at an existing
+         directory). If set, `(env_override, RESOLUTION_LIVE_WORKING_TREE)`
+         — an explicit override always wins over ambient discovery,
+         published-engine registration included. This rung is checked
+         BEFORE the published-engine rung below on purpose: an operator or
+         test that sets this env var deliberately is stating an explicit
+         intent, and ambient registry state must never outrank a stated
+         intent (previously it did — see this module's own history for the
+         defect this rung ordering closes).
       1. `published = _resolve_published_engine()`
       2. If `published` and `_is_engine_working_repo() is False` →
          `(published, RESOLUTION_RESOLVED_ENGINE)` — a confirmed
@@ -467,21 +625,38 @@ def resolve_claude_klabauter_root_with_class() -> tuple[str | None, str]:
       5. Else `(None, RESOLUTION_UNRESOLVED)`.
 
     Zero-spawn, fail-open, never raises — same contract as
-    `resolve_claude_klabauter_root`, which delegates here.
+    `resolve_claude_klabauter_root`, which delegates here. That promise is ENFORCED, not
+    merely stated: the whole rung ladder runs inside one `try`, and anything
+    escaping a rung degrades to `(None, RESOLUTION_UNRESOLVED)` plus a single
+    `_warn_fail_open` line. The per-rung callees carry their own
+    `except Exception` handlers; this outer guard covers what they cannot —
+    the rung-0 call itself, the sequencing between rungs, and any future edit
+    to this body. Negative-spec: it was absent until a live `NameError` from a
+    half-landed edit to the rung ladder escaped through both this function and
+    `run_stop_hook_pointer_shim` and killed two Stop hooks with tracebacks in a
+    live engine-plane session (2026-08-08).
     """
-    published = _resolve_published_engine()
+    try:
+        env_override = _resolve_live_tree_env_override()
+        if env_override:
+            return env_override, RESOLUTION_LIVE_WORKING_TREE
 
-    if published and _is_engine_working_repo() is False:
-        return published, RESOLUTION_RESOLVED_ENGINE
+        published = _resolve_published_engine()
 
-    live = _resolve_live_working_tree()
-    if live:
-        return live, RESOLUTION_LIVE_WORKING_TREE
+        if published and _is_engine_working_repo() is False:
+            return published, RESOLUTION_RESOLVED_ENGINE
 
-    if published:
-        return published, RESOLUTION_RESOLVED_ENGINE
+        live = _resolve_live_working_tree()
+        if live:
+            return live, RESOLUTION_LIVE_WORKING_TREE
 
-    return None, RESOLUTION_UNRESOLVED
+        if published:
+            return published, RESOLUTION_RESOLVED_ENGINE
+
+        return None, RESOLUTION_UNRESOLVED
+    except Exception as exc:
+        _warn_fail_open("resolve_claude_klabauter_root_with_class", exc)
+        return None, RESOLUTION_UNRESOLVED
 
 
 def resolve_claude_klabauter_root() -> str | None:
@@ -494,7 +669,11 @@ def resolve_claude_klabauter_root() -> str | None:
 
     Rungs, in order per `resolve_claude_klabauter_root_with_class` (see that
     function's docstring for the full fail-open sequencing rationale):
-      0. published-engine mirror (`_resolve_published_engine`), ONLY when
+      0. explicit env override (`_resolve_live_tree_env_override`):
+         REPO_CLAUDE_KLABAUTER env, then CLAUDE_KLABAUTER_ROOT env (dir must exist),
+         checked FIRST — a stated explicit intent always outranks the
+         ambient published-engine rung below.
+      1. published-engine mirror (`_resolve_published_engine`), ONLY when
          the current session is a CONFIRMED (not undeterminable)
          non-working repo — fires once `repos.claude_klabauter` is
          registered on this machine (written at install time by the engine
@@ -502,19 +681,24 @@ def resolve_claude_klabauter_root() -> str | None:
          commit `5080edc48d3f`, on a claude-klabauter checkout); on a
          machine with no such registration this rung stays inert, same as
          before.
-      1. REPO_CLAUDE_KLABAUTER env, then CLAUDE_KLABAUTER_ROOT env (dir must exist)
-      2. machine-local registry TOML (see `_registry_value`), key
-         "repos.claude_klabauter" (dir must exist)
-      3. last-resort sibling walk: a "claude-klabauter" directory next to this
-         repo's root.
-      4. published-engine mirror again, as a last resort ahead of totally
-         unresolved, if one exists and rungs 1-3 all missed.
+      2. REPO_CLAUDE_KLABAUTER env, then CLAUDE_KLABAUTER_ROOT env again (dir must
+         exist) — reached only when rung 0 already missed.
+      3. machine-local registry TOML (see `_registry_value`) -- on this
+         mirror it reads the SAME registry key as rung 0
+         ("repos.claude_klabauter"); the two-rung distinction this
+         ladder preserves on the engine-source plane collapses to one
+         key here (dir must exist)
+      4. last-resort sibling walk: a directory named per
+         `_CLAUDE_KLABAUTER_SIBLING_DIR_NAME`, next to this repo's root.
+      5. published-engine mirror again, as a last resort ahead of totally
+         unresolved, if one exists and rungs 2-4 all missed.
 
-    Negative-spec on rung 3: this hardcodes BOTH the checkout depth
+    Negative-spec on rung 4 (formerly rung 3): this hardcodes BOTH the checkout depth
     (`parents[3]` assumes the fixed `<repo>/coordinator/hooks/scripts/`
     layout) AND the literal sibling directory name "claude-klabauter" — it
     resolves correctly on exactly one conventional checkout layout
-    (`~/X/DoE-claude` + `~/X/claude-klabauter` side by side) and will silently
+    (this repo and the engine repo checked out side by side under a common
+    parent) and will silently
     miss on any other layout (different parent dir, different sibling name,
     Windows drive-letter split checkouts). It is kept ONLY so a machine
     without a registry entry doesn't regress relative to the pre-fix
@@ -522,6 +706,29 @@ def resolve_claude_klabauter_root() -> str | None:
     registry entry is the correct fix for any machine that hits it.
     """
     return resolve_claude_klabauter_root_with_class()[0]
+
+
+def _resolve_live_tree_env_override() -> str | None:
+    """Rung 0 of `resolve_claude_klabauter_root_with_class` — an EXPLICIT
+    `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT` env var pointing at an existing
+    directory, checked ahead of the published-engine rung.
+
+    Split out from `_resolve_live_working_tree` so the class-reporting
+    resolver can consult the explicit-override rung alone, before any
+    ambient registry state (the published-engine mirror) gets a vote. Same
+    env-var order and existence check as the first loop inside
+    `_resolve_live_working_tree` — deliberately duplicated there too (rather
+    than removed) so `_resolve_live_working_tree` alone still resolves the
+    full live-tree ladder (env, then registry, then sibling walk) for any
+    caller reaching it directly after the published-engine short-circuit.
+
+    Zero-spawn, fail-open, never raises.
+    """
+    for env in LIVE_TREE_ENV_VARS:
+        v = os.environ.get(env)
+        if v and Path(v).is_dir():
+            return v
+    return None
 
 
 def _resolve_live_working_tree() -> str | None:
@@ -536,6 +743,13 @@ def _resolve_live_working_tree() -> str | None:
     the same line again. Those two questions coincide only on a
     co-development machine, which is why the divergence went unnoticed for as
     long as it did.
+
+    Rung 1 here (the env-var loop below) is ALSO checked, alone, ahead of
+    the published-engine rung by `_resolve_live_tree_env_override` — see
+    that function's docstring for why. This function's own rung 1 stays in
+    place so the full 1-3 ladder is still available to whatever reaches this
+    function directly (the `resolve_claude_klabauter_root_with_class` step-3 call,
+    after the published-engine short-circuit has already had its turn).
     """
     for env in LIVE_TREE_ENV_VARS:
         v = os.environ.get(env)
@@ -583,7 +797,10 @@ def run_stop_hook_pointer_shim(module_name: str) -> int:
     Contract (identical to each shim's own docstring — this function does not
     change it, only removes the duplication):
       stdin   — Stop JSON (session_id, transcript_path, cwd, stop_hook_active, agent_id…)
-      stderr  — the nudge text, on fire only
+      stderr  — the nudge text, on fire only; plus, on an UNEXPECTED
+                fail-open degrade (never on an expected one — an
+                unresolvable engine, a malformed payload, an `op()` that
+                declines), one `_warn_fail_open` line alongside exit 0
       returns 2 — nudge fires (caller should block the stop; stderr is shown to Claude)
       returns 0 — every other path, including every failure path
 
@@ -607,7 +824,16 @@ def run_stop_hook_pointer_shim(module_name: str) -> int:
         # turn.
         return 0
 
-    root = resolve_claude_klabauter_root()
+    try:
+        root = resolve_claude_klabauter_root()
+    except Exception as exc:
+        # The resolver promises never to raise and now enforces it, but this
+        # transport's own contract names engine-root resolution as a
+        # fail-open surface — it must hold even if that promise is broken
+        # again upstream, which is exactly how two Stop hooks died with
+        # tracebacks on 2026-08-08.
+        _warn_fail_open("run_stop_hook_pointer_shim/resolve_claude_klabauter_root", exc)
+        return 0
     if not root:
         return 0  # engine unresolvable on this machine
 

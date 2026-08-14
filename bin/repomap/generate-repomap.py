@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Generate a ranked repository map for LLM context injection.
 
 Parses git-tracked files using tree-sitter (TypeScript, TSX, JSX, Python, C++)
@@ -46,6 +45,8 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # File filtering
 # ---------------------------------------------------------------------------
+
+GENERATES = []  # writes only to the caller-supplied --output path and the parse cache_dir — no fixed artifact
 
 MAX_LINES_FOR_PARSING = 10_000
 
@@ -1757,13 +1758,20 @@ def generate_repomap(
 
     # 7. Render
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    stamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    frontmatter = (
+        "---\n"
+        "generator: coordinator/bin/repomap/generate-repomap.py\n"
+        f"generated: {stamp_str}\n"
+        "---\n"
+    )
     header = (
         f"# Repository Map\n"
         f"Generated: {now_str} | Files: {len(selected)}/{len(valid_files)} | "
         f"Budget: {budget} tokens\n"
     )
 
-    sections = [header]
+    sections = [frontmatter + header]
     for rel_path, entries in selected:
         sections.append(render_file_entry(rel_path, entries))
 

@@ -148,6 +148,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "as its own payload field (provision_report accepts no such field).",
     )
     parser.add_argument(
+        "--type",
+        dest="doc_type",
+        default=None,
+        help="Sidecar template type. Normally OMITTED: the type is resolved from the "
+        "policy's report_type_map for the given --agent-type, so the correct template "
+        "is the default rather than something the caller must remember. Pass this only "
+        "to override that resolution. When neither applies, no type is sent and the "
+        "legacy run-report shape is used.",
+    )
+    parser.add_argument(
         "--policy",
         default=None,
         help="Explicit path to subagent-sandbox-policy.yaml. Defaults to the same "
@@ -260,6 +270,39 @@ def main(argv: list) -> int:
 
     if args.plan:
         payload["plan_path"] = args.plan
+
+    # Template-type resolution. Order: explicit --type > report_type_map hit
+    # (keyed on agent_type — this CLI's whole input contract is --agent-type;
+    # it never sets payload["agent_id"], so resolve_effective_types can never
+    # populate subagent_type, and a lookup on it would always miss) > no
+    # `type` key at all. The last arm is why this stays a lookup and not a
+    # requirement: an absent key leaves the payload type-less, and
+    # provision_report._build_doc_text falls through to the frozen legacy
+    # run-report shape exactly as it did before this leg existed.
+    #
+    # Deliberately NOT fail-loud, unlike every other check in this CLI. The
+    # loud ones above are preconditions this tool owns and can state
+    # definitively (ineligible type, unresolvable session id). Whether a given
+    # subagent_type has a report_type_map row is a fact about a policy file
+    # the engine repo does not own; refusing on its absence would make this CLI brittle
+    # against a sibling's config in exactly the way its own docstring warns
+    # against.
+    # --type is validated HERE rather than via argparse `choices=`, because
+    # TEMPLATE_TYPES lives in provision_report, which this script imports
+    # lazily inside main() (after engine-root resolution) -- the parser is
+    # built before that import exists. Validating here keeps the two lists in
+    # the lockstep TEMPLATE_TYPES' own comment demands, without reintroducing
+    # an import-order dependency the lazy import deliberately removed.
+    if args.doc_type is not None and args.doc_type not in provision_report.TEMPLATE_TYPES:
+        _err(
+            f"provision-sidecar.py: ERROR — unknown --type '{args.doc_type}'. "
+            f"Valid types: {', '.join(provision_report.TEMPLATE_TYPES)}."
+        )
+        return 2
+
+    doc_type = args.doc_type or policy.report_type_map.get(agent_type)
+    if doc_type:
+        payload["type"] = doc_type
 
     path = provision_report._provision(payload, policy_path, cwd)
     if path is None:

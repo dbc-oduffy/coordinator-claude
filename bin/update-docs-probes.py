@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """update-docs-probes.py — thin exit-code-contract shim over
 `coordinator_core.ops.updatedocs_gates`'s 4 probe gates.
@@ -194,7 +193,12 @@ def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
         "prune_cli": args.prune_cli or str(_BIN_DIR / "prune-resolved-queue-entries.py"),
         "queues": args.queue,
     }
-    result = _gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR, overrides)
+    # `_gate_queue_prune_sweep` computes `bin_dir = settings_home / "bin"`
+    # internally (its YAML-family leg has no per-CLI override, unlike the
+    # legacy leg's `prune_cli`) -- pass `_BIN_DIR`'s PARENT here, not
+    # `_BIN_DIR` itself, so that internal join resolves back to this file's
+    # own `bin/` dir instead of double-nesting into `bin/bin/`.
+    result = _gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR.parent, overrides)
     print(result.summary)
     for line in result.detail.get("lines", []):
         print(line, file=sys.stderr if result.severity == Severity.BLOCKING else sys.stdout)
@@ -237,7 +241,7 @@ def _cmd_snippet_sync_sweep_retired(_args: argparse.Namespace) -> int:
         "[update-docs] snippet-sync-sweep is retired (the verify-*-sync.sh leg it "
         "swept no longer exists fleet-wide; the native coordinator_core/snippet_sync/ "
         "verifier supersedes it) — accepting the verb as a no-op until the "
-        "DoE-claude Phase 11b invocation is dropped.",
+        "coordinator doctrine repo's Phase 11b invocation is dropped.",
         file=sys.stderr,
     )
     return 0

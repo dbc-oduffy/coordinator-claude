@@ -14,10 +14,13 @@ from the working tree while the registration still pointed at it. Fixing either 
 individually leaves the other live, because the fragility is not in the triggers — it is in
 requiring a file to resolve before anything of ours can run.
 
-THE MECHANISM. Register an inline bootstrap instead of a bare path: the command becomes
-``python3 -c <BOOTSTRAP> <script> [args...]``. The payload is inside the command string, so
-there is no file for the harness to fail to find. The bootstrap then decides what to do
-about the target itself, in our code rather than the harness's:
+THE MECHANISM. Register an inline loader instead of a bare path: the command becomes
+``python3 -c <LOADER> <script> [args...] <injector> <bootstrap>``. ``LOADER`` is inside the
+command string, so there is no file the harness itself must resolve before any of our code
+runs — that is the property this whole module exists to hold, and it is unchanged by the
+trampoline body living in ``_hook_boot.py``: a missing bootstrap file is OUR failure to
+handle, on a soft-fail path we control, never the harness's failure to launch. The loaded
+bootstrap then decides what to do about the target, in our code rather than the harness's:
 
 - target present  -> run it, unchanged: same ``__main__`` semantics, same ``sys.argv``, same
   stdin, same exit code (so a guard's ``exit 2`` deny still denies).
@@ -27,65 +30,111 @@ about the target itself, in our code rather than the harness's:
 - target present but broken -> the error propagates untouched. Failing open is for a script
   that is *not there*, never for one that is there and raising.
 
-SINGLE LINE, DELIBERATELY. ``BOOTSTRAP`` must contain no raw newline. A newline inside the
+SINGLE LINE, DELIBERATELY. ``LOADER`` must contain no raw newline. A newline inside the
 payload's string literal is a syntax error under ``python -c``, and a multi-line payload does
 not survive being stored as a JSON string and handed to a shell. Both failure modes are real
 and both are covered by the tests; keep the payload single-line and keep the escape hatch of
-``chr(10)`` if a newline is ever genuinely needed inside it.
+``chr(10)`` if a newline is ever genuinely needed inside it. The trampoline logic this used to
+bind no longer lives here at all — it moved verbatim to ``coordinator/hooks/scripts/
+_hook_boot.py`` as ordinary multi-line Python, which is exactly what retires this constraint
+for that body; ``LOADER`` itself is the only payload left that still has to survive ``python
+-c`` and a JSON round-trip.
+
+THE PAYLOAD IS TWO PIECES NOW, ONE INLINE AND ONE ON DISK. ``LOADER`` (~159 bytes) is the
+only text that still travels inside the ``-c`` argument, and by construction is also the only
+text the harness ever echoes ahead of a guard's own message on a hook error — the eight
+display lines of trampoline source a hook error used to carry ahead of every guard message are
+gone because that source is no longer part of the argv at all. The trampoline logic itself
+(the venv-injector shim call and the ``runpy`` hand-off to the target script) lives in
+``_hook_boot.py``, named as the last element of ``args`` and loaded by ``LOADER`` at runtime
+via ``exec(open(b).read())`` — never re-embedded inline. ACCEPTED REGRESSION, NAMED NOT
+BURIED: because the trampoline is now one shared file rather than one inline payload per
+registration, a missing ``_hook_boot.py`` fails EVERY hook open at once, where before only the
+individually-missing target script did. Taken deliberately — ``LOADER``'s own
+``os.path.isfile`` guard still banners loudly (``"bootstrap missing, hooks fail OPEN: "+b``)
+rather than degrading silently, ``_hook_boot.py`` is regenerated alongside every registration
+rather than being a per-guard edit surface, and the trade buys back roughly eight display
+lines on every guard fire in every session. See ``_hook_boot.py``'s own module docstring for
+the same trade recorded on the file it names.
 
 WHAT THIS DOES NOT DO. It does not make a missing guard safe — it makes a missing guard
 *visible and survivable* instead of fatal. Restoring the guard is still the fix.
 """
 from __future__ import annotations
 
-# Double-quoted string literals throughout, never single: the whole payload is wrapped in
-# single quotes for the shell, so a single quote inside it would terminate the argument
-# early. `_sq` enforces this rather than trusting it.
-BOOTSTRAP = (
-    "import os,runpy,sys;"
-    "p=sys.argv[1];"
-    "sys.argv=sys.argv[1:];"
-    'runpy.run_path(p,run_name="__main__") if os.path.isfile(p) else '
-    'sys.stderr.write("COORDINATOR HOOK SEAM: registered hook script unreachable -- "'
-    '"failing OPEN so tool calls keep working. missing: "+p+" | This is a defect, not a "'
-    '"normal state: the registration and the script have drifted apart (deleted script, "'
-    '"or a path that does not resolve on this host).")'
+# EXEC FORM RETIRES THE SHELL-QUOTING HAZARD (C1/A1/A4). Registrations built via
+# `wrap_command_exec()` hand the harness a `{command, args}` mapping -- BOOTSTRAP travels as
+# one `args` element, passed to the child process verbatim with no shell in the path. The
+# no-double-quote / no-`$` / no-backtick / no-backslash invariants this module used to enforce
+# (`_dq`, now deleted) existed ONLY because the string form transited a shell; exec form
+# retires the whole hazard class by construction, not by continuing to police it. Double
+# quotes and backslashes are legal in BOOTSTRAP now -- see the payload below, which uses a
+# double-quoted `exec("...")` string with `\n` escapes instead of the old `chr(39)`-soup single-
+# quote assembly. The single-line constraint on BOOTSTRAP is NOT retired by this: it comes from
+# `python -c` and JSON (see SINGLE LINE, DELIBERATELY above), not from the shell. The legacy
+# string emitter `wrap_command()` (and its `_shell_quote` helper) is deleted (C2): all 43
+# `hooks.json` registrations moved to exec form, leaving it with no remaining caller.
+# SITE-PACKAGES INJECTION. The BOOTSTRAP three-rung ladder (env var, pointer file, layout-derived
+# path), pyvenv.cfg ABI version gating, sys.path precedence/promotion, the TOCTOU acceptance, and
+# the pointer-file trust-boundary analysis are documented in _hook_venv_inject.py's own module
+# docstring, where that mechanism actually lives -- not here.
+LOADER = (
+    "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) "
+    "else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)"
 )
 
 _MARKER = "COORDINATOR HOOK SEAM"
 
 
-def is_wrapped(command: str) -> bool:
-    """True when ``command`` already routes through the fail-open bootstrap."""
+def is_wrapped(command) -> bool:
+    """True when ``command`` already routes through the fail-open bootstrap.
+
+    Accepts both shapes this module emits: the legacy string form (``wrap_command``), where
+    the marker is a substring of the whole command, and the exec form
+    (``wrap_command_exec``), a ``{"command": ..., "args": [...]}`` mapping where the marker
+    lives inside ``args[1]`` (the ``-c`` payload, i.e. ``LOADER`` itself -- its own inline
+    fallback banner carries the marker text even though the trampoline body it may go on to
+    ``exec()`` no longer lives inline).
+    """
+    if isinstance(command, dict):
+        args = command.get("args") or []
+        return len(args) > 1 and _MARKER in args[1]
     return _MARKER in command
 
 
-def wrap_command(command: str) -> str:
-    """Rewrite ``python3 <script> [args]`` into its fail-open equivalent.
-
-    Idempotent: an already-wrapped command is returned unchanged, so the rewriter can be
-    re-run over a partially-converted file without double-wrapping.
-    """
-    if is_wrapped(command):
-        return command
-
+def _split_python3_command(command: str):
+    """Shared parse for both emitters: ``python3 <script> [args...]`` -> ``(script, args)``.
+    Raises ``ValueError`` on any other shape."""
     parts = command.split()
     if len(parts) < 2 or parts[0] != "python3":
         raise ValueError(
             "unsupported hook command shape; expected 'python3 <script> [args...]', got: "
             + command
         )
-
-    script, args = parts[1], parts[2:]
-    # shlex.quote is deliberately not used on the payload here: it targets POSIX sh, and the
-    # payload is quoted once at write time by the rewriter that owns the file format.
-    return " ".join(["python3", "-c", _sq(BOOTSTRAP), script, *args])
+    return parts[1], parts[2:]
 
 
-def _sq(text: str) -> str:
-    """Single-quote for a POSIX shell. The payload contains no single quotes by
-    construction — it uses only double-quoted Python string literals — so this stays a
-    simple wrap rather than the general escape dance."""
-    if "'" in text:
-        raise ValueError("bootstrap payload must not contain a single quote")
-    return "'" + text + "'"
+INJECTOR_TOKEN = "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py"
+BOOTSTRAP_PATH = "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+
+
+def wrap_command_exec(command: str) -> dict:
+    """Rewrite ``python3 <script> [args]`` into its fail-open exec-form registration.
+
+    Returns ``{"command": "python3", "args": ["-c", LOADER, script, *args, INJECTOR_TOKEN,
+    BOOTSTRAP_PATH]}`` -- the shape `hooks.json` exec-form registrations consume. The target
+    script stays at `args` index 2, the only index with production evidence of
+    `${CLAUDE_PLUGIN_ROOT}` expansion (AC3); the injector path and the trampoline's own path
+    are appended as the last two elements instead, where each is popped off the end in turn --
+    `LOADER` pops `BOOTSTRAP_PATH` first and `exec()`s it, then `_hook_boot.py`'s own shim pops
+    `INJECTOR_TOKEN` -- before either sees the remaining `sys.argv` handed to the target. No
+    shell is ever in the path: each element is passed to the child process verbatim, which is
+    what retires the `_dq` quoting-invariant hazard class this module used to police.
+    """
+    script, args = _split_python3_command(command)
+    return {
+        "command": "python3",
+        "args": ["-c", LOADER, script, *args, INJECTOR_TOKEN, BOOTSTRAP_PATH],
+    }
+
+

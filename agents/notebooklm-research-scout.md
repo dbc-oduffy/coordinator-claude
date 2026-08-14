@@ -3,7 +3,7 @@ name: notebooklm-research-scout
 description: "Haiku NotebookLM scout — finds video/podcast/article sources per notebook topic, writes sources.md for workers. Discovery only."
 model: haiku
 effort: low
-tools: ["WebSearch", "WebFetch", "Read", "Write", "Bash", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["WebSearch", "WebFetch", "Read", "Write", "Bash", "PowerShell", "TaskUpdate", "TaskList", "TaskGet"]
 color: yellow
 access-mode: read-write
 ---

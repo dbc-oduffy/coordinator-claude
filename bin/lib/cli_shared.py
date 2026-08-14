@@ -43,6 +43,7 @@ from machine_local_impl_resolve import (  # noqa: E402
     claude_home as _mlir_claude_home,
     machine_local_impl_path as _mlir_machine_local_impl_path,
 )
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Env vars — identical spelling/semantics across both current consumers.
@@ -142,29 +143,13 @@ def claude_klabauter_root() -> str | None:
     WARN + skip. The low-level shell primitive coordinator-claude-klabauter-root.sh hard-errors;
     this is the Python caller-layer resilience wrapper.
 
-    Spec backlink: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § AC1 / AC13
+    Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
     """
     override = os.environ.get(CLAUDE_KLABAUTER_ROOT_ENV, "").strip()
     if override:
         return override
     val = machine_local_get("repos.claude_klabauter")
     return val if val else None
-
-
-def current_repo_root() -> str | None:
-    """Return the git repo root of the cwd, or None if not inside a git repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
 
 
 def resolve_from_repo(root: str | None = None) -> str:
@@ -177,15 +162,29 @@ def resolve_from_repo(root: str | None = None) -> str:
       4. Not in a git repo -> "unknown-sender-em"
       Never uses `git remote get-url origin` — that yields a URL, not a shortname.
 
-    Accepts a pre-resolved repo root to avoid spawning a second `git rev-parse`
-    when the caller already holds it (coordinator-lesson-promote's F3 hoist).
-    Pass None (default) to resolve internally.
+    Accepts a pre-resolved repo root to avoid spawning a second git-root
+    resolution when the caller already holds it (coordinator-lesson-promote's
+    F3 hoist). Pass None (default) to resolve internally via the checked
+    resolver (`repo_identity.resolve_checked_repo_root`).
+
+    Classification: READER (AC10). On MISMATCH — positive evidence the cwd
+    names a DIFFERENT real repo than the harness anchor — warns to stderr and
+    proceeds with the resolved root anyway (identity attribution, not a
+    destructive action); per DR-277
+    (docs/decisions/DR-277-guards-are-advisory-by-default-two-named.md).
+    UNRESOLVED never refuses either, degrading to `root=None` exactly as the
+    predecessor's git-failure branch did.
 
     Ensures repos.doe_claude is present in the paths table for the central-identity
     anchor even when machine_local_repos_keys() omits it (e.g. unregistered machine).
     """
     if root is None:
-        root = current_repo_root()
+        root, verdict = resolve_checked_repo_root(explicit_root=None)
+        if verdict.get("verdict") == "MISMATCH":
+            print(
+                verdict.get("message", "cli_shared: repo-identity MISMATCH"),
+                file=sys.stderr,
+            )
     keys = machine_local_repos_keys()
     paths = {k: machine_local_get(k) for k in keys}
     paths.setdefault("repos.doe_claude", machine_local_get("repos.doe_claude"))
@@ -217,7 +216,7 @@ def write_path_excl(out_path: str, content: str, *, caller_name: str) -> str:
     loud on the FIRST collision would drop the entry rather than preserve it;
     retry-with-suffix is required.
 
-    Counter-pattern (deliberate divergence): coordinator/bin/cross-repo-memo's
+    Counter-pattern (deliberate divergence): coordinator/bin/cross-repo-memo.py's
     _write_file FAILS LOUD (FileExistsError, no retry) on collision because its
     caller is interactive and retries with a new --topic.
 

@@ -4,7 +4,7 @@ description: "Personas are Opus-only. The VP-Product Reviewer (they/them), VP Pr
 model: opus
 effort: low
 color: cyan
-tools: ["Read", "Write", "Edit", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 access-mode: read-write
 ---
 

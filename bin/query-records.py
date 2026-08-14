@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """query-records.py — CLI trampoline over the records.query engine.
 
 Finish-strangler restoration (BIG_PORT Wave, 2026-07-24): the retired
@@ -7,7 +6,8 @@ Claude-klabauter's c79e66cd deletion, breaking DoE fleet callers (the fleet-scop
 regression this plan's C1/D1 gate exists to prevent — see
 `docs/plans/2026-07-24-python-ize-claude-klabauter-bin-oracles-doe-forwards-to.md` § A2).
 This trampoline services the DoE-used flag subset only — `--type --where
---since --older-than --format --status --root --list-schemas` — over the
+--since --older-than --format --status --root --list-schemas
+--include-archived` — over the
 already-working `coordinator/bin/lib/records_query.py` transport
 (`route_mutation` -> `coordinator_core.invoke records.query`, per that
 module's own docstring). It deliberately does NOT reimplement the query
@@ -47,7 +47,7 @@ this chunk's DoE-used flag list) is left to argparse's own "unrecognized
 arguments" rejection, which is already fail-loud by construction — no bespoke
 handling needed for flags outside both named lists.
 
-Spec backlink: docs/plans/2026-07-24-python-ize-claude-klabauter-bin-oracles-doe-forwards-to.md § A2
+Spec backlink: pln-python-ize-claude-klabauter-bin-oracles--218413 § A2
 Prior node implementation: coordinator/bin/query-records.js (kept on disk
 pending D1's fleet-scope-gated delete pass — not retired by this port).
 """
@@ -133,6 +133,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="List the engine's queryable record types and exit.",
     )
+    parser.add_argument(
+        "--include-archived",
+        dest="include_archived",
+        action="store_true",
+        help=(
+            "OPT-IN: also collect the archived counterpart of --type "
+            "(handoff/plan/cross-repo-memo). Default off; every existing "
+            "invocation without this flag is unaffected."
+        ),
+    )
     return parser
 
 
@@ -195,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         params["since"] = args.since
     if args.older_than:
         params["older_than"] = args.older_than
+    if args.include_archived:
+        params["include_archived"] = True
 
     try:
         result = route_mutation("records.query", params, repo_root, _no_legacy)

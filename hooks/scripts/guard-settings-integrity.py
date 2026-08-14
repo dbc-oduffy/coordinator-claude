@@ -6,7 +6,7 @@ announcer.
 Replaces `guard-settings-integrity.sh` — zero Git-Bash cold-start per boot
 (each bash.exe spawn costs 200-500ms on Windows; this is the whole point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the config dir, relay its stdout text. Claude-klabauter owns
 the guard LOGIC (`coordinator_core.ops.session.guard_settings_integrity`, direct
 Python port of the bash oracle — W4a-sessionstart-recipe.md § 2.3). All three
@@ -60,7 +60,7 @@ belt-and-suspenders, not a behavior fork.
 
 Source: coordinator/hooks/scripts/guard-settings-integrity.sh
 Spec: scratch/subagent-sandbox/bash-to-python-migration/W4a-sessionstart-recipe.md § 2.3
-Spec (duplication + kill-switch checks): DoE-claude dispatch
+Spec (duplication + kill-switch checks): doctrine-repo dispatch
   state/subagent-share/78b683cd-1b62-4a25-904d-954cb3c69412/
   coordinatorexecutor-d531b05a.md (2026-07-29) — wires claude-klabauter
   `evaluate_hook_delivery_duplication` (82c1918c) and

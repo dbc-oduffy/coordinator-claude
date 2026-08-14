@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """fan-out-dispatch.py — Fan-out wave compiler: overlap pass + scoped executor prompts.
 
@@ -16,7 +15,7 @@ byte-for-byte preserved from the bash oracle.
 Spec backlink: docs/plans/2026-05-27-fan-out-default-doctrine.md §Chunk 1
 Spec backlink (organic-ramp): docs/plans/2026-05-30-organic-ramp-concurrency-doctrine.md §C2
 Spec backlink (invariant observers): docs/plans/2026-06-22-invariant-verification-observers.md §C2
-Spec backlink (run-report subsume): docs/plans/2026-07-13-subagent-run-report-subsume.md §C5/DEC-6
+Spec backlink (run-report subsume): DoE-claude:pln-universal-subagent-run-report--4250e3 §C5/DEC-6
 
 Input format (TSV, one row per chunk):
   <chunk-id>TAB<brief-one-liner-or-@filepath>TAB<comma-separated-file-paths>
@@ -100,10 +99,6 @@ def _resolve_plugin_root() -> str:
 # the DOE_ROOT chain here (negative-spec in that module).
 PLUGIN_ROOT = _resolve_plugin_root()
 
-# Windows: suppress the console popup CreateProcess would otherwise allocate for a child.
-# getattr keeps this a no-op (0) on POSIX where the flag does not exist.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
 PEER_SCOPE_SNIPPET = os.path.join(PLUGIN_ROOT, "snippets", "peer-scope-block.md")
 PLAN_DOC_OOS_SNIPPET = os.path.join(PLUGIN_ROOT, "snippets", "plan-doc-oos-block.md")
 TEXT_ONLY_SNIPPET = os.path.join(PLUGIN_ROOT, "snippets", "text-only-recovery-preamble.md")
@@ -165,14 +160,39 @@ def _strip_html_comment_header(template: str) -> str:
 
 
 def _resolve_claude_klabauter_root_silent() -> Optional[str]:
-    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver; None on any failure (fail-open)."""
+    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver (self-location-first —
+    CLAUDE_KLABAUTER_ROOT env -> walk-up to this script's own enclosing checkout -> the
+    pointer-file/registry ladder) and put it on sys.path; None on any failure
+    (fail-open).
+
+    Review: code-reviewer — this puts the root on sys.path itself, but every
+    caller (`_no_console_kw`, `_generate_candidate_restatements`,
+    `_provision_sidecars`) still performs its own guarded
+    `if claude_klabauter_root not in sys.path: sys.path.insert(...)` afterward. That
+    redundancy is harmless (idempotent) and intentionally left in place, not
+    removed by this conversion — do not read this docstring as claiming
+    callers dropped it."""
     try:
         sys.path.insert(0, os.path.join(SCRIPT_DIR, "lib"))
         import cc_invoke  # noqa: E402  (path injected above)
 
-        return cc_invoke._resolve_claude_klabauter_root()
+        return cc_invoke.ensure_engine_on_path(__file__)
     except Exception:
         return None
+
+
+def _no_console_kw() -> Dict[str, Any]:
+    """Splat-ready Windows console-suppression kwarg; ``{}`` on any resolution
+    failure (fail-open, mirrors ``_resolve_claude_klabauter_root_silent``)."""
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root_silent()
+        if claude_klabauter_root and claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:
+        return {}
 
 
 _WIKI_CHANGE_KINDS = ("wiki-append", "wiki-new")
@@ -266,7 +286,7 @@ def _provision_sidecars(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
         if proc.returncode == 0:
             target_git_root = proc.stdout.strip()
@@ -345,7 +365,7 @@ def _machine_local_get(key: str) -> str:
             capture_output=True,
             text=True,
             timeout=5,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
         if proc.returncode == 0:
             return proc.stdout.strip()
@@ -376,7 +396,7 @@ def _memory_probe() -> str:
             text=True,
             timeout=10,
             env=child_env(),
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
         return proc.stdout
     except Exception:
@@ -435,7 +455,7 @@ def main(argv: List[str]) -> int:
             ["git", "rev-parse", "--is-inside-work-tree"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except Exception:
         inside = None
@@ -448,7 +468,7 @@ def main(argv: List[str]) -> int:
         ["git", "branch", "--show-current"],
         capture_output=True,
         text=True,
-        creationflags=_NO_WINDOW,
+        **_no_console_kw(),
     )
     expected_branch = branch_proc.stdout.strip() if branch_proc.returncode == 0 else ""
     if not expected_branch:

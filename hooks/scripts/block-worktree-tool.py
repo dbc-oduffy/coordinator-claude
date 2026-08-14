@@ -67,6 +67,7 @@ if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
 from _message_envelope import CHANNEL_DENY, compose, emit  # noqa: E402
+from _win_portability import no_console_creationflags  # noqa: E402
 
 _OVERRIDE_SENTINEL_NAME = ".coordinator-override-worktree-guard"
 
@@ -98,6 +99,7 @@ def _git_root() -> "str | None":
             capture_output=True,
             text=True,
             timeout=1,
+            **no_console_creationflags(),
         )
     except Exception:
         return None

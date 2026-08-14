@@ -18,7 +18,7 @@ The fix is shape-inversion, not better documentation of the next-steps list. Set
 
 | Setup skill | Produces (minimum-viable) | Downstream self-gates |
 |---|---|---|
-| `/coordinator:repo-setup` | `state/orientation_cache.md` (eager, from Phase 2 PM-ratified inputs); `docs/project-tracker.md`, `docs/README.md`, `CLAUDE.md` (already eager) | `/update-docs` no-ops loudly on fresh repo (3-axis conjunctive threshold: no `DIRECTORY.md`, no `archive/completed/`, no `tasks/` artifacts); `/workstream-start` consumes the `state/.repo-setup-just-ran` sentinel and emits the alternative one-liner |
+| `/coordinator:repo-setup` | `state/orientation_cache.md` (eager, from Phase 2 PM-ratified inputs); `state/workstreams/` entries, `docs/README.md`, `CLAUDE.md` (already eager) | `/update-docs` no-ops loudly on fresh repo (3-axis conjunctive threshold: no `DIRECTORY.md`, no `archive/completed/`, no `tasks/` artifacts); `/workstream-start` consumes the `state/.repo-setup-just-ran` sentinel and emits the alternative one-liner |
 
 ## Applying this principle to a new setup-class skill
 

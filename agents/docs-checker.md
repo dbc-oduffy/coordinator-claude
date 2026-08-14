@@ -4,7 +4,7 @@ description: "Verifies external API claims against authoritative docs (Context7,
 model: sonnet
 effort: low
 color: cyan
-tools: ["Read", "Edit", "Write", "Bash", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check"]
+tools: ["Read", "Edit", "Write", "Bash", "PowerShell", "ToolSearch", "LSP", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs", "mcp__project-rag__project_cpp_symbol", "mcp__project-rag__project_semantic_search", "mcp__project-rag__project_subsystem_profile", "mcp__project-rag__project_referencers", "mcp__project-rag__project_blueprint_graph", "mcp__project-rag__project_file", "mcp__project-rag__project_staleness_check"]
 access-mode: read-write
 ---
 

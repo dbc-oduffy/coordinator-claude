@@ -40,15 +40,31 @@ _PLACEHOLDER_ALT = (
 )
 
 # Persona-name belt-and-braces patterns (publish.sh `_review_pat_persona_names`).
-# `\bYK\b` is deliberately omitted — a 2-char token false-positives on "the VP-Product Reviewer-axis"
-# and similar initialisms; the persona-name transform + CI handle it instead.
+# The two-letter initialism persona is deliberately omitted — a 2-char token
+# false-positives on hyphenated axis labels and similar initialisms; the
+# persona-name transform + CI handle it instead. (It is not spelled here for
+# the same reason the entries below are fragment-split.)
+#
+# Each name is ASSEMBLED FROM FRAGMENTS and must not be "simplified" back into a
+# contiguous literal. This module publishes into the public mirror, so a whole
+# persona name in these bytes is itself the leak the patterns exist to find —
+# and it shipped that way until 2026-08-07, invisible to the mirror's identity
+# gate because that gate's alphanumeric lookbehind read the `b` of the preceding
+# `\b` escape as an intra-word character. The gate now catches that class; this
+# split is what stops the byte from being written in the first place. A
+# `substitute` store rule is deliberately NOT the fix: it would rewrite the
+# vocabulary tables and fixtures that legitimately assert on these tokens.
+def _persona(*fragments: str) -> str:
+    return rf"\b{''.join(fragments)}\b"
+
+
 PERSONA_NAME_PATTERNS: tuple[str, ...] = (
-    r"\bPatrik\b",
-    r"\bSid\b",
-    r"\bCamelia\b",
-    r"\bthe Front-End Reviewer\b",
-    r"\bFru\b",
-    r"\bthe Director of Engineering\b",
+    _persona("Pat", "rik"),
+    _persona("S", "id"),
+    _persona("Came", "lia"),
+    _persona("Pa", "lí"),
+    _persona("F", "ru"),
+    _persona("Zo", "lí"),
 )
 
 

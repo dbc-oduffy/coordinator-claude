@@ -100,18 +100,18 @@ Two universal rules that apply after any executor or apply-agent dispatch:
 
 Executor and apply-agents consistently under-count their own work in chat (observed repeatedly in distill and architecture-survey runs). After any multi-file executor dispatch:
 
-1. Run `git diff --stat <expected-path-glob>` — treat the diff as ground truth, not the agent's completion report.
+1. The diff for `<expected-path-glob>` is ground truth, not the agent's completion report.
 2. **Empty diff for an agent that claimed work = re-dispatch** with the explicit list of unfinished files. Do not accept "I completed all files" alongside a zero-line diff.
 3. For spec-driven dispatches that mandate a canonical phrase or pattern across N files, also run `grep -l "<canonical phrase>" <target-files>`. File count alone is not proof — the canonical content must actually appear.
 
 
 ### (c) Edit tool success is not proof of change
 
-After a sequence of Edit calls — especially before claiming a fix is in or before commit — run `git diff <file>` (or `git diff --stat`) to confirm the bytes actually moved. Edit returns success on no-ops where the new_string already matched.
+After a sequence of Edit calls — especially before claiming a fix is in or before commit — the diff (`git diff <file>` or `git diff --stat`) is what confirms the bytes actually moved. Edit returns success on no-ops where the new_string already matched.
 
 ### (d) Subagents may "fix" things without producing diffs (fifa T1.4)
 
-Subagents conflate "this is correct now" with "I made it correct." Before reporting fixes applied, executor prompts should include `git status --short` + `git diff --stat`; report actual diff stats, not self-narrated counts of intended changes. "No-op, target was already correct" is a valid outcome — and an honest one.
+Subagents conflate "this is correct now" with "I made it correct." Actual diff stats (`git status --short` + `git diff --stat`), not self-narrated counts of intended changes, are what a fix-applied claim rests on. "No-op, target was already correct" is a valid outcome — and an honest one.
 
 ### (b) Match verification to the change you made (L274)
 
@@ -125,7 +125,7 @@ Verification must target the actual side effects of YOUR action. Running an unre
 
 | Verification Claim | Must Run | Not Sufficient |
 |--------------------|----------|----------------|
-| N files updated by executor | `git diff --stat` showing N files | Agent chat summary |
+| N files updated by executor | `git --no-optional-locks diff --stat` showing N files | Agent chat summary |
 | Canonical phrase applied across files | `grep -l "<phrase>" <targets>` | "All files processed" |
 | One-line bug fix | Re-Read file + grep for change | Full test suite passing |
 | Pattern applied consistently | Targeted grep on changed files | Build success |
@@ -136,17 +136,21 @@ A passing test is not proof the fix is correct: an executor can make a red test 
 
 **Rule:** on every executor return, read the **production** diff, not just the test diff, and ask "did the test go green because the fix is correct, or because production was weakened to stop raising?" A broadened `except`, a new fallback around a guard, or a deleted assertion paired with a newly-green test is the tell. Empirical (macos-first-class-test-parity C3b): an executor returned "12 passed" after patching `semantic_lanes.py` to `try/except`-swallow a storage-boundary guard and fall back to a raw chromadb client — to "fix" what was actually a test-isolation bug (the test mocked the whole `core` package but never stubbed `core.source_registry`). Caught by reading the diff. Composes with § (a) Diff is ground truth and test-design-discipline.md §49 (broad `except` swallows schema-drift failures silently).
 
-## EM Re-Runs the Suite Independently — an Executor's "Green" Is Not a Gate Signal
+## An Executor's "Green" Is Not a Gate Signal — Captured Output Is
 
-An executor's self-reported test status is not evidence the suite passes. Diff-is-ground-truth (§ (a)) governs *what changed*; this governs *what passes* — and the only trustworthy answer is the EM re-running the suite, not reading the executor's chat.
+An executor's self-reported test status is not evidence anything passes. Diff-is-ground-truth (§ (a)) governs *what changed*; this governs *what passes* — and the trustworthy answer is captured test output plus git log, never the executor's narration.
 
-**Rule.** Never advance a gate on an executor's (or background workflow's) self-reported test-green. The EM re-runs the suite; git log + captured test output are authoritative over agent narration. Three recurring shapes:
+**Rule.** Never advance a gate on an executor's (or background workflow's) self-reported test-green. Read the output it captured; where that is missing or contradicts the diff, ask for it or re-run the *targeted* tests yourself.
+
+**A re-run is not automatically a suite run.** Distrusting a self-report earns you the evidence, not the breadth: an executor's green is checked at the breadth of what it changed. A full-suite re-run is a Tier-U action, reserved to a cadence gate — clean-slate, workstream-complete, merge — and it needs a live PM grant like any other (`tier-u-grant-cli check`). A completion or clean-slate *claim* earns it; mid-work iteration and per-executor-return verification do not, and an EM that re-runs the suite after every executor return has multiplied one wave into many machine-wide events. Match verification to the change (§ (b)); a commit is not itself a verification gate.
+
+Three recurring shapes:
 
 - **Self-report is unreliable even when confident.** A background `/execute-plan` executor self-reported the coordinator-uninstall acceptance suite green when it was 3/7 red; the EM re-running it caught the gap and root-caused 4 real bugs. (doe-L96 — universal.)
-- **Flaky / shared-resource suites need multiple cold runs, not one.** On a contention-sensitive suite, a single green run is not proof — re-run the FULL suite yourself several times cold. Two executors each reported 51/51 green on a flaky contract suite; the EM's cold runs showed 4-red each time, on *different* tests (the contention tell). Three cold full-suite runs caught both over-claims. A suite whose reds move between runs is a shared-resource contention signal, not noise to dismiss. (doe-L19.)
+- **Flaky / shared-resource suites need multiple cold runs, not one.** On a contention-sensitive suite, a single green run is not proof — re-run the full suite yourself several times cold, as a Tier-U action gated on a live session grant (→ `test-design-discipline.md` § Posture: Proportional Test-Running), never assumed from the conversation having discussed one. Two executors each reported 51/51 green on a flaky contract suite; the EM's cold runs showed 4-red each time, on *different* tests (the contention tell). Three cold full-suite runs, held under grant, caught both over-claims. A suite whose reds move between runs is a shared-resource contention signal, not noise to dismiss. (doe-L19.)
 - **The clean-slate gate is the whole suite, not the changed cluster.** Per-slice green is necessary but not sufficient: a change that passes its own tests can still break a *different* corpus-wide contract lint. A currency-probe fix passed its own 5 tests but violated `test-claude-home-contract`'s `CLAUDE_HOME` lint — caught only by the whole-suite pass after per-cluster green. Targeted (Tier-T) green on the touched cluster is never itself a clean-slate declaration — the whole-suite pass is the gate, and running it is a Tier-U action reserved to the top-level EM (→ `test-design-discipline.md` § Posture: Proportional Test-Running). An agent that isn't the EM declares its own Tier-T green plainly and states that suite-level confirmation is pending the EM's gate run — it does not fire the suite itself to manufacture that confirmation. (doe-L72.)
 
-This is a cadence-gate posture (clean-slate / workstream-complete / merge), not a per-commit reflex — it composes with § (b) *Match verification to the change* (a one-line edit does not earn a full-suite run) and the general rule that a commit is not itself a verification gate. The discriminator: a **completion or clean-slate claim** earns the independent full-suite re-run; mid-work iteration does not.
+The tell that this section is being read too widely: a generic verify-before-you-commit reflex reaching for the suite, then citing this page for it. That reflex is what this page replaces with captured evidence — it is not what the page licenses.
 
 ### A dispatched agent's green is narrower than a directory-shaped brief by construction — covering the brief's breadth is the EM's job, not the agent's to guarantee
 
@@ -154,7 +158,7 @@ A dispatched agent's test invocations are confined to file-and-node-id precision
 
 **This is not the agent misreporting.** An agent that falls back to the touched files' node ids and reports "N passed" is telling the truth — it ran everything it was permitted to run. The gap is that the EM reads that green against the breadth *it specified*, and the two can silently differ by an order of magnitude: one incident saw an agent's confined run cover 37 tests where the briefed directory scope covered 434.
 
-**Rule.** If the EM needs the wider, brief-shaped breadth verified, the EM re-runs that breadth itself — it does not read a dispatched agent's narrower green as having already covered it. The fix for this gap is EM-side verification, never loosening the confinement: the confinement exists on purpose and is not the thing to relax. This is the dispatch-breadth-specific instance of § "EM Re-Runs the Suite Independently" immediately above — that section governs an executor's self-reported green in general; this one names the specific, easy-to-miss case where the *reason* the green is narrower is a structural guard the agent had no way around, not carelessness on either side.
+**Rule.** Do not read a dispatched agent's narrower green as having covered the breadth the brief named. The honest move is usually to write the brief at the breadth the agent can actually run — file and node-id precision — so the two never diverge; where the wider breadth genuinely must be verified, that is EM-side work at a cadence gate, under grant, not a re-run per return. Never loosen the confinement: it exists on purpose and is not the thing to relax. This is the dispatch-breadth-specific instance of § "An Executor's 'Green' Is Not a Gate Signal" immediately above — that section governs an executor's self-reported green in general; this one names the specific, easy-to-miss case where the *reason* the green is narrower is a structural guard the agent had no way around, not carelessness on either side.
 
 
 ## Presence-Check Verifiers Are Blind to Guard-Placement Bugs — Verify Correctness, Not Just Presence
@@ -246,7 +250,7 @@ From 24 failure memories:
 
 ## Scope-Conformance Check After Executor Returns (example-repo T1.5)
 
-Before staging any executor output: (1) run `git diff --stat` to enumerate changed paths, (2) confirm each path is within the dispatch's declared scope, (3) stash or revert any out-of-scope edits.
+Before staging any executor output, the changed-paths diff is what enumerates scope: confirm each path is within the dispatch's declared scope, then stash or revert any out-of-scope edits.
 
 Out-of-scope edits are common failure modes: test file deletions, unrelated refactors, autonomous commits the executor made despite instructions. The check is mechanical and must happen before the coordinator reads the diff semantically.
 
@@ -372,7 +376,7 @@ Separately: a harness that *runs* is not a harness that *answers*. Before trusti
 
 ## verify executor output on disk even when report claims already-present
 
-Verify executor output on disk even when the report says "no work needed / already present." Executor self-reports are unreliable — an executor that detects existing content may misidentify it or may have stale context. `git diff --stat` and `ls -la <expected-path>` are the authoritative checks. Apply: after every executor return, regardless of the executor's narrative, verify at least one expected artifact exists on disk before treating the executor's work as done.
+Executor self-reports are unreliable even when the report says "no work needed / already present" — an executor that detects existing content may misidentify it or may have stale context. `git diff --stat` and `ls -la <expected-path>` are the authoritative checks, regardless of the executor's narrative.
 
 ## blocked classification means indeterminate — oracle never ran
 
@@ -396,7 +400,7 @@ When a parser, normalizer, or guard was failing-closed (returning null / error /
 
 **Rule:** when you fix a parser or normalizer that was failing-closed, scope the fix to include surfacing AND fixing the newly-unmasked violations downstream. Do not declare done at "the false-positive is gone." Budget for a second wave.
 
-**Empirical basis (2026-06-18):** `parseFrontmatter` returned null for any file leading with an HTML comment, so schema fields were never checked. Once the parser was taught to skip the leading comment, 4 real violations (missing `category`, over-length `summary`) that had been silently masked appeared. Separately, a broken `normalize()` (BSD-sed crash) produced a false MISMATCH verdict that evaporated once normalize worked.
+**Empirical basis:** `parseFrontmatter` returned null for any file leading with an HTML comment, so schema fields were never checked. Once the parser was taught to skip the leading comment, 4 real violations (missing `category`, over-length `summary`) that had been silently masked appeared. Separately, a broken `normalize()` (BSD-sed crash) produced a false MISMATCH verdict that evaporated once normalize worked.
 
 ### A null-frontmatter parse is a record-existence signal, not a lint signal
 
@@ -404,7 +408,7 @@ A shared frontmatter parser that returns null on certain valid inputs doesn't ju
 
 **Rule:** fix null-return bugs in a SHARED frontmatter parser (not just the linter that calls it). A too-strict parser is a silent record-deletion bug for the full index. Fix the parser once at the shared-lib level, not per-consumer.
 
-**Empirical basis (2026-06-18):** the line-1-frontmatter requirement false-flagged 8 seeded handoffs that carry a legitimate leading `<!-- seed comment -->`. The visible symptom was a lint nag — the silent, worse consequence was that `query-records` dropped these handoffs from the index entirely, making them invisible to `/pickup` and `/workday-start`.
+**Empirical basis:** the line-1-frontmatter requirement false-flagged 8 seeded handoffs that carry a legitimate leading `<!-- seed comment -->`. The visible symptom was a lint nag — the silent, worse consequence was that `query-records` dropped these handoffs from the index entirely, making them invisible to `/pickup` and `/workday-start`.
 
 ## Phase 1.5 Bug-Sweep Verify: NEUTRALIZED-IN-CONTEXT Is a Third Verdict
 
@@ -414,7 +418,7 @@ When Phase 1.5 of a bug-sweep verifies that a finding is "still present" by matc
 
 **Rule:** when verifying a finding in Phase 1.5, read ±15 lines around the flagged site and ask "does the defensive context already neutralize the practical impact, or is the bug load-bearing?" A "still-present" verdict that ignores a `|| echo 0` fallback is an over-report.
 
-**Empirical basis (2026-06-14):** 4 C4 P1s ("Linux data-loss-class") were confirmed still-present by the Phase 1.5 verifier, all 4 routed as backlog/cross-repo memos. A pre-send re-verify found 1 NEUTRALIZED (PID guards already shipped), 1 DEGRADES-not-crashes (`date -r` with `|| echo 0` fallback bypasses cooldowns on macOS but doesn't crash), 1 PARTIAL (powershell.exe OS-gated everywhere except one 41-line script), 1 REAL.
+**Empirical basis:** 4 C4 P1s ("Linux data-loss-class") were confirmed still-present by the Phase 1.5 verifier, all 4 routed as backlog/cross-repo memos. A pre-send re-verify found 1 NEUTRALIZED (PID guards already shipped), 1 DEGRADES-not-crashes (`date -r` with `|| echo 0` fallback bypasses cooldowns on macOS but doesn't crash), 1 PARTIAL (powershell.exe OS-gated everywhere except one 41-line script), 1 REAL.
 
 ## Session-Limit Reply ≠ Task Failure — Check Disk Before Re-Dispatching
 
@@ -422,7 +426,7 @@ When Anthropic session quota hits mid-fan-out, dispatched agents return the lite
 
 **Rule:** on any `session limit` reply string, `ls` the expected output path before re-dispatching. If the file exists at expected shape/size, the agent succeeded — the reply channel was just truncated. Re-dispatching over a successful disk output wastes a quota cycle and may corrupt valid work.
 
-**Empirical basis (2026-06-14):** during a `/distill` fan-out, 4 of 13 agents landed disk outputs before quota cut the reply channel. Re-dispatching from the reply string alone would have corrupted 4 of the 13 results. Disk is authoritative; the reply channel can lie under quota pressure.
+**Empirical basis:** during a `/distill` fan-out, 4 of 13 agents landed disk outputs before quota cut the reply channel. Re-dispatching from the reply string alone would have corrupted 4 of the 13 results. Disk is authoritative; the reply channel can lie under quota pressure.
 
 ## Harness-Managed / Live Files: Re-Verify Post-Executor-Return, Not From Executor's Own Check
 
@@ -430,7 +434,7 @@ When an executor edits a file that a live process (the Claude Code harness, a da
 
 **Rule:** when an executor edits a harness-managed or live-written file, re-verify the invariant from disk EM-side AFTER the executor returns, and again right before committing. A passing in-executor assertion does not bind once a concurrent writer is in play.
 
-**Empirical basis (2026-06-19):** portability C5 executor reported "AC8-GREEN, both marketplaces moved to local." In reality only one marketplace landed in local; the other was deleted from `settings.json` without landing in local, and the harness then re-added it — so the executor's transient green check passed but the live file changed under it. The over-report wasn't hallucination; it was a true-at-the-instant check on a file a concurrent writer mutates.
+**Empirical basis:** portability C5 executor reported "AC8-GREEN, both marketplaces moved to local." In reality only one marketplace landed in local; the other was deleted from `settings.json` without landing in local, and the harness then re-added it — so the executor's transient green check passed but the live file changed under it. The over-report wasn't hallucination; it was a true-at-the-instant check on a file a concurrent writer mutates.
 
 ## Verification Must Use an Independent Oracle — Not the Fix's Own Assumption
 

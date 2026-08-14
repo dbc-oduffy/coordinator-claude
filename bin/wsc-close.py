@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """wsc-close.py — small `/workstream-complete` Step 3/3.5 mechanics the
 `ceremony.wsc_tail` op does not own: caller-side CLI-flag assembly for the
@@ -55,7 +54,7 @@ archive-session
     subcommand mid-session; it must fire only at SessionEnd, after the
     session's own work (including receipt emit and sentinel clear) is done.
 
-Spec backlink: docs/plans/2026-07-23-wsc-tail-slim-down.md (WSC-3 chunk —
+Spec backlink: pln-wsc-tail-slim-down-op-scoped-c-e9a265 (WSC-3 chunk —
 port residual bash logic OUT of DoE-claude's `workstream-complete/SKILL.md`
 Step 3/3.5 into a naked-Python CLI here).
 Spec backlink (source bash this ports): DoE-claude
@@ -65,13 +64,14 @@ assembly) and ~2350-2358 (session-scope archive-on-exit).
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 _REVIEW_TRAIL_FLAGS = (
     "--review-sha-range",
@@ -80,6 +80,11 @@ _REVIEW_TRAIL_FLAGS = (
     "--review-verdict",
     "--review-diff-loc",
 )
+
+#: `--review-slice` JSON keys, mirroring `_REVIEW_TRAIL_FLAGS`' underlying
+#: field names (not the dashed flag spellings) plus the one optional
+#: passthrough `wsc-tail.py`'s own `--review-slice` accepts.
+_REVIEW_SLICE_REQUIRED_FIELDS = ("sha_range", "reviewer", "scope", "verdict", "diff_loc")
 
 
 def _build_tail_args(
@@ -91,11 +96,27 @@ def _build_tail_args(
     review_verdict: str | None,
     review_diff_loc: str | None,
     review_scope_kind: str | None = None,
+    review_slices: "list[dict] | None" = None,
+    review_reviewer_evidence: str | None = None,
 ) -> list[str]:
     """Pure assembly — no I/O — so the unit test can exercise every branch
     without argv/stdout plumbing. Returns the ordered list of extra argv
     tokens for the `wsc-tail.py` call; raises ValueError on a partial
-    `--review-*` supply (see module docstring)."""
+    `--review-*` supply (see module docstring), or if BOTH `review_slices`
+    and any discrete `review_*` value are supplied (ambiguous -- mirrors
+    `wsc-tail.py`'s own mutual-exclusion refusal one layer up, so a caller
+    of THIS assembler gets the same loud refusal before ever reaching the
+    trampoline).
+
+    `review_slices` (additive, partitioned-review fix): each entry is
+    ALREADY a validated, complete dict (`directives_commit_tail.
+    build_close_tail_args_directive` filters incomplete entries out before
+    calling this — see that function's own docstring) -- this only
+    serializes each one to a compact JSON token, one `--review-slice <json>`
+    pair per entry, in list order. Does not itself re-validate field
+    completeness/enum values; `wsc-tail.py`'s own `_parse_review_slices`
+    is the authoritative validator for a caller that reaches it any other
+    way."""
     args: list[str] = []
 
     if deleted_paths:
@@ -114,6 +135,20 @@ def _build_tail_args(
         review_diff_loc,
     )
     supplied = [v for v in review_values if v]
+    if review_slices and (supplied or review_scope_kind or review_reviewer_evidence):
+        raise ValueError(
+            "review_slices and a discrete review_* value were both supplied — ambiguous "
+            "(mirrors wsc-tail.py's own --review-slice / --review-* mutual exclusion)"
+        )
+    if review_slices:
+        for entry in review_slices:
+            payload = {k: entry[k] for k in _REVIEW_SLICE_REQUIRED_FIELDS}
+            if entry.get("scope_kind"):
+                payload["scope_kind"] = entry["scope_kind"]
+            if entry.get("reviewer_evidence"):
+                payload["reviewer_evidence"] = entry["reviewer_evidence"]
+            args.extend(["--review-slice", json.dumps(payload, sort_keys=True)])
+        return args
     if supplied and len(supplied) != len(review_values):
         missing = [
             flag
@@ -135,11 +170,49 @@ def _build_tail_args(
         # absence must never trip the partial-supply ValueError.
         if review_scope_kind:
             args.extend(["--review-scope-kind", review_scope_kind])
+        # Optional seventh flag, same all-or-nothing exemption as
+        # `--review-scope-kind`: op-side `review_trail_write.
+        # _verify_reviewer_evidence` requires it for every reviewer except
+        # `wsc-auto-adjudication`, so dropping it here severs the correlation
+        # that gate exists to establish while the caller still reads as having
+        # supplied it. Spec: cross-repo/inbox/2026-08-13-doe-claude-em-wsc-tail-
+        # ipc-timeout-and-reviewer-evidence-drop.md § 2.
+        if review_reviewer_evidence:
+            args.extend(["--review-reviewer-evidence", review_reviewer_evidence])
 
     return args
 
 
 def _cmd_tail_args(args: argparse.Namespace) -> int:
+    review_slices: "list[dict] | None" = None
+    if args.review_slices:
+        review_slices = []
+        for index, raw in enumerate(args.review_slices):
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError) as exc:
+                print(f"wsc-close.py tail-args: --review-slice[{index}]: invalid JSON ({exc})", file=sys.stderr)
+                return 1
+            if not isinstance(parsed, dict):
+                print(
+                    f"wsc-close.py tail-args: --review-slice[{index}]: must be a JSON "
+                    f"object, got {type(parsed).__name__}",
+                    file=sys.stderr,
+                )
+                return 1
+            missing = [
+                k for k in _REVIEW_SLICE_REQUIRED_FIELDS
+                if not isinstance(parsed.get(k), str) or not parsed[k].strip()
+            ]
+            if missing:
+                print(
+                    f"wsc-close.py tail-args: --review-slice[{index}]: missing/blank "
+                    f"required field(s): {', '.join(missing)}",
+                    file=sys.stderr,
+                )
+                return 1
+            review_slices.append(parsed)
+
     try:
         tokens = _build_tail_args(
             deleted_paths=args.deleted_paths,
@@ -150,10 +223,20 @@ def _cmd_tail_args(args: argparse.Namespace) -> int:
             review_verdict=args.review_verdict,
             review_diff_loc=args.review_diff_loc,
             review_scope_kind=args.review_scope_kind,
+            review_slices=review_slices,
+            review_reviewer_evidence=args.review_reviewer_evidence,
         )
     except ValueError as exc:
         print(f"wsc-close.py tail-args: {exc}", file=sys.stderr)
         return 1
+    if not tokens:
+        print(
+            "wsc-close.py tail-args: no optional flag groups were supplied, so there "
+            "is no argv to emit — this is the ordinary case, not a failure (empty "
+            "stdout at exit 0 is the documented contract; see apply.py's `.argv` "
+            "token doc).",
+            file=sys.stderr,
+        )
     for token in tokens:
         print(token)
     return 0
@@ -165,7 +248,7 @@ def _cmd_archive_session(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
+        require_colocated_engine_on_path(__file__)
     except RuntimeError as exc:
         print(
             f"wsc-close.py archive-session: CLAUDE_KLABAUTER_ROOT resolution failed: {exc} "
@@ -173,9 +256,6 @@ def _cmd_archive_session(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 0
-
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
 
     try:
         from coordinator_core.session.scope import archive
@@ -225,6 +305,22 @@ def _build_parser() -> argparse.ArgumentParser:
     tail_args_p.add_argument("--review-verdict", dest="review_verdict", default=None)
     tail_args_p.add_argument("--review-diff-loc", dest="review_diff_loc", default=None)
     tail_args_p.add_argument("--review-scope-kind", dest="review_scope_kind", default=None)
+    tail_args_p.add_argument(
+        "--review-reviewer-evidence",
+        dest="review_reviewer_evidence",
+        default=None,
+        help="Evidence correlating --review-reviewer with an actual review (sidecar path "
+        "or dispatch id). Optional here, required op-side for every reviewer except "
+        "wsc-auto-adjudication; passed through to wsc-tail.py verbatim.",
+    )
+    tail_args_p.add_argument(
+        "--review-slice",
+        dest="review_slices",
+        action="append",
+        default=None,
+        help="Partitioned-review slice, one compact JSON object per flag (repeatable). "
+        "Additive to --review-*; mutually exclusive with it.",
+    )
     tail_args_p.set_defaults(func=_cmd_tail_args)
 
     archive_session_p = subparsers.add_parser(

@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """workday-complete-backfill-anchor.py — Phase A0 descendant-tip resolution +
 mechanical anchor-injection orchestration for `/workday-complete` Step 3.5.
 
 Native port of the Phase A0 bash block that used to live inline in
-`commands/workday-complete.md` (DoE-claude): a nested while-loop pairwise
+`commands/workday-complete.md` (coordinator doctrine repo): a nested while-loop pairwise
 `git merge-base --is-ancestor` walk that finds the single per-day "descendant
 tip" (the commit that is a descendant of, or equal to, every other candidate
 tip for that day), followed by a per-date call into
@@ -74,10 +73,10 @@ generalizes cleanly to the current single-row-per-date shape (a one-element
 candidate list short-circuits to that element).
 
 Spec backlink: docs/plans/2026-07-02-backfill-anchor-injection-contract.md § Deliverable A
-Spec backlink: docs/plans/2026-07-19-de-machine-backfill-scan-per-day.md § C1
+Spec backlink: pln-de-machine-workday-complete-ba-f1b7e6 § C1
 Spec backlink: cross-repo/inbox/2026-07-02-backfill-scan-legacy-anchor-migration.md (example-game-repo-em)
 Spec backlink: cross-repo/inbox/2026-07-02-workday-backfill-covered-tip.md (cockpit-em)
-Port source: DoE-claude coordinator/commands/workday-complete.md § Step 3.5 Phase A0
+Port source: coordinator doctrine repo coordinator/commands/workday-complete.md § Step 3.5 Phase A0
   (nested while-loop `_DESC_TIP` walk + `_A0_INJECTED_*` accumulation + the
   scoped `git add -- "${_A0_INJECTED_FILES[@]}"` commit block)
 """
@@ -130,9 +129,31 @@ def compute_descendant_tip(root: str, tips: list[str]) -> str | None:
     """The candidate that is a descendant of (or equal to) every other candidate.
 
     Resolves each of `tips` to its full SHA first (deduping), then — with more
-    than one distinct candidate — walks pairwise via `git merge-base
-    --is-ancestor` to find the single tip that all others are ancestors of
-    (the furthest-forward commit across every source for the same day).
+    than one distinct candidate — resolves the dominant tip via one
+    `git rev-list --topo-order` walk over the whole candidate set plus one
+    ancestor-set walk from the leading candidate, instead of the previous
+    O(n^2) pairwise `git merge-base --is-ancestor` walk.
+
+    `git rev-list --topo-order` orders commits so a commit never precedes any
+    of its descendants: if a single candidate dominates the rest (is a
+    descendant of, or equal to, every other candidate), that candidate is
+    necessarily the first of the candidate set to appear in this ordering,
+    since every other candidate is one of its ancestors. That gives a
+    necessary-but-not-sufficient leading candidate in one spawn; a second
+    spawn (`git rev-list <leading-candidate>`, its own ancestor closure) then
+    confirms sufficiency by checking every other candidate is a member. Two
+    candidates that are mutually incomparable (diverged branches — neither an
+    ancestor of the other) fail that confirmation check and fall through to
+    the same `None` diverged-branches result the old pairwise walk returned;
+    a candidate appearing twice in `tips` was already deduped above and
+    contributes one entry to `resolved`.
+
+    Any resolved candidate SHA absent from the `--topo-order` output (it
+    should always be present as one of the walk's own start points) is
+    treated as a resolution failure and reconciled explicitly rather than
+    silently read as "not the answer" — see module test
+    `test_missing_topo_output_is_not_silently_ignored`.
+
     Returns None when no SHA resolves, or when no single candidate dominates
     all others (diverged branches on the same day — a true gap, not an
     A0-mechanical case).
@@ -148,12 +169,26 @@ def compute_descendant_tip(root: str, tips: list[str]) -> str | None:
     if len(resolved) == 1:
         return resolved[0]
 
-    for cand in resolved:
-        if all(
-            other == cand or wc.git_ok("-C", root, "merge-base", "--is-ancestor", other, cand)
-            for other in resolved
-        ):
-            return cand
+    topo_out = wc.git_out("-C", root, "rev-list", "--topo-order", *resolved)
+    topo_lines = topo_out.splitlines()
+    position = {sha: idx for idx, sha in enumerate(topo_lines)}
+
+    missing = [cand for cand in resolved if cand not in position]
+    if missing:
+        _err(
+            "ERROR: candidate SHA(s) absent from `git rev-list --topo-order` "
+            f"output (unresolved, not treated as non-dominant): {' '.join(missing)}"
+        )
+        return None
+
+    leading = min(resolved, key=position.get)
+
+    ancestor_out = wc.git_out("-C", root, "rev-list", leading)
+    ancestor_set = set(ancestor_out.splitlines())
+    ancestor_set.add(leading)
+
+    if all(other == leading or other in ancestor_set for other in resolved):
+        return leading
     return None
 
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """handoff-deliverable-carry.py — deliverable_id/initiative-FK carry-or-mint cascade
 for the handoff authoring surface (D1 carry-not-remint rule).
@@ -36,6 +35,23 @@ ID-companion resolution): resolving `predecessor_id` off the predecessor handoff
 Usage:
   handoff-deliverable-carry.py resolve [--plan-file <path>] [--predecessor <path>]
                                         [--slug-suffix <suffix>]
+                                        [--additional-predecessor <path> ...]
+
+`--additional-predecessor` (repeatable, sedge-01 / succession-edge-cardinality roadmap):
+names an extra fan-in predecessor leg beyond `--predecessor`, compared for
+deliverable_id divergence alongside the plan/predecessor rungs — additive only, never
+becomes the carried id itself. Omitting it reproduces today's 2-rung behaviour
+byte-for-byte; no in-repo or DoE-claude caller passes it yet.
+
+Caller-must-resolve obligation (Review: coordinator:code-reviewer af8ffeae, P2 finding 2
+— documented, not fixed here; resolving raw argv paths in this CLI is out of the sedge-01
+stub's scope): `resolve_deliverable_and_initiative`'s `additional_predecessors` contract
+expects each entry already-RESOLVED (archive-aware, qualified) by the caller — this CLI
+does NOT perform that resolution; it passes the raw argv string straight through. A
+relative or archived path handed to `--additional-predecessor` will therefore fail
+`os.path.isfile()` and degrade silently to an absent rung (same as an unset
+`--predecessor`) rather than raising or resolving. Callers must pass an already-qualified,
+directly-`isfile()`-able path.
 
 Output (stdout): two shell-assignment lines, meant to be consumed via
 `eval "$(handoff-deliverable-carry.py resolve ...)"` so both variables land directly
@@ -142,6 +158,7 @@ def _cmd_resolve(args: argparse.Namespace, read_frontmatter_field, mint) -> int:
         args.plan_file,
         args.predecessor,
         args.slug_suffix,
+        additional_predecessors=args.additional_predecessor or None,
     )
     print(f"DLVR_ID={dlvr_id}")
     print(f"INITIATIVE_ID={initiative_id}")
@@ -166,6 +183,18 @@ def main(argv: list[str]) -> int:
         default="handoff",
         help="suffix appended to today's date when minting a fresh id (default: 'handoff', "
         "matching the bash oracle's '<YYYYMMDD>-handoff' slug)",
+    )
+    resolve_parser.add_argument(
+        "--additional-predecessor",
+        action="append",
+        default=[],
+        help="path to an additional (fan-in) predecessor handoff, beyond --predecessor; "
+        "repeatable. Compared for deliverable_id divergence alongside --plan-file/"
+        "--predecessor (sedge-01, succession-edge-cardinality roadmap) but never becomes "
+        "the carried id itself — additive only, no in-repo caller passes this today. "
+        "Must be supplied already-qualified (archive-aware-resolved) by the caller; this "
+        "CLI does no resolution of its own, so a relative or archived path degrades "
+        "silently to an absent rung instead of raising.",
     )
 
     args = parser.parse_args(argv)

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SubagentStop Stage-1 detect+record shim -- zero-tool-use subagent detection.
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
+This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): parse
 the raw SubagentStop payload, gate on agent_type and this-session ownership,
 map the payload to the pinned IPC params, and relay to the claude-klabauter engine op
 `hooks.subagent_zero_tool_use` (module `coordinator_core.hooks.

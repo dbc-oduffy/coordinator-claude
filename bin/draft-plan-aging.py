@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """draft-plan-aging.py — CLI trampoline over the claude-klabauter draft-plan staleness
 detector.
@@ -54,7 +53,7 @@ any are found.
 #   3 — CLAUDE_KLABAUTER_ROOT resolution failed, or coordinator_core.ops.draft_plan_aging
 #       was not importable
 #
-# Spec backlink: docs/plans/2026-07-09-continuity-artifact-staleness-parity.md § Design Fix #2, § Chunks C1
+# Spec backlink: DoE-claude:pln-continuity-artifact-staleness--bec61c § Design Fix #2, § Chunks C1
 # Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 # Port of: draft-plan-aging.sh (DoE b5a4192c, 2026-07-20)
 

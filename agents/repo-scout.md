@@ -3,7 +3,7 @@ name: repo-scout
 description: "Haiku repo-research scout — inventories assigned repo chunks for Sonnet specialists. Mechanical inventory only."
 model: haiku
 effort: low
-tools: ["Read", "Write", "Bash", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Bash", "PowerShell", "ToolSearch", "TaskUpdate", "TaskList", "TaskGet"]
 color: yellow
 access-mode: read-write
 ---

@@ -1,9 +1,9 @@
-"""claims-emit — CLI trampoline over claude-klabauter coordinator_core.claims_emit
+"""claims-emit — CLI trampoline over the engine repo's coordinator_core.claims_emit
 (writer for the atomic `<stem>.claims.json` + `<stem>.claims.meta.json`
 pair). Direct-import variant (template-variant #1, per
 tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1): a plain
 in-process function call after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop
-— the coordinator/bin/archive-stamp-cli precedent, chosen here specifically
+— the coordinator/bin/archive-stamp-cli.py precedent, chosen here specifically
 because no op registration is needed (see the plan's Anti-scope for why).
 
 Spec backlink:
@@ -30,7 +30,7 @@ taxonomy verbatim — 0 both files written, 1 producer-side failure
 (missing/malformed flags or STDIN payload). A missing/unresolvable
 CLAUDE_KLABAUTER_ROOT (this trampoline's own transport failure, distinct from the
 module's business exit code) exits 3 — the dedicated code below, since
-that failure means "the claude-klabauter engine could not be reached," never
+that failure means "the engine repo could not be reached," never
 silently degraded to 0.
 """
 

@@ -273,7 +273,7 @@ identifier check (the one mechanism that could separate "identifier as
 prose inside a content argument" from "identifier as a path operand")
 would ALSO hide the true positive this hook exists to catch, because a
 Python write target is *itself* normally a quoted string literal --
-``open('coordinator/snippets/em-operating-doctrine.md','w').write(...)``
+``open('coordinator/snippets/<doctrine-file>.md','w').write(...)``
 (see ``test_deny_interpreter_write_mode_open_on_claude_md``) is
 indistinguishable from the false positive above by quoting alone. Call-
 argument-position parsing (which parenthesized argument the identifier
@@ -296,7 +296,7 @@ a missing/non-string ``tool_input.command``, fails OPEN (exit 0) -- there is
 no command to classify at all in that case, which is a different situation
 from "a command was extracted but its target could not be classified"
 (covered by point 5 above, which fails CLOSED). Fires only on
-``tool_name == "Bash"``.
+``tool_name in _COMMAND_TOOL_NAMES`` (``"Bash"`` or ``"PowerShell"``).
 
 Spec backlink: docs/plans/2026-07-30-boot-doctrine-cut-and-refill-gate.md § C7a
 """
@@ -325,6 +325,12 @@ _WIKI_ANCHOR = (
     "coordinator/docs/wiki/guard-message-concision.md"
     "#doctrine-surface-bash-write-guard-carve-outs-and-remedies"
 )
+
+#: The command-issuing tool names this guard's matcher covers. Mirrors the
+#: `Bash|PowerShell` matcher in hooks.json; both are provisional local copies
+#: pending the engine repo's `coordinator_core` SSOT constant (BX-17 Piece 2,
+#: memo 2026-08-07 to the engine-side EM), which they will import once it lands.
+_COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
 
 
 def _governed_identifiers() -> "list[str]":
@@ -1097,7 +1103,7 @@ def main() -> int:
     except Exception:
         return 0  # nothing to classify -- fail open
 
-    if data.get("tool_name") != "Bash":
+    if data.get("tool_name") not in _COMMAND_TOOL_NAMES:
         return 0
 
     tool_input = data.get("tool_input")

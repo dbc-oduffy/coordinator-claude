@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """bin/check-machine-path-leak.py — Tripwire: prevent machine-specific absolute paths
 from being committed into tracked configuration files.
 
@@ -29,7 +28,7 @@ subprocess hops that the bash version needed to zero. No shell is on the critica
 the only subprocess spawns are to `git` (a native binary present on every supported
 platform), used solely to read staged content when a file is not on disk.
 
-Spec backlink: docs/plans/2026-06-23-machine-path-leak-guard.md
+Spec backlink: docs/plans/2026-06-23-machine-path-leak-guard.md [DEAD-CITATION: plan file never committed to this repo]
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md
 
 Usage:

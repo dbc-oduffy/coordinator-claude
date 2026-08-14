@@ -7,7 +7,7 @@ running ad-hoc research as Opus) with ONE `python3` hook entry -- zero Git-Bash
 cold-start per tool call on Windows (each bash.exe spawn costs 200-500ms; this
 is the whole point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 advisory LOGIC (coordinator_core.hooks.suggest_sonnet_research, registered under
 the JSON-RPC method "hooks.suggest_sonnet_research"). The engine is imported and

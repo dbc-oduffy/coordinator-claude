@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """misc-session-and-guards.py — small-guard-and-resolver grab-bag, ported off
 DoE-claude instruction-file bash fences (M3 chunk C-MISC).
 
@@ -77,13 +76,14 @@ _LIB_DIR = _BIN_DIR / "lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 
+GENERATES = []  # autonomous-sentinel writes only to the platform tempdir (autonomous_sentinel.sentinel_path); other subcommands only print/shell out
+
 _TRANSPORT_FAIL = 3
 
 # Windows console-subprocess discipline: every subprocess.run() below spawns
-# a console-subsystem child (python.exe) — pass CREATE_NO_WINDOW (a no-op on
-# non-Windows via getattr) so a headless Bash-tool-parented invocation never
+# a console-subsystem child (python.exe) — pass no_console_creationflags()
+# (a no-op on non-Windows) so a headless Bash-tool-parented invocation never
 # flashes a focus-stealing console window.
-_NO_WINDOW = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +150,7 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
     check_rag_state = _BIN_DIR / "check-rag-state.py"
     try:
         from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
 
         proc = subprocess.run(
             [sys.executable, str(check_rag_state)],
@@ -157,7 +158,7 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
             text=True,
             check=False,
             env=child_env(),
-            **_NO_WINDOW,
+            **no_console_creationflags(),
         )
         rag_state = proc.stdout.strip() if proc.returncode == 0 else "unknown"
     except OSError:
@@ -185,7 +186,9 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
         cmd += ["--task", opts["task"]]
     if "focus-files" in opts:
         cmd += ["--focus-files", opts["focus-files"]]
-    return subprocess.run(cmd, check=False, **_NO_WINDOW).returncode
+    from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
+
+    return subprocess.run(cmd, check=False, **no_console_passthrough_kwargs()).returncode
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +222,7 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
 
     try:
         from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
 
         proc = subprocess.run(
             [sys.executable, cli, "staleness-survey", "--project-root", root, "--json"],
@@ -226,7 +230,7 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
             text=True,
             check=False,
             env=child_env(),
-            **_NO_WINDOW,
+            **no_console_creationflags(),
         )
     except OSError:
         return 0

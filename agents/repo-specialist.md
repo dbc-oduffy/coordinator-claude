@@ -3,7 +3,7 @@ name: repo-specialist
 description: "Sonnet repo-research specialist — deep-reads a scout's file inventory, challenges peer claims, writes verified claims.json."
 model: sonnet
 effort: medium
-tools: ["Read", "Write", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: green
 access-mode: read-write
 ---

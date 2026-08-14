@@ -165,7 +165,7 @@ Expect 30–60% of inherited items to be already closed (pickup SKILL Step 1, Cl
 
 ### Lifecycle table
 
-> Column states refer to `deployment_state:` frontmatter, NOT `status:`. The `status:` enum is `active | consumed` — write path; the schema has since widened to also accept `open | claimed`, corpus mixed on disk, read both; `shipped` is not a valid `status:` value — use `consumed`/`claimed` + `shipped_in:` instead. (A retired `superseded` value is now expressed via `deployment_state: abandoned` + lineage fields instead.)
+> Column states refer to `deployment_state:` frontmatter, NOT `status:`. The `status:` enum is `active | consumed` — write path; the schema has since widened to also accept `open | claimed`, corpus mixed on disk, read both; `shipped` is not a valid `status:` value — use `consumed`/`claimed` + `shipped_in:` instead. (A `superseded` handoff is expressed via `deployment_state: abandoned` + lineage fields, not a separate `status:` value.)
 
 | Event | From → To | Skill responsible |
 |---|---|---|
@@ -228,6 +228,26 @@ liveness check detects exit within seconds, including on crash; and (b) an absol
 reaper backstop that fires on any session regardless of stable-identifier state. This is NOT an
 unbounded leak — it realizes the design intent that a session genuinely still running should be
 presumed to retain its holds until it ends.
+
+**Second residual — a DEAD holder whose Layer 1 was never established.** Layer 1's
+within-seconds crash detection is conditional on the stable identifier having been captured at
+that session's own init; capture is best-effort and fails silently (comm-check miss, absent
+process-inspection library, non-harness run). A session whose init did not capture it is a
+Layer-2-only session for its whole life, so when it dies its claim is held for the *full* recency
+window — mutual exclusion blocking a live pickup on a process that does not exist. Diagnose it
+by reading the holder's own session metadata for the stable-identifier field: absent means Layer 1
+was never available, not that Layer 1 was consulted and wrong. A liveness verdict reported without
+its basis cannot distinguish the two — prefer the basis-bearing surface over a bare live/dead
+answer.
+
+**Correlating capture failures: `started_at` is the only birth signal.** A session's `last_activity`
+is rewritten on every heartbeat, and `meta.json`'s filesystem ctime is reset by the metadata
+writer's tempfile-plus-rename, so both make every session dir look uniformly fresh. Sorting or
+bucketing capture failures by either one reorders the population and invents repo-shaped or
+rate-shaped patterns that aren't there; correlate against the immutable `started_at` instead.
+Capture also fails from the launch environment, not only from the code's own legs — a walk that
+cannot traverse the invoking process tree fails in an environment the enumerated causes above do
+not name, and the silent degradation leaves no breadcrumb saying which leg gave way.
 
 ## Soft-seams discipline
 
@@ -363,7 +383,7 @@ Commit-granularity is incident-scoped, not workstream-scoped: if two concurrent 
 
 Recovery pickups produce a noisier working tree than ordinary pickups: pre-crash partial writes survive as untracked files, and the crashed session's diagnostic notes age fast.
 
-- **Untracked files at recovery pickup are evidence, not noise.** Before staging or committing on a recovery handoff, list every untracked path and diff it against the crashed session's intended scope (`git status --porcelain=v2 -uall` over `scope:` pathspecs). An untracked `.tmp.<pid>.<nanos>` file is an Edit-tool atomic-write crash — diff against its target before deletion. An untracked source file not in the recovery scope is out-of-scope work from a sibling session — surface to PM rather than absorb silently.
+- **Untracked files at recovery pickup are evidence, not noise.** Before staging or committing on a recovery handoff, list every untracked path and diff it against the crashed session's intended scope (`git --no-optional-locks status --porcelain=v2 -uall` over `scope:` pathspecs). An untracked `.tmp.<pid>.<nanos>` file is an Edit-tool atomic-write crash — diff against its target before deletion. An untracked source file not in the recovery scope is out-of-scope work from a sibling session — surface to PM rather than absorb silently.
 - **Handoff diagnostics decay.** A crash handoff's "what was in flight" framing is hypothesis at pickup time: cited file:line offsets may have moved, cited SHAs may have been rebased, cited test failures may have been fixed by a sibling recovery. Re-run the cited failing test on HEAD before treating it as live; `git log --oneline -- <cited-paths>` since the crash report timestamp before treating the crash boundary as the current boundary.
 - **One recovery handoff per surviving workstream still holds** — the hygiene rules here are per-handoff, not per-incident. Two concurrent crashed workstreams produce two recovery handoffs, each with its own untracked-files audit.
 
@@ -466,7 +486,7 @@ This is **intentional**, not a gap:
 - `bin/query-records --type handoff` is the canonical query surface. A hand-maintained tracker would drift; the query engine reads frontmatter directly.
 - `/workday-start` builds the per-day orientation cache from query-records output, not from a tracker file.
 
-If a "tracker is missing" instinct fires, the answer is almost always to run the query, not to author a tracker. Authoring a `state/handoff-tracker.md` reintroduces the drift problem and tripwires the state/tasks-split guard if mis-located.
+If a "tracker is missing" instinct fires, the answer is almost always to run the query, not to author a tracker. Authoring a per-repo `handoff-tracker.md` under `state/` reintroduces the drift problem and tripwires the state/tasks-split guard if mis-located.
 
 ## Six lineage mechanisms — unified vocabulary
 

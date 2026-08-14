@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator-artifact-subject.py — artifact subject-matter classifier.
 
 Purpose: given the path of a coordinator working-data artifact, classifies
@@ -6,7 +5,7 @@ its SUBJECT MATTER and prints exactly one of: engine, doctrine, or
 cross-cutting to stdout. The discriminator is what the artifact is ABOUT,
 not where it physically lives on disk. Subject-matter is the routing key
 used by coordinator_state_root to place doctrine artifacts in the DoE plane
-and engine artifacts in the claude-klabauter plane.
+and engine artifacts in the engine-repo plane.
 
 Spec backlinks:
   docs/plans/2026-07-04-doe-authoring-repo-build-subject-matter-.md § W2.2

@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """parallel-review-gate-decision.py — gate-decision assembler for the weekly
 parallel-code-review gate (DoE-claude coordinator/skills/parallel-code-review/
 SKILL.md).
 
-Spec backlink: docs/plans/2026-07-24-computed-skills-b8-review-ci-cluster.md
+Spec backlink: DoE-claude:pln-computed-skills-b8-review-ci-c-ffa5ad
 chunk C3 ("Extract parallel-code-review's gating Rules 1-4 (mechanical) +
 chunking algorithm into a gate-decision assembler; surface Rule 5's inputs
 without deciding it") and chunk C3b ("Upgrade C3's gate-decision assembler
@@ -133,12 +132,15 @@ from coordinator_core.contract.decision_object import (  # noqa: E402
     emit,
 )
 from coordinator_core.contract.decision_object.judgment import build_disposition  # noqa: E402
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 # build_judgment_point is intentionally NOT imported: every judgment point
 # this assembler emits is untrusted-gate-shaped (Rule 5's skip-vs-narrow
 # call is EM-judgment, never this tool's recommendation) — see the module
 # negative-spec. Importing the trusted-recommendation constructor with no
 # call site would be dead weight, not conformance.
+
+GENERATES = []  # read-only gate-decision assembler; every subcommand only prints an envelope to stdout (emit()/print()), no file writes anywhere in this module
 
 _PROG = "parallel-review-gate-decision.py"
 _GIT_TIMEOUT_SECS = 60
@@ -160,7 +162,7 @@ def _run_git(args: list[str], repo_root: Path | None = None, timeout: int = _GIT
             capture_output=True,
             text=True,
             timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"{_PROG}: failed to run `git {' '.join(args)}`: {exc}", file=sys.stderr)

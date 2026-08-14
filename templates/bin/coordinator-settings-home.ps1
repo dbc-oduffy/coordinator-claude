@@ -6,7 +6,7 @@
 #
 # Precedence (most-specific first) — matches the bash resolver's _resolve():
 #   $env:COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
-#   ($env:CLAUDE_HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
+#   ($env:CLAUDE_HOME or $env:HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
 #     — sibling to ~/.claude, PowerShell-native fallback (no bash `${VAR:-default}`
 #       parameter expansion — PowerShell has neither that form nor `~`/`$HOME` tilde
 #       resolution the same way bash does).
@@ -23,22 +23,30 @@
 # Spec backlink: docs/plans/2026-07-08-install-baton-rendezvous-off-dotclaude.md § C4b
 # RAG-bait: coordinator settings-home PowerShell CLI resolver; COORDINATOR_SETTINGS_HOME
 
+function Resolve-ClaudeHomeBase {
+    # The home-resolution ladder, defined ONCE for this file. Rung-for-rung
+    # identical to the Python resolver's: CLAUDE_HOME -> HOME -> USERPROFILE,
+    # terminating on the automatic $HOME.
+    #
+    # The HOME rung reads $env:HOME and NOT the automatic $HOME: on Windows,
+    # PowerShell derives $HOME from USERPROFILE and ignores $env:HOME entirely,
+    # so reading the automatic variable here would silently skip the HOME rung
+    # and resolve a different base than the Python resolver on any host where an
+    # operator sets HOME deliberately (git-bash is the common case). The
+    # automatic $HOME is correct only as the terminal rung, where it stands in
+    # for Python's Path.home().
+    if ($env:CLAUDE_HOME)   { return $env:CLAUDE_HOME }
+    if ($env:HOME)          { return $env:HOME }
+    if ($env:USERPROFILE)   { return $env:USERPROFILE }
+    return $HOME
+}
+
 function Resolve-SettingsHome {
     # Print the settings-home root. No side effects. Mirrors bash _resolve().
     if ($env:COORDINATOR_SETTINGS_HOME) {
         return $env:COORDINATOR_SETTINGS_HOME
     }
-    # PowerShell-native fallback: $env:CLAUDE_HOME (or $env:USERPROFILE, the
-    # Windows analog of $HOME) + '\.coordinator-claude-settings'. On non-Windows
-    # PowerShell, fall further back to $HOME (PowerShell sets $HOME cross-platform).
-    $base = if ($env:CLAUDE_HOME) {
-        $env:CLAUDE_HOME
-    } elseif ($env:USERPROFILE) {
-        $env:USERPROFILE
-    } else {
-        $HOME
-    }
-    return Join-Path $base '.coordinator-claude-settings'
+    return Join-Path (Resolve-ClaudeHomeBase) '.coordinator-claude-settings'
 }
 
 function Resolve-CanonicalPath {
@@ -58,7 +66,7 @@ function Test-Divergence {
     # Returns $true (OK) when homes are absent or share a canonical path (compat symlink).
     # Returns $false (fail-loud) when both exist with different canonical paths.
     $settingsHome = Resolve-SettingsHome
-    $claudeHomeBase = if ($env:CLAUDE_HOME) { $env:CLAUDE_HOME } elseif ($env:USERPROFILE) { $env:USERPROFILE } else { $HOME }
+    $claudeHomeBase = Resolve-ClaudeHomeBase
     $legacy = Join-Path (Join-Path $claudeHomeBase '.claude') 'machine-local'
     $new = Join-Path $settingsHome 'machine-local'
 

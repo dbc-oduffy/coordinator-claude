@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 derive-file-attribution.py — Derive session→file attribution from Claude Code transcripts.
 
@@ -16,7 +15,7 @@ Performance target: ≤60s wall-clock over the full ~/.claude transcript set (~6
 Achieves this via line-by-line streaming (never json.load a whole file) and a single O(n)
 pass per transcript.
 
-Spec backlink: docs/plans/2026-07-02-ccos-6-rehome-attribution-python.md § C1
+Spec backlink: pln-ccos-6-rehome-attribution-python-9966da § C1
 Ported from: plugins/coordinator/bin/lib/file-attribution/project.mjs
 
 Performance cache (2026-07-29): a full re-scan (read + regex + json.loads every
@@ -49,7 +48,7 @@ Negative-spec:
     to state/" ban protected, and it still holds in full.
   - Narrowed, deliberately, on 2026-07-29 (PM-authorized): the producer MAY maintain its
     own private performance cache under the durable-data plane
-    (`$(coordinator-settings-home)/claude-klabauter/file-attribution-cache/`, per
+    (`$(coordinator-settings-home)/<engine-repo-name>/file-attribution-cache/`, per
     CLAUDE.md § Durable-data plane) — NOT state/, NOT an ad-hoc `~/` path. This is an
     internal implementation detail of the producer's own runtime, not attribution
     OUTPUT; a cache miss, corrupt/missing/unwritable cache, or a `--no-cache` run all
@@ -75,13 +74,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+GENERATES = []  # output-contract disk-write-free by design (module docstring): stdout JSON only, plus an optional performance cache under the durable-data plane (settings-home), never state/ or any other tracked path
+
 # Bumped whenever the derivation logic that shapes a per-transcript-file cached row
 # changes — see module docstring "Derivation-version note for future editors".
 # v1 -> v2 (2026-07-29): transcript enumeration became recursive one level down into
 # `<session>/subagents/agent-*.jsonl` — see DR-244 § Amendment 2026-07-29, Q3. This is
 # exactly the "derivation-logic changed, transcript files themselves didn't" case the
 # note above warns about: a stale cache would silently keep serving top-level-only rows.
-_DERIVATION_VERSION = 2
+# v2 -> v3 (2026-08-13): extract_shell_token no longer strips backslashes out of a
+# Windows-shaped redirect target (drive-letter or UNC prefix) — see
+# _is_windows_shaped_prefix docstring for the root-cause this fixes. Also fixed:
+# unquoted redirect targets now honour a genuine POSIX backslash-escape (e.g.
+# `foo\ bar.txt`) instead of stopping at the escaped char. A stale cache would
+# silently keep re-serving the pre-fix mangled paths forever.
+_DERIVATION_VERSION = 3
 
 _CACHE_SCHEMA_VERSION = 1
 
@@ -154,12 +161,41 @@ def mask_quotes(command: str) -> str:
     return ''.join(result)
 
 
+def _is_windows_shaped_prefix(prefix: str) -> bool:
+    """
+    True when `prefix` (the token's leading characters, taken BEFORE any
+    backslash-unescaping) opens a Windows-style path: a drive letter
+    (`<drive>:\\...` or the drive-relative `<drive>:foo` form, no separator
+    required —
+    both are absolute enough on Windows that a bash-style backslash-escape
+    reading would be wrong) or a UNC share (`\\\\server\\share`).
+
+    Root-cause note (2026-08-13, teammate-dispatched fix): the mangling that
+    produced 76 backslash-stripped `file_attributions` rows was NOT generic
+    "extract_shell_token performs POSIX unescaping" — the unquoted branch
+    below never touched backslashes at all. It was this function's caller's
+    double-quoted branch, which unconditionally treated every `\\X` as an
+    escape sequence and dropped the backslash — so a Windows drive-absolute
+    redirect target, double-quoted, came out with every separator deleted
+    (verified on disk: `state/cockpit-emission.json` `file_attributions`,
+    76 rows). The gate below is the fix: a Windows-shaped
+    token skips backslash-unescaping entirely in both the double-quoted and
+    unquoted branches, so its separators survive intact for the porter to
+    recognize (and correctly exclude) as a non-repo-relative path.
+    """
+    if re.match(r'^[A-Za-z]:', prefix):
+        return True
+    return prefix.startswith('\\\\')
+
+
 def extract_shell_token(command: str, pos: int) -> Tuple[Optional[str], bool, int]:
     """
     Extract the next shell token from command starting at pos.
     Returns (token, is_double_quoted, end_pos).
 
-    Ported from extractShellToken (project.mjs:137-166).
+    Ported from extractShellToken (project.mjs:137-166). Extended
+    (2026-08-13) with the Windows-shaped gate in `_is_windows_shaped_prefix`
+    — see that function's docstring for the root-cause this addresses.
     """
     # Skip leading whitespace (space or tab)
     while pos < len(command) and command[pos] in (' ', '\t'):
@@ -169,13 +205,18 @@ def extract_shell_token(command: str, pos: int) -> Tuple[Optional[str], bool, in
 
     c = command[pos]
     if c == '"':
+        start = pos + 1
+        windows_shaped = _is_windows_shaped_prefix(command[start:start + 3])
         chars: List[str] = []
-        j = pos + 1
+        j = start
         while j < len(command) and command[j] != '"':
             # Review: code-reviewer (F1) — handle backslash escapes so \" inside a
             # double-quoted redirect target doesn't short-read into a fabricated
             # truncated path. Mirrors mask_quotes semantics; preserves never-fabricate.
-            if command[j] == '\\' and j + 1 < len(command):
+            # Gated on `not windows_shaped`: a Windows path's `\U`, `\A`, etc. are
+            # separators, not escapes, and must survive verbatim (see
+            # _is_windows_shaped_prefix docstring).
+            if not windows_shaped and command[j] == '\\' and j + 1 < len(command):
                 j += 1
                 chars.append(command[j])
             else:
@@ -190,10 +231,23 @@ def extract_shell_token(command: str, pos: int) -> Tuple[Optional[str], bool, in
             j += 1
         return ''.join(chars), False, j + 1
     else:
+        windows_shaped = _is_windows_shaped_prefix(command[pos:pos + 3])
         chars = []
         j = pos
-        while j < len(command) and command[j] not in (' ', '\t', ';', '|', '&', '<', '>'):
-            chars.append(command[j])
+        while j < len(command):
+            ch = command[j]
+            # Unquoted POSIX backslash-escape: consume the next char literally
+            # (e.g. `foo\ bar.txt` → the escaped space no longer terminates the
+            # token). Gated the same way as the double-quoted branch above —
+            # a Windows-shaped token's backslashes are separators, not escapes.
+            if not windows_shaped and ch == '\\' and j + 1 < len(command):
+                j += 1
+                chars.append(command[j])
+                j += 1
+                continue
+            if ch in (' ', '\t', ';', '|', '&', '<', '>'):
+                break
+            chars.append(ch)
             j += 1
         return ''.join(chars), False, j
 
@@ -480,6 +534,22 @@ def derive_attribution(
         }]
 
     # -- Bash → edited (bash) or unknown ------------------------------------
+    # Disposition (AC7, docs/plans/2026-08-07-command-guards-fire-under-both-tool-names.md
+    # § C7): NOT converted to a membership check against
+    # coordinator_core.bash_guards._tool_names.COMMAND_TOOL_NAMES. This is a REAL, SIZED
+    # GAP, not an absence of cases: a fleet-wide scan of ~/.claude/projects transcripts
+    # (2026-08-07) counted tool_use.name == "PowerShell" 1,753 times against 7,912 "Bash"
+    # -- roughly 18% of shell-tool invocations (1,753 of 9,665) already arrive as
+    # PowerShell today, and every one of them falls through this gate and yields NO
+    # attribution row (silent drop, not a wrong one). The hold is NOT "PowerShell never
+    # appears" -- it does, routinely, on this machine right now. The hold is that a bare
+    # membership-check widening would immediately hand a PowerShell command string to
+    # parse_bash_for_writes(), which is POSIX-redirect-grammar-bound and cannot parse
+    # PowerShell write syntax (`>`/`Out-File`/`Set-Content`/`Add-Content` etc. all differ
+    # from bash); that would trade 1,753 silent drops for 1,753 wrong-or-empty parses,
+    # which is worse, not better. Fixing this for real needs a PowerShell-write-syntax
+    # parser this chunk does not have license to author. Tracked as a known gap, not
+    # closed by this disposition.
     if tool_name == 'Bash':
         cmd = args.get('command')
         if not cmd:
@@ -496,7 +566,7 @@ def derive_attribution(
                 'file_path': None,
                 'link_type': 'unknown',
                 'tool_use_id': tool_use_id,
-                'metadata': {'toolName': 'Bash', 'bashCommand': cmd},
+                'metadata': {'toolName': tool_name, 'bashCommand': cmd},
                 'system': {
                     'capture_source': 'derived',
                     'completeness': 'partial',
@@ -511,7 +581,7 @@ def derive_attribution(
             'tool_use_id': tool_use_id,
             'metadata': {
                 'operation': 'bash',
-                'toolName': 'Bash',
+                'toolName': tool_name,
                 'bashCommand': cmd,
             },
             'system': {
@@ -644,13 +714,16 @@ def encode_project_path(project_root: str) -> str:
     Example: /Users/example-operator/.claude → -Users-example-operator--claude
     """
     # Review: code-reviewer (F8) — normalize Windows path separators before encoding
-    # so coordinator_root on Windows (C:\Users\...) produces the same encoded form
-    # as forward-slash paths (Claude Code encodes all separators as '-').
+    # so coordinator_root on Windows (drive letter, colon, then Users\...)
+    # produces the same encoded form as forward-slash paths (Claude Code
+    # encodes all separators as '-').
     #
     # The drive-letter colon is part of that same normalization and is NOT
-    # optional: Claude Code encodes `X:\claude-klabauter` as `X--claude-klabauter`
-    # (colon AND separator each become '-'), so stripping only the backslash
-    # yields `X:-claude-klabauter`, which matches no directory that exists. The
+    # optional: Claude Code encodes a drive letter, colon, backslash,
+    # example-repo path as drive-letter, dash, dash, example-repo (colon AND
+    # separator each become '-'), so stripping only the backslash yields
+    # drive-letter, colon, dash, example-repo, which matches no directory
+    # that exists. The
     # miss is silent all the way up — `derive_rows` returns [] for a missing
     # transcript dir, the section porter swallows that into [], and the
     # emission simply carries an empty `file_attributions` collection. That is
@@ -670,8 +743,9 @@ def encode_project_path(project_root: str) -> str:
 def _require_rooted_env(var: str, raw: str) -> str:
     """Return `raw`, or raise ValueError if it would anchor the cache at the cwd.
 
-    A rooted path ('/srv/x', 'C:\\Users\\x', '\\\\server\\share') is accepted; a
-    relative one ('foo', 'C:foo') is not. On Windows a drive letter alone is NOT
+    A rooted path ('/srv/x', a Windows drive-rooted path like 'Users\\x' under
+    a drive letter, or a UNC share) is accepted; a relative one ('foo',
+    'C:foo') is not. On Windows a drive letter alone is NOT
     absolute — 'C:foo' means "foo relative to the cwd on drive C:" — so the test is
     `is_absolute() or root`, which accepts a POSIX-style rooted path under a Windows
     interpreter while still rejecting the drive-relative form.
@@ -687,8 +761,8 @@ def _require_rooted_env(var: str, raw: str) -> str:
         raise ValueError(
             f"{var} must be an absolute path; got {raw!r} — a relative value anchors "
             "the attribution cache at a cwd that moves between runs, silently disabling "
-            "the cache. (On Windows, a drive letter alone is insufficient — use "
-            "'C:\\...' form.)"
+            "the cache. (On Windows, a drive letter alone is insufficient — a "
+            "drive-rooted path needs the separator after the colon too.)"
         )
     return raw
 
@@ -850,10 +924,13 @@ def _derive_rows_from_dir(
     stat cache when cache_dir is given. Mirrors the pre-cache file loop exactly, adding
     only the per-file cache skip — never changes iteration order or which files are read.
 
-    session_filter narrows to one top-level session (O(1) via string compare against
-    parent_session_id from `_iter_transcript_entries`), and also includes that
-    session's own `subagents/agent-*.jsonl` transcripts — a `--session` scoped run
-    stays scoped to one session's work while still surfacing its subagent touches.
+    session_filter matches in one of two ways (O(1) string compare):
+      - a top-level (parent) session id: narrows to that session AND also includes
+        its own `subagents/agent-*.jsonl` transcripts — a `--session` scoped run
+        stays scoped to one session's work while still surfacing its subagent
+        touches.
+      - a subagent's own session id (`row_session_id`, e.g. `agent-*`): narrows to
+        exactly that subagent transcript's rows.
     Caching adds nothing to a single-session run and is skipped to avoid reading (and
     rewriting) the whole full-corpus cache file for one entry.
     """
@@ -862,7 +939,7 @@ def _derive_rows_from_dir(
         for _cache_key, parent_session_id, row_session_id, fpath in _iter_transcript_entries(
             transcript_dir
         ):
-            if session_filter and parent_session_id != session_filter:
+            if session_filter and parent_session_id != session_filter and row_session_id != session_filter:
                 continue
             try:
                 all_rows.extend(process_transcript(fpath, row_session_id))

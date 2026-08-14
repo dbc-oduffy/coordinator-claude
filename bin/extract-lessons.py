@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Deterministic structured extraction of `state/lessons/*.yaml` entries.
 
 Replaces the LLM "scout extraction" step in `coordinator:learn-lessons` Phase 2.
@@ -43,6 +42,8 @@ import sys
 from pathlib import Path
 
 import yaml  # PyYAML — available in coordinator venv
+
+GENERATES = []  # writes only to the caller-supplied -o/--out path (or stdout when omitted) — no fixed tracked artifact
 
 
 # ---------------------------------------------------------------------------

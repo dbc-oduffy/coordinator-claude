@@ -6,7 +6,7 @@ registration (context-pressure + runtime-tripwire checks) with ONE `python3`
 hook entry -- zero Git-Bash cold-start per tool call on Windows (each bash.exe
 spawn costs 200-500ms; this is the whole point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 advisory LOGIC (coordinator_core.hooks.postuse_advisory_dispatch, registered
 under the JSON-RPC method "hooks.postuse_advisory_dispatch"). The engine is

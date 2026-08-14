@@ -13,7 +13,7 @@ Exposed names (reconstruction rules per manifest._reconstruction key):
   REDIRECT_ALIASES    — frozenset of DoE-canonical home/mirror redirect aliases
                          (identity.redirectAliases; cross-repo-memo's former
                          code-pinned _DOE_CANONICAL_REDIRECT_ALIASES literal.
-                         Cross-repo contract surface: claude-klabauter's
+                         Cross-repo contract surface: the engine repo's
                          coordinator_core/ops/fleet/_memo_resolver.py
                          read_redirect_aliases() is a downstream consumer.)
   RECEIVER_EM_ALIASES — dict shortname → registryKey  (inverse; for cross-repo-memo)
@@ -28,12 +28,22 @@ Shared identity-resolution functions (canonical, importable by all 4 CLIs):
   _same_path(a, b)                               — internal path-equality helper, importable by the CLIs that need direct comparison
 
 Shared state-root resolver (canonical, importable by all doctrine CLIs):
-  doe_root()                         — DoE repo root (env DOE_ROOT → env REPO_DOE_CLAUDE →
-                                        machine-local repos.doe_claude → raise). REPO_DOE_CLAUDE
-                                        is the documented override (ambient, shell-exported by
-                                        claude-klabauter's install surface); DOE_ROOT is a permanent legacy
-                                        alias retained for backward compatibility and still wins
-                                        first when both are set.
+  doe_root()                         — DoE repo root (Review: staff-eng MAJOR-4 —
+                                        env DOE_ROOT → env REPO_DOE_CLAUDE FIRST, so the
+                                        documented override is a real override again; DR-071
+                                        reorder (2026-08-10) — THEN machine-local
+                                        repos.doe_claude (the canonical anchor), THEN the
+                                        codename-free rungs: .doe-root pointer → marketplace
+                                        cache → flat plugin layout → CLAUDE_PLUGIN_ROOT
+                                        (normalized, state/-gated) → registry live_path
+                                        (normalized, state/-gated) → raise. REPO_DOE_CLAUDE is
+                                        the documented override (ambient, shell-exported by
+                                        the engine repo's install surface); DOE_ROOT is a permanent
+                                        legacy alias retained for backward compatibility and
+                                        still wins first among the two when both are set. The
+                                        codename-free ladder must rank BELOW the registry per
+                                        DR-071 — see doe_root()'s own docstring for the live
+                                        incident this reorder closes.
   _DoeUnresolvable                   — raised when DoE root is unresolvable; callers catch and WARN+skip (exit 0)
 """
 from __future__ import annotations
@@ -63,9 +73,9 @@ from machine_local_impl_resolve import (  # noqa: E402
 #   1. Co-located    — schemas/ sits beside bin/ under the same coordinator root
 #                      (the pre-migration DoE layout, and any OSS install that
 #                      ships both halves together).
-#   2. Split-repo    — this code lives in claude-klabauter while schemas/ stayed
+#   2. Split-repo    — this code lives in the engine repo while schemas/ stayed
 #                      in DoE-claude, because schemas are CONTRACT and DR-047
-#                      puts contract with DoE, engine with claude-klabauter. Resolve the
+#                      splits contract to DoE and the engine to here. Resolve the
 #                      DoE root the same way every other doctrine CLI does.
 #
 # Rung 1 first so the co-located case costs nothing and needs no registration.
@@ -76,15 +86,306 @@ _MANIFEST_PATH = os.path.join(
     _MANIFEST_RELPATH,
 )
 
+# coordinator/lib — sibling of coordinator/bin/lib (this file's own dir),
+# hosting the shared coordinator_read_doe_root_pointer() substrate. Two
+# dirname()s up from _REGISTRY_LIB_DIR (bin/lib -> bin -> coordinator), then
+# down into lib/.
+_COORDINATOR_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(_REGISTRY_LIB_DIR)), "lib")
+
+# Published payload flattens: the mirror ships helper at "<repo root>/lib"
+# with no "coordinator/" segment (coordinator/lib -> lib). Three dirname()s
+# up from _REGISTRY_LIB_DIR (bin/lib -> bin -> coordinator -> repo root),
+# then down into lib/. Probed as a fallback below — private tree wins first.
+_COORDINATOR_LIB_DIR_FLAT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(_REGISTRY_LIB_DIR))), "lib"
+)
+
+# Env var name honoured by the internal machine-local reader — shared with the CLIs
+# so a single test-isolation set covers all callers (MACHINE_LOCAL_IMPL). Defined
+# here (ahead of the manifest bootstrap below) rather than further down, because
+# the codename-free rung ladder's registry rung (rung 5) needs it at import time.
+_REGISTRY_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
+
+
+def _registry_machine_local_impl() -> str:
+    """Return the path to _machine_local.py, settings-home first, honoring
+    MACHINE_LOCAL_IMPL for tests.
+
+    Delegates to machine_local_impl_resolve.machine_local_impl_path() — see
+    that module's docstring (DR-210 Amendment: "resolves nothing through
+    ~/.claude/bin"; this rung now tries settings-home before the mirror).
+    """
+    return _mlir_machine_local_impl_path(_REGISTRY_MACHINE_LOCAL_IMPL_ENV)
+
+
+def _registry_machine_local_get(key: str) -> str | None:
+    """Call machine-local get <key> and return the value, or None on failure.
+
+    Uses sys.executable (the interpreter running this module) — no subprocess
+    probing needed; safe on macOS, Linux, and Windows. CREATE_NO_WINDOW guard
+    suppresses the Windows console popup (portable: getattr resolves to 0 on
+    non-Windows).
+    """
+    impl = _registry_machine_local_impl()
+    cmd = [sys.executable, impl, "get", key]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        # Review: staff-eng MAJOR-5 — this function is reachable from the
+        # module-level import bootstrap (rung 5) on any box where rungs 1-4
+        # miss, and this repo's own load norm (50-70 concurrent LLM sessions,
+        # CLAUDE.md § Load norm) makes a slow machine-local spawn the
+        # expected case, not the pathological one. An unbounded subprocess
+        # at import time — blocking every one of the 32 payload CLIs that
+        # import this module — has no recovery path; bound it and treat a
+        # timeout the same as any other lookup failure, matching the
+        # timeout=10 the legacy bootstrap reader below already uses.
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.strip()
+
+
+def _mp_candidate_manifest_path(root: str) -> str | None:
+    """Probe both published manifest layouts under `root`; return the first
+    that exists, else None.
+
+      <root>/schemas/coordinator-registry.manifest.json               (OSS: manifest flat at repo/plugin root)
+      <root>/coordinator/schemas/coordinator-registry.manifest.json   (private: DoE repo shape)
+
+    Required because DoE's coordinator-claude publish row ships the manifest
+    flat at plugin root, while the private tree has it under coordinator/.
+    """
+    for _relpath in (
+        _MANIFEST_RELPATH,
+        os.path.join("coordinator", _MANIFEST_RELPATH),
+    ):
+        _candidate = os.path.join(root, _relpath)
+        if os.path.exists(_candidate):
+            return _candidate
+    return None
+
+
+def _mp_doe_root_pointer_rung() -> str:
+    """Codename-free rungs 1-2: the durable + legacy `.doe-root` pointer file
+    reads. DELEGATES to coordinator/lib/read_doe_root_pointer.py rather than
+    reimplementing the read — that helper already tries
+    `${settings-home}/machine-local/.doe-root` then
+    `${CLAUDE_HOME:-$HOME}/.claude/.doe-root` in that exact order, returns ""
+    on failure, and never raises. Pure file I/O — no subprocess, preserving
+    import-time purity.
+    """
+    # Probe both helper-dir layouts, private tree first: co-located
+    # coordinator/lib exists here on this dev box, but the published
+    # payload flattens to <root>/lib with no coordinator/ segment.
+    _lib_dir = _COORDINATOR_LIB_DIR
+    if not os.path.isfile(os.path.join(_lib_dir, "read_doe_root_pointer.py")):
+        _lib_dir = _COORDINATOR_LIB_DIR_FLAT
+    _added = _lib_dir not in sys.path
+    if _added:
+        sys.path.insert(0, _lib_dir)
+    try:
+        from read_doe_root_pointer import coordinator_read_doe_root_pointer
+
+        return coordinator_read_doe_root_pointer()
+    except Exception:
+        # Swallows: helper missing at both probed dirs, import error inside
+        # the helper itself, or any runtime failure in the read — all
+        # collapse to "no pointer configured" by contract (never-raise).
+        return ""
+    finally:
+        if _added:
+            try:
+                sys.path.remove(_lib_dir)
+            except ValueError:
+                pass
+
+
+def _mp_repo_root_from_plugin_root_candidate(candidate: str, *, allow_unchanged_fallback: bool = True) -> str:
+    """Normalize a CLAUDE_PLUGIN_ROOT-shaped value to the coordinator REPO
+    root that doe_root() callers expect.
+
+    Single-sourced (state/debt-backlog/2026-08-08-three-divergent-copies-of-
+    the-plugin-roo-8d584d3b90d3.yaml): delegates to coordinator_core.ops.
+    coordinator_doe_root.repo_root_from_plugin_root_candidate() (the same
+    engine module this file already imports coordinator_core from, via
+    _same_path() below — no new import edge), with THIS copy's own historical
+    shape reproduced exactly via keyword args: drive_root_guard="normpath"
+    (os.path.normpath()-based, NOT the B7 bare-drive-root truncation guard —
+    see that function's "KNOWN CROSS-COPY DIVERGENCE" docstring note),
+    basename_compare="casefold" (case-insensitive on every platform, unlike
+    the engine copy's Windows-only normcase compare — same flagged note),
+    manifest_relpath_fallback=False (this copy never carried the B5 fix),
+    allow_unchanged_fallback=<this function's own kwarg>.
+
+    Do NOT edit coordinator_core's copy of this helper to "fix" the two
+    flagged divergences above under cover of this refactor — they are
+    reported to the EM/PM, not resolved, pending a decision on whether they
+    are intentional or latent bugs.
+
+    CLAUDE_PLUGIN_ROOT is a *content* root (see
+    resolve_coordinator_clone.py::resolve_content_root() rung 1, and its
+    `.doe-root` pointer rung which returns `<repo_root>/coordinator`) — in
+    the private/dev DoE layout this is `<repo_root>/coordinator`, one level
+    below the repo root doe_root() must return (state/ hangs off the repo
+    root, never off the coordinator/ subdir — see doe_root()'s own
+    negative-spec). In the OSS flat layout the content root and the repo
+    root coincide (manifest ships flat at plugin root, no coordinator/
+    prefix — this module's "Two live layouts" docstring note).
+
+    Disambiguate the same way _mp_flat_layout_probe_rung() does: gate on the
+    `.claude-plugin/plugin.json` marketplace marker. If it sits directly
+    under `candidate`, candidate already IS the repo root (OSS flat case).
+    If it sits one level up (candidate's basename is "coordinator" and the
+    marker is beside it), the repo root is the parent (private/dev layout).
+
+    `allow_unchanged_fallback` (Review: staff-eng BLOCKER-2) — True
+    (default; the manifest-bootstrap ladder's use, gated afterward by a
+    manifest-presence probe) returns `candidate` unchanged when neither
+    shape matches. False (doe_root()'s rungs 4-5, which have no downstream
+    manifest gate) returns "" instead — an unrecognizable candidate must not
+    silently win over an operator's explicit override just because
+    os.path.isdir() happens to be true.
+
+    Review: staff-eng MINOR-8 — normalizes via os.path.normpath before
+    stripping trailing separators (a bare rstrip strips a trailing separator
+    off a bare drive-letter root, leaving a form Windows resolves as
+    CWD-relative rather than the drive root) and casefolds the "coordinator"
+    basename compare (a
+    case-insensitive filesystem can hand back "...\\Coordinator", which a
+    case-sensitive == would miss, falling through to the unchanged-candidate
+    branch and reintroducing the content-root bug C1E fixed one rung up).
+    """
+    if _REGISTRY_LIB_DIR not in sys.path:
+        sys.path.insert(0, _REGISTRY_LIB_DIR)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.ops.coordinator_doe_root import repo_root_from_plugin_root_candidate
+
+    return repo_root_from_plugin_root_candidate(
+        candidate,
+        drive_root_guard="normpath",
+        basename_compare="casefold",
+        manifest_relpath_fallback=False,
+        allow_unchanged_fallback=allow_unchanged_fallback,
+    )
+
+
+def _mp_flat_layout_probe_rung() -> str:
+    """Codename-free rung: the flat `~/.claude/plugins/coordinator-claude`
+    marketplace-clone layout, gated on the `.claude-plugin/plugin.json`
+    marker (same marker `resolve_coordinator_clone.py::_resolve_source_mode`
+    gates its OSS-install check on). Implemented inline rather than importing
+    `coordinator_core.resolve_coordinator_clone` — this module's manifest
+    bootstrap runs at IMPORT time and must stay filesystem-and-env only;
+    importing a coordinator_core module here is not viable to verify as
+    side-effect-free at that phase, so the marker check is duplicated instead.
+
+    NOT where Claude Code actually installs a marketplace clone (Review:
+    staff-eng MINOR-7) — see _mp_marketplace_cache_rung() below for the real
+    install location. Retained because it is a real layout this codebase's
+    own install/uninstall/sandbox-check tooling produces.
+
+    Home resolution delegates to the canonical _mlir_claude_home() (Review:
+    staff-eng MINOR-7 secondary) rather than a hand-rolled
+    CLAUDE_HOME-or-HOME-or-USERPROFILE chain — this file already imports it,
+    and a second, slightly different home ladder in the same module drifts
+    from the settings-home-aware canonical version silently.
+    """
+    _home = _mlir_claude_home()
+    if not _home:
+        return ""
+    _candidate = os.path.join(_home, "plugins", "coordinator-claude")
+    _marker = os.path.join(_candidate, ".claude-plugin", "plugin.json")
+    return _candidate if os.path.isfile(_marker) else ""
+
+
+def _mp_marketplace_cache_rung() -> str:
+    """Codename-free rung: Claude Code's REAL marketplace-install location —
+    `<claude_home>/plugins/cache/coordinator-claude/coordinator/<version>/`,
+    newest version wins (numeric compare, DR-148-safe). Mirrors
+    `resolve_coordinator_clone._newest_cache_dir()` inline rather than
+    importing `coordinator_core` — same import-time-purity reasoning as
+    `_mp_flat_layout_probe_rung()` above; this module's manifest bootstrap
+    runs at IMPORT time and must stay filesystem-and-env only.
+
+    Review: staff-eng BLOCKER-1(a) — `_mp_flat_layout_probe_rung()`'s
+    candidate is not where Claude Code installs a marketplace plugin; this
+    is. Without this rung, a direct-CLI invocation on a real OSS install (no
+    `.doe-root` pointer, no CLAUDE_PLUGIN_ROOT, no machine-local registry)
+    has no live rung left and the manifest bootstrap fails loud on
+    install-integrity — the defect this workstream exists to close.
+
+    Resolves to the repo root directly (OSS-flat shaped: schemas/ sits
+    directly under the version dir) — no normalization needed before use.
+    """
+    _home = _mlir_claude_home()
+    if not _home:
+        return ""
+    _cache_parent = os.path.join(_home, "plugins", "cache", "coordinator-claude", "coordinator")
+    if not os.path.isdir(_cache_parent):
+        return ""
+    _best = ""
+    _best_key = (-1, -1, -1)
+    try:
+        _entries = os.listdir(_cache_parent)
+    except OSError:
+        return ""
+    for _name in _entries:
+        _child = os.path.join(_cache_parent, _name)
+        if not os.path.isdir(_child):
+            continue
+        _parts = (_name.split(".") + ["0", "0", "0"])[:3]
+        _nums: list[int] = []
+        for _part in _parts:
+            _digits = ""
+            for _ch in _part:
+                if _ch.isdigit():
+                    _digits += _ch
+                else:
+                    break
+            _nums.append(int(_digits) if _digits else 0)
+        _key = (_nums[0], _nums[1], _nums[2])
+        if _key > _best_key:
+            _best_key = _key
+            _best = _child
+    return _best
+
+
 if not os.path.exists(_MANIFEST_PATH):
-    # Split-repo layout: fall back to the DoE clone. Resolved inline rather than
-    # via doe_root() below because this runs at import time, before that
-    # function is defined — same chain (DOE_ROOT env → REPO_DOE_CLAUDE env →
-    # machine-local repos.doe_claude), deliberately duplicated only for the
-    # bootstrap order. REPO_DOE_CLAUDE is aliased here too (not just in
-    # doe_root() below) — it is the ambient, shell-exported name; omitting it
-    # from the bootstrap would leave the split-repo import path resolving to
-    # the wrong root exactly the way doe_root() used to.
+    # Split-repo layout: DR-071 canonical anchor FIRST — env override, then the
+    # machine-local repos.doe_claude registry entry, which DR-071 ratifies as
+    # the authoritative coordinator-root anchor, ranked ABOVE the codename-free
+    # ladder below (including `.doe-root`). Resolved inline rather than via
+    # doe_root() below because this runs at import time, before that function
+    # is defined — same chain (DOE_ROOT env → REPO_DOE_CLAUDE env → machine-local
+    # repos.doe_claude), deliberately duplicated only for the bootstrap order.
+    # REPO_DOE_CLAUDE is aliased here too (not just in doe_root() below) — it is
+    # the ambient, shell-exported name; omitting it from the bootstrap would
+    # leave the split-repo import path resolving to the wrong root exactly the
+    # way doe_root() used to.
+    #
+    # Review: this rung ordering (registry before codename-free) previously ran
+    # AFTER the codename-free ladder below — the same DR-071 precedence defect
+    # `coordinator_core/ops/coordinator_doe_root.py` fixed per finding B2
+    # (state/review-findings/2026-08-08-codename-free-partitioned/slice-B-doe-root.md),
+    # whose own coverage note flagged this module as explicitly NOT reviewed/
+    # reordered at the time. On a box where the registry correctly names the
+    # private DoE-claude tree but a codename-free rung (e.g. a stale/published
+    # marketplace install, or a `.doe-root` pointer inherited from an earlier
+    # install) ALSO resolves to a directory carrying a manifest, the ladder
+    # below used to win and this module's RECEIVER_EM_ALIASES / centralReceiverIds
+    # were built from that (potentially scrubbed) manifest instead of the
+    # registry-anchored private one — see
+    # cross-repo/inbox/2026-08-10-doe-claude-em-reconcile-close-terminal-and-scrub-key.md
+    # § 3 (`cross-repo-memo` send path resolving `repos.example_doctrine_repo`).
     #
     # Settings-home-first (DR-210 Amendment 2026-07-24: "resolves nothing
     # through ~/.claude/bin") — try each machine-local candidate in order
@@ -113,6 +414,30 @@ if not os.path.exists(_MANIFEST_PATH):
         _candidate = os.path.join(_doe, "coordinator", _MANIFEST_RELPATH)
         if os.path.exists(_candidate):
             _MANIFEST_PATH = _candidate
+
+if not os.path.exists(_MANIFEST_PATH):
+    # Codename-free rung ladder (rung 2.75, DR-071) — only reached when the
+    # canonical registry anchor above did not resolve. CLAUDE_PLUGIN_ROOT is
+    # only set while Claude Code is executing a plugin-declared hook/command,
+    # so it is ABSENT for every direct CLI invocation this must survive; both
+    # it and the registry live_path being empty is the NORMAL OSS case. None
+    # of these rung sources contain a private codename, so the OSS
+    # depersonalize scrub cannot touch them directly — but a genuinely
+    # published/scrubbed marketplace install IS reachable through them, which
+    # is exactly why DR-071 ranks them below the registry rung above.
+    for _mp_root in (
+        _mp_doe_root_pointer_rung(),
+        _mp_marketplace_cache_rung(),
+        _mp_flat_layout_probe_rung(),
+        os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip(),
+        _registry_machine_local_get("plugin.mirrors.coordinator-claude.live_path") or "",
+    ):
+        if not _mp_root or not os.path.isdir(_mp_root):
+            continue
+        _mp_manifest_cand = _mp_candidate_manifest_path(_mp_root)
+        if _mp_manifest_cand:
+            _MANIFEST_PATH = _mp_manifest_cand
+            break
 
 try:
     with open(_MANIFEST_PATH, encoding="utf-8") as _f:
@@ -201,7 +526,7 @@ def _central_canonical_id() -> str:
 # once identity.redirectAliases is present (as it is in this manifest), that value
 # wins; this default only fires if the key is ever absent.
 #
-# Cross-repo contract surface: claude-klabauter's coordinator_core/ops/fleet/
+# Cross-repo contract surface: the engine repo's coordinator_core/ops/fleet/
 # _memo_resolver.py `read_redirect_aliases()` reads this same manifest field
 # declaratively (their negative-spec forbids hardcoding the literal on their side).
 _redirect_aliases_raw = _identity.get(
@@ -236,20 +561,34 @@ DOC_TYPES: tuple[dict, ...] = tuple(_doc_types)
 # CLIs import instead of duplicating. The ~./claude home special-case is REMOVED;
 # central identity is now anchored on repos.doe_claude path-match only.
 #
-# Spec backlink: docs/plans/2026-07-05-central-identity-flip-completion.md § C1
+# Spec backlink: DoE-claude:pln-complete-the-claude-central-em-e9000c § C1
 # ---------------------------------------------------------------------------
 
 
 def _same_path(a: str, b: str) -> bool:
     """True if two paths resolve to the same directory (cross-platform).
 
-    Uses os.path.samefile when both paths exist; falls back to normcase+realpath
-    string comparison so absent/unregistered repos never raise.
+    Thin alias onto ``coordinator_core.win_portability.same_path`` -- the
+    consolidated primitive (state/sizings/2026-08-07-path-equality-
+    consolidates-onto-one-prim.yaml).
+
+    ``coordinator_core`` is NOT ambiently importable outside an engine-repo
+    checkout with an editable install (see editable-install-masks-engine-
+    import-defects hazard) -- callers elsewhere (e.g. coordinator-queue-append
+    invoked without ``--from-repo``, from a caller repo's cwd) hit a bare
+    ``ModuleNotFoundError`` here. Route through the same engine-root-on-
+    sys.path seam every other bin/lib trampoline uses (records_query.py's
+    ``_no_console_kw``, coordinator-queue-append's ``_resolve_session_id``)
+    rather than a raw import.
     """
-    try:
-        return os.path.samefile(a, b)
-    except OSError:
-        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+    if _REGISTRY_LIB_DIR not in sys.path:
+        sys.path.insert(0, _REGISTRY_LIB_DIR)
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.win_portability import same_path
+
+    return same_path(a, b)
 
 
 def repo_key_to_em_id(key: str) -> str:
@@ -317,7 +656,7 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
 # but as orthogonal consumers — state-root vs. identity. Do NOT merge them.
 # The shared surface is the machine-local reader only.
 #
-# Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
+# Spec backlink: DoE-claude:pln-gate-2-w2-3-live-caller-switch-3e51cf § C1
 # ---------------------------------------------------------------------------
 
 # Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate form.
@@ -326,7 +665,7 @@ _DOE_ROOT_ENV = "DOE_ROOT"
 
 # Env var for REPO_DOE_CLAUDE override — the documented, ambient name. Every
 # coordinator_core referent (26 of them, via ops/coordinator_doe_root.py)
-# binds this name, and claude-klabauter's generated shell shim exports it into cold
+# binds this name, and the engine repo's generated shell shim exports it into cold
 # login shells (see coordinator_core/install/sandbox_check.py AC2) — so in
 # normal operation it is already set, not merely available as an escape
 # hatch. DOE_ROOT (above) is a permanent legacy alias and still wins first
@@ -334,12 +673,12 @@ _DOE_ROOT_ENV = "DOE_ROOT"
 # existing test/consumer byte-for-byte.
 _REPO_DOE_CLAUDE_ENV = "REPO_DOE_CLAUDE"
 
-# Env var name honoured by the internal machine-local reader — shared with the CLIs
-# so a single test-isolation set covers all callers (MACHINE_LOCAL_IMPL).
-# Review: code-reviewer (F4) — the sibling _REGISTRY_CLAUDE_HOME_ENV constant was
-# deleted here: dead since _registry_claude_home() delegates to
-# machine_local_impl_resolve.claude_home() (hardcodes "CLAUDE_HOME" internally).
-_REGISTRY_MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
+# _REGISTRY_MACHINE_LOCAL_IMPL_ENV is defined earlier, ahead of the manifest
+# bootstrap block, since the codename-free rung ladder's registry rung needs
+# it at import time. Review: code-reviewer (F4) — the sibling
+# _REGISTRY_CLAUDE_HOME_ENV constant was deleted here: dead since
+# _registry_claude_home() delegates to machine_local_impl_resolve.claude_home()
+# (hardcodes "CLAUDE_HOME" internally).
 
 
 class _DoeUnresolvable(RuntimeError):
@@ -353,7 +692,7 @@ class _DoeUnresolvable(RuntimeError):
     Negative-spec: this exception is NOT raised for per-project (cwd-relative) writes —
     only for central doctrine writes that require the DoE repo root.
 
-    Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
+    Spec backlink: DoE-claude:pln-gate-2-w2-3-live-caller-switch-3e51cf § C1
     """
 
 
@@ -367,45 +706,37 @@ def _registry_claude_home() -> str:
     return _mlir_claude_home()
 
 
-def _registry_machine_local_impl() -> str:
-    """Return the path to _machine_local.py, settings-home first, honoring
-    MACHINE_LOCAL_IMPL for tests.
-
-    Delegates to machine_local_impl_resolve.machine_local_impl_path() — see
-    that module's docstring (DR-210 Amendment: "resolves nothing through
-    ~/.claude/bin"; this rung now tries settings-home before the mirror).
-    """
-    return _mlir_machine_local_impl_path(_REGISTRY_MACHINE_LOCAL_IMPL_ENV)
-
-
-def _registry_machine_local_get(key: str) -> str | None:
-    """Call machine-local get <key> and return the value, or None on failure.
-
-    Uses sys.executable (the interpreter running this module) — no subprocess
-    probing needed; safe on macOS, Linux, and Windows. CREATE_NO_WINDOW guard
-    suppresses the Windows console popup (portable: getattr resolves to 0 on
-    non-Windows).
-    """
-    impl = _registry_machine_local_impl()
-    cmd = [sys.executable, impl, "get", key]
-    try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
+# _registry_machine_local_impl() / _registry_machine_local_get() are defined
+# earlier, ahead of the manifest bootstrap block, since the codename-free rung
+# ladder's registry rung (rung 5) needs them at import time.
 
 
 def doe_root() -> str:
     """Resolve the DoE repo root for doctrine central-state writes.
 
-    Resolution chain (four-rung, env → env → machine-local → hard-error):
+    Resolution chain — Review: staff-eng MAJOR-4 put the explicit env-var
+    override rungs FIRST, ahead of the codename-free rungs, restoring
+    "REPO_DOE_CLAUDE/DOE_ROOT is the documented override" as true fact (an
+    operator's stated intent cannot be present by accident; ambient
+    file/registry state must not outrank it).
+
+    DR-071 reorder (2026-08-10): the machine-local `repos.doe_claude`
+    registry rung now runs immediately after the env overrides and AHEAD of
+    the codename-free ladder, matching `coordinator_core/ops/
+    coordinator_doe_root.py`'s DR-071-mandated order (review finding B2,
+    state/review-findings/2026-08-08-codename-free-partitioned/
+    slice-B-doe-root.md). Previously this rung ran LAST, so a codename-free
+    candidate that also happened to resolve (a stale marketplace install
+    left from an earlier `coordinator:install`, or a genuinely published/
+    scrubbed plugin cache) silently outranked the registry's correctly
+    registered private DoE-claude tree — exactly the DR-071 violation B2
+    fixed in the ops-module twin, except that finding's own coverage note
+    named this module as explicitly not reviewed/reordered at the time. See
+    cross-repo/inbox/2026-08-10-doe-claude-em-reconcile-close-terminal-and-scrub-key.md
+    § 3 for the live incident this closes (`cross-repo-memo` send path
+    resolving the scrubbed `repos.example_doctrine_repo` registry key via
+    this exact ordering gap).
+
       1a. DOE_ROOT env var — if non-empty, trusted as-is (§4b idempotency parity
           with CLAUDE_KLABAUTER_ROOT; guard form os.environ.get(..., "").strip()). Wins
           first when both DOE_ROOT and REPO_DOE_CLAUDE are set — a permanent
@@ -413,9 +744,52 @@ def doe_root() -> str:
       1b. REPO_DOE_CLAUDE env var — the documented, ambient override name every
           coordinator_core referent binds (see _REPO_DOE_CLAUDE_ENV docstring
           above). Consulted only when rung 1a is unset/empty.
-      2.  machine-local get repos.doe_claude — delegates to the §4c discovery ladder
-          via the same _machine_local.py reader the identity flip uses.
-      3.  Raises _DoeUnresolvable when no rung resolves.
+      2.  machine-local get repos.doe_claude — the DR-071 canonical,
+          authoritative coordinator-root anchor. Delegates to the §4c
+          discovery ladder via the same _machine_local.py reader the identity
+          flip uses.
+      3-4. `.doe-root` pointer (durable settings-home, then legacy
+           `~/.claude/.doe-root`) — see _mp_doe_root_pointer_rung(). Already
+           returns the DoE REPO root directly (coordinator_read_doe_root_pointer()
+           reads exactly that), no conversion needed. Only reached when rung 2
+           returns nothing.
+      5.  Claude Code's real marketplace-cache install location — see
+          _mp_marketplace_cache_rung() (Review: staff-eng BLOCKER-1).
+          Resolves to the repo root directly, same contract as rung 6.
+      6.  Flat `~/.claude/plugins/coordinator-claude` marketplace-clone layout
+          — see _mp_flat_layout_probe_rung(). resolve_coordinator_clone.py
+          treats this same path as the repo/clone root directly (its
+          resolve_clone_root() rung 4), so it is used as-is here too. Gated
+          (Review: staff-eng BLOCKER-2) on `<cand>/state` being a directory —
+          this ladder promises callers a root state/ hangs off, not merely
+          any directory that satisfies the marker check.
+      7.  CLAUDE_PLUGIN_ROOT — a *content* root, not necessarily the repo
+          root (see resolve_content_root()'s `<root>/coordinator` shape for
+          the private/dev layout). Normalized via
+          _mp_repo_root_from_plugin_root_candidate(allow_unchanged_fallback=False)
+          before use (Review: staff-eng BLOCKER-2 — an unrecognized
+          candidate yields "", never itself: CLAUDE_PLUGIN_ROOT names
+          whichever plugin's hook/command is currently executing, which is
+          routinely a DIFFERENT plugin than coordinator; passing it through
+          unchanged let an unrelated repo win over an explicit correct
+          override). Also gated on `<cand>/state` being a directory.
+      8.  machine-local `plugin.mirrors.coordinator-claude.live_path` —
+          Review: staff-eng MAJOR-3 — this is the SAME class of value as
+          CLAUDE_PLUGIN_ROOT (a content root in the private/dev layout,
+          `<repo_root>/coordinator`) and is now routed through the same
+          normalizer + state/ gate rather than trusted as a repo root
+          unconverted. resolve_coordinator_clone.py's resolve_clone_root()
+          does NOT, in fact, use this value directly as claimed by earlier
+          commit messages in this workstream — its rung 2 gates on
+          `os.path.isdir(os.path.join(live, ".git"))`, which is exactly the
+          check that filters a content root out; this rung reproduces that
+          intent via the repo-root normalizer instead.
+      None of rungs 3-8 contain a private codename, so the OSS depersonalize
+      scrub cannot touch them directly — mirrors the manifest bootstrap
+      ladder above — but per DR-071 they must still rank BELOW rung 2's
+      registry anchor, since a codename-free rung is reachable through a
+      genuinely published/scrubbed install.
+      9.  Raises _DoeUnresolvable when no rung resolves.
 
     Returns the DoE REPO root (e.g. /path/to/DoE-claude). Callers append
     state/<class>/ to build the full write path:
@@ -428,7 +802,8 @@ def doe_root() -> str:
     Negative-spec: INDEPENDENT of em_id_for_root/_resolve_from_repo() — both use
     repos.doe_claude but for orthogonal axes (state-root vs. identity). Do NOT merge.
 
-    Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
+    Spec backlink: DoE-claude:pln-gate-2-w2-3-live-caller-switch-3e51cf § C1
+    Spec backlink: pln-the-published-engine-resolves-ae0bf7 § C1D
     """
     override = os.environ.get(_DOE_ROOT_ENV, "").strip()
     if override:
@@ -436,9 +811,51 @@ def doe_root() -> str:
     override = os.environ.get(_REPO_DOE_CLAUDE_ENV, "").strip()
     if override:
         return override
+
+    # DR-071 canonical anchor: the machine-local repos.doe_claude registry
+    # entry, ranked ABOVE the codename-free ladder below. Previously this
+    # rung ran LAST (after every codename-free candidate) — the same
+    # precedence defect `coordinator_core/ops/coordinator_doe_root.py` fixed
+    # per review finding B2 (state/review-findings/2026-08-08-codename-free-
+    # partitioned/slice-B-doe-root.md), whose own coverage note named this
+    # module as explicitly not reviewed/reordered at the time. On a box
+    # where the registry correctly names the private DoE-claude tree but a
+    # codename-free rung ALSO resolves (e.g. a stale or genuinely published
+    # marketplace install), the ladder below used to win, silently returning
+    # a byte-copy install instead of the registry-anchored source tree — see
+    # cross-repo/inbox/2026-08-10-doe-claude-em-reconcile-close-terminal-and-scrub-key.md
+    # § 3.
     val = _registry_machine_local_get("repos.doe_claude")
     if val:
         return val
+
+    _dr_pointer_root = _mp_doe_root_pointer_rung()
+    if _dr_pointer_root and os.path.isdir(_dr_pointer_root):
+        return _dr_pointer_root
+
+    for _dr_root in (
+        _mp_marketplace_cache_rung(),
+        _mp_flat_layout_probe_rung(),
+    ):
+        if _dr_root and os.path.isdir(_dr_root) and os.path.isdir(os.path.join(_dr_root, "state")):
+            return _dr_root
+
+    _dr_plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT", "").strip()
+    if _dr_plugin_root:
+        _dr_normalized = _mp_repo_root_from_plugin_root_candidate(_dr_plugin_root, allow_unchanged_fallback=False)
+        if _dr_normalized and os.path.isdir(_dr_normalized) and os.path.isdir(os.path.join(_dr_normalized, "state")):
+            return _dr_normalized
+
+    _dr_live_path = _registry_machine_local_get("plugin.mirrors.coordinator-claude.live_path") or ""
+    if _dr_live_path:
+        _dr_live_normalized = _mp_repo_root_from_plugin_root_candidate(_dr_live_path, allow_unchanged_fallback=False)
+        if (
+            _dr_live_normalized
+            and os.path.isdir(_dr_live_normalized)
+            and os.path.isdir(os.path.join(_dr_live_normalized, "state"))
+        ):
+            return _dr_live_normalized
+
     raise _DoeUnresolvable(
         "repos.doe_claude not set in machine-local registry and neither "
         "REPO_DOE_CLAUDE nor DOE_ROOT (legacy alias) env var is set"

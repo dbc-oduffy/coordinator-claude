@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """bootstrap-repo.py — git-as-revert single-repo bootstrap primitive.
 
 Thin DoE-side (contract) trampoline over claude-klabauter's

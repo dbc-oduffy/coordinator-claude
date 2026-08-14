@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 central-run-due.py — CLI trampoline over claude-klabauter coordinator_core.ops.central_run_due.
@@ -29,7 +28,7 @@ See the carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.
 Port source: this file's own pre-port bash body (109 lines).
 Ported logic + tests: coordinator_core/ops/central_run_due.py (claude-klabauter),
     co-located coordinator_core/ops/test_central_run_due.py (pytest).
-Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 """
 
 from __future__ import annotations

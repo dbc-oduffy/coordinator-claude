@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 audit-enabled-plugins.py — CLI trampoline over claude-klabauter
@@ -31,7 +30,7 @@ Always exits 0 — advisory only, never propagated to ceremony exit
 this internally; this trampoline mirrors that on CLAUDE_KLABAUTER_ROOT/import failure too
 (fail-open, matching the oracle's unconditional `exit 0`).
 
-Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 Prior bash implementation: see git log (audit-enabled-plugins.py, 122 lines,
 retired on this cutover).
 """

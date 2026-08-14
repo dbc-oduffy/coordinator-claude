@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """gen-launcher-shim.py — emit python-direct Windows launchers for a bin/ entrypoint.
 
 Part of the 2026-07-19 Windows de-bash campaign (Wave 0, unit
@@ -47,14 +46,23 @@ INTERPRETER LADDER (modeled on templates/bin/python3.cmd)
     lib/resolve-python.sh, which is bash and unavailable on stock Windows.
 
 USAGE (CLI)
-    python gen-launcher-shim.py <name> [--dir DIR] [--ps1] [--stdout] [--whoami-bootstrap]
+    python gen-launcher-shim.py <name> [--dir DIR] [--no-ps1] [--stdout] [--whoami-bootstrap]
         <name>     bare entrypoint filename (pure .py or extensionless polyglot),
                    e.g. "coordinator-queue-append" or "install-health-run.py".
         --dir DIR  directory to write launcher(s) into (default: cwd).
-        --ps1      ALSO emit <name>.ps1 (PowerShell bare-name coverage).
+        --ps1 / --no-ps1
+                   also emit <name>.ps1 -- DEFAULT ON (bare `--ps1` is a
+                   redundant no-op, kept only for callers that prefer to
+                   state the default explicitly). Measured bare-name
+                   resolution (pwsh 7.6.4, Windows PowerShell 5.1) shows
+                   PowerShell prefers a bare-name's .ps1 sibling over its .cmd
+                   sibling universally, so the .ps1 twin upgrades every caller
+                   with no call-site change. `--no-ps1` is the explicit
+                   override for a caller that deliberately wants .cmd only.
         --stdout   print the .cmd body to stdout instead of writing files
-                   (with --ps1, prints .ps1 too, separated by a form feed;
-                   with --whoami-bootstrap, prints the bootstrap body first).
+                   (with .ps1 emission on, prints .ps1 too, separated by a
+                   form feed; with --whoami-bootstrap, prints the bootstrap
+                   body first).
         --whoami-bootstrap
                    ALSO emit <name> itself (extensionless, chmod +x) as the
                    whoami-bootstrap launcher body — see § WHOAMI-BOOTSTRAP
@@ -83,7 +91,7 @@ USAGE (library)
     g.render_cmd("coordinator-queue-append")            -> str  (.cmd body)
     g.render_ps1("coordinator-queue-append")            -> str  (.ps1 body)
     g.render_whoami_bootstrap("coordinator-whoami")      -> str  (bootstrap body)
-    g.generate("coordinator-queue-append", out_dir, ps1=True) -> list[Path]
+    g.generate("coordinator-queue-append", out_dir) -> list[Path]  (ps1=True is the default; shown here bare since passing ps1=True explicitly is now redundant)
     g.spec_backlink_for_entry_path("bin/foo.py")        -> str | None
 
 SPEC BACKLINKS (2026-08-03)
@@ -161,6 +169,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+MUTATES = ["coordinator/bin/*.cmd", "coordinator/bin/*.ps1"]
+
 PYTHON_BIN_TOKEN = "__PYTHON_BIN__"
 
 # Repo root, derived from this file's own location (coordinator/bin/<here>) so
@@ -168,9 +178,9 @@ PYTHON_BIN_TOKEN = "__PYTHON_BIN__"
 # from any cwd or imported by a test that has repointed its own REPO_ROOT.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# coordinator_core is engine-owned (claude-klabauter) and not on sys.path by default for
-# a bare `coordinator/bin/` script invocation -- REPO_ROOT above already IS
-# the claude-klabauter checkout root (this script lives inside it), so this is a plain
+# coordinator_core is engine-owned (this repo) and not on sys.path by default
+# for a bare `coordinator/bin/` script invocation -- REPO_ROOT above already IS
+# the engine checkout root (this script lives inside it), so this is a plain
 # self-location insert, never a machine-local registry lookup (same shape as
 # coordinator/bin/seed-marketplace-enabledplugins.py's own coordinator_core
 # resolution). Harmless / a no-op when coordinator_core is already importable
@@ -180,6 +190,47 @@ if str(REPO_ROOT) not in sys.path:
 from coordinator_core.session.declared_writes import declare_write  # noqa: E402
 
 SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backlinks.toml"
+
+# RAW-CMDLINE-PRESERVATION ENTRYPOINTS (2026-08-08, caret-eating .cmd shim defect)
+#
+# state/bug-backlog/2026-08-08-cmd-exe-shim-eats-the-caret-in-a-git-rev-6679bf76eb8a.yaml
+# (DoE-claude): populating a .cmd launcher's %1..%9/%* batch parameters
+# silently strips any literal `^` from each argument BEFORE the launcher
+# body ever runs — this happens during cmd.exe's OWN command-line parse,
+# ahead of anything the generated launcher body could do about it (measured:
+# even a bare `echo %*` batch file loses the caret, and it is lost whether
+# the caller is PowerShell, python subprocess list-form, or cmd.exe itself —
+# not a caller-side quoting bug). `%CMDCMDLINE%`, by contrast, still carries
+# the ORIGINAL, unmangled invocation text (measured) — a launcher whose
+# entrypoint is named here gets ONE extra line exporting that raw text into
+# `_LAUNCHER_RAW_CMDLINE` before invoking Python, and the entrypoint itself
+# (not this generator) is responsible for re-deriving un-mangled argv from
+# it. This is a SECOND named, narrow, opt-in exception in the same spirit as
+# the WHOAMI-BOOTSTRAP EXCEPTION above — do NOT generalize it to every
+# launcher; every entrypoint not named here renders byte-identical to before
+# this mechanism existed (see `_cmd_raw_cmdline_block`).
+#
+# MIRRORED, NOT IMPORTED, against `coordinator_core/install/substrate.py`'s
+# `_RAW_CMDLINE_TARGETS` — same caret-eating defect, same keying convention
+# (target-filename suffix, not full path), two independent module-load
+# surfaces per that module's own docstring (a hyphenated-filename generator
+# module has no ordinary `import` form). `scoped-git-commit` and
+# `cross-repo-memo` were added to `_RAW_CMDLINE_TARGETS` per
+# cross-repo/inbox/2026-08-07-doe-claude-em-cmd-forwarder-drops-everything-
+# after-a-newline.md (both take multi-line arguments as a matter of course —
+# commit messages, memo bodies) but this set was NOT updated at the time,
+# leaving the install path that renders launchers via THIS generator
+# directly (rather than via `_write_agent_cmd_forwarder`) still vulnerable
+# to the caret-eating defect on those two CLIs. Closed here — see
+# `test_bin_launcher_parity.py::test_raw_cmdline_entrypoints_matches_substrate_targets`
+# for the drift guard. Extend BOTH sets together, or that test goes red.
+_RAW_CMDLINE_ENTRYPOINTS = frozenset(
+    {
+        "coordinator/bin/coordinator-write-review-trail.py",
+        "coordinator/bin/scoped-git-commit",
+        "coordinator/bin/cross-repo-memo.py",
+    }
+)
 
 # Suffixes stripped from the entrypoint name to form the launcher basename.
 # A launcher for "install-health-run.py" is "install-health-run.cmd"; the .cmd
@@ -265,10 +316,99 @@ def _ps1_backlink_block(spec_backlink: str | None) -> str:
     return f"# Spec backlink: {spec_backlink}\n" if spec_backlink else ""
 
 
+def _cmd_raw_cmdline_block(preserve_raw_cmdline: bool) -> str:
+    """The `_LAUNCHER_RAW_CMDLINE` export block, or the empty string when unset.
+
+    Empty-by-default for the same reason as `_cmd_backlink_block`: the ~410
+    launchers not named in `_RAW_CMDLINE_ENTRYPOINTS` render byte-identical
+    to before this mechanism existed. `%CMDCMDLINE%` is a cmd.exe-only
+    builtin — this block has no PowerShell counterpart; `render_ps1` never
+    loses the caret in the first place (measured), so only the .cmd dialect
+    needs this recovery hook.
+
+    2026-08-14 fix (Raymond Chen-grounded finding, folded in mid-baton): a
+    bare `%RANDOM%%RANDOM%.tmp` name is NOT collision-safe across
+    invocations, and the collision is cross-session, not cross-second.
+    `%RANDOM%` is seeded once per `cmd.exe` process via `srand(time(NULL))`
+    -- one-second resolution -- so two launcher invocations starting in the
+    SAME second are the SAME `cmd.exe` seed, and draw the IDENTICAL
+    `%RANDOM%%RANDOM%` sequence in the identical call order, landing on the
+    identical file path. At this machine's 50-70 concurrent-session norm,
+    same-second launcher invocations are routine, not a corner case --
+    without this fix, one session can silently recover ANOTHER session's
+    command line as its own argv (the token-count fallback in
+    `raw_cmdline_recovery.recover_windows_argv` does not catch a
+    same-shaped colliding invocation), or have its own capture file deleted
+    out from under it by whichever process's `os.remove` wins the race.
+
+    Fixed by using `mkdir` as the collision primitive instead of a bare
+    filename: Windows' `CreateDirectory` is atomic (a second `mkdir` of the
+    same name fails outright, no separate exists-check race window), so a
+    `goto`-based retry loop that keeps drawing fresh names until `mkdir`
+    actually succeeds is genuinely collision-free -- unlike a
+    check-then-write pattern (`if exist ... else echo >file`), which still
+    has a TOCTOU race between the check and the write. No spawned process
+    (`wmic`, `powershell`) is used to fetch a PID or GUID -- that would
+    itself add a process hop to the very launcher this mechanism exists to
+    keep thin. Three `%RANDOM%` draws (not two) only widens the per-attempt
+    namespace; the retry loop, not the draw count, is what actually
+    guarantees uniqueness. The capture file lives inside the freshly-made
+    directory so ordinary `echo >` (not itself atomic) never needs to be.
+    Not simplified back to a bare filename -- see the incident this
+    docstring records.
+
+    NOT `set "_X=%CMDCMDLINE%"` -- measured: cmd.exe's `set` re-strips any
+    literal `^` from its own right-hand-side expansion, same as `%*`
+    population (a SECOND, independent instance of the caret-eating defect
+    this mechanism exists to work around). `echo %CMDCMDLINE%` redirected
+    to a file is the one capture form measured to preserve the caret; the
+    env var therefore names a FILE PATH (itself caret-free, so an ordinary
+    `set` is safe here), not the raw text directly.
+
+    Review: staff-eng (Finding 0) -- the retry loop above was originally an
+    unbounded `goto`, which spins forever (silently, stderr swallowed by
+    `2>nul`) if `%TEMP%` is full/read-only/ACL-denied, hanging the launcher
+    BEFORE Python ever starts on the single hottest path in the system.
+    Capture is best-effort everywhere else in this mechanism (a missing/
+    unreadable capture file just falls back to the possibly-mangled argv,
+    see raw_cmdline_recovery.py) -- only the launcher was treating capture
+    as mandatory-or-hang. Bounded to three unrolled attempts behind distinct
+    labels (not a counter + `enabledelayedexpansion`, which the block above
+    this one deliberately avoids -- see render_cmd's own comment on why).
+    On all three `mkdir` attempts failing, control falls through to
+    `:_coordinator_raw_cmdline_giveup` WITHOUT setting
+    `_LAUNCHER_RAW_CMDLINE_FILE` -- the entrypoint's own
+    `recover_windows_argv` already treats a missing env var as a no-op
+    fallback to `argv`, so this degrades to best-effort exactly like every
+    other failure mode of this mechanism, never a hang.
+    """
+    if not preserve_raw_cmdline:
+        return ""
+    return (
+        ":_coordinator_raw_cmdline_attempt1\n"
+        'set "_LAUNCHER_RAW_CMDLINE_DIR=%TEMP%\\_coordinator_launcher_%RANDOM%%RANDOM%%RANDOM%"\n'
+        '2>nul mkdir "%_LAUNCHER_RAW_CMDLINE_DIR%"\n'
+        "if not errorlevel 1 goto :_coordinator_raw_cmdline_captured\n"
+        ":_coordinator_raw_cmdline_attempt2\n"
+        'set "_LAUNCHER_RAW_CMDLINE_DIR=%TEMP%\\_coordinator_launcher_%RANDOM%%RANDOM%%RANDOM%"\n'
+        '2>nul mkdir "%_LAUNCHER_RAW_CMDLINE_DIR%"\n'
+        "if not errorlevel 1 goto :_coordinator_raw_cmdline_captured\n"
+        ":_coordinator_raw_cmdline_attempt3\n"
+        'set "_LAUNCHER_RAW_CMDLINE_DIR=%TEMP%\\_coordinator_launcher_%RANDOM%%RANDOM%%RANDOM%"\n'
+        '2>nul mkdir "%_LAUNCHER_RAW_CMDLINE_DIR%"\n'
+        "if errorlevel 1 goto :_coordinator_raw_cmdline_giveup\n"
+        ":_coordinator_raw_cmdline_captured\n"
+        'set "_LAUNCHER_RAW_CMDLINE_FILE=%_LAUNCHER_RAW_CMDLINE_DIR%\\cmdline.tmp"\n'
+        'echo %CMDCMDLINE%>"%_LAUNCHER_RAW_CMDLINE_FILE%"\n'
+        ":_coordinator_raw_cmdline_giveup\n"
+    )
+
+
 def render_cmd(
     name: str,
     python_bin_token: str = PYTHON_BIN_TOKEN,
     spec_backlink: str | None = None,
+    preserve_raw_cmdline: bool = False,
 ) -> str:
     """Render the python-direct .cmd launcher body for entrypoint `name`.
 
@@ -286,12 +426,32 @@ def render_cmd(
     entry = os.path.basename(name)
     tag = launcher_basename(name)
     backlink_block = _cmd_backlink_block(spec_backlink)
+    raw_cmdline_block = _cmd_raw_cmdline_block(preserve_raw_cmdline)
+    # Review: staff-eng (Finding 2) -- on every path where Python never runs
+    # (interpreter-cascade exit /b 127, or the child's own exit code), the
+    # freshly `mkdir`-ed raw-cmdline capture dir would otherwise leak under
+    # %TEMP% forever: previously a stray .tmp file a `del *.tmp` sweep could
+    # clear, now a directory. Cleaned up (best-effort, builtin, no added
+    # process) before every exit point -- empty string for launchers not
+    # named in _RAW_CMDLINE_ENTRYPOINTS, so their body stays byte-identical.
+    raw_cmdline_cleanup = (
+        '2>nul rd /s /q "%_LAUNCHER_RAW_CMDLINE_DIR%"\n' if preserve_raw_cmdline else ""
+    )
     return f"""@echo off
 setlocal
 REM Windows launcher for {entry} — python-direct (NO bash re-exec).
 REM Generated by coordinator/bin/gen-launcher-shim.py — do NOT hand-edit; regenerate.
-REM 2026-07-19 Windows de-bash campaign. See docs/wiki/windows-cmd-shims.md and
-REM docs/plans/2026-07-19-debash-coordinator-windows.md.
+REM 2026-07-19 Windows de-bash campaign.
+REM Contract this artifact carries itself (measured, not doctrine-linked --
+REM the doctrine file lives in a sibling repo and is not resolvable from here):
+REM   - On bare-name resolution, PowerShell prefers a "{tag}.ps1" sibling of
+REM     this file over this "{tag}.cmd" file itself -- if both exist, `{tag}`
+REM     typed bare in a pwsh session runs the .ps1, not this .cmd.
+REM   - From PowerShell, quote the `--` separator as '--' when invoking this
+REM     launcher -- the PowerShell binder eats a bare `--` before this script
+REM     ever sees argv, silently dropping it and everything meant to follow it.
+REM     Measured against pwsh 7.6.4 -- see coordinator_core/test_bin_launcher_
+REM     parity.py::test_argv_fidelity_matrix.
 {backlink_block}REM
 REM Resolves a Python interpreter and runs the co-located entrypoint "{entry}"
 REM directly. install-substrate.py substitutes {python_bin_token} with the
@@ -301,8 +461,8 @@ REM picker), or with the empty string when no interpreter was resolvable.
 REM Falls back to `where python.exe`, then `py -3` -- when the baked value is
 REM empty, still the unsubstituted token, OR names a path that is no longer on
 REM disk. That last rung is what makes a `~/.claude` synced between a Mac and a
-REM Windows box self-healing instead of a permanent rc=3 ("The system cannot
-REM find the path specified"): each launcher carries the OTHER platform's
+REM Windows box self-healing instead of a permanent rc=3 path-not-found
+REM failure: each launcher carries the OTHER platform's
 REM interpreter path, and falling back on non-existence is the only repair that
 REM is correct on whichever platform is actually running.
 REM
@@ -313,7 +473,7 @@ REM `!` (commit messages, JSON payloads, ...). Each interpreter rung below is
 REM isolated behind its own `goto` label instead, so `%ERRORLEVEL%` is read
 REM outside any parenthesized block (fresh at that point, not frozen at
 REM block-parse-time) with no delayed expansion needed.
-set "_py={python_bin_token}"
+{raw_cmdline_block}set "_py={python_bin_token}"
 if "%_py%"=="{python_bin_token}" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
@@ -331,15 +491,15 @@ if not errorlevel 1 goto :run_py3
 
 echo [{tag}] ERROR: no Python interpreter found (python.exe / py -3). 1>&2
 echo [{tag}] Install Python: https://www.python.org/downloads/windows/ 1>&2
-exit /b 127
+{raw_cmdline_cleanup}exit /b 127
 
 :run_baked
 "%_py%" "%~dp0{entry}" %*
-exit /b %ERRORLEVEL%
+{raw_cmdline_cleanup}exit /b %ERRORLEVEL%
 
 :run_py3
 py -3 "%~dp0{entry}" %*
-exit /b %ERRORLEVEL%
+{raw_cmdline_cleanup}exit /b %ERRORLEVEL%
 """
 
 
@@ -353,16 +513,28 @@ def render_ps1(
     PowerShell analog of render_cmd — same interpreter ladder, same
     __PYTHON_BIN__ install-time substitution contract, same exit-code
     propagation, and the same optional `spec_backlink` input, emitted in the
-    PowerShell comment dialect (`#`) rather than `REM`. Emitted only when
-    PowerShell bare-name coverage is needed.
+    PowerShell comment dialect (`#`) rather than `REM`. `generate()` emits
+    this sibling by DEFAULT: measured bare-name resolution (pwsh 7.6.4,
+    Windows PowerShell 5.1) shows PowerShell prefers a bare name's .ps1
+    sibling over its .cmd sibling universally, not merely in some
+    PowerShell-specific coverage gap the .cmd twin already leaves open.
     """
     entry = os.path.basename(name)
     tag = launcher_basename(name)
     backlink_block = _ps1_backlink_block(spec_backlink)
     return f"""# {tag}.ps1 — python-direct Windows launcher for {entry} (NO bash re-exec).
 # Generated by coordinator/bin/gen-launcher-shim.py — do NOT hand-edit; regenerate.
-# 2026-07-19 Windows de-bash campaign. See docs/wiki/windows-cmd-shims.md and
-# docs/plans/2026-07-19-debash-coordinator-windows.md.
+# 2026-07-19 Windows de-bash campaign.
+# Contract this artifact carries itself (measured, not doctrine-linked -- the
+# doctrine file lives in a sibling repo and is not resolvable from here):
+#   - On bare-name resolution, PowerShell prefers this "{tag}.ps1" file over
+#     any co-located "{tag}.cmd" sibling -- `{tag}` typed bare in a pwsh
+#     session runs this file, not the .cmd twin.
+#   - Quote the `--` separator as '--' when invoking this launcher -- the
+#     PowerShell binder eats a bare `--` before this script ever sees argv,
+#     silently dropping it and everything meant to follow it. Measured
+#     against pwsh 7.6.4 -- see coordinator_core/test_bin_launcher_parity.py
+#     ::test_argv_fidelity_matrix.
 {backlink_block}#
 # Resolves a Python interpreter and runs the co-located entrypoint "{entry}"
 # directly. install-substrate.py substitutes {python_bin_token} with the
@@ -385,7 +557,7 @@ if ($_pybin -ne '') {{
     & $_pybin $_entry @args
     exit $LASTEXITCODE
 }}
-$_py = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object {{ $_.Source -notmatch '\\WindowsApps\\' }} | Select-Object -First 1
+$_py = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object {{ $_.Source -notlike '*\\WindowsApps\\*' }} | Select-Object -First 1
 if ($_py) {{
     & $_py.Source $_entry @args
     exit $LASTEXITCODE
@@ -572,10 +744,17 @@ def _chmod_executable(path: Path) -> bool:
 def generate(
     name: str,
     out_dir: str | os.PathLike,
-    ps1: bool = False,
+    ps1: bool = True,
     whoami_bootstrap: bool = False,
 ) -> list[Path]:
     """Write the launcher(s) for `name` into `out_dir`; return written paths.
+
+    `ps1` defaults to True: measured bare-name resolution (pwsh 7.6.4,
+    Windows PowerShell 5.1) shows PowerShell prefers a bare name's .ps1
+    sibling over its .cmd sibling universally, so emitting the .ps1 twin
+    upgrades every existing caller with no call-site change. Pass
+    `ps1=False` as the explicit override for a caller that deliberately
+    wants .cmd-only emission.
 
     `whoami_bootstrap=True` ALSO writes `<base>` itself (extensionless,
     chmod +x) as the whoami-bootstrap launcher body — see module docstring
@@ -604,6 +783,7 @@ def generate(
 
     rel = entry_rel_path(name, out)
     spec_backlink = spec_backlink_for_entry_path(rel) if rel else None
+    preserve_raw_cmdline = rel in _RAW_CMDLINE_ENTRYPOINTS if rel else False
 
     if whoami_bootstrap:
         bootstrap_path = out / base
@@ -614,7 +794,9 @@ def generate(
 
     cmd_path = out / f"{base}.cmd"
     cmd_path.write_text(
-        render_cmd(name, spec_backlink=spec_backlink), encoding="utf-8", newline="\r\n"
+        render_cmd(name, spec_backlink=spec_backlink, preserve_raw_cmdline=preserve_raw_cmdline),
+        encoding="utf-8",
+        newline="\r\n",
     )
     written.append(cmd_path)
     declare_write(cmd_path)
@@ -644,7 +826,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="bare entrypoint filename (pure .py or extensionless polyglot)",
     )
     p.add_argument("--dir", default=".", help="output directory (default: cwd)")
-    p.add_argument("--ps1", action="store_true", help="also emit <name>.ps1")
+    p.add_argument(
+        "--ps1",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="also emit <name>.ps1 (default: yes -- PowerShell prefers .ps1 "
+        "over .cmd on bare-name resolution; pass --no-ps1 to suppress)",
+    )
     p.add_argument("--stdout", action="store_true", help="print body to stdout, do not write files")
     p.add_argument(
         "--whoami-bootstrap",
@@ -667,10 +855,13 @@ def main(argv: list[str] | None = None) -> int:
         # second, backlink-less rendering path.
         rel = entry_rel_path(args.name, args.dir)
         spec_backlink = spec_backlink_for_entry_path(rel) if rel else None
+        preserve_raw_cmdline = rel in _RAW_CMDLINE_ENTRYPOINTS if rel else False
         if args.whoami_bootstrap:
             sys.stdout.write(render_whoami_bootstrap(args.name))
             sys.stdout.write("\f")
-        sys.stdout.write(render_cmd(args.name, spec_backlink=spec_backlink))
+        sys.stdout.write(
+            render_cmd(args.name, spec_backlink=spec_backlink, preserve_raw_cmdline=preserve_raw_cmdline)
+        )
         if args.ps1:
             sys.stdout.write("\f")
             sys.stdout.write(render_ps1(args.name, spec_backlink=spec_backlink))

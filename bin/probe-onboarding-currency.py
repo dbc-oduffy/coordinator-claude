@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 probe-onboarding-currency.py — CLI trampoline over claude-klabauter
@@ -117,7 +116,7 @@ def main() -> None:
     plugin_root = _resolve_plugin_root()
     if plugin_root is None:
         print(
-            "probe-onboarding-currency: cannot resolve the DoE-claude coordinator "
+            "probe-onboarding-currency: cannot resolve the coordinator doctrine repo's "
             "plugin root (doe_root() unresolvable). Set repos.doe_claude in the "
             "machine-local registry, or set DOE_ROOT / REPO_DOE_CLAUDE, or set "
             "COORDINATOR_CURRENCY_PLUGIN_ROOT directly.",

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-competitor-positioning-nudge.py — CLI trampoline over claude-klabauter
@@ -9,7 +8,7 @@ Absent-OR-empty-triggered competitive-positioning offer, shared by
 (and its decline-memory) lives in exactly one place instead of two
 byte-identical copies drifting independently.
 
-spec-backlink: coordinator/docs/plans/2026-07-14-self-description-competitor-marking-deliverable.md
+spec-backlink: coordinator/DoE-claude:pln-per-repo-competitor-peer-self--f0b04e
 
 Usage:
   check-competitor-positioning-nudge.py                  — print the nudge (or nothing) to stdout

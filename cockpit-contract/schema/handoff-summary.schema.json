@@ -698,6 +698,51 @@
           "type": "null"
         }
       ]
+    },
+    "producer": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "op_identity": {
+              "type": "string",
+              "enum": [
+                "machine-minted",
+                "hand-authored"
+              ]
+            },
+            "typed_command": {
+              "anyOf": [
+                {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "other-command",
+                        "unresolved"
+                      ]
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "op_identity",
+            "typed_command"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -739,8 +784,9 @@
     "pm_priority",
     "pm_priority_origin",
     "pm_priority_source_id",
-    "suggested_priority"
+    "suggested_priority",
+    "producer"
   ],
   "additionalProperties": false,
-  "version": "3.10.0"
+  "version": "3.12.0"
 }

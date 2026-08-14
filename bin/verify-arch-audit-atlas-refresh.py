@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """verify-arch-audit-atlas-refresh.py — CLI trampoline over claude-klabauter coordinator_core.ops.verify_arch_audit_atlas_refresh.
 
@@ -59,7 +58,7 @@ stdout when neither branch is satisfied.
 # ...` still Just Works), avoiding an otherwise-unnecessary multi-caller
 # repoint.
 #
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 #
 # DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a
 # plain in-process `import ... as _op_main` + `sys.exit(op_main(argv))` tail, so

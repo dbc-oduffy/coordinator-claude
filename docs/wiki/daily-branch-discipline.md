@@ -6,9 +6,44 @@
 >
 > The hook polices branch *shape* at create-time, not branch *date* at workday-start — commit-time date-enforcement (Check 6) was decommissioned per PM call. The daily ritual is **reconcile with origin/main** (`/workday-start` Step 0.4.5), not branch-rotation. Cutting a fresh daily off main when an active workstream exists would abandon ongoing work; doctrine explicitly prohibits this.
 >
-> **Honest-name rule.** At midnight-rename (Step 0 Check 4): `COMMITS_AHEAD > 0` → span suffix `{start}to{today}` (honest WIP); `COMMITS_AHEAD == 0` → today-only `work/{machine}/{today}` + ff-to-main, because the history has all merged and a span would advertise WIP that no longer exists. Still reconciliation, not rotation — the ref is renamed, not abandoned. (`/merge-to-main` *deletes* the merged branch; rename preserves it.)
+> **Honest-name rule.** At midnight-rename (Step 0 Check 4): `COMMITS_AHEAD > 0` → span suffix `{start}to{today}` (honest WIP); `COMMITS_AHEAD == 0` → today-only `work/{machine}/{today}` + ff-to-main, because the history has all merged and a span would advertise WIP that has already landed. Still reconciliation, not rotation — the ref is renamed, not abandoned. (`/merge-to-main` *deletes* the merged branch; rename preserves it.)
 
 > **The shape.** An active workstream branch (canonical or named) is a **shared bus for every concurrent EM session on this machine** — not a single-session workspace. Multiple sessions committing in parallel is the default; sibling commits and out-of-scope dirty files belong to peer sessions, not to contamination. Scoped-staging (`coordinator-safe-commit --scope-from`, runtime overlap gate) is the everyday discipline that makes shared-bus safe.
+
+## Concurrent sessions share the branch, not only the tree
+
+The worktree ban ("parallel agents share one tree, separated by disjoint file scope, never by
+checkout") silently assumes one tree **and** one branch. It is not enough on its own, because the
+branch is a property of the tree rather than of the session: **any checkout moves the ref under
+every concurrent session in that tree.**
+
+Disjoint *file scope* is a real isolation boundary. Disjoint *branch intent* is not isolable at
+all. Two sessions holding genuinely disjoint file scopes still collide the instant one of them
+cuts a branch — the peer's next commit, on unrelated files, lands on a branch it never checked
+out and knows nothing about.
+
+**The rule.** Cutting or switching a branch mid-execution is out-of-bounds. An executing session
+commits to the tree's active branch with scoped pathspecs — the shared-bus discipline above.
+Branch transitions belong to the ceremonies that own them (`/workday-start` Step 0,
+`/merging-to-main`), which consult the engine's `branch_mutation_verdict` liveness oracle before
+mutating: `/workday-start` Step 0 via `session_ensure_branch`, `/merging-to-main`'s on-main
+auto-recover arm via `merge-recovery-and-tag-cut`. Both are engine-resident and both fail closed —
+an `unknown` verdict counts as refused, and under live peers they decline to cut and say so rather
+than moving the ref. **That buys safety, not discipline:** a refused cut leaves the session on
+`main` with branch discipline not in force, which is a visible refusal rather than a silent
+hazard. A branch genuinely needed outside a ceremony is a **PM-gated ask: warn the PM before
+cutting.**
+
+**Why the gate rather than a repair procedure.** There is no safe unilateral recovery once the
+ref has moved, in either direction. Switching the tree back, or resetting the offending branch,
+breaks the *other* live session in exactly the way yours was broken. The asymmetry is why this is
+prevention-only: the sole actor with a view of all live sessions is the PM.
+
+**On Windows this is a load question, not just a correctness one.** Every branch switch rewrites
+a large set of files in the shared tree, and each touch lands on a hook surface that is already
+the dominant per-tool-call cost on this fleet. Branch churn multiplies file-touch events into
+that surface; "fewer branches" is a measurable reduction in a load the operator physically feels,
+not tidiness. See `docs/wiki/windows-process-spawn-and-console.md` for the spawn arithmetic.
 
 ## Why
 
@@ -59,18 +94,22 @@ Portable timestamp parsing matters. The 5-min quiet-gate before merge uses `gh p
 
 ## Enforcement surfaces
 
-> **Current status (verified fleet-wide, not just in this repo).** There is currently **no
-> create-time hook** anywhere that polices `git checkout -b` / branch-creation shape — no
-> branch-discipline PreToolUse hook script exists under `coordinator/hooks/scripts/`, none is
-> registered in any `hooks/*.json`, and no engine-side branch-discipline guard is wired either.
-> The only live enforcement today is **`/workday-start` Step 0** (a ceremony step) plus **EM
-> self-discipline**. The shape oracles this page describes (`cs_is_canonical_branch`,
-> `cs_compute_machine`) were **ported, not deleted** — they survive as importable, unwired Python
-> in the native machine-resolver module (`coordinator_core/daily_branch.py`; see that module's
-> own docstring for the old-name → new-name mapping), just with nothing calling them at tool-use
-> time anymore. Sections below that describe a "hook" denying something describe **retired**
-> behavior unless explicitly marked current; read them as historical record of what the mechanism
-> *used to* do, not as a description of what runs today.
+> **Current status.** Create-time branch-shape policing **is live**, but not as a
+> `coordinator/hooks/scripts/` hook — no branch-discipline hook script exists there, and none is
+> registered in any `hooks/*.json`. It runs engine-side, as a registered guard inside the
+> `PreToolUse(Bash|PowerShell)` dispatch multiplexer:
+> `block_noncanonical_branch_creation` (`coordinator_core/bash_guards/dispatch.py:1645`,
+> `ADVISORY_REWRITE` band), which calls the `is_canonical_branch` oracle over `checkout -b/-B`,
+> `switch -c/-C`, and `branch <name>`. **It checks naming only** — no liveness import, so a
+> canonically-named cut that moves the ref under live peers passes it. Peer-liveness is enforced
+> at the decision points instead (§ Concurrent sessions share the branch, above).
+> Alongside that: **`/workday-start` Step 0** (a ceremony step) and **EM self-discipline**.
+> The shape oracles this page describes (`cs_is_canonical_branch`, `cs_compute_machine`) were
+> **ported, not deleted** — they live in the native machine-resolver module
+> (`coordinator_core/daily_branch.py`; see that module's own docstring for the old-name →
+> new-name mapping). Sections below that describe a *hook* denying something describe **retired**
+> plumbing unless explicitly marked current: the deny survives, the hook-script delivery
+> mechanism does not. Read them for what the mechanism does, not for where it lives.
 
 Two contact-points (see CLAUDE.md tripwire):
 
@@ -83,9 +122,9 @@ illustrative, not exhaustive — do not treat it as an enumeration of every inte
 
 - `/workday-start` Step 0 — the engine-side reconciliation op sets it on its own subprocess git
   calls during branch rename/reconcile.
-- `merging-to-main` (the skill previously named `/merge-to-main` on this page) — sets it inline
+- `merging-to-main` (also referenced as `/merge-to-main` elsewhere on this page) — sets it inline
   when operating against integration branches during the merge ceremony.
-- `consolidate-git` — the skill body itself no longer sets this variable at all; the override
+- `consolidate-git` — the skill body itself does not set this variable at all; the override
   moved into an engine-side branch-absorption op, which sets it on its own subprocess git calls
   when absorbing a branch.
 - There is no `/workday-complete` Step 10.5 and no preemptive-branch-rename logic anywhere in this
@@ -135,8 +174,9 @@ That is six of the seven branches in the reported incident — everything except
 cut.
 
 **Deny-band vs advisory.** This shape check is the **deny-band half** of the enforcement ask: no
-new predicate needed, highest coverage of the reported incident, and the oracle exists and is
-importable today (test-only, no tool-time caller). The precedence rule above is the **advisory**
+new predicate needed, highest coverage of the reported incident, and the oracle is wired at
+tool-use time today via `block_noncanonical_branch_creation` (see the status block above) —
+naming only, no liveness. The precedence rule above is the **advisory**
 half by contrast, because its corrective action is committing or stashing someone else's
 in-progress uncommitted work — a judgment call that cannot be taken on their behalf.
 
@@ -187,11 +227,13 @@ documented in two distinct forms, and they were not equally reachable:
   `coordinator_core/bash_guards/_command_tokenizer.py` `resolve_command_positions` still peels
   leading env assignments. What forecloses the inline form now is **deliberate fleet policy** —
   override *keys* are human-operator and pre-launch per `docs/reference/guard-override-keys.md`
-  (engine-resident) — NOT an impossibility of construction. Pre-launch is no longer the only
-  operator channel, though: the engine added an additive fourth route (`DR-260`) — an in-session,
-  one-shot, per-guard unlock sentinel the operator creates at the moment of denial, the env keys
-  unchanged and still valid. Cite that reference for the current shape rather than asserting
-  pre-launch-only. A future guard MAY be designed around
+  (engine-resident) — NOT an impossibility of construction. Pre-launch is not the only
+  operator channel: the engine also carries an additive fourth route — an in-session,
+  one-shot, per-guard unlock sentinel created at the moment of denial, the env keys
+  unchanged and still valid. Its taker is a human operator, except for one enumerated pair of
+  guard names an EM may self-grant; the sentinel writes a durable record of the stated reason
+  before it mints. Cite that reference for the current shape rather than asserting
+  pre-launch-only or human-only. A future guard MAY be designed around
   the inline form if the engine chooses to re-open it; that is an engine-side call, not a
   doctrinal ban.
 
@@ -206,8 +248,7 @@ branch-delete (`git branch -D`) over the default safe delete (`git branch -d`) o
 `COORDINATOR_OVERRIDE_BRANCH` equals the branch it is about to delete. One name, two unrelated
 meanings — do not assume setting it to `1` interacts with this consumer at all.
 
-**Logging surfaces — one real, one is not.** The page previously asserted both branch-specific
-logs below were live; only the general commit-side log is:
+**Logging surfaces — one real, one is not.** Only the general commit-side log below is live:
 
 - `.git/coordinator-sessions/{session_id}/branch-discipline.log` — **no writer exists anywhere in
   the fleet.** Nothing produces this file.
@@ -231,7 +272,7 @@ subprocess git calls (illustrative, not exhaustive — see § Enforcement surfac
 
 - `/workday-start` Step 0 — engine-side reconciliation during branch rename/reconcile.
 - `merging-to-main` — may operate against integration branches during the merge ceremony.
-- `consolidate-git` — the skill body no longer sets it directly; an engine-side branch-absorption
+- `consolidate-git` — the skill body does not set it directly; an engine-side branch-absorption
   op does, when absorbing a branch.
 - There is no `/workday-complete` Step 10.5 — see § Enforcement surfaces above; it does not exist
   on disk.
@@ -247,33 +288,33 @@ The post-commit auto-push hook pushes every commit on a `work/*` / `feature/*` b
 
 ## Failure modes — what currently catches them (hook retired)
 
-Mapped to the postmortem patterns. Per the status block above, the PreToolUse hook that used to catch Patterns 2 and 4 is retired; those rows now say what actually catches them today, which for both is **nothing automated**:
+Mapped to the postmortem patterns. No hook *script* catches Patterns 2 and 4; its deny survives as an engine-side guard (status block above), so both rows are covered — by name-shape only:
 
 | Postmortem pattern | Caught by | How |
 |---|---|---|
-| Pattern 2 — checkout-stash-checkback anti-pattern | **Nothing automated (was: PreToolUse hook, retired)** | No create-time check denies `checkout -b feature/X`; only EM self-discipline prevents step 1 today |
+| Pattern 2 — checkout-stash-checkback anti-pattern | `block_noncanonical_branch_creation` (engine guard, advisory-rewrite band) | Step 1's `checkout -b feature/X` is a non-canonical name; the guard catches it at create time. A canonically-named cut is *not* caught — that hazard is peer-liveness, covered at the decision points |
 | Pattern 3 — orphan stashes outlive deleted branches | Eliminated structurally | If non-workstream branches never exist, stashes can't reference them (structural, not hook-dependent — still holds) |
 | Stale-day inheritance (yesterday's branch carried into today) | `/workday-start` auto-rename | Silently renames `work/<machine>/2026-05-06` → `work/<machine>/2026-05-06to07` and notes it in the Morning Briefing; no commit block |
-| Pattern 4 — speculative `feature/<topic>-<date>` naming from planning prose | **Nothing automated (was: PreToolUse hook, retired)** | The branch CAN now be created; only EM self-discipline (and this doctrine page) discourages the cosmetic naming |
+| Pattern 4 — speculative `feature/<topic>-<date>` naming from planning prose | `block_noncanonical_branch_creation` (engine guard, advisory-rewrite band) | `feature/<topic>-<date>` fails `is_canonical_branch`; the guard fires at create time |
 
-## Mixed-Case Branch Tripwire (historical hazard — no automated catcher today)
+## Mixed-Case Branch Tripwire
 
-**Problem (still a live hazard, not hypothetical):** a mixed-case `work/*` branch name — e.g. `git checkout -b work/<MACHINE>/2026-05-07` — leaves `.git/HEAD` storing the mixed-case form while the on-disk canonical ref convention is lowercase. Result: `git branch --show-current` returns uppercase, `git push origin <uppercase>` fails ("cannot be resolved to branch"). This can still happen today; only the catcher described below is gone.
+**Problem:** a mixed-case `work/*` branch name — e.g. `git checkout -b work/<MACHINE>/2026-05-07` — leaves `.git/HEAD` storing the mixed-case form while the on-disk canonical ref convention is lowercase. Result: `git branch --show-current` returns uppercase, `git push origin <uppercase>` fails ("cannot be resolved to branch").
 
-**Historical fix (retired):** at the time this was live, a creation-time PreToolUse hook called `cs_is_canonical_branch` to check whether the proposed `work/*` name was already in canonical lowercase form, and rejected mixed-case `work/*` creation at hook time with a remediation message naming the canonical form. That hook no longer exists (see status block, § Enforcement surfaces above).
+**How it is caught:** the `is_canonical_branch` oracle checks whether a proposed `work/*` name is already in canonical lowercase form and rejects the mixed-case creation with a remediation message naming the canonical form. The delivery mechanism changed — it was a creation-time PreToolUse hook script, it is now the engine-side `block_noncanonical_branch_creation` guard (see status block, § Enforcement surfaces above) — the check itself did not.
 
 **What catches this today:**
-1. ~~Creation-time hook rejection (`cs_is_canonical_branch`)~~ — retired; **not currently enforced**.
-2. Runtime canonicalization in coordinator-auto-push (case-agnostic push) — still live; a mixed-case branch's pushes are canonicalized at push time even though creation itself is unguarded.
+1. Creation-time rejection via the `is_canonical_branch` oracle — **enforced again**, now as the engine-side `block_noncanonical_branch_creation` guard rather than the retired hook script (see status block, § Enforcement surfaces). A mixed-case `work/*` name is non-canonical, so it fires.
+2. Runtime canonicalization in coordinator-auto-push (case-agnostic push) — still live; a second net at push time.
 3. Migration helper: `migrate-branch-canonical-case.py` (idempotent: rename local + remote) — still available for cleanup after the fact.
-4. Doctrine: global `CLAUDE.md` § Concurrent-EM Git Operations bullet 1 span-aware framing — still the doctrine reference; no longer backed by a hook.
+4. Doctrine: global `CLAUDE.md` § Concurrent-EM Git Operations bullet 1 span-aware framing — the doctrine reference behind the guard.
 
 **Contact points requiring sync:**
 1. The native `is_canonical_branch` + `compute_machine` resolvers (the successors to an earlier shell-script implementation) — survive as unwired, importable Python; still worth keeping correct even though nothing calls them at tool-use time.
 2. Global `CLAUDE.md § Concurrent-EM Git Operations` bullet 1
 3. This wiki (daily-branch-discipline.md)
 
-Note: the original PreToolUse hook enforcing this was retired once `/workday-start` Step 0 absorbed the check as a ceremony step instead of a hook. `/workday-start` Step 0 reconciles branches it touches at that ceremony point, but does not intercept an ad hoc `git checkout -b` the way the retired hook did — so a mixed-case branch created outside that ceremony currently goes unnoticed until push or the next reconciliation.
+Note: `/workday-start` Step 0 reconciles branches it touches at that ceremony point and does not intercept an ad hoc `git checkout -b`; that interception is the engine guard's job, not the ceremony's. The two are complementary nets, not substitutes.
 
 ## Span-Aware Branch Naming
 
@@ -302,10 +343,13 @@ just above.
 
 ## Edge cases — historical hook coverage map
 
-**Historical.** This section describes the retired create-time PreToolUse hook's coverage
-boundaries, preserved because it is the specification any reinstatement starts from. With no hook
-installed today (see the status block, § Enforcement surfaces), **none of the "denies" below fire**
-— every form here is currently unpoliced at create time.
+**Read as a specification, not a live coverage map.** This section describes the retired create-time
+PreToolUse hook's coverage boundaries. The successor engine guard
+(`block_noncanonical_branch_creation`, § Enforcement surfaces) re-implements the name-shape deny
+over `checkout -b/-B`, `switch -c/-C`, `branch <name>` — so the core denies fire again — but the
+edge-form coverage below (`--orphan`, `-C <path>`, `cd … && git …`, compound commands) was the *old*
+hook's parser behaviour and has NOT been verified against the successor. Treat each form here as
+unconfirmed until read in `coordinator_core/bash_guards/`.
 
 - **`git checkout <sha>` / `git checkout <tag>`** — detached HEAD. Allowed (not a branch op). Commit-time check catches any subsequent commit, since the resulting `HEAD` is not a branch ref.
 - **`git checkout -- <path>`** — file restore. Allowed (no branch involved).
@@ -451,4 +495,4 @@ The `cs_compute_machine` function body now lives natively in the machine-resolve
 
 ## See also
 
-- [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). Historically these were siblings on the same PreToolUse Bash matcher; that is no longer true on this page's side — this page's create-time hook is retired and unwired (see status block, § Enforcement surfaces), while `scoped-safety-commits.md`'s own hook may or may not still be live (check that page directly rather than trusting this cross-reference for its status).
+- [`scoped-safety-commits.md`](./scoped-safety-commits.md) — sibling enforcement on commit *content* (which files); this page enforces commit *location* (which branch). This page's create-time hook is retired and unwired (see status block, § Enforcement surfaces), so the two pages do not share a PreToolUse Bash matcher on this page's side; `scoped-safety-commits.md`'s own hook may or may not still be live (check that page directly rather than trusting this cross-reference for its status).

@@ -487,6 +487,15 @@ except Exception:
     # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
+try:
+    from _message_envelope import resolve_wiki_citation  # noqa: E402
+except Exception:
+    # Same fail-open shape as the `_engine_root` import above -- a
+    # deployment missing its `_message_envelope.py` sibling must not crash
+    # this hook's import; it degrades to the un-resolved repo-relative
+    # citation instead (C2, `_message_envelope.py` module docstring).
+    def resolve_wiki_citation(text: str) -> str:
+        return text
 
 
 def _resolve_git_common_dir(git_root: str) -> str:
@@ -821,7 +830,7 @@ def _push_failure_verdict(git_root: str) -> dict | None:
 # regardless of which of the five op verdicts (or the pre-op fallback path)
 # produced it.
 _PUSH_FAILURE_REFERENCE_LINE = (
-    "Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT"
+    resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT")
 )
 
 
@@ -925,6 +934,148 @@ def _render_push_failure_verdict(
         )
 
     return None  # unreachable -- `_push_failure_verdict` already validated `verdict`
+
+
+# ---------------------------------------------------------------------------
+# PLUGIN-HOOKS-JSON-RESTART-GATED (added 2026-08-07) -- detects when THIS
+# session's own hook registrations are stale relative to
+# `coordinator/hooks/hooks.json` on disk. Established by a three-probe
+# control sweep (`state/audits/2026-08-07-bx17-piece3-observed-block-
+# discharge.md` § Finding 1): the plugin's own `hooks.json` is snapshotted
+# at session boot -- a matcher edit landing after boot is NOT live in that
+# session, while the same matcher loaded from `.claude/settings.local.json`
+# takes effect on the next tool call. Nothing detected this before now: a
+# session that edits `hooks.json`, probes its own guard, and sees no block
+# reads that as "the guard is broken" when the only thing wrong is that its
+# own snapshot predates the edit -- a false-bug-filing engine already
+# measured to have burned real time on the BX-17 campaign.
+#
+# Idiom deliberately mirrors `_check_push_failures` above rather than
+# inventing a second one: a per-session cursor file at
+# `<git COMMON dir>/coordinator-sessions/<session_id>/hooks-json-boot-hash.txt`
+# (rooted via `_resolve_git_common_dir`, worktree-safe -- see that helper's
+# docstring). First check this session records the current on-disk content
+# hash as baseline and never alarms (this session's OWN boot snapshot is,
+# by definition, not stale relative to itself). A later check compares the
+# current hash against that baseline; a mismatch means `hooks.json` changed
+# since this session's registrations were captured, so this session's own
+# guard observations are invalid until restart. The cursor advances on
+# alarm (mirrors `_check_push_failures`' cursor-advance-on-report contract)
+# so the SAME edit is never re-reported -- only further-new changes fire
+# again.
+#
+# Cost: content hash (sha256), not mtime -- mtime is unreliable across the
+# ~11 peer sessions sharing this tree (a peer's unrelated checkout/rebase
+# can bump mtime without changing content, and vice versa across
+# filesystems). No subprocess: a single `open().read()` + hashlib digest
+# against a small (few-KB) JSON file, run at this hook's existing
+# Stop/UserPromptSubmit/PostToolUse cadence -- no new hook registration, no
+# per-call spawn added.
+#
+# Fail-open, never a crash: an unresolvable common dir, unreadable
+# hooks.json, or an unwritable cursor file on the baseline-establishing
+# write all degrade to None (silent no-op). The alarm-path cursor-advance
+# write is separate: if IT fails, the already-built alert text is still
+# returned (never dropped), which is the safer failure -- but it means an
+# unwritable cursor there causes the same alarm to re-fire on the next
+# call instead of degrading to None, not a false alarm but a repeating one.
+# ---------------------------------------------------------------------------
+
+_HOOKS_JSON_STALE_REFERENCE_LINE = (
+    resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires.md § PLUGIN-HOOKS-JSON-RESTART-GATED")
+)
+
+
+def _hooks_json_path(git_root: str) -> str:
+    """Path to the plugin's own hooks.json, relative to the repo root."""
+    return os.path.join(git_root, "coordinator", "hooks", "hooks.json")
+
+
+def _hash_file_sha256(path: str) -> str | None:
+    """sha256 hex digest of `path`'s contents, or None on any read failure
+    (missing file, permission error, IO error) -- fail-open, never raises."""
+    try:
+        import hashlib
+
+        h = hashlib.sha256()
+        with open(path, "rb") as fh:
+            h.update(fh.read())
+        return h.hexdigest()
+    except Exception:
+        return None
+
+
+def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str) -> str | None:
+    """PLUGIN-HOOKS-JSON-RESTART-GATED detector -- see the module-level
+    comment block above this function for the full design rationale.
+
+    Returns advisory text naming the restart-gated trap when
+    `coordinator/hooks/hooks.json`'s content hash has changed since this
+    session's own first check (its boot-time baseline); None on the
+    first-check-records-baseline path, on an unchanged hash, and on the
+    fail-open paths that precede any hash comparison (unresolvable common
+    dir, invalid session_id, unreadable hooks.json, or an unwritable cursor
+    file on the baseline-establishing write). On the alarm path, an
+    unwritable cursor does NOT degrade to None -- the alert text is still
+    returned (the safer failure), it just means the same alarm re-fires on
+    the next call instead of being absorbed.
+    """
+    if not common_dir:
+        return None  # fail-open: cannot resolve the common dir, nothing to do
+
+    if not session_id or not _ID_CHARSET_RE.match(session_id):
+        return None  # same charset guard as the rest of this hook
+
+    current_hash = _hash_file_sha256(_hooks_json_path(git_root))
+    if current_hash is None:
+        return None  # hooks.json unreadable -- nothing to compare, fail-open
+
+    cursor_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
+    cursor_path = os.path.join(cursor_dir, "hooks-json-boot-hash.txt")
+
+    baseline = None
+    if os.path.isfile(cursor_path):
+        try:
+            with open(cursor_path, "r", encoding="utf-8") as fh:
+                text = fh.read().strip()
+            baseline = text or None
+        except Exception:
+            baseline = None
+
+    if baseline is None:
+        # First check this session -- record this session's own boot-time
+        # baseline. Never alarms here: a session's own snapshot cannot be
+        # stale relative to itself.
+        try:
+            os.makedirs(cursor_dir, exist_ok=True)
+            with open(cursor_path, "w", encoding="utf-8") as fh:
+                fh.write(current_hash)
+        except Exception:
+            pass
+        return None
+
+    if current_hash == baseline:
+        return None  # unchanged since this session's own baseline
+
+    # Changed since baseline -- advance the cursor so the SAME change is
+    # never re-reported (only further-new changes fire again), then emit.
+    try:
+        with open(cursor_path, "w", encoding="utf-8") as fh:
+            fh.write(current_hash)
+    except Exception:
+        pass
+
+    return (
+        "PLUGIN-HOOKS-JSON-RESTART-GATED — coordinator/hooks/hooks.json changed on disk "
+        "since this session booted. This session's own hook registrations are a SNAPSHOT "
+        "taken at boot: a matcher edit landing after boot is NOT live in this session "
+        "(the same matcher loaded from .claude/settings.local.json IS live, no restart "
+        "needed — this trap is specific to the plugin's own hooks.json). Any guard "
+        "observation this session makes about a changed matcher — e.g. \"I edited the "
+        "guard and it still doesn't block\" — is INVALID until a fresh session starts: "
+        "restart before trusting it, or a working guard reads as inert and gets "
+        "\"fixed\" twice.\n" + _HOOKS_JSON_STALE_REFERENCE_LINE
+    )
 
 
 def _check_push_failures(git_root: str, session_id: str) -> str | None:
@@ -1128,8 +1279,9 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
             "commits) — crash insurance is not at risk right now. Most recent "
             "failure:\n"
             "  {last}\n"
+        ).format(n=n_new, branch=branch, last=last_line) + resolve_wiki_citation(
             "Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT"
-        ).format(n=n_new, branch=branch, last=last_line)
+        )
 
     return (
         "AUTO-PUSH MID-SESSION FAILURE — {n} new push failure(s) landed in "
@@ -1139,8 +1291,9 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
         "  {last}\n"
         "Crash insurance may be silently NOT insuring right now — consider "
         "`git push`, or read the full log for the failure class.\n"
+    ).format(n=n_new, branch=branch, last=last_line) + resolve_wiki_citation(
         "Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT"
-    ).format(n=n_new, branch=branch, last=last_line)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1265,7 +1418,7 @@ def _extract_zero_tool_use_records(result) -> list:
     "store_present": bool}` in append order -- this also tolerates a bare
     list for defense-in-depth, and degrades to empty (nothing to surface)
     on anything else rather than guessing further. AC7: no transcript
-    parsing and no zero-vs-unknown determination happens DoE-side, here or
+    parsing and no zero-vs-unknown determination happens doctrine-plane-side, here or
     anywhere in this file -- this only relays fields the engine op already
     resolved."""
     if isinstance(result, list):
@@ -1326,7 +1479,7 @@ def _format_zero_tool_use_records(records: list) -> str:
         "deliverable — verify on disk before trusting it — or an agent you "
         "deliberately told not to use tools (probe / pure-judgment call), "
         "where zero is correct and needs no verification.\n"
-        "Reference: docs/wiki/coordinator-tripwires.md § ZERO-TOOL-USE-DETECT"
+        + resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires.md § ZERO-TOOL-USE-DETECT")
     )
 
 
@@ -1479,6 +1632,120 @@ def _hook_event_name(payload) -> str:
     return "PostToolUse"
 
 
+# --- SYMLINK-SAFE MARKER CREATE/TOUCH ---
+#
+# Bug: state/bug-backlog/2026-08-07-o-creat-o-excl-follows-a-dangling-symlin-13c1e12b3ccc.yaml.
+# POSIX `open(O_CREAT | O_EXCL)` already refuses a symlinked leaf outright --
+# EEXIST fires whether the link is dangling or resolves, per POSIX open(2).
+# Windows does NOT: `os.open(path, O_CREAT | O_EXCL)` on a DANGLING symlink
+# follows it and creates the FILE THE LINK POINTS AT, succeeding with no
+# exception -- so every predictable-tempdir marker in this module was
+# reachable for attacker-chosen-path file creation by a local actor who
+# pre-plants a dangling symlink at the marker's known name before the
+# session starts. `O_NOFOLLOW` does not exist on Windows, so the fix cannot
+# be a flag; it is a post-open identity check that costs nothing on POSIX
+# (it can only ever agree there).
+def _symlink_safe_marker(path: str) -> bool:
+    """Create-or-refresh an empty marker file at `path` without ever
+    resolving a symlink planted at that name. Returns True if `path` now
+    names a verified-non-symlink regular file the caller may treat as its
+    own marker; False if `path` is (or was, at open time) a symlink and must
+    not be used or refreshed.
+
+    Windows exposure this closes: `os.open(path, O_CREAT|O_EXCL)` against a
+    DANGLING symlink follows it and silently creates its target -- the fd
+    then refers to that target, not to `path`. Two layers close it:
+
+    1. A PRE-open `os.path.islink` check -- this is what stops the target
+       from ever being created at all for the common case (a symlink
+       planted before this call runs), since a post-open check alone
+       cannot undo a create that already happened.
+    2. A post-open `os.fstat(fd)` vs `os.lstat(path)` identity check, for
+       the narrower race a symlink planted in the gap between check 1 and
+       the `os.open` call would leave -- lstat inspects the leaf without
+       following it, fstat inspects what the open actually produced, and
+       the two can only disagree when `path` names a symlink. A mismatch
+       means the open followed a link anyway; we close the fd without
+       writing to or using it and report False.
+
+    Residual window: only the gap between the two checks above -- a
+    symlink planted in THAT window still gets an empty file created at its
+    target as an unavoidable side effect of the OS's own O_CREAT semantics
+    completing before we can inspect it (no portable, race-free way to
+    recover the resolved path after the fact without risking a second
+    TOCTOU chasing a moving target). What both layers together guarantee is
+    the actual guarantee this bug asked for: our own marker content is
+    never written through a link, and the caller's marker state is never
+    advanced as though the real path had been claimed -- `path` itself
+    stays a dangling symlink forever after a detected hijack, so every
+    later call sees the same `False` and the feature this marker gates
+    degrades to permanently-not-firing for that session rather than
+    writing attacker-influenced content anywhere.
+
+    The already-exists branch (a second call refreshing an existing
+    marker's mtime, e.g. a throttle) has a separate, much tighter residual:
+    `os.path.islink` and `os.utime` are two syscalls, not one, so a symlink
+    swapped in between them is a real but sub-millisecond local race, and at
+    worst causes an mtime bump on a file that already existed -- never a
+    creation, never content.
+    """
+    # Review: code-reviewer (Finding 3, nit) -- a detected hijack degrades
+    # the marker's feature to permanently-not-firing for the session with
+    # nothing surfaced; a stderr line at each detection point makes that
+    # visible without disturbing the fail-open/fail-safe return contract
+    # any call site relies on.
+    try:
+        if os.path.islink(path):
+            print(f"symlink-safe-marker: hijack detected at {path!r} (pre-open)", file=sys.stderr)
+            return False  # never open through a pre-planted symlinked leaf
+    except OSError:
+        return False
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        try:
+            if os.path.islink(path):
+                print(f"symlink-safe-marker: hijack detected at {path!r} (exists-branch)", file=sys.stderr)
+                return False
+        except OSError:
+            return False
+        try:
+            os.utime(path, None)
+        except OSError:
+            pass
+        return True
+    else:
+        try:
+            if not _fd_matches_lstat(fd, path):
+                print(f"symlink-safe-marker: hijack detected at {path!r} (post-open race)", file=sys.stderr)
+                return False
+        finally:
+            os.close(fd)
+        return True
+
+
+def _fd_matches_lstat(fd: int, path: str) -> bool:
+    """True iff `fd` (just returned by an `O_CREAT`-flagged `os.open(path,
+    ...)`) actually refers to `path` itself rather than to whatever a
+    symlink planted at `path` resolved to. See `_symlink_safe_marker` for
+    why this identity check, rather than a pre-open `O_NOFOLLOW`-style flag,
+    is the fix: `os.lstat(path)` inspects the leaf without following it,
+    `os.fstat(fd)` inspects what the open actually produced, and the two
+    can only disagree (different `(st_dev, st_ino)`) when `path` names a
+    symlink -- POSIX `O_EXCL` never reaches this function with fd open
+    through a symlink at all (EEXIST fires first), so this is a no-op
+    confirmation there and the real check only on platforms that follow a
+    dangling link. `fd` is left open either way -- caller's responsibility
+    to close it.
+    """
+    try:
+        fd_stat = os.fstat(fd)
+        link_stat = os.lstat(path)
+    except OSError:
+        return False
+    return (link_stat.st_dev, link_stat.st_ino) == (fd_stat.st_dev, fd_stat.st_ino)
+
+
 # --- DISPATCH-DEFAULT RESTATEMENT ---
 #
 # Once-per-session, deliberately two short sentences. The harness system
@@ -1543,21 +1810,87 @@ def _dispatch_default_restatement(event: str, session_id) -> str | None:
         cursor_path = os.path.join(
             tempfile.gettempdir(), f"runtime-tripwire-em-dispatch-default-cursor-{session_id}"
         )
-        # Review: code-reviewer (Finding 4, P2) -- a predictable path in a
-        # shared tempdir is a symlink/TOCTOU exposure: `Path.write_text`
-        # follows a pre-planted symlink and overwrites whatever it points
-        # at. `os.O_CREAT | os.O_EXCL` refuses to create through an
-        # existing path (symlink or otherwise), so a `FileExistsError` here
-        # means "cursor already present" rather than "turn one" -- this is
-        # a create-time check only; the file this hook itself creates below
-        # is a fresh regular file, not attacker-controlled.
+        # Review: code-reviewer (Finding 4, P2); fixed per
+        # state/bug-backlog/2026-08-07-o-creat-o-excl-follows-a-dangling-symlin-13c1e12b3ccc.yaml
+        # -- a predictable path in a shared tempdir is a symlink/TOCTOU
+        # exposure. POSIX `O_CREAT | O_EXCL` already refuses to create
+        # through an existing leaf (symlink or otherwise): a `FileExistsError`
+        # there means "cursor already present," never "turn one." Windows is
+        # the platform this comment used to get wrong -- `O_EXCL` there does
+        # NOT refuse a DANGLING symlink; it follows it and creates the
+        # link's target instead, succeeding silently.
+        #
+        # Two layers, because neither one alone is both correct and
+        # complete: an `os.path.islink` PRE-check (below) is what actually
+        # keeps a pre-planted dangling symlink from ever being opened at
+        # all -- this is what stops the target from being created in the
+        # first place, which a post-open check alone cannot do (the create
+        # has already happened by the time you can inspect it). Its own
+        # residual is the obvious one: a symlink planted in the gap between
+        # this check and the `os.open` below still gets followed -- a real
+        # but sub-millisecond local race, not a pre-plant. `_fd_matches_lstat`
+        # (below, on the success path) is defense for exactly that gap: it
+        # confirms, post-open, that the fd we got really is `cursor_path`
+        # and not something a same-name link swapped in mid-race, and
+        # refuses to write through it if not. See `_symlink_safe_marker`'s
+        # docstring for why a post-open-only check cannot fully close this
+        # on Windows and what a raced attacker still gets.
         try:
-            fd = os.open(cursor_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            pass  # cursor already present -- not turn one, fall through
+            symlinked_leaf = os.path.islink(cursor_path)
+        except OSError:
+            symlinked_leaf = True  # can't confirm safety -- treat as unsafe
+        if symlinked_leaf:
+            pass  # never open through a symlinked leaf -- fall through below
         else:
-            with os.fdopen(fd, "w") as handle:
-                handle.write("turn1")
+            try:
+                fd = os.open(cursor_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                pass  # cursor already present -- not turn one, fall through
+            else:
+                try:
+                    if _fd_matches_lstat(fd, cursor_path):
+                        with os.fdopen(fd, "w") as handle:
+                            handle.write("turn1")
+                    else:
+                        os.close(fd)
+                except Exception:
+                    try:
+                        os.close(fd)
+                    except Exception:
+                        pass
+                # Review: code-reviewer (Finding 1, P1) -- this `return None`
+                # is deliberate, not a side effect of the symlink fix, and it
+                # is a correction, not a regression. Verified against the
+                # pre-symlink-fix code (commit 7c6270ad8's parent): the old
+                # branch wrote "turn1" here and then FELL THROUGH to the
+                # "fired" check a few lines below, in the SAME call that
+                # created the cursor -- since freshly-written content is
+                # "turn1", not "fired", that fall-through immediately fired
+                # `_DISPATCH_DEFAULT_LINE` on the very call that proves this
+                # is the session's first UserPromptSubmit. That contradicts
+                # this function's own docstring ("never on the session's
+                # first UserPromptSubmit"). Returning `None` here instead --
+                # unconditionally, on the call that creates the cursor --
+                # is what actually enforces that documented contract: the
+                # first-ever call for a session always defers, and the
+                # *next* call is the earliest one that can reach the "fired"
+                # check below and fire. This is an intentional behavior fix
+                # bundled with the symlink-safety commit, not an accidental
+                # side effect of it.
+                return None
+        # A symlinked leaf is never read or written through, regardless of
+        # what it resolves to -- the create branch above only reaches here
+        # on FileExistsError, which on a dangling link now means "our own
+        # earlier pass already created the link's target and declined to
+        # write through it" as much as it means "a normal fired/turn1
+        # cursor already exists." `cursor_path` stays a symlink forever in
+        # the former case, so this check permanently short-circuits future
+        # passes to "no advisory" for that session rather than resolving
+        # into the target.
+        try:
+            if os.path.islink(cursor_path):
+                return None
+        except OSError:
             return None
         if Path(cursor_path).read_text() == "fired":
             return None
@@ -1804,7 +2137,12 @@ def _sizing_arrival_advisory(
     )
     try:
         if _sizing_route_taken(event, tool_name, tool_input):
-            Path(latch_path).touch()
+            # `_symlink_safe_marker`, not a bare `Path.touch()` -- same
+            # predictable-shared-tempdir exposure as the O_CREAT|O_EXCL
+            # sites in state/bug-backlog/2026-08-07-o-creat-o-excl-follows-
+            # a-dangling-symlin-13c1e12b3ccc.yaml: `touch()` also follows a
+            # planted symlink and creates through it on Windows.
+            _symlink_safe_marker(latch_path)
     except Exception:
         # A failure observing/latching the route must never take down the
         # rest of the advisory -- fail-open per module contract.
@@ -1847,8 +2185,10 @@ def _sizing_arrival_advisory(
         # Touch the offer throttle ONLY on an actual fire -- a suppressed
         # prompt (bare pointer, slash-prefixed, empty) must not consume the
         # recurrence budget, matching `main()`'s own "sentinel written only
-        # if something fired" convention a few lines below.
-        Path(throttle_path).touch()
+        # if something fired" convention a few lines below. `_symlink_safe_marker`,
+        # not a bare `Path.touch()` -- same tempdir symlink exposure as
+        # `latch_path` above.
+        _symlink_safe_marker(throttle_path)
     except Exception:
         return None
 
@@ -2128,12 +2468,40 @@ def _check_em_report_altitude(payload, git_root: str, hook_event: str, session_i
             Path(sentinel_path).parent.mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
+        # Fixed per
+        # state/bug-backlog/2026-08-07-o-creat-o-excl-follows-a-dangling-symlin-13c1e12b3ccc.yaml
+        # -- `O_CREAT | O_EXCL` is load-bearing for the race the surrounding
+        # comment describes (exactly one of two concurrently-registered Stop
+        # copies must win) and stays exactly that on every platform; neither
+        # layer below changes that. An `os.path.islink` PRE-check is what
+        # keeps a pre-planted dangling symlink from ever being opened (and
+        # its target ever created) in the first place -- it never fires for
+        # two legitimate racing copies, since neither has created anything
+        # at `sentinel_path` yet, so the winner-take-one-fd race is
+        # untouched. `_fd_matches_lstat` (post-open) is defense for the
+        # narrower race a symlink planted in the gap between the two checks
+        # would leave; either layer detecting a hijack is treated the same
+        # as `FileExistsError` -- suppress this emission -- rather than
+        # falling through to `return message`, so a hijacked sentinel path
+        # can never be mistaken for a real claim.
         try:
-            os.close(os.open(sentinel_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+            sentinel_symlinked = os.path.islink(sentinel_path)
+        except OSError:
+            sentinel_symlinked = True
+        if sentinel_symlinked:
+            return None
+        try:
+            fd = os.open(sentinel_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         except FileExistsError:
             return None
         except Exception:
             pass
+        else:
+            try:
+                if not _fd_matches_lstat(fd, sentinel_path):
+                    return None
+            finally:
+                os.close(fd)
 
     return message
 
@@ -2334,6 +2702,18 @@ def main() -> int:
     except Exception:
         push_failure_msg = None
 
+    # --- PLUGIN-HOOKS-JSON-RESTART-GATED (see _check_hooks_json_staleness
+    # docstring + the module-level comment block above that function).
+    # Independently wrapped, same as the push-failure block above -- a bug
+    # here must never take down any other advisory. Not gated to a single
+    # hook_event: this session's registrations can be stale relative to a
+    # matcher edit regardless of which of Stop/UserPromptSubmit/PostToolUse
+    # fired, and the read is cheap (one file hash, no subprocess). ---
+    try:
+        hooks_json_stale_msg = _check_hooks_json_staleness(git_root, session_id, common_dir)
+    except Exception:
+        hooks_json_stale_msg = None
+
     # --- ZERO-TOOL-USE-DETECT-SURFACE (see module docstring + the section
     # immediately above _emit_advisory). Independently wrapped, same as the
     # push-failure block above -- a bug here must never take down either
@@ -2367,7 +2747,7 @@ def main() -> int:
     # self-throttle early-return already uses. ---
     if not _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED:
         return _emit_advisory(
-            [push_failure_msg, zero_tool_use_msg, em_report_altitude_msg],
+            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
             prompt=payload.get("prompt"),
@@ -2387,7 +2767,7 @@ def main() -> int:
             now_f = time.time()
             if (now_f - sentinel_mtime) < throttle_seconds:
                 return _emit_advisory(
-                    [push_failure_msg, zero_tool_use_msg, em_report_altitude_msg],
+                    [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
                     hook_event,
                     on_success=_zero_tool_use_advance,
                     prompt=payload.get("prompt"),
@@ -2409,7 +2789,7 @@ def main() -> int:
     )
     if not dispatch_file or not os.path.isfile(dispatch_file):
         return _emit_advisory(
-            [push_failure_msg, zero_tool_use_msg, em_report_altitude_msg],
+            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
             prompt=payload.get("prompt"),
@@ -2539,7 +2919,10 @@ def main() -> int:
             # restage_seconds (verified in the pre-gate above) -- time
             # for the single re-nudge.
             try:
-                Path(restage_sentinel).touch()
+                # `_symlink_safe_marker` -- same predictable-tempdir
+                # exposure as the other markers in this file; see
+                # `latch_path` above and the bug this closes.
+                _symlink_safe_marker(restage_sentinel)
             except Exception:
                 pass
             restage_list += f"  {agent_id_row} | {model} | {elapsed_min} min\n"
@@ -2559,7 +2942,7 @@ def main() -> int:
                 pass
         else:
             try:
-                Path(agent_sentinel).touch()
+                _symlink_safe_marker(agent_sentinel)
             except Exception:
                 pass
             # Write wrap-signal artifact to agent session dir if present --
@@ -2601,7 +2984,7 @@ def main() -> int:
     # Throttle sentinel -- write only if at least one nudge fired this pass.
     if first_fire_list or restage_list:
         try:
-            Path(throttle_sentinel).touch()
+            _symlink_safe_marker(throttle_sentinel)
         except Exception:
             pass
 
@@ -2609,7 +2992,7 @@ def main() -> int:
     # push-failure advisory (if any) may still stand alone.
     if not first_fire_list and not restage_list:
         return _emit_advisory(
-            [push_failure_msg, zero_tool_use_msg, em_report_altitude_msg],
+            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
             prompt=payload.get("prompt"),
@@ -2641,10 +3024,14 @@ def main() -> int:
             "After this fire, the hook is silent for these dispatches — the next decision is yours."
         )
 
-    nudge += "\n\nReference: docs/wiki/runtime-tripwire.md"
+    # Review: doe-claude-em -- F2, em-finding-wrap-is-not-reachability.md:
+    # dropped the docs/wiki/runtime-tripwire.md pointer, resolvable at
+    # format but not percolation-reachable (page not in the seed set) --
+    # same treatment C11 applied to the stop-watcher.py precedent. Message
+    # substance is unchanged; only the dangling pointer is removed.
 
     return _emit_advisory(
-        [nudge, push_failure_msg, zero_tool_use_msg, em_report_altitude_msg],
+        [nudge, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
         hook_event,
         on_success=_zero_tool_use_advance,
         prompt=payload.get("prompt"),

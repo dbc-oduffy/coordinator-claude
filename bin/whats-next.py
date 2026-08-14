@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """whats-next.py — Prioritized next-work surface for /workday-start Step 4.
 
 Spec backlink: archive/specs/2026-05-05-script-first-deterministic-ops.md §T3
@@ -28,12 +27,6 @@ import re
 import subprocess
 import sys
 
-_NO_CONSOLE_WINDOW = (
-    {"creationflags": subprocess.CREATE_NO_WINDOW}
-    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-    else {}
-)
-
 # Review: code-reviewer — F1 (P1): whats-next.py had regressed behind its own bash
 # oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
 # removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
@@ -43,16 +36,44 @@ _NO_CONSOLE_WINDOW = (
 
 
 def _resolve_claude_klabauter_root_silent() -> "str | None":
-    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver; None on any failure."""
+    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver (self-location-first);
+    None on any failure."""
     try:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
         import cc_invoke  # noqa: E402  (path injected above)
 
-        return cc_invoke._resolve_claude_klabauter_root()
+        return cc_invoke.resolve_engine_root(__file__)
     except Exception:
         return None
+
+
+def _no_console_window() -> dict:
+    """`**no_console_creationflags()` when coordinator_core is resolvable;
+    falls back to the inline literal (0 elsewhere) if CLAUDE_KLABAUTER_ROOT cannot be
+    resolved yet — this CLI's own repo-root discovery (`main`'s call into
+    `repo_identity.resolve_checked_repo_root`) may run before CLAUDE_KLABAUTER_ROOT is
+    known.
+
+    Review: coordinator:code-reviewer — consolidated onto the single
+    resolution path this file already owns (`_resolve_claude_klabauter_root_silent`),
+    matching sibling standup.py's pattern instead of re-deriving the
+    lib_dir/sys.path/cc_invoke import boilerplate a second time in this file.
+    """
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root_silent()
+        if claude_klabauter_root is None:
+            raise RuntimeError("CLAUDE_KLABAUTER_ROOT unresolved")
+        import cc_invoke  # noqa: E402  (path injected by _resolve_claude_klabauter_root_silent)
+
+        return cc_invoke._no_console_kw(claude_klabauter_root)
+    except Exception:
+        return (
+            {"creationflags": subprocess.CREATE_NO_WINDOW}
+            if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
+            else {}
+        )
 
 
 def _resolve_state_root(*args: str):
@@ -73,7 +94,7 @@ def _resolve_state_root(*args: str):
         capture_output=True,
         text=True,
         env=env,
-        **_NO_CONSOLE_WINDOW,
+        **_no_console_window(),
     )
     if result.returncode != 0:
         return None, result.returncode
@@ -90,14 +111,20 @@ def _heading(path: str) -> str:
 
 
 def main() -> int:
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, **_NO_CONSOLE_WINDOW,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
+    # Resolve repo root via the checked resolver. READER (AC10): a MISMATCH
+    # verdict is warned to stderr and the resolved root used anyway (DR-277);
+    # UNRESOLVED never refuses either (AC4).
+    lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from repo_identity import resolve_checked_repo_root  # noqa: E402  (path injected above)
+
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if repo_root is None:
         sys.stderr.write("ERROR: not inside a git repository\n")
         return 1
-    repo_root = result.stdout.strip()
+    if verdict["verdict"] == "MISMATCH":
+        sys.stderr.write(verdict["message"] + "\n")
 
     # -----------------------------------------------------------------------
     # Section 1: Coordinator improvement queue — top 5 central entries

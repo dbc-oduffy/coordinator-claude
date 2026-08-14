@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """stitch-observer-sidecar.py — /workday-complete Step 4d: fold the strategic
 observer's sidecar (Step 4c output) into the day's canonical daily summary.
@@ -24,28 +23,53 @@ Behavior (in order):
      Condition). No-op, exit 0.
   2. Sidecar present but the daily summary is missing — the leak condition.
      Refuses to delete the sidecar. Fails LOUD (visible stderr line), exit 1.
-  3. Daily summary already contains a `## Strategic Review` heading AND does
-     not carry the analyst's placeholder line — already stitched (re-run, or a
-     hand-stitch already happened). Idempotent: does NOT append a second copy,
-     removes the now-redundant sidecar, reports it, exit 0. Deletion here is
-     gated on the sidecar's own body being verifiably present in the summary,
-     not on the heading alone (see below).
-  3b. Heading present but the placeholder is ALSO present — a marker
-     false-positive, not a completed stitch. The placeholder (and its own
-     heading, when the analyst brief emitted one) is removed and the normal
-     path in 4 runs. Negative-spec: the heading is NOT a sufficient
-     already-stitched signal. An analyst brief that writes `## Strategic
-     Review` above the placeholder makes the marker match content that was
-     never stitched; the pre-2026-08-07 shape took that branch, deleted the
-     sidecar, and exited 0 — destroying the observer's entire output while
-     every exit code reported success. Deletion must never be reachable from
-     a state where the sidecar's content is absent from the summary.
+  3. The discriminator between "already stitched" and "not yet stitched" is
+     whether a `## Strategic Review` heading survives placeholder-stripping
+     (see `_strip_placeholder`): strip any placeholder first, then count
+     headings in the result.
+       - If a heading survives: a real section exists independent of the
+         placeholder — already stitched (re-run, or a hand-stitch already
+         happened). Idempotent: does NOT append a second copy, removes the
+         now-redundant sidecar, reports it, exit 0. Deletion here is gated on
+         the sidecar's own body being verifiably present in the summary, not
+         on the heading alone (see below). A co-resident placeholder in this
+         case is residue from an incomplete cleanup and is stripped/rewritten
+         to disk as part of this same idempotent path.
+       - If no heading survives: any heading present belonged to the
+         placeholder itself (per `_strip_placeholder`'s own adjacency rule) —
+         not yet stitched. Falls through to the normal append path (4) below,
+         appending onto the placeholder-stripped content. This is what keeps
+         the case where the analyst brief writes `## Strategic Review`
+         directly above the placeholder, with the sidecar's content not yet
+         in the file, on the automatic append path instead of erroring.
+  3b. Negative-spec: a heading alone (before placeholder-stripping) is NOT a
+     sufficient already-stitched signal — see the discriminator above, and
+     the sidecar's body marker must also be present in the summary before the
+     idempotent path deletes anything. An analyst-brief heading with the
+     sidecar's own content absent is a marker false-positive, not a completed
+     stitch: the pre-2026-08-07 shape took that branch, deleted the sidecar,
+     and exited 0 — destroying the observer's entire output while every exit
+     code reported success. Deletion must never be reachable from a state
+     where the sidecar's content is absent from the summary.
   4. Otherwise — the normal path. Appends the sidecar's content verbatim
      (never re-authored/summarized) onto the end of the daily summary, then
      re-reads the daily summary to confirm exactly one `## Strategic Review`
      heading is now present before deleting the sidecar. Deletion is gated on
      that verification, not merely on the write call returning without
-     raising.
+     raising. Failed verification rolls the daily summary back to its exact
+     pre-write bytes before returning 1 — the one code path that exists to
+     detect corruption must not also be the path that leaves it in place.
+
+  Negative-spec (placeholder ambiguity, narrowed by 3 above): before this
+  fix, a co-resident heading+placeholder fell through the idempotent branch
+  straight to a duplicate append whenever a real section already existed,
+  corrupting the file. The discriminator above closes that specific case: a
+  placeholder co-resident with a heading that survives stripping is always
+  residue, never a "not yet stitched" signal. The placeholder still means
+  "not yet stitched" on its own (no surviving heading) or when it sits
+  directly above the only heading present (that heading is the placeholder's
+  own, per `_strip_placeholder`) — those two states are still distinguished
+  correctly, they just no longer collide with the residue case above.
 
 Usage:
     stitch-observer-sidecar.py <daily_summary_path> <observer_sidecar_path>
@@ -70,7 +94,10 @@ Exit codes (two-arg / stitch form):
   0 — no-op (sidecar absent), idempotent no-op (already stitched), or stitched.
   1 — LEAK: sidecar exists but daily summary is missing/unwritable, or the
       post-append verification failed (heading count != 1). Sidecar is left
-      in place in both cases so the leak is investigable, not compounded.
+      in place in both cases so the leak is investigable, not compounded. On
+      a failed post-append verification the daily summary is additionally
+      restored to its pre-write bytes before returning, so the target file is
+      never left corrupted on disk.
   2 — usage error.
 
 Exit codes (--scan form):
@@ -85,6 +112,8 @@ from __future__ import annotations
 import glob
 import os
 import sys
+
+GENERATES = []  # writes only to `<daily_summary_path>`, an arbitrary CLI positional argument (archive/daily-summaries/... in whichever repo invokes it) — caller-supplied, not a fixed claude-klabauter artifact
 
 _HEADING = "## Strategic Review"
 _SIDECAR_SUFFIX = ".observer.md"
@@ -166,8 +195,11 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
         return 1
 
     placeholder_present = _PLACEHOLDER in main_content
+    cleaned = _strip_placeholder(main_content) if placeholder_present else main_content
 
-    if _heading_count(main_content) >= 1 and not placeholder_present:
+    if _heading_count(cleaned) >= 1:
+        # A heading survives placeholder-stripping — a real section exists
+        # independent of the placeholder — idempotent path.
         marker = _sidecar_body_marker(sidecar_content)
         if marker and marker not in main_content:
             _err(f"[stitch-observer-sidecar] LEAK: '{daily_summary_path}' carries a "
@@ -175,14 +207,21 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
                  f"delete '{observer_sidecar_path}' on a marker false-positive. "
                  "Reconcile the two by hand before re-running.")
             return 1
+        residue_note = ""
+        if cleaned != main_content:
+            with open(daily_summary_path, "w", encoding="utf-8") as f:
+                f.write(cleaned)
+            residue_note = " Stripped residual placeholder text left in the file."
         os.remove(observer_sidecar_path)
         _err(f"[stitch-observer-sidecar] '{daily_summary_path}' already contains "
              f"'{_HEADING}' and the sidecar's content — idempotent no-op. Removed "
-             f"redundant sidecar '{observer_sidecar_path}'.")
+             f"redundant sidecar '{observer_sidecar_path}'.{residue_note}")
         return 0
 
-    if placeholder_present:
-        main_content = _strip_placeholder(main_content)
+    # No heading survives placeholder-stripping — any heading present
+    # belonged to the placeholder itself. Normal append path onto `cleaned`.
+    original_content = main_content
+    main_content = cleaned
 
     separator = "" if main_content.endswith("\n\n") else ("\n" if main_content.endswith("\n") else "\n\n")
     with open(daily_summary_path, "w", encoding="utf-8") as f:
@@ -194,9 +233,12 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
         verify_content = f.read()
     count = _heading_count(verify_content)
     if count != 1:
+        with open(daily_summary_path, "w", encoding="utf-8") as f:
+            f.write(original_content)
         _err(f"[stitch-observer-sidecar] LEAK: post-append verification failed — "
-             f"'{daily_summary_path}' has {count} '{_HEADING}' headings (expected 1). "
-             "Sidecar NOT deleted; investigate before re-running.")
+             f"'{daily_summary_path}' had {count} '{_HEADING}' headings after the write "
+             "(expected 1). Restored the file to its pre-write content; the sidecar "
+             f"'{observer_sidecar_path}' is retained. Investigate before re-running.")
         return 1
 
     os.remove(observer_sidecar_path)

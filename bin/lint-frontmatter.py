@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """lint-frontmatter.py — CLI trampoline over coordinator_core.frontmatter.schema_validate.main.
 
 Thin trampoline — lives in claude-klabauter's own coordinator/bin/ (this repo), NOT
@@ -13,7 +12,7 @@ update-docs.md's Phase 11d drift sweep, and handoff/SKILL.md's write-time
 gate). All CLI logic lives in coordinator_core.frontmatter.schema_validate.main
 — this file only resolves CLAUDE_KLABAUTER_ROOT, imports, and forwards argv/exit code.
 
-Spec backlink: docs/plans/2026-07-24-python-ize-claude-klabauter-bin-oracles-doe-forwards-to.md § A1
+Spec backlink: pln-python-ize-claude-klabauter-bin-oracles--218413 § A1
 """
 from __future__ import annotations
 

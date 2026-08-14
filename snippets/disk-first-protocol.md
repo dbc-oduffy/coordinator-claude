@@ -13,9 +13,8 @@
 <!-- cover recovery framing, guard-denial handling, and sandbox-path provisioning respectively. -->
 <!-- This block covers the mechanical write-and-verify discipline layered on top — the early-write -->
 <!-- probe and the after-every-write growth check — generalized from the repo-scout/repo-specialist -->
-<!-- "Specifically… First action… After every file…" epilogue that used to be pasted separately -->
-<!-- into just those two agents (2 of 31 in the corpus) while research-scout, -->
-<!-- notebooklm-research-scout, and the rest of the family carried none of it. -->
+<!-- "Specifically… First action… After every file…" epilogue into one injected block shared by the -->
+<!-- whole family, rather than a copy pasted separately per agent. -->
 
 ## Disk-First Early-Write Verification
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SessionStart(startup|clear|compact) naked-Python port of coordinator-reminder.sh.
 
-DoE owns only this thin PLUMBING stub (same DR-047 transport-seam carve-out as
+This doctrine-plane repo owns only this thin PLUMBING stub (same DR-047 transport-seam carve-out as
 `preuse-write-dispatch.py`): resolve the claude-klabauter engine, call its reminder-render
 function IN-PROCESS, relay stdout. Claude-klabauter owns the content-rendering LOGIC
 (`coordinator_core.hooks.coordinator_reminder.render_reminder`). No bash, no
@@ -67,7 +67,7 @@ def main() -> int:
     except Exception:
         return 0  # engine unimportable -> fail-open silent exit
 
-    # Capability catalog lives at the DoE plugin root -- mirrors the bash
+    # Capability catalog lives at the doctrine-plane plugin root -- mirrors the bash
     # PLUGIN_ROOT ($SCRIPT_DIR/../..) resolution and preuse-write-dispatch.py's
     # policy_path convention. __file__ parents: [0]=scripts [1]=hooks
     # [2]=coordinator (plugin root).

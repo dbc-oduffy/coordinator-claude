@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 append-goal-event.sh — CLI trampoline over claude-klabauter's goal.append op
@@ -19,9 +18,11 @@ Deliberately does NOT reuse coordinator/bin/lib/cc_invoke.py's own `cc_invoke()`
 function: that sibling spawns coordinator_core.invoke WITHOUT `--bare` and
 unwraps a full JSON-RPC envelope (`envelope["result"]`), a different wire shape
 than the bash oracle's `--bare`/`--params-file` transport this script's own
-parity test (append-goal-event-facade.test.sh) exercises. Only
-`_resolve_claude_klabauter_root()` is reused from that module; the spawn+fail-closed
-ladder below is a local, `--bare`-shaped mirror of coordinator-core-invoke.sh's
+parity test (append-goal-event-facade.test.sh) exercises. `_resolve_claude_klabauter_root()`,
+`_op_timeout_ceiling()`, and `_timeout_exceeded_message()` are reused from that
+module (the timeout ceiling and its remedy text, not the wire transport, per
+coordinator:code-reviewer P3, 2026-08-08); the spawn+fail-closed ladder below is
+otherwise a local, `--bare`-shaped mirror of coordinator-core-invoke.sh's
 cc_invoke(), scoped to this one call site.
 
 Usage (extended from the pre-port bash body — zero caller repoints for the
@@ -67,7 +68,7 @@ failure). Faithfully carried over, not "fixed" mid-port:
         unimportable, op-level ValueError such as missing/invalid --period,
         --period-value, or --text, timeout, malformed envelope).
 
-Spec backlink: docs/plans/2026-07-04-strang-01-tc3-emission-port-facade-respin.md § C3
+Spec backlink: pln-strang-01-respin-tc3-emission--bdd397 § C3
 Prior backlink: docs/plans/2026-06-22-cockpit-tc-3-coordinator-emission.md § C2
 Finish backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md § T2 AC4
 Port backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
@@ -83,10 +84,20 @@ import subprocess
 import sys
 import tempfile
 
+GENERATES = []  # writes only a NamedTemporaryFile params payload (deleted after the subprocess call) and prints to stdout — the goal.append write itself happens inside the dispatched coordinator_core.invoke subprocess, not this trampoline
+
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import (  # noqa: E402
+    _op_timeout_ceiling,
+    _resolve_claude_klabauter_root,
+    _timeout_exceeded_message,
+    ensure_engine_on_path,
+)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
+
+ensure_engine_on_path(__file__)
 
 
 def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[str, object]:
@@ -99,14 +110,11 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
     IS the result object directly -- no jsonrpc/id/result envelope to unwrap.
 
     Raises RuntimeError on any transport/op failure (never returns on failure).
-    """
-    try:
-        timeout = int(os.environ.get("CC_INVOKE_TIMEOUT_SECS", "10") or "10")
-        if timeout <= 0:
-            raise ValueError
-    except ValueError:
-        timeout = 10
 
+    Timeout ceiling and the TimeoutExpired remedy text are computed via cc_invoke.py's
+    own `_op_timeout_ceiling`/`_timeout_exceeded_message` (not re-derived here) — see
+    Review note on the except-branch below.
+    """
     claude_klabauter_root = _resolve_claude_klabauter_root()
 
     env = dict(os.environ)
@@ -116,6 +124,8 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
     if f"{sep}{claude_klabauter_root}{sep}" not in f"{sep}{existing_pp}{sep}":
         env["PYTHONPATH"] = f"{claude_klabauter_root}{sep}{existing_pp}" if existing_pp else claude_klabauter_root
 
+    timeout = _op_timeout_ceiling(op, claude_klabauter_root, env)
+
     params_fh = tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", prefix="cc-invoke-params-", delete=False, encoding="utf-8"
     )
@@ -124,6 +134,8 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
         params_fh.close()
 
         try:
+            from coordinator_core.win_portability import no_console_creationflags
+
             proc = subprocess.run(
                 [
                     sys.executable,
@@ -140,13 +152,15 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
                 text=True,
                 timeout=timeout,
                 env=env,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                **no_console_creationflags(),
             )
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"cc_invoke: engine timeout after {timeout}s (op={op}) — "
-                "coordinator_core.invoke did not respond"
-            ) from exc
+            # Review: coordinator:code-reviewer P3 (2026-08-08) — was a third, divergent
+            # hand-built "engine timeout after Ns" message with no ceiling derivation
+            # (same defect class AC7 targets, minus the install-blame text). Routed
+            # through cc_invoke.py's shared _timeout_exceeded_message instead of
+            # duplicating it a third time.
+            raise RuntimeError(_timeout_exceeded_message(op, timeout)) from exc
     finally:
         try:
             os.unlink(params_fh.name)
@@ -277,22 +291,23 @@ def _build_params(parsed: dict[str, object]) -> dict[str, object]:
 
 
 def _resolve_repo_root() -> str:
-    """Resolve the repo root from PWD via git (mirrors the bash body's own resolution)."""
-    try:
-        proc = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        proc = None
-    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
+    """Resolve the repo root via the checked resolver (repo_identity).
+
+    READER classification (DR-277 / plan C5): a MISMATCH is advisory only --
+    warn to stderr and proceed with the resolved root rather than refuse. An
+    UNRESOLVED verdict NEVER refuses (AC4) -- it just means the check could
+    not run; the resolved root (or lack thereof) is still honored below.
+    """
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+    if not root:
         print(
             f"append-goal-event.sh: cannot resolve git repo root from {os.getcwd()}",
             file=sys.stderr,
         )
         sys.exit(2)
-    return proc.stdout.strip()
+    return root
 
 
 def main(argv: list[str]) -> int:

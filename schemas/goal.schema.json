@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/schemas/goal.schema.json",
   "x-schema-name": "goal",
-  "x-schema-version": "1.1.0",
+  "x-schema-version": "1.2.0",
   "x-bump-class": "nested-field-additive",
-  "x-bump-note": "1.0.0 -> 1.1.0 added key_results.items.properties.reassessment_proposal (strict, greenfield object nested in the key_results array).",
+  "x-bump-note": "1.1.0 -> 1.2.0 added deliverable_id (nullable, optional; DR-097 push-side notification duty discharged — memo delivered to claude-klabauter-em 2026-08-10 at their 8796e9bd4; vendoring order used: DoE lands first, claude-klabauter vendors on our ping, since this bump originates here). 1.0.0 -> 1.1.0 added key_results.items.properties.reassessment_proposal (strict, greenfield object nested in the key_results array).",
   "applies_to": "state/goals/*.yaml",
   "description": "Goal artifact — a time-boxed outcome target with measurable key results. Stored per-goal in state/goals/<id>.yaml (whole-document YAML frontmatter is the whole file — no prose markdown body). Spec backlink: docs/plans/2026-07-06-deliverable-rollup-render-and-fk-population.md § C1. Spec backlink: docs/plans/2026-07-13-close-weekly-goal-loop.md § C1 (.md→.yaml migration, reverses the above's format decision)",
   "type": "object",
@@ -133,6 +133,10 @@
     "goal_id": {
       "type": "string",
       "description": "Deterministic content-derived authoring identifier: sha1(repo|root|period|period_value|text), computable at author time. This IS the C15 structured-records facet key (the SQLite facet index dedup key) — it is INTENTIONALLY DISTINCT from the wire goal_id, which append-goal-event.py derives independently from an emitter-constructed, id-prefixed text (`\"<id>: <objective>\"`, not the bare text/objective this field hashes). `--goal-id` is accepted by append-goal-event.py but not substituted for the wire goal_id (out of scope for C11 — see plan body); the two goal_id values are expected to diverge, not to match. Distinct from the stable canonical `id` field (project-rag excludes id/name from metadata promotion as a chunk-id-slot collision; goal_id is unambiguously non-colliding)."
+    },
+    "deliverable_id": {
+      "anyOf": [{"type": "string", "pattern": "^dlv-(?!placeholder-replace-with)[0-9a-zA-Z][0-9a-zA-Z.-]*$"}, {"type": "null"}],
+      "description": "The durable deliverable join key, minted once at the earliest artifact and carried verbatim by every downstream artifact; null or absent when this record predates the spine. Spec backlink: docs/plans/2026-08-08-sizing-objects-join-the-deliverable-spine.md § C9."
     }
   }
 }

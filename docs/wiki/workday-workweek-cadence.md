@@ -180,6 +180,40 @@ Improvement-queue triage: daily emits depth nudge only (≥5 → notice); weekly
 
 ---
 
+## Weekly ceremony — `/workweek-start`
+
+PM-facing weekly bookend, chains into `/workday-start` at its own close (the week's first session
+is also a workday). Bootstraps `state/week-changelog/HEADER.md` on a fresh project.
+
+### `state/week-changelog/` directory conventions
+
+`state/week-changelog/` holds the current week's changelog state. `HEADER.md` is written by
+`/workweek-complete` on reset and by `/workweek-start` on re-run — it is the only shared file in
+the directory. All other files are per-machine daily blocks (`YYYY-MM-DD-{hostname}.md`) written
+by `/workday-complete`, which avoids concurrent-write conflicts.
+
+Priorities are NOT stored inline in HEADER.md. Each `/workweek-start` writer owns its own fragment
+file, `HEADER.priorities.<SID_SHORT>.md`, so a second collaborator's `/workweek-start` never
+silently overwrites the first's priorities in the same week. Readers merge all fragments on read.
+
+On `/workweek-complete`, the full directory (daily files + fragments + old HEADER) is archived to
+`archive/week-changelogs/<week-start>/` before HEADER is rewritten and fragments are cleared.
+`check-weekly-staleness.py` reads `HEADER.md` to compute the staleness signal.
+
+### Why the digest/staleness steps are engine-gapped, not hand-derived
+
+`/workweek-start`'s prior-week digest (implemented plans, blockers carried over, priorities met
+vs. missed), stalled-workstream detection, and scheduled-recheck surfacing were previously EM
+procedures — glob the changelog directory, read every daily file, run `git log --since` per
+tracker branch, cross-reference by hand. All three are engine-knowable facts with no producer yet.
+The 2026-08-14 corpus-wide grind cut the hand-derivation procedure rather than waiting on the
+emission: an EM re-deriving the same digest from raw files every week, forever, is strictly more
+expensive than a few weeks of degraded bookkeeping until `orient-assemble` grows a `--cadence week`
+digest. See `coordinator/commands/workweek-start.md`'s `<!-- engine-gap: -->` markers for the
+specific fields owed.
+
+---
+
 ## Relationship Between the Two Ceremonies
 
 ## /workweek-complete reads changelog as ground truth — HEADER + daily entries are hard preconditions

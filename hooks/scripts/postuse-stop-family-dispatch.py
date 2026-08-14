@@ -6,7 +6,7 @@ docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md § C4b) --
 
 Replaces those four scripts' standalone `hooks.json` PostToolUse
 registrations with ONE `python3` hook entry -- same fan-in motivation as
-`preuse-write-dispatch.py`, applied to the sibling event. DoE-resident
+`preuse-write-dispatch.py`, applied to the sibling event. Doctrine-plane-resident
 throughout: none of the four guards import the sibling engine for their own
 logic (one uses it only incidentally, via `_resolve_claude_klabauter_root`, for an
 "engine leg" path classification -- see `nudge-new-file-zero-budget-

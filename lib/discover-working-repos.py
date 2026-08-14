@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """discover-working-repos.py — CLI trampoline over claude-klabauter coordinator_core.ops.discover_working_repos.
 
 Three-tier working-repo discovery for /setup Phase 2 Step 4: Tier A (~/.claude/projects/

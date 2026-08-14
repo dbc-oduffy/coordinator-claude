@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 generate-repomap.py — CLI trampoline over claude-klabauter
@@ -52,6 +51,29 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+# Generator-provenance declaration (C2, generator_provenance.py's AST reader).
+# THIS file is a thin CLI trampoline (see module docstring) -- `sources` names
+# the real implementation locus, `coordinator/bin/repomap/generate-repomap.py`
+# (the vendored repomap tool this trampoline shells out to via
+# coordinator_core.ops.generate_repomap.main), never this shim's own path;
+# a `sources` pointing here would yield a since-range that is empty
+# essentially forever (§ Mechanism correction,
+# docs/plans/2026-08-13-generator-output-staleness-detector.md).
+# `stamp_key` names the intended field, not one on disk today -- the
+# repomap's only current stamp is a prose "Generated: <ts>" line, not a
+# usable key (see plan C2 body); adding the artifact-side key requires
+# editing `coordinator/bin/repomap/generate-repomap.py`, which is outside
+# this chunk's write set (that module is a vendored DoE-resident tool, not
+# owned by this trampoline) -- until that lands, this pair reads UNSTAMPED,
+# which is the honest state, not FRESH.
+GENERATES = [
+    {
+        "artifact": ".claude/repomap.md",
+        "stamp_key": "generated",
+        "sources": ["coordinator/bin/repomap/generate-repomap.py"],
+    },
+]
 
 
 def _import_main():

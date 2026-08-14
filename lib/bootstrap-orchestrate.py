@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """bootstrap-orchestrate.py — multi-repo bootstrap orchestrator over working-repos.yaml.
 
 Thin DoE-side (contract) trampoline over claude-klabauter's

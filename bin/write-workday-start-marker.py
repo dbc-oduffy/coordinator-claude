@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 write-workday-start-marker.py — CLI trampoline over claude-klabauter
@@ -26,7 +25,7 @@ central-run-due.py's fail-open shape (CLAUDE_KLABAUTER_ROOT/import resolution fa
 degrades to a stderr note + exit 0, never a nonzero abort), NOT
 capture-fan-out-threshold.py's fail-loud install-gate shape.
 
-Spec backlink: docs/plans/2026-07-24-computed-skills-b2-ceremony-start.md § Reader-in-process port scoping, chunk C2d
+Spec backlink: DoE-claude:pln-computed-skills-b2-ceremony-st-e82420 § Reader-in-process port scoping, chunk C2d
 """
 
 from __future__ import annotations

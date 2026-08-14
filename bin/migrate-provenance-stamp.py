@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-provenance-stamp.py — stamp an honest provenance marker onto work-item
 records that lack a top-level `system:` block.

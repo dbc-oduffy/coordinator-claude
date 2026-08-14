@@ -3,7 +3,7 @@ name: structured-synthesizer
 description: "Opus structured-research synthesizer — reconciles verifier findings into schema-conforming YAML/JSON, never prose."
 model: opus
 effort: medium
-tools: ["Read", "Write", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: magenta
 access-mode: read-write
 ---

@@ -102,17 +102,35 @@ where `<skill-dir>` is the directory containing this SKILL.md — typically
 # INSTALL_ROOT, which was already resolved in Step 1.
 SKILL_DIR="${INSTALL_ROOT}/coordinator/skills/coordinator-update"
 
+# Interpreter resolution contract: COORDINATOR_PYTHON env -> machine-local
+# registry pin (coordinator.python) -> PATH. See the coordinator wiki,
+# machine-local-registry.md § coordinator.python resolution contract.
+PYTHON_BIN="${COORDINATOR_PYTHON:-}"
+if [ -z "$PYTHON_BIN" ]; then
+  for _cand in python3 python; do
+    command -v "$_cand" >/dev/null 2>&1 && { PYTHON_BIN="$_cand"; break; }
+  done
+fi
+if [ -z "$PYTHON_BIN" ]; then
+  echo "ERROR: no Python interpreter found. Set COORDINATOR_PYTHON to its absolute path and retry." >&2
+  exit 1
+fi
+_cc_ml="${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local"
+if [ -f "$_cc_ml" ]; then
+  _cc_pin="$("$PYTHON_BIN" "$_cc_ml" get coordinator.python 2>/dev/null)"
+  [ -n "$_cc_pin" ] && [ -x "$_cc_pin" ] && PYTHON_BIN="$_cc_pin"
+fi
+
 # The engine root this update flow depends on is resolved by the shipped
 # resolver script, which is the single source of that resolution — no other
 # code in this skill hardcodes how or where it is found.
-_cc_engine_root="$(python3 "${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py" 2>/dev/null)"
+_cc_engine_root="$("$PYTHON_BIN" "${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py" 2>/dev/null)"
 if [ -z "$_cc_engine_root" ] || [ ! -d "$_cc_engine_root" ]; then
   echo "ERROR: could not resolve the coordinator engine root via ${INSTALL_ROOT}/coordinator/hooks/scripts/_engine_root.py — consult your coordinator install's engine-setup documentation for how to register it, then retry." >&2
   exit 1
 fi
 
-source "${_cc_engine_root}/coordinator/lib/resolve-python.sh"
-"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "${SKILL_DIR}/lib/compute-update-delta.py" --install-root "${INSTALL_ROOT}"
+"$PYTHON_BIN" "${SKILL_DIR}/lib/compute-update-delta.py" --install-root "${INSTALL_ROOT}"
 ```
 
 The helper emits a single JSON object to stdout. Capture it. The schema:
@@ -302,15 +320,23 @@ already-applied changes.
 
 Find `install-sentinel-write` in the install tree:
 
+The entrypoint is a Python CLI, and the extensionless-vs-`.py` filename varies by install
+vintage — probe both names rather than pinning one:
+
 ```bash
-SENTINEL_WRITER="${INSTALL_ROOT}/coordinator/bin/install-sentinel-write"
+SENTINEL_WRITER=""
+for _cand in "${INSTALL_ROOT}/coordinator/bin/install-sentinel-write" \
+             "${INSTALL_ROOT}/coordinator/bin/install-sentinel-write.py"; do
+  [ -f "$_cand" ] && { SENTINEL_WRITER="$_cand"; break; }
+done
 ```
 
-Run:
+Run it under the resolved interpreter — never `bash`, and never as a bareword `.py`:
 
 ```bash
-if [ -f "${SENTINEL_WRITER}" ]; then
-  bash "${SENTINEL_WRITER}" --path "${INSTALL_ROOT}" --source "${CLONE_DIR}"
+if [ -n "${SENTINEL_WRITER}" ] \
+   && "$PYTHON_BIN" "${SENTINEL_WRITER}" --path "${INSTALL_ROOT}" --source "${CLONE_DIR}"; then
+  :
 else
   # Fallback: write the sentinel directly (same format as install-sentinel-write)
   git -C "${CLONE_DIR}" rev-parse HEAD > "${INSTALL_ROOT}/version.txt"

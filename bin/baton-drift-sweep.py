@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """baton-drift-sweep.py — CLI trampoline for coordinator_core.ops.baton_drift_sweep.
 
@@ -31,12 +30,11 @@ Exit codes:
 
 NEVER writes anything — read-only diagnostic.
 
-Spec backlink: docs/plans/2026-07-26-push-side-write-discipline.md § D2d
+Spec backlink: DoE-claude:pln-push-side-write-discipline-for-05c30d § D2d
 """
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,30 +43,9 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _USAGE = "Usage: baton-drift-sweep.py (no arguments)"
-
-
-def _resolve_repo_root() -> str | None:
-    """Resolve the current git worktree root from PWD (standalone-repo assumption,
-    mirrors day-coverage-sweep.py's own `_resolve_repo_root`)."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
 
 
 def _import_baton_drift_sweep():
@@ -86,10 +63,14 @@ def main(argv: list[str]) -> int:
         print(_USAGE, file=sys.stderr)
         return 1
 
-    repo_root = _resolve_repo_root()
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if repo_root is None:
         print(f"baton-drift-sweep.py: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
         return 2
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277: this is a READER (no write into resolved root) -- warn and
+        # proceed rather than refuse. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     try:
         sweep = _import_baton_drift_sweep()

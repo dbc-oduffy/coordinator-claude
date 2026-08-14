@@ -88,7 +88,7 @@ from pathlib import Path
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke_bare, resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import cc_invoke_bare, require_colocated_engine_on_path  # noqa: E402
 
 
 def _cartography_ops() -> list[str]:
@@ -98,9 +98,7 @@ def _cartography_ops() -> list[str]:
     call rather than caching a copy in this module — the whole point is that
     a newly-added op is visible here with zero edits to this file.
     """
-    claude_klabauter_root = resolve_colocated_claude_klabauter_root(__file__)
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_colocated_engine_on_path(__file__)
     from coordinator_core.ops._registry_map import OP_MODULE_MAP
 
     return sorted(op for op in OP_MODULE_MAP if op.startswith("cartography."))
@@ -132,11 +130,13 @@ def _resolve_repo_root(explicit: str | None) -> str:
     if explicit:
         return explicit
     try:
+        from coordinator_core.win_portability import no_console_creationflags
+
         proc = subprocess.run(
             ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except OSError:
         proc = None

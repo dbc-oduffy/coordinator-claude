@@ -5,9 +5,10 @@ write "run the full suite green" into a chunk's test-surface row, the plan
 gets reviewed and ratified carrying it, and the only catch is the dispatch
 guard firing later, after the plan has already cleared review on the
 strength of a test-surface row that was never enforceable as written. See
-`coordinator/skills/plan/SKILL.md` line ~156 (the test-surface row: "The
-named test surface MUST be Tier T ... Naming the repo's fast tier or full
-suite as a chunk's test surface is malformed at plan-write time").
+`coordinator/skills/plan/residue/shared-corpus.md` (the test-surface row:
+the named surface must be Tier T, path-scoped to the files the chunk
+authors or touches -- naming the repo's fast tier or full suite is
+malformed at plan-write time for the same reason it is at dispatch time).
 
 ADVISORY, NOT A DENY. A plan body legitimately QUOTES a suite command in
 prose, an Anti-scope list, or a Tried/Failed record -- the dispatch guard
@@ -18,7 +19,7 @@ leads with the alternative: name the chunk's own path-scoped (Tier T) tests
 a chunk deliverable.
 
 Tripwire token: PLAN-TEST-SURFACE-TIER (emitted literally in the advisory
-text below; registered in `coordinator/docs/wiki/coordinator-tripwires.md`).
+text below; registered in `coordinator/docs/wiki/coordinator-tripwires/tripwire-registry.md`).
 
 Classification -- ZERO new regex over suite commands. This hook reuses the
 exact same classifier `block-dispatch-suite-invocation.py` already reuses:
@@ -45,13 +46,12 @@ repo-relative path. A `tests/fixtures/**` path is exempted for the same
 reason that module exempts it: static golden fixtures under a test package
 are not a live plan a chunk deliverable will ever be dispatched from.
 
-Reconstructing the write's content -- same `before`/`old_string`/
-`new_string` replacement idiom as `guard-prompt-surface-citations.py`'s
-`_reconstruct_after` (Write: `content` verbatim; Edit: single or
-`replace_all` substitution into the on-disk `before`; MultiEdit: the same,
-applied sequentially). This hook classifies `after` directly (not a
-before/after diff) -- unlike the citation guard, there is no large
-legacy-violation corpus to avoid re-flagging; a plan body carrying an
+Reconstructing the write's content -- via the shared
+`_sentinel_write_guard.reconstruct_after` re-export (Write: `content`
+verbatim; Edit: single or `replace_all` substitution into the on-disk
+`before`; MultiEdit: the same, applied sequentially). This hook classifies
+`after` directly (not a before/after diff) -- unlike the citation guard,
+there is no large legacy-violation corpus to avoid re-flagging; a plan body carrying an
 un-fixed Tier-F/U test-surface row is worth advising on every touch of that
 file until it is fixed.
 
@@ -69,7 +69,7 @@ Spec: inline dispatch brief (no plan file), team-lead dispatch
 2026-08-06, "Plan-write-time tier advisory hook". Sibling deliverable
 (tripwire registration, SKILL.md/wiki wording) owned by a peer worker in
 `coordinator/skills/plan/SKILL.md`, `coordinator/docs/wiki/writing-plans.md`,
-`coordinator/docs/wiki/coordinator-tripwires.md` -- NOT touched here.
+`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry.md` -- NOT touched here.
 """
 
 from __future__ import annotations
@@ -78,13 +78,13 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
-from _sentinel_write_guard import extract_target_path  # noqa: E402
+from _sentinel_write_guard import extract_target_path, reconstruct_after  # noqa: E402
 from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, Message, compose, emit  # noqa: E402
 
 _GUARDED_TOOLS = ("Write", "Edit", "MultiEdit")
@@ -96,7 +96,7 @@ _PLAN_BODY_RE_SUFFIX = "/docs/plans/"
 #: Mirrors that same module's `_FIXTURE_PATH_RE` test-fixture exemption.
 _FIXTURE_SEGMENT = "/tests/fixtures/"
 
-_ANCHOR = "coordinator/skills/plan/SKILL.md § test-surface row (line ~156)"
+_ANCHOR = "coordinator/skills/plan/residue/shared-corpus.md § test-surface row"
 
 _TOKEN = "PLAN-TEST-SURFACE-TIER"
 
@@ -129,56 +129,6 @@ def _is_plan_body_path(normalized: str) -> bool:
     return True
 
 
-def _reconstruct_after(tool_name: str, tool_input: dict, before: str) -> "Optional[str]":
-    """Same idiom as `guard-prompt-surface-citations.py::_reconstruct_after`
-    -- ported rather than imported since that module's function is private
-    to its own file and this hook has no other dependency on it."""
-    if tool_name == "Write":
-        content = tool_input.get("content")
-        return content if isinstance(content, str) else None
-
-    if tool_name == "Edit":
-        old_s = tool_input.get("old_string")
-        new_s = tool_input.get("new_string")
-        if not isinstance(old_s, str) or not isinstance(new_s, str):
-            return None
-        if old_s == "":
-            return new_s
-        if old_s not in before:
-            return None
-        return (
-            before.replace(old_s, new_s)
-            if tool_input.get("replace_all")
-            else before.replace(old_s, new_s, 1)
-        )
-
-    if tool_name == "MultiEdit":
-        edits = tool_input.get("edits")
-        if not isinstance(edits, list):
-            return None
-        text = before
-        for edit in edits:
-            if not isinstance(edit, dict):
-                return None
-            old_s = edit.get("old_string")
-            new_s = edit.get("new_string")
-            if not isinstance(old_s, str) or not isinstance(new_s, str):
-                return None
-            if old_s == "":
-                text = new_s
-                continue
-            if old_s not in text:
-                return None
-            text = (
-                text.replace(old_s, new_s)
-                if edit.get("replace_all")
-                else text.replace(old_s, new_s, 1)
-            )
-        return text
-
-    return None
-
-
 def _classify(text: str) -> "list[Any]":
     """Resolve the engine plane's root, import the shared classifier, call
     it. Returns [] (never raises) on any infra failure -- byte-for-byte the
@@ -202,9 +152,9 @@ def _classify(text: str) -> "list[Any]":
     # Contract clause 8 (SYS.PATH ORDERING, _guard_runner_contract.py):
     # appended, never inserted at index 0 -- the hooks dir (inserted at the
     # top of this module, before this point) must stay AHEAD of the engine
-    # root on sys.path, so a module-name collision between a DoE-local
+    # root on sys.path, so a module-name collision between a doctrine-plane-local
     # helper and a same-named engine-side module resolves toward the
-    # DoE-local helper. Migrated to append-ordered resolution as part of
+    # doctrine-plane-local helper. Migrated to append-ordered resolution as part of
     # C2 (see _LATE_INSERT_RATCHET's former entry for this guard in
     # coordinator/tests/test_guard_runner_contract.py).
     if engine_root not in sys.path:
@@ -225,10 +175,10 @@ def _classify(text: str) -> "list[Any]":
 
 def _advisory_message(target: str, detected: str) -> Message:
     return compose(
-        f"{_TOKEN}: {target} names {detected} as a chunk's test surface -- "
-        "Tier T (path-scoped to the chunk's own files) is what a plan "
-        "deliverable may name; global/cadence verification is EM-owned at "
-        "the wave boundary, never a chunk's job.",
+        f"{_TOKEN}: {target} names {detected} as its test surface -- "
+        "Tier T (path-scoped to the chunk's own files) is what a plan may "
+        "name; global/cadence verification is EM-owned at the wave "
+        "boundary, not a chunk's job.",
         anchor=_ANCHOR,
     )
 
@@ -286,7 +236,7 @@ def _main_impl() -> int:
     except Exception:
         before = ""
 
-    after = _reconstruct_after(payload.get("tool_name", ""), tool_input, before)
+    after = reconstruct_after(payload.get("tool_name", ""), tool_input, before)
     if after is None:
         return 0
 

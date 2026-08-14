@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """goal-close-day.py — CLI trampoline over claude-klabauter's goal.close_day_apply op
 (coordinator_core/ops/goal_close_day.py).
@@ -38,7 +37,7 @@ Exit codes:
         GoalCloseDayLostSupersession on a lost clock-skew collapse, or a
         malformed envelope).
 
-Spec backlink: docs/plans/2026-07-25-day-goal-close-out-lifecycle.md § C4
+Spec backlink: pln-day-scoped-goal-close-out-life-69a25c § C4
 """
 
 from __future__ import annotations
@@ -52,21 +51,7 @@ _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import cc_invoke  # noqa: E402
-
-
-def _find_repo_root(start: str) -> str:
-    """Walk upward from `start` looking for a `.git` entry; falls back to
-    `start` itself if none is found (mirrors set-goal-kr-status.py's own
-    derivation — this is the repo the cc_invoke spawn resolves CLAUDE_KLABAUTER_ROOT
-    relative to)."""
-    cur = start
-    while True:
-        if os.path.exists(os.path.join(cur, ".git")):
-            return cur
-        parent = os.path.dirname(cur)
-        if parent == cur:
-            return start
-        cur = parent
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _parse_args(argv: list[str]) -> dict:
@@ -107,7 +92,22 @@ def _parse_args(argv: list[str]) -> dict:
 def main(argv: list[str]) -> int:
     parsed = _parse_args(argv)
 
-    cwd_repo_root = _find_repo_root(os.getcwd())
+    cwd_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if cwd_repo_root is None:
+        # No git root resolved from cwd at all -- distinct from the
+        # MISMATCH identity gate below (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing here is not the
+        # AC4 "UNRESOLVED never refuses" carve-out being violated.
+        print(f"goal-close-day: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
+        return 2
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277 named carve-out: this door dispatches goal.close_day_apply,
+        # which writes closed-goal rows into cwd_repo_root's state tree
+        # (coordinator_core/ops/goal_close_day.py::close_day_goals) -- a
+        # genuine WRITER, not a diagnostic read. Refuse rather than write
+        # into a foreign tree. UNRESOLVED never refuses (AC4).
+        print(verdict["message"], file=sys.stderr)
+        return 2
 
     try:
         result = cc_invoke("goal.close_day_apply", parsed, cwd_repo_root)

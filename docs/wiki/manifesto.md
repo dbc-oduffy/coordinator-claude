@@ -7,8 +7,7 @@
 > engine; the engine-dependent flows do not. We would rather describe the shape accurately than
 > have you discover the seam by hitting it.
 
-coordinator-claude used to be one thing: a plugin full of prompt text. It is now two things, and
-the second one is not a plugin at all.
+coordinator-claude is two things, and the second one is not a plugin at all.
 
 - **`coordinator-claude`** — the doctrine. Skills, agents, commands, hooks, personas, wikis. Text
   a model reads.

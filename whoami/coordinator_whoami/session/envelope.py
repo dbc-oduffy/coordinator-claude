@@ -47,11 +47,15 @@ def _resolve_binding() -> dict[str, Any]:
 
     A repo is considered coordinator-onboarded when it has BOTH:
       - a tasks/ directory (coordinator task-management surface)
-      - a project tracker (docs/project-tracker.md OR tasks/todo.md)
+      - a coordinator anchor (CLAUDE.md)
 
     This is intentionally a narrow heuristic: broad git-repo detection
     (root == Path("/")) is explicitly excluded so we don't bind to
     system git repos. The session adopter is coordinator-specific.
+
+    No project-tracker leg: rendered tracker artifacts are retired
+    fleet-wide and are not reintroduced as a binding signal for any
+    onboarded repo.
 
     Returns {"kind": "bound", "target": <repo root str>} or
             {"kind": "unbound", "target": null}.
@@ -62,15 +66,10 @@ def _resolve_binding() -> dict[str, Any]:
 
     tasks_dir = root / "tasks"
     # Avoid binding to root filesystem or bare git roots without coordinator structure
-    tracker_candidates = [
-        root / "docs" / "project-tracker.md",
-        root / "tasks" / "todo.md",
-        root / "CLAUDE.md",  # coordinator meta-repo uses CLAUDE.md as the anchor
-    ]
     has_tasks = tasks_dir.is_dir()
-    has_tracker = any(p.exists() for p in tracker_candidates)
+    has_anchor = (root / "CLAUDE.md").exists()
 
-    if has_tasks and has_tracker:
+    if has_tasks and has_anchor:
         return {"kind": "bound", "target": str(root)}
     return {"kind": "unbound", "target": None}
 

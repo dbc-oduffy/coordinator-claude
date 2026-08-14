@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """doctor-probe-select.py — manifest-driven probe selector for coordinator-doctor.
 
 Purpose: read bin/doctor-probes.toml and emit probe ids matching the given

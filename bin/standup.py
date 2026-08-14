@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """standup.py — Deterministic daily inventory for /workday-complete Step 4a
 and /workday-start Step 1 reconciliation.
 
@@ -32,14 +31,6 @@ import subprocess
 import sys
 from datetime import date, datetime, time
 
-# Windows-only: suppress the console window a console-subsystem child (git)
-# flashes when this process has no console to inherit. POSIX: 0 (no-op).
-_NO_CONSOLE_WINDOW = (
-    {"creationflags": subprocess.CREATE_NO_WINDOW}
-    if os.name == "nt" and hasattr(subprocess, "CREATE_NO_WINDOW")
-    else {}
-)
-
 # Review: code-reviewer — F1 (P1): standup.py had regressed behind its own bash
 # oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
 # removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
@@ -49,16 +40,35 @@ _NO_CONSOLE_WINDOW = (
 
 
 def _resolve_claude_klabauter_root_silent() -> str | None:
-    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver; None on any failure."""
+    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver (self-location-first);
+    None on any failure."""
     try:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
         if lib_dir not in sys.path:
             sys.path.insert(0, lib_dir)
         import cc_invoke  # noqa: E402  (path injected above)
 
-        return cc_invoke._resolve_claude_klabauter_root()
+        return cc_invoke.resolve_engine_root(__file__)
     except Exception:
         return None
+
+
+def _no_console_window() -> dict:
+    """Splat-ready Windows console-suppression kwarg, via the shared cc_invoke
+    helper; on any resolution failure, falls back to the same suppression
+    kwargs computed inline (zero imports beyond ``subprocess``) rather than
+    silently dropping console suppression -- a resolution failure must never
+    turn a quiet spawn into a visible console window."""
+    try:
+        lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+        if lib_dir not in sys.path:
+            sys.path.insert(0, lib_dir)
+        import cc_invoke  # noqa: E402  (path injected above)
+
+        claude_klabauter_root = cc_invoke.resolve_engine_root(__file__)
+        return cc_invoke._no_console_kw(claude_klabauter_root)
+    except Exception:
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def _resolve_state_root(*args: str) -> str:
@@ -82,7 +92,7 @@ def _resolve_state_root(*args: str) -> str:
         capture_output=True,
         text=True,
         env=env,
-        **_NO_CONSOLE_WINDOW,
+        **_no_console_window(),
     )
     if result.returncode != 0:
         sys.stderr.write(result.stderr)
@@ -92,7 +102,7 @@ def _resolve_state_root(*args: str) -> str:
 
 def _git(args, cwd):
     return subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, **_NO_CONSOLE_WINDOW
+        ["git", *args], cwd=cwd, capture_output=True, text=True, **_no_console_window()
     )
 
 
@@ -107,15 +117,20 @@ def _heading(path: str) -> str:
 
 
 def main() -> int:
-    # Resolve repo root.
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, **_NO_CONSOLE_WINDOW,
-    )
-    if result.returncode != 0 or not result.stdout.strip():
+    # Resolve repo root via the checked resolver. READER (AC10): a MISMATCH
+    # verdict is warned to stderr and the resolved root used anyway (DR-277);
+    # UNRESOLVED never refuses either (AC4).
+    lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from repo_identity import resolve_checked_repo_root  # noqa: E402  (path injected above)
+
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if repo_root is None:
         sys.stderr.write("ERROR: not inside a git repository\n")
         return 1
-    repo_root = result.stdout.strip()
+    if verdict["verdict"] == "MISMATCH":
+        sys.stderr.write(verdict["message"] + "\n")
 
     state_root = _resolve_state_root()
 

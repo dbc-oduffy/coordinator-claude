@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """merge-release-notes-derive.py -- native port of the /merging-to-main Step 5.5
 pending-release reconcile sweep + release-tag attribution walk.
@@ -83,10 +82,20 @@ from pathlib import Path
 from typing import List, Optional
 
 _BIN_DIR = Path(__file__).resolve().parent
+_LIB_DIR = str(_BIN_DIR / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+from cc_invoke import require_engine_on_path  # noqa: E402
+
+# The engine root must be on sys.path before the coordinator_core import
+# below: this file is also published into the claude-klabauter mirror, where
+# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+# this bin/ directory, not the checkout root. Same bootstrap as
+# coordinator/bin/coordinator-lesson-add (9b979ee5f).
+require_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 
 def _git(*args: str, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
@@ -95,7 +104,7 @@ def _git(*args: str, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         cwd=cwd,
-        creationflags=_NO_WINDOW,
+        **no_console_creationflags(),
     )
 
 
@@ -113,7 +122,7 @@ def _run_sibling_cli(name: str, args: List[str]) -> subprocess.CompletedProcess:
         [sys.executable, str(script), *args],
         capture_output=True,
         text=True,
-        creationflags=_NO_WINDOW,
+        **no_console_creationflags(),
     )
 
 

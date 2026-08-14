@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """coordinator-session-loe.py — Read helper: compute LoE (Level of Effort)
 metrics for a coordinator session and emit a t-shirt size.
@@ -35,16 +34,19 @@ Resume strategy:      stateless — re-running on the same session yields
   identical output as long as the sentinel files haven't changed.
 
 Negative-spec: does NOT source coordinator-session.sh and does NOT spawn a
-  shell (`git rev-parse` runs via subprocess.run() with an argv list).
+  shell (repo-root resolution runs via repo_identity.resolve_checked_repo_root(),
+  which shells out to `git rev-parse` via subprocess.run() with an argv list).
 """
 from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _SESSION_ID_ENV_TIERS = (
     "COORDINATOR_SESSION_ID",
@@ -95,18 +97,17 @@ def _resolve_session_id() -> str:
 
 
 def _resolve_git_root() -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
+    """Resolve the repo root via the checked resolver (repo_identity).
+
+    READER classification (DR-277 / plan C5): MISMATCH is advisory only --
+    warn to stderr and proceed with the resolved root. UNRESOLVED never
+    refuses (AC4). Returns None only when no root at all resolves (caller
+    maps this to "not inside a git repo", exit 1 -- matching pre-existing
+    behavior).
+    """
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
     return root
 
 

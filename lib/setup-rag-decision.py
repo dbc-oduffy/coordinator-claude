@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """setup-rag-decision.py — CLI trampoline over claude-klabauter coordinator_core.ops.setup_rag_decision.
 
 RAG-index decision resolver for /repo-setup: a three-branch UE/daemon decision tree

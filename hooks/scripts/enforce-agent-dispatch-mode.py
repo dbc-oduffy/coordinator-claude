@@ -14,7 +14,7 @@ lower. Absent child mode is treated as acceptEdits (rank 2).
 
 Concern B -- run-report sidecar notice (C3, DEC-4, DEC-5): for subagent_types on
 the report_sidecar: eligibility list in coordinator/subagent-sandbox-policy.yaml,
-invoke claude-klabauter's provision-report engine module as a subprocess (python -m
+invoke the engine repo's provision-report engine module as a subprocess (python -m
 coordinator_core.subagent_sandbox.provision_report, fed the PreToolUse payload
 on stdin, 2s timeout) and, on a well-formed {"report_sidecar": "<path>"} stdout
 line, append an unconditional deliverable notice to tool_input.prompt --
@@ -36,10 +36,9 @@ and the raw payload never carries it (the child's type lives at
 tool_input.subagent_type, one level down). This hook therefore builds its
 own stdin payload -- same shape as the raw PreToolUse payload PLUS a
 top-level "agent_type" set to the resolved child subagent_type -- rather
-than piping the raw payload through unmodified. Fixed cross-repo memo:
-cross-repo/inbox/2026-07-25-claude-klabauter-em-code-reviewer-sidecar-
-provisioning-fails-most-spawns.md (Concern B: most spawns silently
-provisioned nothing because agent_type was never populated).
+than piping the raw payload through unmodified. Fixed via a 2026-07-25
+cross-repo memo (Concern B: most spawns silently provisioned nothing
+because agent_type was never populated).
 
 Concern B is also NOT reliant on an undeclared CLI-invocation-environment
 dependency: the subprocess is invoked with an explicit "--policy
@@ -53,7 +52,7 @@ agent-citizenship-identity-adapted-provisioning.md, chunk C3): when a spawned
 subagent_type is both report_sidecar-eligible AND present in the
 report_type_map: key of the same policy file, resolve it to a template type
 (run-report / review-findings / assessment / staff-eng-review, per C1's
-Claude-klabauter-side template registry) and pass "--type <template>" to
+engine-side template registry) and pass "--type <template>" to
 provision_report. report_type_map: is a dict (unlike report_sidecar:'s flat
 list), read via a real yaml.safe_load -- not the block-scan regex Concern B's
 eligibility check uses. An identity absent from report_type_map: gets no
@@ -99,7 +98,7 @@ oracle's guard placement BEFORE any Concern A/B computation -- i.e. the
 escape hatch short-circuits the WHOLE hook, sidecar offer included, exactly
 as the oracle's early-exit does).
 
-Fail-open on: missing/unresolvable claude-klabauter root, missing provision-report
+Fail-open on: missing/unresolvable engine root, missing provision-report
 engine module, empty-stdout/exit-nonzero/malformed-JSON from the engine, a
 hung/timed-out engine subprocess (2s timeout, matching the oracle's
 "timeout 2" value), malformed input JSON, absent fields, unreadable/
@@ -204,7 +203,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Optional
 
 import yaml
@@ -214,7 +213,7 @@ import yaml
 # plan-coverage-checker, external-pattern-checker, docs-checker) get their
 # report_sidecar routed to the plan-derivable `state/plan-sidecars/
 # <plan-stem>.<lens>.md` home ONLY when the payload sent to
-# provision_report carries a top-level "plan_path" (see claude-klabauter's
+# provision_report carries a top-level "plan_path" (see the engine repo's
 # provision_report.py, _provision(), the "Plan-derivable leg" branch --
 # `payload.get("plan_path")`). An ad-hoc `Agent`-tool dispatch (as opposed
 # to a pre-provisioned fan-out-dispatch.py invocation) never populates that
@@ -239,7 +238,7 @@ import yaml
 # leg in this hook.
 #
 # The leading char-class includes "/" so an ABSOLUTE brief path (e.g.
-# "DoE-claude/docs/plans/2026-07-26-foo.md", the shape a dispatch
+# "some-repo/docs/plans/2026-07-26-foo.md", the shape a dispatch
 # brief actually used when it cited the plan under review by full path
 # rather than repo-relative) still matches -- the "/" immediately preceding
 # "docs/plans/" in that string is what a plain [\s(\[\"'`] class rejects,
@@ -273,8 +272,19 @@ import yaml
 # (scheme-relative and scheme-qualified URLs both carry it) -- this is
 # scheme-agnostic (not a literal "http(s)://" check) so it holds for any
 # URL scheme, not just the ones seen in practice so far.
+#
+# Both separators, per tripwire `GUARD-PATH-REGEX-SEPARATOR-BLINDNESS`: a
+# Windows brief cites `docs\plans\<stem>.md` with a backslash separator, which a
+# forward-slash-only prefix literal never matches. This detector's failure on
+# a miss is SILENT -- no plan_path is injected and the G2 sidecar chain simply
+# does not form -- which is the worse half of the separator-blindness class:
+# a blind deny guard is loud and gets reported, a blind detector just stops
+# seeing. The captured path is separator-normalized before injection (see
+# `_extract_plan_path`) so downstream `Path(plan_path).stem` is host-stable,
+# which is the same invariant the repo-relative note above is protecting.
 _PLAN_PATH_RE = re.compile(
-    r"(?:^|[\s(\[\"'`/])((?:docs/plans/|~/\.claude/plans/)[^\s()\[\]\"'`,;:]+\.md)"
+    r"(?:^|[\s(\[\"'`/\\])"
+    r"((?:docs[/\\]plans[/\\]|~[/\\]\.claude[/\\]plans[/\\])[^\s()\[\]\"'`,;:]+\.md)"
 )
 
 
@@ -294,7 +304,53 @@ def _extract_plan_path(prompt: str) -> Optional[str]:
             # scanning for a genuine plan-path citation later in the prompt,
             # preserving first-match-wins on real ambiguity.
             continue
-        return match.group(1)
+        # Normalize to the repo-relative forward-slash spelling downstream
+        # already assumes: `Path(plan_path).stem` is correct either way on
+        # Windows, but a backslash-spelled path handed to a POSIX reader
+        # yields a stem of "docs\plans\<name>" rather than "<name>".
+        #
+        # Review: code-reviewer -- F1 (2026-08-07). An unconditional
+        # `.replace("\\", "/")` over the WHOLE match corrupts a literal
+        # backslash inside a POSIX filename (`\` is a legal filename char
+        # there): `docs/plans/weird\name.md` would be silently rewritten to
+        # `docs/plans/weird/name.md`. Split the normalization instead of
+        # applying it wholesale: the separators inside the MATCHED PREFIX
+        # (`docs\plans\` / `~\.claude\plans\`) are provably separators --
+        # our own regex matched them as its separator class -- so those are
+        # always safe to normalize. The REMAINDER (the filename portion
+        # after the prefix) is not provably separator territory; only
+        # normalize it on a host where `\` cannot be a filename character
+        # (i.e. `sys.platform.startswith("win")`, a real Windows citation),
+        # never on POSIX.
+        matched = match.group(1)
+        # Locate the boundary between the matched prefix literal
+        # (docs[/\\]plans[/\\] or ~[/\\].claude[/\\]plans[/\\]) and the
+        # filename remainder by re-finding the prefix via the same regex
+        # the module-level pattern already encodes.
+        prefix_match = re.match(
+            r"(docs[/\\]plans[/\\]|~[/\\]\.claude[/\\]plans[/\\])", matched
+        )
+        if prefix_match:
+            boundary = prefix_match.end()
+            # The matched prefix always ends in exactly one separator char
+            # (the regex's trailing `[/\\]`); `PureWindowsPath(...).as_posix()`
+            # strips that trailing separator, so it is restored explicitly
+            # rather than trusting a bare replace of the separator pair.
+            prefix = PureWindowsPath(matched[:boundary]).as_posix() + "/"
+            remainder = matched[boundary:]
+            if sys.platform.startswith("win"):
+                # `\` cannot be a filename character on this host, so
+                # `PureWindowsPath` (the sanctioned separator-normalization
+                # tool, see the module docstring on `_extract_plan_path`)
+                # is safe here -- unlike the POSIX leg this branch never
+                # runs on, where a literal backslash in `remainder` would
+                # be a legal filename char, not a separator.
+                remainder = PureWindowsPath(remainder).as_posix()
+            return prefix + remainder
+        # Defensive fallback -- should be unreachable given the enclosing
+        # regex already matched this string, but never crash on a
+        # pathological input.
+        return matched
     return None
 
 
@@ -394,6 +450,44 @@ except Exception:
     def _compute_foreground_reroute(run_in_background, session_id, tool_input, cwd):  # type: ignore[no-redef]
         return None
 
+def resolve_roster(*, doe_root: Any = None, home: Any = None):
+    """Lazy proxy for `coordinator_core.hooks.block_unenumerated_agent_type
+    .resolve_roster` -- the engine plane is reached on CALL, never at module
+    import.
+
+    The three sibling imports above are module-level because they are tiny
+    local files in this same directory. This one is not: it crosses into the
+    engine plane and pulls that module's own dependency tree with it, and
+    THIS hook runs on every single Agent dispatch. Hoisting it to module
+    scope costs that import unconditionally -- measured at ~52ms median in a
+    fresh interpreter -- on every dispatch including a fully-catered one that
+    resolves no roster at all, which is the cost A6 says such a dispatch must
+    not pay. It also lands on the wrong side of the Agent matcher's
+    PreToolUse cost budget that
+    docs/plans/2026-08-06-hook-spawn-fan-in-finish-and-extend.md is actively
+    reducing.
+
+    Returns the same fail-CLOSED-shaped 2-tuple the real function returns --
+    `(roster, None)` or `(None, reason)`, never a bare frozenset/False -- so
+    an unimportable engine plane is indistinguishable, to the caller, from a
+    roster that would not load. The call site maps that arm to
+    `on_roster: null`, NEVER to `on_roster: false` (A2).
+    """
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root and claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.hooks.block_unenumerated_agent_type import (
+            resolve_roster as _engine_resolve_roster,
+        )
+    except Exception as exc:  # noqa: BLE001 -- fail-open, same as every leg here
+        return None, (
+            "coordinator_core.hooks.block_unenumerated_agent_type is "
+            f"unimportable (engine root unresolved or module missing): {exc}"
+        )
+    return _engine_resolve_roster(doe_root=doe_root, home=home)
+
+
 from _message_envelope import compose, render  # noqa: E402
 
 #: Wiki section carrying the relocated DR-091/Concern-B.3 explanation (why
@@ -464,6 +558,96 @@ def _resolve_contract_blocks(policy_file: Path, child_subagent_type: str) -> lis
     return [name for name in block_names if isinstance(name, str)]
 
 
+def _find_repo_root_for_trace() -> Optional[Path]:
+    """Walk upward from this file looking for `coordinator.local.md` -- this
+    repo's own root marker. Independent copy of the same walk
+    `_next_move_ledger._find_repo_root` uses for its own per-session file
+    under `state/subagent-share/<session_id>/` (DR-047/DR-118 decline a
+    families-spanning shared-transport module for this class of tiny,
+    independently-failing-open helper -- see that module's own docstring)."""
+    current = Path(__file__).resolve().parent
+    while True:
+        if (current / "coordinator.local.md").is_file():
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+_CATERING_TRACE_FILENAME = "catering-miss-trace.jsonl"
+
+
+def _emit_catering_trace(
+    session_id: str,
+    child_subagent_type: str,
+    sidecar_eligible: bool,
+    report_type: str,
+    contract_blocks: list[str],
+) -> None:
+    """Plan 2026-08-10-catering-miss-signal.md (C1) -- append one JSON
+    record observing what Concern B actually resolved for this dispatch,
+    roster-discriminated (A1). Pure observation: never mutates the
+    dispatch, never touches stdout (A3) -- the caller wraps this whole
+    call in a try/except so ANY failure here is swallowed (A4); this
+    function additionally never raises past its own body for the same
+    reason, defense in depth.
+
+    Roster resolution is LAZY (A6): `resolve_roster()` is only called when
+    catering resolved empty (neither sidecar-eligible nor carrying
+    contract blocks) -- a fully-catered dispatch never touches the
+    roster. `resolve_roster()`'s `(None, reason)` fail-CLOSED arm (meant
+    for its home caller, a deny guard) maps here to `on_roster: null` +
+    `roster_error: <reason>` -- NEVER to `on_roster: false` (A2); a bare
+    membership test against a None roster would silently misclassify
+    every roster-load failure as "invented", which is the exact trap the
+    plan's anti-scope section names.
+
+    `on_roster: null` is ambiguous on its own -- it means EITHER "roster
+    resolution was skipped because catering already succeeded" OR
+    "roster resolution was attempted and failed". The always-present
+    boolean field `roster_checked` disambiguates the two: `False` when
+    the laziness gate skipped resolution entirely (no `roster_error`),
+    `True` when `resolve_roster()` was actually called (whether it
+    succeeded, giving `on_roster` true/false, or failed, giving
+    `on_roster: null` + `roster_error`).
+    """
+    if not session_id:
+        return
+    repo_root = _find_repo_root_for_trace()
+    if repo_root is None:
+        return
+
+    on_roster: Optional[bool] = None
+    roster_error: Optional[str] = None
+    roster_checked = False
+    if not sidecar_eligible and not contract_blocks:
+        roster_checked = True
+        roster, reason = resolve_roster()
+        if reason is not None:
+            on_roster = None
+            roster_error = reason
+        else:
+            on_roster = child_subagent_type in (roster or frozenset())
+
+    record: dict[str, Any] = {
+        "subagent_type": child_subagent_type,
+        "on_roster": on_roster,
+        "roster_checked": roster_checked,
+        "sidecar_eligible": bool(sidecar_eligible),
+        "report_type": report_type,
+        "contract_blocks": list(contract_blocks),
+    }
+    if roster_error is not None:
+        record["roster_error"] = roster_error
+
+    trace_dir = repo_root / "state" / "subagent-share" / session_id
+    trace_dir.mkdir(parents=True, exist_ok=True)
+    trace_path = trace_dir / _CATERING_TRACE_FILENAME
+    with open(trace_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
 _ROLE_APPEND_SNIPPET = Path(__file__).resolve().parents[2] / "snippets" / "agent-role-dispatched.md"
 
 
@@ -488,7 +672,7 @@ def _provision_sidecar(
     report_type: str = "",
     contract_blocks: Optional[list[str]] = None,
 ) -> tuple[str, str]:
-    """Invoke claude-klabauter's provision-report engine, timeout-wrapped at 2s (matches
+    """Invoke the engine repo's provision-report engine, timeout-wrapped at 2s (matches
     the oracle's timeout-2 value). Any failure leg returns ("", "") (fail-open).
 
     Oracle parity (A-F6): the bash oracle invokes provision_report
@@ -508,7 +692,7 @@ def _provision_sidecar(
 
     contract_blocks (W0 seam): when non-empty, the resolved block-name list
     is merged into the stdin payload under a "contract_blocks" key -- this
-    hook resolves ELIGIBILITY and the ORDERED LIST DoE-side but authors no
+    hook resolves ELIGIBILITY and the ORDERED LIST doctrine-plane-side but authors no
     block text; the engine reads the list, extracts + assembles the blocks
     from disk, and returns a pre-joined "injected_prompt_blocks" string on
     the SAME stdout JSON object as "report_sidecar". The two output keys are
@@ -576,8 +760,9 @@ def _provision_sidecar(
         stdin_payload = json.dumps(payload_obj)
 
     try:
-        # Windows: suppress the console-popup flash on this python.exe spawn
-        # (git.exe is GUI-subsystem and exempt; python.exe is not).
+        # Windows: suppress the console-popup flash on this python.exe spawn.
+        # Every console child needs this, git.exe included — the "git.exe is
+        # GUI-subsystem and exempt" premise was refuted by measurement.
         proc = subprocess.run(
             argv,
             input=stdin_payload,
@@ -608,6 +793,42 @@ def _provision_sidecar(
     injected = injected if isinstance(injected, str) else ""
 
     return sidecar, injected
+
+
+# Machine-readable structural marker appended by _compose_teammate_clause(),
+# same convention as the "\nsidecar_path: <path>" line Concern B.3 already
+# appends. Single source of truth -- the docstring below and the composer
+# both reference this constant rather than duplicating the literal string,
+# so a later concision pass can reword the prose without silently drifting
+# the marker out of sync (Review: code-reviewer -- Finding 3, coordinatorcode-reviewer-b37492a7).
+TEAMMATE_CLAUSE_MARKER = "teammate_delivery_channel: sidecar-write-required"
+
+
+def _compose_teammate_clause() -> str:
+    """Named-teammate sidecar-fill clause (docs/plans/2026-08-10-named-
+    teammate-sidecar-fill.md, C1): a dispatch that is BOTH named (Agent-
+    teams teammate, `tool_input.name` set) AND sidecar-provisioned by this
+    SAME hook reaches the dispatcher only via SendMessage("main") -- that
+    message is the pointer line, never the sidecar write, which stays
+    unconditional (DR-091). Keyed on STRUCTURE (name present AND
+    sidecar_path just provisioned), never on the brief's prose -- mirroring
+    the engine's own SendMessage/"main" suppression heuristic is the exact
+    defect this closes (see plan Sec Problem, finding 1). Fail-open: the
+    caller wraps this in try/except, matching the Concern E/F call-site
+    discipline (this hook's own docstring, :786-789, :802-805) -- never
+    block a dispatch to deliver an advisory.
+
+    The trailing "\\n" + TEAMMATE_CLAUSE_MARKER line is the module-level
+    structural marker constant defined just above this docstring -- a later
+    concision pass may reword the prose but should preserve this token."""
+    message = compose(
+        "Named teammate: SendMessage to \"main\" is your only return "
+        "channel, and it carries the pointer line ONLY. It does not "
+        "discharge the sidecar write -- still required, or the scaffold "
+        "is refused.",
+        anchor=_WIKI_ANCHOR,
+    )
+    return "\n\n" + render(message) + "\n" + TEAMMATE_CLAUSE_MARKER
 
 
 def _compose_sidecar_offer_text(sidecar_path: str) -> str:
@@ -685,6 +906,7 @@ def main() -> int:
     need_mode_elevation = False
     sidecar_path = ""
     injected_blocks = ""
+    teammate_clause = ""
 
     if not mode_ok_escape:
         # --- Concern A gate: mode-elevation-needed ---
@@ -709,12 +931,60 @@ def main() -> int:
             if child_subagent_type:
                 # __file__ parents: [0]=scripts [1]=hooks [2]=coordinator(plugin root)
                 policy_file = Path(__file__).resolve().parents[2] / "subagent-sandbox-policy.yaml"
-                if _is_report_sidecar_eligible(policy_file, child_subagent_type):
+                # contract_blocks: is DECOUPLED from report_sidecar: by policy
+                # (subagent-sandbox-policy.yaml, contract_blocks: header): a key
+                # there "is NOT required to be report_sidecar-eligible", because a
+                # block like quota-self-detect-preamble teaches an agent about its
+                # own quota regardless of tier. Resolving it INSIDE the eligibility
+                # branch collapsed that decoupling back to lockstep and silently
+                # stripped the blocks from every exploration-tier key. The engine
+                # half already supports the split -- provision_report emits
+                # report_sidecar and injected_prompt_blocks independently, either
+                # one alone -- so eligibility OR a non-empty block list is enough
+                # to make the call worth its spawn. Both empty still spawns
+                # nothing, which is what keeps an unenumerated type free.
+                contract_blocks = _resolve_contract_blocks(policy_file, child_subagent_type)
+                sidecar_eligible = _is_report_sidecar_eligible(policy_file, child_subagent_type)
+                report_type = ""
+                if sidecar_eligible or contract_blocks:
                     report_type = _resolve_report_type(policy_file, child_subagent_type)
-                    contract_blocks = _resolve_contract_blocks(policy_file, child_subagent_type)
                     sidecar_path, injected_blocks = _provision_sidecar(
                         raw, child_subagent_type, policy_file, report_type, contract_blocks
                     )
+
+                # --- Catering miss-signal trace (plan 2026-08-10-catering-
+                # miss-signal.md, C1) -- pure observation, never feeds back
+                # into the dispatch. The whole leg is wrapped so ANY failure
+                # (unresolvable engine root, import error, unwritable trace
+                # path, full disk) is swallowed and the dispatch proceeds
+                # unchanged (A4) -- this hook's own discipline for every
+                # optional leg, matching the module docstring's uncaught-
+                # exception-is-fail-CLOSED-on-a-fail-open-hook rule.
+                try:
+                    _emit_catering_trace(
+                        data.get("session_id") or "",
+                        child_subagent_type,
+                        sidecar_eligible,
+                        report_type,
+                        contract_blocks,
+                    )
+                except Exception:
+                    pass
+
+        # --- Named-teammate sidecar-fill clause (plan 2026-08-10-named-
+        # teammate-sidecar-fill.md, C1): keyed on STRUCTURE ONLY -- a
+        # sidecar was just provisioned above AND tool_input carries a
+        # non-empty `name` (the Agent-teams named-dispatch marker Concern F
+        # strips later, off the SAME unmutated tool_input_dict read here --
+        # the strip itself only ever mutates `merged`, a `dict(tool_input)`
+        # copy built later, never `tool_input_dict`).
+        # Fail-open, matching the Concern E/F call-site discipline: never
+        # block a dispatch to deliver this advisory.
+        try:
+            if sidecar_path and tool_input_dict.get("name"):
+                teammate_clause = _compose_teammate_clause()
+        except Exception:
+            teammate_clause = ""
 
     # --- Concern E: worktree-isolation strip (single-emitter fix, see module
     # docstring). Computed unconditionally, like role_append -- it is not a
@@ -806,6 +1076,7 @@ def main() -> int:
         need_mode_elevation
         or sidecar_path
         or injected_blocks
+        or teammate_clause
         or role_append
         or worktree_strip_result is not None
         or named_dispatch_result is not None
@@ -857,6 +1128,12 @@ def main() -> int:
             merged["mode"] = parent_mode
         if offer_text:
             merged["prompt"] = (merged.get("prompt") or "") + offer_text
+        # Named-teammate clause lands directly after the sidecar offer --
+        # same channel (tool_input.prompt), same ordering rule as every
+        # other prompt-append leg below (original brief -> sidecar offer ->
+        # teammate clause -> injected contract -> role framing).
+        if teammate_clause:
+            merged["prompt"] = (merged.get("prompt") or "") + teammate_clause
         # W0 seam (§2.4.4): append the engine-assembled contract verbatim,
         # AFTER the DEC-4 sidecar offer, so ordering is deterministic --
         # original brief -> sidecar offer -> injected contract. This hook

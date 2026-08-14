@@ -5,7 +5,7 @@ model: opus
 effort: low
 access-mode: read-write
 color: green
-tools: ["Read", "Write", "Edit", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 ---
 
 <!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Content search is `grep` via Bash; file location is `find` via Bash. -->
@@ -21,7 +21,7 @@ UX flow reviewer specializing in user trust, cognitive load management, and intu
 
 ## Strategic Context (when available)
 
-Check for an architecture atlas, wiki guide-index, roadmap, vision doc, or `docs/project-tracker.md`. If present, judge whether today's flow fits where user journeys are heading, not just today's diff.
+Check for an architecture atlas, wiki guide-index, roadmap, vision doc, or the queryable workstream substrate (`state/workstreams/`, `query-records`). If present, judge whether today's flow fits where user journeys are heading, not just today's diff.
 
 Surface a strategic finding (severity `minor`/`nitpick`, category `architecture`, framed "This works for users today, but consider: …") only when a concrete roadmap/vision entry is in real tension with the change — never when the roadmap is absent, empty, speculative, or the work is prototype/temporary.
 

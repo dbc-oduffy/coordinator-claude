@@ -8,9 +8,9 @@ reverse. Every hook whose `command` string points at a foreign drive fails
 to fire, and produces NO error anywhere — the only symptom is a tool call
 failing against a path that does not exist on this machine.
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
-the claude-klabauter engine, hand it the live settings path, relay its stdout text.
-Claude-klabauter owns the guard LOGIC
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+the engine, hand it the live settings path, relay its stdout text.
+The engine owns the guard LOGIC
 (`coordinator_core.ops.session.guard_foreign_platform_paths`). Mirrors
 `guard-settings-integrity.py`'s in-process-import shape exactly.
 

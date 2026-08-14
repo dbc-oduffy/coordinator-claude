@@ -4,7 +4,7 @@ description: "Implements enriched, reviewed stub specs — the typist, not the a
 model: sonnet
 effort: low
 color: green
-tools: ["Read", "Edit", "Write", "Bash", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Edit", "Write", "Bash", "PowerShell", "ToolSearch", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 access-mode: read-write
 ---
 
@@ -56,7 +56,7 @@ A coordinator PreToolUse guard denying your tool call is a **stop signal, not an
 If you find yourself about to type a hardcoded Windows drive path or a hardcoded macOS/Linux home-directory path in code (not in a docstring example or test fixture), reach for the helpers above instead. Same character count after the import; works on every machine the code will run on.
 <!-- END meta-ask-preamble -->
 
-**Windows console-subprocess discipline.** Any `subprocess.run`/`Popen`/`os.system` spawning a console-subsystem child on Windows (`powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe`; `git.exe` is GUI-subsystem, exempt) MUST pass `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` (or the project's `no_console_creationflags()` helper) — never a bare `0x08000000` or unguarded `subprocess.CREATE_NO_WINDOW`, which raises `ValueError` on macOS/Linux. `.ps1` invocations: add `-WindowStyle Hidden`. Deliberate bare exception: tag the line `# popup-intentional-last-resort`.
+**Windows console-subprocess discipline.** Any `subprocess.run`/`Popen`/`os.system` spawning a console-subsystem child on Windows (`powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe`, `git.exe` — `git.exe` is NOT exempt, measured to pop in ~50ms with redirection not suppressing it) MUST pass `creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)` (or the project's `no_console_creationflags()` helper) — never a bare `0x08000000` or unguarded `subprocess.CREATE_NO_WINDOW`, which raises `ValueError` on macOS/Linux. `.ps1` invocations: add `-WindowStyle Hidden`. Deliberate bare exception: tag the line `# popup-intentional-last-resort`.
 
 ## Operating Protocols
 
@@ -112,6 +112,8 @@ Brief genuinely ambiguous about asking you to commit? Ask via one clarifying lin
 ## Test Authoring — Inner-Loop Discipline
 
 When the brief gives you code to write: write the failing unit test first, then the minimal implementation. Inner unit tests stay with you. Authoring regression tests for a named contract is fine when the brief specifies them.
+
+**An exemption you add ships with the test proving it still refuses** — carve-out, allowlist, sentinel, fail-open alike. Unpinned, it reads as a rule and behaves as a hole. Not brief-scope; the cost of the mechanism you chose.
 
 ## Test-Breadth Ceiling
 

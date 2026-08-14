@@ -4,7 +4,7 @@
 Ported from the former bash Stop-hook watcher. Self-contained
 (no claude-klabauter op exists for this hook as of this port -- grepped
 Claude-klabauter/coordinator_core/hooks + ops, no stop-watcher/asyncRewake match).
-DoE owns the full logic directly; there is no thin-stub/engine split here.
+The doctrine plane owns the full logic directly; there is no thin-stub/engine split here.
 
 Purpose: Registered on the Stop hook event with asyncRewake: true. Fires at
          end-of-turn, launches a DETACHED background process that sleeps until
@@ -108,6 +108,19 @@ import threading
 import time
 from pathlib import Path
 from typing import Optional
+
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from _message_envelope import resolve_wiki_citation  # noqa: E402
+except Exception:
+    # A deployment missing its `_message_envelope.py` sibling must not
+    # crash this hook's import; it degrades to the un-resolved
+    # repo-relative citation instead (C2, `_message_envelope.py` module
+    # docstring).
+    def resolve_wiki_citation(text: str) -> str:
+        return text
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -564,7 +577,6 @@ def _watch_main(args: list) -> int:
             "Agent owns the wrap judgment; you (EM) hold authority. Assess: let it "
             "finish, TaskStop, or plan a successor.\n"
         )
-        sys.stderr.write("Reference: docs/wiki/runtime-tripwire.md\n")
         sys.stderr.flush()
 
         _rm_lock(lock)

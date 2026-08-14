@@ -31,6 +31,27 @@ matters for any residual settings.json history/edge case; this one is the
 structural backstop that makes "was it ever staged at all" the question,
 because content-shape detection cannot see a `git add -f` coming.
 
+Two-lens design (2026-08-11, DoE-claude cross-repo memo
+`2026-08-11-doe-claude-em-two-gaps-that-let-machine-local-files-stay-tracked.md`):
+`_TRACKED_SIDECAR_PATHS` alone is a root-level EXACT-basename match — it ran
+clean while a full `~/.claude` `settings.json` snapshot sat tracked under
+`settings.json.bak-2026-08-07-dead-hooks`, and while byte-identical
+`.claude.settings.json` / `.claude.settings.local.json` / plugin-manifest
+snapshots sat tracked inside a `_prag-fix-backup-*/` directory — the same
+leak, one basename-shift or one directory-nest away from the matcher's
+blind spot. Rather than widen `_TRACKED_SIDECAR_PATHS` (which would break its
+content-blind exact-match contract — every entry there names a file this repo
+has protected since a specific incident, not a naming pattern), a SECOND lens
+runs alongside it: `_TRACKED_SIDECAR_GLOBS`, a set of `fnmatch` basename
+patterns checked against every staged path's basename at ANY depth, catching
+backup/snapshot NAMING SHAPES (`settings.json.bak*`, dotted `.claude.settings*`
+copies, `plugins.<name>.json` manifest snapshots) regardless of which
+directory they were swept into. Both lenses report into the same offender
+list and the same exit-1 block; each offender line is tagged with which lens
+fired (`exact` vs `glob`) so the operator knows this is still an untrack, not
+a `.gitignore` edit — a `.gitignore` addition does not retroactively untrack
+anything already committed, and does not stop `git add -f`.
+
 Scope: only fires inside the meta-repo (git root == CLAUDE_HOME/.claude), same
 discriminator as the sibling `coordinator-precommit-foreign-platform-check`
 and `coordinator-precommit-exec-bit-check`. Elsewhere it exits 0 immediately.
@@ -40,11 +61,12 @@ DETECT-ONLY, never auto-fixes: unstaging a file the operator explicitly
 should silently override. A human/PM call picks the remedy.
 
 Exit contract:
-  0 — clean (none of `_TRACKED_SIDECAR_PATHS` staged), or not the meta-repo,
-      or override set.
-  1 — one or more of `_TRACKED_SIDECAR_PATHS` is staged. Blocks the commit;
-      loud stderr banner naming each offending path + the `git rm --cached`
-      remedy + override hint.
+  0 — clean (nothing in `_TRACKED_SIDECAR_PATHS` staged and no staged
+      basename matches `_TRACKED_SIDECAR_GLOBS`), or not the meta-repo, or
+      override set.
+  1 — one or more offenders from either lens is staged. Blocks the commit;
+      loud stderr banner naming each offending path (tagged `[exact match]`
+      or `[glob match]`) + the `git rm --cached` remedy + override hint.
 
 Spec backlink: docs/plans (DoE-claude) state/subagent-share/
   f2de80af-e8ff-4401-9970-df82761d913e/coordinatorexecutor-fc9a7a0a.md
@@ -61,6 +83,7 @@ ruling (Windows is the P0 primary platform), enforced by
 """
 from __future__ import annotations
 
+import fnmatch
 import os
 import subprocess
 import sys
@@ -71,6 +94,21 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 _OVERRIDE_ENV = "COORDINATOR_OVERRIDE_PRECOMMIT_SETTINGS_TRACKING"
+
+
+def _override_doc_pointer() -> str:
+    """SSOT doc-pointer display string, imported lazily -- this script's
+    early-exit legs (override-already-set skip, below) fire before any other
+    sys.path setup this file does, so this resolves its own path
+    independent of that ordering. Never hand-copy the "claude-klabauter
+    <path>" string here (B6/B8, see docs/wiki/guard-messaging.md §
+    Register)."""
+    root = os.path.abspath(os.path.join(_BIN_DIR, "..", ".."))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from coordinator_core.bash_guards._helpers import OVERRIDE_KEYS_DOC_DISPLAY
+
+    return OVERRIDE_KEYS_DOC_DISPLAY
 
 # Root-level basenames only (mirrors the .gitignore anchoring: leading `/`
 # anchors to repo root in gitignore syntax; `git diff --name-only` paths are
@@ -102,6 +140,24 @@ _TRACKED_SIDECAR_PATHS = (
     ".coordinator-hooks-disabled",
     ".coordinator-hooks-enabled",
     ".coordinator-content-root-last-seen",
+)
+
+# Second lens (2026-08-11): basename-shape globs, checked against every
+# staged path's basename at ANY depth — not just repo root. These catch
+# settings/plugin-manifest BACKUP SNAPSHOTS whose basename or containing
+# directory shifted just enough to slip past the exact-match list above,
+# evidenced verbatim by the 2026-08-11 `~/.claude` leak (see module
+# docstring "Two-lens design"): `settings.json.bak-2026-08-07-dead-hooks` at
+# root, and `.claude.settings.json` / `.claude.settings.local.json` /
+# `plugins.installed_plugins.json` / `plugins.known_marketplaces.json` nested
+# under `_prag-fix-backup-20260720T144452Z/`. Deliberately basename-only
+# (`fnmatch` against `os.path.basename(...)`, not the full path) so a rename
+# of the containing backup directory can't defeat it the way a root-anchored
+# `_TRACKED_SIDECAR_PATHS` entry can be defeated by nesting.
+_TRACKED_SIDECAR_GLOBS = (
+    "settings.json.bak*",
+    "*.claude.settings*.json",
+    "plugins.*.json",
 )
 
 
@@ -157,7 +213,7 @@ def main() -> int:
 
     if os.environ.get(_OVERRIDE_ENV) == "1":
         print(
-            f"pre-commit: settings-tracking check skipped ({_OVERRIDE_ENV}=1).",
+            "pre-commit: settings-tracking check skipped (override set).",
             file=sys.stderr,
         )
         return 0
@@ -170,7 +226,14 @@ def main() -> int:
         if ln
     ]
 
-    offenders = [p for p in _TRACKED_SIDECAR_PATHS if p in staged_files]
+    exact_offenders = [p for p in _TRACKED_SIDECAR_PATHS if p in staged_files]
+    glob_offenders = [
+        p
+        for p in staged_files
+        if p not in exact_offenders
+        and any(fnmatch.fnmatch(os.path.basename(p), pat) for pat in _TRACKED_SIDECAR_GLOBS)
+    ]
+    offenders = [(p, "exact") for p in exact_offenders] + [(p, "glob") for p in glob_offenders]
     if not offenders:
         return 0
 
@@ -181,8 +244,8 @@ def main() -> int:
         "sidecar in the ~/.claude meta-repo:",
         file=sys.stderr,
     )
-    for p in offenders:
-        print(f"    {p}", file=sys.stderr)
+    for p, lens in offenders:
+        print(f"    {p}  [{lens} match]", file=sys.stderr)
     print("", file=sys.stderr)
     print(
         "  Why this is blocked: these files carry machine-absolute paths and "
@@ -196,11 +259,11 @@ def main() -> int:
     )
     print("", file=sys.stderr)
     print("  Remedy: unstage, then commit without them:", file=sys.stderr)
-    for p in offenders:
+    for p, _lens in offenders:
         print(f'    git rm --cached "{p}"', file=sys.stderr)
     print("", file=sys.stderr)
     print(
-        f"  Override (PM-authorized only): {_OVERRIDE_ENV}=1 git commit ...",
+        f"  See {_override_doc_pointer()} for override options.",
         file=sys.stderr,
     )
     print(top, file=sys.stderr)

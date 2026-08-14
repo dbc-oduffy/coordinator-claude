@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """setup-detect-test-cmd.py — CLI trampoline over claude-klabauter coordinator_core.install.detect_test_cmd.
 
 Repo-setup-time helper: inspects common stack markers (package.json,

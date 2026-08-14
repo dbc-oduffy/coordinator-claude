@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """workweek-complete-drift-guards.py — /workweek-complete advisory + gate
 dispatch logic, ported out of DoE-claude's coordinator/commands/workweek-complete.md
@@ -35,6 +34,13 @@ Subcommands:
                                     sibling schema-drift-gate CLI — a release
                                     gate must never conflate "ran and found
                                     drift" with "could not run".
+    pcli-drift-gate               — BLOCKING gate. Same three-way exit-code
+                                    branch (0 PASS / 1 FAIL / 2 ERROR) over
+                                    the sibling check-pcli-drift-gate CLI —
+                                    dispatch_feed-vs-live-Workflow-API drift,
+                                    14-day capture staleness, and C7 source-
+                                    hash drift on subagent-catering-
+                                    resolution.json.
     shellcheck-sweep             — repo-wide `git ls-files '*.sh'` loop
                                     through `shellcheck -f gcc -s bash`.
     console-flash-guard          — thin dispatcher over
@@ -179,7 +185,7 @@ def cmd_schema_drift_gate(_args: argparse.Namespace) -> int:
         2 ERROR — the gate could not run at all; halt and surface, NOT a pass.
         other   — unexpected rc from the sibling CLI; treated as ERROR (2).
     """
-    script = _sibling("schema-drift-gate")
+    script = _sibling("schema-drift-gate.py")
     if not os.path.isfile(script):
         print(f"ERROR: schema-drift-gate CLI not found at {script} — halt and surface", file=sys.stderr)
         return 2
@@ -195,6 +201,39 @@ def cmd_schema_drift_gate(_args: argparse.Namespace) -> int:
         print("ERROR: schema-drift-gate could not run — halt and surface; this is NOT a pass", file=sys.stderr)
         return 2
     print(f"ERROR: schema-drift-gate returned unexpected rc={rc} — halt and surface", file=sys.stderr)
+    return 2
+
+
+# ---------------------------------------------------------------------------
+# pcli-04 drift gate (BLOCKING)
+# ---------------------------------------------------------------------------
+
+def cmd_pcli_drift_gate(_args: argparse.Namespace) -> int:
+    """Blocking gate. Three-way exit-code branch — same shape as
+    cmd_schema_drift_gate above, a release gate must never conflate "ran and
+    found drift" with "could not run":
+        0 PASS  — dispatch_feed-vs-capture, staleness, and C7 hash legs all
+                  clean (see sibling CLI's own stdout).
+        1 FAIL  — at least one leg fired; halt the release.
+        2 ERROR — the gate could not run at all; halt and surface, NOT a pass.
+        other   — unexpected rc from the sibling CLI; treated as ERROR (2).
+    """
+    script = _sibling("check-pcli-drift-gate.py")
+    if not os.path.isfile(script):
+        print(f"ERROR: check-pcli-drift-gate CLI not found at {script} — halt and surface", file=sys.stderr)
+        return 2
+    rc, out = _run([sys.executable, script])
+    if out:
+        print(out, end="" if out.endswith("\n") else "\n")
+    if rc == 0:
+        return 0
+    if rc == 1:
+        print("BLOCK: pcli-04 drift gate found issues (see above) — halt the release, reconcile, re-run", file=sys.stderr)
+        return 1
+    if rc == 2:
+        print("ERROR: check-pcli-drift-gate could not run — halt and surface; this is NOT a pass", file=sys.stderr)
+        return 2
+    print(f"ERROR: check-pcli-drift-gate returned unexpected rc={rc} — halt and surface", file=sys.stderr)
     return 2
 
 
@@ -315,6 +354,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_cve_recheck)
 
     sub.add_parser("schema-drift-gate").set_defaults(func=cmd_schema_drift_gate)
+
+    sub.add_parser("pcli-drift-gate").set_defaults(func=cmd_pcli_drift_gate)
 
     p = sub.add_parser("shellcheck-sweep")
     p.add_argument("--repo-root", default=None)

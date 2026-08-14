@@ -46,7 +46,7 @@ symlink the other directory to resolve the ambiguity.
 
 
 def _claude_home():
-    return os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or ""
+    return os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
 
 
 def _resolve():

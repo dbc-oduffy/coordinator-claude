@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """verify-templates-bin-sync.py — byte-identity gate between live install helpers and their templates mirror.
 
@@ -100,7 +99,7 @@ def _resolve_plugin_root() -> str:
         root = doe_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-templates-bin-sync.py: cannot resolve the DoE-claude repo root "
+            "verify-templates-bin-sync.py: cannot resolve the coordinator doctrine repo root "
             f"({exc}). Set repos.doe_claude in the machine-local registry, or set "
             "the DOE_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator-uninstall.py — CLI trampoline over claude-klabauter
@@ -33,7 +32,7 @@ Fail-loud-on-ambiguity doctrine (prior-art Compatible #6): this
   install's out-of-repo surfaces un-reversed with no indication anything
   went wrong.
 
-Spec backlink: docs/plans/2026-07-08-coordinator-uninstall.md § C7
+Spec backlink: DoE-claude:pln-first-class-coordinator-uninst-15db2e § C7
 Surface source of truth: tasks/coordinator-uninstall/surface-map.md
 Leg source of truth: coordinator_core.install.uninstall_legs (claude-klabauter)
 Port backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md

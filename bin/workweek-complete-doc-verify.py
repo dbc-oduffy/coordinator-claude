@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator/bin/workweek-complete-doc-verify.py — thin CLI wrapper over
@@ -29,7 +28,7 @@ Exits 3 if CLAUDE_KLABAUTER_ROOT cannot be resolved (see stderr) before ever rea
 `main()`; otherwise exit code and stdout/stderr are exactly
 `coordinator_core.ops.doc_content_verify.main`'s.
 
-Spec backlink: DoE-claude docs/plans/2026-07-28-human-facing-doc-staleness-detector.md § C2, AC12
+Spec backlink: DoE-claude DoE-claude:pln-human-facing-doc-staleness-det-d9c047 § C2, AC12
 Spec backlink: claude-klabauter coordinator_core/ops/doc_content_verify.py
 
 Negative-spec: does NOT parse or reinterpret argv itself — forwards verbatim
@@ -44,15 +43,13 @@ from pathlib import Path
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 try:
-    _REPO_ROOT = Path(resolve_colocated_claude_klabauter_root(__file__))
+    require_colocated_engine_on_path(__file__)
 except RuntimeError as _exc:
     print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
     sys.exit(3)
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 from coordinator_core.cli_entry import run_op_main  # noqa: E402
 

@@ -38,7 +38,7 @@ import sys
 def _real_settings_bin() -> str:
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME")
     if not settings_home:
-        home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or ""
+        home = os.environ.get("CLAUDE_HOME") or os.environ.get("HOME") or os.environ.get("USERPROFILE") or ""
         settings_home = os.path.join(home, ".coordinator-claude-settings")
     return os.path.join(settings_home, "bin")
 
@@ -105,13 +105,38 @@ def main() -> int:
         sys.stderr.write("machine-local: no python3 (or python) found on PATH\n")
         return 2  # operational failure (see _machine_local.py exit-code contract)
 
+    argv = [python, impl] + sys.argv[1:]
+
+    if os.name == "nt":
+        # Windows has no true exec(): the CRT underlying os.execvp() SPAWNS a
+        # new process and this parent returns/terminates immediately instead
+        # of being replaced. That races the invoking shell's wait against the
+        # grandchild's stdout flush -- `machine-local get <key> > file` can
+        # observe a 0-byte file at a clean exit code, indistinguishable from
+        # a genuinely-absent key (the file is correct moments later). Measured
+        # on a live Windows box: cross-repo/archive/2026-08-07-claude-klabauter-
+        # em-hook-console-allocation-ledger.md, Defect B. subprocess.run()
+        # blocks this parent until the child exits, so its output is always
+        # fully flushed before we return -- at the cost of a second process,
+        # acceptable here since this leg is Windows-only.
+        try:
+            result = subprocess.run(argv)
+        except OSError as exc:
+            sys.stderr.write(f"machine-local: failed to spawn {python}: {exc}\n")
+            return 2
+        except KeyboardInterrupt:
+            # Covers a Ctrl-C during child dispatch only, not the interpreter
+            # probe above -- a SIGINT there still raises uncaught on both legs.
+            return 130  # conventional SIGINT rc
+        return result.returncode
+
     try:
-        os.execvp(python, [python, impl] + sys.argv[1:])
+        os.execvp(python, argv)
     except OSError as exc:
         sys.stderr.write(f"machine-local: failed to exec {python}: {exc}\n")
         return 2
 
-    return 0  # unreachable — execvp replaces this process on success
+    return 0  # unreachable on POSIX — execvp replaces this process on success
 
 
 if __name__ == "__main__":

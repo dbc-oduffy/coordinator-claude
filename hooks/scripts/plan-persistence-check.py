@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """PostToolUse(ExitPlanMode) naked-Python port of plan-persistence-check.sh.
 
-Purpose: reads the approved plan from tool_response.plan, copies it to
-docs/plans/<YYYY-MM-DD>-<slug>.md in the project repo, stages it with
-`git add` (NEVER commits — committing from a hook child process bypasses all
-PreToolUse commit-safety matchers). Emits additionalContext pre-filling the
-exact scoped commit command and the subagent-review-artifact reminder.
+Purpose: reads the approved plan from tool_response.plan and persists it to
+docs/plans/<YYYY-MM-DD>-<slug>.md in the project repo, NEVER committing —
+committing from a hook child process bypasses all PreToolUse commit-safety
+matchers. Emits additionalContext pre-filling the exact scoped commit command
+and the subagent-review-artifact reminder.
 
 Spec backlink: docs/plans/2026-06-18-plan-persistence-hook-automation.md
 
-Self-contained naked-Python port (W5 straggler): no claude-klabauter op exists for this
-hook (checked coordinator_core/hooks + coordinator_core/ops — neither has a
-plan-persistence equivalent), so the full decision logic is ported directly
-here rather than authored as a thin claude-klabauter-delegating stub.
+Two write paths, in preference order:
+  1. The engine's `plan.persist_capture` op, via its `coordinator/bin/
+     plan-capture-persist.py` trampoline — scaffolds a schema-compliant
+     artifact (engine-written frontmatter, plan_id, deliverable_id,
+     sizing_object reverse FK). It is expected to supersede a raw dump
+     this hook already wrote for the same body — that reconciliation is
+     the engine's responsibility and is not verified by this file or its
+     tests.
+  2. Fallback: the verbatim raw write below. Reached whenever the routed path
+     is unavailable for any reason — the fail-open contract the engine side
+     deliberately delegates here. Its worst case is a captured-but-gate-
+     invisible plan, i.e. the pre-routing status quo; never plan loss.
+
+The activation predicate, meta-repo routing, `additionalContext` emit, and the
+no-git-add negative spec are shared by both paths.
 
 Activation predicate (graceful cross-repo no-op) — identical to the bash oracle:
   - tool_name must be ExitPlanMode
@@ -119,9 +130,23 @@ except Exception:
 
 
 def _claude_home_dir() -> Path:
-    """Resolved ~/.claude directory, matching lib/claude-home/_claude_home.py's
-    home_dir() precedence (CLAUDE_HOME -> HOME -> USERPROFILE -> Path.home())
-    without importing that module (keeps this hook self-contained).
+    """Resolved ~/.claude directory.
+
+    Sourced from the engine's canonical resolver — `coordinator/lib/
+    claude-home/_claude_home.py`'s `home_dir()`, reached zero-subprocess via
+    the importable seam `coordinator/lib/claude_home_shim.py`
+    (`resolve_home_base()`) — when the engine root is resolvable on this
+    machine. Mirrors `project-orientation.py::_claude_home()`'s
+    resolve-root-then-sys.path-insert-then-import pattern (A-F4/P2
+    follow-up, home-resolution-gate-family C6), not a local
+    `coordinator/lib/` import: the shim lives in the engine repo, not this
+    doctrine repo.
+
+    Falls back to a hand-rolled ladder identical in precedence/behavior
+    (CLAUDE_HOME -> HOME -> USERPROFILE -> Path.home()) if the engine root
+    or the shim is unreachable for any reason (missing/unresolvable engine
+    checkout, import failure, etc.) — this hook must never raise or block
+    on an absent engine checkout.
 
     (A-F4, P2) Mirrors the canonical home_dir()'s fail-LOUD behavior on a
     set-but-empty or non-absolute CLAUDE_HOME: raises ValueError instead of
@@ -130,7 +155,31 @@ def _claude_home_dir() -> Path:
     silently route a plan write into the real docs/plans/. The caller
     (main(), via _is_meta_repo()) catches this ValueError and fails OPEN
     THE WHOLE HOOK (returns 0, no action) rather than guessing a home.
+
+    Verified (2026-08-08): the engine's canonical `home_dir()` reproduces
+    this fail-loud contract byte-for-byte — a set-but-empty CLAUDE_HOME and
+    a non-absolute CLAUDE_HOME both raise ValueError there too (see its
+    docstring / body). The ValueError from the shim call below is
+    deliberately NOT swallowed by the broad except below — only
+    resolution/import failures (missing engine, ImportError, etc.) fall
+    through to the local ladder; a genuine fail-loud ValueError from the
+    canonical resolver propagates to the caller exactly as the local ladder
+    would have raised it.
     """
+    try:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root:
+            claude_klabauter_lib = str(Path(claude_klabauter_root) / "coordinator" / "lib")
+            if claude_klabauter_lib not in sys.path:
+                sys.path.insert(0, claude_klabauter_lib)
+            from claude_home_shim import resolve_home_base as _seam_resolve_home
+
+            return _seam_resolve_home() / ".claude"
+    except ValueError:
+        raise
+    except Exception:
+        pass
+
     claude_home = os.environ.get("CLAUDE_HOME")
     if claude_home is not None:
         if not claude_home:
@@ -186,17 +235,15 @@ def _git_toplevel(cwd: str | None) -> str | None:
     return out or None
 
 
-def _git_add(repo_root: str, target: Path) -> None:
-    try:
-        # Timeout 2s — see _git_toplevel's comment (A-F1, P1 C8).
-        subprocess.run(  # popup-intentional-last-resort
-            ["git", "-C", repo_root, "add", "--", str(target)],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-    except Exception:
-        pass
+# Negative spec — this hook takes NO git index lock, by PM ruling (2026-08-07).
+# It formerly ran `git add` on the plan and on docs/README.md, i.e. two
+# `.git/index.lock` acquisitions per plan write, from a hook, on a tree shared
+# with live peer sessions. The staging bought protection against an untracked
+# plan being swept (concurrent-em-hazards.md H18/H24); the ruling is that that
+# clobber risk is preferable to the lock traffic, since the EM commits the plan
+# from the prefilled command moments later. Do not reintroduce a `git add` here
+# — not with a retry, not with `--no-optional-locks`. Persist to disk, print the
+# command, take no lock.
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +295,22 @@ def _emit(additional_context: str) -> None:
     sys.stdout.write("\n")
 
 
-def _compose_idempotent_context(target_name: str, slug: str):
+def _commit_cmd(plans_git_root: str, repo_root: str, rel_paths: list[str], slug: str) -> str:
+    """Prefilled scoped-commit command for the persisted plan (and README row).
+
+    Cross-repo (meta-repo routing sent the write into the engine checkout) gets
+    an explicit `git -C "<root>"` prefix; same-repo keeps the bare form.
+    """
+    paths = " ".join(rel_paths)
+    if plans_git_root != repo_root:
+        return (
+            f'git -C "{plans_git_root}" add -- {paths} && '
+            f'git -C "{plans_git_root}" commit -m "plan: {slug}" -- {paths}'
+        )
+    return f'git add -- {paths} && git commit -m "plan: {slug}" -- {paths}'
+
+
+def _compose_idempotent_context(commit_cmd: str):
     """Pure composer for the byte-identical re-fire branch. Routes through
     `_message_envelope.compose` (C6, char-cap conversion): the diagnosis is
     the only counted prose, the copy-paste commit command rides in the
@@ -258,14 +320,10 @@ def _compose_idempotent_context(target_name: str, slug: str):
     (state/relocations/guard-message-cap/plan-persistence-check.py.md).
     Returns a `Message`, not flattened text -- `main()` calls `render()` at
     the emit call site, mirroring guard-review-integrator-sidecar-intake.py."""
-    commit_cmd = (
-        f"git add -- docs/plans/{target_name} && "
-        f'git commit -m "plan: {slug}" -- docs/plans/{target_name}'
-    )
     return compose(
         "PLAN ALREADY PERSISTED (byte-identical) -- commit if not "
-        "committed yet, and write subagent review artifacts to disk "
-        "before compaction.",
+        "yet done, route the body through coordinator:sizing to close "
+        "it out, and write review artifacts to disk.",
         alternative=commit_cmd,
         anchor=_WIKI_ANCHOR,
     )
@@ -284,19 +342,94 @@ def _compose_collision_message(target_path):
     )
 
 
-def _compose_persisted_context(target_name: str, commit_cmd: str):
+def _compose_persisted_context(commit_cmd: str):
     """Pure composer for the successful-persist branch. Routes through
     `compose` -- same relocation rationale as `_compose_idempotent_context`.
     Returns a `Message`; see `_compose_idempotent_context` for the render()
-    split. `target_name` is unused now the path lives only in
-    `commit_cmd`/`alternative` -- kept in the signature for call-site
-    parity with the other two composers."""
+    split.
+
+    The plan is on disk and UNTRACKED -- the hook no longer stages it (see the
+    no-index-lock negative spec). Until the prefilled command runs, the plan is
+    the untracked-deliverable shape a peer's sweep can delete, so the headline
+    asks for the commit now rather than merely offering it."""
     return compose(
-        "PLAN PERSISTED and staged -- commit now, and write subagent "
-        "review artifacts to disk before compaction loses them.",
+        "PLAN PERSISTED, not staged -- commit it now; a peer sweep can "
+        "delete it until it lands. Route the body through coordinator:sizing "
+        "to close it out. Write review artifacts to disk.",
         alternative=commit_cmd,
         anchor=_WIKI_ANCHOR,
     )
+
+
+#: Bounded budget for the engine-side `plan.persist_capture` call. The
+#: PostToolUse(ExitPlanMode) entry in hooks.json declares `"timeout": 15`
+#: (verified 2026-08-13); repo-root resolution ahead of this point chains up to
+#: three 2s `git rev-parse` calls, leaving ~9s of headroom. The engine call is
+#: one `coordinator-doc-new` subprocess spawn plus text processing, so 5s is
+#: generous while keeping the worst-case sum (~11s) inside the declared budget.
+_PERSIST_CAPTURE_TIMEOUT_S = 5
+
+
+def _routed_persist(plan_content: str, plans_git_root: str) -> dict | None:
+    """Scaffold a schema-compliant plan via the engine's `plan.persist_capture`.
+
+    Returns the op's parsed result dict, or None when the routed path is
+    unavailable for ANY reason. None is the fail-open signal: the caller falls
+    back to the raw verbatim write, whose worst case is exactly the pre-routing
+    status quo (a captured-but-gate-invisible plan), never plan loss.
+
+    Fail-open is this hook's responsibility by the seam's design — the engine
+    CLI is an ordinary fail-loud op and makes no such guarantee itself.
+    """
+    engine_root = _resolve_claude_klabauter_root()
+    if not engine_root:
+        return None
+    trampoline = Path(engine_root) / "coordinator" / "bin" / "plan-capture-persist.py"
+    if not trampoline.is_file():
+        return None
+    try:
+        proc = subprocess.run(  # popup-intentional-last-resort
+            [sys.executable or "python3", str(trampoline), "--repo-root", plans_git_root],
+            input=plan_content,
+            capture_output=True,
+            text=True,
+            timeout=_PERSIST_CAPTURE_TIMEOUT_S,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        result = json.loads(proc.stdout.strip().splitlines()[-1])
+    except Exception:
+        return None
+    if not isinstance(result, dict) or result.get("status") not in (
+        "ok",
+        "idempotent",
+        "collision",
+    ):
+        return None
+    return result
+
+
+def _append_readme_row(docs_readme: Path, readme_row: str) -> bool:
+    """Idempotently append the engine-supplied Plans-section row. Same
+    contract as the raw-write path's own append — only the link target
+    differs (the engine emits the correct `plans/...` prefix)."""
+    if not readme_row or not docs_readme.is_file():
+        return False
+    try:
+        existing = docs_readme.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if readme_row.strip() in existing:
+        return False
+    try:
+        with docs_readme.open("a", encoding="utf-8", newline="") as fh:
+            fh.write(f"\n{readme_row.rstrip()}\n")
+    except Exception:
+        return False
+    return True
 
 
 def main() -> int:
@@ -391,6 +524,32 @@ def main() -> int:
     target_name = f"{today}-{slug}.md"
     target_path = docs_plans_dir / target_name
 
+    # --- Routed persist (preferred): schema-compliant scaffold via the engine ---
+    # A verbatim body written to docs/plans/<date>-<slug>.md carries no
+    # frontmatter, so it has no plan_id / deliverable_id / sizing_object and is
+    # invisible to every frontmatter-driven gate. The engine op scaffolds a real
+    # artifact instead (and supersedes a raw dump this hook already wrote for the
+    # same body). Any failure falls through to the raw write below.
+    routed = _routed_persist(plan_content, plans_git_root)
+    if routed is not None:
+        status = routed.get("status")
+        if status == "collision":
+            _emit(render(_compose_collision_message(routed.get("path") or target_path)))
+            return 0
+        routed_path = routed.get("path")
+        if routed_path:
+            rel_paths = [routed_path]
+            if _append_readme_row(docs_readme, routed.get("readme_row") or ""):
+                rel_paths.append("docs/README.md")
+            cmd = _commit_cmd(plans_git_root, repo_root, rel_paths, slug)
+            composer = (
+                _compose_idempotent_context
+                if status == "idempotent"
+                else _compose_persisted_context
+            )
+            _emit(render(composer(cmd)))
+            return 0
+
     # --- Ensure docs/plans/ exists ---
     if not docs_plans_dir.is_dir():
         try:
@@ -406,7 +565,11 @@ def main() -> int:
             existing = ""
         if existing == plan_content:
             # Byte-identical -> idempotent no-op (no write, no re-stage).
-            idempotent_ctx = render(_compose_idempotent_context(target_name, slug))
+            idempotent_ctx = render(
+                _compose_idempotent_context(
+                    _commit_cmd(plans_git_root, repo_root, [f"docs/plans/{target_name}"], slug)
+                )
+            )
             _emit(idempotent_ctx)
             return 0
         else:
@@ -424,8 +587,7 @@ def main() -> int:
     except Exception:
         return 0
 
-    # --- Stage with explicit path (NEVER git add -A or git add .) ---
-    _git_add(plans_git_root, target_path)
+    # Deliberately NOT staged — see the no-index-lock negative spec above.
 
     # --- Idempotently insert a Plans-section line into docs/README.md ---
     readme_modified = False
@@ -440,37 +602,16 @@ def main() -> int:
                 with docs_readme.open("a", encoding="utf-8", newline="") as fh:
                     fh.write(f"\n{readme_line}\n")
                 readme_modified = True
-                _git_add(plans_git_root, docs_readme)
             except Exception:
                 pass
 
     # --- Emit additionalContext ---
-    rel_target = f"docs/plans/{target_name}"
-    rel_readme = "docs/README.md"
-    if plans_git_root != repo_root:
-        if readme_modified:
-            commit_cmd = (
-                f'git -C "{plans_git_root}" add -- {rel_target} {rel_readme} && '
-                f'git -C "{plans_git_root}" commit -m "plan: {slug}" -- {rel_target} {rel_readme}'
-            )
-        else:
-            commit_cmd = (
-                f'git -C "{plans_git_root}" add -- {rel_target} && '
-                f'git -C "{plans_git_root}" commit -m "plan: {slug}" -- {rel_target}'
-            )
-    else:
-        if readme_modified:
-            commit_cmd = (
-                f"git add -- {rel_target} {rel_readme} && "
-                f'git commit -m "plan: {slug}" -- {rel_target} {rel_readme}'
-            )
-        else:
-            commit_cmd = (
-                f"git add -- {rel_target} && "
-                f'git commit -m "plan: {slug}" -- {rel_target}'
-            )
+    rel_paths = [f"docs/plans/{target_name}"]
+    if readme_modified:
+        rel_paths.append("docs/README.md")
+    commit_cmd = _commit_cmd(plans_git_root, repo_root, rel_paths, slug)
 
-    additional_ctx = render(_compose_persisted_context(target_name, commit_cmd))
+    additional_ctx = render(_compose_persisted_context(commit_cmd))
     _emit(additional_ctx)
 
     return 0

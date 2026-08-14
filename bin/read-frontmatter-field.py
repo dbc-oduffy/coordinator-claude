@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """read-frontmatter-field.py — extracts a bare scalar from markdown YAML frontmatter.
 
@@ -43,7 +42,7 @@ from __future__ import annotations
 #         string" contract as a missing field, so callers doing `$(... )` capture
 #         never see a crash from this helper.
 #
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 # Port of: coordinator/bin/read-frontmatter-field.py (bash body retired on cutover;
 #          see git log for the pre-port implementation)
 

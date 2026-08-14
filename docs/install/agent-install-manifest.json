@@ -26,10 +26,49 @@
       "sibling_dir_name": "claude-klabauter",
       "upstream_url": "https://github.com/dbc-oduffy/claude-klabauter",
       "distribution": "private-access-on-request",
-      "distribution_note": "The coordinator_core engine publishes from claude-klabauter to the public repo claude-klabauter — NOT YET LIVE as of this manifest (zero commits pushed). upstream_url points at claude-klabauter in anticipation of that publish; until it goes live the URL 404s and this dep is access-on-request from the maintainer, same model as project-rag.",
+      "distribution_note": "The coordinator_core engine publishes from claude-klabauter to the public repo claude-klabauter, which is live — upstream_url resolves and a consumer installs the engine from it directly. Because the engine is a separate install, coordinator-claude's bin/ entrypoints resolve it at runtime through the env/registry rungs of cc_invoke rather than from anything inside this mirror; a check that strips those rungs is asserting a standalone-runnable contract this distribution does not make.",
       "functional_probe_kind": "claude_klabauter_seam_resolvable",
       "functional_probe_args": {},
       "consumer_install_args": []
+    }
+  ],
+  "required_mcp_surfaces": [
+    {
+      "id": "context7",
+      "kind": "plugin",
+      "tier": "semi-hard",
+      "description": "Claude Code plugin context7@claude-plugins-official, enabled fleet-wide via settings.json enabledPlugins. Serves the MCP server plugin:context7:context7 (tools mcp__plugin_context7_context7__resolve-library-id / __query-docs) for live library/API documentation lookups.",
+      "why": "Required by docs-checker (its entire job is verifying API claims via Context7 — inert without it), enricher, executor, review-integrator, staff-eng, eng-director, staff-ux, staff-data-sci, and senior-front-end, which name these tools in their frontmatter and are degraded to guessing without them.",
+      "probe": {
+        "kind": "json_object_key_true",
+        "location": "install_root",
+        "relative_path": "settings.json",
+        "json_path": "enabledPlugins",
+        "key": "context7@claude-plugins-official"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "enable the context7 plugin: run /plugin in Claude Code and install/enable context7@claude-plugins-official from the claude-plugins-official marketplace (or add \"context7@claude-plugins-official\" to enabledPlugins in settings.json)."
+      },
+      "reference": "coordinator/docs/wiki/mcp-topology.md"
+    },
+    {
+      "id": "notebooklm-mcp",
+      "kind": "external_server",
+      "tier": "semi-hard",
+      "description": "External MCP server notebooklm-mcp, served by the PyPI package notebooklm-mcp-cli (CLI: nlm), registered as a Claude Code MCP server exposing tools under the mcp__notebooklm-mcp__ prefix.",
+      "why": "Powers deep-research Pipeline D; pipelines A/B/C are unaffected without it.",
+      "probe": {
+        "kind": "command_succeeds",
+        "cmd": "command -v nlm",
+        "shell": true,
+        "windows": "where.exe nlm"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "install: uv tool install notebooklm-mcp-cli (requires uv/uvx), then nlm login, then nlm setup add claude-code to register the notebooklm-mcp MCP server."
+      },
+      "reference": "coordinator/docs/wiki/notebooklm-for-your-research.md"
     }
   ],
   "required_env_vars": [],
@@ -91,6 +130,8 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v git",
+        "shell": true,
+        "windows": "where.exe git",
         "ref": "_co_probe_git"
       },
       "install": {
@@ -104,7 +145,10 @@
       "tier": "semi-hard",
       "probe": {
         "kind": "command_succeeds",
-        "cmd": "command -v claude || test -x \"$HOME/.local/bin/claude\""
+        "cmd": "command -v claude || test -x \"$HOME/.local/bin/claude\"",
+        "shell": true,
+        "windows": "if (Get-Command claude -ErrorAction SilentlyContinue) { exit 0 } elseif (Test-Path \"$env:USERPROFILE\\.local\\bin\\claude.cmd\") { exit 0 } else { exit 1 }",
+        "windows_shell": true
       },
       "install": {
         "mode": "auto-with-confirmation",
@@ -120,6 +164,9 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v python3 || command -v python",
+        "shell": true,
+        "windows": "if (Get-Command python3 -ErrorAction SilentlyContinue) { exit 0 } elseif (Get-Command python -ErrorAction SilentlyContinue) { exit 0 } elseif (Get-Command py -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
+        "windows_shell": true,
         "ref": "_co_probe_python"
       },
       "install": {
@@ -133,7 +180,10 @@
       "tier": "hard",
       "probe": {
         "kind": "command_succeeds",
-        "cmd": "bash -c '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) ))'"
+        "cmd": "bash -c '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) ))'",
+        "shell": true,
+        "windows": "bash -c '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) ))'; if ($LASTEXITCODE -eq 0) { exit 0 } else { exit 1 }",
+        "windows_shell": true
       },
       "install": {
         "mode": "manual",
@@ -147,6 +197,8 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v gh",
+        "shell": true,
+        "windows": "where.exe gh",
         "ref": "_co_probe_gh"
       },
       "install": {
@@ -161,6 +213,8 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v node",
+        "shell": true,
+        "windows": "where.exe node",
         "ref": "_co_probe_node"
       },
       "install": {
@@ -172,26 +226,14 @@
       "reference": "coordinator/scripts/lib/prereq_probe.sh"
     },
     {
-      "id": "typescript",
-      "tier": "semi-hard",
-      "probe": {
-        "kind": "command_succeeds",
-        "cmd": "command -v tsc"
-      },
-      "install": {
-        "mode": "auto-with-confirmation",
-        "posix": "npm install -g typescript",
-        "windows": "npm install -g typescript",
-        "remediation": "install TypeScript globally: npm install -g typescript (requires node — coordinator installs both)."
-      },
-      "reference": "coordinator/cockpit-contract/package.json"
-    },
-    {
       "id": "clone_auth",
       "tier": "semi-hard",
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v gh || command -v glab",
+        "shell": true,
+        "windows": "if (Get-Command gh -ErrorAction SilentlyContinue) { exit 0 } elseif (Get-Command glab -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }",
+        "windows_shell": true,
         "ref": "_co_probe_clone_auth"
       },
       "install": {
@@ -206,6 +248,8 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v uv",
+        "shell": true,
+        "windows": "where.exe uv",
         "ref": "_co_probe_uv"
       },
       "install": {
@@ -220,6 +264,8 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v pwsh",
+        "shell": true,
+        "windows": "where.exe pwsh",
         "ref": "_co_probe_pwsh"
       },
       "install": {
@@ -262,6 +308,8 @@
       "probe": {
         "kind": "command_succeeds",
         "cmd": "command -v UnrealEditor",
+        "shell": true,
+        "windows": "where.exe UnrealEditor",
         "ref": "_co_probe_ue"
       },
       "install": {

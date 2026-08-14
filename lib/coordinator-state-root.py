@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """coordinator-state-root.py — Python-native CLI trampoline over claude-klabauter
 coordinator_core.state_root.coordinator_state_root.
 

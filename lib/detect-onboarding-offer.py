@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """detect-onboarding-offer.py — CLI trampoline over claude-klabauter coordinator_core.ops.detect_onboarding_offer.
 
 Session-preflight onboarding currency detector for /workday-start Step 1.10: checks

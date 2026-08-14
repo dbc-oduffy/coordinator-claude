@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """handoff-stamp-phase.py — CLI trampoline over claude-klabauter's `handoff.stamp_phase`
 op, the sibling landed entrypoint `handoff-archive-transition.py` did not yet
@@ -96,9 +95,21 @@ import cc_invoke  # noqa: E402
 
 PROG = "handoff-stamp-phase.py"
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+def _no_console_kw() -> dict:
+    """Lazily resolve the engine root onto sys.path (self-location-first via
+    cc_invoke.ensure_engine_on_path — see that function's docstring), then
+    splat the canonical no-console-window kwarg. ``{}`` on any resolution/
+    import failure (fail-open)."""
+    try:
+        if cc_invoke.ensure_engine_on_path(__file__) is None:
+            return {}
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:
+        return {}
+
 
 # Duplicated from coordinator_core/ops/handoff_phase_stamp.py's own
 # _VALID_PHASES on purpose: this local tuple drives argparse's `choices=`,
@@ -130,7 +141,7 @@ def _resolve_repo_root(handoff_path: str) -> str | None:
             ["git", "-C", os.path.dirname(handoff_abs), "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError:
         return None

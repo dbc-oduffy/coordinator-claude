@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workweek-start-goal-and-priorities.py — imperative logic ported OUT of
 DoE-claude's coordinator/commands/workweek-start.md Step 5/6/6.5 bash fences
 (M3 chunk C-WWS, 2026-07 bash-kill campaign).
@@ -58,6 +57,41 @@ except ImportError:  # pragma: no cover - venv-resident dep, see install-surface
 
 _HERE = Path(__file__).resolve().parent
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# Generator-provenance declaration (generator_provenance.py).
+# cmd_scaffold_goal writes state/goals/<date>-<slug>-<sid>.yaml;
+# cmd_commit_priorities/cmd_commit_archive_reset commit
+# state/week-changelog/HEADER*.md and archive/week-changelogs/<prior-week>/ --
+# a data-dependent per-session/per-week target set, not a fixed artifact.
+MUTATES = [
+    "state/goals/*.yaml",
+    "state/week-changelog/*.md",
+    "archive/week-changelogs/**",
+]
+
+
+def _no_console_passthrough_kw() -> dict:
+    """Local twin of `coordinator_core.win_portability.no_console_passthrough_kwargs`.
+
+    DELIBERATE DUPLICATION, same reason as `_resolve_claude_klabauter._is_executable`:
+    this script imports stdlib + yaml only and must keep running without
+    coordinator_core importable. Keep the two in sync by hand.
+
+    Why the fds are needed at all: `creationflags=CREATE_NO_WINDOW` with no
+    stdout=/stderr= makes CPython omit STARTF_USESTDHANDLES, so the child
+    binds its handles to the fresh window-less console the flag allocates
+    instead of inheriting this process's -- and its output is lost. Gate:
+    coordinator_core/tests/test_no_output_swallowing_no_console_spawn.py.
+    """
+    kwargs: dict = {"creationflags": _NO_WINDOW}
+    for key, stream in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+        try:
+            fd = stream.fileno()
+        except (AttributeError, ValueError, OSError):
+            continue
+        if fd >= 0:
+            kwargs[key] = fd
+    return kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +277,7 @@ def cmd_scaffold_goal(args: argparse.Namespace) -> int:
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    doc_new = _HERE / "coordinator-doc-new"
+    doc_new = _HERE / "coordinator-doc-new.py"
     proc = subprocess.run(
         [
             os.environ.get("COORDINATOR_PYTHON", sys.executable),
@@ -327,7 +361,7 @@ def cmd_emit_goal_event(args: argparse.Namespace) -> int:
         ],
         text=True,
         check=False,
-        creationflags=_NO_WINDOW,
+        **_no_console_passthrough_kw(),
     )
     return proc.returncode
 

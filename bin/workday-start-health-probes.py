@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """workday-start-health-probes.py — day-start health-probe imperative logic,
 ported off DoE-claude's `coordinator/commands/workday-start.md`.
@@ -160,7 +159,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from coordinator_core.machine_resolver import registry_get  # noqa: E402
-from coordinator_core.win_portability import is_executable  # noqa: E402
+from coordinator_core.win_portability import is_executable, no_console_creationflags  # noqa: E402
 from cli_shared import machine_local_impl, resolve_python  # noqa: E402
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -248,7 +247,7 @@ def cmd_observer_sidecar_scan(argv: list[str]) -> int:
         [sys.executable, _sibling("stitch-observer-sidecar.py"), "--scan", scan_dir],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
     if proc.returncode == 1:
@@ -271,7 +270,7 @@ def cmd_observer_sidecar_scan(argv: list[str]) -> int:
 def cmd_claude_klabauter_bin_sentinel(argv: list[str]) -> int:
     del argv  # no flags accepted
     mkb_bin = _SCRIPT_DIR
-    sentinel = os.path.join(mkb_bin, "archive-stamp-cli")
+    sentinel = os.path.join(mkb_bin, "archive-stamp-cli.py")
     if not os.path.isdir(mkb_bin):
         print(
             f"CLAUDE-KLABAUTER-BIN PROBE: '{mkb_bin}' missing — wrong checkout or stale clone; "
@@ -282,7 +281,8 @@ def cmd_claude_klabauter_bin_sentinel(argv: list[str]) -> int:
     if not (os.path.isfile(sentinel) and is_executable(sentinel)):
         print(
             f"CLAUDE-KLABAUTER-BIN PROBE: sentinel '{sentinel}' missing or not executable — "
-            "stale/partial engine-repo migration; re-sync/re-clone the engine repo",
+            f"stale/partial engine-repo migration; restore this one file, e.g. "
+            f"`git checkout -- {sentinel}`",
             file=sys.stderr,
         )
         return 1
@@ -298,7 +298,7 @@ def cmd_ceremony_hook(argv: list[str]) -> int:
         [sys.executable, _sibling("coordinator-ceremony-hook.py"), ceremony_name],
         capture_output=True,
         text=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
     if proc.returncode != 0:
         # Defensive-only: coordinator-ceremony-hook.py's own contract is
@@ -414,7 +414,7 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
             capture_output=True,
             text=True,
             timeout=_FIX_SPAWN_TIMEOUT,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(

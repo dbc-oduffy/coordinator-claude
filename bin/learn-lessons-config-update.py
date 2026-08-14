@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 learn-lessons-config-update.py — CLI trampoline over claude-klabauter
@@ -35,7 +34,7 @@ exits 0 (idempotent; safe as a Phase 0 call)"). A claude-klabauter-link failure
 on stderr and exits 0, not 1 -- unlike a fail-loud gate/config-writer
 trampoline, this script must never block whatever Phase-0 flow invokes it.
 
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
 Prior bash implementation: see git log (learn-lessons-config-update.py, 49 lines)
 """
 

@@ -2,7 +2,7 @@
 
 > **Source of truth.** This directory is the load-bearing module that resolves where `~/.claude.json` and `~/.claude/` live, with `CLAUDE_HOME` as the deliberate audited override. `/coordinator:install` Phase 3 Step 3 copies these artifacts into `~/.claude/bin/`; peer install scripts consume from the installed location.
 >
-> **Doctrine.** [`docs/wiki/machine-local-registry.md § 4a`](../../docs/wiki/machine-local-registry.md) — env-var precedence, filesystem layout invariants, cross-repo alignment policy.
+> **Doctrine.** `docs/wiki/machine-local-registry.md § 4a` (source-repo doctrine wiki, not part of this mirror's published surface) — env-var precedence, filesystem layout invariants, cross-repo alignment policy.
 
 ## Artifacts in this directory
 
@@ -111,4 +111,4 @@ else:
     # NOW the central module handles CONTENTS resolution with full CLAUDE_HOME precedence.
 ```
 
-Doctrine: [`docs/wiki/machine-local-registry.md § 4a`](../../docs/wiki/machine-local-registry.md) — bootstrap-vs-contents distinction formalized in the same section that owns the env-var precedence chain.
+Doctrine: `docs/wiki/machine-local-registry.md § 4a` (source-repo doctrine wiki, not part of this mirror's published surface) — bootstrap-vs-contents distinction formalized in the same section that owns the env-var precedence chain.

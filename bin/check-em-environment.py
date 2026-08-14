@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-em-environment.py — CLI trampoline over claude-klabauter coordinator_core.ops.check_em_environment.
@@ -27,7 +26,7 @@ The bash oracle's own final line is an unconditional `exit 0`; this trampoline
 preserves that even on CLAUDE_KLABAUTER_ROOT-resolution / import failure (unlike a
 fail-loud gate/config-writer trampoline, which would sys.exit(1) there).
 
-Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 """
 
 from __future__ import annotations

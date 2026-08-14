@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """refresh-queries.py — CLI trampoline over the query-callout refresh engine.
 
 Thin DoE-side (contract) trampoline over claude-klabauter
@@ -66,7 +65,7 @@ from __future__ import annotations
 #       import failure AT THIS trampoline layer (see below), still distinct
 #       from both CLI-usage (2) and business (1) failure.
 #
-# Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+# Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
 # Port recipe: DoE scratch/subagent-sandbox/bash-to-python-engine-migration/
 # recipe-normalize-snippet.md (byte-parity port discipline)
 # Prior node implementation: coordinator/bin/refresh-queries.js — retired in

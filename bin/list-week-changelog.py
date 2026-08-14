@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 list-week-changelog.py — CLI trampoline over claude-klabauter coordinator_core.ops.list_week_changelog.
@@ -28,7 +27,7 @@ print, never a gate; the original bash oracle's `trap 'exit 0' ERR` enforced
 the same never-block contract. Mirrors coordinator-auto-push's exit-0-always
 shape, not handoff-gate-aging's fail-loud shape.
 
-Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 Port of: coordinator/bin/list-week-changelog.py (this file; body replaced by
          this trampoline, see git log for the prior bash implementation)
 """

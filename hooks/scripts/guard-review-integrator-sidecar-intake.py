@@ -62,7 +62,7 @@ import json
 import os
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Optional
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -84,13 +84,30 @@ _WIKI_ANCHOR = (
 # Repo-relative shape only, per review-integrator.md's canonical provisioned
 # path (`state/subagent-share/<session>/<key>.md`) -- mirrors
 # enforce-agent-dispatch-mode.py's `_PLAN_PATH_RE` widening rationale: the
-# leading char-class includes "/" so an absolute brief citation (e.g.
-# ".../DoE-claude/state/subagent-share/<session>/<key>.md") still matches,
+# leading char-class includes both separators so an absolute brief citation
+# (POSIX ".../state/subagent-share/<session>/<key>.md" or Windows
+# "...\state\subagent-share\<session>\<key>.md") still matches,
 # because the capture group only ever starts at the literal
-# "state/subagent-share/" prefix -- an absolute prefix before that point is
-# excluded from the match by construction.
+# "state<sep>subagent-share<sep>" prefix -- an absolute prefix before that
+# point is excluded from the match by construction.
+#
+# NEGATIVE SPEC -- both separators are admitted in the same alternation, never
+# a POSIX-only spelling. A forward-slash-only anchor denies a correct,
+# on-disk, absolute Windows citation, which is the spelling every Windows tool
+# result and directory listing produces; a denial that fires on a correct
+# citation trains EMs to reshape prompts until the guard stops complaining,
+# which is the failure mode this guard exists to prevent. Multi-OS support is
+# P0 here (project CLAUDE.md § Runtime conventions) -- a separator assumption
+# is a correctness defect, not a style nit. This alternation is
+# separator-family-only -- do not extend it to other `state/` roots (e.g.
+# `state/plan-sidecars/`) without a matching intake-contract change: per
+# [guard-message-concision.md § review-integrator-sidecar-intake](coordinator/docs/wiki/guard-message-concision.md#review-integrator-sidecar-intake),
+# widening this regex to also admit `state/plan-sidecars/` would erase the
+# reap-lifecycle distinction between session-keyed persona-findings sidecars
+# (reaped on an age/liveness floor) and the four UNREAPED-BY-DESIGN
+# plan-derivable lens sidecars that live there by design.
 _SIDECAR_PATH_RE = re.compile(
-    r"(?:^|[\s(\[\"'`/])(state/subagent-share/[^\s()\[\]\"'`,;:]+\.md)"
+    r"(?:^|[\s(\[\"'`/\\])(state[/\\]subagent-share[/\\][^\s()\[\]\"'`,;:]+\.md)"
 )
 
 
@@ -98,6 +115,20 @@ def _extract_candidate_paths(prompt: str) -> "list[str]":
     if not prompt:
         return []
     return [m.group(1) for m in _SIDECAR_PATH_RE.finditer(prompt)]
+
+
+def _candidate_spellings(candidate: str) -> "list[str]":
+    """Every repo-relative spelling of `candidate` worth an on-disk probe.
+
+    The as-captured spelling is probed first so a POSIX host -- where a
+    backslash is a legal filename character rather than a separator -- keeps
+    exact-match semantics; the separator-swapped spelling is the additional
+    probe that makes a Windows-spelled citation of a real file resolve."""
+    spellings = [candidate]
+    swapped = PureWindowsPath(candidate).as_posix()
+    if swapped != candidate:
+        spellings.append(swapped)
+    return spellings
 
 
 def _normalize_subagent_type(raw: Optional[str]) -> str:
@@ -208,12 +239,12 @@ def main() -> int:
     root = _git_root(start) or start
 
     for candidate in candidates:
-        full = Path(root) / candidate
-        try:
-            if full.is_file():
-                return 0
-        except Exception:
-            continue
+        for spelling in _candidate_spellings(candidate):
+            try:
+                if (Path(root) / spelling).is_file():
+                    return 0
+            except Exception:
+                continue
 
     out = {
         "hookSpecificOutput": {

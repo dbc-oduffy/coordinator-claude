@@ -13,11 +13,15 @@ never blocks. The nudge redirects, it does not gate, matching the
 design-as-offers doctrine (a hard deny would wedge a legitimate
 irreversible-external ask).
 
-Fires ONLY when the autonomous sentinel /tmp/autonomous-run-<SESSION_ID> is
-present -- inert in every non-autonomous session. See commands/autonomous.md
-§ Behavior While Active for the doctrine this hook echoes back to the EM.
+Fires when the autonomous sentinel /tmp/autonomous-run-<SESSION_ID> is
+present, OR the resolved `engagement_posture` (see `_posture.py`) is
+"default" or "substrate-free" -- the ask-bar disposition this hook advises
+is standing at those postures, not a manual opt-in. Inert only at posture
+"precision" with no sentinel. See commands/autonomous.md § Behavior While
+Active for the doctrine this hook echoes back to the EM.
 
-Spec backlink: fix4-report.md §3-4 (ceremony-bugfix-substrate scout sketch).
+Spec backlink: fix4-report.md §3-4 (ceremony-bugfix-substrate scout sketch);
+docs/plans/2026-08-10-posture-scaled-autonomous-disposition.md (chunk C2).
 
 Suppression conditions (preserved verbatim from the bash oracle, in order):
   1. agent_id present -- a delegated worker's AskUserQuestion is not the EM's
@@ -30,8 +34,9 @@ Suppression conditions (preserved verbatim from the bash oracle, in order):
      convention (COORDINATOR_AGENT_FOREGROUND_OK=1, COORDINATOR_OVERRIDE_*).
   3. session_id absent/unresolvable -- cannot resolve the sentinel path ->
      fail-open, inert.
-  4. Sentinel /tmp/autonomous-run-<session_id> absent -- not inside an active
-     autonomous run -> inert.
+  4. Neither the sentinel /tmp/autonomous-run-<session_id> nor a
+     "default"/"substrate-free" resolved posture -> not in an active
+     autonomous run and posture is "precision" -> inert.
 
 Contract (mirrors the bash hook it replaces):
   stdin   -- PreToolUse JSON (agent_id, session_id, ...)
@@ -43,8 +48,11 @@ Contract (mirrors the bash hook it replaces):
 
 Graceful degradation -- any failure to parse stdin, or any unexpected
 exception, falls through to fail-open (exit 0, no stdout). This hook has no
-sibling engine to resolve (self-contained), so the only failure surface is
-stdin parsing / filesystem stat, both guarded.
+sibling engine to resolve (self-contained). Failure surfaces are stdin
+parsing, filesystem stat, and posture resolution (`_posture.py`) -- all
+three guarded, the last both internally (its own fail-open body) and at
+this call site (defense in depth, since `_posture.py` is imported by
+sibling hooks that do block).
 """
 
 from __future__ import annotations
@@ -56,16 +64,14 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _message_envelope import compose, render  # noqa: E402
+from _posture import resolve_posture  # noqa: E402
 
 _NUDGE_PROSE = (
     "AskUserQuestion halts autonomous mode for PM return -- the "
-    "costliest action. Fix-class findings are yours to decide, not ask."
+    "costliest action. Fix-class findings are yours to decide, not ask. "
+    "Advisory only -- this call is always allowed to proceed."
 )
-_NUDGE_ALTERNATIVE = "export COORDINATOR_AUTONOMOUS_ASK_OK=1"
-_NUDGE_ANCHOR = (
-    "coordinator/docs/wiki/guard-message-concision.md"
-    "#autonomous-mode-askuserquestion-nudge"
-)
+_NUDGE_ANCHOR = "coordinator/docs/wiki/guard-unlock-channel.md"
 
 
 def main() -> int:
@@ -100,7 +106,10 @@ def main() -> int:
     if not session_id:
         return 0
 
-    # --- Bypass 4: sentinel gate -- only fire inside an active autonomous run ---
+    # --- Bypass 4: sentinel gate OR standing posture -- fire inside an
+    # active autonomous run, OR when the resolved engagement_posture is
+    # "default"/"substrate-free" (the ask-bar disposition is standing at
+    # those postures, not gated behind a manual sentinel toggle).
     # The bash oracle hardcodes "/tmp/autonomous-run-<sid>". A naive literal
     # port ("/tmp/...") is WRONG under a Windows-native python3.exe: Git
     # Bash's /tmp is an MSYS mount, not a real filesystem root -- MSYS bash
@@ -112,12 +121,19 @@ def main() -> int:
     # so this is the portable equivalent, not a behavior change.
     sentinel_path = os.path.join(tempfile.gettempdir(), f"autonomous-run-{session_id}")
     try:
-        if not os.path.isfile(sentinel_path):
-            return 0
+        sentinel_present = os.path.isfile(sentinel_path)
     except Exception:
-        return 0  # fail-open -- stat failure
+        sentinel_present = False  # fail-open -- stat failure
 
-    message = compose(_NUDGE_PROSE, alternative=_NUDGE_ALTERNATIVE, anchor=_NUDGE_ANCHOR)
+    try:
+        posture = resolve_posture()
+    except Exception:
+        posture = "precision"  # fail-open -- posture resolution failure
+
+    if not sentinel_present and posture not in ("default", "substrate-free"):
+        return 0
+
+    message = compose(_NUDGE_PROSE, anchor=_NUDGE_ANCHOR)
     result = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",

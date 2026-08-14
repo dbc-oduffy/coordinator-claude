@@ -11,7 +11,7 @@ NO install-time (or session-time) self-registration, so a fresh clone, a wiped
 registry, or an operator typo leaves the key silently wrong or absent, and
 `_engine_root.py`'s working-repo gate (`_is_engine_working_repo()`) can never
 confirm this repo as a working repo on that machine. This hook closes that gap
-from THIS repo's own plane — DoE-claude cannot wait on an engine-plane
+from THIS repo's own plane — this repo cannot wait on an engine-plane
 installer change for a discriminant that governs whether THIS repo's own
 sessions resolve the live engine checkout or the published engine.
 
@@ -58,8 +58,8 @@ so unit tests can substitute a in-memory recorder for the real subprocess
 spawn — no shelling out required to unit test the decision logic above it.
 
 Wrong-repo guard (Non-negotiable #7 in this hook's dispatch brief): this
-hook must NEVER register a tree that is not genuinely the DoE-claude working
-repo, because a false positive here would divert a *consumer* repo's own
+hook must NEVER register a tree that is not genuinely this repo's own working
+tree, because a false positive here would divert a *consumer* repo's own
 session away from the published engine forever — the exact failure DR-132
 exists to prevent. Chosen guard: presence of `.coordinator-dev-repo` at the
 resolved repo root (a repo-root, not `coordinator/`-relative, sentinel; see
@@ -67,7 +67,7 @@ that file's own header for why its location is load-bearing and must never
 move) AND its `slug: doe-claude` content line matches. Presence-only would
 already be sufficient in practice — `.coordinator-dev-repo` is structurally
 absent from every OSS/marketplace install and from every consumer repo,
-since the one-way DoE->OSS percolation sweep (`coordinator/.percolate-ignore`)
+since the one-way doctrine-plane->OSS percolation sweep (`coordinator/.percolate-ignore`)
 never touches the repo root, only `coordinator/`'s own contents (see
 CLAUDE.md "Both trees are named 'coordinator-claude'; they are NOT the same
 tree" and the sentinel's own header comment) — but this hook additionally

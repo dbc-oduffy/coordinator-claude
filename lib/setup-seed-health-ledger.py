@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # skills/repo-setup/SKILL.md Phase 3j invokes this file as
 # `"$PYTHON_BIN" "${PYTHON_ARGS[@]}" "${_PLUGIN_ROOT}/lib/setup-seed-health-ledger.py" "$(pwd)"`.
 """
@@ -31,7 +30,7 @@ Exit codes: 0 — ledger seeded or already present (idempotent no-op); 1 — bad
 REPO_ROOT, or state/ directory/ledger file could not be created (fail-loud —
 this is a setup-time gate/config-writer, not a never-block hook).
 
-Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 """
 
 from __future__ import annotations

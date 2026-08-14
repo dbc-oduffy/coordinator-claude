@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 check-harvest-debt.sh — CLI trampoline over claude-klabauter
@@ -31,7 +30,7 @@ nudge or silent; 1 = archive/specs/ present but canonical log absent —
 fail-loud, see the claude-klabauter module's own docstring) are UNCHANGED and produced
 by check_harvest_debt.main() itself once import succeeds.
 
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292
 """
 
 from __future__ import annotations

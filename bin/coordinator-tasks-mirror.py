@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """coordinator-tasks-mirror.py — disk mirror for completeness-checklist items.
 
@@ -7,7 +6,7 @@ items created by /pickup Step 5.5. The mirror lives at state/tasks/<sid>/<name>.
 under the repo root — protected `state/` substrate (NOT bare tasks/, which is swept
 aggressively by /distill and /update-docs).
 
-Spec backlink: docs/plans/2026-07-06-ceremony-as-pipeline-2-doe-land-d-slice.md § C1.2
+Spec backlink: DoE-claude:pln-ceremony-as-pipeline-2-land-th-aa5ace § C1.2
 Negative-spec: This script is ONLY called from within pickup Step 5.5's
 completeness_checklist gate. It is NOT called unconditionally; absent
 completeness_checklist baton field -> this helper is never invoked.
@@ -38,7 +37,9 @@ cs_resolve_session_id. Fix-in-port (DR-059): the coordinator-root resolution +
 trusted-root-guard dance existed ONLY as bash's mechanism for safely `source`-ing a
 sibling script — it is not needed here. This port imports
 coordinator_core.session.core.resolve_session_id directly (via
-cc_invoke._resolve_claude_klabauter_root() for CLAUDE_KLABAUTER_ROOT resolution, matching every other
+cc_invoke.resolve_engine_root() for CLAUDE_KLABAUTER_ROOT resolution — self-location-first,
+so this co-located script finds its own checkout even on an install whose
+machine-local registry was never populated — matching every other
 Windows-campaign per-op port) — no bash-source chain, no coordinator-root trust check,
 one fewer subprocess than the bash oracle's shell-wrapping-python shape.
 
@@ -56,7 +57,6 @@ from __future__ import annotations
 import datetime
 import os
 import re
-import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -65,10 +65,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402
-
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _resolve_session_id(cwd: str) -> str:
@@ -77,29 +74,33 @@ def _resolve_session_id(cwd: str) -> str:
     Raises RuntimeError on CLAUDE_KLABAUTER_ROOT/import failure (caller maps to exit 1,
     matching the bash oracle's fail-loud coordinator-root-unresolved path).
     """
-    claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    cc_invoke.require_engine_on_path(__file__)
     from coordinator_core.session.core import resolve_session_id as _resolve
 
     return _resolve(cwd)
 
 
-def _resolve_repo_root() -> str | None:
-    """Resolve the current git worktree root from PWD (no shell)."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-    except OSError:
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
+def _resolve_repo_root() -> tuple[str | None, str | None]:
+    """Resolve the current git worktree root via the checked resolver.
+
+    WRITER script: this entry writes state/tasks/<sid>/<slug>.yaml under the
+    resolved repo. Returns (root, mismatch_message) — on a positive
+    MISMATCH, root is None and mismatch_message carries the refusal text
+    (DR-277 carve-out: prevents a write into a foreign tree). UNRESOLVED
+    never refuses (DR-277, AC4).
+    """
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        return None, verdict["message"]
+    if not root:
+        # No git root resolved from cwd at all -- distinct from the
+        # MISMATCH identity gate above (positive evidence of a DIFFERENT
+        # real repo). This is "nowhere to write"; refusing at the call
+        # site below is not the AC4 "UNRESOLVED never refuses" carve-out
+        # being violated. mismatch_message stays None so the caller prints
+        # its own generic no-repo message rather than a MISMATCH string.
+        return None, None
+    return root, None
 
 
 def _now_iso() -> str:
@@ -235,9 +236,12 @@ def main(argv: list[str]) -> int:
 
     cmd, name = args[0], args[1]
 
-    repo_root = _resolve_repo_root()
+    repo_root, mismatch_message = _resolve_repo_root()
     if repo_root is None:
-        print("ERROR: not inside a git repo; cannot resolve state/ path.", file=sys.stderr)
+        if mismatch_message:
+            print(mismatch_message, file=sys.stderr)
+        else:
+            print("ERROR: not inside a git repo; cannot resolve state/ path.", file=sys.stderr)
         return 1
 
     try:

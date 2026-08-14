@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """verify-subagent-sandbox-preamble-sync.py — sentinel-block sync gate for scoped subagent prompts.
 
@@ -80,7 +79,7 @@ from __future__ import annotations
 # for script_dir since this module also needs it to locate
 # lib/sentinel-blocks-cli.js).
 #
-# Spec backlink: docs/plans/2026-07-16-bash-clean-slate-residual-migration.md
+# Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 
 import os
 import sys
@@ -123,7 +122,7 @@ def _resolve_plugin_root() -> str:
         root = doe_root()
     except _DoeUnresolvable as exc:
         print(
-            "verify-subagent-sandbox-preamble-sync.py: cannot resolve the DoE-claude repo root "
+            "verify-subagent-sandbox-preamble-sync.py: cannot resolve the coordinator doctrine repo root "
             f"({exc}). Set repos.doe_claude in the machine-local registry, or set "
             "the DOE_ROOT env var, or set CLAUDE_PLUGIN_ROOT directly.",
             file=sys.stderr,

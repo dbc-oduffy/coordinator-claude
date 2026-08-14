@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workweek-complete-close.py — closing-orchestration CLI for /workweek-complete.
 
 Ports the residual imperative logic that was still hand-authored inline as
@@ -55,12 +54,24 @@ Spec backlink: docs/plans/2026-06-27-post-summary-completion-loop-closure.md § 
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
+
+# Generator-provenance declaration (generator_provenance.py).
+# perform_archive_files moves the closing week's daily/priorities files into
+# archive/week-changelogs/<week-starting>/ and archive/review-trail/
+# <week-starting>/, and rewrites state/week-changelog/HEADER.md -- a
+# data-dependent target set keyed on week_starting, not a fixed artifact.
+MUTATES = [
+    "state/week-changelog/*.md",
+    "archive/week-changelogs/**/*.md",
+    "archive/review-trail/**",
+]
 
 _BIN_DIR = Path(__file__).resolve().parent
 _LIB_DIR = _BIN_DIR / "lib"
@@ -169,9 +180,48 @@ def _relocate_or_move(
     shutil.move(str(src), str(dst))
 
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+def _no_console_kw() -> dict:
+    """Splat-ready Windows console-suppression kwarg. Falls back to the same
+    suppression kwargs computed inline (zero imports beyond ``subprocess``) on
+    any resolution failure, rather than silently dropping console suppression —
+    a resolution failure must never turn a quiet spawn into a visible console
+    window (Review: code-reviewer P2 — matched to the pattern ccbdbecc2 applied
+    to sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py)."""
+    try:
+        _ensure_claude_klabauter_root_on_path()
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
+        # `{}` off Windows, matching the primitive's own POSIX contract exactly --
+        # `{"creationflags": 0}` splats harmlessly too, but a substitute that
+        # disagrees with the thing it substitutes for is a trap for any caller
+        # comparing against `no_console_creationflags()`.
+        if os.name != "nt":
+            return {}
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
+def _no_console_passthrough_kw() -> dict:
+    """`_no_console_kw` for a child whose output must reach the operator.
+
+    Console suppression alone makes the child bind its standard handles to the
+    fresh window-less console CREATE_NO_WINDOW allocates instead of inheriting
+    this process's, so its output (here: git's own add/commit/push reporting)
+    is written where nobody can read it. Canonical implementation, kept in sync
+    by hand because this file fails open without coordinator_core:
+    `coordinator_core.win_portability.no_console_passthrough_kwargs`.
+    """
+    kwargs = dict(_no_console_kw())
+    for key, stream in (("stdout", sys.stdout), ("stderr", sys.stderr)):
+        try:
+            fd = stream.fileno()
+        except (AttributeError, ValueError, OSError):
+            continue
+        if fd >= 0:
+            kwargs[key] = fd
+    return kwargs
+
 
 _DELTA_RE = re.compile(r"delta=(\d+)")
 _WEEK_STARTING_RE = re.compile(r"\*\*Week starting:\*\*[ \t]*(.*)")
@@ -301,7 +351,7 @@ def _query_pending_release_paths(query_script: str, since: str, limit: int) -> l
             ],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError:
         return []
@@ -320,7 +370,7 @@ def _run_reconcile_helper(reconcile_script: str, session_id: str, entry_path: st
             [sys.executable, reconcile_script, "--session-id", session_id, entry_path],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **_no_console_kw(),
         )
     except OSError as exc:
         return 2, str(exc)
@@ -556,7 +606,7 @@ def _resolve_branch(repo_root: Path, branch_script: str) -> str:
         cwd=repo_root,
         capture_output=True,
         text=True,
-        creationflags=_NO_WINDOW,
+        **_no_console_kw(),
     )
     return result.stdout.strip()
 
@@ -573,7 +623,7 @@ def git_commit_and_push(
     canonical (case-correct) branch name rather than `git branch
     --show-current` — see that script's own docstring for why."""
     subprocess.run(
-        ["git", "add", "--", *paths], cwd=repo_root, check=True, creationflags=_NO_WINDOW
+        ["git", "add", "--", *paths], cwd=repo_root, check=True, **_no_console_passthrough_kw()
     )
     # A3 fix: pathspec-scoped commit, not a bare `git commit -m`. This runs
     # on a shared branch (other executors/EMs may have their own staged
@@ -583,7 +633,7 @@ def git_commit_and_push(
         ["git", "commit", "-m", message, "--", *paths],
         cwd=repo_root,
         check=True,
-        creationflags=_NO_WINDOW,
+        **_no_console_passthrough_kw(),
     )
     if push:
         branch = _resolve_branch(repo_root, branch_script)
@@ -591,7 +641,7 @@ def git_commit_and_push(
             print("archive: could not resolve current branch — skipping push", file=sys.stderr)
             return 1
         subprocess.run(
-            ["git", "push", "origin", branch], cwd=repo_root, check=True, creationflags=_NO_WINDOW
+            ["git", "push", "origin", branch], cwd=repo_root, check=True, **_no_console_passthrough_kw()
         )
     return 0
 

@@ -7,7 +7,7 @@ bookkeeping records) with ONE `python3` hook entry -- zero Git-Bash cold-start
 per edit on Windows (each bash.exe spawn costs 200-500ms; this is the whole
 point).
 
-DoE owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
+The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carve-out): resolve
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 bookkeeping LOGIC (coordinator_core.hooks.track_touched_files, registered under
 the JSON-RPC method "hooks.track_touched_files"). The engine is imported and run

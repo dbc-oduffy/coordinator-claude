@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """normalize-consumed-frontmatter.py — reconciles a record's frontmatter with its consumed marker.
 
 Flips a record's frontmatter to match its body's `<!-- consumed: YYYY-MM-DD
@@ -49,7 +48,7 @@ from __future__ import annotations
 #   3 — TRANSPORT failure: CLAUDE_KLABAUTER_ROOT resolution or
 #       coordinator_core.ops.normalize_claimed_frontmatter import failed.
 #
-# Spec backlink: docs/plans/2026-07-21-depolyglot-coordinator-js-to-python.md
+# Spec backlink: DoE-claude:pln-de-polyglot-the-coordinator-mi-119303
 #     § Tasks B1 (chunk B1-E2)
 # Port source: coordinator_core/ops/normalize_claimed_frontmatter.py
 #     (claude-klabauter, renamed from normalize_consumed_frontmatter per

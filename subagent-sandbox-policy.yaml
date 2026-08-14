@@ -67,6 +67,7 @@ report_sidecar:
   - coordinator:external-pattern-checker
   - coordinator:dep-cve-auditor
   - coordinator:test-evidence-parser
+  - coordinator:test-runner
 # 2026-07-30 (dispatch-tiering, Leg B): coordinator:atlassian-worker and
 # coordinator:drive-worker were removed from this list — dispatch_tier: (below)
 # classifies both as exploration tier (write-toolless, clause (1)), so neither is
@@ -83,11 +84,23 @@ report_sidecar:
 # nothing", never a hard failure or a blocked spawn.
 
 # report_type_map:  dict[str, str] — subagent_type -> template type, additive
-# on top of report_sidecar (does NOT replace or restructure it). Consumed by
-# a doctrine-side hook to pick which of the provisioning engine's four
-# `provision_report --type` templates (run-report / review-findings /
-# assessment / staff-eng-review) an eligible subagent_type's auto-provisioned
-# sidecar should use. Every key here MUST also be report_sidecar-eligible
+# on top of report_sidecar (does NOT replace or restructure it). Selects which
+# of the provisioning engine's four `provision_report --type` templates
+# (run-report / review-findings / assessment / staff-eng-review) an eligible
+# subagent_type's auto-provisioned sidecar should use.
+#
+# TWO consumers, not one:
+#   (a) a doctrine-side hook, on the `Agent`-tool spawn path; and
+#   (b) the engine's `subagent_sandbox.engine.load_policy`, which parses this
+#       key so `provision-sidecar` resolves the same template on the Workflow
+#       path (where no `Agent`-tool hook fires).
+# What (b) depends on is the KEY NAME and the `str -> str` value grammar,
+# nothing more — rows may be added, removed, or re-pointed freely without
+# engine-side coordination. Parsing there is fail-open at both levels (a
+# non-dict value voids the map, a malformed row drops only itself, a
+# lookup-miss provisions the legacy shape). Renaming the key, or changing its
+# value grammar away from `str -> str`, breaks that consumer and needs the
+# lockstep relay this file's header requires. Every key here MUST also be report_sidecar-eligible
 # (see coordinator/tests/test_report_type_map.py) — a subagent_type cannot
 # get a typed sidecar unless it can get a sidecar at all. Every subagent_type
 # declared across coordinator/agents/*.md MUST appear here (no agent left
@@ -104,6 +117,9 @@ report_type_map:
   coordinator:security-audit-worker: review-findings
   coordinator:dep-cve-auditor: review-findings
   coordinator:test-evidence-parser: review-findings
+  # run-report, not review-findings: test-runner emits execution evidence with no
+  # findings and no dispositions — classification is test-evidence-parser's row above.
+  coordinator:test-runner: run-report
   coordinator:staff-eng: staff-eng-review
   coordinator:staff-data-sci: staff-eng-review
   coordinator:senior-front-end: staff-eng-review
@@ -260,6 +276,9 @@ dispatch_tier:
   coordinator:atlassian-worker: exploration
   coordinator:drive-worker: exploration
   coordinator:test-evidence-parser: review-execution
+  # test-runner executes; its report is the payload test-evidence-parser reads, so the
+  # same clause (2)(c) payload-size/EM-context rationale that tiers the parser applies.
+  coordinator:test-runner: review-execution
   coordinator:dep-cve-auditor: review-execution
   # no Write/Edit — clause (1) forces exploration tier, same as atlassian-worker/drive-worker
   coordinator:git-commit-agent: exploration
@@ -450,6 +469,7 @@ contract_blocks:
   # regardless of sidecar-emission status.
   coordinator:enricher:
     - provisioned-scaffold-precedence
+    - run-report-citizenship
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
   # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is
@@ -502,6 +522,11 @@ contract_blocks:
   coordinator:test-evidence-parser:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
+  coordinator:test-runner:
+    - provisioned-scaffold-precedence
+    - run-report-citizenship
+    - quota-self-detect-preamble
+    - no-grep-glob-harness-note
   coordinator:coverage-auditor:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
@@ -726,79 +751,30 @@ contract_blocks:
   # left empty, though: both still carry quota-self-detect-preamble (see that
   # row, above, in the contract_blocks: section) — that block is tier-
   # agnostic and applies to these two MCP-heavy retrieval workers regardless.
+# DECLARED KEYS ARE LOAD-BEARING; DECLARED RULESETS ARE NOT. Editing a
+# ruleset under a row here changes no enforced ALLOW/DENY. The engine
+# resolves a confined type's allowed Bash surface entirely in Python:
+# `_resolve_ruleset` in claude-klabauter
+# `coordinator_core/bash_guards/block_reviewer_bash_outside_allowlist.py`
+# terminates unconditionally in `_default_ruleset(effective_type)` +
+# `_DEFAULT_RULESET_TYPE_OVERRIDES` and does not read this table at all
+# (Divergence 14) — a confined reviewer holds an unconfined `Edit` that
+# reaches this file, so a policy-driven confinement was rewritable by the
+# very agent it confines.
+#
+# What a row here still does: `_is_confined_type` consults this table for
+# exact-key SET MEMBERSHIP, so a confined type must remain a key whose value
+# is a mapping — `engine.load_policy` silently drops any non-dict-valued
+# entry. That is the whole live contract of this section.
+#
+# The transcribed reviewer ruleset that used to sit here was removed once it
+# had drifted from the enforced one with nothing failing — nothing read it.
+# Do not re-transcribe one: a second copy of the allowlist is a trap, not
+# documentation. Read the Python.
+#
+# Bash only. No Write/Edit/MultiEdit surface is or was ever expressed here —
+# see the negative-spec block above, gated by
+# coordinator/tests/test_bash_policy_no_write_leg.py.
 bash_policy:
   coordinator:code-reviewer:
-    # Faithful transcription of code-reviewer's CURRENT allowlist as data —
-    # not a redesign — pinned by the engine-side reviewer Bash guard's own
-    # test suite against its allowlist-enforcement logic.
-    # Bash only. No Write/Edit/MultiEdit surface is or was ever expressed
-    # here — see the negative-spec block above.
-    #
-    # Tier A — read-only git inspection: subcommand allowlist (deny-by-
-    # omission — commit/push/add/checkout/stash/reset/config/etc. are all
-    # absent from this list and therefore denied).
-    git_readonly_subcommands:
-      - show
-      - diff
-      - log
-      - status
-      - blame
-      - ls-files
-      - rev-parse
-      - describe
-    # Tier A — git global options allowed BEFORE the subcommand. Deliberately
-    # excludes -c (arbitrary git-config injection, e.g. -c core.pager=evil)
-    # and --exec-path/--paginate — all write/exec-capable global options.
-    git_global_options:
-      value_taking:
-        - "-C"
-        - "--git-dir"
-        - "--work-tree"
-      no_value:
-        - "--no-pager"
-        - "--literal-pathspecs"
-    # Tier A — options denied on an otherwise-read-only git subcommand.
-    # --output/-o write to an arbitrary caller-chosen file; --ext-diff
-    # enables an external diff driver (arbitrary command execution via
-    # diff.<driver>.command config).
-    git_subcommand_denied_options:
-      - "--output"
-      - "-o"
-      - "--ext-diff"
-    # Tier A — read-only filesystem enumeration/inspection/search binaries.
-    readonly_fs_binaries:
-      - ls
-      - cat
-      - head
-      - tail
-      - wc
-      - find
-      - file
-      - stat
-      - grep
-    # Tier A — find flags denied even though find itself is read-only-tier.
-    find_denied_options:
-      - "-delete"
-      - "-exec"
-      - "-execdir"
-      - "-ok"
-      - "-okdir"
-      - "-fprint"
-      - "-fprintf"
-      - "-fls"
-    # Both tiers — unquoted shell-chaining metacharacters that deny
-    # regardless of tier (checked before either tier is evaluated).
-    denied_metacharacters:
-      - ";"
-      - "&&"
-      - "||"
-      - "|"
-      - "`"
-      - "$("
-      - ">"
-      - "<"
-      - "&"
-    # Tier B — the one allowlisted scaffolder command + its required
-    # argument (word-boundary match, not substring).
-    scaffolder_binary: coordinator-doc-new
-    scaffolder_required_arg: "--type review-findings"
+    declaration_only: true

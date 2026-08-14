@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """reap-stale-subagent-sidecars.py — delete-by-convention sweep over
 ``state/subagent-share/`` (DR-091's one-home for every identity-typed
@@ -75,7 +74,7 @@ Exit codes:
     2 — internal error (not inside a git repo, or the session-liveness
         engine is not importable)
 
-Spec backlink: docs/plans/2026-07-24-reviewer-sidecar-provisioning-reconciliation.md § C7
+Spec backlink: DoE-claude:pln-reviewer-sidecar-provisioning--6ba704 § C7
 Spec backlink (DR-091 home): docs/decisions/DR-091-agent-citizenship-identity-typed-sidecar-contract.md
   (repo ROOT of the DoE-claude tree; a same-numbered archived twin exists —
   see that plan's C1 body for the disambiguation note).
@@ -107,10 +106,8 @@ _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 #: Default age floor in days — mirrors the retired review-trail/findings
 #: aged-reap precedent this op supersedes (state-placement-law.md § the
@@ -180,7 +177,7 @@ def _age_days(path: str, now: float) -> float:
 def _is_tracked(repo_root: str, rel_path: str) -> bool:
     result = subprocess.run(
         ["git", "ls-files", "--error-unmatch", "--", rel_path],
-        cwd=repo_root, capture_output=True, text=True, check=False, creationflags=_NO_WINDOW,
+        cwd=repo_root, capture_output=True, text=True, check=False, **no_console_creationflags(),
     )
     return result.returncode == 0
 
@@ -206,14 +203,14 @@ def main(argv: Optional[list] = None) -> int:
     dry_run = args.dry_run
     age_floor_days = args.age_floor_days
 
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=False,
-        creationflags=_NO_WINDOW,
-    )
-    repo_root = (result.stdout or "").strip()
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if not repo_root:
         print("reap-stale-subagent-sidecars.py: not inside a git repo", file=sys.stderr)
         return 2
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277: this is a READER (no write into resolved root) -- warn
+        # and proceed. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     try:
         session_live = _resolve_session_live()
@@ -307,7 +304,7 @@ def main(argv: Optional[list] = None) -> int:
         tracked_rel = [os.path.relpath(f, repo_root) for f in tracked_to_reap]
         rm_res = subprocess.run(
             ["git", "rm", "-q", "--", *tracked_rel], cwd=repo_root,
-            capture_output=True, text=True, check=False, creationflags=_NO_WINDOW,
+            capture_output=True, text=True, check=False, **no_console_creationflags(),
         )
         if rm_res.returncode != 0:
             sys.stderr.write(rm_res.stderr)
@@ -316,7 +313,7 @@ def main(argv: Optional[list] = None) -> int:
         commit_msg = f"reap {len(tracked_to_reap)} stale subagent-share sidecar(s)"
         commit_res = subprocess.run(
             ["git", "commit", "-q", "-m", commit_msg, "--", *tracked_rel], cwd=repo_root,
-            capture_output=True, text=True, check=False, creationflags=_NO_WINDOW,
+            capture_output=True, text=True, check=False, **no_console_creationflags(),
         )
         if commit_res.returncode != 0:
             sys.stderr.write(

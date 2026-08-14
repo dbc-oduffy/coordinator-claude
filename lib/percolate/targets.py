@@ -218,6 +218,57 @@ def _legacy_file_security_gate(targets_file: Path, err: IO[str]) -> Optional[str
     return None
 
 
+def _resolve_portable_file(
+    setup_dir: Path, portable_targets_file: Optional[Path] = None
+) -> Path:
+    """Same portable-file resolution `load_targets` step 1 uses (explicit
+    arg > `PORTABLE_TARGETS_FILE` env override > `setup_dir`-relative
+    default) — factored out so a resolution-free reader can agree with the
+    real loader on which file it is reading without duplicating the rule."""
+    if portable_targets_file is not None:
+        return portable_targets_file
+    env_portable = os.environ.get("PORTABLE_TARGETS_FILE")
+    if env_portable:
+        return Path(env_portable)
+    return setup_dir / "publish-targets.portable"
+
+
+def raw_dest_sigil_by_name(
+    setup_dir: Path, *, portable_targets_file: Optional[Path] = None
+) -> "dict[str, str]":
+    """Resolution-free scan of the tracked PRIMARY portable topology
+    (`setup/publish-targets.portable`) mapping each row's `name` (field 0)
+    to its literal, UNRESOLVED dest field (field 2) — e.g.
+    `publish-mirror:claude_klabauter` or `repo:some-key`.
+
+    Deliberately does not execute `resolve_publish_row`/machine-local: this
+    exists ONLY to answer "which other rows share this row's destination",
+    not to resolve a publishable path, so it never touches machine-local,
+    never raises `ResolveError`/`TargetsError`, and is safe to call before
+    any of the heavier `load_targets` preconditions are known to hold.
+
+    Scope: PRIMARY (tier 1) rows only. A mirror composed entirely of
+    machine-local-registry-supplement or legacy-`publish-targets.sh` rows
+    (tiers 2/3) is not covered — the portable topology is the tracked,
+    committed source of truth every row in the observed defect (the
+    `claude-klabauter` mirror) lives in; ANC per `docs/plans/
+    2026-06-22-portable-registry-resolved-publish-targets.md`, tiers 2/3
+    are per-machine/deprecated overrides layered on top of it, not where a
+    mirror's row set is expected to live. Returns `{}` if the portable file
+    is absent (mirrors `load_targets` step 1's own `.is_file()` guard).
+    """
+    portable_file = _resolve_portable_file(setup_dir, portable_targets_file)
+    result: "dict[str, str]" = {}
+    if not portable_file.is_file():
+        return result
+    for raw_row in _iter_portable_rows(portable_file):
+        fields = raw_row.split("|")
+        if len(fields) < 3:
+            continue
+        result[fields[0]] = fields[2]
+    return result
+
+
 def load_targets(
     setup_dir: Path,
     *,
@@ -231,20 +282,27 @@ def load_targets(
     machine-local registry root is `setup_dir.parent` (its
     `dirname "$SCRIPT_DIR"`).
 
+    `target_filter` accepts either a single target name (unchanged, prior
+    behavior) or a COMMA-SEPARATED list of names (task brief "Deliverable
+    1 — one invocation, all rows": lets a caller name every row of a
+    logical target — e.g. `claude-klabauter,claude-klabauter-bin,...` — in
+    one `load_targets` call instead of one process invocation per row).
+    Whitespace around each name is stripped; an empty filter (`""`, the
+    default) means unfiltered, exactly as before.
+
     Returns the resolved rows (list[str], `name|mode|ABSsource|ABSdest[...]`
     form) in first-tier-wins-on-name-collision order. Raises `TargetsError`
     (see class docstring for the `.code` 1/2 split) on any abort path.
     """
+    target_filter_set = (
+        frozenset(n.strip() for n in target_filter.split(",") if n.strip())
+        if target_filter
+        else frozenset()
+    )
     root = setup_dir.parent
     targets_file = setup_dir / "publish-targets.sh"
 
-    env_portable = os.environ.get("PORTABLE_TARGETS_FILE")
-    if portable_targets_file is not None:
-        portable_file = portable_targets_file
-    elif env_portable:
-        portable_file = Path(env_portable)
-    else:
-        portable_file = setup_dir / "publish-targets.portable"
+    portable_file = _resolve_portable_file(setup_dir, portable_targets_file)
 
     mlb_tried_desc = _paths_tried_desc(root)
     try:
@@ -276,7 +334,7 @@ def load_targets(
 
     def rc1_skip_or_abort(raw_row: str, src: str) -> None:
         name = raw_row.split("|", 1)[0]
-        if target_filter and name != target_filter:
+        if target_filter_set and name not in target_filter_set:
             print(
                 f"[publish.sh] target '{name}' unresolvable (unset registry key) "
                 f"in {src} — skipping; not the filtered target '{target_filter}'.",

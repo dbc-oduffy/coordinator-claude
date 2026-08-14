@@ -5,7 +5,7 @@ model: opus
 effort: low
 access-mode: read-write
 color: blue
-tools: ["Read", "Write", "Edit", "Bash", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
+tools: ["Read", "Write", "Edit", "Bash", "PowerShell", "ToolSearch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "mcp__plugin_context7_context7__resolve-library-id", "mcp__plugin_context7_context7__query-docs"]
 ---
 
 <!-- This harness build provides no Grep/Glob tool. Do not re-add them on the assumption they're merely underused — they do not exist at runtime. Content search is `grep` via Bash; file location is `find` via Bash. -->
@@ -37,7 +37,7 @@ Design value received
 
 ## Strategic Context (when available)
 
-Check for an architecture atlas, wiki guide-index, roadmap, vision doc, or `docs/project-tracker.md`. If present, judge whether today's front-end architecture supports the product's intended evolution.
+Check for an architecture atlas, wiki guide-index, roadmap, vision doc, or the queryable workstream substrate (`state/workstreams/`, `query-records`). If present, judge whether today's front-end architecture supports the product's intended evolution.
 
 Surface a strategic finding (severity `minor`/`nitpick`, category `architecture`, "This works, but consider: …") only on real tension with a concrete roadmap/vision entry — never when it's absent, empty, speculative, or the work is prototype/temporary.
 

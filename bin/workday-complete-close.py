@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 workday-complete-close.py -- late-ceremony orchestration logic for /workday-complete
@@ -101,18 +100,17 @@ _BIN_DIR = Path(__file__).resolve().parent
 _LIB_DIR = _BIN_DIR / "lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
-from cc_invoke import resolve_colocated_claude_klabauter_root, child_env  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
 
 try:
-    _REPO_ROOT = Path(resolve_colocated_claude_klabauter_root(__file__))
+    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
 except RuntimeError as _exc:
     print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 from coordinator_core.daily_day import local_day  # noqa: E402
 from coordinator_core.machine_resolver import compute_machine  # noqa: E402
+from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
 
 _STITCH_SIDECAR_CLI = _BIN_DIR / "stitch-observer-sidecar.py"
 _STEP9_CLI = _BIN_DIR / "workday-complete-step9-append-changelog.py"
@@ -131,7 +129,7 @@ def _run(cli_path: Path, args: list[str], capture_stdout: bool = False) -> subpr
         stderr=None,
         text=True,
         env=child_env(),
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_creationflags(),
     )
 
 
@@ -188,7 +186,7 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     result = subprocess.run(
         [sys.executable, str(_STEP9_CLI), *forward],
         env=env,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_passthrough_kwargs(),
     )
     return result.returncode
 
@@ -268,7 +266,7 @@ def _dispatch_step9_row(
     result = subprocess.run(
         [sys.executable, str(_STEP9_CLI), *forward],
         env=env,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        **no_console_passthrough_kwargs(),
     )
     return result.returncode
 

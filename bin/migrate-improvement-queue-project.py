@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 migrate-improvement-queue-project.py — one-shot migration of project-specific entries
 from the legacy pipe-delimited state/improvement-queue.md into structured YAML files
@@ -76,6 +75,12 @@ from _queue_append_locator import find_queue_append_cmd  # noqa: E402
 
 UNIVERSAL_TAG = "[universal]"
 _PROPOSED_TARGET_PREFIX = "proposed target: "
+
+MUTATES = [
+    "state/improvement-queue.md",
+    "state/improvement-queue/*.yaml",
+    "state/migrate-improvement-queue-project-dryrun-*.json",
+]
 
 DEFAULT_INPUT = os.path.join("state", "improvement-queue.md")
 DRYRUN_GLOB = os.path.join(

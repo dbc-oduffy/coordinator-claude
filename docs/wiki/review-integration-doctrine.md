@@ -21,11 +21,31 @@ So the cost framing actively *misleads*: an EM who believes the integrator is ju
 
 Mechanics of the mandatory pass: EM dispatches `coordinator:review-integrator` (mode `auto`), reviews the returned escalation list, spot-checks the diff. Tradeoff-free fixes the integrator folds silently; real tradeoffs it escalates as ASK for the EM to carry to the PM (§ Apply tradeoff-free fixes silently). The EM's job is to *route and verify*, never to *author*. → `coordinator/snippets/em-operating-doctrine.md` § How to Decide ("Acting on review findings means dispatching the review-integrator … never hand-authoring").
 
+## Integrator unavailable — the named exit
+
+The mandatory dispatch assumes the integrator can be dispatched. When it dies on an API or quota
+limit, the hand-edit guard (`block_em_hand_edit_pending_review_integration`) still states an
+absolute, leaving an EM with a break-class finding choosing between a silent override and a
+knowingly-shipped defect. Neither. Order of resort:
+
+1. **Re-dispatch once.** Most deaths are transient; the second failure is the signal.
+2. **Not break-class → leave it unapplied with a durable home** — queue, successor handoff, open
+   baton — and say in the commit that findings are outstanding.
+3. **Break-class → hand-apply, discharging the integrator's function yourself.** That function is
+   the fresh re-check against disk, not the typing: read the cited file at `HEAD`, confirm the
+   premise still holds, apply, run the tests covering that surface.
+
+**Record the deviation in the commit message** — finding, sidecar, why the integrator was
+unavailable, what you ran. Unrecorded, it is indistinguishable from the violation it bounds.
+
+"Unavailable" means dispatch failure on infrastructure — never slow, inconvenient, or one-line
+(§ Finding size is not a license to self-author).
+
 ## Re-verify reviewer premises against artifacts landing after review
 
-Schemas, function signatures, and file layouts can change between when a reviewer writes their findings and when the integrator applies them. A reviewer that writes "confirm field X exists before shipping" may be referencing a schema that has since been updated by a concurrent executor. Integrating the finding blindly adds a redundant check or, worse, rewrites something that no longer needs rewriting.
+Schemas, function signatures, and file layouts can change between when a reviewer writes their findings and when the integrator applies them. A reviewer that writes "confirm field X exists before shipping" may be referencing a schema that has since been updated by a concurrent executor. Integrating the finding blindly adds a redundant check or, worse, rewrites something that does not need rewriting anymore.
 
-Integrator discipline: before accepting any finding that contains "TBD," "confirm later," "verify before applying," or a premise about a schema/path/API, read the current state of the referenced artifact. If the premise no longer holds, drop the finding (not the whole review — just that finding) and note the drop in the integrator's report.
+Integrator discipline: before accepting any finding that contains "TBD," "confirm later," "verify before applying," or a premise about a schema/path/API, read the current state of the referenced artifact. If the premise fails to hold, drop the finding (not the whole review — just that finding) and note the drop in the integrator's report.
 
 This is structural at concurrent-EM cadence. On shared branches, an executor may have landed changes while the review was in flight. The reviewer's frame is a snapshot; the integrator works against HEAD.
 
@@ -100,7 +120,7 @@ What still requires integration between artifacts: every pass between two named 
 
 ## Re-run mechanical pre-flights after material plan amendments
 
-Pre-flights (path scout, prior-art-checker, docs-checker) are point-in-time. A material plan amendment — adding a new component, changing a schema decision, reordering chunks — creates a new claim surface that the original pre-flight did not cover. Stale pre-flight findings at integration cause the integrator to accept or reject findings against a plan that no longer matches what was reviewed.
+Pre-flights (path scout, prior-art-checker, docs-checker) are point-in-time. A material plan amendment — adding a new component, changing a schema decision, reordering chunks — creates a new claim surface that the original pre-flight did not cover. Stale pre-flight findings at integration cause the integrator to accept or reject findings against a plan that has since diverged from what was reviewed.
 
 The rule: after any material amendment, re-run the relevant pre-flights before dispatching the next reviewer. "Material" means any change that alters paths, APIs, schema fields, or architectural approach. Prose clarifications and wording changes do not require re-run.
 
@@ -121,7 +141,7 @@ command) only when no path arrived pre-provisioned. Either way, the reviewer edi
 `<!-- FINDINGS -->` sentinel with its findings and returns only a pointer+verdict line:
 
 ```
-DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>
+DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>
 ```
 
 No EM pre-scaffold. No `cs_write_review_claim` call. No claim-marker ceremony. No EM transcription.
@@ -180,7 +200,7 @@ When a code review is partitioned across N parallel `code-reviewer` slices (per 
 
 **Mechanics.**
 
-1. Each `coordinator:code-reviewer` dispatch writes its findings to its own per-slice sidecar at `state/subagent-share/<session>/<provision_key>.md` — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home otherwise. No EM pre-scaffold in the common case; no claim marker either way. The reviewer returns a pointer+verdict line: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. The EM reads the returned path. The sidecar must exist on disk before the integrator is dispatched (the reviewer's self-persist guarantees this on a clean return). The self-persist flow is an explicit step in `skills/workstream-complete/SKILL.md` § Partitioning (step 2), and the integrator's hard-stop is in `agents/review-integrator.md` § Intake precondition — hard stop.
+1. Each `coordinator:code-reviewer` dispatch writes its findings to its own per-slice sidecar at `state/subagent-share/<session>/<provision_key>.md` — pre-provisioned by the dispatching EM in the common case, self-scaffolded into that same home otherwise. No EM pre-scaffold in the common case; no claim marker either way. The reviewer returns a pointer+verdict line: `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N> | executed: <yes|no>`. The EM reads the returned path. The sidecar must exist on disk before the integrator is dispatched (the reviewer's self-persist guarantees this on a clean return). The self-persist flow is an explicit step in `skills/workstream-complete/SKILL.md` § Partitioning (step 2), and the integrator's hard-stop is in `agents/review-integrator.md` § Intake precondition — hard stop.
 2. EM dispatches N integrators in parallel, each pointing at one slice's sidecar + the same slice's artifact paths.
 3. Each integrator writes its own disposition block to its own sidecar (§ Sidecar Disposition Annotation) and its own completion report.
 4. EM reads the N reports in aggregate, applies the standard tradeoff-vs-correctness routing (§ Apply tradeoff-free fixes silently; surface tradeoffs to PM, above), and stages the union of integrator-edited files in the workstream-complete commit (`skills/workstream-complete/SKILL.md` Step 3 staging discipline already handles fan-in).
@@ -201,7 +221,7 @@ Narrative-shape review is a separate lens from code-review — frame-drift ships
 
 ## review-integrator does not commit — full stop
 
-**The `review-integrator` agent never creates git commits, in any category — doctrine files, integrated plans, or anything else.** The agent's § Commit Discipline is a single non-committing rule with no doctrine/plan exception, mirroring the executor's "subagents apply, EM commits" model. A brief no longer needs to be phrased around expected commit shape to be honored — "write and report back" is the agent's only behavior, so there is nothing for brief-shape to fight.
+**The `review-integrator` agent never creates git commits, in any category — doctrine files, integrated plans, or anything else.** The agent's § Commit Discipline is a single non-committing rule with no doctrine/plan exception, mirroring the executor's "subagents apply, EM commits" model. A brief needs no phrasing around expected commit shape to be honored — "write and report back" is the agent's only behavior, so there is nothing for brief-shape to fight.
 
 ## A write-tool reviewer may self-integrate against a read-only brief — diff the artifact before trusting findings
 
@@ -258,6 +278,62 @@ manually reconcile N separate review documents — read every persona's output, 
 findings, and flag agreement/disagreement across personas explicitly rather than leaving it
 implicit in the raw output.
 
+## review-integrator.md § Intake precondition — EM remedies
+
+Relocated from the agent body's intake hard-stop paragraph (C2 of
+`docs/plans/2026-08-14-trim-review-integrator-agent-payload.md`) — the pinned two-sentence hard
+stop itself stays in the agent body verbatim; this is the EM-facing remedy mechanics that don't
+need to occupy every integrator dispatch's context.
+
+When the integrator BLOCKS with "intake broken: no sidecar on disk," the EM has two remedies:
+re-dispatch the reviewer (`provision_report` auto-provisions a sidecar at spawn:
+`state/subagent-share/<session>/<provision_key-or-label-nonce>.md`), or, defect-recovery only,
+`Write` the reviewer's verbatim output into that sidecar then re-dispatch the integrator with the
+path. Never hand-scaffold via `coordinator-doc-new` for this recovery — that command is reserved
+for the reviewer's own self-scaffold path, not an EM substitute for a missing reviewer sidecar.
+
+## review-integrator.md § Shared-Tree Stash Discipline
+
+Relocated from the agent body (C2 of `docs/plans/2026-08-14-trim-review-integrator-agent-payload.md`)
+— the agent body keeps the rule and the guard citations (`block_subagent_stash_creation.py:134`,
+`block_stash_destruction.py:139`), this is the incident rationale.
+
+A shared-tree incident showed a subagent's own `git stash push` capturing every concurrent
+session's uncommitted work, not just its own, with no reliable undo path available to it. The
+create-side command is now denied outright for every subagent rather than left to scoped
+discipline — there is no pathspec-scoped form that gets through, by design, because the incident
+showed scoped discipline alone was insufficient.
+
+## review-integrator.md § How to write the block
+
+Relocated from the agent body (C2 of `docs/plans/2026-08-14-trim-review-integrator-agent-payload.md`)
+— the agent body keeps the shape reference (heading, fenced YAML with the six buckets, optional
+Rationale subsection, the sixth-bucket-renders-only-when-used rule); this is the full worked
+example.
+
+````markdown
+---
+
+## Integrator Dispositions
+
+```yaml
+schema_version: 1
+applied: [F1, F2, F3, F7, F10]
+escalated-disagree: [F4]
+escalated-ask: [F6, F9]
+escalated-p0: []
+deferred: [F8]
+verified-no-action: [F5]
+```
+
+### Rationale
+
+- **F1 (applied):** stale `surface` claim on `2026-08-01-plan/C3` corrected against HEAD before applying.
+- **F4 (escalated-disagree):** reviewer's fix would re-introduce the precedence bug in `docs/wiki/<x>.md` — current code is intentional.
+- **F5 (verified-no-action):** reviewer couldn't re-derive the count under its own tooling — re-derived by a second method, exactly right; nothing to change.
+- **F8 (deferred):** real bug, needs a 4-file refactor; captured as `state/debt-backlog/<date>-<slug>.yaml`.
+````
+
 ## Analysis-before-build with EM adjudication — case study
 
 Pre-execution analysis — reviewing a recipe or plan step's `gives_pause` flags with EM
@@ -266,7 +342,7 @@ recipe analysis surfaced three scope corrections that would otherwise have shipp
 
 - Deferred a step whose dependency hadn't actually resolved yet, even though the recipe listed it
   as ready.
-- NO-OP'd a step that, on inspection, wasn't needed at all — its precondition no longer held.
+- NO-OP'd a step that, on inspection, wasn't needed at all — its precondition failed to hold.
 - Gated a later step to run only after an earlier one had actually produced the artifact it
   depended on, instead of running them in the recipe's stated order.
 
@@ -277,3 +353,110 @@ and still hide a real scope correction behind that framing. Treat every such fla
 explicit adjudication decision (defer / no-op / gate / proceed), not a pass-through — the standing
 lesson is to keep the same adjudication discipline for every remaining recipe's `gives_pause`
 flag, not just the ones that happened to surface problems first.
+
+## review-integrator.md § AUTO-FIX vs ASK Routing — why the un-calibrated row is the normal case
+
+A reviewer writing to the injected `review-findings-body-contract` — `code-reviewer`, the pairing
+`/workstream-complete` prescribes — emits neither a fix classification nor a confidence, that
+contract specifying Severity, Location, Evidence, Issue, and Suggested fix and nothing else. The
+calibrated rows are therefore the exception across most of the live dispatch population, and the
+un-calibrated rows are the whole table for those dispatches.
+
+The failure this ordering prevents is coercion: an integrator reading "confidence < 5 → drop"
+against a finding with no `confidence` field at all, treating absence as zero, and silently
+dropping a P1. Absence is not zero. Severity carries the routing the missing fields would have
+carried, and the highest-blast-radius class (P0/P1) escalates rather than applying, because the
+P0/P1 Verification Gate presumes a calibrated AUTO-FIX that an un-calibrated finding does not
+supply.
+
+## review-integrator.md § What a Dispatch Brief Cannot Relax
+
+A dispatch brief sets scope, targets, and emphasis. It does not lower a routing floor. The floors
+are the routing table (un-calibrated rows included), the always-ASK rule for
+math/algebra/precedence and symbolic-reasoning findings, sidecar immutability, and the commit
+prohibition.
+
+Why the floors resist ordinary EM phrasing: a brief saying *"apply tradeoff-free fixes silently —
+that is the default and needs no permission"* is a true statement of the general default and still
+does not reach these cases, because the dispatching EM has usually not read the integrator's own
+body. That is the point of dispatching. An EM who has not read the floor cannot knowingly waive it,
+so an integrator resolving the collision silently toward the brief removes a default the EM never
+learned they were overriding.
+
+Hence the collision is itself a finding owed upward: hold the floor, then quote the conflicting
+sentence verbatim under `### Brief Conflicts` in the completion report, naming the floor it would
+have relaxed and what you did instead.
+
+## review-integrator.md § Pattern findings, instance-vs-class, and complexity threshold
+
+**Pattern vs spot.** A pattern-shaped finding names a recurring shape rather than one location
+("early-return without OutResult population"); its tells are generalizing language ("this pattern",
+"always", "any X that Y"), a category of code rather than a specific site, or an implied consistent
+policy. Grep for siblings, fix all of them, report the footprint. A spot-shaped finding ("line 42
+has the wrong constant") applies only there. When in doubt, do the grep.
+
+**Instance vs class** governs the file you are already touching, where pattern findings govern
+other files. A finding can cite one instance of a broader inconsistency — import style, naming,
+error-handling shape — without the reviewer having surveyed every occurrence, and fixing only the
+cited instance can create a *new*, narrower inconsistency: one of four imports restyled leaves the
+file mixed. Default to resolving the class within the touched file, on the finding's axis only.
+Widening past that file is the EM's call, noted in `Reasoning` rather than acted on. Instance-only
+is sometimes correct — a file legitimately mixed for a stated reason, or a whole-file fix that
+exceeds scope — but say so in `Reasoning` rather than applying the narrow fix silently. Self-check:
+*is the touched file now internally consistent on this axis?*
+
+**Complexity threshold.** New files or abstractions, changes across 3+ interacting files (import
+chains, shared state), or architectural restructuring (moving modules, changing interfaces) are
+pipeline work, not inline work. Note the conversion in the completion report, capture a
+`debt-backlog` entry via `coordinator-queue-append` when `state/debt-backlog/` exists (one YAML per
+entry) or hand the entry to the EM in the report when it does not, and continue with the remaining
+findings.
+
+## review-integrator.md § Escalation blocks and the circuit breaker
+
+An escalation block carries four lines: the finding summary, the integrator's position, the
+reviewer's position, and a recommendation. Three or more escalations in one pass is itself a
+signal — flag it as a possible calibration mismatch between reviewer and integrator, so the EM can
+choose between overriding individually and recalibrating the pairing.
+
+The anti-dodge rule is what keeps ASK from becoming a disposal route: "needs PM input" alone is a
+dodge. A genuine ASK names the specific tradeoff, two or more concrete options, which the
+integrator would pick if forced, and why the choice exceeds its discretion. A finding that cannot
+fill all four is not an ASK — it is Applied if the integrator can decide, or escalate-disagree if
+it can decide and disagrees.
+
+## review-integrator.md § Prior-art conflict directions
+
+A dispatch citing a `prior-art-checker` sidecar with Conflicts carries a direction-of-correction
+per conflict, and `update-prior-art` is a first-class outcome rather than a fallback. No direction
+named → escalate ASK rather than guessing.
+
+- `update-plan` — amend the plan to fold the prior art in, annotated with reviewer plus prior-art
+  quote citation.
+- `update-prior-art` — edit the cited wiki/registry/lessons file per the EM's correction, annotated
+  with plan citation plus reviewer reasoning.
+- `both` — land both amendments in one pass, cross-citing each annotation.
+- `override-and-document` — one line in the plan's "Considered alternatives" carrying the prior-art
+  quote and the override rationale; the prior-art file is not edited.
+- `PM-input-needed` — no edit; surface the conflict, the candidate directions, and a recommendation.
+
+On the two hand-editing directions the integrator holds read-write access to wikis, lessons, and
+registry/improvement-queue files. Matching the EM's correction in scope and substance wins the tie
+against Reconcile-Before-You-Add: needing more than the stated update to stay consistent escalates
+ASK rather than expanding silently. A global-wiki target with a bundled copy at
+`plugins/*/docs/wiki/<name>.md` trips the wiki-mirror guard, which is advisory — the write already
+landed when the flag appears, so it is neither undone nor retried differently; escalate ASK with
+the hook output and let the EM decide whether to redirect to the mirrored path or accept the
+dev-side copy.
+
+## review-integrator.md § REJECTED verdict — why findings are suspended wholesale
+
+`verdict: REJECTED` means the reviewer found a premise-level problem that findings cannot fix. The
+suspension is wholesale — no AUTO-FIX, no ASK, no sibling sweeps — because applying findings under
+a rejected premise patches the wrong design, and doing so partially is worse than not at all: it
+produces an artifact that looks reviewed.
+
+The override protocol exists so that proceeding anyway leaves a durable trace. Only explicit PM
+agreement, recorded verbatim before any finding is applied, and landed in the EM's coordination
+notes or task log rather than chat alone. Paraphrase is insufficient — the whole value of the
+premise-challenge is that overriding it costs something visible.

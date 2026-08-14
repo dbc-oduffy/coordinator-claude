@@ -102,7 +102,7 @@ Exit codes:
       unresolvable, coordinator_core.invoke seam absent/broken).
 
 Spec backlink: coordinator_core/ops/plan_tasks_mutate.py (resolve verb)
-Spec backlink: docs/plans/2026-08-05-make-the-five-exit-plan-tasks-resolver-r.md § C5
+Spec backlink: pln-make-the-five-exit-plan-tasks-305b16 § C5
 """
 from __future__ import annotations
 
@@ -119,10 +119,15 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402
+from cc_invoke import require_engine_on_path  # noqa: E402
 
-# Windows: suppresses the console popup a subprocess.run(...) would otherwise
-# trigger under the headless Claude Code Bash-tool parent. No-op (0) elsewhere.
-_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# The engine root must be on sys.path before `_resolve_repo_root` and
+# `_read_source_row` import `coordinator_core` (win_portability,
+# frontmatter.body_blocks): this file is also published into the
+# claude-klabauter mirror, where coordinator_core is NOT pip-installed and
+# the interpreter's sys.path[0] is this bin/ directory, not the checkout
+# root. Same bootstrap as coordinator/bin/coordinator-lesson-add (9b979ee5f).
+_ENGINE_ROOT = require_engine_on_path(__file__)
 
 _OP = "plan.tasks.mutate"
 
@@ -223,11 +228,13 @@ def _resolve_repo_root() -> str:
     positional), never claude-klabauter's own checkout.
     """
     try:
+        from coordinator_core.win_portability import no_console_creationflags
+
         proc = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,
-            creationflags=_NO_WINDOW,
+            **no_console_creationflags(),
         )
         resolved = (proc.stdout or "").strip()
         if proc.returncode == 0 and resolved:
@@ -366,9 +373,10 @@ def _read_source_row(plan_path: str, task_id: str, repo_root: str) -> dict:
     failure: CLAUDE_KLABAUTER_ROOT unresolvable, plan not found, spine malformed/
     absent, or the id not present in the spine.
     """
-    claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    # Review: coordinator:code-reviewer — fail-loud site must stay fail-loud;
+    # ensure_engine_on_path degrades to None and would surface a bare
+    # ImportError instead of this function's documented RuntimeError contract.
+    cc_invoke.require_engine_on_path(__file__)
     import yaml
     from coordinator_core.frontmatter.body_blocks import LocateStatus, locate_fenced_block
 

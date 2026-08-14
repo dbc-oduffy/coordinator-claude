@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """reap-integrated-review-findings.py — reaps integrated review-findings sidecars.
 
@@ -51,8 +50,9 @@ otherwise.
 # Idempotent: a second run with nothing left to reap is a clean exit 0 with a
 # "nothing to reap" line — never an error, never an empty commit.
 #
-# Safe / fail-loud (legacy path): resolves the repo root via
-# `git rev-parse --show-toplevel`; if not inside a git repo, or
+# Safe / fail-loud: resolves the repo root via the checked resolver
+# (`lib.repo_identity.resolve_checked_repo_root`, memoized, non-spawning);
+# if not inside a git repo, or
 # state/review-trail/findings/ does not exist under that root, prints a
 # message and exits 0 (nothing to do) rather than erroring or operating
 # against the wrong tree.
@@ -118,8 +118,13 @@ otherwise.
 #     strangler-facade.sh DOES support and this script's own test harness
 #     relies on for every AC). cc_invoke.py is a shared lib used by other
 #     landed trampolines (coordinator-auto-push, handoff-gate-aging) and is
-#     out of this port's file scope — reused (_resolve_claude_klabauter_root,
-#     _seam_present), not modified, not re-derived.
+#     out of this port's file scope — reused (resolve_engine_root,
+#     _seam_present), not modified, not re-derived. resolve_engine_root adds
+#     a self-location rung ahead of the pointer-file/registry ladder (Review:
+#     code-reviewer — comment previously undersold this as a bare rename from
+#     _resolve_claude_klabauter_root; the rung order changed too), but the site here is
+#     still wrapped by `except RuntimeError`, so bash-oracle failure-mode
+#     parity is unaffected.
 #
 # Review: code-reviewer — Finding 6 (pre-port bash oracle): DR-218 is a
 # claude-klabauter-tree citation, not a DoE-relative path; qualified above per
@@ -144,6 +149,11 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
 
+cc_invoke.ensure_engine_on_path(__file__)
+
+from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
+
 _PROG = "reap-integrated-review-findings.sh"
 
 # --summary sample size (F8 — a 64KB single-line JSON dump of 334 verbose
@@ -159,7 +169,6 @@ _DEFAULT_SUMMARY_LIMIT = 10
 _MARKER_RE = re.compile(r"^## Integrator Dispositions[ \t]*$", re.MULTILINE)
 
 _GIT_TIMEOUT_SECS = 30
-_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def _git(args: List[str], cwd: Optional[str] = None) -> "subprocess.CompletedProcess[str]":
@@ -176,7 +185,7 @@ def _git(args: List[str], cwd: Optional[str] = None) -> "subprocess.CompletedPro
         text=True,
         timeout=_GIT_TIMEOUT_SECS,
         stdin=subprocess.DEVNULL,
-        creationflags=_CREATIONFLAGS,
+        **no_console_creationflags(),
     )
 
 
@@ -230,11 +239,14 @@ def _reap_integrated_legacy(
     # a-git-repo and no-findings-dir are both "nothing to do" (exit 0), not
     # errors.
     # -------------------------------------------------------------------
-    rp = _git(["rev-parse", "--show-toplevel"])
-    repo_root = rp.stdout.strip() if rp.returncode == 0 else ""
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if not repo_root:
         print(f"{_PROG}: not inside a git repo; nothing to do")
         return 0
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277: this is a READER (no write into resolved root) -- warn
+        # and proceed. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     findings_dir = Path(repo_root) / "state" / "review-trail" / "findings"
     if not findings_dir.is_dir():
@@ -366,7 +378,7 @@ def _reap_seam_present() -> Tuple[bool, str]:
     if os.environ.get("COORDINATOR_FORCE_LEGACY", "") == "1":
         return False, ""
     try:
-        claude_klabauter_root = cc_invoke._resolve_claude_klabauter_root()
+        claude_klabauter_root = cc_invoke.resolve_engine_root(__file__)
     except RuntimeError:
         return False, ""
     if not cc_invoke._seam_present(claude_klabauter_root):
@@ -429,8 +441,7 @@ def _reap_native(
     if summary:
         params["summary_limit"] = summary_limit
 
-    rp = _git(["rev-parse", "--show-toplevel"])
-    repo_root = rp.stdout.strip() if rp.returncode == 0 else ""
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if not repo_root:
         print(
             f"{_PROG}: WARN: fleet.reap_integrated_findings transport error "
@@ -438,6 +449,10 @@ def _reap_native(
             file=sys.stderr,
         )
         return 0
+    if verdict["verdict"] == "MISMATCH":
+        # DR-277: this is a READER (no write into resolved root) -- warn
+        # and proceed. UNRESOLVED never refuses either (AC4).
+        print(verdict["message"], file=sys.stderr)
 
     try:
         result = cc_invoke.cc_invoke(

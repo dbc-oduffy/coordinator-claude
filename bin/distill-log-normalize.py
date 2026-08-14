@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 coordinator/bin/distill-log-normalize.py — thin CLI wrapper over
@@ -36,9 +35,9 @@ unset) and accepted once it probes as a real claude-klabauter checkout; the mach
 registry lookup is a fallback reached only if that probe misses (this file has been
 published/vendored to a location outside the claude-klabauter checkout).
 
-Spec backlink: docs/plans/2026-07-12-distill-ceremony-mechanical-substrate-joint-design.md § C8;
+Spec backlink: pln-distill-ceremony-mechanical-su-1bcb38 § C8;
 DoE-claude/docs/contracts/distill-engine-scripts.md § 7 (binding I/O contract).
-Spec backlink: docs/plans/2026-07-23-claude-klabauter-driven-ceremony-redesign.md § C6
+Spec backlink: pln-claude-klabauter-driven-ceremony-redesig-c7fe9a § C6
 """
 
 from __future__ import annotations
@@ -51,15 +50,13 @@ from pathlib import Path
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import resolve_colocated_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 try:
-    _REPO_ROOT = Path(resolve_colocated_claude_klabauter_root(__file__))
+    require_colocated_engine_on_path(__file__)
 except RuntimeError as _exc:
     print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 from coordinator_core.distill.log_normalize import (  # noqa: E402
     AlreadyCanonicalError,

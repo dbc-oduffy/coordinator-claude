@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """coordinator-write-review-trail.py — native review_trail.write trampoline (DR-216 strang-10).
 
@@ -12,8 +11,8 @@ Same CLI contract, same exit-code contract, pure
 Python entry (`python coordinator-write-review-trail.py ...`), no
 `#!/bin/sh` polyglot header, no bash re-wrap.
 
-Spec backlink: docs/plans/2026-07-06-dr215-fleet-ops-ceremony-wiring.md (strang-10 C5)
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md § T2 (AC4)
+Spec backlink: DoE-claude:pln-wire-claude-klabauter-fleet-archive-prun-8fd552 (strang-10 C5)
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T2 (AC4)
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md (Wave 1b, shape-(b))
 
 Usage (unchanged from the bash facade — zero caller-contract drift):
@@ -23,8 +22,16 @@ Usage (unchanged from the bash facade — zero caller-contract drift):
         --scope chain|session|workstream-close-auto \\
         --verdict ok|warn|blocked|waived|pending \\
         --diff-loc <integer> \\
+        --reviewer-evidence <sidecar-path|dispatch-id|justification-text> \\
         [--scope-kind diff|plan|integration] \\
         [--workstream <slug>]
+
+    ``--reviewer-evidence`` (2026-08-10, state/bug-backlog/2026-08-10-coordinator-
+    write-review-trail-accepts-a-295d3cd80d13.yaml) is REQUIRED by the native op
+    for every ``--reviewer`` value except ``wsc-auto-adjudication`` -- an
+    existing sidecar path or resolvable dispatch id for a delegate reviewer, a
+    real free-text justification for ``waived``/``em-verified``. This facade
+    forwards it verbatim; enforcement is op-side.
 
     ``--workstream`` (2026-07-27, § C4) states the workstream explicitly, taking
     precedence over ``COORDINATOR_REVIEW_WORKSTREAM`` and the op's own
@@ -51,29 +58,60 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 
 import cc_invoke  # noqa: E402  (path insert above must precede this import)
+from repo_identity import resolve_checked_repo_root  # noqa: E402
+
+cc_invoke.ensure_engine_on_path(__file__)
+
+
+def _no_console_creationflags() -> dict:
+    """Console-suppression kwargs for a git spawn, without assuming the engine.
+
+    Only ``bin/lib`` lands on sys.path from the script dir, so on a box with no
+    editable install of ``coordinator_core`` — and under the
+    ``~/.coordinator-claude-settings/bin`` trampoline, which ``runpy.run_path``s
+    this file without touching sys.path — the two call sites below raised
+    ``ModuleNotFoundError`` from inside ``except (OSError, TimeoutExpired)``
+    blocks that do not catch it. ``_resolve_repo_root`` died outright; every
+    review-trail verdict on such a box stayed at ``verdict: pending``, which the
+    coverage gate then read back as an abandoned review round.
+
+    ``ensure_engine_on_path`` above makes the import resolve on a normal
+    checkout. This wrapper fails OPEN to an inline reproduction of the
+    primitive's contract (``{}`` off Windows, never ``{"creationflags": 0}``) for
+    the residue: a lost console-suppression nicety must not take the CLI with it.
+    The op dispatch itself still fails LOUD when the engine is genuinely absent.
+    """
+    try:
+        from coordinator_core.win_portability import no_console_creationflags
+
+        return no_console_creationflags()
+    except ImportError:
+        if os.name != "nt":
+            return {}
+        return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def _resolve_repo_root() -> str:
-    """Resolve the git repo root from cwd — parity with the bash oracle's
-    ``git -C "$PWD" rev-parse --show-toplevel``.
+    """Resolve the git repo root via the checked resolver (repo_identity.
+    resolve_checked_repo_root), replacing the prior process-cwd
+    ``git -C "$PWD" rev-parse --show-toplevel`` shell-out
+    (state/bug-backlog/2026-08-12-checked-repo-resolver-five-tests-fail-on-
+    764cb28669d3.yaml). MISMATCH and no-root-resolved both refuse — this
+    writer script has no legitimate reason to proceed against a foreign or
+    unresolved repo root, mirroring the fail-loud exit-1 contract this
+    function already had.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        proc = None
-    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
+    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if verdict["verdict"] == "MISMATCH":
+        print(verdict["message"], file=sys.stderr)
+        sys.exit(1)
+    if not root:
         print(
             f"coordinator-write-review-trail.py: cannot resolve git repo root from {os.getcwd()}",
             file=sys.stderr,
         )
         sys.exit(1)
-    return proc.stdout.strip()
+    return root
 
 
 _PLAN_REVIEW_PATH_PREFIXES = (
@@ -94,7 +132,7 @@ def _diff_touched_paths(sha_range: str, repo_root: str) -> list[str] | None:
             capture_output=True,
             text=True,
             timeout=15,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            **_no_console_creationflags(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -192,6 +230,33 @@ def _validate_reviewer_verdict_coherence(reviewer: str, verdict: str) -> None:
         )
 
 
+#: The .cmd launcher's own basename — used to locate where our arguments
+#: begin within the raw cmdline text (see `raw_cmdline_recovery.
+#: recover_windows_argv`, the shared implementation this module and
+#: `scoped-git-commit` both call — the caret-eating defect and its
+#: temp-file capture/recovery mechanism are identical between the two
+#: `_RAW_CMDLINE_ENTRYPOINTS` members; only this launcher basename differs).
+_LAUNCHER_CMD_NAME = "coordinator-write-review-trail.cmd"
+
+
+def _recover_windows_argv(argv: list[str]) -> list[str]:
+    """Recover un-mangled argv from the raw invoking cmdline on Windows.
+
+    Thin wrapper over the shared ``raw_cmdline_recovery.recover_windows_argv``
+    — see that module's docstring for the full recovery contract. The exact
+    shape this fixes for this CLI: ``--sha-range "<sha>^..<sha>"``, the
+    per-commit parent-range form a concurrent shared branch requires, would
+    otherwise arrive here as ``<sha>..<sha>`` — an EMPTY git range — with the
+    CLI still exiting 0 and the review-trail writer persisting a record that
+    discharges nothing (the silent-failure half this module's caller-side
+    fix addresses; the writer-side half is ``review_trail_write.py``'s
+    empty-range rejection).
+    """
+    from raw_cmdline_recovery import recover_windows_argv
+
+    return recover_windows_argv(argv, _LAUNCHER_CMD_NAME)
+
+
 def _no_fallback() -> None:
     """Big-bang cutover: no bash legacy body remains — seam-absent fails loud."""
     raise RuntimeError(
@@ -222,6 +287,27 @@ def main(argv: list[str]) -> int:
     # can populate it. Spec: docs/plans/2026-07-27-review-trail-scope-guard.md § C9.
     parser.add_argument(
         "--reviewed-paths", dest="reviewed_paths", nargs="*", default=None,
+    )
+    # Evidence correlating `--reviewer` with an artifact showing a review
+    # occurred -- a sidecar path that exists, a dispatch id resolvable in
+    # this session's own dispatched-agents.txt, or a free-text justification
+    # (waived/em-verified). Enum-conditional enforcement lives op-side
+    # (coordinator_core/ops/review_trail_write.py, `_verify_reviewer_evidence`)
+    # -- this facade only forwards it verbatim.
+    # Spec: state/bug-backlog/2026-08-10-coordinator-write-review-trail-accepts-a-295d3cd80d13.yaml
+    parser.add_argument(
+        "--reviewer-evidence", dest="reviewer_evidence", default=None,
+    )
+    # Optional attestation of whether the review actually ran the touched
+    # code or only read it — forwarded verbatim to the native op, which
+    # validates against its own `_VALID_EXECUTION_BASES`
+    # (coordinator_core/ops/review_trail_write.py). Kept as a local literal
+    # here rather than importing that private name across the bin/core seam
+    # this file does not otherwise cross.
+    # Spec: docs/plans/2026-08-11-review-trail-carries-execution-basis.md § C3
+    parser.add_argument(
+        "--execution-basis", dest="execution_basis", default=None,
+        choices=["executed", "read-only"],
     )
     args, _unknown = parser.parse_known_args(argv)
 
@@ -286,6 +372,10 @@ def main(argv: list[str]) -> int:
     }
     if args.reviewed_paths is not None:
         params["reviewed_paths"] = args.reviewed_paths
+    if args.reviewer_evidence is not None:
+        params["reviewer_evidence"] = args.reviewer_evidence
+    if args.execution_basis is not None:
+        params["execution_basis"] = args.execution_basis
 
     try:
         result = cc_invoke.route_mutation(
@@ -299,9 +389,16 @@ def main(argv: list[str]) -> int:
         print(f"coordinator-write-review-trail.py: {exc}", file=sys.stderr)
         return 2
 
+    # Negative-spec: the op's `result` is authoritative about what was
+    # RECORDED — never echo `args.execution_basis` back into it as a
+    # fallback. The op deliberately OMITS the key when a reviewer sidecar
+    # exists whose `## Execution capability` section is absent or
+    # unparseable (§ C2), and re-injecting the caller's word there would
+    # print an unverified claim as though it had been written to disk —
+    # exactly the typed-flag-as-evidence failure § Anti-scope forbids.
     print(json.dumps(result))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(_recover_windows_argv(sys.argv[1:])))

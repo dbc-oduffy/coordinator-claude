@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
 mint-deliverable-id.py — CLI trampoline over claude-klabauter coordinator_core.ops.mint_deliverable_id.
@@ -27,7 +26,7 @@ a claude-klabauter-link failure exits 1, matching the bash oracle's usage-error 
 code, so a broken link surfaces immediately to the calling authoring surface
 rather than silently degrading identity minting.
 
-Spec backlink: docs/plans/2026-07-03-fleet-deliverable-spine-identity-and-facets.md § D1, C3a
+Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, C3a
                docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 """
 

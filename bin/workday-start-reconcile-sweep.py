@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """workday-start-reconcile-sweep.py — pending-release completion-entry
 reconcile backstop for /workday-start Step 1.86.
 

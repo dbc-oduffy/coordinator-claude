@@ -140,6 +140,8 @@ except Exception:
 
     _envelope = _FallbackEnvelope()
 
+from _win_portability import no_console_creationflags  # noqa: E402
+
 #: See state/relocations/guard-message-cap/nudge-multiwave-workflow.py.md
 #: for the full explanation this hook's message used to spell out inline
 #: (docs/plans/2026-08-02-guard-message-character-cap.md § C6).
@@ -178,9 +180,9 @@ def _is_write_capable(subagent_type_lc: str) -> bool:
 def _git_root() -> str | None:
     """`git rev-parse --show-toplevel`, 1s timeout, mirrors the bash oracle.
 
-    git.exe is exempted from the Windows console-popup detection (it always
-    spawns with DETACHED_PROCESS semantics and does not AllocConsole()) --
-    so no CREATE_NO_WINDOW dance is needed here.
+    Suppressed via `no_console_creationflags()` for structural parity with
+    the other `_git_root()` copies in this tree (`test_no_bare_python_spawn.py`
+    scope), even though git.exe itself does not AllocConsole().
     """
     try:
         result = subprocess.run(
@@ -188,6 +190,7 @@ def _git_root() -> str | None:
             capture_output=True,
             text=True,
             timeout=1,
+            **no_console_creationflags(),
         )
     except Exception:
         return None

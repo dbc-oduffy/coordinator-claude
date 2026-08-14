@@ -72,11 +72,17 @@ Standards extensions state: *"OOS framing must be architectural, not appetite-ba
 something because they didn't feel like it, dressed up as scope discipline.
 
 The sizing object's `appetite` field is a **different, Shape-Up sense**: appetite as a *budget
-the PM sets* — a legitimate, deliberate input to the routing decision, not a reason to defer
-anything. The field keeps the name `appetite` (the PM's deliberate Shape-Up term) rather than
-being renamed to something duller and collision-free, because the Shape-Up framing is the point:
-a PM stating "this is worth a day, not a week" is providing real information the estimate then
-reconciles against.
+the PM states* — a legitimate, deliberate signal, not a reason to defer anything. The field keeps
+the name `appetite` (the PM's deliberate Shape-Up term) rather than being renamed to something
+duller and collision-free, because the Shape-Up framing is the point: a PM stating "this is worth
+a day, not a week" is providing real information.
+
+**The Shape-Up sense is collected AFTER the size, never before it.** The field is optional and
+absent on the default path; it is written only when the PM volunteers a budget unprompted, or when
+their answer to the post-size prompt (§ below) states one. It is never an input to the route — the
+routing table resolves from the estimate alone, and the same t-shirt at every appetite value
+resolves the same route. A PM cannot judge a budget against work they have not seen, so asking for
+one before the size yields either an invented number or a question with no basis to answer.
 
 **The guard against conflation is carried at point-of-use, not only here.** A wiki entry is
 prose a reader consults if they think to; per the discharge test, the disambiguation that
@@ -86,7 +92,7 @@ read it to understand the collision, not as the mechanism that prevents it.
 
 ### 2. `loe.tshirt` reuse — no parallel scale
 
-`loe.tshirt` already exists: XS/S/M/L/XL with weights XS=1, S=2, M=4, L=8, XL=16, consumed by
+`loe.tshirt` already exists: XS/S/M/L/XL/XXL with weights XS=1, S=2, M=4, L=8, XL=16, XXL=32, consumed by
 `architecture-audit/SKILL.md`, `handoff/SKILL.md`, and `completion-entry.schema.json`. The
 sizing-object's estimate field **reuses this exact enum and these exact weights** — it is not a
 new, sizing-specific scale that happens to look similar. One t-shirt vocabulary, one place its
@@ -131,7 +137,7 @@ would sneak back in at one remove, just for the shape decision instead of the to
 
 ## The route table — six values, and the t-shirt→route mapping
 
-`ROUTE_ENUM = ("dispatch", "spec-dispatch", "shape", "plan", "roadmap", "pm-decision")`.
+`ROUTE_ENUM = ("dispatch", "spec-dispatch", "shape", "plan", "roadmap", "pm-decision", "goal-setting")`.
 
 | t-shirt | route | meaning |
 |---|---|---|
@@ -139,33 +145,53 @@ would sneak back in at one remove, just for the shape decision instead of the to
 | S | `spec-dispatch` | light plan artifact, then dispatch; no Opus plan review |
 | M | `plan` | full plan; auto-chains `coordinator:review` |
 | L | `plan` | full plan; auto-chains `coordinator:review` |
-| XL | `pm-decision` | not a room — surface four exits to the PM (§ below) |
+| XL | `pm-decision` | not a room — surface the offered exits to the PM (§ below) |
+| XXL | `goal-setting` | a terminal room, entered directly — the ask resolves an OKR-scale programme, not a plan |
 
-`roadmap` stays in the enum even though it is no longer a *base* route for any single t-shirt: it
-remains one of the four exits the PM can select at `pm-decision`, and a sizing-object records it
-there via `xl_exit`, not via `route`.
+`roadmap` stays in the enum even though it is not a *base* route for any single t-shirt: it
+remains one of the three currently-offered exits the PM can select at `pm-decision` (`split` being
+the fourth, retained-as-legacy, enum value), and a sizing-object records it there via `xl_exit`,
+not via `route`.
 
 The § Shape-is-a-conditional-room D5 gate above is unaffected by this table and still wins over
 it: a resolved L/XL with an unclear job-to-be-done, or any size wanting a step-change in
 well-trodden ground, resolves `shape` regardless of what this table alone would say.
 
-### The appetite⇄estimate fork — surfaced, never auto-resolved
+### The post-size prompt — surfaced open, never auto-resolved and never narrowed
 
 <!-- spec-backlink: run 2026-08-06-14h38, nugget c7-022 -->
 The engine sizes **symmetrically**: it collapses an over-read t-shirt down and raises an
-under-read one, in either direction, rather than only ever correcting downward. When the PM's
-stated `appetite` and the engine's resolved estimate diverge, the engine surfaces that divergence
-via the `appetite_exceeded` detent and stops there — it does **not** pick a resolution on the
-PM's behalf. `fork` (the cut-vs-raise choice named in § The adventure-chooser reuse above) is the
-sizing-object field that records which way the divergence was resolved, and the engine always
-emits it `null`; only the `sizing` skill fills `fork`, and only once the PM has actually chosen.
+under-read one, in either direction, rather than only ever correcting downward. The size is then
+delivered to the PM **first**, against visible scope. At a resized t-shirt of M and above the
+engine emits the positive `post_size_prompt_pending` detent, and the skill asks one open question
+and stops — *"looks like an XL, shall we go with that or want to split it, cut it, what's up?"* At
+XS and S nothing is asked and the EM proceeds.
 
-This is a corrected defect, not the original design: code review caught the engine jamming
-`fork=cut_to_fit` in as a placeholder value rather than leaving it unresolved, which would have
-silently pre-empted the PM's choice on every divergent estimate. The fix routes divergence
-through the `appetite_exceeded` detent instead, matching the same never-auto-resolve shape
-`xl_exit` uses (§ `pm-decision` above) — a detent is advisory and queryable, never a decision the
-engine makes quietly on its own.
+**Open means open.** The question is never narrowed to a `cut_to_fit` vs `raise_appetite` binary,
+never phrased as "want to raise your appetite?", and never re-encoded as a closed enum
+(`cut | split | proceed`) — any of those rebuilds the gate the open question exists instead of.
+The PM's answer lands in `pm_resolution` (free-form, the general slot), and additionally in `fork`
+when the answer happens to be cut- or raise-shaped; `fork`'s two-value enum records those two
+answers, it does not define the question. The engine always emits `fork` `null`; only the `sizing`
+skill fills it, and only once the PM has actually chosen.
+
+**The halt is signalled positively.** `post_size_prompt_pending` is emitted by the engine as a
+value, never inferred from `appetite` being absent — absence is the shape every M+ sizing-object
+has by construction, so an absence-keyed reader cannot tell "the EM delivered a size and is
+waiting" from "nothing happened yet." The general rule: **an open halt needs a positive,
+producer-emitted signal, never an inference from a missing value.** Its sibling case is the engine
+jamming `fork=cut_to_fit` as a placeholder rather than leaving it unresolved — the same failure,
+the producer resolving a state that belongs to the PM.
+
+**The prompt expires at plan ratification.** Ratification IS the answer: the PM assented to the
+scale with the whole plan body in hand, better information than the t-shirt the question was asked
+against. It is never a condition on execution and never gates a ratified plan — raising it at the
+`/execute-plan` gate downgrades the PM's own better-informed decision to the worse one. Changed
+scope routes through the `plan`⇄`sizing` return edge with evidence, not a re-ask.
+
+A volunteered appetite produces the `appetite_conform`/`appetite_exceeded` detents and surfaces
+that divergence on the same never-auto-resolved terms `xl_exit` uses (§ `pm-decision` above), under
+the same expiry.
 
 ## `spec-dispatch` — what it is, and why it reuses the plan artifact
 
@@ -199,23 +225,32 @@ working unmodified.
 - The Opus plan review at Exit. The honest trade is the one `plan` already articulates for its own
   skip-review case: implement, and let `code-reviewer` catch the diff.
 
-**The S lane NEVER skips** scoped-commit discipline, the pre-execute authorization gate, or
-ask-before-external-action. A lighter lane means less ceremony, never fewer safeguards.
+**The S lane NEVER skips** scoped-commit discipline or ask-before-external-action. A lighter lane
+means less ceremony, never fewer safeguards.
 
-## `pm-decision` — the XL exits, and why there are exactly four
+**It carries no pre-execute authorization gate, and listing one here was the defect.** That gate's
+referent is a *reviewed plan body* — what the S lane skips. With nothing to inspect, a compliant EM
+discharges it the only way left: by asking. That is the ask Step 5 removes.
+
+## `pm-decision` — the XL exits, and why there are three offered plus one legacy
 
 XL does not resolve into a room the way every other t-shirt does. The engine resolves
-`route: pm-decision` and sets the `pm_decision_pending` detent; it never picks an exit. The PM's
-choice is recorded in a sizing-object field, `xl_exit` — the exact same design as `fork`: the
-engine always emits `null`, and the field is filled only once the PM has actually chosen.
+`route: pm-decision` and sets the `pm_decision_pending` detent; it never picks an exit. Every XL
+exit led somewhere different, and it was the *choice among* those exits — not the resolution
+itself — that needed a human: the PM's choice is recorded in a sizing-object field, `xl_exit` —
+the exact same design as `fork`: the engine always emits `null`, and the field is filled only once
+the PM has actually chosen.
 
-`xl_exit` enum: `split` | `shape` | `roadmap` | `accept_multi_session`, or `null`.
+`xl_exit` enum: `split` | `shape` | `roadmap` | `accept_multi_session`, or `null`. `split` is
+retained as legacy vocabulary for existing records and is not an offered exit; an ask that
+decomposes into independently shippable pieces is a `roadmap`.
 
-Each exit carries a stated precondition, so the choice is made by test rather than by vibe:
+Each offered exit carries a stated precondition, so the choice is made by test rather than by
+vibe:
 
 | exit | precondition |
 |---|---|
-| `split` | the ask decomposes into ≥2 pieces that ship independently — each has its own acceptance criteria, and no piece depends on an unshipped sibling's contract. Test: name piece 1 and confirm it ships alone. |
+| `split` (legacy — not offered; superseded by `roadmap`) | the ask decomposes into ≥2 pieces that ship independently — each has its own acceptance criteria, and no piece depends on an unshipped sibling's contract. Existing records carrying `xl_exit: split` are not rewritten. |
 | `shape` | the job-to-be-done is not stated, or the EM cannot falsifiably restate the problem in the PM's vocabulary. Same condition as the D5 shape-entry gate above — reused, not re-cut. |
 | `roadmap` | the work spans ≥2 named workstreams, or it carries (or needs) an initiative/goal FK. It is a programme of plans, not one plan. |
 | `accept_multi_session` | none of the three above hold — one coherent job, clear JTBD, one workstream, simply large — **and** the PM has explicitly assented. Writing `xl_exit: accept_multi_session` IS that record. |
@@ -238,9 +273,11 @@ deliberately did NOT decide while sizing (a standing ruling new evidence bears o
 product-direction question, an irreversible/external action) — each entry stays listed until it
 is resolved in its own artifact, never by editing the sizing-object in place. `pm_resolution` is
 the counterpart: once the PM actually decides, their reasoning lands there, keyed by what it
-resolved (`decided_on` plus free-form keys like `appetite_fork`, `xl_exit`, `wiki_home`). It is
-reasoning only — `fork` and `xl_exit` stay the authoritative machine-readable record of those two
-choices, and a `pm_resolution` entry must never contradict them.
+resolved (`decided_on` plus free-form keys like `post_size_prompt`, `xl_exit`, `wiki_home`). It is
+also the general slot for the PM's answer to the post-size prompt, whose open shape `fork`'s
+two-value enum cannot represent — "split it" and "go with that" have no `fork` value. `fork` and
+`xl_exit` stay the authoritative machine-readable record of the choices they do represent, and a
+`pm_resolution` entry must never contradict them.
 
 ## `premise` — where the estimate's foundation actually came from
 
@@ -277,8 +314,11 @@ check is equally valid, as long as `evidence` names it.
 
 **The threshold and the advisory nature.** The engine emits a `premise_unproven` detent when
 provenance is `read` **and** the RESIZED t-shirt (after the symmetric-resize step, not the raw
-gut-read) is above Medium — **L or XL only; M itself never fires it.** A second detent,
-`premise_not_applicable`, fires under the same L/XL-only threshold when provenance is
+gut-read) is in `_PREMISE_DETENT_TSHIRTS` — **M, L, XL, XXL; M fires it.** That constant is
+deliberately DISTINCT from `_LARGE_TSHIRTS`, which also gates the shape-route condition: reaching
+M by widening that tuple instead would silently reroute an M-sized `jtbd_unclear` ask from `plan`
+to `shape`, so the two never merge. A second detent,
+`premise_not_applicable`, fires under the same size gate when provenance is
 `not-applicable` instead — its purpose is the same "leave a queryable trace" one, but for a claim
 that this ask has no mechanism to verify at all rather than a claim that verification was skipped.
 Both detents are purely **advisory**: exactly like the D5 shape-gate and the route table above,
@@ -287,6 +327,161 @@ standing precedent for this shape: a detent that surfaces a concern without gati
 fires in, ruled advisory-not-blocking for the same shift-left-without-hard-gating reason. It
 shares the "the lobby wins by being cheap, never by refusing entry" principle already load-bearing
 throughout this page (§ The turn-one arrival advisory).
+
+## The sizing-object lifecycle — birth is not the whole story
+
+Everything above this point explains how a sizing-object is born and routed. That is not the
+whole lifecycle: a sizing-object has a `status` field that moves through states after routing,
+and what those states do and do not tell a reader matters as much as the routing itself.
+
+**The states, and where the corpus actually sits.** `status` moves through `draft | sized |
+routed | superseded`, plus a terminal value for a sizing whose downstream work has shipped. As of
+this session the 105-record corpus reads 52 `sized`, 47 `routed`, 5 `superseded`, 1 `draft` — an
+as-of reading, not a pinned invariant; the corpus drifts under every peer session that touches it,
+and a future reader should expect these numbers to have moved.
+
+**What `routed` does and does not mean.** `routed` means "handed to a room" — nothing more. It is
+the last state a live record reaches today, which means it says *nothing* about whether the work
+it describes is still open. A `routed` sizing whose plan shipped weeks ago reads identically, on
+disk, to one handed over an hour ago. Anyone who treats `routed` as "still live" is reading a
+state the field never promised.
+
+An EM reading a `routed` sizing cannot tell whether its plan shipped weeks ago or an hour ago —
+that ambiguity is the artifact's fault, not the reader's. Editing it "to make sure it gets acted
+on" is the correct read of the artifact's own recorded state; the artifact lied. The fix isn't a
+smarter reader; it's a state the artifact can actually reach when the work is done, so the record
+stops lying by omission.
+
+**What closes a sizing, by route.** Closure is never improvised by an EM at session close — it is
+applied by a defined ceremony, and which ceremony applies depends on the route. Plan-minting
+routes (`plan`, `spec-dispatch`) close **by cascade**, when the minted plan stamps `implemented`,
+joined on `deliverable_id`. `dispatch`-routed sizings mint no plan for that cascade to key on, and
+close instead via `quick-wrap`'s closure step, added by the plan that made
+quick-wrap a first-class closing path for XS/S-sized work. The full route→closing-path
+picture — all four classes, with their relative weight in the corpus — belongs in its own section
+of this page rather than folded into this paragraph.
+
+**The join key, stated once.** `deliverable_id` is the fleet's durable join key: minted once, at
+the earliest artifact in a deliverable's chain, and carried verbatim downstream. A sizing-object
+is now that earliest artifact, so it carries a `deliverable_id` from birth. The nullable reverse FK
+to the minted plan is a human-readable pointer for a reader following the chain forward — it is
+not the join key. A reader who inverts those two roles, treating the reverse FK as authoritative
+and `deliverable_id` as decoration, has the model backwards.
+
+**Closure is a `git mv`, not a status edit.** A terminal sizing-object moves to
+`archive/sizings/<YYYY-MM>/`, the same shape every other archived queue in this fleet uses
+(CLAUDE.md § Conventions: closure is `git mv` to `archive/<queue>/<YYYY-MM>/`, never inline).
+Doctrine-plane ceremony performs that move; the control-plane engine's cascade is conclusion-shaped and writes
+the terminal status only, never a file move.
+
+**A record already terminal is archived on sight, keyed on status, not route.** A sizing-object
+that already carries a terminal `status` (`shipped`, `declined`, or `superseded`) is archived by
+the next ceremony that observes it, regardless of which route produced it. "Observes" means the
+ceremony actively scans `state/sizings/*.yaml` for terminal status, not that it happens to notice
+one it was already routed through — quick-wrap's Step 2 runs this scan explicitly. This does not
+violate
+§ Report, never flip: that ruling forbids a sweep *inferring* a terminal state and writing it. A
+record already at a terminal status has no inference left to make — the move acts on a status
+already written, the same shape as every other queue closure in this fleet. The boundary is hard
+in the other direction, too: no ceremony may write a terminal status it did not find already
+present. Observing and moving is always in scope; deciding and writing never is.
+
+## The full closing-path taxonomy — all four classes, by weight in the corpus
+
+The lifecycle section above states, in general terms, that closure depends on route and names the
+two mechanisms (cascade, quick-wrap) without covering every route. This section is the full
+taxonomy: every sizing route falls into exactly one of four closing-path classes, against the
+measured histogram in the plan's § Problem-shape confirmation — `plan` 38, `spec-dispatch` 26,
+`dispatch` 18, `pm-decision` 17, `shape` 4, `roadmap` 1, `goal-setting` 1, a 105-record corpus as
+of this session's authoring. As-of, like every other corpus reading on this page — it drifts under
+every peer session.
+
+**1. Plan-minting (`plan`, `spec-dispatch` — 64/105, 61%).** The status write and the file move
+have different owners, and only the first is built. The cascade writes the terminal status when
+the minted plan stamps `implemented`, joined on `deliverable_id` — that half works, single-valued
+per route, for both `plan` and `spec-dispatch`. The move is the gap: no ceremony has ever claimed
+it for `spec-dispatch`, and three `shipped`-but-unarchived `spec-dispatch` records on disk are the
+evidence. A `spec-dispatch`-routed sizing is fully closed only once both halves have happened —
+cascade write, then ceremony move. The plan that named quick-wrap as the archival-move owner for
+terminal sizings gives quick-wrap that archival move; this page's own forward declaration that
+reconciling this boundary belongs to the quick-wrap plan "if closure ever moves to quick-wrap" is
+discharged there.
+
+**2. Dispatch-routed (`dispatch` — 18/105, 17%).** No plan is ever minted for this class, so it
+never joins the cascade. Both halves are owned by quick-wrap's Step 2, same as class 1, but as two
+separate bullets rather than one combined step: the status write is scoped to the sizing-object
+that routed this session, and the `git mv` is the route-agnostic archive-on-sight bullet that
+fires for any terminal record the step's scan finds, this session's own or not.
+
+**3. Waypoint routes (`shape`, `pm-decision` — 21/105, 20%).** Neither mints a plan directly, but
+both resolve onward into a room that does: `shape` routes to a re-sized ask that then enters
+`plan`/`roadmap`/`dispatch`; `pm-decision` resolves via `xl_exit` into `shape`, `roadmap`, or
+`accept_multi_session` (itself plan-shaped). The waypoint record itself never closes by either
+named mechanism — cascade and quick-wrap both key off the closing record's own `deliverable_id`/
+`status`, not a predecessor's. What closes is a different, later-minted sizing: the re-sized ask
+`shape` produces, or the `xl_exit` choice `pm-decision` produces. The point of naming them here is
+so a reader does not mistake the original waypoint record for one that reaches a terminal `status`
+itself — it doesn't; only its successor does.
+
+**4. `roadmap` / `goal-setting` (2/105, 2%).** Not the only class with no closing path for its own
+record — class 3's waypoint records are in the same boat, per above. What distinguishes this class:
+even the successor-closure path class 3 has isn't available here. Both prerequisites are
+outstanding: the `roadmap` and `goal` schemas do not yet carry `deliverable_id`, so there is no key
+to join on, and no engine seam reaches those artifact kinds even once they do. Threading the key is
+a held schema bump; cascade target-kind coverage for the kinds is spinoff scope, tracked as a
+standing handoff in `state/handoffs/`. Named here as unclosed rather than omitted — a route absent
+from a taxonomy reads as covered.
+
+**Report, never flip.** Anything sweep-shaped in this taxonomy must REPORT, not FLIP. The
+event model and the control-plane engine's `cascade_backstop_sweep.py` module — whose own stated
+boundary is "this sweep REPORTS. It does not flip, and it never will" — bind here: a sweep is
+*inference*, an event is *observation*. No closing path described above has a sweep writing state.
+
+## The retro corpus is not backfilled — and its absent keys are not a gap
+
+The taxonomy above governs sizings **going forward**, from the point a sizing is minted carrying
+`deliverable_id`. The historic corpus is **not** backfilled, and its absent keys are not a gap to
+close.
+
+Route does not gate minting: `route` is chosen during sizing, after `coordinator-doc-new` has
+already scaffolded the record and minted its `deliverable_id`, so every sizing minted today carries
+one regardless of route — the lifecycle section above and the schema's own description both hold
+without qualification. The absent keys in the historic corpus are a backfill-futility question, not
+a field-presence one: for records minted before the field existed, on a route that mints no plan,
+there is no plan-shaped deliverable to join a backfilled key to and no cascade that would ever
+consume it. As of this session that's 40/112 records (`dispatch` 17, `shape` 4, `pm-decision` 17,
+`roadmap` 1, `goal-setting` 1) — an as-of reading, not a pinned invariant — counting records for
+which a backfilled key would join to nothing, not records for which the field is structurally
+wrong.
+
+**Negative spec, stated as such:** a sweep or audit reporting these historic absences as "unkeyed",
+"missing `deliverable_id`", or "not on the spine" is reporting a non-defect. Do not mint keys to
+silence it.
+
+The one real edge, for the plan-minting class only: the plan's `sizing_object:` back-pointer plus
+the plan's own `deliverable_id` is a direct 1:1 join — no grouping heuristic is required or
+wanted. The control-plane engine's backfill tool instead groups sizings by a `workstream:` key
+sizing records do not carry, which is why its report reads UNKEYED across the corpus; closing
+that gap is the engine's own seam, not a doctrine-plane-side mechanism.
+
+## The closure target, named for the reader who is about to move one
+
+The two sections above establish that closure is a `git mv`, never a status edit alone, and that
+the control-plane engine's cascade writes status only. What neither states is the target path
+itself and who actually runs the move — the two facts a reader closing a sizing needs at the
+moment of acting, not derived from the general `archive/<queue>/<YYYY-MM>/` convention.
+
+**Target: `archive/sizings/<YYYY-MM>/`**, bucketed by the month of closure — the same shape every
+other archived queue in this fleet already uses. A terminal sizing gets `status: shipped` and the
+`git mv` together, as one act: a status flip with the record still sitting in `state/sizings/` is
+a half-closure the corpus still counts as live inventory, and a move without the status flip is
+the same failure mirrored the other way.
+
+**Who moves it:** doctrine-plane ceremony — quick-wrap or workstream-complete, depending on which closes the
+route in question (§ above) — not the control-plane engine. The engine's own cascade is
+conclusion-shaped: it gates and stamps the terminal status, and that is the full extent of the
+write it performs. Archival is a doctrine-plane-ceremony act, never something the engine's cascade reaches
+into `archive/` to do itself.
 
 ## The hard gate — no named-reason override on the route
 
@@ -378,22 +573,23 @@ that comparison has a fixed, citable incumbent rather than an abstract "the old 
 ## Keyword-gating reconciliation — the literal word gates the lobby, not the ceremony
 
 The PM deliberately downgrades their own hotpath verbs — `/plan`, `/shape`, `/roadmap-plan` —
-from *direct ceremony invocations* to **appetite hints the sizing lobby consumes**. On paper this
+from *direct ceremony invocations* to **a routed sizing-lobby entry**. On paper this
 collides with the standing rule in `coordinator/snippets/em-operating-doctrine.md § How to Decide`: *"Paraphrase is
 not authorization — keyword-gated primitives need the literal word."* The reconciliation resolves
 the collision **without weakening that rule**:
 
 - **The literal word still gates.** For `/plan`, `/shape`, `/roadmap-plan` the literal verb is
   still required. What changes is the **destination it gates into**: the verb routes into the
-  sizing lobby with that verb's preset appetite (`sizing_assemble.route()` resolves the room from
-  there — dispatch / shape / plan / roadmap), rather than invoking the named ceremony directly.
+  sizing lobby, carrying no appetite — there is none at that point in the flow to carry — and
+  `sizing_assemble.route()` resolves the room from the estimate (dispatch / spec-dispatch / shape /
+  plan / roadmap / pm-decision), rather than the verb invoking the named ceremony directly.
 - **This is a destination redirect, not a relaxed gate.** Eventual-intent prose ("we should plan
   this out") still is NOT invocation of anything — not the ceremony, and not the lobby. Only the
   literal word admits entry, to *either* destination. Paraphrase-is-not-authorization survives
   intact and verbatim in force.
 - **The still-hard-gated primitives are unchanged.** `/spinoff`, `/handoff`, `/staff-session`,
   `/merging-to-main` keep literal-word-gates-direct-ceremony exactly as before — they are NOT
-  lobby-routed. Only the sizing-consumed appetite verbs change destination.
+  lobby-routed. Only the sizing-consumed verbs route to the lobby rather than their ceremony.
 
 The `coordinator/snippets/em-operating-doctrine.md § How to Decide` bullet ("Paraphrase is not
 authorization") carries the greppable pointer here; this section is the authoritative articulation.
@@ -419,8 +615,8 @@ conform intake to add.
   execution room `dispatch` names; it shipped with sizing's own Step 4 and needs no separate
   intake elsewhere.
 - **A `route: dispatch` sizing-object is not a phantom.** On the ordinary, non-express-lane path,
-  the routing engine maps small-appetite t-shirts straight to the dispatch route (`"XS":
-  "dispatch"`, `"S": "dispatch"`); Step 4 of `sizing/SKILL.md` then scaffolds the sizing-object
+  the routing engine maps the small t-shirts straight to the dispatch route (`"XS":
+  "dispatch"`, `"S": "spec-dispatch"`); Step 4 of `sizing/SKILL.md` then scaffolds the sizing-object
   from that returned decision as normal — the route-resolution call itself is documented
   READ-ONLY and never performs the write. Only an explicit PM `--express-lane` signal
   short-circuits without writing an object at all — that is the deliberate small-and-obvious
@@ -541,6 +737,120 @@ rewriting it was a tidy-up, not the lever. Tightening the three competing descri
 change that actually moved the needle; the turn-one advisory above is the mechanism that reaches
 the sessions those descriptions can't — the ones that open on a bare ask with no skill invoked
 yet.
+
+## The t-shirt gut-read — calibration table
+
+The Step 1 read is the EM's own honest internal read of ENGINEERING COMPLEXITY, stated as a test —
+never appetite, never human effort or calendar time:
+
+| notch | honest internal read |
+|---|---|
+| `XS` | know enough to dispatch now, cheap-tier executor does well, no judgment delegated |
+| `S` | need a quick look, then cheap-tier executor with delegated judgment |
+| `M` | not sure myself, want a second opinion — still one-session once locked |
+| `L` | want a staff-eng review; splits plan→review from execution via a handoff |
+| `XL` | spike-worthy; review and execution can't share a context, 3-session+ |
+| `XXL` | can't first-draft plan it in one window; needs multi-wave sequencing |
+
+**Tentativeness is not the safe direction.** Sizing down is caught by the mandatory review window
+and the `plan⇄sizing` return edge; sizing up produces its own justifying ceremony and nobody
+learns otherwise. When torn, take the lower notch — the substrate probe is what earns the higher
+one. Every notch carries the same mandatory review spend regardless (`quick-wrap` at XS,
+`spec-dispatch`'s terminal at S, `workstream-complete` at M+) — no notch skips review, only where
+the EM's judgment gets spent varies.
+
+## `appetite` — a two-sense collision, and the guards that keep it from bending the estimate
+
+Coordinator doctrine already uses "appetite" pejoratively (global doctrine: *"OOS framing must be
+architectural, not appetite-based"*). The Shape-Up sense used here is different and legitimate:
+`appetite` is a budget the PM **states** (`small`/`medium`/`large`), populated only after the size
+has been delivered — either volunteered unprompted, or given as the Step 5 answer. It is never
+collected as a precondition of getting a size, and its absence is the normal shape of a
+sizing-object, not an omission.
+
+**A volunteered appetite never moves the estimate.** Appetite is the PM's budget; the estimate is
+the EM's read of engineering complexity — neither is an input to the other. A large appetite for a
+two-line fix leaves it a two-line fix; a small one shrinking the read is appetite-based
+out-of-scoping through the estimate instead of through scope. Guard: size from the work alone —
+surfaces touched, proven-vs-novel, number of pieces. Tell: the estimate landed on a volunteered
+appetite's notch, evidence reducing to "the PM really wants this." A second tell on the default
+(no-appetite) path: sizing against an appetite you assumed — "appetite was unset so I sized against
+medium" is the same anchoring defect wearing a disclaimer; there is no default budget to size
+against.
+
+**A cross-team dependency is a gate, not a size.** The estimate is TOTAL engineering complexity —
+the sibling's half counts in full, sized on its merits, never excluded from the read. What is
+excluded is the boundary *ceremony*: the memo, the cross-repo assent gate, the notification duty,
+the relay, the wait — those are scheduling around the work, belonging in `blocked_by`/
+`awaiting_gate`, never in the t-shirt. Discriminator: a *memo* (one ask, the sibling implements it
+on their own surface) does not move the notch; *negotiated co-design* (the shared contract itself
+is the unknown, and it takes round-trips to converge) is genuine complexity and is ours as much as
+theirs — size the co-design, never the dependency. `--boundary-in-notch yes|no` is how this becomes
+checkable: the engine cannot apply the memo-vs-co-design discriminator from a two-valued flag, so a
+`yes` fires `boundary_counted_in_notch` and hands the call back to the EM at the point the notch is
+committed — collapse it, or record the co-design justification in `detent_discharges`.
+
+A live, same-machine, registry-visible peer EM session is a direct channel for negotiated co-design,
+gated on both: the shared contract is genuinely the unknown (not just "worth telling them"), and
+it's cheaper for the receiver now than later (blocked-and-waiting, about to ship something the
+message would change, or an agreed synchronous window). Default to the memo when either is unclear.
+
+A PM downgrade on judgment is a sanctioned input here, not a breach of the anti-hedging guard above:
+an amnesiac EM's "feel" is a read of the ask's wording, the exact unreliable signal the guard warns
+about, but a PM carries accumulated cross-session judgment the EM lacks — the same class of
+evidence a substrate probe returns, arriving by a cheaper route. Mechanically this needs no new
+machinery: the Hard Gate already says a wrong route is corrected by fixing the size with evidence,
+so a PM downgrade is a resize, not a route override.
+
+**A touchpoint count is not a depth read.** The estimate is a read of engineering DEPTH — how much
+is unknown, how much judgment the hardest part needs. A count of touchpoints is a read of BREADTH,
+and the two are independent: one rule, stated once and applied uniformly to sixty disjoint sites, is
+the same engineering as stating it for six. Fan-out is a dispatch shape, not a notch. Guard: size
+the hardest single site, plus the judgment needed to state the rule once; the number of sites it
+then applies to belongs in the dispatch plan. Tell: an estimate justified by a number of files,
+call sites, or occurrences where the per-site edit is uniform and the sites are disjoint. Breadth
+that is *not* uniform — sites that each need their own call, or that interact — is depth wearing a
+count and sizes normally.
+
+## The newer guard flags — `intent_source`, `precedent`, `scout_evidence_kind`, `probe_raise_basis`
+
+Four `--flag` answers the assembler validates and records twice over (as a property AND as a
+detent) — the property is an affirmative attestation that the question was asked and answered,
+which a detent alone cannot give, because only the costly answer fires one.
+
+**`--intent-source pm-verbatim|em-elaborated`.** `--intent "<the PM's words>"` is echoed into the
+sizing-object unparsed, so the ask and the size land in one frame where drift is self-evidently
+visible to any reader. `em-elaborated` answers honestly when what's in hand is the EM's own
+restatement rather than the PM's sentence — editing a restatement to *look* verbatim is the failure
+this pair exists to catch. Motivating incident: an EM sized "commit it and push it" as a
+three-clause elaboration naming a per-item publish review and a structural-gap fix the PM never
+asked for; the elaboration was where the scope grew, invisibly, until the flag existed to mark it.
+
+**`--precedent shipped-before|novel`.** Has this fleet run this operation before, with a runbook
+that landed? `shipped-before` is the single strongest available collapse signal and fires the
+advisory `precedent_shipped_before` — advisory, not an auto-collapse, because a repeat can
+genuinely be larger this time (a migration rides along, the contract changed) and the engine cannot
+see which.
+
+**`--scout-evidence-kind mention-count|change-set|site-count`**, paired with `--scout-evidence
+<str>` (repeatable) naming what each Step-2 finding counts. A mention-count (a grep/reference
+count) is not a change-set until someone has asked what a compatibility layer absorbs — under a
+back-compat shim, mentioning sites resolve unchanged and count zero. Motivating incident: a scout
+returned ~108 files that *mention* a literal, passed as though it described a change-set; every one
+of them resolved unchanged under the shim in place. `mention-count` fires `scout_evidence_mention_
+count`; `change-set` and `site-count` fire nothing — they already describe evidence qualified as to
+*what was counted*, which says nothing about depth (see the touchpoint-count guard above).
+
+**`--probe-raise-basis ask-scope|substrate-condition|breadth`**, required alongside any
+`--probe-signal raise`. A finding about the substrate's condition ("this area is a mess" —
+untested, tangled, mid-migration) is not the ask's size — it describes the *area*, not the
+*request*. `substrate-condition` and `breadth` both suppress the raise (the notch stays where the
+gut-read put it) and fire their own detent recording the suppression; `ask-scope` is the only basis
+that keeps the raise, and it fires `probe_raise_ask_scope_asserted` so the assertion that the ask
+itself grew is recorded and falsifiable rather than the free, unmarked answer. Motivating incident:
+a `raise` probe's four `scout_evidence` items all described a mirror's health (orphaned tests, a
+stray allowlist row, an uncommitted backlog) and none described the ask, which remained "commit and
+push" — a `substrate-condition` raise, correctly suppressed.
 
 ## Partial-completion crash — reaper hand-back and audit credit
 

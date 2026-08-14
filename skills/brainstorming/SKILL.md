@@ -7,30 +7,32 @@ version: 1.0.0
 
 # Brainstorming
 
-Turn the PM's intent into a design spec through collaborative dialogue. The PM decides what to build; the EM shapes feasibility, flags constraints, and proposes approaches. The output is a committed spec that feeds directly into `coordinator:plan`.
+Turn the PM's intent into a design spec through collaborative dialogue. The PM decides what to
+build; the EM shapes feasibility, flags constraints, proposes approaches. Output: a committed spec
+that feeds `coordinator:plan`.
 
 **Announce at start:** "Using brainstorming to explore the design before we plan implementation."
 
-**When NOT to invoke:** Well-scoped follow-ups (PM is asking for a specific next step on a workstream that already has a spec, plan, or completed prior iteration) go straight to `coordinator:plan` — or just do it, if trivial. Brainstorming is for genuine *ambiguity in shape*, not for *next-step-on-known-shape*. If the request answers "what should we build?" with one sentence already, the design exists; jump to plan. If the request would require 2+ rounds of *what is this even?* clarifying questions, brainstorming applies.
+**When NOT to invoke:** a well-scoped next step on a known shape goes straight to
+`coordinator:plan`, or just do it if trivial. Brainstorming is for genuine ambiguity in shape —
+if the request would take 2+ rounds of "what is this even?" clarifying questions, it applies.
 
-**Brainstorming vs. `/shape` (`coordinator:shape`):** these are siblings, not twins. Brainstorming is for *not knowing what to build* — it explores approaches and produces a design spec (a solution artifact). `/shape` is for *converging on the problem* — the PM holds a problem and wants the EM's understanding of it confirmed before any solutioning. The discriminating test: *if the PM HAS a problem and wants confirmation you understood it (vs. not knowing what to build at all) → `coordinator:shape`, not `coordinator:brainstorming`.* Both terminate in `coordinator:plan`.
+**vs. `coordinator:shape`:** siblings, not twins. Brainstorming is for *not knowing what to
+build* (produces a solution artifact). `shape` is for *converging on a problem the PM already
+holds*. Discriminator: PM wants confirmation you understood a problem → `shape`; PM doesn't know
+what to build → `brainstorming`. Both terminate in `coordinator:plan`.
 
 <HARD-GATE>
-Once brainstorming has started, do NOT invoke any implementation skill, write any code, scaffold any project, or dispatch any executor until the spec is written and PM-approved. The only exit from brainstorming is a completed spec that transitions to `coordinator:plan`.
-
-This gate is about finishing what you started. If the PM arrived with a clear spec, the EM can skip brainstorming entirely and go straight to `coordinator:plan`. But once you've started the design conversation, see it through.
+Once started, do NOT invoke any implementation skill, write code, scaffold a project, or dispatch
+an executor until the spec is written and PM-approved. The only exit is a completed spec that
+transitions to `coordinator:plan`. If the PM arrived with a clear spec, skip brainstorming
+entirely — but once started, see it through.
 </HARD-GATE>
 
-## Rationalization Resistance
-
-Good EMs design before they build. The design can be lightweight — a few sentences for genuinely simple work — but it must exist and be approved before implementation begins.
-
-| Thought | Check yourself |
-|---------|---------------|
-| "This is simple enough to just start coding" | Simple-looking requests are where unexamined assumptions cause the most rework. Write a short spec. |
-| "The PM already described exactly what they want" | Did they describe it precisely enough for a cold-start agent to implement it without questions? If not, the spec isn't done. |
-| "This is just a minor tweak to existing work" | Minor tweaks that touch multiple files or change behavior need a spec. If it's truly one line, you wouldn't have invoked brainstorming. |
-| "We already discussed this earlier in conversation" | Conversation context compacts. The spec is what survives. If the design isn't written down, it doesn't exist. |
+The design can be lightweight — a few sentences for simple work — but it must exist and be
+PM-approved before implementation. Simple-looking requests are where unexamined assumptions cause
+the most rework; "we discussed it earlier" doesn't survive context compaction, the written spec
+does.
 
 ## Process
 
@@ -70,74 +72,64 @@ digraph brainstorming {
 }
 ```
 
-**Terminal state:** The ONLY next step after brainstorming is `coordinator:plan`. No other skill.
+**Terminal state:** the ONLY next step after brainstorming is `coordinator:plan`.
 
 ## Understanding Intent
 
 <!-- BEGIN project-rag-preamble (synced from snippets/project-rag-preamble.md) -->
-**Project-rag is project-scoped.** It indexes ONE specific codebase, configured at install time. Before reaching for `mcp__*project-rag*` tools, confirm they index the codebase you're investigating — not a different project on the same machine. If your target codebase doesn't have a project-rag index (no `Saved/ProjectRag/` marker at its root, no `--project-root` argument pointing at it in the MCP config), skip this preamble entirely and use grep/Explore.
+**Project-rag is project-scoped.** It indexes ONE specific codebase, configured at install time.
+Before reaching for `mcp__*project-rag*` tools, confirm they index the codebase you're
+investigating. If your target has no project-rag index, skip this preamble and use grep/Explore.
 
-**If MCP tools matching `mcp__*project-rag*` are available AND they index the codebase you're investigating, prefer them over grep/Explore for any code-shaped lookup.** Symbol-shaped questions ("where is X defined", "find the function that does Y") → `project_cpp_symbol` / `project_semantic_search`. Subsystem-shaped questions ("how does X work") → `project_subsystem_profile`. Impact questions ("what breaks if I change X") → `project_referencers` with depth=2. Stale RAG still beats grep on structure. Fall through to grep/Explore only if RAG returns nothing AND staleness is plausible.
+**If `mcp__*project-rag*` tools are available AND index your target, prefer them over
+grep/Explore for code-shaped lookups.** Symbol-shaped → `project_cpp_symbol` /
+`project_semantic_search`. Subsystem-shaped → `project_subsystem_profile`. Impact-shaped →
+`project_referencers` depth=2. Fall through to grep/Explore only if RAG returns nothing and
+staleness is plausible.
 <!-- END project-rag-preamble -->
 
-**Project context first.** Before reading source files or running searches, check accumulated knowledge — architecture atlas (`docs/architecture/systems-index.md`), any project wiki guides, repo map (`.claude/repomap.md`). These tell you what exists, how it's structured, and what decisions have already been made. Then read specific source files and recent commits to fill gaps. Know what exists before asking what to change.
-
-**Clarifying questions:**
-- One question per message. Break complex topics into sequential questions.
-- Prefer multiple choice when the decision space is bounded. Open-ended when it isn't.
-- The PM is a product-savvy partner. Probe for decision points and constraints — don't ask about basics they've likely already considered.
-- Focus on: purpose, success criteria, constraints, integration points, edge cases.
-- If the PM has already specified something clearly, acknowledge it and move to what's unresolved.
-
-**Technical constraints:** If the EM sees a technical issue with the PM's direction, raise it directly. "That approach would require X, which conflicts with Y. Here's what I'd recommend instead." The EM's job is honest technical counsel, not silent compliance.
-
-**Scope assessment:** If the request spans independent subsystems, flag this early. Each subsystem gets its own spec, plan, and execution cycle. Don't try to design everything in one pass — decompose first, then deep-dive each piece.
+Check accumulated project knowledge first (architecture atlas, wikis, repo map) before reading
+source. Clarifying questions: one per message, multiple choice when the decision space is
+bounded, probing constraints rather than basics the PM has likely considered. Raise technical
+concerns directly — honest counsel, not silent compliance. Independent subsystems each get their
+own spec/plan/execution cycle — decompose first, then deep-dive each piece.
 
 ## Domain Language Discipline
 
-If `CONTEXT.md` exists at the project root, read it before the first PM clarification question. If it is absent, proceed silently — do not flag, suggest, or scaffold. Use canonical terms in your questions. When the PM says a term that's on the `_Avoid_:` list, gently substitute the canonical term and confirm: *"You said X — you mean &lt;canonical-term&gt;?"*
+If `CONTEXT.md` exists at the project root, read it before the first clarifying question; if
+absent, proceed silently. Use its canonical terms; when the PM uses an `_Avoid_:`-listed synonym,
+substitute and confirm: *"You said X — you mean &lt;canonical-term&gt;?"*
 
-When the PM resolves a term during dialogue (defines, disambiguates, or names a previously-fuzzy concept), update `CONTEXT.md` inline — don't batch. Format: a `## Terms` section with entries of the form `**<Canonical term>** — one-sentence definition.` followed by an `_Avoid_: <synonym1>, <synonym2>` line listing any synonyms actually seen in the corpus (omit `_Avoid_:` if none have appeared yet).
+When the PM resolves a term during dialogue, update `CONTEXT.md` inline (don't batch): a `##
+Terms` section, `**<Canonical term>** — one-sentence definition.` plus an `_Avoid_:` line of
+synonyms actually seen. Lazily create the file on the first resolved term if it doesn't exist —
+never scaffold it empty.
 
-If `CONTEXT.md` doesn't exist and a term gets resolved that would clearly recur, lazily create it with the resolved term as the first entry. Never scaffold an empty file. If no term has been resolved yet, don't create the file.
+## Exploring Approaches, Presenting the Design
 
-## Exploring Approaches
-
-- Propose 2-3 approaches with trade-offs. More than 3 creates decision paralysis.
-- Lead with your recommendation and explain why.
-- For each approach: one sentence on the idea, one on the key trade-off, one on when you'd choose it.
-- If one approach is clearly superior, say so. The PM appreciates directness over false balance.
-- If the PM's request implies an approach with a significant technical drawback, include it as an option but flag the drawback.
-
-## Presenting the Design
-
-- Scale each section to its complexity. A few sentences if straightforward, up to 200-300 words if nuanced.
-- Ask after each section whether it looks right so far. Incremental approval, not monolithic review.
-- Cover as applicable: architecture, components, data flow, interfaces, error handling, testing strategy.
-- In existing codebases: follow established patterns. Include targeted improvements only where existing code directly affects the work.
+2-3 approaches with trade-offs (more creates decision paralysis), leading with your
+recommendation — one sentence each on the idea, the trade-off, and when you'd choose it; say so
+if one is clearly superior; flag a significant drawback even in a favored option. Scale each
+design section to its complexity (a few sentences to ~300 words); ask after each whether it looks
+right — incremental approval, not monolithic review. Cover as applicable: architecture,
+components, data flow, interfaces, error handling, testing strategy. In existing codebases,
+follow established patterns.
 
 ## Writing the Spec
 
-**Save to:** `docs/specs/YYYY-MM-DD-<topic>-design.md` (project directory). If the project has no `docs/` directory, create it.
+**Save to:** `docs/specs/YYYY-MM-DD-<topic>-design.md` (create `docs/` if absent). Must carry
+enough context for a cold-start agent to implement without conversation history.
 
-The spec must carry enough context for a cold-start agent to implement the feature without conversation history.
+**Self-review before presenting** (fix inline, no separate pass): no TBD/TODO/vague requirements;
+no internal contradictions; scope focused enough for a single plan (split now if not); no
+requirement readable two ways; `CONTEXT.md` updated for any term resolved in dialogue.
 
-**Self-review checklist** (flag issues that would cause problems during planning or execution — not style):
-1. **Placeholder scan:** Any TBD, TODO, incomplete sections, or vague requirements? Fix them.
-2. **Internal consistency:** Do sections contradict each other? Does the architecture match the requirements?
-3. **Scope check:** Is this focused enough for a single plan? If it spans independent subsystems, split into separate specs now.
-4. **Ambiguity check:** Could any requirement be interpreted two ways? Pick one and make it explicit.
-5. **Glossary check:** If a term was resolved in dialogue, has `CONTEXT.md` been updated so downstream plan-writing will use the canonical form? (Missing this produces plans with the wrong term, which re-invites the conflation the glossary was built to prevent.)
+**Commit the spec**, then:
 
-Fix issues inline. No separate review pass needed.
+> "Spec written and committed to `<path>`. Please review — I'll hold on implementation until you
+> approve."
 
-**Commit the spec** before presenting it to the PM.
-
-**PM review gate:**
-
-> "Spec written and committed to `<path>`. Please review — I'll hold on implementation until you approve."
-
-Wait for PM response. If changes requested, apply them and re-run self-review. Only proceed once the PM approves.
+Wait for PM response; apply changes and re-run self-review if requested.
 
 ## Spec Template
 
@@ -146,56 +138,33 @@ Wait for PM response. If changes requested, apply them and re-run self-review. O
 
 **Date:** YYYY-MM-DD
 **Status:** Draft | PM-Approved
-**Goal:** [One sentence — what does this build and why?]
+**Goal:** [One sentence]
 
 ## Context
-
-[What exists today, what problem this solves, why now. 2-3 sentences.]
+[What exists today, what problem this solves, why now.]
 
 ## Requirements
-
 - [Requirement 1 — concrete, testable]
-- [Requirement 2]
 
 ### Out of Scope
-
 - [Thing we're NOT building and why]
 
 ## Design
-
 ### Architecture
-
-[How the pieces fit together. Diagram if helpful.]
-
 ### Components
-
-[For each: what it does, what it depends on, how it's tested.]
-
 ### Interfaces
-
-[How components communicate. API contracts, data shapes, event flows.]
-
 ### Error Handling
 
-[What can go wrong and how each failure mode is handled.]
-
 ## Trade-offs
-
 | Decision | Chosen | Alternative | Why |
-|----------|--------|-------------|-----|
-| [Decision] | [Choice] | [Other option] | [Reasoning] |
 
 ## Testing Strategy
 
-[How to verify this works. What's automated vs. manual.]
-
 ## Open Questions
-
-[Anything unresolved. Should be empty before PM approval.]
+[Should be empty before PM approval.]
 ```
 
 ## Transition
 
-Once the PM approves the spec:
-
-**REQUIRED SUB-SKILL:** Invoke `coordinator:plan` to create the implementation plan. The spec file is the input. Do NOT invoke any other skill — `coordinator:plan` is the only valid next step.
+Once the PM approves: **REQUIRED SUB-SKILL** `coordinator:plan`, spec file as input. No other
+skill is a valid next step.

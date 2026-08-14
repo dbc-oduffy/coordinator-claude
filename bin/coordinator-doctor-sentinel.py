@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 # coordinator-doctor-sentinel.py — pure-Python CLI; no sh/python polyglot
 # trampoline. Wave 4a (2026-07-20) dropped the .sh suffix and the trampoline
@@ -38,7 +37,7 @@ Environment: CLAUDE_HOME, COORDINATOR_PLUGINS_ROOT, MACHINE_LOCAL_REGISTRY_DIR,
 COORDINATOR_PYTHON, DOCTOR_PROBES_MANIFEST, COORDINATOR_PREREQ_PROBE_LIB_DIR,
 COORDINATOR_BIN_ROOT (test isolation for the DoE-side sibling-script root).
 
-Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md § T3a-g2/T3b
+Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g2/T3b
 Port of: coordinator-doctor-sentinel.sh (DoE b5a4192c, 2026-07-20; 989-line bash oracle)
 """
 

@@ -6,356 +6,119 @@ argument-hint: "<topic> [--context file1 file2] [--sources url1 url2] [--cleanup
 
 # NotebookLM Research — Pipeline D (Agent Teams)
 
-Research via Google NotebookLM for media-rich sources Claude cannot access directly: YouTube videos, podcasts, audio content, web pages with heavy JavaScript rendering, and Google Drive documents.
+Research via Google NotebookLM for sources Claude cannot fetch directly: YouTube videos,
+podcasts, audio, JS-heavy pages, Google Drive documents. **PM-gated — never invoked from a
+subagent.**
 
-**When to use this:**
-- PM provides YouTube links, podcast URLs, or audio content to research
-- PM wants to find the best talks/videos/podcasts on a topic (Google is better at this than our WebSearch)
-- The source material requires transcription or media processing Claude can't do
-- NotebookLM's AI analysis adds value (cross-source synthesis, citation tracking)
+**Use for:** PM-supplied video/podcast/audio links; finding the best talks/videos/podcasts on a
+topic; source material needing transcription or NotebookLM's cross-source citation synthesis.
+**Don't use for:** codebase research (`/coordinator:research --mode=repo`), text/web research
+(`--mode=web`), structured batch research (`--mode=structured`), quick API docs (Context7).
 
-**When NOT to use this:**
-- Codebase research → `/coordinator:research --mode=repo`
-- Web topic research (text articles, docs) → `/coordinator:research --mode=web`
-- Structured batch research → `/coordinator:research --mode=structured`
-- Quick API docs → Context7
+Team roles, timing ceilings, data contracts (`strategy.md`, `sources.md`,
+`{letter}-claims.json`, `{letter}-summary.md`), failure handling, the coverage-auditor
+lifecycle, and why the fidelity relay doesn't apply here all live in
+`coordinator/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
 
-**Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using NotebookLM."
+**Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using
+NotebookLM."
 
 ---
 
 ## Arguments
 
-`$ARGUMENTS` provides the topic and optional context/sources.
+`$ARGUMENTS`: `<topic> [--context file...] [--sources url...] [--cleanup]`
 
-**Basic:** `/coordinator:notebooklm-research <topic>`
-
-**With context files:** `/coordinator:notebooklm-research <topic> --context path/to/file1.md path/to/file2.md`
-
-**With PM-provided sources:** `/coordinator:notebooklm-research <topic> --sources url1 url2`
-
-**Both:** `/coordinator:notebooklm-research <topic> --context file.md --sources url1`
-
-**With cleanup:** `/coordinator:notebooklm-research <topic> --cleanup`
+- **topic** (required)
+- `--context` — background files to inform scoping
+- `--sources` — PM-provided URLs (YouTube, podcasts, articles)
+- `--cleanup` — delete notebooks once research completes. Default: keep them (worth preserving
+  for follow-up queries). Deletion is deferred past the coverage auditor — see Step 6.
 
 ---
 
 ## Execution Flow
 
-### Step 0 — NotebookLM MCP Advisory Check
+### Step 0 — MCP advisory
 
-At command entry, check whether the `mcp__notebooklm-mcp__*` tools resolve (graduated `ToolSearch` probe, e.g. `ToolSearch("select:mcp__notebooklm-mcp__notebook_query")` or equivalent).
+Probe `mcp__notebooklm-mcp__*` resolution (`ToolSearch("select:mcp__notebooklm-mcp__notebook_query")`).
+If it resolves, continue silently. If not, surface once and continue anyway — advisory only,
+never a gate:
 
-This is a **new advisory check** — there is no prior command-entry MCP-presence check. It is an install hint only, NOT a precondition and NOT a fail-fast gate:
-
-- If the tools resolve: continue silently, no message.
-- If the tools do NOT resolve: surface this message verbatim, then **CONTINUE** into Step 1 regardless —
-
-  ```
-  NotebookLM MCP not detected — install: uv tool install notebooklm-mcp-cli && nlm login && nlm setup add claude-code (see coordinator/docs/wiki/notebooklm-for-your-research.md)
-  ```
-
-The pipeline still enters and proceeds normally after surfacing this hint. This check does NOT pre-empt or harden the existing per-agent graceful-degrade contracts (research-worker's Step-3 failure note; the coverage auditor's claims-only continue in Step 6) — those contracts remain the sole authority on whether the pipeline proceeds past a missing-MCP condition downstream. This step is purely an early advisory surfaced to the PM/EM; it does not itself block, retry, or alter control flow.
-
----
+```
+NotebookLM MCP not detected — install: uv tool install notebooklm-mcp-cli && nlm login && nlm setup add claude-code (see wiki)
+```
 
 ### Step 1 — Setup
 
-Parse `$ARGUMENTS`:
-- **Topic** (required) — the research subject
-- `--context` (optional) — background files to inform scoping
-- `--sources` (optional) — PM-provided URLs to research (YouTube, podcasts, articles)
-- `--cleanup` (optional) — delete notebooks after research completes. **Default: notebooks are kept.** A lot of work goes into assembling research notebooks (source ingestion, processing); they're usually worth keeping for follow-up queries, re-research, or sharing.
+Parse `$ARGUMENTS`. Run ID: `{topic-slug}-{YYYYMMDD}`. Workdir:
+`docs/research/{run-id}-workdir/` (no trailing `-{topic-slug}` — the run-id already carries the
+slug). Output: `docs/research/YYYY-MM-DD-{topic-slug}-nlm.md`. Advisory: same path with
+`.md` replaced by `-advisory.md`.
 
-Generate run ID: `{topic-slug}-{YYYYMMDD}` (e.g., `ai-agents-20260321`)
+### Step 2 — EM scopes research
 
-**Pipeline D's workdir omits the trailing `-{topic-slug}` from the standard convention** because the run-id format already contains the slug; this avoids slug duplication (e.g., `ai-agents-20260321-ai-agents-workdir/` is wrong; `ai-agents-20260321-workdir/` is correct).
+Read `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/notebooklm-best-practices.md`
+first. Ask the PM for NLM tier (free/plus/ultra — sets worker count per team-protocol.md § Rate
+Limit Budgeting) and a timing ceiling if neither is given. Read any `--context` files. Design
+notebook topology, questions, source strategy, and worker count directly, then write
+`strategy.md` to `{scratch-dir}/strategy.md` per team-protocol.md § Data Contract. Time-box
+scoping to 2-3 minutes — pick the simpler topology if still deliberating.
 
-Create workdir (`mkdir -p docs/research/{run-id}-workdir/`).
-Set `{scratch-dir}` = `docs/research/{run-id}-workdir`
+### Step 3 — Create team + tasks
 
-Set output path: `docs/research/YYYY-MM-DD-{topic-slug}-nlm.md`
+Spawn the first teammate via `Agent` — the team auto-forms. Create a `sweep` task, a `scout`
+task, and one `worker-{letter}` task per notebook. Block each worker on `scout`; block `sweep`
+on every worker task.
 
-Set advisory path: `docs/research/YYYY-MM-DD-{topic-slug}-nlm-advisory.md` (replace `.md` with `-advisory.md` on the output path)
+### Step 4 — Spawn teammates
 
----
+Fill and spawn the scout/worker(s)/sweep prompt templates from
+`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/{scout,worker,sweep}-prompt-template.md`
+— each template's placeholders are self-documenting. Agent types: scout =
+`notebooklm:notebooklm-research-scout`, workers = `notebooklm:research-worker`, sweep =
+`notebooklm:research-sweep`. Assign task owners at spawn.
 
-### Step 2 — EM Scopes Research
+### Step 5 — EM freed
 
-**Read the best practices reference** before scoping:
-```
-Read("${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/notebooklm-best-practices.md")
-```
+Report team composition (1 scout + N workers + 1 sweep) and expected timing to the PM, note the
+output path, then stop tracking — the team runs autonomously.
 
-**Gather two pieces of required information from the PM before proceeding:**
+### Step 6 — On completion
 
-1. **NLM tier** — if not known, ask:
-   > "What NotebookLM tier are you on? (free/plus/ultra) This determines how many parallel notebooks we can run."
+The sweep does **not** delete notebooks even with `--cleanup` — deletion is deferred until after
+the coverage auditor's sidecar exists (team-protocol.md § Coverage-Auditor Lifecycle).
 
-2. **Timing ceiling** — if not specified, ask:
-   > "What's your timing ceiling for this research run? (e.g., 25 min standard, 45 min deep)"
+**6a — Read + emit claims.** Read `{output-path}`, verify it's substantive. Check for and read
+an advisory file if present. Emit the durable claims pair (you write it, not the sweep — take
+`--ran-at` and the pipeline token from the sweep's completion message, never derive them):
 
-If `--context` files were provided, read them now for topic background.
-
-**Design the research strategy directly.** Apply the best practices reference to decide:
-
-- **Notebook topology** — how many notebooks, what topic cluster goes in each
-- **Questions per notebook** — apply anti-hallucination rules (citation-forcing, specificity, structured synthesis template, source gap audit query)
-- **Custom instructions per notebook** — Role + Context + Rules, max 10,000 characters
-- **Source strategy per notebook** — scout-provided vs research_start (or direct PM URLs)
-- **Studio artifacts** — what to request, if anything
-- **Worker count** — based on tier, topic breadth, and query budget
-
-**EM Scoping Checklist:**
-- [ ] Topic is narrowly defined per notebook (one cluster each)
-- [ ] Questions are citation-forcing and specify output format
-- [ ] Source strategy per notebook is set (scout-provided vs research_start)
-- [ ] Studio artifacts requested match the use case (or skipped)
-- [ ] Rate limit budget accounts for tier + queries used today
-
-**Time-box:** Scoping should take 2-3 minutes. If deliberating longer, pick the simpler topology.
-
-**Write `strategy.md`** to `{scratch-dir}/strategy.md` using this exact format:
-
-```markdown
----
-worker_count: N
-total_expected_queries: M
-tier_assumption: free|plus|ultra
-timing:
-  max_minutes: 25
----
-
-## Notebook A
-- **Focus:** [specific topic cluster for this notebook]
-- **Custom instructions:** [role + context + rules, max 10K chars]
-- **Questions:**
-  1. [question 1 — include citation requirement]
-  2. [question 2]
-  ...
-  N. [source gap audit query]
-- **Source strategy:** scout-provided | research_start
-- **Search guidance for scout:** [specific search terms, content types, or exact URLs if PM provided them]
-- **Studio artifacts:** [list, or "none"]
-- **Estimated ceiling:** 25 min
-
-## Notebook B (if worker_count >= 2)
-- **Focus:** ...
-- **Custom instructions:** ...
-- **Questions:**
-  ...
-- **Source strategy:** scout-provided | research_start
-- **Search guidance for scout:** ...
-- **Studio artifacts:** [list, or "none"]
-- **Estimated ceiling:** 25 min
-
-## Notebook C (if worker_count >= 3)
-...
+```bash
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \
+  --producer notebooklm-research --out {output-path-base} \
+  --ran-at {ran_at from sweep's completion message} --pipeline notebooklm \
+  < {scratch-dir}/merged-claims.json
 ```
 
----
+**6b — Coverage auditor.** Dispatch it as a plain (non-teammate) `Agent(...)` — never a named
+team member, to preserve the 7-teammate ceiling. Build the prompt from
+`coordinator/pipelines/deep-research/coverage-auditor-prompt-template.md`'s Pipeline D input
+block (`[SYNTHESIS_PATH]`, `[RUN_STEM]`, `[SCRATCH_DIR]`). Wait for `DONE: {sidecar-path}`.
 
-### Step 3 — Create Team + Tasks
+**6c — Notebook cleanup.** If `--cleanup`: read each `{letter}-summary.md`'s `notebook_id`
+frontmatter and call `notebook_delete` for each; log deletions and any failures. Otherwise,
+mention preserved notebook names/IDs to the PM for future reference.
 
-Spawn the first teammate via the `Agent` tool — the team auto-forms; no explicit create step.
+**6d — Archive, commit.** Same op and contract as `coordinator/skills/staff-session/SKILL.md`
+Step 8: commit the workdir first (`git add -- docs/research/{run-id}-workdir` then
+`git commit -- docs/research/{run-id}-workdir`), then invoke `fleet.archive_paper_trail` with
+`run_id={run-id}`, `topic_slug={topic-slug}`, `dry_run=false`. Commit the output file and
+coverage-audit sidecar.
 
-```
-// Create tasks
-sweep_task = TaskCreate(name: "sweep", description: "Coverage assessment + gap fill + notebook cleanup")
-scout_task = TaskCreate(name: "scout", description: "Source discovery for all notebooks")
-
-worker_tasks = []
-For letter in A..{Nth letter}:
-  task = TaskCreate(name: "worker-{letter}", description: "NotebookLM research — Notebook {letter}")
-  TaskUpdate(task_id: task.id, blockedBy: [scout_task.id])
-  worker_tasks.append(task.id)
-
-TaskUpdate(task_id: sweep_task.id, blockedBy: worker_tasks)
-```
-
----
-
-### Step 4 — Spawn Teammates
-
-Read the prompt templates from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/`:
-- `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/scout-prompt-template.md`
-- `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/worker-prompt-template.md`
-- `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/sweep-prompt-template.md`
-
-Spawn all teammates in one operation:
-
-**Scout prompt** (fill template):
-- `[RESEARCH_TOPIC]` = topic
-- `[SCRATCH_DIR]` = scratch dir path
-- `[TASK_ID]` = scout_task.id
-- `[SPAWN_TIMESTAMP]` = current Unix timestamp (`date +%s`)
-- `[MAX_MINUTES]` = 5
-
-**Worker prompt(s)** — one per letter (fill template for each):
-- `[NOTEBOOK_LETTER]` = A, B, C as applicable
-- `[NOTEBOOK_NAME]` = `{topic-slug}-{letter}` (e.g., `ai-agents-a`)
-- `[TOPIC_SLUG]` = `{topic-slug}` — the **run slug** every worker tags its notebook with (`tag(action="add", …, tags="{topic-slug}")`), so the run's notebooks are addressable as a set via `cross_notebook_query(tags=…)` / `batch(tags=…)`
-- `[RESEARCH_TOPIC]` = topic
-- `[SCRATCH_DIR]` = scratch dir path
-- `[TASK_ID]` = worker_task.id for this letter
-- `[SPAWN_TIMESTAMP]` = current Unix timestamp
-- `[MAX_MINUTES]` = `max_minutes` from strategy.md YAML, or 25 if not specified
-- `[SWEEP_NAME]` = sweep teammate name
-
-**Sweep prompt** (fill template):
-- `[RESEARCH_TOPIC]` = topic
-- `[WORKER_COUNT]` = N (from strategy.md YAML frontmatter — already known from scoping)
-- `[WORKER_TASK_IDS]` = comma-separated worker task IDs
-- `[SCRATCH_DIR]` = scratch dir path
-- `[OUTPUT_PATH]` = `docs/research/YYYY-MM-DD-{topic-slug}-nlm.md`
-- `[ADVISORY_PATH]` = advisory path computed in Step 1
-- `[TASK_ID]` = sweep_task.id
-- `[CLEANUP_NOTEBOOKS]` = `true` if `--cleanup` was passed, `false` otherwise.
-  **Cleanup-deferral contract:** even when `CLEANUP_NOTEBOOKS=true`, the sweep agent
-  must NOT call `notebook_delete` — notebook deletion is deferred to Step 6c after the
-  coverage auditor completes (notebooks must exist when the D auditor queries them).
-  The sweep writes output and lists notebook IDs; deletion runs in Step 6c.
-
-Spawn teammates using these agent types:
-- Scout: `notebooklm:notebooklm-research-scout`
-- Workers: `notebooklm:research-worker`
-- Sweep: `notebooklm:research-sweep`
-
-Assign task owners when spawning each teammate.
+**6e — Present to PM:** topic + notebooks used, 2-3 key findings, output path, coverage-audit
+sidecar path (note absent-claim count if nonzero), any flagged gaps, and the advisory path if one
+was written.
 
 ---
 
-### Step 5 — EM Freed
-
-After spawning the team, report to the PM and stop tracking:
-
-> "NotebookLM research team running on **{topic}** with 1 scout + {N} worker(s) + 1 sweep agent.
->
-> - Scout is finding sources (~3-5 min)
-> - Workers will run parallel notebooks (~15-25 min each), writing structured claims (JSON) and a summary per notebook
-> - Sweep agent will assess coverage, fill gaps{', and clean up notebooks' if --cleanup} when done
->
-> Output will be written to: `{output-path}`
->
-> I'm available for other work — the team runs autonomously."
-
----
-
-### Step 6 — On Completion
-
-When the sweep agent sends a completion message:
-
-> **Cleanup-deferral contract (AC16):** The sweep agent does NOT delete notebooks at sweep
-> time when the coverage-auditor is in the loop. Notebook deletion is deferred to step 6c
-> below — the notebooks must still exist when the D auditor queries them. The sweep agent's
-> `CLEANUP_NOTEBOOKS` flag controls whether deletion eventually happens, but the sweep agent
-> itself must not delete before this step completes. See the `--cleanup` note in Step 4
-> (CLEANUP_NOTEBOOKS=true still passes the flag; the sweep writes the output and lists IDs
-> but does not call `notebook_delete` — deletion runs here after the auditor finishes).
-
-**Sequence — always follow this order:**
-
-**6a — Read synthesis**
-
-1. Read `{output-path}`. Verify it's substantive (not empty, not error-only).
-2. Check for advisory: `test -f {advisory-path}` — if the file exists, read it.
-3. **Emit the durable claims pair** — you do this, not the sweep; the pair has exactly one writer. Take `--ran-at` and the pipeline token from the sweep's completion message; never derive either from `{run-stem}`:
-   ```bash
-   "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \
-     --producer notebooklm-research \
-     --out {output-path-base} \
-     --ran-at {ran_at from the sweep's completion message} \
-     --pipeline notebooklm \
-     < {scratch-dir}/merged-claims.json
-   ```
-   `--out` takes the stem; the CLI writes `{output-path-base}.claims.json` and `{output-path-base}.claims.meta.json` together. `--ran-at` must be RFC3339 and timezone-aware (naive, date-only, or empty is rejected — day precision recovered from `{run-stem}` does not satisfy it); `--pipeline` must be non-blank and is never derived from `--producer`. Exit 0 = both written, 1 = producer-side failure, 2 = invalid invocation. A failed emission is a no-op on disk — an occupied stem is restored byte-for-byte, so re-running over an existing run-stem is safe.
-
-**6b — Run coverage auditor (always-on for Pipeline D)**
-
-Dispatch the coverage auditor as a plain (non-teammate) `Agent(...)` — do NOT assign it as a named research team member. This preserves the 7-teammate ceiling.
-
-> **Fidelity relay is OOS for Pipeline D.** Pipeline D has no depth tier — no
-> `--deeper` / `--deepest` flags and no deepening gate. The relay's gating condition
-> (deep tier) structurally cannot fire for D. The relay is out of scope for D until D
-> gains a depth concept; this is an architectural boundary, not an appetite call.
-> Revisit only if `--deeper` or `--deepest` flags are added to D.
-
-Build the auditor dispatch prompt from `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`
-using the **Pipeline D input block** (fills in the `[PIPELINE_INPUT_BLOCK]` placeholder):
-
-Fill-in fields:
-- `[SYNTHESIS_PATH]` = `{output-path}`
-- `[RUN_STEM]` = strip `docs/research/` prefix and `.md` suffix from `{output-path}` (e.g. `docs/research/2026-06-30-topic-nlm.md` → `2026-06-30-topic-nlm`)
-- `[SCRATCH_DIR]` = scratch dir path for this run
-
-The D auditor carries notebooklm MCP tools (`notebook_query` at minimum) with the
-graduated bootstrap pattern from `pipelines/coverage-auditor-prompt-template.md` §
-Pipeline D input block. If MCP tools are unavailable, the auditor degrades gracefully
-to claims-only and notes the degradation in its sidecar — this is an expected degradation
-path, not a blocker.
-
-Wait for the auditor to write `{output-path minus .md}-coverage-audit.md` and report
-`DONE: {sidecar-path}`.
-
-**6c — Notebook cleanup (deferred from sweep; now safe to run)**
-
-The auditor has completed. Notebooks may now be deleted if `--cleanup` was passed.
-
-- If `--cleanup`: read each `{scratch-dir}/{letter}-summary.md`, extract `notebook_id`
-  from YAML frontmatter, call `notebook_delete` for each. Log results: "Deleted
-  notebooks: {list of IDs and names}". Note any deletion failures for PM.
-- If no `--cleanup`: notebooks are preserved — mention their names/IDs to PM for
-  future reference (read from `{letter}-summary.md` frontmatter).
-
-**6d — Archive, teardown, commit**
-
-4. Archive workdir. **Commit it first** — the archive op moves the tree with `git mv`, which
-   fails `fatal: not under version control` against an untracked path, and staging does not
-   rescue it: the op works through a private index seeded from `git read-tree HEAD`, which cannot
-   see the shared index. Only a real commit works, and it belongs here rather than at workdir
-   creation — what the op needs is the tree's state at invocation time, and everything the run
-   wrote into the workdir after Phase 1 would otherwise be untracked again by now.
-   ```bash
-   git add -- docs/research/{run-id}-workdir
-   ```
-   Then commit that staged path:
-   ```bash
-   git commit -m "notebooklm-research: paper trail — {topic-slug}" -- docs/research/{run-id}-workdir
-   ```
-   Then invoke the archive-and-cleanup op `fleet.archive_paper_trail` with `run_id={run-id}`,
-   `topic_slug={topic-slug}`, `dry_run=false` — the same op and the same contract
-   `coordinator/skills/staff-session/SKILL.md` Step 8 uses; read the full pointer there rather
-   than restating it. It moves `docs/research/{run-id}-workdir` to
-   `docs/research/archive/YYYY-MM-DD-{topic-slug}/`, lands ONE scoped commit covering the move,
-   then removes the emptied source tree. Re-running after a success is a safe no-op
-   (`already_archived: true`), never a silent re-merge — which is what retires the hand-rolled
-   `mv` this step used to spell out, along with its same-filesystem precondition: git owns the
-   rename now, so there is no POSIX copy-then-unlink to guard against.
-5. The team auto-cleans on session exit — no explicit teardown step. (Note: workdir scratch persists at `{scratch-dir}/` until archived above.)
-6. Commit the output file and coverage-audit sidecar.
-
-**6e — Present summary to PM**
-
-7. Present summary to PM:
-   - Topic researched + notebooks used
-   - Key findings (2-3 bullet executive summary from the output doc)
-   - Output path
-   - Coverage audit sidecar path (`{output-path minus .md}-coverage-audit.md`) — note
-     absent-claim count if non-zero
-   - Any gaps flagged for follow-up
-   - If advisory exists: "The sweep agent flagged observations beyond scope — see the
-     advisory at `{advisory-path}`."
-
----
-
-## Error Handling
-
-| Failure | Action |
-|---------|--------|
-| Scout fails (no sources.md) | Workers fall back to research_start discovery |
-| Worker auth expiry | Worker calls refresh_auth, retries; if persistent, writes partial findings |
-| Worker hits rate limit | Worker writes partial findings, sends DONE |
-| Worker can't ingest source (paywall, format) | Worker logs failure, continues with remaining sources |
-| Sweep can't query notebooks | Sweep proceeds with claims files only (skip follow-up queries) |
-| Agents stuck in idle loops | Commit/archive results; agents auto-clean on session exit. Don't block — read available outputs |
-| All workers fail | Team auto-cleans on session exit; report to PM with failure details |
+Failure handling for scout/worker/sweep degrade paths: team-protocol.md § Failure Handling.

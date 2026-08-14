@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """resolve-coordinator-clone.py — unified coordinator install-root resolver.
 
@@ -85,7 +84,7 @@ Public contract surface: CLI entrypoint (this file) and env-var overrides
 are stable. Peer repos (project-rag, project-rag-ue-addon,
 Example-game-workbench-repo) bind here via an out-of-tree entry shim rather than
 each vendoring a cache-glob fallback.
-Spec backlink: docs/plans/2026-07-09-resolver-unification-v3split-01.md § C2
+Spec backlink: DoE-claude:pln-collapse-the-resolvers-into-on-f1120f § C2
 Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Wave E2 (E2-c)
 """
 
