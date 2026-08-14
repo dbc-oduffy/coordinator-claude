@@ -8,7 +8,7 @@
 > row for your surface before using any number below.**
 >
 > **Upstream of this page: should the guard exist at all?**
-> [`guard-proportionality.md`](guard-proportionality.md) decides whether a fact earns silence, a
+> `guard-proportionality.md` decides whether a fact earns silence, a
 > warn, or a block — answer that first, because a perfectly concise deny message for a guard that
 > should have said nothing is wasted work.
 

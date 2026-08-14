@@ -11,7 +11,7 @@
 > **Reaching this page for ordinary finished work is a defect upstream of it.** This channel is
 > the human-shaped outlet for a guard that genuinely gates irreversible harm. A guard whose denied
 > actor has no machine-takeable next step fails the outlet test in
-> [`guard-proportionality.md`](guard-proportionality.md) — fix the guard there rather than routing
+> `guard-proportionality.md` — fix the guard there rather than routing
 > routine work through a human here.
 
 ---
@@ -168,5 +168,5 @@ the workflow hitting it is the actual defect, and the durable fix belongs there.
 
 - [`guard-message-concision.md`](guard-message-concision.md) — what a guard message is for, and
   why the explanation it cut belongs on a page like this one.
-- [`bash-guard-threat-model.md`](bash-guard-threat-model.md) — what the Bash-side guards defend
+- `bash-guard-threat-model.md` — what the Bash-side guards defend
   against, and why they deny rather than warn.
