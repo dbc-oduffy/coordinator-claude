@@ -261,7 +261,7 @@ def main(argv: list[str]) -> int:
     print(f"[coordinator-ceremony-hook] {ceremony}: running: {redacted}", file=sys.stderr)
 
     try:
-        from coordinator_core.win_portability import no_console_creationflags
+        from coordinator_core.win_portability import no_console_creationflags, run_forwarding
 
         # PWD env override: subprocess.run(cwd=...) chdir()s the child before
         # exec, but does NOT update an inherited $PWD env var. A shell's `pwd`
@@ -273,7 +273,11 @@ def main(argv: list[str]) -> int:
         # $PWD explicitly closes that staleness gap.
         child_env = dict(os.environ)
         child_env["PWD"] = repo_root
-        proc = subprocess.run(
+        # run_forwarding, not subprocess.run: this hook is latent-reachable
+        # in-process through an assembler directive whose sys.stderr is an
+        # io.StringIO capture buffer with no fileno() — see
+        # coordinator_core.win_portability.run_forwarding's own docstring.
+        proc = run_forwarding(
             post_argv,
             cwd=repo_root,
             env=child_env,

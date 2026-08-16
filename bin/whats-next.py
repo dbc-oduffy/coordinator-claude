@@ -3,10 +3,9 @@
 Spec backlink: archive/specs/2026-05-05-script-first-deterministic-ops.md §T3
 
 Purpose: Replace the 7-file manual read chain in /workday-start Step 4 with a
-single deterministic entry point. Emits three priority surfaces to stdout:
+single deterministic entry point. Emits two priority surfaces to stdout:
   1. Top 5 central entries from state/improvement-queue/*.yaml (queue_scope: central).
-  2. docs/project-tracker.md rows where the status column is Ready or Executing.
-  3. Open handoffs (filename + line-1 heading), excluding archived/superseded.
+  2. Open handoffs (filename + line-1 heading), excluding archived/superseded.
 
 Output is plaintext for the EM to frame. No clustering or narrative.
 
@@ -18,8 +17,11 @@ zero bash anywhere on the reporter's critical path. State-root resolution
 shells out to `python3 -m coordinator_core.state_root` (the same native
 module the improved bash oracle itself called), not bash.
 
-Negative-spec: does NOT extend bin/query-records. project-tracker.md is a
-markdown table — parsed inline here, not via query-records.
+Negative-spec: does NOT extend bin/query-records. No tracker render is read
+or emitted — docs/project-tracker.md is being retired fleet-wide (docs/plans/
+2026-08-14-retire-the-handoff-tracker-and-project-tracker-renders.md; file
+deletion deferred to that plan's AC8, coordinated with § C6); this tool never
+depended on it and runs clean whether or not a tracker file is present.
 """
 
 import os
@@ -179,43 +181,7 @@ def main() -> int:
     print()
 
     # -----------------------------------------------------------------------
-    # Section 2: project-tracker.md — Ready and Executing rows
-    # -----------------------------------------------------------------------
-    print("== Tracker: Ready / Executing ==")
-    tracker = os.path.join(repo_root, "docs", "project-tracker.md")
-    if os.path.isfile(tracker):
-        try:
-            with open(tracker, "r", encoding="utf-8", errors="replace") as fh:
-                lines = fh.read().splitlines()
-        except OSError:
-            lines = []
-        # Primary: table rows (contain '|') mentioning Ready or Executing.
-        matches = [
-            f"{i}:{line}"
-            for i, line in enumerate(lines, 1)
-            if ("Ready" in line or "Executing" in line) and "|" in line
-        ]
-        if matches:
-            for m in matches:
-                print(f"  {m}")
-        else:
-            # Fallback: **Status:** lines (non-table format).
-            matches2 = [
-                f"{i}:{line}"
-                for i, line in enumerate(lines, 1)
-                if re.search(r"\*\*Status:\*\*.*(Ready|Executing)", line)
-            ]
-            if matches2:
-                for m in matches2:
-                    print(f"  {m}")
-            else:
-                print("  (no Ready or Executing items)")
-    else:
-        print("  (docs/project-tracker.md not found)")
-    print()
-
-    # -----------------------------------------------------------------------
-    # Section 3: Open handoffs — filename + line-1 heading
+    # Section 2: Open handoffs — filename + line-1 heading
     # -----------------------------------------------------------------------
     print("== Open handoffs ==")
     default_root, rc = _resolve_state_root()

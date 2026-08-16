@@ -23,16 +23,17 @@ when standalone (no registry, no match, unexpected errors).
 
 Persistence:
     Output is written to `whoami_profile` sub-key of
-    `~/.claude/project-rag/install-profile.json` (DR-9 path). Consumers
-    branch on field presence: absent `whoami_profile` means whoami has not
-    run yet — not a failed probe.
+    `<settings-home>/project-rag/install-profile.json` (DR-072 path).
+    Consumers branch on field presence: absent `whoami_profile` means whoami
+    has not run yet — not a failed probe.
 
 Invocation:
     python -m coordinator_whoami.project_rag [--human] [--refresh] [--no-persist]
 
     --human      Pretty-print JSON to stdout (default: compact single-line).
     --refresh    Re-run all probes even if a recent profile exists on disk.
-    --no-persist Do not write output to install-profile.json (stdout only).
+    --no-persist Do not write output to install-profile.json (stdout only,
+                 written under <settings-home>/project-rag/).
 
 Generic host probes (os, arch, gpu, python, uv, claude, coordinator, project) are
 implemented in coordinator_whoami.host_probes and imported here. project-rag-specific
@@ -346,27 +347,34 @@ def compose() -> dict[str, Any]:
 
 
 def persist(profile: dict[str, Any]) -> Path:
-    """Persist the whoami profile to ~/.claude/project-rag/install-profile.json.
+    """Persist the whoami profile to <settings-home>/project-rag/install-profile.json.
 
     Writes into the `whoami_profile` sub-key; merges with any existing content
     in the file. `captured_at` is updated at the top level.
 
     Returns the path written.
 
+    DR-072: writes to the settings-home data plane, merge-reading via
+    read_install_artifact_path() so any existing keys on either plane survive
+    the move.
+
     Spec backlink (origin): docs/plans/2026-05-19-first-class-install-redesign.md §W3 — file lives at project-rag (not imported; preserved at source).
       ("Persistence — whoami_profile sub-key under install-profile.json")
     Re-anchored backlink (this repo): docs/plans/2026-05-19-whoami-substrate-migration.md § 8 Task 2
     """
-    from coordinator_whoami.project_rag._paths import resolve_user_marker_dir
+    from coordinator_whoami.project_rag._paths import (
+        read_install_artifact_path,
+        resolve_install_artifact_path,
+    )
 
-    user_dir = resolve_user_marker_dir()
-    profile_path = user_dir / "install-profile.json"
+    read_path = read_install_artifact_path("install-profile.json")
+    profile_path = resolve_install_artifact_path("install-profile.json")
 
     # Load existing content or start fresh.
     existing: dict[str, Any] = {}
-    if profile_path.exists():
+    if read_path.exists():
         try:
-            existing = json.loads(profile_path.read_text(encoding="utf-8"))
+            existing = json.loads(read_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             existing = {}
 

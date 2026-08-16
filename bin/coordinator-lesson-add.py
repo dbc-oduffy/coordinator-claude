@@ -78,20 +78,9 @@ def _git_root():
 
     Mirrors coordinator-queue-append._current_repo_root resolution.
     """
-    try:
-        from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
+    from coordinator_core.git.repo_root import show_toplevel
 
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except OSError:
-        pass
-    return None
+    return show_toplevel()
 
 
 def _claude_home() -> str:

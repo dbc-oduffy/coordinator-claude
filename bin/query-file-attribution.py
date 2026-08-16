@@ -15,7 +15,17 @@ CLI:
     python3 query-file-attribution.py --session <id> --file <path>  [--project <root>]
 
 Spec backlink: pln-ccos-6-rehome-attribution-python-9966da § C2
+Spec backlink: pln-three-query-trampolines-and-th-309bf9 § C5 (owner-qualified repo slug)
 Replaces:      plugins/coordinator/bin/query-file-attribution.mjs
+
+`repo` is stamped via the canonical producer
+(`coordinator_core.ops.emit.context.resolve_repo_name`), never a second
+`git remote` parser here. `--project` MUST name a repo root, not a
+subdirectory — checked via `coordinator_core.git.repo_root.show_toplevel`
+(fail-loud on mismatch); a remoteless repo's `local/<basename>` fallback is
+stamped as-is, not rejected. `coordinator_root_path` is left at
+`derive-file-attribution.aggregate`'s own default (`"."`) rather than passed
+as an absolute path.
 
 --file matching: accepts an absolute path or a path relative to --project (or
 cwd if --project is unset), either separator style ('/' or '\\'), matched
@@ -33,6 +43,10 @@ Negative-spec:
     invariant is respected; unknown rows with null file_path are absent from output.
   - --file matching is whole-path equality after resolution only — never a
     suffix/endswith match (would falsely match ingest.ts against vendor/ingest.ts).
+  - Do NOT case-canonicalise the repo slug — casing is producer-authoritative
+    (resolve_repo_name's own return value), stamped as-is.
+  - Do NOT touch derive-file-attribution.py's _derive_handoff_id or _repo_name —
+    both are out of scope for this CLI (see pln-three-query-trampolines-and-th-309bf9 § C5).
 """
 
 import argparse
@@ -41,6 +55,12 @@ import json
 import os
 import sys
 from typing import Any, Dict, List, Optional
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib')
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from op_trampoline import resolve_claude_klabauter_root_or_exit  # noqa: E402
+from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +206,60 @@ def _fmt_table_file(records: List[Dict[str, Any]], file_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Owner-qualified repo slug — canonical producer, checked-root two-leg gate.
+# ---------------------------------------------------------------------------
+
+def _resolve_repo_name_or_exit(project_root: str) -> str:
+    """Resolve the owner-qualified repo slug for *project_root* via the
+    canonical producer (`coordinator_core.ops.emit.context.resolve_repo_name`),
+    gated by two orthogonal checks — do not collapse them into one.
+
+    Leg 1 (fail-loud, AC9): is *project_root* itself a repo root, or a
+    subdirectory of one? `resolve_repo_name` walks UP to the enclosing repo,
+    so a subdirectory invocation would stamp the enclosing repo's slug — a
+    confidently-wrong attribution, strictly worse than the honest bare
+    basename being replaced. Answered via
+    `coordinator_core.git.repo_root.show_toplevel(cwd=project_root)`,
+    compared against `project_root` itself; failure names both paths.
+
+    Leg 2 (advisory, DR-277): is the harness session anchored to this repo
+    at all? Answered via `resolve_checked_repo_root()` with no argument
+    (READER disposition — warn to stderr on MISMATCH, never refuse), same
+    as every other query CLI (see `query-handoff-columns.py`'s own
+    `_resolve_repo_root`). Passing `project_root` into
+    `resolve_checked_repo_root` would answer neither question — an explicit
+    root short-circuits to verdict EXPLICIT without ever calling
+    `_show_toplevel()` or the identity gate (`repo_identity.py` AC3).
+
+    Negative-spec: does NOT reject `resolve_repo_name`'s `local/<basename>`
+    remoteless fallback (AC10) — that is documented air-gapped-repo
+    behaviour, stamped as-is.
+    """
+    claude_klabauter_root = resolve_claude_klabauter_root_or_exit('query-file-attribution')
+    if isinstance(claude_klabauter_root, int):
+        sys.exit(claude_klabauter_root)
+
+    from coordinator_core.git.repo_root import show_toplevel
+    from coordinator_core.ops.emit.context import resolve_repo_name
+
+    # Leg 1 — fail-loud: project_root must be a repo root, not a subdirectory.
+    toplevel = show_toplevel(cwd=project_root)
+    if toplevel is None or os.path.abspath(toplevel) != os.path.abspath(project_root):
+        sys.stderr.write(
+            'query-file-attribution: --project is not a git repo root — '
+            f'project_root={project_root!r}, resolved toplevel={toplevel!r}\n'
+        )
+        sys.exit(1)
+
+    # Leg 2 — advisory: is the harness session anchored to this repo at all?
+    _session_root, verdict = resolve_checked_repo_root()
+    if verdict.get('verdict') == 'MISMATCH':
+        sys.stderr.write(f'{verdict["message"]}\n')
+
+    return resolve_repo_name(project_root)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -285,12 +359,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         session_filter=session_filter,
     )
 
-    repo_name = os.path.basename(project_root.rstrip('/\\')) or project_root
+    repo_name = _resolve_repo_name_or_exit(project_root)
 
     all_records = _derive.aggregate(
         raw_rows,
         repo=repo_name,
-        coordinator_root_path=project_root,
         transcript_dir=transcript_dir,
     )
 

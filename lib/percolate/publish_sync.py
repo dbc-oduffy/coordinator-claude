@@ -387,9 +387,17 @@ def _sync_mirror_top_level_files(
     ignore: IgnoreMatcher,
     dry_run: bool,
     copier: CopyFileFn,
+    *,
+    changed_paths: "set[str] | None" = None,
 ) -> int:
     """Copy the regular files sitting directly under `src_dir`, returning how
     many were synced.
+
+    `changed_paths` (optional): when supplied, every `rel_path` this pass
+    actually copies (a real `_needs_copy` decision, not a re-parse of this
+    function's own printed `NEW:`/`UPDATE:` lines) is added to it, `dst_dir`-
+    relative — see `sync_mirror`'s own `changed_paths` docstring for the full
+    contract this sink is one leg of.
 
     `sync_mirror`'s main loop iterates `src_dir`'s subdirectories, because in
     mirror mode each top-level entry is normally a tree (`bin`, `hooks`,
@@ -438,6 +446,8 @@ def _sync_mirror_top_level_files(
             copier(src_file, dst_file, False)
             _restore_shebang_executable_bit(dst_file)
         print(f"  {label} {rel_path}")
+        if changed_paths is not None:
+            changed_paths.add(rel_path)
         synced += 1
     return synced
 
@@ -453,8 +463,33 @@ def sync_mirror(
     *,
     copy_file: CopyFileFn | None = None,
     renamed_dir_names: frozenset[str] | None = None,
+    changed_paths: "set[str] | None" = None,
 ) -> tuple[int, int]:
-    """`renamed_dir_names` (default `None`, treated as empty -- 100% behavior-preserving
+    """`changed_paths` (optional, default `None` -- 100% behavior-preserving for
+    every existing caller): when supplied, every `dst_dir`-relative posix rel_path
+    this pass actually copies (top-level files, via `_sync_mirror_top_level_files`,
+    and per-plugin files below, prefixed `f"{plugin_name}/{rel_path}"`) is added to
+    it as the copy happens -- a real `_needs_copy` decision recorded at its source,
+    not a downstream re-parse of this function's own printed `NEW:`/`UPDATE:` lines
+    (§ `coordinator/bin/publish.py::_parse_sync_changed_paths`, the scrape this
+    param exists to make obsolete: a stdout-format change there silently degrades
+    that parse to an EMPTY set rather than failing loud, which a caller reads as
+    "nothing changed" and skips a downstream sweep it should have run — this sink
+    cannot degrade that way because it is never derived from the printed text).
+
+    Deliberately mutate-a-caller-supplied-set, not a return value: `sync_mirror`'s
+    `(synced, removed)` return shape is a load-bearing existing contract (`main`'s
+    CLI, every prior caller) this addition must not disturb. `None` (the default)
+    is a true no-op -- nothing is tracked, matching every pre-existing call site
+    exactly. An empty set the caller passed in and gets back unmodified after a
+    genuine no-changes sync IS the correct tri-state answer ("determined, and
+    nothing changed") -- this function does not itself decide UNDETERMINABLE for
+    any call that reaches this parameter; that verdict belongs to whichever layer
+    decides whether to call `sync_mirror` at all (see `PhaseResult.changed_files`'s
+    own docstring, `coordinator_core/percolate/engine.py`, for the `None`-vs-empty
+    contract one layer up).
+
+    `renamed_dir_names` (default `None`, treated as empty -- 100% behavior-preserving
     for every existing caller) is a forward-compatible hook for the engine-side
     directory-rename primitive (coordinator_core/percolate/rewrite_basename.py
     `rename_directories`, state/audits/2026-08-05-first-full-payload-identity-
@@ -487,7 +522,9 @@ def sync_mirror(
     copier = copy_file or _default_copy_file
     renamed_dir_names = renamed_dir_names or frozenset()
 
-    synced += _sync_mirror_top_level_files(src_dir, dst_dir, ignore, dry_run, copier)
+    synced += _sync_mirror_top_level_files(
+        src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
+    )
 
     for src_plugin in sorted(p for p in src_dir.iterdir() if p.is_dir()):
         plugin_name = src_plugin.name
@@ -537,6 +574,8 @@ def sync_mirror(
                 copier(src_file, dst_file, False)
                 _restore_shebang_executable_bit(dst_file)
                 print(f"    {'NEW:   ' if is_new else 'UPDATE:'} {rel_path}")
+            if changed_paths is not None:
+                changed_paths.add(f"{plugin_name}/{rel_path}")
             per_plugin_synced += 1
 
         # Phase 2: delete dst files not in src
@@ -693,7 +732,12 @@ def sync_flat_mirror(
     dry_run: bool,
     *,
     copy_file: CopyFileFn | None = None,
+    changed_paths: "set[str] | None" = None,
 ) -> tuple[int, int]:
+    """`changed_paths` — see `sync_mirror`'s own parameter docstring for the
+    full contract (structured copy-decision sink, `None`-default no-op,
+    mutate-in-place, tri-state ownership boundary); identical here, without
+    a plugin prefix since flat-mirror has no per-plugin subdir."""
     synced = 0
     removed = 0
     copier = copy_file or _default_copy_file
@@ -729,6 +773,8 @@ def sync_flat_mirror(
             copier(src_file, dst_file, False)
             _restore_shebang_executable_bit(dst_file)
             print(f"    {'NEW:   ' if is_new else 'UPDATE:'} {rel_path}")
+        if changed_paths is not None:
+            changed_paths.add(rel_path)
         synced += 1
 
     # Phase 2: delete top-level files from dst that src no longer has

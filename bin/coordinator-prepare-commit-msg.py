@@ -447,6 +447,19 @@ def _resolve_deliverable_id_from_paths(
     except Exception:
         resolve_claim_state = None
 
+    try:
+        from coordinator_core.ops.deliverable_equivalence import canonicalize, load_equivalence_map
+
+        # The equivalence artifact lives in the COMMITTING repo (`paths` are
+        # relative to it), not claude-klabauter's own worktree -- os.getcwd() is that
+        # repo's root, mirroring how `paths`/`rel_path` are opened below.
+        equivalence_map = load_equivalence_map(Path(os.getcwd()))
+    except Exception:
+        equivalence_map = {}
+
+        def canonicalize(raw_id, _map):  # noqa: ANN001 -- local fallback, see except above
+            return raw_id
+
     common_dir = Path(git_dir) if git_dir else None
 
     found = {}
@@ -477,11 +490,21 @@ def _resolve_deliverable_id_from_paths(
                         continue
                 found[rel_path] = cleaned
 
-    distinct_values = sorted(set(found.values()))
-    if not distinct_values:
+    # Canonicalization is confined to the equality check, and the value
+    # returned on the collapse-to-one path is always a RAW value some staged
+    # artifact actually carries -- never the synthesized canonical winner.
+    # This return value becomes a stamped `Deliverable-Id:` trailer, so
+    # returning the canonical id would write a value no staged artifact's own
+    # frontmatter carries verbatim: the mutation the WRITE-PATH-SITE
+    # negative-spec forbids. Kept byte-identical in shape to
+    # `commit_trailers._resolve_deliverable_id_from_paths`, which this
+    # mirrors (review-integrator P1, coordinatorcode-reviewer-0f04f47d.md).
+    canonical_by_path = {p: canonicalize(v, equivalence_map) for p, v in found.items()}
+    distinct_canonical = sorted(set(canonical_by_path.values()))
+    if not distinct_canonical:
         return ""
-    if len(distinct_values) == 1:
-        return distinct_values[0]
+    if len(distinct_canonical) == 1:
+        return found[min(found)]
 
     conflict_desc = ", ".join(f"{p!r} -> {v!r}" for p, v in sorted(found.items()))
     raise DivergentDeliverableIdError(
@@ -841,7 +864,7 @@ def main(argv: list) -> int:
     # is swallowed — never block a commit.
     try:
         subprocess.run(
-            ["git", "interpret-trailers", "--in-place", *trailer_args, commit_msg_file],
+            ["git", "interpret-trailers", "--no-divider", "--in-place", *trailer_args, commit_msg_file],
             capture_output=True,
             timeout=15,
         )

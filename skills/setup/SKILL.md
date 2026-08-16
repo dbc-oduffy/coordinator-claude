@@ -213,6 +213,19 @@ Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.m
 unparseable skill file is always configured-but-broken — never restart-gated. Probe 1's WARN
 propagates here since plugin-enabled is a precondition for the model reaching this skill.
 
+**Probe 4 — Windows launch shape (dogfood shape only).**
+`python3 "<PLUGIN_ROOT>/bin/check-launch-shape.py"`.
+Asserts the interactive `claude.exe` would be a DIRECT child of the invoking shell: no
+`claude-doe` shadowing the real launcher from earlier on PATH, the rendered shim scanning for
+`claude-doe.ps1` rather than taking the first PATH hit, and the launcher consuming `--doe-root`
+instead of delegating the interactive launch. `PASS`/exit 0, `FAIL` (names the offending
+directory or file)/exit 1, `SKIP`/exit 0 on non-Windows or when no rendered launcher pair is on
+PATH — OSS coordinator-claude and claude-klabauter installs never take the `--doe-root` seam.
+Always configured-but-broken on FAIL, **never restart-gated**: PATH order and rendered launcher
+content are disk state, and a restart cannot change either. A FAIL here means every session on
+the box launches into a corrupted console, whose only operator-available mitigation — disabling
+the shim — silently strips the coordinator plugin entirely.
+
 ### Validation summary table
 
 ```
@@ -224,6 +237,7 @@ propagates here since plugin-enabled is a precondition for the model reaching th
 | Plugin enabled | settings.json enabledPlugins | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
 | Hooks live on disk | ~/.claude/hooks/ | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
 | Skill discovery preconditions | skills/setup/SKILL.md | PASS/WARN | live / configured-but-broken |
+| Windows launch shape | PATH resolution of claude-doe + rendered shim/launcher | PASS/FAIL/SKIP | live / configured-but-broken (never restart-gated) / not-this-shape |
 ```
 
 ### Exit-code semantics

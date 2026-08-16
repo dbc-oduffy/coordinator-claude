@@ -141,6 +141,13 @@ except Exception:
     _envelope = _FallbackEnvelope()
 
 from _win_portability import no_console_creationflags  # noqa: E402
+try:
+    from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
+    # must still fail open to the subprocess rung below, not crash on import.
+    def _git_root_walk() -> str | None:
+        return None
 
 #: See state/relocations/guard-message-cap/nudge-multiwave-workflow.py.md
 #: for the full explanation this hook's message used to spell out inline
@@ -178,12 +185,21 @@ def _is_write_capable(subagent_type_lc: str) -> bool:
 
 
 def _git_root() -> str | None:
-    """`git rev-parse --show-toplevel`, 1s timeout, mirrors the bash oracle.
+    """Repo root as `git rev-parse --show-toplevel` would report it, fail-open to None.
+
+    Resolved by an in-process parent walk (`_git_root_walk`) first -- no subprocess spawn on
+    the routine path; ~0.065ms against ~25ms + one process for the subprocess form. The
+    `git rev-parse --show-toplevel` subprocess below is now a FALLBACK for the case the walk
+    cannot resolve (a bare repo, or a `GIT_DIR`-driven invocation with no `.git` above cwd), not
+    the default -- do not reintroduce it as a routine path.
 
     Suppressed via `no_console_creationflags()` for structural parity with
     the other `_git_root()` copies in this tree (`test_no_bare_python_spawn.py`
     scope), even though git.exe itself does not AllocConsole().
     """
+    walked = _git_root_walk()
+    if walked:
+        return walked
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],

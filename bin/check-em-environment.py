@@ -29,6 +29,8 @@ fail-loud gate/config-writer trampoline, which would sys.exit(1) there).
 Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee
 """
 
+
+# --- routing half: this file is now a thin shim over entry_point_shim.run_gate_target ---
 from __future__ import annotations
 
 import os
@@ -37,40 +39,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-
-def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import `run_op_main`.
-
-    DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather
-    than importing the op's `main` directly, so any paths it declares become
-    a session scope-touch claim instead of an unclaimed orphan at the
-    `scoped_git_commit` sink.
-    """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    from coordinator_core.cli_entry import run_op_main
-    return run_op_main
-
-
-def main() -> None:
-    try:
-        run_op_main = _import_runner()
-    except RuntimeError as exc:
-        print(f"check-em-environment.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(0)
-    except ImportError as exc:
-        print(f"check-em-environment.py: coordinator_core.cli_entry not importable: {exc}", file=sys.stderr)
-        sys.exit(0)
-    try:
-        code = run_op_main("coordinator_core.ops.check_em_environment", sys.argv[1:])
-    except ImportError as exc:
-        print(f"check-em-environment.py: coordinator_core.ops.check_em_environment not importable: {exc}", file=sys.stderr)
-        sys.exit(0)
-    sys.exit(code)
-
+from entry_point_shim import run_gate_target  # noqa: E402
 
 if __name__ == "__main__":
-    main()
+    sys.exit(run_gate_target("check-em-environment", sys.argv[1:]))

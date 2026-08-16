@@ -119,18 +119,11 @@ def _resolve_repo_root(root_override: str) -> str | None:
             return os.path.abspath(root_override)
         return None
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_kw(),
-        )
-    except (OSError, RuntimeError, ImportError):
+        cc_invoke.require_engine_on_path(__file__)
+        from coordinator_core.git.repo_root import show_toplevel
+    except (RuntimeError, ImportError):
         return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
+    return show_toplevel()
 
 
 def _derive_repo_slug(git_root: str, repo_override: str) -> str:

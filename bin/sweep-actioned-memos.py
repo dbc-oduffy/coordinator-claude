@@ -51,7 +51,6 @@ key is additive-safe (last-writer-wins liveness signal). A transport failure nev
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
@@ -113,18 +112,13 @@ def _resolve_repo_root(positional: list[str]) -> str | None:
     if positional:
         return positional[0]
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **cc_invoke._no_console_kw(cc_invoke.resolve_engine_root(__file__)),  # popup-safe-env-suppressed
-        )
+        if cc_invoke.ensure_engine_on_path(__file__) is None:
+            return None
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel()
     except (OSError, RuntimeError):
         return None
-    resolved = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not resolved:
-        return None
-    return resolved
 
 
 def _no_fallback() -> None:

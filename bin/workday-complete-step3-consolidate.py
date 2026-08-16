@@ -171,14 +171,18 @@ def main(argv: list[str]) -> int:
         _err(f"[step3] ERROR: lib not found — CLAUDE_KLABAUTER_ROOT resolution failed: {exc}")
         return 5
 
-    from coordinator_core.win_portability import no_console_creationflags
+    from coordinator_core.win_portability import no_console_creationflags, run_forwarding
 
     # Step 3.0 — sync-main
     if dry_run:
         _err("[step3] DRY-RUN: would run sync-main.py")
         _out("[step3] sync-main: ok")
     else:
-        sm = subprocess.run(
+        # run_forwarding, not subprocess.run: this directive is reachable
+        # in-process through coordinator_core.workday_complete.apply's
+        # capture-buffer dispatch, where sys.stderr is an io.StringIO with
+        # no fileno() — see run_forwarding's own docstring.
+        sm = run_forwarding(
             [sys.executable, _BIN_SYNC_MAIN], stdout=sys.stderr, stderr=sys.stderr,
             env=child_env(),
             **no_console_creationflags(),

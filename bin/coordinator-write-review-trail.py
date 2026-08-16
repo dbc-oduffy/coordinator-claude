@@ -58,6 +58,7 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 
 import cc_invoke  # noqa: E402  (path insert above must precede this import)
+from raw_cmdline_recovery import UnsoundRawCmdlineTransport  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 cc_invoke.ensure_engine_on_path(__file__)
@@ -401,4 +402,19 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(_recover_windows_argv(sys.argv[1:])))
+    try:
+        _argv = _recover_windows_argv(sys.argv[1:])
+    except UnsoundRawCmdlineTransport:
+        # Remediation names a runnable command line, not a slash command and not
+        # a bare basename: this fires before argv is trustworthy, so it cannot
+        # assume a cwd. `_SCRIPT_DIR` resolves to wherever this file is actually
+        # installed. → CLAUDE.md § Runtime conventions (cold-path remediation).
+        print(
+            "coordinator-write-review-trail.py: the invoking shell stripped "
+            "characters from this command line before this process started — "
+            f'run `python "{_SCRIPT_DIR / "coordinator-write-review-trail.py"}" '
+            "...` instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sys.exit(main(_argv))

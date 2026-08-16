@@ -38,9 +38,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+import cc_invoke  # noqa: E402
+
+cc_invoke.ensure_engine_on_path(__file__)
 
 # Baseline recount from MASTER-disposition.md (2026-07-15), so the scorecard
 # shows direction of travel rather than a bare current number.
@@ -68,19 +76,23 @@ FLOOR = ()
 
 
 def repo_root() -> Path:
-    """Resolve the DoE repo root from git, falling back to this file's tree."""
+    """Resolve the DoE repo root from git, falling back to this file's tree.
+
+    Resolves through ``coordinator_core.git.repo_root.show_toplevel`` rather
+    than spawning (chunk C5, docs/plans/2026-08-16-a-process-per-predicate.md)
+    — that seam walks for a `.git` entry and spawns only if the walk finds
+    none, so the ordinary case costs a parent walk instead of a process.
+    """
     try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=Path(__file__).resolve().parent,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        return Path(out.stdout.strip())
-    except (subprocess.CalledProcessError, OSError):
-        # bin/ -> coordinator/ -> repo root
-        return Path(__file__).resolve().parents[2]
+        from coordinator_core.git.repo_root import show_toplevel
+
+        top = show_toplevel(str(Path(__file__).resolve().parent))
+        if top:
+            return Path(top)
+    except (ImportError, OSError):
+        pass
+    # bin/ -> coordinator/ -> repo root
+    return Path(__file__).resolve().parents[2]
 
 
 def is_polyglot(path: Path) -> bool:

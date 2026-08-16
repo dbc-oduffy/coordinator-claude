@@ -2,6 +2,7 @@
 name: new-project
 description: "Scaffolds and onboards a new repo (vs. repo-setup's onboard-existing)."
 version: 1.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # coordinator:new-project

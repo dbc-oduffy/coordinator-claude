@@ -31,6 +31,12 @@ Resolution order:
        real executability check here)
     2. `shutil.which("machine-local")`
 
+Rung 1 fires only in an INSTALLED bin/ tree. In claude-klabauter's own source tree the
+sibling `machine-local` / `machine-local.cmd` forwarders were retired
+(2026-08-14, the Windows-first-class exemption drain), so both in-repo callers
+resolve via rung 2 against the settings-home copy on PATH. Rung 1 is retained
+for installed trees, not dead code.
+
 Returns the resolved path string, or None if no rung resolved (a registry miss/absent
 sibling repo is a routine, non-fatal outcome for every caller of this module — each
 caller degrades gracefully on None). Emits a one-line stderr breadcrumb on total

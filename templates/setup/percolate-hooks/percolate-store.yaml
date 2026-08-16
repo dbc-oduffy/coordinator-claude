@@ -178,20 +178,25 @@ base:
     # decisions/DR-146-published-mirror-resolver-collapses-to-a-single-rung-docstrings-should-say-so.md
     # `substitute` is applied line-by-line (coordinator_core.percolate.substitute
     # .apply_substitutions splits on `text.splitlines`) -- a key cannot itself
-    # span lines, so the two-line source passage is corrected as two entries,
-    # one per source line; the second entry's replacement VALUE embeds its own
-    # `\n`s to grow the passage to five published lines.
-    # match_mode: plain (not the auto-detected word-boundary default) -- both
-    # keys open on a non-word character (leading spaces / a literal quote)
-    # abutting another non-word character (the preceding newline / space) in
-    # situ, so a `\b` anchor at that position never fires; these are meant as
-    # exact literal substrings anyway, not word-generic terms.
-    - key: "      3. machine-local registry TOML (see `_registry_value`) -- on this
-         mirror it reads the SAME registry key as rung 0"
-      value: "      3. machine-local registry TOML (see `_registry_value`) -- on this\n         mirror it reads the SAME registry key as rung 0"
-      match_mode: "plain"
-    - key: "         \"repos.claude_klabauter\" (dir must exist)"
-      value: "         (\"repos.claude_klabauter\"); the two-rung distinction this\n         ladder preserves on the engine-source plane collapses to one\n         key here (dir must exist)"
+    # span lines, so the key targets the single source line naming rung 2's
+    # registry key, and its replacement VALUE embeds its own `\n`s to grow the
+    # passage to the published form.
+    # The passage this targets lives in `_resolve_live_working_tree`'s docstring,
+    # which is where the per-rung breakdown was consolidated when the ladder
+    # collapsed to one implementation -- `resolve_claude_klabauter_root`'s own docstring
+    # carried a duplicate, separately-drifted rung list and no longer names any
+    # registry key. `test_percolate_store_base_substitute_keys_match_source.py`
+    # is what detects a key that has drifted out of the source: a stale key does
+    # not error at percolate time, it silently no-ops and the mirror ships the
+    # self-contradictory prose this entry exists to prevent.
+    # match_mode: plain (not the auto-detected word-boundary default) -- the key
+    # opens on a non-word character (leading spaces abutting the preceding
+    # newline) in situ, so a `\b` anchor at that position never fires; it is
+    # meant as an exact literal substring anyway, not a word-generic term.
+    - key: "    `repos.claude_klabauter` key -- on this mirror that is the SAME
+    registry key the published-engine rung reads; the two-rung distinction
+    the engine-source plane preserves collapses to one key here."
+      value: "    `repos.claude_klabauter` key -- on this mirror that is the SAME\n    registry key the published-engine rung reads; the two-rung distinction\n    the engine-source plane preserves collapses to one key here."
       match_mode: "plain"
     - key: "UXReviewerFinding"
       value: "UXReviewerFinding"

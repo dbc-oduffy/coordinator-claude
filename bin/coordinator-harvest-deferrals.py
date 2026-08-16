@@ -673,34 +673,55 @@ def _harvest_key(plan_id: str, row_id: str) -> str:
     return f"harvest-key: {plan_id}:{row_id}"
 
 
+# Memoization for _repo_root() / _resolved_doe_root() / _resolved_claude_klabauter_root():
+# each is a pure read whose answer cannot change within one process's harvest
+# run, but _candidate_search_dirs() previously called all three (git
+# subprocess + registry-ladder resolution, each potentially its own
+# subprocess) once PER CANDIDATE ROW inside _harvest()'s loop — N redundant
+# spawns for an answer computed once. This mirrors the existing
+# _CLI_CMD_CACHE pattern above (also a per-process, first-call memo). Never
+# invalidated mid-process: repo root / doe root / claude-klabauter root are read-only
+# machine/worktree facts for the lifetime of a single CLI invocation. Does
+# NOT touch the actual per-row write dispatch (_run_queue_append /
+# _run_lesson_promote) — each row's mutating write stays one-spawn-per-row so
+# one row's failure (a non-zero rc, or a hung child now caught as
+# `TimeoutExpired`, both surfaced as a `False` return) never blocks another's;
+# there is no per-row `try` inside `_harvest()` itself — the isolation is
+# entirely the `_run_*` helpers' return-False contract (Review: staff review
+# refuted an earlier revision of this comment that pointed at a "per-row try
+# shape" in `_harvest()` that does not exist).
+_repo_root_cache: dict[str, str | None] = {}
+_resolved_doe_root_cache: dict[str, str | None] = {}
+_resolved_claude_klabauter_root_cache: dict[str, str | None] = {}
+_UNSET = "<unset>"
+
+
 def _repo_root() -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
+    if _UNSET not in _repo_root_cache:
+        from coordinator_core.git.repo_root import show_toplevel
+
+        _repo_root_cache[_UNSET] = show_toplevel()
+    return _repo_root_cache[_UNSET]
 
 
-def _already_harvested(key: str, search_dirs: list[str]) -> bool:
-    """Best-effort text scan for `key` inside any `evidence:` line in the
-    given directories' *.yaml files. Returns True on first match.
+def _collect_evidence_lines(search_dirs: list[str]) -> list[str]:
+    """Glob + read every `*.yaml` file under `search_dirs` ONCE and return
+    every line whose stripped text starts with `evidence:`.
 
-    Scoped to lines whose stripped text starts with `evidence:` (Review:
-    code-reviewer slice2 Finding 4 — an earlier revision scanned the entire
-    file content, which could false-positive-match a `body`/other field that
-    happens to quote the literal harvest-key string, e.g. documentation prose
-    discussing a specific harvest-key example; scoping to the evidence line
-    tightens the match to the field this key is actually written into, per
-    _harvest()/_run_queue_append()/_run_lesson_promote()'s `--evidence key`
-    call site).
+    Hoisted out of the per-row loop (2026-08-15 staff review, Defect 2):
+    `search_dirs` is invariant across a whole `_harvest()` run — it depends
+    only on env overrides and the process-memoized root resolvers (see the
+    `_repo_root_cache` / `_resolved_doe_root_cache` / `_resolved_claude_klabauter_root_cache`
+    block above), never on any individual row — yet `_already_harvested` was
+    previously called once PER CANDIDATE ROW and re-globbed + re-read EVERY
+    `*.yaml` file in up to four directories on each call. This module's own
+    `_derive_proposed_action` docstring measures those corpora at 605
+    (DoE-claude) and 493 (claude-klabauter) entries: O(rows x ~1100 full file reads)
+    for a key set invariant across the loop. Call this once before the loop
+    in `_harvest()`; `_already_harvested` below then does an O(1)-per-row
+    membership check against the returned list instead of re-scanning disk.
     """
+    lines: list[str] = []
     for directory in search_dirs:
         if not directory or not os.path.isdir(directory):
             continue
@@ -711,9 +732,27 @@ def _already_harvested(key: str, search_dirs: list[str]) -> bool:
             except OSError:
                 continue
             for line in content.splitlines():
-                if line.strip().startswith("evidence:") and key in line:
-                    return True
-    return False
+                if line.strip().startswith("evidence:"):
+                    lines.append(line)
+    return lines
+
+
+def _already_harvested(key: str, evidence_lines: list[str]) -> bool:
+    """Best-effort text scan for `key` inside any pre-collected `evidence:`
+    line (see `_collect_evidence_lines`, called ONCE per `_harvest()` run,
+    not once per row). Returns True on first match.
+
+    Scoped to lines whose stripped text starts with `evidence:` (Review:
+    code-reviewer slice2 Finding 4 — an earlier revision scanned the entire
+    file content, which could false-positive-match a `body`/other field that
+    happens to quote the literal harvest-key string, e.g. documentation prose
+    discussing a specific harvest-key example; scoping to the evidence line
+    tightens the match to the field this key is actually written into, per
+    _harvest()/_run_queue_append()/_run_lesson_promote()'s `--evidence key`
+    call site). This substring-match semantics is preserved exactly by the
+    2026-08-15 hoist — only the file I/O moved, not the match rule.
+    """
+    return any(key in line for line in evidence_lines)
 
 
 def _resolved_doe_root() -> str | None:
@@ -725,11 +764,19 @@ def _resolved_doe_root() -> str | None:
     doe_root() (repos.doe_claude) is the correct root for lessons-outbox ONLY
     — see _resolved_claude_klabauter_root() below for the central-scope improvement-queue
     leg, which resolves a DIFFERENT registry key as of commit 5b908173.
+
+    Memoized (see _repo_root_cache block above): doe_root()'s own resolution
+    ladder can itself spawn a subprocess (machine-local registry probe /
+    marketplace-cache rung) and was previously re-run once per harvested row
+    via _candidate_search_dirs() inside _harvest()'s loop for an answer that
+    cannot change mid-process.
     """
-    try:
-        return doe_root()
-    except _DoeUnresolvable:
-        return None
+    if _UNSET not in _resolved_doe_root_cache:
+        try:
+            _resolved_doe_root_cache[_UNSET] = doe_root()
+        except _DoeUnresolvable:
+            _resolved_doe_root_cache[_UNSET] = None
+    return _resolved_doe_root_cache[_UNSET]
 
 
 def _resolved_claude_klabauter_root() -> str | None:
@@ -746,12 +793,25 @@ def _resolved_claude_klabauter_root() -> str | None:
     _claude_klabauter_root() (repos.claude_klabauter). This function was NOT updated at
     that time — a latent dedup-scan/write-seam root mismatch for the
     central-scope improvement-queue leg, closed here.
+
+    Memoized (see _repo_root_cache block above) for the same reason as
+    _resolved_doe_root(): its own resolution ladder can spawn a subprocess
+    and was previously re-run once per harvested row.
     """
-    return _claude_klabauter_root()
+    if _UNSET not in _resolved_claude_klabauter_root_cache:
+        _resolved_claude_klabauter_root_cache[_UNSET] = _claude_klabauter_root()
+    return _resolved_claude_klabauter_root_cache[_UNSET]
 
 
 def _candidate_search_dirs(row: dict) -> list[str]:
-    """Directories to scan for an already-harvested match for this row.
+    """Directories to scan for an already-harvested match.
+
+    `row` is accepted but unused — the returned dirs never vary by row
+    content (only by env overrides and the memoized root resolvers below),
+    which is exactly why `_harvest()` now calls this ONCE before its loop
+    (see `_collect_evidence_lines`) rather than once per row; the parameter
+    is kept so `test_harvest_deferrals_dedup_scan_memoized.py`'s existing
+    per-row call shape keeps exercising the same signature.
 
     Write-seam parity requirement (confirmed double-write failure mode):
     coordinator-queue-append's _output_path() and coordinator-lesson-promote's
@@ -864,7 +924,7 @@ def _derive_proposed_action(body: str, title: str, surface: str) -> str:
 def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
     """Route one row to coordinator-queue-append --schema improvement-queue.
 
-    Returns True on success (or on a dry-run no-op), False on subprocess failure.
+    Returns True on success (or on a dry-run no-op), False on a non-zero rc or a subprocess.TimeoutExpired (a hung child) — both degrade to a per-row failure, never propagating past this row.
     """
     queue_scope = row.get("queue_scope") or "project"
     if queue_scope not in _VALID_QUEUE_SCOPES:
@@ -923,7 +983,16 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
     if case_against:
         cmd.extend(["--case-against", str(case_against)])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+    except subprocess.TimeoutExpired:
+        print(
+            f"error: coordinator-harvest-deferrals: coordinator-queue-append timed out "
+            f"after {_SUBPROCESS_TIMEOUT_SECS}s for row '{row.get('id')}' — treating as a "
+            "per-row failure so the remaining rows still run.",
+            file=sys.stderr,
+        )
+        return False
     if result.returncode != 0:
         print(
             f"error: coordinator-harvest-deferrals: coordinator-queue-append failed for "
@@ -937,7 +1006,7 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
 def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
     """Route one row to coordinator-lesson-promote --target-wiki <surface>.
 
-    Returns True on success (or on a dry-run no-op), False on subprocess failure.
+    Returns True on success (or on a dry-run no-op), False on a non-zero rc or a subprocess.TimeoutExpired (a hung child) — both degrade to a per-row failure, never propagating past this row.
     """
     body = row.get("body") or row.get("title") or ""
 
@@ -971,7 +1040,16 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
         key,
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+    except subprocess.TimeoutExpired:
+        print(
+            f"error: coordinator-harvest-deferrals: coordinator-lesson-promote timed out "
+            f"after {_SUBPROCESS_TIMEOUT_SECS}s for row '{row.get('id')}' — treating as a "
+            "per-row failure so the remaining rows still run.",
+            file=sys.stderr,
+        )
+        return False
     if result.returncode != 0:
         print(
             f"error: coordinator-harvest-deferrals: coordinator-lesson-promote failed for "
@@ -998,18 +1076,31 @@ def _harvest(
     pm_approved} — so the caller can surface it in the summary and, for a
     pm_approved row, fail loudly rather than let a PM-ratified deferral
     evaporate on exit 0.
+
+    Dedup-scan directory listing AND the `evidence:`-line scan of every
+    `*.yaml` in those directories are both computed ONCE here, before the
+    loop, not once per row (2026-08-15 staff review, Defect 2) —
+    `_candidate_search_dirs` does not vary by row content (it depends only on
+    env overrides and the process-memoized root resolvers), so the loop's
+    per-row work is now the O(1) `_already_harvested` membership check plus
+    the row's own write dispatch.
     """
     queued_ids: list[str] = []
     deduped = 0
     failed = 0
     skipped_unroutable: list[dict] = []
 
+    # `{}` is a throwaway `row` — `_candidate_search_dirs` doesn't vary by row
+    # content (see docstring above), so the literal empty dict just satisfies
+    # the pre-existing signature. Review: code-reviewer (F5, nit).
+    search_dirs = _candidate_search_dirs({}) if candidates else []
+    evidence_lines = _collect_evidence_lines(search_dirs)
+
     for row in candidates:
         row_id = str(row["id"])
         key = _harvest_key(plan_id, row_id)
-        search_dirs = _candidate_search_dirs(row)
 
-        if _already_harvested(key, search_dirs):
+        if _already_harvested(key, evidence_lines):
             deduped += 1
             if dry_run:
                 print(f"[dry-run] already harvested, skipping: {row_id} [{key}]")

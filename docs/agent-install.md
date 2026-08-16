@@ -337,8 +337,10 @@ After install, the human evolves their live, git-tracked `~/.claude` — their C
 Changes to a clone of the source repo don't touch running sessions; the next install would
 overwrite them.
 
-The rule: **edit your `~/.claude`, not this clone.** Methodology refinements, persona names,
-`CLAUDE.md` evolution, `coordinator.local.md` project type — all of it lands in `~/.claude`.
+The rule: **edit your `~/.claude`, not this clone.** Methodology refinements, persona names, and
+`CLAUDE.md` evolution land in `~/.claude`. `coordinator.local.md` project-type config is the one
+exception — it is per-project, and lives at the consuming repo's own root (see below), not in
+`~/.claude`.
 
 ---
 
@@ -455,7 +457,7 @@ After a manual install, restart and run `/coordinator:install` exactly as in Ste
 - **Name your reviewers (optional):** persona renaming is a post-install, cosmetic choice — handle it
   in `/coordinator:install` Phase 6 (Persona Customization) or by hand-editing the names across the
   agent files. Display-only; agent behaviour is unchanged.
-- **Per-project config:** `coordinator.local.md` with
+- **Per-project config:** repo-root `coordinator.local.md` with
   `project_type: web-dev|data-science|game-dev|general` controls which domain reviewers activate.
   Without it, only the universal reviewers run. `/coordinator:repo-setup` writes this for you.
 - **Contributing to the plugins themselves?** See

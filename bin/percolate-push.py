@@ -65,10 +65,16 @@ dormant but load-bearing for `claude-klabauter` today (on `main` tracking
 `origin/main`). The default branch is resolved via
 `git -C <dest> symbolic-ref refs/remotes/origin/HEAD` — a `git` call, not
 `gh` — specifically so the dormant/default-branch case never touches `gh`
-at all (tests assert this on the subprocess, not just the exit code).
-When the checked-out branch is NOT the default, this module opens a PR via
-`gh pr create` and merges it with `gh pr merge <branch> --merge` once the
-push (already gated on DR-301's two predicates) has landed. `--merge` (not
+at all (tests assert this on the subprocess, not just the exit code). A
+declared release channel (`_RELEASE_CHANNELS`,
+docs/reference/klabauter-release-channels.md) takes the identical
+push-only, no-`gh` path — a publish round landing on `candidate` must
+never open or merge a PR into `main`. An unrecognised branch is neither
+and still takes the PR path below.
+When the checked-out branch is NOT the default and NOT a declared
+channel, this module opens a PR via `gh pr create` and merges it with
+`gh pr merge <branch> --merge` once the push (already gated on DR-301's
+two predicates) has landed. `--merge` (not
 `--squash`/`--rebase`) is the deliberate choice: it preserves the exact
 commit SHAs the round's own gate evidence (CI smoke, declined_paths, etc.)
 already validated, rather than rewriting them into a new squashed/rebased
@@ -116,6 +122,12 @@ _PERCOLATE_GATE = _BIN_DIR / "percolate-gate.py"
 _EXIT_OK = 0
 _EXIT_FAIL = 1
 _EXIT_USAGE = 2
+
+# Declared release channels (docs/reference/klabauter-release-channels.md,
+# C5/C1). A branch in this set is push-only, `gh` never invoked — same as
+# the remote default branch. Membership is closed and explicit: an
+# unrecognised branch is NOT a channel and must not silently become one.
+_RELEASE_CHANNELS = frozenset({"candidate"})
 
 
 def _run(cmd: List[str], **kwargs) -> subprocess.CompletedProcess:
@@ -521,7 +533,9 @@ def _cmd_push(args: argparse.Namespace) -> int:
         print(default_branch_refusal, file=sys.stderr)
         return _EXIT_FAIL
 
-    if not has_commits_to_push and branch_head == default_branch:
+    if not has_commits_to_push and (
+        branch_head == default_branch or branch_head in _RELEASE_CHANNELS
+    ):
         print(
             f"percolate-push: {dest} is already in sync with its upstream — nothing to push.",
             file=sys.stderr,
@@ -533,7 +547,7 @@ def _cmd_push(args: argparse.Namespace) -> int:
         if result.returncode != 0:
             return result.returncode
 
-    if branch_head == default_branch:
+    if branch_head == default_branch or branch_head in _RELEASE_CHANNELS:
         return _EXIT_OK
 
     scope_refusal = _check_gh_repo_scope(dest)

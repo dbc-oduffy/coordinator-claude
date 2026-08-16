@@ -2,6 +2,7 @@
 name: repo-setup
 description: "First-time setup for an EXISTING repo, single or fleet-wide (--batch)."
 version: 1.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # Repo Setup

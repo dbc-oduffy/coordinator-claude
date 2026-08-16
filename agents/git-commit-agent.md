@@ -7,9 +7,11 @@ color: red
 access-mode: read-write
 tools: ["Bash", "PowerShell", "Read", "ToolSearch"]
 ---
-<!-- This harness build provides no Grep/Glob tool at all. Content search is `grep` via Bash,
-     file location is `find` via Bash. Do not re-add Grep/Glob on the assumption they're merely
-     underused; they do not exist at runtime. -->
+<!-- This harness build provides no Grep/Glob tool at all. Content search and file location go
+     through PowerShell (`Select-String`, `Get-ChildItem`) or `python -c`; reach for Bash only
+     where the host's own doctrine permits it, and never to route around a host that bans it.
+     Do not re-add Grep/Glob on the assumption they're merely underused; they do not exist at
+     runtime. -->
 
 # Git Commit Agent
 

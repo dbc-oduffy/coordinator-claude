@@ -442,3 +442,26 @@ symptom_keywords = ["publish-targets.portable drift", "publish-targets divergenc
 triage = false
 severity_if_fail = "degraded"
 remediation = "Run verify-publish-targets-portable-sync.py (no flags, inspect-only) to see which row(s) diverged and how; recover manually by hand-copying the correct row(s) between the DoE-tracked copy and the live-install copy — this check never syncs either copy itself."
+
+# ---------------------------------------------------------------------------
+# P-23 — claude-doe wrapper drift (~/.local/bin/claude-doe vs its repo source
+# <claude_klabauter_root>/coordinator/bin/claude-doe.py). POSIX installs the wrapper as a
+# symlink onto <settings-home>/bin/claude-doe (staleness structurally
+# impossible there — see _install_claude_doe_wrapper's docstring,
+# coordinator_core/install/maximalist.py); Windows has no equivalent-cost
+# native symlink story and falls back to a shutil.copy2 byte-copy that can
+# silently drift from the source on any edit until the next install pass,
+# with nothing previously reporting the gap. This probe is that gap's
+# regression net.
+# ---------------------------------------------------------------------------
+
+[[probe]]
+id = "P-23"
+cluster = "structure"
+weight = "cheap"
+interactivity = "silent"
+fix = "none"
+symptom_keywords = ["claude-doe wrapper drift", "claude-doe stale", "wrapper byte copy stale", "claude-doe not updated", "launcher fix had no effect"]
+triage = false
+severity_if_fail = "degraded"
+remediation = "Re-publish the wrapper: re-run python scripts/setup.py (installer Step 3.5b, _install_claude_doe_wrapper in coordinator_core/install/maximalist.py) to sync ~/.local/bin/claude-doe from <claude_klabauter_root>/coordinator/bin/claude-doe.py"

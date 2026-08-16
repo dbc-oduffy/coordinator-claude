@@ -213,7 +213,18 @@ def main(argv: list[str] | None = None) -> int:
         baseline["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        BASELINE_PATH.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+        # DR-276: this CLI reads via `generator_provenance.discover_generators`
+        # (a library function, not an op `main(argv)` -- no op entrypoint to
+        # route through `run_op_main`) and writes the baseline itself. Wrapped
+        # in `recording_declared_writes()` with an explicit `declare_write()`
+        # at the write site, per cli_entry's documented carve-out for a CLI
+        # that owns its own body (see gen-launcher-shim.py's `main()`).
+        from coordinator_core.cli_entry import recording_declared_writes
+        from coordinator_core.session.declared_writes import declare_write
+
+        with recording_declared_writes():
+            BASELINE_PATH.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+            declare_write(BASELINE_PATH)
 
     print(json.dumps(diff, indent=2))
     if diff["new_unresolved"] or diff["stale_baseline_entries"]:

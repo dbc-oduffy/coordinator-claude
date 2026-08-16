@@ -91,6 +91,26 @@
 settings.local.json
 stats-cache.json
 mcp-needs-auth-cache.json
+# Plugin-written key material. A plugin that talks to a forge or a paid API
+# drops its token beside its own data, at a depth this file's root-anchored
+# rules never reach, and a naive `git add` at the ~/.claude root publishes it.
+# Matched on SHAPE rather than on a plugin name, so a plugin installed after
+# this template was written is covered on the day it first writes a key.
+*-token-key
+*-token.json
+*.pem
+
+# --- SQLite databases and their live sidecars (per-machine, regenerable) ---
+# An index/cache DB is machine state that reads as content: it is a single
+# large binary that churns on every run. The -shm/-wal siblings are worse —
+# they are live mmap'd handles of an OPEN database, so a commit captures a
+# torn mid-transaction snapshot that is not a valid database anywhere else.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 
 # --- Python bytecode ---
 __pycache__/
@@ -221,9 +241,28 @@ tasks/session-*/
 # <plugin-name>/setup-state.json
 # <plugin-name>/install-heartbeat
 # <plugin-name>/watchdog/status.json
+# A plugin's own output directory belongs here too, and reads as content rather
+# than state until you look: a spawn-time stdout capture keyed by PID
+# (<plugin-name>/Saved/<component>/<name>.<pid>.log) is per-machine, per-boot,
+# and grows without bound — one such file was tracked at 600KB before anyone
+# noticed. Ignore the directory, not the individual logs.
+# <plugin-name>/Saved/
 
 # --- Install/upgrade backups (per-machine, regenerable, noise in history) ---
-*.bak
+# DELIBERATELY not a bare `*.bak`: the backups the installer's own operators
+# write carry a label or timestamp AFTER the extension
+# (settings.json.bak-<label>, .bak-<stamp>Z, .bak.<date>-<time>), so a rule
+# matching only names ENDING in .bak walks past every one of them. What walks
+# past is a full settings.json snapshot — the same absolute hook chain the
+# block above argues at length must never be tracked — plus
+# .coordinator-hooks-disabled.bak-<label>, the backup half of a consent marker
+# anchored below for the hazard-3 reason.
+*.bak*
+# A snapshot need not say "bak" to be one (.post-incident-stub, .prekill).
+# Anchored under the same reasoning as /settings.json itself: root-only, and
+# there is no legitimate tracked sidecar under this basename. settings.local.json
+# is a different name and is unaffected.
+/settings.json.*
 
 # --- Percolate publish bookkeeping ---
 # Operator identity tokens and per-machine sync high-water marks. The identity

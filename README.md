@@ -338,13 +338,13 @@ A single **coordinator** plugin, at the repo root — core orchestration, all na
 | **Data-science review** (data-science) | ML, statistics, data modeling review | ML/data work |
 | **Research pipelines** (deep-research) | Internet, repo, structured, and NotebookLM research pipelines | On demand (`/coordinator:research`) |
 
-Domain reviewers activate per-project via `.claude/coordinator.local.md` (`project_type`); there is nothing separate to install or enable.
+Domain reviewers activate per-project via repo-root `coordinator.local.md` (`project_type`); there is nothing separate to install or enable.
 
 ## Customization
 
 - **Name your reviewers (optional).** Role labels ship as the default — bind chosen names to role labels in `/coordinator:install` Phase 6 (Persona Customization), or hand-edit them across the plugin files.
-- **Create your own domain reviewer.** The bundled domain reviewer agents are the reference pattern: `agents/senior-front-end.md` (Front-end Reviewer), `agents/staff-ux.md` (UX Reviewer), `agents/staff-data-sci.md` (Data Science Reviewer, ML/statistics). Each is a single agent prompt file with a behavioral profile and routing rules — copy one as a starting point for your own specialization, then activate it per-project via `.claude/coordinator.local.md`'s `project_type`.
-- **Per-project configuration.** Create `.claude/coordinator.local.md` with `project_type` to control which reviewers activate.
+- **Create your own domain reviewer.** The bundled domain reviewer agents are the reference pattern: `agents/senior-front-end.md` (Front-end Reviewer), `agents/staff-ux.md` (UX Reviewer), `agents/staff-data-sci.md` (Data Science Reviewer, ML/statistics). Each is a single agent prompt file with a behavioral profile and routing rules — copy one as a starting point for your own specialization, then activate it per-project via repo-root `coordinator.local.md`'s `project_type`.
+- **Per-project configuration.** Create repo-root `coordinator.local.md` with `project_type` to control which reviewers activate.
 
 ## Companion Plugins
 
@@ -405,7 +405,7 @@ The durable work-state this plugin's skills read and write does not live here �
 - Claude Code caches plugins by version. Re-run `claude plugin install coordinator@coordinator-claude` to pick up a newer published version; contributors editing plugin source locally, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **Per-project reviewer selection:**
-- Create `.claude/coordinator.local.md` with `project_type` field
+- Create repo-root `coordinator.local.md` with `project_type` field
 - Coordinator is always enabled; the bundled domain reviewers activate per-project based on `project_type`
 
 </details>

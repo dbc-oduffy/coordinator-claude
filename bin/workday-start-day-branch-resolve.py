@@ -19,8 +19,11 @@ extension-filtered code search — the same pathology documented in
 Subcommands:
     reap-log
         Runs the co-located reap-sessions.py, captures its stdout, and — only when
-        non-empty — appends one UTC-timestamped line to ~/.claude/logs/coordinator-reap.log
-        (creating the log directory if absent). Mirrors the bash fragment:
+        non-empty — appends one UTC-timestamped line to <claude-config-dir>/logs/
+        coordinator-reap.log (creating the log directory if absent), where
+        <claude-config-dir> is coordinator_core._settings_home.claude_config_dir()
+        — ~/.claude by default, CLAUDE_CONFIG_DIR when the harness sets it. Mirrors
+        the bash fragment, which predates that seam and assumed ~/.claude directly:
             REAP_LOG=$(python3 .../reap-sessions.py 2>/dev/null)
             if [[ -n "$REAP_LOG" ]]; then
               mkdir -p ~/.claude/logs
@@ -151,7 +154,10 @@ def _run_reap_sessions() -> str:
 def cmd_reap_log(_args: argparse.Namespace) -> int:
     reap_log = _run_reap_sessions()
     if reap_log:
-        log_dir = Path.home() / ".claude" / "logs"
+        _ensure_claude_klabauter_on_path()
+        from coordinator_core._settings_home import claude_config_dir
+
+        log_dir = claude_config_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         with open(log_dir / "coordinator-reap.log", "a", encoding="utf-8") as f:

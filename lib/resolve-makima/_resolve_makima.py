@@ -367,6 +367,72 @@ def _registry_value(ml_dir: Path, key: str) -> Optional[str]:
     return None
 
 
+# --- C3: box-wide engine target -------------------------------------------
+#
+# PM RULING 2026-08-16, verbatim: "There will not be any 'some repos use x
+# engine, others use y engine' as the engine choice will be for the entire
+# box." One declared fact, box-wide, two values. No per-repo axis exists to
+# SET this — ``engine.working_repos`` (above) remains a per-repo LOCATOR
+# (which repos are working trees to divert away from), a different axis
+# entirely; C4 retires its exemption duty but this fact never grows one of
+# its own.
+#
+# Registry key: ``engine.target`` (nested ``[engine] target = "..."`` or the
+# flat quoted-dotted-key form ``machine-local set`` writes), read via
+# ``_registry_value`` — registry.local.toml (per-machine override) wins over
+# the tracked registry.toml baseline, first-hit-wins, identical precedence to
+# every other declared fact this module reads.
+#
+# HARD CONSTRAINT (memo-invalidation): this key MUST live in one of the two
+# files ``_registry_mtime_pair`` (coordinator_core/claude_klabauter_root.py) already
+# stats -- registry.toml or registry.local.toml -- so that writing it
+# self-invalidates both ``_ROOT_MEMO`` and ``_GATE_MEMO`` by mtime with no
+# explicit reset call. ``_registry_value`` reads exactly those two files, so
+# this constraint is satisfied by construction; do not move this fact to a
+# new sentinel file, a settings-home JSON, or an env-only var -- any of those
+# would sit outside the stat tuple and make a rollback silently ineffective
+# for every process that has already resolved. ``_reset_root_memo()`` is a
+# test-only seam with zero non-test callers -- it is not the rollback
+# mechanism; the mtime pair changing IS the mechanism.
+#
+# NEGATIVE SPEC: this is NOT a channel axis on the resolver's ladder above --
+# ``resolve_claude_klabauter_root_with_class()`` still resolves a PATH, and this
+# declaration does not touch it, ``resolution_class``, or the conformance
+# schema. The target fact is a declared value for resolution/diagnostics
+# callers (C8+) to consume later, never a per-call ref check spliced into the
+# ladder here.
+#
+# NEGATIVE SPEC: never inferred from whatever the mirror has checked out.
+# Declared or nothing -- the closed defect ``track_ref`` already exists to
+# prevent that shape.
+#
+# AC20: absent or unreadable is a READ-SITE default (resolves the way the
+# box resolves today), never a third stored value and never an opt-out --
+# ``resolve_engine_target`` returns ``None`` for both "key absent" and "key
+# present but not one of the two declared values" (a typo'd/stale config
+# value is treated the same as absence, not raised as an error -- consistent
+# with every other fail-open reader in this module).
+ENGINE_TARGET_MAIN = "main"
+ENGINE_TARGET_CANDIDATE = "candidate"
+ENGINE_TARGET_KEY = "engine.target"
+ENGINE_TARGET_VALUES = frozenset({ENGINE_TARGET_MAIN, ENGINE_TARGET_CANDIDATE})
+
+
+def resolve_engine_target(ml_dir: Optional[Path] = None) -> Optional[str]:
+    """Read the box-wide ``engine.target`` fact, or ``None`` if absent,
+    unreadable, or not one of the two declared values.
+
+    ``ml_dir`` defaults to ``_ml_dir()`` (same override-aware resolution
+    every other reader in this module uses) when not supplied. Never raises.
+    """
+    if ml_dir is None:
+        ml_dir = _ml_dir()
+    value = _registry_value(ml_dir, ENGINE_TARGET_KEY)
+    if value not in ENGINE_TARGET_VALUES:
+        return None
+    return value
+
+
 def _engine_working_repo_roots(ml_dir: Path) -> List[str]:
     """Every non-empty registered ``engine.working_repos.*`` value,
     UNIONED across both registry files.

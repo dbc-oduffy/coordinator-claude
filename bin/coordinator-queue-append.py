@@ -2065,13 +2065,56 @@ def main() -> None:
             final_path = _write_out_path_excl(out_path, yaml_content)
 
         print(final_path)
+        # C5 floor (docs/plans/2026-08-14-cli-authored-writes-get-claimed.md):
+        # this genuine dual-path CLI's State-1 body writes in-process, so the
+        # write must be declared, not just printed. Guarded import: `route()`
+        # only calls legacy_fn() when coordinator_core.invoke was already
+        # unresolvable, so coordinator_core is usually unimportable here too —
+        # this degrades to a no-op except under the QUEUE_APPEND_OUTPUT_ROOT
+        # test-isolation gate below, which forces legacy_fn with a live engine
+        # still on sys.path.
+        try:
+            from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
+
+            declare_write(final_path)
+        except ImportError:
+            pass
+
+    def _run_legacy_with_write_declaration() -> None:
+        """Run `legacy_fn` inside cli_entry's declare-write collection when
+        the engine happens to be importable — see legacy_fn's own comment on
+        why this is usually a no-op degrade. Both legacy_fn call sites below
+        route through this instead of calling legacy_fn directly.
+
+        Review: coordinator:code-reviewer — the QUEUE_APPEND_OUTPUT_ROOT
+        test-isolation gate is not a rare edge case: it is exactly the shape
+        this repo's own test suite invokes, with coordinator_core genuinely
+        importable, so `recording_declared_writes`/`declare_write` fire for
+        real under it. What keeps that safe is
+        `ipc._record_self_reported_touches`'s F1 containment (2026-08-04):
+        a declared path is only recorded as a session claim when it resolves
+        INSIDE the caller's own `_origin_worktree`; a fixture path outside
+        the repo tree (every existing test here uses a `tmpdir` outside the
+        repo as both the env-gate root and cwd) is skipped, never claimed
+        against whatever real session is an ancestor of the test process.
+        This stays safe only as long as fixtures for this gate live outside
+        the repo tree — an in-tree fixture path would be a live claim
+        against the wrong session.
+        """
+        try:
+            from coordinator_core.cli_entry import recording_declared_writes  # noqa: PLC0415
+        except ImportError:
+            legacy_fn()
+            return
+        with recording_declared_writes(cwd=repo_root):
+            legacy_fn()
 
     # Test isolation gate: QUEUE_APPEND_OUTPUT_ROOT redirects the output path, which the
     # native op does not honour (it constructs its own path from schema + title).
     # When set, routing native would write to the wrong location — use legacy instead.
     # In production, QUEUE_APPEND_OUTPUT_ROOT is NEVER set, so this check is a no-op.
     if os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV):
-        legacy_fn()
+        _run_legacy_with_write_declaration()
         return
 
     # Build op params from the complete fields dict — drop NO field.
@@ -2111,7 +2154,9 @@ def main() -> None:
     # print("error: ...", file=sys.stderr); sys.exit(1). Non-zero exit already correct;
     # this makes the stderr shape consistent.
     try:
-        _native_result = _cc_route("queue.append", _op_params, repo_root, legacy_fn)
+        _native_result = _cc_route(
+            "queue.append", _op_params, repo_root, _run_legacy_with_write_declaration
+        )
     except RuntimeError as _exc:
         print(f"error: coordinator-queue-append: native transport failed: {_exc}", file=sys.stderr)
         sys.exit(1)

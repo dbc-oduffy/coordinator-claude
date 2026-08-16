@@ -902,6 +902,29 @@ def engine_resolution_banner() -> None:
     fail-open try/except rather than getting its own, so a resolver import
     failure degrades the whole banner the same way it already does — no new
     failure mode.
+
+    Branch leg (2026-08-15): the resolved engine root's checked-out branch
+    is appended to the class line so a session can tell klabauter release
+    channels (`candidate` vs `main`) apart. Reports off `_root` (the
+    resolver's own answer), never `resolve_publish_mirror_roster()` — that
+    roster deliberately reads `publish.mirrors.*`, not `repos.claude_klabauter`,
+    and would name the wrong channel wherever those keys diverge. Zero-spawn:
+    `_read_current_branch_boot()`/`_read_current_full_sha_boot()` are both
+    `.git/HEAD`-only reads, no subprocess. Detached HEAD falls back to an
+    8-char short sha rather than emitting nothing; no root/no `.git`/any
+    other failure leaves the class line exactly as before, inside this same
+    fail-open try/except. Word is `branch`, never "channel" — "channel"
+    already names a comms channel elsewhere in this corpus.
+
+    Negative-spec — an ordinary clone is a precondition of this leg saying
+    anything. Both helpers read `<root>/.git/HEAD` as a directory path, so a
+    linked worktree, a submodule, or a `--separate-git-dir` engine root (where
+    `.git` is a *file* holding `gitdir: …`) resolves neither branch nor sha and
+    renders with no suffix at all — byte-identical to the pre-branch-leg line
+    this exists to replace. `claude-klabauter-em` holds the published klabauter
+    mirror to an ordinary clone as a named precondition rather than an
+    assumption; a gitdir-indirection rung is deliberately NOT built here on
+    speculation, and wants a live consumer before it is.
     """
     try:
         _hooks_dir = str(Path(__file__).resolve().parent)
@@ -910,20 +933,78 @@ def engine_resolution_banner() -> None:
         from _engine_root import (
             RESOLUTION_LIVE_WORKING_TREE,
             RESOLUTION_RESOLVED_ENGINE,
-            resolve_claude_klabauter_root_with_class,
+            resolve_claude_klabauter_root_with_provenance,
             resolve_publish_mirror_roster,
         )
 
-        _root, klass = resolve_claude_klabauter_root_with_class()
+        _root, klass, _provenance = resolve_claude_klabauter_root_with_provenance()
     except Exception:
         return
+
+    branch_suffix = ""
+    try:
+        branch = _read_current_branch_boot(_root)
+        if branch:
+            branch_suffix = f" (branch {branch})"
+        else:
+            sha = _read_current_full_sha_boot(_root)
+            if sha:
+                branch_suffix = f" (detached at {sha[:8]})"
+    except Exception:
+        branch_suffix = ""
+
+    # Provenance suffix (2026-08-16, C2, § The provenance seam): rendered
+    # ONLY for a non-ambient rung — the ordinary/default rung for a given
+    # class (today: "published-target" for a resolved engine post-activation,
+    # "live-registry"/"sibling-walk" for an ambient live working tree)
+    # renders no suffix at all, byte-identical to the pre-provenance banner.
+    # Five states are worth calling out, none of them ambient:
+    #   - "env-override": an explicit operator/test intent.
+    #   - "published-fallback": published chosen only because no live tree
+    #     resolved at all.
+    #   - "published-legacy-gate": the pre-C5 disjunct — resolved via
+    #     `_is_engine_working_repo() is False` rather than a readable
+    #     `engine.target`. This is the state C5's retirement criterion keys
+    #     on ("safe to retire the legacy disjunct when no session reports
+    #     this provenance"); if it renders as ambient, that criterion is
+    #     unobservable. `published-target` is the post-activation normal
+    #     and `published-legacy-gate` is today's pre-activation path — the
+    #     ambient and anomalous roles swap once the engine plane's key
+    #     lands. Rendering it now is deliberate and self-limiting: it stops
+    #     appearing the moment the key goes live, which is the signal
+    #     wanted.
+    #   - "live-no-target": a published engine existed but neither disjunct
+    #     fired, so resolution fell through to the live tree anyway — the
+    #     rollout no-op: a divert opportunity the box failed to realize.
+    #   - "live-env-dup": an override rejected upstream by rung 0's health
+    #     guard, re-answered here as a bare locator rather than the
+    #     `env-override` provenance.
+    provenance_suffix = ""
+    if klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "env-override":
+        env_var = ""
+        for _var in ("REPO_CLAUDE_KLABAUTER", "CLAUDE_KLABAUTER_ROOT"):
+            if os.environ.get(_var):
+                env_var = _var
+                break
+        provenance_suffix = f" (env override: {env_var})" if env_var else " (env override)"
+    elif klass == RESOLUTION_RESOLVED_ENGINE and _provenance == "published-fallback":
+        provenance_suffix = " (fallback: no live tree resolved)"
+    elif klass == RESOLUTION_RESOLVED_ENGINE and _provenance == "published-legacy-gate":
+        provenance_suffix = " (legacy gate: engine-plane key not yet live)"
+    elif klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "live-no-target":
+        provenance_suffix = " (divert missed: published engine exists, no target)"
+    elif klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "live-env-dup":
+        provenance_suffix = " (env override unhealthy upstream, re-resolved)"
 
     if klass == RESOLUTION_RESOLVED_ENGINE:
         # Review: code-reviewer — RESOLUTION_RESOLVED_ENGINE now means a
         # published engine mirror, not a committed snapshot.
-        _w("── Engine: published engine mirror ──\n")
+        _w(f"── Engine: published engine mirror{branch_suffix}{provenance_suffix} ──\n")
     elif klass == RESOLUTION_LIVE_WORKING_TREE:
-        _w("── Engine: sibling LIVE working tree — uncommitted edits execute ──\n")
+        _w(
+            f"── Engine: sibling LIVE working tree{branch_suffix}{provenance_suffix} — "
+            "uncommitted edits execute ──\n"
+        )
 
     try:
         roster = resolve_publish_mirror_roster()
@@ -1514,7 +1595,20 @@ def _read_current_branch_boot(repo_root: Optional[str]) -> str:
         return ""
     if head_text.startswith("ref:"):
         ref = head_text.split(":", 1)[1].strip()
-        return ref.rsplit("/", 1)[-1] if ref else ""
+        if not ref:
+            return ""
+        if ref.startswith("refs/heads/"):
+            # `refs/heads/` prefix only — NOT a last-segment split. A slashed
+            # branch (`work/machine-a/2026-08-08to11`) has to survive whole, both
+            # to match the `git rev-parse --abbrev-ref HEAD` shape this replaced
+            # and because the engine-class banner names a release channel with
+            # it, where a truncated name would confidently name the wrong one.
+            return ref[len("refs/heads/"):]
+        # Review: code-reviewer — deliberate residual, not overlooked. This
+        # last-segment truncation is unreachable on an ordinary clone (HEAD
+        # is always `refs/heads/<branch>`); kept rather than narrowed to ""
+        # because no live consumer exercises a non-`refs/heads/` HEAD today.
+        return ref.rsplit("/", 1)[-1]
     return ""
 
 

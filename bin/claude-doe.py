@@ -81,6 +81,13 @@
 # NEVER falls back to bare `claude` without --plugin-dir — a coordinator-less session is
 # the footgun this wrapper exists to prevent.
 #
+# REMEDIATION TEXT IS A RUNNABLE SCRIPT, NEVER A SLASH COMMAND. Every failure in this
+# module fires BEFORE a Claude Code session exists — that is the whole point of a launch
+# wrapper. Telling the operator to "run /coordinator:install" at that moment names a
+# remedy that by definition cannot run: the agentic surface is exactly what failed to
+# come up. Emit a shell/python command line the operator can paste into a cold terminal.
+# Guard: coordinator/tests/test_cold_path_remediation_is_runnable.py.
+#
 # Environment overrides (for testing / sandbox runs):
 #   CLAUDE_DOE_DRY_RUN=1        — dry-run: prints the resolved exec line and exits without
 #                                  execing claude. Side-effect-free. Same effect as --dry-run.
@@ -334,13 +341,13 @@ def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
         # docstring, same constraint, same reason).
         if ml_argv == [ml_bin] and not (os.path.isfile(ml_bin) and _ml_bin_invocable(ml_bin)):
             sys.stderr.write(f"claude-doe: machine-local not found at {ml_bin} and not on PATH\n")
-            sys.stderr.write("  Remediation: run /coordinator:install (Phase 3) to install machine-local\n")
+            sys.stderr.write("  Remediation: python3 <engine-clone>/scripts/setup.py\n")
             return None
     else:
         found = shutil.which("machine-local")
         if not found:
             sys.stderr.write("claude-doe: machine-local not found on PATH\n")
-            sys.stderr.write("  Remediation: run /coordinator:install (Phase 3) to install machine-local\n")
+            sys.stderr.write("  Remediation: python3 <engine-clone>/scripts/setup.py\n")
             return None
         ml_bin = found
         ml_argv = _machine_local_argv(ml_bin)
@@ -434,13 +441,13 @@ def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     # emitted after the fallback rung has also been exhausted.
     if ml_get_failed:
         sys.stderr.write("claude-doe: machine-local get repos.doe_claude failed\n")
-        sys.stderr.write("  Remediation: run /coordinator:install or set REPO_DOE_CLAUDE=<path>\n")
+        sys.stderr.write("  Remediation: set REPO_DOE_CLAUDE=<path>, or python3 <engine-clone>/scripts/setup.py\n")
     else:
         sys.stderr.write(
             "claude-doe: repos.doe_claude and plugin.mirrors.coordinator-claude.live_path "
             "are both empty — DoE clone not registered\n"
         )
-        sys.stderr.write("  Remediation: machine-local set repos.doe_claude <path>  then /coordinator:install\n")
+        sys.stderr.write("  Remediation: machine-local set repos.doe_claude <path>\n")
     return None
 
 
@@ -537,13 +544,13 @@ def main(argv: list[str]) -> int:
     if not os.path.isdir(doe_clone):
         sys.stderr.write(f'claude-doe: DoE clone not found at "{doe_clone}"\n')
         sys.stderr.write(f'  Remediation: git clone <DoE-repo-url> "{doe_clone}"\n')
-        sys.stderr.write("  Then run: /coordinator:install\n")
+        sys.stderr.write("  Then: python3 <engine-clone>/scripts/setup.py\n")
         return 1
 
     doe_coordinator = os.path.join(doe_clone, "coordinator")
     if not os.path.isdir(doe_coordinator):
         sys.stderr.write(f'claude-doe: DoE coordinator/ dir not found at "{doe_coordinator}"\n')
-        sys.stderr.write("  Remediation: run /coordinator:install (W4.2 cutover required to populate coordinator/)\n")
+        sys.stderr.write(f'  Remediation: git -C "{doe_clone}" pull   (clone predates the coordinator/ cutover)\n')
         return 1
 
     if dry_run:
@@ -575,20 +582,69 @@ def main(argv: list[str]) -> int:
     exec_prefix = _claude_exec_argv(claude_bin)
     full_argv = [*exec_prefix, "--plugin-dir", doe_coordinator, *passthrough_args]
 
-    if len(exec_prefix) > 1:
-        # Shebang-interpreter case (see `_claude_exec_argv`): `os.execv` on
-        # Windows builds its command line via a raw, unquoted join — a
-        # resolved interpreter path containing a space in one of its
-        # directory components (a stock Git-for-Windows install path is one
-        # common example) gets split mid-path and the launch fails ("No
+    # Cross-session peer messaging is gated behind the harness's `ig()` predicate,
+    # whose FIRST branch is this env var — it short-circuits ahead of both the
+    # platform check and the GrowthBook flags (`tengu_harbor_kite`, and on Windows
+    # the separate `tengu_harbor_kite_win`), all of which are off for us. Without
+    # it the harness binds no inbox, enumerates zero peers, and refuses every send,
+    # so the fleet's only working peer channel is writing into each other's files.
+    #
+    # `setdefault`: an operator who exports it themselves wins over this default.
+    #
+    # But the opt-out is NOT "0", and an earlier revision of this comment was wrong
+    # to say so. The harness predicate is `if (env.CLAUDE_CODE_HARBOR_KITE) return
+    # true` — plain JS truthiness on a string, where "0" is truthy. Exporting "0"
+    # therefore defeats this `setdefault` and still opens the gate: the operator gets
+    # the opposite of what they asked for. Only the EMPTY string defeats both, since
+    # `setdefault` leaves an existing empty value alone and the predicate reads it as
+    # falsy. Classifier and its named test:
+    # `coordinator_core.session.messaging_gate`.
+    #
+    # Evidence this works, and the bundle-version floor it carries:
+    # state/audits/2026-08-14-cross-session-messaging-gate-predicate-and-build-channel.md
+    # Bundles before 2.1.232 return false on Windows BEFORE reading this var, so on
+    # an older harness the line is inert rather than wrong.
+    os.environ.setdefault("CLAUDE_CODE_HARBOR_KITE", "1")
+
+    if os.name == "nt" or len(exec_prefix) > 1:
+        # Windows has no exec(2). CPython maps `os.execv` onto the CRT's
+        # P_OVERLAY spawn, which does NOT replace this process: it starts
+        # `claude` as a separate process and terminates the parent
+        # IMMEDIATELY, without waiting. That unblocks every caller up the
+        # launch chain (python3 -> claude-doe.cmd -> the PowerShell `claude`
+        # shim), so the interactive shell returns to its PROMPT while the
+        # claude TUI is still live on the same console — two readers draining
+        # one console input buffer. Keystrokes misroute between the TUI and
+        # the shell, and the terminal's xterm focus-reporting events (DECSET
+        # 1004: ESC[I focus-in / ESC[O focus-out) leak through as literal
+        # `[I`/`[O` text, corrupting both the TUI and the shell prompt. The
+        # same non-waiting spawn also DISCARDS the child's exit status: the
+        # shell observes 0 no matter how claude exited.
+        #
+        # Measured on Windows 11 / PowerShell 7.6: the execv parent returns in
+        # ~40ms against a 4s child, and reports rc=0 for a child that exits 42.
+        #
+        # `subprocess.run` waits, keeps this process as the console-owning
+        # parent for claude's whole lifetime, and propagates the real exit
+        # code. It also quotes argv correctly, which matters for the
+        # shebang-interpreter case below on every platform.
+        #
+        # Negative-spec: do NOT "restore" os.execv on Windows as a
+        # process-count optimisation — the extra frame is load-bearing.
+        # Guard: coordinator/tests/test_claude_doe_launch_waits.py.
+        #
+        # len(exec_prefix) > 1 keeps the POSIX shebang case on subprocess.run
+        # too: `os.execv` there builds its command line via a raw, unquoted
+        # join, so a resolved interpreter path containing a space in one of
+        # its directory components (a stock Git-for-Windows install path is
+        # one common example) gets split mid-path and the launch fails ("No
         # such file or directory" from the misparsed remainder).
-        # `subprocess.run` handles Windows argv quoting correctly, so use it
-        # here instead and propagate its exit code — not a literal process
-        # replacement, but observably equivalent for this wrapper's callers
-        # (same stdio, same final exit code).
         result = subprocess.run(full_argv)
         return result.returncode
 
+    # POSIX, direct binary: exec(2) is a genuine process replacement — the
+    # shell's child IS claude, so there is no second console reader and no
+    # exit code to propagate.
     os.execv(exec_prefix[0], full_argv)
     return 1  # pragma: no cover - unreachable, execv replaces the process on success
 

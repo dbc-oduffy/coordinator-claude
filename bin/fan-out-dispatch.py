@@ -282,14 +282,11 @@ def _provision_sidecars(
 
     target_git_root = ""
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_kw(),
-        )
-        if proc.returncode == 0:
-            target_git_root = proc.stdout.strip()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.git.repo_root import show_toplevel
+
+        target_git_root = show_toplevel() or ""
     except Exception:
         target_git_root = ""
     if not target_git_root:

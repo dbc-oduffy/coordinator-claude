@@ -27,9 +27,9 @@ was actively manufacturing new guard violations, not fixing a gap. The pass is g
 debt in `state/posix-exec-baseline.json`.
 
 Env:
-    CLAUDE_PLUGIN_ROOT — required; the coordinator plugin install root. Derived from
-                          this file's own on-disk location when unset (D2-15 parity —
-                          this file lives at <root>/lib/install-substrate.py).
+    CLAUDE_PLUGIN_ROOT — required; the coordinator plugin install root (the DoE-owned
+                          coordinator/ tree holding lib/ AND templates/). Resolved via
+                          doe_root() when unset — NOT from this file's own location.
     CLAUDE_HOME        — optional; $HOME substitute (see lib/claude-home).
     COORDINATOR_NON_INTERACTIVE — optional; "1" suppresses the AppX stub deletion
                           consent prompt. Any other value is treated as unset.
@@ -57,20 +57,42 @@ _BIN_LIB_DIR = os.path.join(os.path.dirname(_LIB_DIR), "bin", "lib")
 if _BIN_LIB_DIR not in sys.path:
     sys.path.insert(0, _BIN_LIB_DIR)
 from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 
 
 def _derive_plugin_root() -> str:
-    """D2-15 parity: derive CLAUDE_PLUGIN_ROOT from this file's own location
-    when not set in env. This file lives at <root>/lib/install-substrate.py,
-    so the root is the parent of lib/. Env var takes precedence when set
-    (allows test overrides) — matches the retired bash original's
-    BASH_SOURCE-relative derivation exactly.
+    """Resolve CLAUDE_PLUGIN_ROOT — the DoE-owned coordinator/ tree that holds
+    both lib/ and templates/. An explicit env var wins verbatim.
+
+    This does NOT derive from this file's own __file__ location. The retired
+    bash original was BASH_SOURCE-relative and that was correct while it lived
+    inside the DoE clone; this trampoline was migrated into claude-klabauter,
+    whose coordinator/ has lib/ but no templates/ at all. Self-location
+    therefore resolved to <claude-klabauter>/coordinator and the layout precondition
+    below rejected it on every run — `python <claude-klabauter>/coordinator/lib/
+    install-substrate.py` could not execute from its own documented fence.
+    A script whose required root is always a DIFFERENT repo's tree must not
+    infer it from its own path; doe_root() is the authority for "where is the
+    DoE-claude clone." A future reader must not "restore" __file__-based
+    derivation to regain oracle parity — that is exactly what broke it. Same
+    reasoning, same fix as install-sandbox-check.py::_resolve_coordinator_root.
     """
     existing = os.environ.get("CLAUDE_PLUGIN_ROOT", "")
     if existing:
         return existing
-    here = os.path.abspath(__file__)
-    return os.path.dirname(os.path.dirname(here))
+    try:
+        return os.path.join(doe_root(), "coordinator")
+    except _DoeUnresolvable as exc:
+        print(
+            f"install-substrate: cannot resolve the coordinator plugin root ({exc}).",
+            file=sys.stderr,
+        )
+        print(
+            "  Set repos.doe_claude in the machine-local registry, or set REPO_DOE_CLAUDE "
+            "(or legacy DOE_ROOT), or set CLAUDE_PLUGIN_ROOT explicitly.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _import_main():
@@ -91,12 +113,10 @@ def _import_main():
 
 
 def main() -> None:
-    # Replicates the bash original's own pre-flight (lines 24-46): derive
-    # CLAUDE_PLUGIN_ROOT from this file's location when unset, then validate
-    # the resolved root has the expected layout BEFORE touching claude-klabauter at all
-    # — a silently bad root is worse than no root, and the claude-klabauter module's own
-    # `run()` guard (which requires the env var pre-set, no BASH_SOURCE
-    # analogue) is not a substitute for this file-location-relative derivation.
+    # Resolve CLAUDE_PLUGIN_ROOT, then validate the resolved root has the
+    # expected layout BEFORE touching claude-klabauter at all — a silently bad root is
+    # worse than no root, and the claude-klabauter module's own `run()` guard (which
+    # requires the env var pre-set) is not a substitute for this pre-flight.
     plugin_root = _derive_plugin_root()
     if not os.path.isdir(os.path.join(plugin_root, "lib")) or not os.path.isdir(
         os.path.join(plugin_root, "templates")
@@ -108,7 +128,7 @@ def main() -> None:
         )
         print(f"  Resolved root: {plugin_root}", file=sys.stderr)
         print(
-            "  Set CLAUDE_PLUGIN_ROOT explicitly to override the BASH_SOURCE derivation.",
+            "  Set CLAUDE_PLUGIN_ROOT explicitly to override the doe_root() resolution.",
             file=sys.stderr,
         )
         sys.exit(1)

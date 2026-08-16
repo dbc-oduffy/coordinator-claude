@@ -87,5 +87,51 @@ function claude {
     return
   }
 
+  # Prefer the PowerShell launcher, dot-path invoked, over the bare `claude-doe`
+  # command. This is a CONSOLE-INTEGRITY requirement, not a style preference.
+  #
+  # `& claude-doe` resolves through PATHEXT to claude-doe.CMD, which spawns a
+  # cmd.exe; that in turn reached claude.exe through python.exe. On Windows that
+  # nesting corrupts the console input mode of the operator's terminal: xterm
+  # focus-report sequences (ESC[I / ESC[O, DECSET 1004) stop being consumed and
+  # leak into the input stream as literal `[I`/`[O`, keystrokes misroute to a
+  # phantom row, and the pwsh prompt is left corrupted after exit. The same
+  # claude.exe with the same args launched as a DIRECT child of this session
+  # works. Invoking claude-doe.ps1 by path runs it in THIS pwsh process (no new
+  # process), and that script launches claude.exe natively -- so claude.exe ends
+  # up a direct child of the operator's shell, the one proven-good shape.
+  #
+  # Negative-spec: do NOT "simplify" this back to `& claude-doe ... @args`. The
+  # fallback below exists only for a non-Windows/degraded install where no
+  # claude-doe.ps1 sits beside the resolved command.
+  # Scan EVERY resolved claude-doe, not just the first. `-First 1` is wrong
+  # here: the settings-home bin is PATH-prepended ahead of ~/.local/bin and
+  # carries only the generic forwarder pair (claude-doe + claude-doe.cmd) that
+  # claude-klabauter's substrate installs for ~8 CLIs unconditionally. That directory has
+  # no claude-doe.ps1, so taking the first hit leaves $_launcher null, falls
+  # through to `& claude-doe`, and lands right back on the cmd.exe -> python.exe
+  # nesting this whole block exists to avoid. Measured, not theorised.
+  # First directory that actually HAS a claude-doe.ps1 wins.
+  $_launcher = $null
+  foreach ($_cd in @(Get-Command claude-doe -CommandType Application, ExternalScript -ErrorAction SilentlyContinue)) {
+    $_cand = Join-Path (Split-Path -Parent $_cd.Source) 'claude-doe.ps1'
+    if (Test-Path -LiteralPath $_cand) { $_launcher = $_cand; break }
+  }
+  if ($null -ne $_launcher) {
+    & $_launcher --doe-root $_r @args
+    return
+  }
+
+  # Fallback: no claude-doe.ps1 anywhere on PATH. Correct and harmless on POSIX,
+  # where no such file is rendered and the Python wrapper os.execv's claude in
+  # place. On Windows it is a DEGRADED path, not the invariant: `& claude-doe`
+  # resolves through PATHEXT to claude-doe.CMD, so claude.exe lands one process
+  # deep instead of zero. Better than the cmd->python->claude shape this
+  # function was written to escape, but still not a direct child. Say so rather
+  # than degrade silently -- an operator whose console starts misbehaving should
+  # not have to re-derive today's whole investigation to find out they are here.
+  if ($env:OS -eq 'Windows_NT') {
+    Write-Warning "claude-doe shim: no claude-doe.ps1 found beside any claude-doe on PATH — falling back to the .cmd launcher, which adds an intermediate cmd.exe. Run coordinator:install to render the PowerShell launcher; see coordinator/docs/wiki/windows-process-spawn-and-console.md."
+  }
   & claude-doe --doe-root $_r @args
 }

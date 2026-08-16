@@ -19,13 +19,15 @@ REM directly. install-substrate.py substitutes __PYTHON_BIN__ with the
 REM absolute interpreter path resolved at install time (fast path: skips the
 REM `py -3` double-indirection + the Microsoft Store App Execution Alias
 REM picker), or with the empty string when no interpreter was resolvable.
-REM Falls back to `where python.exe`, then `py -3` -- when the baked value is
-REM empty, still the unsubstituted token, OR names a path that is no longer on
-REM disk. That last rung is what makes a `~/.claude` synced between a Mac and a
-REM Windows box self-healing instead of a permanent rc=3 path-not-found
-REM failure: each launcher carries the OTHER platform's
-REM interpreter path, and falling back on non-existence is the only repair that
-REM is correct on whichever platform is actually running.
+REM Falls back to a host-local %LOCALAPPDATA% resolution cache, then
+REM `where python.exe`, then `py -3` -- when the baked value is empty, still
+REM the unsubstituted token, OR names a path that is no longer on disk. That
+REM fallback is what makes a `~/.claude` synced between a Mac and a Windows
+REM box self-healing instead of a permanent rc=3 path-not-found failure: each
+REM launcher carries the OTHER platform's interpreter path, and falling back
+REM on non-existence is the only repair that is correct on whichever platform
+REM is actually running. See DR-303 (docs/decisions/DR-303-windows-spawn-
+REM economics-is-a-fix-not-a-desig.md) for the cache rung's own rationale.
 REM
 REM No `enabledelayedexpansion`: with it on, cmd.exe scans the WHOLE command
 REM line -- including whatever %* substitutes in -- for `!...!` tokens before
@@ -39,11 +41,30 @@ if "%_py%"=="__PYTHON_BIN__" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 
+REM Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):
+REM lives under %LOCALAPPDATA%, which never syncs between machines, so it
+REM cannot be poisoned by a Mac/Windows-synced settings-home the way a bake
+REM can. Guarded by `if exist`/non-empty exactly like the bake rung above --
+REM self-heals the same way when the cached path is stale or foreign.
+if not defined LOCALAPPDATA goto :skip_cache_read
+set "_cachefile=%LOCALAPPDATA%\coordinator\python-bin-cache.txt"
+if not exist "%_cachefile%" goto :skip_cache_read
+set "_cached="
+set /p _cached=<"%_cachefile%"
+if "%_cached%"=="" goto :skip_cache_read
+set "_cached=%_cached:"=%"
+set "_cachedtest=%_cached:WindowsApps=%"
+if not "%_cachedtest%"=="%_cached%" goto :skip_cache_read
+if not exist "%_cached%" goto :skip_cache_read
+set "_py=%_cached%"
+goto :run_baked
+:skip_cache_read
+
 for /f "delims=" %%i in ('where python.exe 2^>nul') do (
     echo %%i| findstr /I /C:"\WindowsApps\" >nul
     if errorlevel 1 (
         set "_py=%%i"
-        goto :run_baked
+        goto :cache_and_run_baked
     )
 )
 
@@ -53,6 +74,35 @@ if not errorlevel 1 goto :run_py3
 echo [setup-seed-health-ledger] ERROR: no Python interpreter found (python.exe / py -3). 1>&2
 echo [setup-seed-health-ledger] Install Python: https://www.python.org/downloads/windows/ 1>&2
 exit /b 127
+
+:cache_and_run_baked
+REM Persist the resolved interpreter for future invocations on THIS host.
+REM Every writer resolves the same `_py` value (deterministic per machine),
+REM so a write-write race can only ever race identical content into the
+REM target. The write happens inside a per-writer temp DIRECTORY (mkdir is
+REM atomic, unlike a bare %RANDOM% filename), moved into place with `move`
+REM (atomic same-volume rename, never an in-place write) -- a losing
+REM writer's move silently no-ops, no retry needed.
+if not defined LOCALAPPDATA goto :run_baked
+set "_cachedir=%LOCALAPPDATA%\coordinator"
+if exist "%_cachedir%\" goto :cache_write
+mkdir "%_cachedir%" 2>nul
+:cache_write
+set "_tmpdir=%_cachedir%\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"
+2>nul mkdir "%_tmpdir%"
+if not errorlevel 1 goto :cache_write_got_dir
+set "_tmpdir=%_cachedir%\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"
+2>nul mkdir "%_tmpdir%"
+if not errorlevel 1 goto :cache_write_got_dir
+set "_tmpdir=%_cachedir%\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"
+2>nul mkdir "%_tmpdir%"
+if errorlevel 1 goto :run_baked
+:cache_write_got_dir
+set "_tmpfile=%_tmpdir%\python-bin-cache.tmp"
+>"%_tmpfile%" echo %_py%
+move /y "%_tmpfile%" "%_cachefile%" >nul 2>nul
+2>nul rd /s /q "%_tmpdir%"
+goto :run_baked
 
 :run_baked
 "%_py%" "%~dp0setup-seed-health-ledger.py" %*

@@ -203,18 +203,14 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
     if explicit:
         return explicit
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_kw_safe(),
-        )
-    except OSError:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this module's transport posture
         return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
 
 
 def _count_archived(result: dict[str, Any]) -> int:

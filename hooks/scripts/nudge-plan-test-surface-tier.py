@@ -19,7 +19,7 @@ leads with the alternative: name the chunk's own path-scoped (Tier T) tests
 a chunk deliverable.
 
 Tripwire token: PLAN-TEST-SURFACE-TIER (emitted literally in the advisory
-text below; registered in `coordinator/docs/wiki/coordinator-tripwires/tripwire-registry.md`).
+text below; registered in `coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/`).
 
 Classification -- ZERO new regex over suite commands. This hook reuses the
 exact same classifier `block-dispatch-suite-invocation.py` already reuses:
@@ -69,7 +69,7 @@ Spec: inline dispatch brief (no plan file), team-lead dispatch
 2026-08-06, "Plan-write-time tier advisory hook". Sibling deliverable
 (tripwire registration, SKILL.md/wiki wording) owned by a peer worker in
 `coordinator/skills/plan/SKILL.md`, `coordinator/docs/wiki/writing-plans.md`,
-`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry.md` -- NOT touched here.
+`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/` -- NOT touched here.
 """
 
 from __future__ import annotations

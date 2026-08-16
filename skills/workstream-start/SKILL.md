@@ -56,20 +56,25 @@ unanswered. Every other fork is `/pickup`'s.
 
 Bin paths below relative to `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/`.
 
+**One shell call** for the three independent, non-gating probes below (order doesn't matter among
+them — none reads another's output):
+
 - **Safety commit**, non-negotiable, don't ask, silent no-op if nothing to commit:
   `CLAUDE_INVOKING_COMMAND=workstream-start coordinator-safe-commit --blanket "chore:
   workstream-start sweep — pre-orientation capture"`.
 - **Setup-state self-heal**, silent: `coordinator-setup-state auto-record-if-source-is-live`.
-- **Branch detection.** main is read-only. Stay on a non-main branch if on one; on main, run
-  `sync-main --quiet` (report divergence first), then create `work/{machine}/{date}` (`-2` on
-  collision) — superseded by the assembler's branch-day-span directive when present. Diverged from
-  `main` >2 days → recommend `/merge-to-main`, wait for the PM; ≤2 days → continue silently.
 - **Whoami spot-check:** `"${COORDINATOR_PYTHON:-python3}" -m coordinator_whoami.session`. Report
   `binding.kind` or `degraded (CLI failed)`. Do NOT surface bound-but-cwd-mismatch — that's
   `/repo-setup`'s job, and would false-positive for an operator deliberately working outside the
   bound project root.
 - **Outbox drafts** (inbound staleness is already in the assembler's output):
   `workday-start-cross-repo-memo-outbox-surface` — non-empty → surface verbatim; empty → skip.
+
+**Branch detection** stays its own call — its outcome (which branch you end up on) gates
+everything that follows: main is read-only. Stay on a non-main branch if on one; on main, run
+`sync-main --quiet` (report divergence first), then create `work/{machine}/{date}` (`-2` on
+collision) — superseded by the assembler's branch-day-span directive when present. Diverged from
+`main` >2 days → recommend `/merge-to-main`, wait for the PM; ≤2 days → continue silently.
 
 ### Context load — not part of the shared spine
 

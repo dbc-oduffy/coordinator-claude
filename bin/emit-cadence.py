@@ -49,7 +49,6 @@ Negative-spec (retired patterns — DO NOT reintroduce):
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -58,6 +57,7 @@ _LIB_DIR = _BIN_DIR / "lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 
+import cc_invoke  # noqa: E402
 from cc_invoke import RouteMutationError, StructuralPinError, route_mutation  # noqa: E402
 
 
@@ -91,16 +91,11 @@ def _resolve_repo_root_safe() -> str | None:
     used only for the courtesy marker sync, which must never turn a skip into
     a failure."""
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(Path.cwd()), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return proc.stdout.strip()
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        cc_invoke.ensure_engine_on_path(__file__)
+        from coordinator_core.git.repo_root import show_toplevel
+    except Exception:
         return None
+    return show_toplevel(str(Path.cwd()))
 
 
 def _gate_is_off() -> bool:
@@ -118,21 +113,17 @@ def _resolve_repo_root() -> str:
     `git -C "$PWD" rev-parse --show-toplevel` auto-resolution (standalone-repo
     assumption; no repo-root argument on this entry).
     """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", str(Path.cwd()), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.git.repo_root import show_toplevel
+
+    root = show_toplevel(str(Path.cwd()))
+    if not root:
         print(
             f"emit-cadence: cannot resolve git repo root from {Path.cwd()}",
             file=sys.stderr,
         )
         sys.exit(1)
-    return proc.stdout.strip()
+    return root
 
 
 def legacy_cadence() -> None:

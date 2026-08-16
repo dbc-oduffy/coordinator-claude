@@ -33,22 +33,17 @@ Spec backlink: coordinator_core/ops/check_posix_exec_assumptions.py (source-
   coordinator/docs/wiki/foreign-platform-path-guard.md)
 """
 
+
+# --- routing half: this file is now a thin shim over entry_point_shim.run_gate_target ---
 from __future__ import annotations
 
 import os
 import sys
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_REPO_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_DIR))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-
-# DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
-# rather than by calling its `main` directly, so the paths it declares become
-# a session scope-touch claim. Without that, everything this CLI writes is an
-# orphan at the `scoped_git_commit` sink. (This particular op is a read-only
-# checker — no paths are ever declared — but the route is adopted uniformly.)
-from coordinator_core.cli_entry import run_op_main  # noqa: E402
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from entry_point_shim import run_gate_target  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(run_op_main("coordinator_core.ops.check_posix_exec_assumptions", sys.argv[1:]))
+    sys.exit(run_gate_target("check-posix-exec-assumptions", sys.argv[1:]))

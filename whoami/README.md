@@ -45,7 +45,7 @@ coordinator_whoami/          # Generic, plugin-agnostic surfaces
     cli.py                   #   compose(), WHOAMI_SCHEMA_VERSION — host introspection probe
     envelope.py              #   compose_envelope(), persist() — contract projection + persistence
     addons.py                #   Addon contributor discovery + dispatch
-    _paths.py                #   resolve_user_marker_dir (inlined from project-rag)
+    _paths.py                #   resolve_user_marker_dir (inlined, legacy read-anchor) + resolve_install_artifact_path/read_install_artifact_path (settings-home data plane, DR-072)
     schemas/
       cli_output.v1.json     #   Inner per-plugin CLI-output schema
 ```
@@ -60,5 +60,5 @@ Generic (plugin-agnostic, `coordinator_whoami` root):
 project-rag subpackage (`coordinator_whoami.project_rag`):
 - `compose() -> dict` — host introspection; returns CLI-output-shaped dict (from `cli.py`)
 - `compose_envelope() -> dict` — projects compose() output into contract envelope (from `envelope.py`)
-- `persist(envelope: dict) -> Path` — writes envelope under `whoami_profile` in `~/.claude/project-rag/install-profile.json` (from `envelope.py`; atomic write via tmp+os.replace)
+- `persist(envelope: dict) -> Path` — writes envelope under `whoami_profile` in `<settings-home>/project-rag/install-profile.json` (from `envelope.py`; atomic write via tmp+os.replace; DR-072)
 <!-- Review: Reviewer C C-F5 — persist() correctly attributed to envelope.py, not cli.py -->

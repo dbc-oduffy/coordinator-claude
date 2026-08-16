@@ -36,6 +36,8 @@ Spec backlink: archive/specs/2026-06/2026-06-23-programmatic-terminal-plan-archi
 Prior bash implementation: see git log (assert-no-dangling-plan-backlinks.py, 111 lines, retired on this cutover)
 """
 
+
+# --- routing half: this file is now a thin shim over entry_point_shim.run_gate_target ---
 from __future__ import annotations
 
 import os
@@ -44,58 +46,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-
-def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the DR-276 in-process
-    runner.
-
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
-    settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
-    re-deriving it -- this is a plain in-process import, not an RPC invoke.
-
-    DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than
-    calling the op's `main` directly, so the `--fix` write it declares becomes
-    a session scope-touch claim instead of an orphan at the
-    `scoped_git_commit` sink.
-    """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    from coordinator_core.cli_entry import run_op_main
-
-    return run_op_main
-
-
-def main() -> None:
-    try:
-        run_op_main = _import_runner()
-    except RuntimeError as exc:
-        print(
-            f"assert-no-dangling-plan-backlinks.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    except ImportError as exc:
-        print(
-            f"assert-no-dangling-plan-backlinks.py: coordinator_core.cli_entry not importable: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    try:
-        code = run_op_main("coordinator_core.ops.assert_no_dangling_plan_backlinks", sys.argv[1:])
-    except ImportError as exc:
-        print(
-            "assert-no-dangling-plan-backlinks.py: "
-            f"coordinator_core.ops.assert_no_dangling_plan_backlinks not importable: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    sys.exit(code)
-
+from entry_point_shim import run_gate_target  # noqa: E402
 
 if __name__ == "__main__":
-    main()
+    sys.exit(run_gate_target("assert-no-dangling-plan-backlinks", sys.argv[1:]))

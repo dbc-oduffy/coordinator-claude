@@ -2,26 +2,17 @@
 """merge-gate-and-pr.py — merge-time imperative logic ported off the bash
 fences embedded in DoE-claude coordinator/skills/merging-to-main/SKILL.md.
 
-Subcommands (argv[1] selects):
+K-001 (state/kill-ledger.md, 2026-08-16): the `coverage-gate` subcommand
+that used to live here — a thin wrapper over review-coverage-gate.py's
+VERDICT line — is removed. It gated nothing irreversible (WARN on the last
+40 closes, COVERED zero times, every one closing clean) and had decayed to
+printing an advisory offer nobody acted on differently than if it printed
+nothing. `coordinator_core/ops/coverage_gate.py::run_coverage_gate` survives
+elsewhere as chain-ancestry-waiver-mint plumbing for `wsc-coverage-gate-
+runner.py`'s `brightline-gate` subcommand — that is a distinct caller from
+this file's former subcommand and is unaffected by this removal.
 
-  coverage-gate [<range>] [--override]
-      Wraps review-coverage-gate.py's VERDICT line. C10
-      (docs/plans/2026-08-05-coverage-gate-planning-artifact-class.md):
-      the pre-C10 halt-or-override policy (SKILL.md Step 1.65) is retired —
-      VERDICT=UNCOVERED no longer exists. Below the code-partition coverage
-      ratio threshold, the gate now reports VERDICT=WARN, which never halts:
-      this subcommand prints the remediation offer (dispatch
-      coordinator:review-code over the uncovered commits) to stderr and
-      passes the underlying gate's exit code through unchanged (0). Nothing
-      hard-blocks on ordinary coverage — see coordinator_core.coverage's
-      module-level hard-block decision note for the deliberate, named scope
-      of that answer. `--override` / `COORDINATOR_OVERRIDE_COVERAGE_GATE`
-      are accepted for backward compatibility with existing callers but are
-      now no-ops (there is nothing left to override) — this subcommand does
-      NOT gain a new override surface, per the plan's anti-scope.
-      VERDICT=COVERED always exits 0. This subcommand owns no halt policy
-      any more; review-coverage-gate.py itself deliberately does not either
-      (it exits 0 on both verdicts — see its own docstring).
+Subcommands (argv[1] selects):
 
   pr-body --ship-verdict <text> --release-notes <text>
            [--demo-path <text>] [--commit-range <range>]
@@ -41,10 +32,6 @@ Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-p
   coordinator/skills/merging-to-main/SKILL.md §§ Step 1.5, Step 1.65, Step 4.
 
 Exit codes:
-  coverage-gate         — 0 (covered, or warn — C10: warn never halts),
-                          1 (transport failure only — the underlying gate
-                          could not be reached), 2 (indeterminate,
-                          propagated from the underlying gate)
   pr-body               — 0 on success, 2 on usage error
   active-branch-guard   — 0 (settled or forced), 1 (too young / gh failure),
                           2 on usage error
@@ -72,76 +59,6 @@ from cc_invoke import require_engine_on_path  # noqa: E402
 require_engine_on_path(__file__)
 
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
-
-
-# ---------------------------------------------------------------------------
-# coverage-gate
-# ---------------------------------------------------------------------------
-
-def _run_review_coverage_gate(range_arg: str | None) -> tuple[int, str, str]:
-    """Invoke the sibling review-coverage-gate.py and return
-    (returncode, stdout, stderr). Isolated for test monkeypatching."""
-    cmd = [sys.executable, os.path.join(_SCRIPT_DIR, "review-coverage-gate.py")]
-    if range_arg:
-        cmd.append(range_arg)
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        **no_console_creationflags(),  # popup-safe-env-suppressed
-    )
-    return proc.returncode, proc.stdout, proc.stderr
-
-
-def cmd_coverage_gate(args: argparse.Namespace) -> int:
-    returncode, stdout, stderr = _run_review_coverage_gate(args.range)
-
-    if stdout:
-        print(stdout, end="" if stdout.endswith("\n") else "\n")
-
-    # C10: VERDICT=UNCOVERED is gone — below-threshold is VERDICT=WARN, which
-    # never halts (see this module's docstring). This subcommand prints the
-    # same remediation OFFER as before, but does not gate the return code on
-    # it: the underlying gate's own exit_code (0 for WARN, same as COVERED)
-    # is what gets propagated. `--override` / COORDINATOR_OVERRIDE_COVERAGE_GATE
-    # are read for backward compatibility only — accepted, never a new bypass
-    # surface (nothing left to bypass) — and their use is noted, not acted on.
-    if "VERDICT=WARN" in stdout:
-        print(
-            "WARN: review-coverage gate below threshold — the following "
-            "commits in origin/main..HEAD have no code-reviewer trail "
-            "record:",
-            file=sys.stderr,
-        )
-        if stderr:
-            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-        print("", file=sys.stderr)
-        print(
-            "The gate does not block on this — but the commits above are "
-            "still owed a review. Remedy: dispatch coordinator:review-code "
-            "over them, then re-run /merge-to-main.",
-            file=sys.stderr,
-        )
-        overridden = args.override or os.environ.get(
-            "COORDINATOR_OVERRIDE_COVERAGE_GATE", "0"
-        ) == "1"
-        if overridden:
-            print(
-                "NOTE: --override / COORDINATOR_OVERRIDE_COVERAGE_GATE=1 was "
-                "set but has no effect — the coverage gate no longer halts "
-                "(C10), so there is nothing to override.",
-                file=sys.stderr,
-            )
-        return returncode
-
-    if stderr:
-        print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-
-    # VERDICT=COVERED, or the underlying gate could not be reached at all —
-    # propagate its exit code (0 on COVERED, 2 on INDETERMINATE, 1 on transport
-    # failure) rather than reinterpreting it.
-    return returncode
 
 
 # ---------------------------------------------------------------------------
@@ -243,11 +160,6 @@ def cmd_active_branch_guard(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="merge-gate-and-pr.py")
     sub = parser.add_subparsers(dest="subcommand", required=True)
-
-    p_gate = sub.add_parser("coverage-gate")
-    p_gate.add_argument("range", nargs="?", default=None)
-    p_gate.add_argument("--override", action="store_true")
-    p_gate.set_defaults(func=cmd_coverage_gate)
 
     p_body = sub.add_parser("pr-body")
     p_body.add_argument("--ship-verdict", required=True)

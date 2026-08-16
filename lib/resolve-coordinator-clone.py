@@ -205,6 +205,19 @@ def _registry_path() -> str:
 
 
 def _registry_doe_claude() -> str:
+    """Resolve repos.doe_claude via the canonical settings-home registry
+    (`coordinator_core.machine_resolver.registry_get`, through this module's
+    own `_import_registry_get()` bootstrap — the same rung `_registry_live_path`
+    already falls back to) FIRST, zero-spawn. Falls through to the
+    `machine-local` CLI shell-out only when the in-process reader is
+    unavailable (bootstrap failure) or reports no value — the CLI-managed
+    state rung `registry_get` cannot see (2026-08-16 census widening,
+    coordinator_core/tests/test_no_machine_local_cli_read_spawn.py)."""
+    registry_get = _import_registry_get()
+    if registry_get is not None:
+        value = registry_get("repos.doe_claude")
+        if value:
+            return value
     machine_local_bin = shutil.which("machine-local")
     if not machine_local_bin:
         return ""

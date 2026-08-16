@@ -44,7 +44,9 @@ Surface: week span, commit count/range, workstreams, blockers, priorities met. P
 
 Resolve `fast_test_cmd` via `cs_resolve_fast_test_cmd`: `COORDINATOR_FAST_TEST_CMD` env var → the
 `fast_test_cmd` key → skip-with-notice (unconfigured → skipped, not failed) → `Validation:
-0|<non-zero>|skipped`. Non-zero: stop and fix.
+0|<non-zero>|skipped`. Non-zero: stop and fix. **Disclose the magnitude, don't just name the
+step** — `fast_test_cmd` is still a real test-suite run; source its actual cost from `python
+coordinator/tests/_spawn_budget.py` rather than assuming it's cheap because it's "fast-tier."
 
 `node "$CLAUDE_PLUGIN_ROOT/tests/plugin-ecosystem/run.js"` is a second Tier-U invocation — check
 `tier-u-grant-cli check` first: exit 0 proceed, exit 1/malformed/missing token halt (fail-closed).

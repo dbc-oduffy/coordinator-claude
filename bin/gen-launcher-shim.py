@@ -198,17 +198,33 @@ SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backli
 # silently strips any literal `^` from each argument BEFORE the launcher
 # body ever runs — this happens during cmd.exe's OWN command-line parse,
 # ahead of anything the generated launcher body could do about it (measured:
-# even a bare `echo %*` batch file loses the caret, and it is lost whether
-# the caller is PowerShell, python subprocess list-form, or cmd.exe itself —
-# not a caller-side quoting bug). `%CMDCMDLINE%`, by contrast, still carries
-# the ORIGINAL, unmangled invocation text (measured) — a launcher whose
-# entrypoint is named here gets ONE extra line exporting that raw text into
-# `_LAUNCHER_RAW_CMDLINE` before invoking Python, and the entrypoint itself
-# (not this generator) is responsible for re-deriving un-mangled argv from
-# it. This is a SECOND named, narrow, opt-in exception in the same spirit as
-# the WHOAMI-BOOTSTRAP EXCEPTION above — do NOT generalize it to every
-# launcher; every entrypoint not named here renders byte-identical to before
-# this mechanism existed (see `_cmd_raw_cmdline_block`).
+# even a bare `echo %*` batch file loses the caret).
+#
+# CORRECTED (docs/plans/2026-08-15-the-caret-fix-went-to-the-caller-that-never-broke.md):
+# the capture below is NOT a fix for this loss — it is caller-conditional, and the
+# 2026-08-10 fix and its guard suite validated only the one caller that was never broken.
+# cmd.exe strips the caret while parsing its OWN `/c` string, and whether `%CMDCMDLINE%`
+# still holds the unstripped text depends on how the SPAWNING process quoted that string:
+# it survives iff the entire post-`/c` string is wrapped in one outer quote pair (first and
+# last character both `"`). PowerShell emits that shape, so the caret survives into
+# `%CMDCMDLINE%` there; git-bash/MSYS and `subprocess.run([...])` list-form do not emit it,
+# so the capture on those rungs records text the caret is *already gone from* — the capture
+# preserves what `%CMDCMDLINE%` still holds, not what the caller originally typed. A
+# launcher whose entrypoint is named here gets ONE extra line exporting that (possibly
+# already-mangled) raw text into `_LAUNCHER_RAW_CMDLINE` before invoking Python; the
+# entrypoint itself (not this generator) is responsible for classifying the spawn shape and
+# refusing rather than trusting an unsound capture (`coordinator/bin/lib/raw_cmdline_recovery.py`).
+# This is a SECOND named, narrow, opt-in exception in the same spirit as the WHOAMI-BOOTSTRAP
+# EXCEPTION above — do NOT generalize it to every launcher; every entrypoint not named here
+# renders byte-identical to before this mechanism existed (see `_cmd_raw_cmdline_block`).
+#
+# Originating incidents: docs/plans/2026-08-10-caret-fix-on-the-wrong-launcher.md (the fix
+# that validated only the PowerShell rung) and
+# state/bug-backlog/2026-08-08-cmd-exe-shim-eats-the-caret-in-a-git-rev-6679bf76eb8a.yaml
+# (DoE-claude tree). docs/decisions/DR-303-windows-spawn-economics-is-a-fix-not-a-desig.md
+# § Residual uncertainty: "Caret recovery ... reasoned from code on macOS" — DR-303 treated
+# this as break-class, not as a deferred defect. (Review: coordinator:code-reviewer —
+# original phrasing double-"as"; fixed for clarity, meaning unchanged.)
 #
 # MIRRORED, NOT IMPORTED, against `coordinator_core/install/substrate.py`'s
 # `_RAW_CMDLINE_TARGETS` — same caret-eating defect, same keying convention
@@ -404,6 +420,87 @@ def _cmd_raw_cmdline_block(preserve_raw_cmdline: bool) -> str:
     )
 
 
+def _cmd_localappdata_rung() -> str:
+    """The %LOCALAPPDATA% host-local resolution-cache rung shared by every
+    `render_cmd` launcher (DR-303 / windows-interpreter-bake-is-empty --
+    docs/decisions/DR-303-windows-spawn-economics-is-a-fix-not-a-desig.md).
+
+    Sits between the baked-token check and the `where python.exe` fallback:
+    on a host where the bake is empty (macOS-run install, `--setup-only`, or
+    a synced `~/.claude` carrying the OTHER platform's baked path), every
+    invocation used to re-walk `where`/`findstr` from scratch -- DR-303
+    measures that at ~10 processes per op. This rung persists the resolved
+    interpreter under `%LOCALAPPDATA%\\coordinator\\python-bin-cache.txt`,
+    which never roams/syncs between machines (unlike a bake), so it cannot
+    be poisoned the way a synced bake can, and self-heals via the same
+    `if exist`/non-empty existence gate the baked rung itself uses.
+
+    ONE shared cache file across every `render_cmd` launcher (not one per
+    entrypoint): all of them resolve the identical interpreter on a given
+    host, so a single cache primes every launcher after the first cold
+    resolution rather than each entrypoint paying its own first-miss cost.
+    `coordinator_core.install.substrate._write_agent_cmd_forwarder` emits
+    the same rung, against the same cache file, for the DoE-owned forwarder
+    family -- deliberately the same path so a resolution either family
+    performs warms the other.
+
+    Returns two strings: the read-side block (spliced in ahead of the
+    `where python.exe` for-loop) and the write-side block (spliced in behind
+    a new `:cache_and_run_baked` label the for-loop's hit now targets).
+    """
+    read_block = (
+        "REM Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):\n"
+        "REM lives under %LOCALAPPDATA%, which never syncs between machines, so it\n"
+        "REM cannot be poisoned by a Mac/Windows-synced settings-home the way a bake\n"
+        "REM can. Guarded by `if exist`/non-empty exactly like the bake rung above --\n"
+        "REM self-heals the same way when the cached path is stale or foreign.\n"
+        "if not defined LOCALAPPDATA goto :skip_cache_read\n"
+        'set "_cachefile=%LOCALAPPDATA%\\coordinator\\python-bin-cache.txt"\n'
+        'if not exist "%_cachefile%" goto :skip_cache_read\n'
+        'set "_cached="\n'
+        'set /p _cached=<"%_cachefile%"\n'
+        'if "%_cached%"=="" goto :skip_cache_read\n'
+        'set "_cached=%_cached:"=%"\n'
+        'set "_cachedtest=%_cached:WindowsApps=%"\n'
+        'if not "%_cachedtest%"=="%_cached%" goto :skip_cache_read\n'
+        'if not exist "%_cached%" goto :skip_cache_read\n'
+        'set "_py=%_cached%"\n'
+        "goto :run_baked\n"
+        ":skip_cache_read\n"
+    )
+    write_block = (
+        ":cache_and_run_baked\n"
+        "REM Persist the resolved interpreter for future invocations on THIS host.\n"
+        "REM Every writer resolves the same `_py` value (deterministic per machine),\n"
+        "REM so a write-write race can only ever race identical content into the\n"
+        "REM target. The write happens inside a per-writer temp DIRECTORY (mkdir is\n"
+        "REM atomic, unlike a bare %RANDOM% filename), moved into place with `move`\n"
+        "REM (atomic same-volume rename, never an in-place write) -- a losing\n"
+        "REM writer's move silently no-ops, no retry needed.\n"
+        "if not defined LOCALAPPDATA goto :run_baked\n"
+        'set "_cachedir=%LOCALAPPDATA%\\coordinator"\n'
+        'if exist "%_cachedir%\\" goto :cache_write\n'
+        'mkdir "%_cachedir%" 2>nul\n'
+        ":cache_write\n"
+        'set "_tmpdir=%_cachedir%\\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"\n'
+        '2>nul mkdir "%_tmpdir%"\n'
+        "if not errorlevel 1 goto :cache_write_got_dir\n"
+        'set "_tmpdir=%_cachedir%\\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"\n'
+        '2>nul mkdir "%_tmpdir%"\n'
+        "if not errorlevel 1 goto :cache_write_got_dir\n"
+        'set "_tmpdir=%_cachedir%\\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"\n'
+        '2>nul mkdir "%_tmpdir%"\n'
+        "if errorlevel 1 goto :run_baked\n"
+        ":cache_write_got_dir\n"
+        'set "_tmpfile=%_tmpdir%\\python-bin-cache.tmp"\n'
+        '>"%_tmpfile%" echo %_py%\n'
+        'move /y "%_tmpfile%" "%_cachefile%" >nul 2>nul\n'
+        '2>nul rd /s /q "%_tmpdir%"\n'
+        "goto :run_baked\n"
+    )
+    return read_block, write_block
+
+
 def render_cmd(
     name: str,
     python_bin_token: str = PYTHON_BIN_TOKEN,
@@ -437,6 +534,7 @@ def render_cmd(
     raw_cmdline_cleanup = (
         '2>nul rd /s /q "%_LAUNCHER_RAW_CMDLINE_DIR%"\n' if preserve_raw_cmdline else ""
     )
+    localappdata_read, localappdata_write = _cmd_localappdata_rung()
     return f"""@echo off
 setlocal
 REM Windows launcher for {entry} — python-direct (NO bash re-exec).
@@ -458,13 +556,15 @@ REM directly. install-substrate.py substitutes {python_bin_token} with the
 REM absolute interpreter path resolved at install time (fast path: skips the
 REM `py -3` double-indirection + the Microsoft Store App Execution Alias
 REM picker), or with the empty string when no interpreter was resolvable.
-REM Falls back to `where python.exe`, then `py -3` -- when the baked value is
-REM empty, still the unsubstituted token, OR names a path that is no longer on
-REM disk. That last rung is what makes a `~/.claude` synced between a Mac and a
-REM Windows box self-healing instead of a permanent rc=3 path-not-found
-REM failure: each launcher carries the OTHER platform's
-REM interpreter path, and falling back on non-existence is the only repair that
-REM is correct on whichever platform is actually running.
+REM Falls back to a host-local %LOCALAPPDATA% resolution cache, then
+REM `where python.exe`, then `py -3` -- when the baked value is empty, still
+REM the unsubstituted token, OR names a path that is no longer on disk. That
+REM fallback is what makes a `~/.claude` synced between a Mac and a Windows
+REM box self-healing instead of a permanent rc=3 path-not-found failure: each
+REM launcher carries the OTHER platform's interpreter path, and falling back
+REM on non-existence is the only repair that is correct on whichever platform
+REM is actually running. See DR-303 (docs/decisions/DR-303-windows-spawn-
+REM economics-is-a-fix-not-a-desig.md) for the cache rung's own rationale.
 REM
 REM No `enabledelayedexpansion`: with it on, cmd.exe scans the WHOLE command
 REM line -- including whatever %* substitutes in -- for `!...!` tokens before
@@ -478,11 +578,12 @@ if "%_py%"=="{python_bin_token}" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
 set "_py="
 
+{localappdata_read}
 for /f "delims=" %%i in ('where python.exe 2^>nul') do (
     echo %%i| findstr /I /C:"\\WindowsApps\\" >nul
     if errorlevel 1 (
         set "_py=%%i"
-        goto :run_baked
+        goto :cache_and_run_baked
     )
 )
 
@@ -493,6 +594,7 @@ echo [{tag}] ERROR: no Python interpreter found (python.exe / py -3). 1>&2
 echo [{tag}] Install Python: https://www.python.org/downloads/windows/ 1>&2
 {raw_cmdline_cleanup}exit /b 127
 
+{localappdata_write}
 :run_baked
 "%_py%" "%~dp0{entry}" %*
 {raw_cmdline_cleanup}exit /b %ERRORLEVEL%
@@ -501,6 +603,69 @@ echo [{tag}] Install Python: https://www.python.org/downloads/windows/ 1>&2
 py -3 "%~dp0{entry}" %*
 {raw_cmdline_cleanup}exit /b %ERRORLEVEL%
 """
+
+
+def _ps1_localappdata_rung() -> tuple[str, str]:
+    """PowerShell analog of `_cmd_localappdata_rung` (DR-303 -- see that
+    function's docstring for the rung's rationale).
+
+    A SEPARATE cache file from the `.cmd` rung's (`python-bin-cache-ps1.txt`,
+    not `python-bin-cache.txt`) -- mirrors `_write_agent_ps1_forwarder`'s own
+    choice in `coordinator_core.install.substrate`, whose docstring states the
+    reason: a `.cmd` and a `.ps1` invoked with the SAME bare name resolve to
+    DIFFERENT files (PowerShell prefers the `.ps1`), so nothing guarantees the
+    two dialects agree on interpreter shape, and a shared cache would let one
+    dialect serve a value it never itself validated.
+
+    `Move-Item -Force` supplies the same atomic-rename guarantee `move` gives
+    the `.cmd` rung; a `[System.Guid]` temp name is PowerShell's collision
+    primitive here (no `%RANDOM%`-reseed hazard exists in this dialect).
+
+    Returns the read-block (spliced in ahead of the `Get-Command python.exe`
+    fallback) and the write-snippet (spliced inside that fallback's success
+    branch, before it invokes the resolved interpreter).
+    """
+    read_block = (
+        "# Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):\n"
+        "# %LOCALAPPDATA% never syncs between machines, unlike the settings-home a\n"
+        "# bake is written into, so it cannot be poisoned by a Mac/Windows-synced\n"
+        "# home the way a bake can. Mirrors the bake's own Test-Path self-heal: a\n"
+        "# cached path that is stale or foreign falls through to re-resolution.\n"
+        "# Every step here is in-process (no new spawn on the steady-state path).\n"
+        "$_cachefile = $null\n"
+        "if ($env:LOCALAPPDATA) {\n"
+        "    $_cachefile = Join-Path $env:LOCALAPPDATA 'coordinator\\python-bin-cache-ps1.txt'\n"
+        "    if (Test-Path -LiteralPath $_cachefile) {\n"
+        "        $_cached = $null\n"
+        "        try { $_cached = Get-Content -LiteralPath $_cachefile -TotalCount 1 -ErrorAction SilentlyContinue } catch {}\n"
+        "        if ($_cached -and (Test-Path -LiteralPath $_cached)) {\n"
+        "            & $_cached $_entry @args\n"
+        "            exit $LASTEXITCODE\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    write_snippet = (
+        "    if ($_cachefile) {\n"
+        "        # Persist for future invocations on THIS host. Every writer resolves\n"
+        "        # the same value (deterministic per machine), so a write-write race\n"
+        "        # can only race identical content -- and the target is only ever\n"
+        "        # mutated via Move-Item -Force (an atomic same-volume rename, never\n"
+        "        # an in-place write), so a reader can never observe a torn file. A\n"
+        "        # losing writer's move is swallowed (SilentlyContinue): no retry, no\n"
+        "        # wait, no added steady-state process either way.\n"
+        "        try {\n"
+        "            $_cachedir = Split-Path -Parent $_cachefile\n"
+        "            if (-not (Test-Path -LiteralPath $_cachedir)) {\n"
+        "                New-Item -ItemType Directory -Path $_cachedir -Force -ErrorAction SilentlyContinue | Out-Null\n"
+        "            }\n"
+        "            $_tmpfile = Join-Path $_cachedir ([System.Guid]::NewGuid().ToString('N') + '.tmp')\n"
+        "            [System.IO.File]::WriteAllText($_tmpfile, $_py.Source)\n"
+        "            Move-Item -LiteralPath $_tmpfile -Destination $_cachefile -Force -ErrorAction SilentlyContinue\n"
+        "        } catch {}\n"
+        "    }\n"
+    )
+    return read_block, write_snippet
 
 
 def render_ps1(
@@ -522,6 +687,7 @@ def render_ps1(
     entry = os.path.basename(name)
     tag = launcher_basename(name)
     backlink_block = _ps1_backlink_block(spec_backlink)
+    localappdata_read, localappdata_write = _ps1_localappdata_rung()
     return f"""# {tag}.ps1 — python-direct Windows launcher for {entry} (NO bash re-exec).
 # Generated by coordinator/bin/gen-launcher-shim.py — do NOT hand-edit; regenerate.
 # 2026-07-19 Windows de-bash campaign.
@@ -541,8 +707,9 @@ def render_ps1(
 # absolute interpreter path resolved at install time (or the empty string when
 # none was resolvable). Falls back to `python.exe` on PATH, then `py -3` -- when
 # the baked value is empty, still the unsubstituted token, OR names a path that
-# is no longer on disk. That last rung (the Test-Path gate below, the PowerShell
-# analog of the .cmd ladder's `if exist`) is what makes a `~/.claude` synced
+# is no longer on disk. That fallback also tries a host-local %LOCALAPPDATA%
+# resolution cache first (see DR-303, docs/decisions/DR-303-windows-spawn-
+# economics-is-a-fix-not-a-desig.md) -- what makes a `~/.claude` synced
 # between a Mac and a Windows box self-healing instead of a permanent hard
 # failure: each launcher carries the OTHER platform's interpreter path, and
 # falling back on non-existence is the only repair that is correct on whichever
@@ -557,9 +724,9 @@ if ($_pybin -ne '') {{
     & $_pybin $_entry @args
     exit $LASTEXITCODE
 }}
-$_py = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object {{ $_.Source -notlike '*\\WindowsApps\\*' }} | Select-Object -First 1
+{localappdata_read}$_py = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object {{ $_.Source -notlike '*\\WindowsApps\\*' }} | Select-Object -First 1
 if ($_py) {{
-    & $_py.Source $_entry @args
+{localappdata_write}    & $_py.Source $_entry @args
     exit $LASTEXITCODE
 }}
 $_pyl = Get-Command py -ErrorAction SilentlyContinue

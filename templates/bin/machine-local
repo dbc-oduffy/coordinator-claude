@@ -34,6 +34,10 @@ import shutil
 import subprocess
 import sys
 
+# Name of the interpreter-resolution cache written beside the impl. One line, one
+# absolute interpreter path. See _cached_python / _cache_python below.
+_PYTHON_CACHE_BASENAME = ".python-bin"
+
 
 def _real_settings_bin() -> str:
     settings_home = os.environ.get("COORDINATOR_SETTINGS_HOME")
@@ -55,6 +59,109 @@ def _py311_ok(candidate: str) -> bool:
     return result.returncode == 0
 
 
+#: Returned by _run_impl_in_process when the impl could not be LOADED, so the caller
+#: can re-run it as a subprocess. A distinct sentinel and not None: `main()` returns
+#: whatever its verb handler returned, and a handler that falls off the end returns
+#: None implicitly. Overloading None would make that indistinguishable from a load
+#: failure and re-run the WHOLE command in a subprocess -- executing a `set`/`unset`/
+#: `array-*` mutation twice, silently, on a fast path built to be invisible.
+_LOAD_FAILED = object()
+
+
+def _run_impl_in_process(impl):
+    """Run _machine_local.py inside THIS interpreter; return its rc, or _LOAD_FAILED.
+
+    Callable only when the running interpreter already satisfies the impl's >=3.11
+    guard — the caller checks. Loads the impl by absolute path rather than by module
+    name so nothing depends on sys.path, and does not leave it in sys.modules under a
+    name another importer could collide with (the dual-identity hazard that
+    machine-local-registry.md §8(a) names).
+
+    A SystemExit raised by the impl — its version guard, its argparse, its own verb
+    returns — is the impl's exit code and is returned as such. Returning _LOAD_FAILED
+    means the impl could not be LOADED at all (unreadable, truncated, syntactically
+    broken mid-install); the caller then re-runs it as a subprocess so the operator
+    sees the impl's real diagnostics instead of this forwarder's import traceback.
+    A handler that returns a non-int (including an implicit None) is a RAN result,
+    never a load failure, and is normalised to 0 here rather than re-run.
+
+    Negative-spec: exceptions from the impl's own execution are NOT swallowed here.
+    Only load failure falls back — a genuine impl bug must surface as a traceback, not
+    be silently retried in a second process that will fail the same way.
+    """
+    import importlib.util
+
+    try:
+        spec = importlib.util.spec_from_file_location("_machine_local_impl", impl)
+        if spec is None or spec.loader is None:
+            return _LOAD_FAILED
+        module = importlib.util.module_from_spec(spec)
+    except (OSError, ImportError, ValueError):
+        return _LOAD_FAILED
+
+    try:
+        spec.loader.exec_module(module)
+    except SystemExit as exc:  # module-level version guard
+        return exc.code if isinstance(exc.code, int) else 2
+    except (OSError, SyntaxError, ImportError):
+        return _LOAD_FAILED
+
+    # Past this point the impl HAS run. Every return below is its result, never a
+    # fallback signal -- re-running it in a subprocess here would repeat whatever
+    # it already did.
+    try:
+        rc = module.main()
+    except SystemExit as exc:
+        rc = exc.code
+    return rc if isinstance(rc, int) else 0
+
+
+def _cached_python(bin_dir: str) -> str:
+    """Return the previously-resolved interpreter path, or "" if unusable.
+
+    The probe below costs up to six `python -c` SPAWNS to answer a question whose
+    answer changes only when the operator installs or removes a Python. Caching it
+    turns that into one file read. A cache entry naming an interpreter that no
+    longer exists is simply ignored — the probe re-runs and rewrites it — so an
+    uninstalled or moved Python self-heals rather than wedging the reader.
+
+    Negative-spec: the cached path is NOT re-version-checked here. Re-probing to
+    validate the cache would reintroduce the spawn the cache exists to remove. An
+    interpreter downgraded BELOW 3.11 in place (same path, older version) is
+    therefore possible, and lands on _machine_local.py's own version guard, which
+    exits 2 with an actionable message — the same place the documented last-resort
+    fallback below already lands. Correctness is preserved; only the diagnosis is
+    one hop later.
+    """
+    try:
+        with open(os.path.join(bin_dir, _PYTHON_CACHE_BASENAME)) as fh:
+            candidate = fh.read().strip()
+    except OSError:
+        return ""
+    return candidate if candidate and os.path.isfile(candidate) else ""
+
+
+def _cache_python(bin_dir: str, python: str) -> None:
+    """Record a freshly-probed interpreter path for the next invocation.
+
+    Best-effort by contract: a read-only or unwritable settings-home must cost the
+    caller a slow resolve, never a failed read. Written via tempfile + os.replace so
+    a concurrent reader sees either the old entry or the new one, never a torn line —
+    this machine routinely runs a dozen sessions that would otherwise interleave here.
+    """
+    target = os.path.join(bin_dir, _PYTHON_CACHE_BASENAME)
+    tmp = "{}.{}.tmp".format(target, os.getpid())
+    try:
+        with open(tmp, "w") as fh:
+            fh.write(python + "\n")
+        os.replace(tmp, target)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def main() -> int:
     _real = _real_settings_bin()
     impl = os.path.join(_real, "_machine_local.py")
@@ -68,6 +175,24 @@ def main() -> int:
         )
         return 2  # operational failure (see _machine_local.py exit-code contract)
 
+    # FAST PATH: this forwarder is itself Python. When the interpreter already
+    # running it satisfies the impl's >=3.11 guard, there is nothing to resolve and
+    # nothing to exec -- run the impl in-process and the whole invocation costs ONE
+    # process instead of two-plus-probes. This is the common case on every machine
+    # whose `python3` is current, which is every supported install: the probe ladder
+    # below exists for the stripped-PATH/old-system-Python case (macOS 3.9), not for
+    # the healthy one, and healthy callers should not pay for it.
+    #
+    # An explicit MACHINE_LOCAL_PYTHON is an operator instruction to run the impl
+    # under THAT interpreter, so it outranks this path and falls through to the exec.
+    if sys.version_info >= (3, 11) and not os.environ.get("MACHINE_LOCAL_PYTHON"):
+        rc = _run_impl_in_process(impl)
+        if rc is not _LOAD_FAILED:
+            return rc
+        # Import failed for a reason unrelated to the impl's own logic (a partially
+        # written file, an unreadable path). Fall through to the spawn ladder so the
+        # operator gets the impl's real error rather than an import traceback.
+
     # Resolve a Python interpreter that satisfies _machine_local.py's >=3.11
     # guard. Naively taking the first `python3` on PATH is a footgun: under a
     # stripped PATH (e.g. a daemon launched with PATH=/usr/bin:/bin) `python3`
@@ -76,7 +201,9 @@ def main() -> int:
     # genuinely-absent key. Probe candidates and pick the first that is
     # >=3.11 so the forwarder self-heals for ANY caller regardless of
     # inherited PATH. Cross-repo memo 2026-06-24 (daemon read-path).
-    python = os.environ.get("MACHINE_LOCAL_PYTHON") or ""
+    #
+    # The probe's up-to-six spawns run only on a cache miss (_cached_python).
+    python = os.environ.get("MACHINE_LOCAL_PYTHON") or _cached_python(_real)
 
     if not python:
         # Version-pinned names first (most likely >=3.11 even under a
@@ -88,6 +215,7 @@ def main() -> int:
             resolved = shutil.which(cand)
             if resolved and _py311_ok(resolved):
                 python = resolved
+                _cache_python(_real, python)
                 break
 
     if not python:

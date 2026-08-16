@@ -53,7 +53,8 @@ than asking the caller to hand-write a JSON blob on a command line.
 `--review-slice <json>` flag carries that shape through THIS trampoline's
 single embedded `review_trail.write` call: one flag per slice, each value a
 compact JSON object with the same five required keys the discrete flags
-below carry plus optional `scope_kind` (`_REVIEW_SLICE_ALLOWED_KEYS`).
+below carry plus optional `scope_kind`/`reviewer_evidence`
+(`_REVIEW_SLICE_ALLOWED_KEYS`).
 Mutually exclusive with the discrete `--review-*` flags — supplying both is
 a hard error (`_review_slices_and_discrete_flags_both_supplied`), never a
 silent pick-one. Every slice is validated up front, same JSON-shape/
@@ -85,11 +86,22 @@ rejects what the engine rejects adds nothing; catching what the engine
 swallows is the entire point of the guard.
 
 The op's full optional surface (per the memo) is larger than what this CLI
-exposes: `caller_paths`, `nature`, `b_adjudication_present`, `coverage_range`,
-`coverage_from_handoff`, `coverage_scope_paths` are available op-side but have
-no corresponding argparse flag on this trampoline — not yet exposed on this
-CLI. No current caller (the SKILL.md Step 3 invocation) needs them; wire a
-flag for one only when a caller actually does.
+exposes: `caller_paths`, `nature`, `coverage_range`, `coverage_from_handoff`,
+`coverage_scope_paths` are available op-side but have no corresponding
+argparse flag on this trampoline — not yet exposed on this CLI. No current
+caller (the SKILL.md Step 3 invocation) needs them; wire a flag for one only
+when a caller actually does.
+
+`--adjudication-present` (added to make `write_review_trail`'s fail-loud
+branch reachable through this route — see
+`state/bug-backlog/2026-08-14-wsc-apply-accepts-an-unconsumed-decision-
+debea052f8c5.yaml`): a store-true flag forwarding `b_adjudication_present`
+verbatim. No caller in the current `workstream_complete` directive builders
+(`directives_commit_tail.build_wsc_tail_directive` /
+`build_close_tail_args_directive`) sets it — deciding "this close was
+reviewed" is a caller-side judgment this trampoline does not make on its
+own, so it defaults False (unchanged behavior) until an upstream caller
+opts in.
 
 completion_title — ACCEPT-AND-IGNORE, transitional (2026-07-23 wsc-tail-slim-down
 plan, C4 Phase 1; `docs/plans/2026-07-23-wsc-tail-slim-down.md` § Param Disposition).
@@ -347,10 +359,34 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="review_trail: ONE partitioned-review slice as a compact JSON object "
         "(keys: sha_range/reviewer/scope/verdict/diff_loc, required; scope_kind, "
-        "optional) -- repeatable, one flag per slice. Additive to the discrete "
+        "reviewer_evidence, optional) -- repeatable, one flag per slice. Additive to the discrete "
         "--review-* flags above (which stay the single-record shape, byte-identical); "
         "mutually exclusive with them -- supplying both is a hard error. See module "
         "docstring's 'N partitioned-review slices' section.",
+    )
+    parser.add_argument(
+        "--adjudication-present",
+        dest="b_adjudication_present",
+        action="store_true",
+        default=False,
+        help="Mark this close as reviewed/adjudicated. When set and review_trail "
+        "(discrete flags or slices) is absent or incomplete, the op fails loud "
+        "(failed_critical) instead of silently skipping review_trail.write -- see "
+        "coordinator_core/ops/ceremony/tail_ops.py's write_review_trail. Omit for "
+        "the ordinary no-review-this-session case.",
+    )
+    parser.add_argument(
+        "--partition-mandatory",
+        dest="partition_mandatory",
+        action="store_true",
+        default=False,
+        help="Mark this close as one whose review-scale resolved a mandatory-partition "
+        "row (decide_review_scale row 4/6). Same fail-loud contract as "
+        "--adjudication-present: when set and review_trail (discrete flags or slices) "
+        "is absent or incomplete, the op refuses before the commit rather than "
+        "silently skipping review_trail.write. Composed by "
+        "directives_commit_tail.build_wsc_tail_directive from the resolved review-"
+        "scale verdict, not hand-supplied.",
     )
     return parser
 
@@ -456,6 +492,40 @@ def _invalid_review_trail_enum_fields(args: argparse.Namespace) -> list[str]:
             f"{' | '.join(sorted(_VALID_SCOPE_KINDS))}"
         )
     return messages
+
+
+def _adjudication_without_review_metadata(args: argparse.Namespace) -> bool:
+    """True when `--b-adjudication-present` was supplied and NO review metadata
+    accompanies it -- no `--review-slice`, no discrete `--review-*` flag.
+
+    The partial-supply case (some flags, not all five) is already refused by
+    `_missing_review_trail_fields`; this covers the ZERO-supply case that
+    predicate deliberately treats as "nothing to validate". Op-side that
+    combination is a caller-contract breach
+    (`tail_ops.write_review_trail`'s `b_adjudication_present` gate) which,
+    before the matching engine-side gate landed, only became an exit code
+    after the ceremony commit had already been made -- a green-looking close
+    with no trail record. Refusing here converts it into a usage error at the
+    keyboard, one dispatch earlier.
+    """
+    if not args.b_adjudication_present:
+        return False
+    if args.review_slices:
+        return False
+    return all(v is None for v in _review_trail_fields(args).values())
+
+
+def _partition_mandatory_without_review_metadata(args: argparse.Namespace) -> bool:
+    """`_adjudication_without_review_metadata`'s sibling for `--partition-
+    mandatory` — same client-side pre-flight, same rationale: a resolved
+    mandatory-partition row is as strong a statement that a review was owed
+    as an adjudication assertion is (D, cross-repo/inbox/2026-08-15-
+    project-rag-em-wsc-review-trail-skips-silently.md)."""
+    if not args.partition_mandatory:
+        return False
+    if args.review_slices:
+        return False
+    return all(v is None for v in _review_trail_fields(args).values())
 
 
 def _build_review_trail(args: argparse.Namespace) -> dict | None:
@@ -566,6 +636,10 @@ def _build_params(args: argparse.Namespace, sid: str) -> dict:
         "sid": sid or None,
         "subject": args.subject,
     }
+    if args.b_adjudication_present:
+        params["b_adjudication_present"] = True
+    if args.partition_mandatory:
+        params["partition_mandatory"] = True
     # `--review-slice` (list-of-dicts) and the discrete `--review-*` flags
     # (single dict) are mutually exclusive (enforced in `main()` before this
     # is called) -- at most one of the two ever contributes a value here.
@@ -701,6 +775,30 @@ def main(argv: list[str]) -> int:
         print(
             "wsc-tail.py: invalid review_trail field value(s):\n  "
             + "\n  ".join(invalid_review_fields),
+            file=sys.stderr,
+        )
+        return 1
+
+    # Adjudication-supply pre-flight, same posture as the two guards above:
+    # nothing committed yet, so exit 1 with no landed-commit disposition to
+    # preserve. See `_adjudication_without_review_metadata`.
+    if _adjudication_without_review_metadata(args):
+        print(
+            "wsc-tail.py: --b-adjudication-present with no review metadata. Supply "
+            "all five --review-sha-range/--review-reviewer/--review-scope/"
+            "--review-verdict/--review-diff-loc (or --review-slice, repeatable), or "
+            "drop --b-adjudication-present.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if _partition_mandatory_without_review_metadata(args):
+        print(
+            "wsc-tail.py: --partition-mandatory with no review metadata. The engine's "
+            "own workstream-complete brief already emits a per-commit slice list at "
+            "gates.review_scale.commit_slices for exactly this row — fill in "
+            "reviewer/scope/verdict per entry and pass it through as --review-slice "
+            "(repeatable), or supply the discrete --review-* flags.",
             file=sys.stderr,
         )
         return 1

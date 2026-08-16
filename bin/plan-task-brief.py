@@ -187,8 +187,20 @@ def main(argv: "list[str] | None" = None) -> int:
     brief = format_brief(matches[0])
 
     if args.out_file:
+        # DR-276: this CLI reads via `plan_tasks_render.load_rows` (a
+        # library function, not an op `main(argv)` -- there is no op
+        # entrypoint to route through `run_op_main`), and its one write is
+        # the caller-supplied `--out FILE`. Wrapped in
+        # `recording_declared_writes()` with an explicit `declare_write()`
+        # at the write site, per cli_entry's documented carve-out for a CLI
+        # that owns its own body (see gen-launcher-shim.py's `main()`).
+        from coordinator_core.cli_entry import recording_declared_writes
+        from coordinator_core.session.declared_writes import declare_write
+
         try:
-            Path(args.out_file).write_text(brief, encoding="utf-8")
+            with recording_declared_writes():
+                Path(args.out_file).write_text(brief, encoding="utf-8")
+                declare_write(args.out_file)
         except OSError as exc:
             _err(f"plan-task-brief.py: ERROR — cannot write --out file {args.out_file!r}: {exc}")
             return 1

@@ -11,13 +11,12 @@ one-line invocation instead of a bespoke bash block.
 
 This CLI does NOT reimplement any guard's detection logic — every subcommand
 below is a thin dispatcher over a sibling `coordinator/bin/*` CLI (or, for
-cve-recheck and shellcheck-sweep, over `git`/`shellcheck` directly) plus the
-control flow (existence checks, rc branching, skip/dispatch decisions,
-report-and-offer messaging) that decides WHETHER and HOW to report the
-sibling's result. Self-contained and self-resolving (Path(__file__)-relative);
-does not depend on cwd for locating siblings, only for the git-scoped
-subcommands (cve-recheck, shellcheck-sweep), which operate against the
-current repo by design (they answer "does THIS repo need this?").
+cve-recheck, over `git` directly) plus the control flow (existence checks, rc
+branching, skip/dispatch decisions, report-and-offer messaging) that decides
+WHETHER and HOW to report the sibling's result. Self-contained and
+self-resolving (Path(__file__)-relative); does not depend on cwd for locating
+siblings, only for the git-scoped cve-recheck subcommand, which operates
+against the current repo by design (it answers "does THIS repo need this?").
 
 Subcommands:
     description-length          — informational advisory, never blocks.
@@ -41,8 +40,6 @@ Subcommands:
                                     14-day capture staleness, and C7 source-
                                     hash drift on subagent-catering-
                                     resolution.json.
-    shellcheck-sweep             — repo-wide `git ls-files '*.sh'` loop
-                                    through `shellcheck -f gcc -s bash`.
     console-flash-guard          — thin dispatcher over
                                     verify-no-console-flash.py.
     multi-event-hook-guard       — thin dispatcher over
@@ -56,7 +53,11 @@ that advisories never block merge).
 Spec backlink: DoE-claude coordinator/commands/workweek-complete.md
     §§ Step 4d (description-length), Step 4f (enabledPlugins drift),
     Step 4h (CVE recheck), Step 4k (vendored-schema drift gate),
-    Step 6 (ShellCheck sweep + console-flash guard + multi-event-hook guard).
+    Step 6 (console-flash guard + multi-event-hook guard). ShellCheck sweep
+    (formerly this file's `shellcheck-sweep` subcommand) was removed
+    2026-08-16 — see state/kill-ledger.md K-102; the DoE ceremony's Step 6
+    hand invocation of it is now dead and should be dropped from
+    coordinator/commands/workweek-complete.md.
 """
 from __future__ import annotations
 
@@ -238,60 +239,6 @@ def cmd_pcli_drift_gate(_args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Step 6: repo-wide ShellCheck sweep
-# ---------------------------------------------------------------------------
-
-def cmd_shellcheck_sweep(args: argparse.Namespace) -> int:
-    """Reports findings; does not gate the ceremony on its own (the DoE
-    ceremony step "offers to fix" straightforward findings and flags
-    behavior-changing ones for PM review — a human/EM judgment call this CLI
-    cannot make). Exit code: 0 = clean or shellcheck not installed, 1 =
-    findings present (advisory signal for the caller, not a ceremony block —
-    the ceremony step itself is documented as non-gating)."""
-    repo_root = args.repo_root or os.getcwd()
-
-    if _which("shellcheck") is None:
-        print("ShellCheck: not installed — skipping sweep.")
-        return 0
-
-    rc, out = _run(["git", "ls-files", "*.sh"], cwd=repo_root)
-    sh_files = [line for line in out.splitlines() if line.strip()]
-
-    any_findings = False
-    for rel_path in sh_files:
-        abs_path = os.path.join(repo_root, rel_path)
-        try:
-            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
-                content = fh.read().replace("\r", "")
-        except OSError as exc:
-            print(f"{rel_path}: SKIP — could not read ({exc})")
-            continue
-        proc = subprocess.run(
-            ["shellcheck", "-f", "gcc", "-s", "bash", "-"],
-            input=content,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            creationflags=_NO_WINDOW,
-        )
-        finding_text = proc.stdout.replace("-:", f"{rel_path}:")
-        if finding_text.strip():
-            any_findings = True
-            print(finding_text, end="" if finding_text.endswith("\n") else "\n")
-
-    if any_findings:
-        print("ShellCheck: issues found — offer to fix straightforward findings; flag behavior-changing items for PM review.")
-        return 1
-    print("ShellCheck: all .sh files clean.")
-    return 0
-
-
-def _which(name: str) -> str | None:
-    from shutil import which
-    return which(name)
-
-
-# ---------------------------------------------------------------------------
 # Step 6: console-flash guard
 # ---------------------------------------------------------------------------
 
@@ -356,10 +303,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("schema-drift-gate").set_defaults(func=cmd_schema_drift_gate)
 
     sub.add_parser("pcli-drift-gate").set_defaults(func=cmd_pcli_drift_gate)
-
-    p = sub.add_parser("shellcheck-sweep")
-    p.add_argument("--repo-root", default=None)
-    p.set_defaults(func=cmd_shellcheck_sweep)
 
     p = sub.add_parser("console-flash-guard")
     p.add_argument("--target", default=None)

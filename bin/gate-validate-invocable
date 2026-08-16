@@ -1,0 +1,108 @@
+"""
+coordinator/bin/gate-validate-invocable — operator-invocable CLI entry for the
+"gate.validate_invocable" op (docs/plans/2026-07-20-merge-gate-dod-engine-enforced.md
+§ C1), mirroring `coordinator/bin/static-check`'s "a confined executor can
+run this" precedent.
+
+WHY THIS EXISTS
+    DR-233 (engine-native, advisory-only, no GHA/pre-commit authority layer)
+    removed both automatic invocation points this design ever had. Without an
+    explicit invocation site the op is a library nobody calls (C1). This is
+    that site: `python3 coordinator/bin/gate-validate-invocable <changed-file>...`.
+
+USAGE
+    python3 coordinator/bin/gate-validate-invocable [--diff-base REF] <path> [<path> ...]
+
+    <path>...     the changed-file set to evaluate (repo-relative or
+                   absolute; passed through unexamined as the op's
+                   `changed_files` param).
+    --diff-base   optional explicit diff-base reference, passed through
+                   unexamined as the op's `diff_base` param (C4: never a
+                   hardcoded origin/main default).
+
+OUTPUT
+    The op's versioned JSON result payload (see
+    coordinator_core.ops.gate_validate_invocable.to_json), printed to stdout.
+
+EXIT CODES — tied to the tri-state verdict, never conflated with a crash
+    0 — overall verdict is PASS, OR overall verdict is FAIL/UNAVAILABLE/
+        SKIPPED (advisory-only: this op never refuses a commit, so a
+        non-passing advisory verdict is not itself a CLI failure — the JSON
+        payload is what a caller inspects to distinguish PASS from the
+        others).
+    1 — overall verdict is ERROR (an internal dimension check raised; see
+        the op's fail-closed-on-exception contract). This IS the only
+        non-zero verdict-shaped exit — the plan's "0 unless ERROR" rule.
+    2 — usage error (no paths given).
+    3 — the op itself raised (e.g. missing changed_files param never
+        reachable from this CLI's own argv contract, but kept as an honest
+        floor rather than an uncaught traceback).
+"""
+from __future__ import annotations
+
+import json
+import sys
+
+_TAG = "gate-validate-invocable"
+
+
+def _parse_args(argv: list[str]) -> tuple[list[str], str | None]:
+    """Split argv into (changed_files, diff_base). Raises SystemExit(2) on
+    a missing --diff-base value or zero changed-file paths.
+
+    Only the space-separated form `--diff-base REF` is recognized; the
+    `--diff-base=REF` getopt-style form is NOT special-cased and is treated
+    as a changed-file path instead. (Review:
+    coordinatorcode-reviewer-4e66fb35 nit — matches the documented USAGE
+    contract, flagged for discoverability.)"""
+    diff_base: str | None = None
+    paths: list[str] = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--diff-base":
+            if i + 1 >= len(argv):
+                print(f"{_TAG}: --diff-base requires a value", file=sys.stderr)
+                raise SystemExit(2)
+            diff_base = argv[i + 1]
+            i += 2
+            continue
+        paths.append(arg)
+        i += 1
+    if not paths:
+        print(
+            f"{_TAG}: usage: gate-validate-invocable [--diff-base REF] <path> [<path> ...]",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    return paths, diff_base
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    try:
+        changed_files, diff_base = _parse_args(args)
+    except SystemExit as exc:
+        return int(exc.code)
+
+    # Deferred import: keeps this CLI's own cold-start cheap for the common
+    # `--help`/usage-error path, and avoids importing the full op-registry
+    # tree before argv is validated.
+    from coordinator_core.ops.gate_validate_invocable import _gate_validate_invocable
+
+    params = {"changed_files": changed_files}
+    if diff_base is not None:
+        params["diff_base"] = diff_base
+
+    try:
+        result = _gate_validate_invocable(params)
+    except Exception as exc:  # noqa: BLE001 — CLI floor, honest non-zero over a raw traceback
+        print(f"{_TAG}: op raised {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 3
+
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 1 if result.get("overall") == "ERROR" else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

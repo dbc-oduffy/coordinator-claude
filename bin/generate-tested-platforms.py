@@ -63,14 +63,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
-
-try:
-    import yaml
-except ImportError:  # pragma: no cover - exercised only on a broken environment
-    yaml = None
 
 GENERATES = [
     {
@@ -78,28 +71,6 @@ GENERATES = [
         "stamp_key": "tested_platforms",
         "sources": ["coordinator/bin/generate-tested-platforms.py"],
     },
-]
-
-# Mirrors platform-outcome.schema.json's SECONDARY staleness constant
-# (PLATFORM_OUTCOME_STALENESS_DAYS = 30), named here rather than encoded as a
-# bare magic number, per that schema's own stated convention.
-PLATFORM_OUTCOME_STALENESS_DAYS = 30
-
-# PlatformId vocabulary SSOT: agent-install-manifest.schema.json #/$defs/PlatformId.
-# Canonical ordering used when writing tested_platforms, so a no-op run never
-# reorders an unchanged value into a spurious diff.
-PLATFORM_ENUM_ORDER = ["macos", "linux", "windows"]
-
-REQUIRED_RECORD_FIELDS = [
-    "platform",
-    "surface",
-    "command",
-    "outcome",
-    "exit_code",
-    "observed_at",
-    "machine",
-    "surface_sha",
-    "invoking_repo",
 ]
 
 # Two known layouts for the manifest, relative to repo root:
@@ -111,7 +82,6 @@ _MANIFEST_RELATIVE_CANDIDATES = (
     os.path.join("coordinator", "docs", "install", "agent-install-manifest.json"),
     os.path.join("docs", "install", "agent-install-manifest.json"),
 )
-_RECORDS_RELATIVE = os.path.join("state", "platform-outcomes")
 
 
 def _repo_root() -> str:
@@ -119,6 +89,32 @@ def _repo_root() -> str:
     bin_dir = os.path.dirname(os.path.abspath(__file__))
     coordinator_dir = os.path.dirname(bin_dir)
     return os.path.dirname(coordinator_dir)
+
+
+# Record/derivation core lives in coordinator_core.ops.platform_outcome_records
+# (extracted verbatim, byte-for-byte behavior-equivalent — see that module's
+# docstring for the two-consumer rationale: this generator, and
+# coordinator_core.ops.validate_install_contract._check_point4). Import off
+# THIS script's own on-disk location (_repo_root()), never off a
+# caller-supplied --repo-root target — see _current_repo_sha's own historical
+# review note, now moot since this import happens at module load time here.
+_own_root = _repo_root()
+if _own_root not in sys.path:
+    sys.path.insert(0, _own_root)
+
+from coordinator_core.ops.platform_outcome_records import (  # noqa: E402
+    PLATFORM_ENUM_ORDER,
+    PLATFORM_OUTCOME_STALENESS_DAYS,
+    REQUIRED_RECORD_FIELDS,
+    current_repo_sha as _current_repo_sha,
+    derive_tested_platforms,
+    entry_point_surfaces,
+    is_stale as _is_stale,
+    iter_record_paths,
+    load_record as _load_record,
+    records_root as _records_root,
+    yaml,
+)
 
 
 def _manifest_path(repo_root: str) -> str:
@@ -133,184 +129,6 @@ def _manifest_path(repo_root: str) -> str:
         "no agent-install-manifest.json found under repo root "
         f"{repo_root!r}; tried: {', '.join(attempted)}"
     )
-
-
-def _records_root(repo_root: str) -> str:
-    return os.path.join(repo_root, _RECORDS_RELATIVE)
-
-
-def _current_repo_sha(repo_root: str) -> str | None:
-    """HEAD SHA of the repo providing the entry-point surfaces (`repo_root`,
-    which `--repo-root` lets a caller point at a target repo other than
-    claude-klabauter's own checkout). Feeds the PRIMARY staleness rule. Returns None
-    (fail-safe: treats every record as stale) if git is unavailable or the
-    repo has no commits yet.
-
-    Review: code-reviewer P3 — `coordinator_core.win_portability` must be
-    imported off THIS script's own location (`_repo_root()`), never off
-    `repo_root`: `repo_root` is the TARGET repo being probed, not necessarily
-    claude-klabauter's own checkout, so inserting it onto sys.path only resolved the
-    import by coincidence when the target happened to be claude-klabauter itself. For
-    any other `--repo-root` target the import raised ImportError, was
-    swallowed by the except clause below, and silently returned None —
-    marking every staleness record stale.
-    """
-    try:
-        own_root = _repo_root()
-        if own_root not in sys.path:
-            sys.path.insert(0, own_root)
-        from coordinator_core.win_portability import no_console_creationflags
-
-        proc = subprocess.run(
-            ["git", "-C", repo_root, "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.SubprocessError, ImportError):
-        return None
-    if proc.returncode != 0:
-        return None
-    sha = proc.stdout.strip()
-    return sha or None
-
-
-def entry_point_surfaces(manifest: dict) -> set[str]:
-    """Surface names counted as manifest-declared ENTRY POINTS — compared against
-    the manifest's own top-level key names (`standalone_setup_script`,
-    `programmatic_entry_point`), not free-form script paths, since those two keys
-    are exactly what point 4 defines as the install entry point (see module
-    docstring § ENTRY-POINT SCOPE). Ceremony-hot-path surfaces (C5's KR-2 reader)
-    are deliberately excluded — same record store, disjoint surface set."""
-    names: set[str] = set()
-    if manifest.get("standalone_setup_script"):
-        names.add("standalone_setup_script")
-    if manifest.get("programmatic_entry_point"):
-        names.add("programmatic_entry_point")
-    return names
-
-
-def _load_record(path: str) -> dict | None:
-    """Parse one platform-outcome YAML record. Returns None (skip, don't crash)
-    on any parse failure or schema-shape mismatch — a malformed record must never
-    take down the generator run."""
-    if yaml is None:
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh)
-    except (OSError, yaml.YAMLError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    if any(field not in data for field in REQUIRED_RECORD_FIELDS):
-        return None
-    if data.get("platform") not in {"macos", "linux", "windows"}:
-        return None
-    if data.get("outcome") not in {"pass", "fail"}:
-        return None
-    return data
-
-
-def _is_stale(record: dict, current_sha: str | None, now: datetime) -> bool:
-    """PRIMARY: surface_sha mismatch against `current_sha`. SECONDARY: observed_at
-    more than PLATFORM_OUTCOME_STALENESS_DAYS calendar days before `now`. Either
-    condition alone makes the record stale (platform-outcome.schema.json's
-    schema-level rule — both are independently checked, neither alone suffices
-    as a freshness proof, but either alone suffices to invalidate)."""
-    if current_sha is not None and record.get("surface_sha") != current_sha:
-        return True
-    observed_raw = record.get("observed_at")
-    try:
-        observed = datetime.fromisoformat(str(observed_raw).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return True  # unparsable timestamp -> fail closed, treat as stale
-    if observed.tzinfo is None:
-        observed = observed.replace(tzinfo=timezone.utc)
-    if now - observed > timedelta(days=PLATFORM_OUTCOME_STALENESS_DAYS):
-        return True
-    return False
-
-
-def iter_record_paths(records_root: str):
-    """Yield every state/platform-outcomes/<platform>/<machine>/<surface>.yaml
-    path on disk, in deterministic (sorted) order. Silent (yields nothing) if
-    the records root doesn't exist yet — that is the expected state before any
-    canary has run."""
-    if not os.path.isdir(records_root):
-        return
-    for platform_name in sorted(os.listdir(records_root)):
-        platform_dir = os.path.join(records_root, platform_name)
-        if not os.path.isdir(platform_dir):
-            continue
-        for machine_name in sorted(os.listdir(platform_dir)):
-            machine_dir = os.path.join(platform_dir, machine_name)
-            if not os.path.isdir(machine_dir):
-                continue
-            for fname in sorted(os.listdir(machine_dir)):
-                if fname.endswith((".yaml", ".yml")):
-                    yield os.path.join(machine_dir, fname)
-
-
-def _sort_platforms(platforms) -> list[str]:
-    """Canonical PLATFORM_ENUM_ORDER first, then any unrecognized value
-    alphabetically appended (defensive — schema-valid input never hits this)."""
-    known = [p for p in PLATFORM_ENUM_ORDER if p in platforms]
-    unknown = sorted(p for p in platforms if p not in PLATFORM_ENUM_ORDER)
-    return known + unknown
-
-
-def derive_tested_platforms(
-    records_root: str,
-    manifest: dict,
-    current_sha: str | None,
-    now: datetime | None = None,
-) -> tuple[list[str], list[str]]:
-    """Pure derivation (no I/O beyond the records-root walk) — returns
-    (derived_tested_platforms_sorted, advisory_lines).
-
-    Promotion: a platform is included iff it has >=1 PASSING, non-stale record
-    whose `surface` is a manifest-declared entry point.
-
-    Grandfather: a platform already present in manifest['tested_platforms'] that
-    has ZERO entry-point-surface records at all (pass or fail, fresh or stale —
-    no evidence exists yet either way) is preserved with an advisory. A platform
-    with entry-point records that fail or are all stale is NOT grandfathered —
-    that is a legitimate demotion, records exist and don't currently support the
-    claim.
-    """
-    surfaces = entry_point_surfaces(manifest)
-    existing = list(manifest.get("tested_platforms") or [])
-    now = now or datetime.now(timezone.utc)
-
-    seen_entry_platforms: set[str] = set()  # has >=1 entry-point-surface record at all
-    passing_platforms: set[str] = set()
-
-    for path in iter_record_paths(records_root):
-        record = _load_record(path)
-        if record is None:
-            continue
-        if record.get("surface") not in surfaces:
-            continue  # not an entry-point surface -> not backing evidence for tested_platforms
-        platform = record["platform"]
-        seen_entry_platforms.add(platform)
-        if record.get("outcome") == "pass" and not _is_stale(record, current_sha, now):
-            passing_platforms.add(platform)
-
-    derived = set(passing_platforms)
-    advisories: list[str] = []
-    for platform in existing:
-        if platform in passing_platforms:
-            continue
-        if platform not in seen_entry_platforms:
-            derived.add(platform)
-            advisories.append(f"grandfathered: {platform} has no backing records")
-        # else: platform has entry-point records but none currently pass/fresh
-        # -> legitimate demotion, not added, no advisory (this is the intended
-        # "failing/stale record removes the claim" behavior).
-
-    return _sort_platforms(derived), advisories
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -369,9 +187,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     manifest["tested_platforms"] = derived
-    with open(manifest_path, "w", encoding="utf-8") as fh:
-        json.dump(manifest, fh, indent=2)
-        fh.write("\n")
+    # DR-276: this CLI owns its own main() and writes the manifest directly
+    # (no separate op `main(argv)` to route through `run_op_main` -- the
+    # imports above are library helpers, not an op entrypoint), so the write
+    # is wrapped in `recording_declared_writes()` with an explicit
+    # `declare_write()` call at the write site, per cli_entry's documented
+    # carve-out for CLIs that own their own body (see gen-launcher-shim.py's
+    # `generate()`/`main()` for the same shape).
+    from coordinator_core.cli_entry import recording_declared_writes
+    from coordinator_core.session.declared_writes import declare_write
+
+    with recording_declared_writes():
+        with open(manifest_path, "w", encoding="utf-8") as fh:
+            json.dump(manifest, fh, indent=2)
+            fh.write("\n")
+        declare_write(manifest_path)
     print(f"wrote tested_platforms to {manifest_path}")
     return 0
 

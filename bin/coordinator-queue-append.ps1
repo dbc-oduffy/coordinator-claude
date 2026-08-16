@@ -17,8 +17,9 @@
 # absolute interpreter path resolved at install time (or the empty string when
 # none was resolvable). Falls back to `python.exe` on PATH, then `py -3` -- when
 # the baked value is empty, still the unsubstituted token, OR names a path that
-# is no longer on disk. That last rung (the Test-Path gate below, the PowerShell
-# analog of the .cmd ladder's `if exist`) is what makes a `~/.claude` synced
+# is no longer on disk. That fallback also tries a host-local %LOCALAPPDATA%
+# resolution cache first (see DR-303, docs/decisions/DR-303-windows-spawn-
+# economics-is-a-fix-not-a-desig.md) -- what makes a `~/.claude` synced
 # between a Mac and a Windows box self-healing instead of a permanent hard
 # failure: each launcher carries the OTHER platform's interpreter path, and
 # falling back on non-existence is the only repair that is correct on whichever
@@ -33,8 +34,44 @@ if ($_pybin -ne '') {
     & $_pybin $_entry @args
     exit $LASTEXITCODE
 }
+# Host-local resolution cache (DR-303 / windows-interpreter-bake-is-empty):
+# %LOCALAPPDATA% never syncs between machines, unlike the settings-home a
+# bake is written into, so it cannot be poisoned by a Mac/Windows-synced
+# home the way a bake can. Mirrors the bake's own Test-Path self-heal: a
+# cached path that is stale or foreign falls through to re-resolution.
+# Every step here is in-process (no new spawn on the steady-state path).
+$_cachefile = $null
+if ($env:LOCALAPPDATA) {
+    $_cachefile = Join-Path $env:LOCALAPPDATA 'coordinator\python-bin-cache-ps1.txt'
+    if (Test-Path -LiteralPath $_cachefile) {
+        $_cached = $null
+        try { $_cached = Get-Content -LiteralPath $_cachefile -TotalCount 1 -ErrorAction SilentlyContinue } catch {}
+        if ($_cached -and (Test-Path -LiteralPath $_cached)) {
+            & $_cached $_entry @args
+            exit $LASTEXITCODE
+        }
+    }
+}
 $_py = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike '*\WindowsApps\*' } | Select-Object -First 1
 if ($_py) {
+    if ($_cachefile) {
+        # Persist for future invocations on THIS host. Every writer resolves
+        # the same value (deterministic per machine), so a write-write race
+        # can only race identical content -- and the target is only ever
+        # mutated via Move-Item -Force (an atomic same-volume rename, never
+        # an in-place write), so a reader can never observe a torn file. A
+        # losing writer's move is swallowed (SilentlyContinue): no retry, no
+        # wait, no added steady-state process either way.
+        try {
+            $_cachedir = Split-Path -Parent $_cachefile
+            if (-not (Test-Path -LiteralPath $_cachedir)) {
+                New-Item -ItemType Directory -Path $_cachedir -Force -ErrorAction SilentlyContinue | Out-Null
+            }
+            $_tmpfile = Join-Path $_cachedir ([System.Guid]::NewGuid().ToString('N') + '.tmp')
+            [System.IO.File]::WriteAllText($_tmpfile, $_py.Source)
+            Move-Item -LiteralPath $_tmpfile -Destination $_cachefile -Force -ErrorAction SilentlyContinue
+        } catch {}
+    }
     & $_py.Source $_entry @args
     exit $LASTEXITCODE
 }

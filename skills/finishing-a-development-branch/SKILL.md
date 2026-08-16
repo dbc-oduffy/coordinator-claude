@@ -2,6 +2,7 @@
 name: finishing-a-development-branch
 description: "Presents merge, PR, or cleanup options once tests pass."
 version: 1.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # Finishing a Development Branch

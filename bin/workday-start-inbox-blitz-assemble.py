@@ -437,24 +437,21 @@ def _resolve_repo_root() -> str:
     if env:
         return env
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            # A bounded wait, unlike the sibling ladders this otherwise
-            # mirrors: this script's contract is that it never blocks the
-            # morning ceremony, and a wedged filesystem (stale network mount,
-            # a lock another process is holding) turns an unbounded git call
-            # into a hang, which is worse here than any wrong answer — the
-            # cwd fallback below is a fine degradation, a stalled ceremony
-            # is not.
-            timeout=10,
-            **_no_console_kw(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        proc = None
-    resolved = (proc.stdout or "").strip() if proc else ""
-    if proc is not None and proc.returncode == 0 and resolved:
+        from cc_invoke import _resolve_claude_klabauter_root
+
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.git.repo_root import show_toplevel
+
+        # `show_toplevel`'s own spawn fallback bounds its wait at 2s (see
+        # `coordinator_core.git.repo_root._TIMEOUT_SECS`), tighter than this
+        # site's prior 10s — still bounded, still never blocks the morning
+        # ceremony (see docstring above).
+        resolved = show_toplevel()
+    except Exception:  # noqa: BLE001 -- fail-open, matches this file's transport posture
+        resolved = None
+    if resolved:
         return resolved
     return os.getcwd()
 

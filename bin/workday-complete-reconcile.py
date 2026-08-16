@@ -144,16 +144,27 @@ def _default_cruft_sweep_bin() -> str:
 def _cruft_sweep_argv(cruft_sweep_bin: str) -> list[str]:
     """Build the invocation argv for ``cruft_sweep_bin``.
 
-    ``cruft-sweep`` (no extension) carries a POSIX shebang; CreateProcess
-    cannot exec an extensionless script directly on Windows (WinError 193 —
-    "%1 is not a valid Win32 application") — true of the shipped entrypoint
-    and of any extensionless test double a caller passes in. Route through
-    the interpreter explicitly rather than depend on a ``.cmd`` sibling
-    existing on disk for a path this function does not itself control.
+    Only a ``.cmd`` sibling is directly executable. Everything else this
+    function can be handed — the shipped ``cruft-sweep.py`` default, the
+    extensionless installed shim, an extensionless test double — fails a bare
+    launch on BOTH platforms: CreateProcess raises WinError 193 ("%1 is not a
+    valid Win32 application") and does not interpret ``#!`` lines, and POSIX
+    refuses a source file carrying no exec bit. Route through this interpreter
+    explicitly rather than depend on a ``.cmd`` sibling existing on disk for a
+    path this function does not itself control.
+
+    Negative-spec: the extension test must NOT be "extensionless only" and the
+    platform test must NOT be ``os.name == "nt"`` only. Both narrowings were
+    live here until 2026-08-16 and left the shipped default (``.py``, set by
+    ``_default_cruft_sweep_bin``) on the bare-launch rung, so Step 1.5 raised
+    WinError 193 on every Windows run and degraded to its non-blocking WARN —
+    the sweep never once executed. Mirrors ``wsc-session-disposition.py``'s
+    ``_session_claim_cli_argv``, which already cites this function as its
+    precedent.
     """
-    if os.name == "nt" and not os.path.splitext(cruft_sweep_bin)[1]:
-        return [sys.executable, cruft_sweep_bin]
-    return [cruft_sweep_bin]
+    if os.path.splitext(cruft_sweep_bin)[1] == ".cmd":
+        return [cruft_sweep_bin]
+    return [sys.executable, cruft_sweep_bin]
 
 
 def _default_state_root_script() -> str:

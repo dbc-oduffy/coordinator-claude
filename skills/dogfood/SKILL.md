@@ -8,6 +8,7 @@ triggers:
   - smoke test and fix
   - self-dogfood
 argument-hint: "<target> [--narrow|--broad|--shakedown]"
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # /dogfood — Smoke-Driven Fix-Through Super-Skill

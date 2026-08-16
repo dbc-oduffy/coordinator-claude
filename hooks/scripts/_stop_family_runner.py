@@ -55,14 +55,51 @@ class RegisteredStopFamilyGuard:
     descriptor: GuardScopeDescriptor
 
 
+class _ByteSink:
+    """Binary-mode facade for `_BufferedTextCapture.buffer`: writes bytes straight
+    through, UNMODIFIED, into the SAME ordered `io.BytesIO` the text channel's
+    `write(str)` encodes into -- no decode, no round-trip at capture time. This is
+    the byte-exactness half of the fix (the ordering half is: one shared sink, not
+    two separately-accumulated buffers -- see `_BufferedTextCapture`'s own
+    docstring). Byte-exactness matters here specifically because the two
+    `nudge-*.py` guards route their emission through `_message_envelope.emit()`,
+    which writes raw UTF-8 bytes via `sys.stderr.buffer.write()` PRECISELY to
+    bypass Python's Windows text-mode CRLF translation (`project-orientation.py`'s
+    `_w()` documents the same convention, review finding B-F3) -- a capture layer
+    that decoded those bytes into a `str` mid-flight would still be lossless
+    (UTF-8 decode/encode round-trips exactly), but the dispatcher-side RE-EMISSION
+    this capture feeds must also avoid a text-mode `sys.__stderr__.write(str)`,
+    or the CRLF translation this convention exists to avoid gets reintroduced one
+    hop later. See `postuse-stop-family-dispatch.py`'s own emission site (already
+    `sys.stderr.buffer.write(text.encode("utf-8"))`, not the text wrapper) for the
+    other half of that guarantee."""
+
+    def __init__(self, sink: "io.BytesIO") -> None:
+        self._sink = sink
+
+    def write(self, data: bytes) -> int:
+        return self._sink.write(data)
+
+    def flush(self) -> None:
+        pass
+
+
 class _BufferedTextCapture(io.StringIO):
     """Stand-in for `sys.stderr` under `contextlib.redirect_stderr` that
-    also exposes a `.buffer` (a real `io.BytesIO`) -- see
+    also exposes a `.buffer` (a `_ByteSink`) -- see
     `_invoke_stop_guard_main`'s own docstring for why this is required
     (the two `nudge-*.py` guards write via `sys.stderr.buffer.write()`,
-    which a plain `io.StringIO` has no attribute for). `combined()`
-    concatenates whatever landed in either channel; exactly one is ever
-    non-empty for a single guard invocation, so order does not matter.
+    which a plain `io.StringIO` has no attribute for). Both channels land in
+    ONE ordered `io.BytesIO` -- `write(str)` (the `print()`/`sys.stderr.write()`
+    path) encodes into it, `.buffer.write(bytes)` (the raw-bytes path) writes
+    into it unmodified -- so `combined()`/`combined_bytes()` return whatever a
+    guard emitted across either channel, in true emission order and byte-exact,
+    rather than concatenating two separately-accumulated buffers (which
+    silently reordered mixed-channel output -- every `.buffer`-written line
+    relocated after every `print()`-written line regardless of actual order).
+    A folded guard that only ever uses one channel per invocation is
+    unaffected either way; this fix is what keeps a guard that mixes both
+    channels correct too.
     Reuses the identical fix `coordinator/tests/fixtures/hook-message-
     sweeps/message_measurement_harness.py`'s own `_BufferedTextCapture`
     class already applies for the same reason, in a different context
@@ -73,10 +110,29 @@ class _BufferedTextCapture(io.StringIO):
 
     def __init__(self) -> None:
         super().__init__()
-        self.buffer = io.BytesIO()
+        self._bytes = io.BytesIO()
+        self.buffer = _ByteSink(self._bytes)
+
+    def write(self, s: str) -> int:
+        self._bytes.write(s.encode("utf-8"))
+        return len(s)
 
     def combined(self) -> str:
-        return self.getvalue() + self.buffer.getvalue().decode("utf-8")
+        return self.combined_bytes().decode("utf-8", "replace")
+
+    def combined_bytes(self) -> bytes:
+        return self._bytes.getvalue()
+
+    def getvalue(self) -> str:
+        """Defensive override: the base `io.StringIO.getvalue()` would read this
+        instance's OWN internal text buffer, which `write()` above deliberately
+        never populates (everything routes through `self._bytes` instead, so
+        both channels share one ordered sink). Nothing in this module calls
+        `getvalue()` directly today -- `combined()`/`combined_bytes()` are the
+        contract -- but leaving the inherited method unrouted would silently
+        return empty text to any future caller that reaches for it out of
+        `io.StringIO` habit."""
+        return self.combined()
 
 
 def _target_path_from_payload(payload: Any) -> Optional[str]:

@@ -13,7 +13,9 @@
 # coordinator_core.session function):
 #   resolve-address <session_id>              -> reachability.resolve_address(...)
 #                                                 -- one live UUID -> SendMessage
-#                                                 address.
+#                                                 address, plus this session's
+#                                                 own `caller_messaging_gate`
+#                                                 (messaging_gate.classify()).
 #   peer-roster [--repo <repo_root>]           -> peer_roster.build_roster(...)
 #                                                 -- every live session whose cwd
 #                                                 is within repo_root (default:
@@ -84,8 +86,9 @@ def _import_modules():
     import coordinator_core.session.reachability as reachability_mod
     import coordinator_core.session.peer_roster as peer_roster_mod
     import coordinator_core.session.artifact_owner as artifact_owner_mod
+    import coordinator_core.session.messaging_gate as messaging_gate_mod
 
-    return reachability_mod, peer_roster_mod, artifact_owner_mod
+    return reachability_mod, peer_roster_mod, artifact_owner_mod, messaging_gate_mod
 
 
 _SUBCOMMANDS = "subcommands: resolve-address | peer-roster | artifact-owner"
@@ -112,12 +115,28 @@ def _candidate_to_dict(candidate) -> dict:
     }
 
 
-def _resolve_result_to_dict(result) -> dict:
+def _resolve_result_to_dict(result, messaging_gate_mod) -> dict:
+    # `caller_messaging_gate` is about the CALLING session, not the resolved
+    # target -- named for its subject so the two cannot be read as one. It
+    # separates "nothing asked the harness to open its cross-session inbox"
+    # from "this session asked and the inbox did not open"; the second is a
+    # claude-klabauter defect and reads identically to the first without this field.
+    # Serialized through the owning module's `to_dict`, not a hand-rolled dict
+    # here, so this and coordinator_core/ops/session_resolve_address.py cannot
+    # drift on the payload shape.
     return {
         "outcome": result.outcome,
         "session_id": result.session_id,
         "address": result.address,
+        # Passed through verbatim from `reachability.ResolveResult.reason`,
+        # never re-derived from `outcome` and never defaulted: the resolver
+        # owns this classification. Always present, `None`-valued when
+        # unset, exactly like `session_id`/`address` -- so a reader can tell
+        # a live-but-unaddressable peer from a nonexistent session. Kept in
+        # step with coordinator_core/ops/session_resolve_address.py.
+        "reason": result.reason,
         "candidates": [_candidate_to_dict(c) for c in result.candidates],
+        "caller_messaging_gate": messaging_gate_mod.to_dict(messaging_gate_mod.classify()),
     }
 
 
@@ -132,6 +151,11 @@ def _peer_row_to_dict(row) -> dict:
         "running_seconds": row.running_seconds,
         "is_self": row.is_self,
         "self_determination": row.self_determination,
+        # A harness-wide fact riding on every row, not a per-row
+        # reachability claim: `False` means no record on the box carries a
+        # messaging socket, so every row's `address` is `None` for that one
+        # reason. Kept in step with coordinator_core/ops/session_peer_roster.py.
+        "messaging_available": row.messaging_available,
     }
 
 
@@ -162,7 +186,12 @@ def main(argv: list[str]) -> int:
         return 0
 
     try:
-        reachability_mod, peer_roster_mod, artifact_owner_mod = _import_modules()
+        (
+            reachability_mod,
+            peer_roster_mod,
+            artifact_owner_mod,
+            messaging_gate_mod,
+        ) = _import_modules()
     except RuntimeError as exc:
         print(f"session-reachability-cli: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL
@@ -179,7 +208,7 @@ def main(argv: list[str]) -> int:
         except Exception as exc:
             print(f"session-reachability-cli: resolve-address: {exc}", file=sys.stderr)
             return _TRANSPORT_FAIL
-        return _emit(_resolve_result_to_dict(result))
+        return _emit(_resolve_result_to_dict(result, messaging_gate_mod))
 
     if subcmd == "peer-roster":
         repo_root = None

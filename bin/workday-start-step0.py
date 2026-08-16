@@ -437,10 +437,14 @@ def main(argv: list[str]) -> int:
     from coordinator_core.daily_branch import parse_branch_span, rename_target, should_prompt_rename
     from coordinator_core.daily_day import local_day
     from coordinator_core.machine_resolver import compute_machine
-    from coordinator_core.win_portability import no_console_creationflags
+    from coordinator_core.win_portability import no_console_creationflags, run_forwarding
 
     # Step 0.1 — Sync main
-    sm = subprocess.run(
+    # run_forwarding, not subprocess.run: this directive is reachable
+    # in-process through coordinator_core.workday_complete.apply's
+    # capture-buffer dispatch, where sys.stderr is an io.StringIO with no
+    # fileno() — see run_forwarding's own docstring.
+    sm = run_forwarding(
         [sys.executable, _BIN_SYNC_MAIN], stdout=sys.stderr, stderr=sys.stderr,
         env=child_env(),
         **no_console_creationflags(),

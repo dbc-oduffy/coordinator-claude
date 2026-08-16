@@ -28,7 +28,8 @@ Public API:
         bad envelope / op-error envelope) — except a structural contract-pin failure
         (engine rc=2), which raises the distinct StructuralPinError subclass instead.
         NEVER returns legacy after a native attempt. Uses the non-bare envelope-parse
-        call convention (positional params argv).
+        call convention (params via --params-file, ARG_MAX-immune — see cc_invoke's
+        own docstring's Params transport note; NOT positional argv).
 
     cc_invoke_bare(op, params, repo_root) -> dict
         The shared Python promotion of the retired bash cc_invoke (see module Port of
@@ -74,7 +75,13 @@ Negative-spec (retired transport patterns — DO NOT reintroduce):
     - Unix domain sockets are retired (DR-215); this module does NOT open one.
     - IPC authentication tokens are retired (DR-215); this module does NOT read one.
     - This is a TWO-STATE router (seam-present / seam-absent); there is no daemon-aware
-      third state. Do NOT add one.
+      third state IN THIS ROUTER, and none should be added here. DR-315 (2026-08-15)
+      authorizes a demand-driven warm engine process on the seam-present side of this
+      same two-state split — that is a property of what coordinator_core.invoke's own
+      process does once seam-present dispatch reaches it (a client-side pipe-first,
+      spawn-on-FileNotFoundError decision inside the engine's own entry paths), not a
+      third state this router discriminates on. route()'s State-1/State-2 shape is
+      unchanged by DR-315 and stays two states.
     - find_spec is an INTENTIONAL improvement over the retired shell facade's full-import
       probe; do NOT replace it with an execute-import to "match" the old bash behavior.
 """
@@ -89,7 +96,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable
 
-GENERATES = []  # writes only a tempfile.mkstemp() params file for subprocess argv-passing; no tracked artifact
+GENERATES = []  # writes only tempfile.mkstemp() params files (cc_invoke + cc_invoke_bare), always unlinked; no tracked artifact
 
 
 class StructuralPinError(RuntimeError):
@@ -229,8 +236,14 @@ def child_env(overrides: dict[str, str] | None = None) -> dict[str, str]:
     Callers that DO want the flag to reach the child (nested
     coordinator_core.invoke dispatch) should not use this — see
     `_build_subprocess_env`, which builds that env explicitly instead.
+
+    AC11 (pln-the-machine-local-registry-rea-50be37 § C5): also propagates
+    COORDINATOR_SETTINGS_HOME via `_settings_home_env` (never overwriting an
+    already-set child value), same rationale as `_build_subprocess_env` —
+    this spawns children too (e.g. `_machine_local_get`'s registry-read
+    subprocess), and they should hit rung 0 instead of re-resolving via CLI.
     """
-    env = dict(os.environ)
+    env = _settings_home_env(dict(os.environ))
     if _LAZY_OPS_INJECTED_BY_THIS_MODULE:
         env.pop(_LAZY_OPS_ENV_KEY, None)
     if overrides:
@@ -310,6 +323,30 @@ def _claude_home() -> str:
     return _machine_local_impl_resolver().claude_home()
 
 
+# Cross-reference: coordinator_core/claude_klabauter_root.py defines this same literal
+# (plan pln-the-ceremony-tail-stops-lying-b58fb3 AC3b). The two rungs sit on
+# opposite sides of a declared one-way no-import boundary and cannot share a
+# symbol; the constant is duplicated deliberately and each side asserts the literal.
+_REGISTRY_READ_TIMEOUT_TOKEN = "machine-local registry read timed out"
+
+_MACHINE_LOCAL_READ_TIMEOUT_SECS = 10  # bound on the subprocess.run() call below
+
+
+class _RegistryReadTimeout(RuntimeError):
+    """A machine-local registry subprocess read exceeded its bound.
+
+    Distinct from `is_timeout_error`'s IPC-engine-timeout contract: that predicate
+    matches only `_TIMEOUT_MESSAGE_PREFIX`-prefixed messages from the
+    cc_invoke()/cc_invoke_bare() transport layer (an engine timeout). This is a
+    resolver-rung subprocess timeout — `_machine_local_get` raises nothing wrong
+    happened at the engine, only that the registry read itself did not return in
+    time. Raised by `_machine_local_get`, caught and re-raised (or absorbed) by
+    `_resolve_claude_klabauter_root`, and threaded through `route()` to
+    `_state1_remediation_message` as a named outcome (AC3) — never conflated with
+    the IPC-timeout prefix/discriminator above.
+    """
+
+
 def _machine_local_get(key: str) -> str | None:
     """Read a machine-local registry key via a direct sys.executable subprocess.
 
@@ -322,6 +359,13 @@ def _machine_local_get(key: str) -> str | None:
     Returns the resolved value, or None on any failure (missing impl, non-zero
     exit, empty stdout) — a registry miss is a normal fallback state here, not
     an error; the caller decides whether that's terminal.
+
+    The one exception: a `subprocess.TimeoutExpired` on the registry-read bound
+    raises `_RegistryReadTimeout` instead of collapsing to `None`. A busy box
+    timing out a subprocess-bounded registry read is not the same fact as the
+    key genuinely being absent, and collapsing the two here is what let the
+    operator-facing ladder tell a transient reader timeout apart from a broken
+    install (see `_resolve_claude_klabauter_root` / `_state1_remediation_message`).
 
     Settings-home first (DR-210 Amendment 2026-07-24): resolves via
     machine_local_impl_resolve.machine_local_impl_path(env_override=None) —
@@ -339,11 +383,16 @@ def _machine_local_get(key: str) -> str | None:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=10,
+            timeout=_MACHINE_LOCAL_READ_TIMEOUT_SECS,
             env=child_env(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        raise _RegistryReadTimeout(
+            f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound, "
+            f"key={key!r})"
+        ) from None
+    except OSError:
         return None
     if result.returncode != 0 or not result.stdout.strip():
         return None
@@ -367,8 +416,27 @@ def _resolve_claude_klabauter_root() -> str:
                 Python subprocess to bin/_machine_local.py (_machine_local_get —
                 the same registry lookup coordinator_core.claude_klabauter_root's own
                 rung 2 performs, just invoked without a bash intermediary), then
-                hand resolution authority to the native module itself for
-                byte-identical behavior/remediation text once it's importable.
+                hand resolution authority to the native module itself — via
+                ``coordinator_core.claude_klabauter_root.coordinator_claude_klabauter_root_with_class()``
+                (the DR-132 two-tier published-engine-vs-live-working-tree gate,
+                NOT the classless ``coordinator_claude_klabauter_root()`` this call site
+                used before) — for byte-identical behavior/remediation text
+                once it's importable. This is Rung 2+'s ONLY change here: the
+                bootstrap subprocess (_machine_local_get) and the delegation
+                itself are unaffected — no new subprocess, no new resolution
+                logic (plan § C5).
+
+      PUBLISHED-ENGINE GATE COVERAGE, stated honestly: only Rung 2+ reaches
+      the gate above. Rungs 1 (env), 1.5 (pointer file), and 3
+      (self-location) all return BEFORE the oracle is ever consulted, so a
+      value resolved on any of those rungs is gate-BLIND — same as before
+      this change. Rung 1.5 in particular is the exact defect commit
+      0fdfb61d6 fixed inside `coordinator_claude_klabauter_root_with_class()` itself
+      (the pointer file pre-empting the DR-132 gate on every installed
+      machine) — that fix lives in the two-tier wrapper this rung now calls
+      into via Rung 2+, but does NOT retroactively gate Rungs 1/1.5/3 here,
+      which remain plain reads/self-location with no subprocess and no gate
+      walk, by design (HARD CONSTRAINT: no new subprocess on rungs 1/1.5/3).
       Rung 3 (NEW, TERMINAL): self-location from THIS module's own ``__file__``,
                 via the existing ``_walk_up_to_checkout`` helper — reached only
                 when rungs 1, 1.5, and 2 have all missed, immediately before the
@@ -389,7 +457,11 @@ def _resolve_claude_klabauter_root() -> str:
                 this rung targets.
 
     Returns the resolved absolute path.
-    Raises RuntimeError on failure (unresolvable root).
+    Raises RuntimeError on failure (unresolvable root) — or the RuntimeError
+    subclass `_RegistryReadTimeout` specifically when the registry read at Rung
+    2+ timed out and self-location (Rung 3) also missed, so a caller wanting to
+    tell the two apart can `except _RegistryReadTimeout` before the general
+    `except RuntimeError` (see `route()`, which does exactly this).
     """
     # Rung 1: already in environment — same idempotency gate as the shell transport.
     existing = os.environ.get("CLAUDE_KLABAUTER_ROOT", "")
@@ -440,7 +512,13 @@ def _resolve_claude_klabauter_root() -> str:
         "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c"
     )
 
-    _candidate = _machine_local_get("repos.claude_klabauter")
+    _registry_read_timed_out = False
+    try:
+        _candidate = _machine_local_get("repos.claude_klabauter")
+    except _RegistryReadTimeout:
+        _candidate = None
+        _registry_read_timed_out = True
+
     if not _candidate or not os.path.isdir(_candidate):
         # Rung 3 (terminal): self-locate from cc_invoke's OWN __file__ before
         # raising. Reached only when env, pointer, and registry all missed —
@@ -449,6 +527,14 @@ def _resolve_claude_klabauter_root() -> str:
         _self_located = _walk_up_to_checkout(__file__)
         if _self_located:
             return _self_located
+        if _registry_read_timed_out:
+            # A transient reader timeout, not a genuinely absent/unregistered
+            # checkout — propagate the distinguishable outcome (AC1/AC3)
+            # instead of the clone/register text below, which is wrong here.
+            raise _RegistryReadTimeout(
+                f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound) "
+                "resolving repos.claude_klabauter, and self-location also missed."
+            )
         raise RuntimeError(_remediation)
 
     _injected = _candidate not in sys.path
@@ -456,14 +542,21 @@ def _resolve_claude_klabauter_root() -> str:
         sys.path.insert(0, _candidate)
     try:
         try:
-            from coordinator_core.claude_klabauter_root import coordinator_claude_klabauter_root
+            from coordinator_core.claude_klabauter_root import coordinator_claude_klabauter_root_with_class
         except ImportError as exc:
             raise RuntimeError(
                 f"cc_invoke: CLAUDE_KLABAUTER_ROOT candidate {_candidate!r} (from machine-local "
                 f"repos.claude_klabauter) is not a valid claude-klabauter checkout — "
                 f"coordinator_core.claude_klabauter_root not importable: {exc}"
             ) from exc
-        resolved = coordinator_claude_klabauter_root()
+        # Published-engine rung: coordinator_claude_klabauter_root_with_class() runs the
+        # DR-132 two-tier gate (published-engine-mirror vs. live-working-tree)
+        # instead of the classless coordinator_claude_klabauter_root(), which always
+        # answered live-working-tree. The (root, resolution_class) pair is
+        # returned; this rung only needs root — cc_invoke does not branch on
+        # the class (that belongs to a future consumer, not this resolution
+        # rung: engine.target is a read-site default, never diverted on here).
+        resolved, _resolution_class = coordinator_claude_klabauter_root_with_class()
     finally:
         if _injected:
             try:
@@ -836,13 +929,64 @@ def _build_subprocess_env(claude_klabauter_root: str) -> dict[str, str]:
     Passes os.environ through, sets CLAUDE_KLABAUTER_ROOT, and prepends it to PYTHONPATH only if
     not already present (idempotency fence — mirrors _cc_resolve_deps() in the shell
     transport). Shared by cc_invoke(), cc_invoke_bare(), and the op-budget dump spawn.
+
+    AC11 (pln-the-machine-local-registry-rea-50be37 § C5): also propagates
+    COORDINATOR_SETTINGS_HOME into the child env via `_settings_home_env`, so a
+    child that itself resolves settings-home (directly, or by invoking a shell
+    resolver that tries the `coordinator-settings-home` CLI before its disk
+    fallback) hits rung 0 and skips that CLI call.
     """
-    env: dict[str, str] = {**os.environ, "CLAUDE_KLABAUTER_ROOT": claude_klabauter_root}
+    env: dict[str, str] = _settings_home_env(
+        {**os.environ, "CLAUDE_KLABAUTER_ROOT": claude_klabauter_root}, claude_klabauter_root
+    )
     existing_pp = env.get("PYTHONPATH", "")
     _sep = os.pathsep
     if f"{_sep}{claude_klabauter_root}{_sep}" not in f"{_sep}{existing_pp}{_sep}":
         env["PYTHONPATH"] = f"{claude_klabauter_root}{_sep}{existing_pp}" if existing_pp else claude_klabauter_root
     return env
+
+
+def _settings_home_env(base_env: dict[str, str], claude_klabauter_root: str | None = None) -> dict[str, str]:
+    """Return `base_env` with COORDINATOR_SETTINGS_HOME set to the resolved
+    settings-home root, UNLESS `base_env` already carries the key.
+
+    AC11 (pln-the-machine-local-registry-rea-50be37 § C5): the actual spawn seam
+    that builds child env for claude-klabauter-owned fan-outs. `coordinator_core._settings_home
+    .settings_home()` is a pure env/home read with zero external calls (no CLI
+    spawn), so this is re-derived fresh on every call — there is no per-process
+    cache to go stale across a long-lived warm engine or EM session, which
+    trivially satisfies "re-derive per op-dispatch, not per process".
+
+    Precedence: an explicitly-set child value (differently-rooted tenant, a test
+    harness redirecting it, a deliberately-scoped operator shell) is NEVER
+    overwritten — this only fills a gap the child env does not already carry.
+
+    Import is function-local, matching this module's convention (see the
+    eager-op-registration seam note above): no coordinator_core import sits
+    above that seam at module top. `claude_klabauter_root` is inserted onto `sys.path`
+    only for the duration of the import, mirroring `_is_worktree_scoped_op`'s
+    own inject/finally-remove pattern — this function must never crash the
+    transport, so a resolution failure falls back to `base_env` unchanged.
+    """
+    if base_env.get("COORDINATOR_SETTINGS_HOME"):
+        return base_env
+
+    _root = claude_klabauter_root if claude_klabauter_root is not None else os.environ.get("CLAUDE_KLABAUTER_ROOT")
+    _injected = bool(_root) and _root not in sys.path
+    if _injected:
+        sys.path.insert(0, _root)
+    try:
+        from coordinator_core import _settings_home
+
+        return _settings_home.settings_home_child_env(base_env)
+    except Exception:
+        return base_env
+    finally:
+        if _injected:
+            try:
+                sys.path.remove(_root)
+            except ValueError:
+                pass
 
 
 _IMPORT_ERROR_TOKENS = ("importerror", "modulenotfounderror", "no module named")
@@ -1232,6 +1376,25 @@ def cc_invoke(
       (4) Parse the JSON-RPC envelope; require top-level 'result' key;
           return the BARE result dict (strips jsonrpc/id/result wrapper).
 
+    Params transport: ALWAYS ``--params-file`` (a tempfile), never argv — matches
+    cc_invoke_bare()'s own transport unconditionally, not behind a size threshold.
+    Windows `CreateProcess` caps a command line at 32767 characters; a `params`
+    dict carrying a `paths` list (e.g. a percolate round's changed-file set) can
+    hold thousands of entries and measurably exceeds that before 1000 entries,
+    raising `FileNotFoundError: [WinError 206] The filename or extension is too
+    long` before the child ever starts (see the dispatch that fixed this: DoE
+    percolate-round.py/scoped-git-commit's own `--pathspec-from-file` sibling
+    fix, one layer up). A size-threshold branch was considered and rejected: it
+    would leave the large-payload path as the rarely-exercised one, which is
+    exactly how the argv form survived this long. `--params-file` is already
+    unconditional in cc_invoke_bare(); this now matches it rather than
+    special-casing "small" callers onto the narrower, capped transport.
+    The engine-side receiver (`coordinator_core/invoke/__main__.py`) already
+    accepts `--params-file` independently of `--bare` — no positional
+    `params_json` argv is ever passed by this function anymore, so mode
+    selection (file vs. argv) is unambiguous: the child only ever sees
+    `--params-file <path>` for this call convention.
+
     Args:
         _claude_klabauter_root: already-resolved CLAUDE_KLABAUTER_ROOT (forwarded by route() to avoid a
             second resolution on the State-2 path). If None, resolved here via
@@ -1270,29 +1433,45 @@ def cc_invoke(
     stdout_text: str = ""
     stderr_text: str = ""
 
-    argv = [sys.executable, "-m", "coordinator_core.invoke", op, params_json]
-    if _should_pass_repo(op, claude_klabauter_root):
-        argv += ["--repo", repo_root]
-
+    # params ride a temp file (--params-file), NOT argv — ARG_MAX-immune (see the
+    # docstring's Params transport note above). Written, closed, passed by path,
+    # and unlinked in finally so a large payload never overflows argv. Mirrors
+    # cc_invoke_bare()'s identical --params-file handling below.
+    _params_fd, _params_path = tempfile.mkstemp(prefix="cc-invoke-params-")
     try:
-        proc = subprocess.run(
-            # Review: cross-slice (DR-148) — sys.executable ensures the same interpreter that
-            # loaded cc_invoke.py is used; hardcoded "python3" breaks on Windows.
-            argv,  # popup-safe-env-suppressed
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=timeout,
-            env=env,
-            cwd=claude_klabauter_root,
-            **_no_console_kw(claude_klabauter_root),
-        )
-        rc = proc.returncode
-        stdout_text = proc.stdout
-        stderr_text = proc.stderr
-    except subprocess.TimeoutExpired:
-        # (1) Timeout — mirrors the retired bash transport's cs_timeout exit 124 branch.
-        raise RuntimeError(_timeout_exceeded_message(op, timeout))
+        with os.fdopen(_params_fd, "w", encoding="utf-8") as _pf:
+            _pf.write(params_json)
+        argv = [
+            sys.executable, "-m", "coordinator_core.invoke", op,
+            "--params-file", _params_path,
+        ]
+        if _should_pass_repo(op, claude_klabauter_root):
+            argv += ["--repo", repo_root]
+
+        try:
+            proc = subprocess.run(
+                # Review: cross-slice (DR-148) — sys.executable ensures the same interpreter that
+                # loaded cc_invoke.py is used; hardcoded "python3" breaks on Windows.
+                argv,  # popup-safe-env-suppressed
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=timeout,
+                env=env,
+                cwd=claude_klabauter_root,
+                **_no_console_kw(claude_klabauter_root),
+            )
+            rc = proc.returncode
+            stdout_text = proc.stdout
+            stderr_text = proc.stderr
+        except subprocess.TimeoutExpired:
+            # (1) Timeout — mirrors the retired bash transport's cs_timeout exit 124 branch.
+            raise RuntimeError(_timeout_exceeded_message(op, timeout))
+    finally:
+        try:
+            os.unlink(_params_path)
+        except OSError:
+            pass
 
     # (2) Nonzero process exit — distinguish engine-start failure from op-level error.
     # (3) Empty stdout — invoke always produces output on success.
@@ -1466,13 +1645,36 @@ def cc_invoke_bare(
 # actionable error instead of N different bespoke stub messages.
 # ---------------------------------------------------------------------------
 
-def _state1_remediation_message(op: str, attempted_claude_klabauter_root: str | None) -> str:
+def _state1_remediation_message(
+    op: str,
+    attempted_claude_klabauter_root: str | None,
+    *,
+    registry_read_timed_out: bool = False,
+) -> str:
     """Build the engine-install-specific remediation text for a State-1 (seam-absent) failure.
 
     Enumerates the four-rung CLAUDE_KLABAUTER_ROOT resolution ladder (mirrors
     _resolve_claude_klabauter_root's own rung order) so an operator sees exactly which
     rung to fix, instead of a bare caller-specific "no fallback wired" message.
+
+    `registry_read_timed_out` (AC1/AC3, default False so the absent-key text
+    below is unchanged byte-for-byte — AC2a): when True, `_resolve_claude_klabauter_root`
+    raised `_RegistryReadTimeout` rather than genuinely finding no candidate —
+    a transient reader timeout, not a missing/unregistered checkout. The
+    clone/register remediation below is wrong for that case, so it gets its
+    own text instead of sharing the generic one.
     """
+    if registry_read_timed_out:
+        return (
+            f"cc_invoke: native seam resolution unavailable for op={op!r} — "
+            f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound) "
+            "while resolving CLAUDE_KLABAUTER_ROOT via the machine-local registry, and self-location "
+            "also missed.\n"
+            "  This machine's declared load norm is 50-70 concurrent LLM sessions "
+            "(CLAUDE.md § Load norm); a subprocess-bounded registry read timing out "
+            "under that load is expected, not a sign claude-klabauter is unregistered.\n"
+            "  Retry the operation."
+        )
     root_line = (
         f"  CLAUDE_KLABAUTER_ROOT resolved to {attempted_claude_klabauter_root!r} but coordinator_core.invoke "
         "was not importable from it (broken/partial checkout).\n"
@@ -1534,8 +1736,15 @@ def route(
     # Resolve CLAUDE_KLABAUTER_ROOT; unresolvable root → treat as seam-absent (State-1).
     # Rationale: if the registry doesn't know about the engine repo, the seam is definitely absent.
     claude_klabauter_root: str | None
+    _registry_read_timed_out = False
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
+    except _RegistryReadTimeout:
+        # Caught ahead of the general RuntimeError below (subclass) — threads the
+        # distinguishable outcome (AC1/AC3) to _state1_remediation_message instead
+        # of collapsing to the same "unresolvable root" the absent-key case gets.
+        claude_klabauter_root = None
+        _registry_read_timed_out = True
     except RuntimeError:
         claude_klabauter_root = None
 
@@ -1544,7 +1753,11 @@ def route(
         try:
             return legacy_fn()
         except Exception as exc:
-            raise RuntimeError(_state1_remediation_message(op, claude_klabauter_root)) from exc
+            raise RuntimeError(
+                _state1_remediation_message(
+                    op, claude_klabauter_root, registry_read_timed_out=_registry_read_timed_out
+                )
+            ) from exc
 
     # State-2: seam confirmed present — route native; propagate or raise.
     # HARD contract: do NOT catch exceptions and fall to legacy_fn here.

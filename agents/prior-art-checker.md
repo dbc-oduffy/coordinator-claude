@@ -118,7 +118,7 @@ For each claim, classify into one bucket:
 
 **Charter note.** Every predicate below is a mechanical field comparison or construction-vs-production test, never an architectural recommendation. Report the correctly-directed offer; let the EM/reviewer decide.
 
-`Read` the `fleet_capability_index:` path once (JSON, `coordinator/schemas/fleet-capability-index.schema.json`). For each Phase 1 claim, additionally classify:
+`Read` the `fleet_capability_index:` path once (JSON, `coordinator/schemas/fleet-capability-index.schema.json`). Before classifying, compare the file's own `generated_at`/`ttl` pair against now: past `generated_at + ttl`, downgrade every entry's `maturity` to `unverified` for this read (never upgrade; an entry already `absent` stays `absent`) — a stale-but-readable index must never be presented as live (AC9). This is a per-read comparison the checker performs itself; the file on disk is not rewritten. For each Phase 1 claim, additionally classify:
 
 1. **Construction-vs-production predicate (F1a) — EXPLICIT, not inferred.** Fires ONLY when the claim proposes constructing NEW infrastructure (schema, store, query surface, index, embed-pipeline), not an append/write against a NAMED EXISTING seam. Test per claim: "does this BUILD X, or WRITE INTO an already-named X?"
 2. **Domain-aware match (F1b).** Match on `capability_label` PLUS the claim's data domain, not `capability_class` alone.

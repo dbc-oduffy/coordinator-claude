@@ -2,6 +2,7 @@
 name: validate
 description: "Run the project's fast test command at a cadence gate: merge, workday close, or an explicit ask."
 version: 2.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # Local CI Validation

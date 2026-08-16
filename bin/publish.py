@@ -100,6 +100,7 @@ import sys
 import tarfile
 import tempfile
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import IO, Any, Callable, List, NamedTuple, Optional, Sequence
@@ -117,11 +118,12 @@ if str(_REPO_ROOT) not in sys.path:
 
 GENERATES = []  # writes land only under a tempfile.TemporaryDirectory() synthetic fixture (dispatch_oss_gate_registry_fixture) or the resolved destination percolate root's lastsync marker (a foreign publish-mirror tree, not claude-klabauter's own tree)
 
-#: D1 fix — must match `percolate-round.py::_INHERITED_LOCK_ROOTS_ENV`
-#: byte-for-byte (one wire contract between the two scripts, same as the
-#: `NEW:`/`UPDATE:`/`RENAME:` change-line tags elsewhere in this pairing).
-#: See `main`'s lock loop below for the read side.
-_INHERITED_LOCK_ROOTS_ENV = "PERCOLATE_ROUND_INHERITED_LOCK_ROOTS"
+#: D1 fix — single source of truth shared with
+#: `percolate-round.py::_INHERITED_LOCK_ROOTS_ENV` (one wire contract
+#: between the two scripts, same as the `NEW:`/`UPDATE:`/`RENAME:`
+#: change-line tags elsewhere in this pairing). See `main`'s lock loop
+#: below for the read side.
+from percolate.wire_contract import INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV
 
 from percolate.allowlist import (  # noqa: E402
     AllowlistError,
@@ -147,7 +149,21 @@ from percolate.targets import (  # noqa: E402  (path setup must precede this imp
     TargetsError,
     load_targets,
     raw_dest_sigil_by_name,
+    _iter_portable_rows,
+    _resolve_portable_file,
 )
+
+# § chunk C4 (docs/plans/2026-08-15-bind-the-klabauter-publish-rows-into-a-
+# parity-group.md) — `directive_cli_arity` is THIS repo's own
+# `coordinator_core` module (not the resolved-engine one `PercolateEngineContext`
+# lazily imports below), so it is imported statically at module scope like
+# `percolate.*` above: `_REPO_ROOT` is already on `sys.path` (see the path
+# setup preceding the `percolate.*` imports). `argv_parity_report` itself
+# never imports or executes a target script — AST reads only — so importing
+# this module carries none of the fail-closed/engine-resolution concerns the
+# lazy `coordinator_core.percolate.*` imports below exist to guard.
+from coordinator_core import directive_cli_arity  # noqa: E402
+from coordinator_core.git.repo_root import git_dir as _resolve_git_dir  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -640,7 +656,8 @@ def dispatch_percolate_post_rsync(
     effective_source_dir: Path,
     *,
     visited_sink: "Optional[set[Path]]" = None,
-) -> "Optional[list[dict]]":
+    sync_changed_paths: "Optional[set[str]]" = None,
+) -> "tuple[Optional[list[dict]], Optional[frozenset[str]]]":
     """post_rsync phase — MUST run AFTER the driver's own sync dispatch (rsync
     equivalent) has completed: restore leg -> full content-transform sweep ->
     post_rsync guards (§ engine.py `run_post_rsync`). Computes
@@ -675,6 +692,19 @@ def dispatch_percolate_post_rsync(
     Review: code-reviewer (Finding 1, P1). Previously omitted entirely, so every
     non-toplevel row's content-transform sweep composed attribution-surface
     checks against the wrong (target_root-relative, not repo-root-relative) path.
+
+    `sync_changed_paths` (optional, § docs/plans/2026-08-16-percolate-round-
+    timing-and-changed-only.md chunk C4, § engine.py `run_post_rsync`'s own
+    param): forwarded unchanged to the wire call. `None` (the default) leaves
+    the returned `changed_files` (this function's second return value)
+    `None` too — undeterminable, per that param's own fail-wide contract.
+
+    Returns `(rename_manifest, changed_files)`: `rename_manifest` is
+    unchanged from this function's pre-existing single-value return (§
+    docstring above); `changed_files` is the wire's `changed_files` --
+    `target.dest_dir`-relative posix ids (same shape as `visited_files`), or
+    `None` when undeterminable (§ `sync_changed_paths` above / engine.py
+    `PhaseResult.changed_files`).
     """
     assert engine_ctx.engine_claude_klabauter is not None and engine_ctx.store is not None  # narrowed by caller
     engine_claude_klabauter = engine_ctx.engine_claude_klabauter
@@ -696,6 +726,7 @@ def dispatch_percolate_post_rsync(
             effective_source_count=effective_source_count,
             source_root=str(effective_source_dir),
             dest_prefix=_dest_prefix_for(target.dest_dir),
+            sync_changed_paths=sync_changed_paths,
         )
     except Exception as exc:  # noqa: BLE001 - AC15 phase-raise fail-closed path
         raise EngineUnavailableError(f"{target.name}: post_rsync phase raised: {exc}") from exc
@@ -704,7 +735,9 @@ def dispatch_percolate_post_rsync(
     if visited_sink is not None:
         for relative_id in wire.get("visited_files", []):
             visited_sink.add(target.dest_dir / relative_id)
-    return wire.get("rename_manifest")
+    wire_changed_files = wire.get("changed_files")
+    changed_files = None if wire_changed_files is None else frozenset(wire_changed_files)
+    return wire.get("rename_manifest"), changed_files
 
 
 _COORDINATOR_CONTENT_ROOT_PLACEHOLDER = "<coordinator-content-root>"
@@ -1086,9 +1119,18 @@ def dispatch_percolate_pre_ci(
     Also runs `<dest repo root>/.github/scripts/check-persona-names.py` (the
     mirror's own release-CI identity checker,
     `percolate_identity_check.run_identity_check`) here, after the phase's own
-    `run_percolate` guards, and folds a failure into the SAME
-    `_assert_no_guard_failures` list those guards populate rather than raising
-    through a second, out-of-band channel — one design call, made deliberately:
+    `run_percolate` guards, but ONLY for the row whose `scan_dest` resolves to
+    its OWN staging tree (`scan_dest == target.dest_dir`, below) — genuinely
+    guard-before-mutate, since that staged content is about to be swapped
+    into the real destination. Every other row's `scan_dest` is the mirror
+    root itself, unstaged; re-scanning it once per such row cost ~28-33s per
+    row for the byte-identical tree (state/audits/2026-08-16-percolate-round-
+    first-measured-cost-distribution.md) — `dispatch_end_of_run_identity_check`
+    scans that same tree once per repo root, unconditionally, after the round,
+    so the per-row scan is dropped for those rows rather than duplicated. When
+    it runs, it folds a failure into the SAME `_assert_no_guard_failures` list
+    those guards populate rather than raising through a second, out-of-band
+    channel — one design call, made deliberately:
     a target that fails EITHER the phase guards or the identity check aborts
     through the identical `EngineUnavailableError` path, so there is exactly
     ONE way a target aborts pre_ci, not two independently-catchable ones a
@@ -1148,6 +1190,7 @@ def dispatch_percolate_pre_ci(
 
     effective_source_count = _compute_effective_source_count(engine_claude_klabauter, effective_source_dir, section)
 
+    _run_percolate_start = time.perf_counter()
     try:
         wire = engine_claude_klabauter.run_percolate(
             str(store_path),
@@ -1160,6 +1203,12 @@ def dispatch_percolate_pre_ci(
         )
     except Exception as exc:  # noqa: BLE001 - AC15 phase-raise fail-closed path
         raise EngineUnavailableError(f"{target.name}: pre_ci phase raised: {exc}") from exc
+    finally:
+        print(
+            f"  [timing] {target.name}: dispatch_percolate_pre_ci: run_percolate: "
+            f"{time.perf_counter() - _run_percolate_start:.3f}s",
+            file=sys.stderr,
+        )
 
     guard_results = list(wire.get("guard_results", []))
 
@@ -1206,45 +1255,150 @@ def dispatch_percolate_pre_ci(
         scan_dest = target.dest_dir
         identity_dest_note = f"{identity_dest_note} (scanning staged content at {scan_dest})"
 
-    source_checker_script = _resolve_identity_checker_source_script(
-        engine_claude_klabauter, engine_ctx.store, percolate_root
-    )
-    currency_note = _refresh_identity_checker_at_dest(scan_dest, source_checker_script)
-    # Surfaced on every run, not only a failing identity check: a refresh
-    # that silently fails (no declared source, or source missing on disk)
-    # plus a stale dest checker that happens to PASS would otherwise leave
-    # zero record anywhere that currency was never established.
-    print(f"  {target.name}: identity checker currency: {currency_note}", file=sys.stderr)
+    # C-round-scan (measured: run_identity_check cost 27.7-33.0s on EVERY one
+    # of 8 rows, ~225s/~30% of one round, six of them scanning the byte-
+    # identical `scan_dest` — state/audits/2026-08-16-percolate-round-first-
+    # measured-cost-distribution.md): the per-row scan below now runs ONLY
+    # for the row whose `scan_dest` is its OWN staging tree (`scan_dest ==
+    # target.dest_dir`, the branch just above) — genuinely guard-before-
+    # mutate, since that staged content is about to be swapped into the real
+    # destination and nothing else will ever scan it before the swap. Every
+    # other row's `scan_dest` is the mirror root itself: read-only, no
+    # commit/add/push/checkout/reset anywhere in this module, nothing leaves
+    # the machine between rows (percolate-round.py commits once, afterward,
+    # in a separate process), and `dispatch_end_of_run_identity_check`
+    # already scans that same final tree once per repo root, unconditionally,
+    # after every row (including a failed/skipped one) has had its chance to
+    # write. A later row cannot hide an earlier row's leak from that scan —
+    # enumeration is `git ls-files --cached --others --exclude-standard`, and
+    # no declared row writes into an ignored/skipped directory — so re-
+    # scanning the identical mirror root once per subdir row bought nothing
+    # this round's own end-of-run leg does not already cover.
+    if scan_dest == target.dest_dir:
+        source_checker_script = _resolve_identity_checker_source_script(
+            engine_claude_klabauter, engine_ctx.store, percolate_root
+        )
+        currency_note = _refresh_identity_checker_at_dest(scan_dest, source_checker_script)
+        # Surfaced on every run, not only a failing identity check: a refresh
+        # that silently fails (no declared source, or source missing on disk)
+        # plus a stale dest checker that happens to PASS would otherwise leave
+        # zero record anywhere that currency was never established.
+        print(f"  {target.name}: identity checker currency: {currency_note}", file=sys.stderr)
 
-    try:
-        identity_result = engine_claude_klabauter.run_identity_check(str(scan_dest))
-    except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as any phase raise
-        raise EngineUnavailableError(f"{target.name}: identity check raised: {exc}") from exc
+        _identity_check_start = time.perf_counter()
+        try:
+            identity_result = engine_claude_klabauter.run_identity_check(str(scan_dest))
+        except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as any phase raise
+            raise EngineUnavailableError(f"{target.name}: identity check raised: {exc}") from exc
+        finally:
+            print(
+                f"  [timing] {target.name}: dispatch_percolate_pre_ci: run_identity_check: "
+                f"{time.perf_counter() - _identity_check_start:.3f}s "
+                f"(scan_dest={scan_dest})",
+                file=sys.stderr,
+            )
 
-    if identity_result["skipped"]:
+        # The checker's scanned/checked counts are emitted on the passing path, not
+        # only on failure: a count that reveals how much a gate actually walks is
+        # worthless if it appears only once the gate has already gone wrong. A
+        # ranking error of three orders of magnitude survived precisely because this
+        # number existed and stayed unprinted
+        # (state/audits/2026-08-16-percolate-round-first-measured-cost-distribution.md).
+        if identity_result["ran"]:
+            # Review: skipped is always False on this branch (run_identity_check's
+            # two return shapes are mutually exclusive) — exit_code varies instead.
+            print(
+                f"  [timing] {target.name}: identity check: exit_code={identity_result['exit_code']}: "
+                f"{identity_result['findings'].strip()}",
+                file=sys.stderr,
+            )
+
+        if identity_result["skipped"]:
+            print(
+                f"  WARNING: {target.name}: identity checker not found at "
+                f"{identity_dest_note}/.github/scripts/check-persona-names.py — "
+                f"pre_ci identity gate SKIPPED for this row (advisory: the "
+                f"toplevel row may not have published .github/ to this "
+                f"destination yet).",
+                file=sys.stderr,
+            )
+
+        if identity_result["ran"] and identity_result["exit_code"] != 0:
+            guard_results.append(
+                {
+                    "ok": False,
+                    "kind": "identity_check",
+                    "message": (
+                        f"check-persona-names.py exited {identity_result['exit_code']} — "
+                        f"checker currency: {currency_note}. "
+                        f"{identity_result['findings'].strip()}"
+                    ),
+                }
+            )
+    else:
         print(
-            f"  WARNING: {target.name}: identity checker not found at "
-            f"{identity_dest_note}/.github/scripts/check-persona-names.py — "
-            f"pre_ci identity gate SKIPPED for this row (advisory: the "
-            f"toplevel row may not have published .github/ to this "
-            f"destination yet).",
+            f"  {target.name}: pre_ci per-row identity scan skipped — "
+            f"scan_dest ({scan_dest}) is the mirror root, not this row's own "
+            "staging tree; covered once for the whole repo root by the "
+            "end-of-run identity scan instead.",
             file=sys.stderr,
         )
 
-    if identity_result["ran"] and identity_result["exit_code"] != 0:
-        guard_results.append(
-            {
-                "ok": False,
-                "kind": "identity_check",
-                "message": (
-                    f"check-persona-names.py exited {identity_result['exit_code']} — "
-                    f"checker currency: {currency_note}. "
-                    f"{identity_result['findings'].strip()}"
-                ),
-            }
-        )
-
     _assert_no_guard_failures(guard_results, target.name, "pre_ci")
+
+
+def _attribute_identity_finding_row(
+    finding_line: str,
+    rows: "List[ResolvedTarget]",
+) -> "Optional[ResolvedTarget]":
+    """Maps one `check-persona-names.py` finding line
+    (`"{rel}:{lineno}: ..."`, repo-root-relative POSIX path) to the row
+    whose `dest_subdir` (§ `_dest_prefix_for`) is the LONGEST prefix of
+    `rel` — the toplevel row (`dest_subdir == ""`) is the fallback when no
+    subdir row's prefix matches. `None` only when `rows` is empty."""
+    rel = finding_line.split(":", 1)[0].strip().replace("\\", "/")
+    best: "Optional[ResolvedTarget]" = None
+    best_len = -1
+    fallback: "Optional[ResolvedTarget]" = None
+    for row in rows:
+        prefix = _dest_prefix_for(row.dest_dir)
+        if prefix == "":
+            if fallback is None:
+                fallback = row
+            continue
+        if rel == prefix or rel.startswith(prefix + "/"):
+            if len(prefix) > best_len:
+                best = row
+                best_len = len(prefix)
+    return best if best is not None else fallback
+
+
+def _attribute_identity_findings(
+    findings: str,
+    rows: "List[ResolvedTarget]",
+    skipped_row_names: "List[str]",
+) -> str:
+    """Annotates each non-blank line of `findings` (§ `run_identity_check`'s
+    `"findings"` key) with the row `_attribute_identity_finding_row`
+    resolves it to, and whether that row published THIS run or was
+    `--delta`-skipped (in which case the finding is pre-existing in that
+    row's subtree, not introduced by this round) — recovers, at no extra
+    scan, the per-row attribution the dropped per-row scan (C-round-scan)
+    used to give away for free. Lines this call cannot attribute (no rows
+    given) pass through unchanged."""
+    if not rows:
+        return findings
+    annotated: "List[str]" = []
+    for line in findings.splitlines():
+        if not line.strip():
+            continue
+        row = _attribute_identity_finding_row(line, rows)
+        if row is None:
+            annotated.append(line)
+            continue
+        status = "skipped this run (pre-existing)" if row.name in skipped_row_names else "published this run"
+        annotated.append(f"{line}  [row: {row.name}, {status}]")
+    return "\n".join(annotated) if annotated else findings
 
 
 def dispatch_end_of_run_identity_check(
@@ -1252,6 +1406,9 @@ def dispatch_end_of_run_identity_check(
     repo_roots: "List[Path]",
     *,
     target_filtered: bool,
+    percolate_root: Optional[Path] = None,
+    rows_by_repo_root: "Optional[dict[Path, List[ResolvedTarget]]]" = None,
+    skipped_row_names: "Optional[List[str]]" = None,
     out: IO[str] = sys.stdout,
 ) -> bool:
     """Run `<repo root>/.github/scripts/check-persona-names.py` ONCE per
@@ -1307,11 +1464,38 @@ def dispatch_end_of_run_identity_check(
     never mutates a destination, so there is nothing new for this leg to
     have found since the last real publish; firing it would report on
     stale, pre-existing destination state as if this run had produced it.
+
+    C-round-scan HOIST (§ `dispatch_percolate_pre_ci`'s per-row scan
+    reduced to the toplevel row only): the `_resolve_identity_checker_
+    source_script` -> `_refresh_identity_checker_at_dest` PRECONDITION pair
+    moves here, once per `repo_root`, immediately before `run_identity_
+    check` — `dispatch_percolate_pre_ci`'s own per-row refresh, for the
+    subdir rows that no longer scan, is gone with it, and this function
+    performed NO refresh before this change; without moving it, a repo root
+    whose toplevel row was skipped or failed would have this backstop scan
+    under a STALE checker, reintroducing by the back door the exact "judged
+    by a prior run's leftovers" defect the C6 comment in `dispatch_
+    percolate_pre_ci` exists to close. `percolate_root` is threaded through
+    for `_resolve_identity_checker_source_script`'s placeholder resolution;
+    `None` (e.g. a caller with no store-backed target set) degrades to
+    "nothing to refresh from", same as that function's own contract.
+
+    `rows_by_repo_root`/`skipped_row_names` (optional, default `None`/
+    unattributed) recover per-row attribution for a failing finding — §
+    `_attribute_identity_findings` — since the dropped per-row scan used to
+    give that away for free via which row's own check failed. Passing
+    `None` for either degrades to the pre-attribution behaviour (raw
+    `findings` text, no `[row: ...]` suffix).
     """
     assert engine_ctx.engine_claude_klabauter is not None  # narrowed by caller (never called under dry-run)
     engine_claude_klabauter = engine_ctx.engine_claude_klabauter
     ok = True
     for repo_root in repo_roots:
+        source_checker_script = _resolve_identity_checker_source_script(
+            engine_claude_klabauter, engine_ctx.store, percolate_root
+        )
+        currency_note = _refresh_identity_checker_at_dest(repo_root, source_checker_script)
+        print(f"  end-of-run identity check ({repo_root}): checker currency: {currency_note}", file=sys.stderr)
         try:
             identity_result = engine_claude_klabauter.run_identity_check(str(repo_root))
         except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as any phase raise
@@ -1343,10 +1527,16 @@ def dispatch_end_of_run_identity_check(
             continue
 
         if identity_result["exit_code"] != 0:
+            findings_text = identity_result["findings"].strip()
+            rows_for_root = (rows_by_repo_root or {}).get(repo_root, [])
+            if rows_for_root:
+                findings_text = _attribute_identity_findings(
+                    findings_text, rows_for_root, skipped_row_names or []
+                )
             print(
                 f"  Error: end-of-run identity check FAILED for {repo_root}: "
                 f"check-persona-names.py exited {identity_result['exit_code']} — "
-                f"{identity_result['findings'].strip()}",
+                f"{findings_text}",
                 file=sys.stderr,
             )
             ok = False
@@ -1887,7 +2077,7 @@ def dispatch_end_of_run_entrypoint_gate(
     repo_roots: "List[Path]",
     *,
     target_filtered: bool,
-    visited_files_by_repo_root: "Optional[dict[Path, set[Path]]]" = None,
+    changed_files_by_repo_root: "Optional[dict[Path, Optional[set[Path]]]]" = None,
     changed_only: bool = False,
 ) -> bool:
     """ENTRYPOINT gate (chunk C3, wiring C2's `run_entrypoint_gate` into the
@@ -1942,23 +2132,33 @@ def dispatch_end_of_run_entrypoint_gate(
     itself could not run. Never raises -- same reporting contract as the
     other end-of-run legs. Never called under `--dry-run`.
 
-    `changed_only` (§ chunk C5, AC11): opt-in, default False. False (the
-    default, every pre-existing call site) sweeps `entrypoints` UNCHANGED --
-    `subset=None` into `run_entrypoint_gate`, the same full sweep as before
-    this parameter existed; a default `publish.py` invocation must scan the
-    same entrypoint count as before this chunk. When True, `visited_files_
-    by_repo_root` (this run's ACTUALLY-visited files, same source `dispatch_
-    end_of_run_unscanned_published_check` already consumes -- never
-    re-derived) is fed through `derive_changed_entrypoints` (chunk C4) to
-    compute a subset, unioned with `_compute_always_swept_entrypoints`'s
-    always-swept floor so an entrypoint no changed-set could ever select
-    still gets scanned every run. If any visited path carries a suffix in
-    `_CHANGED_ONLY_UNMODELED_SUFFIXES`, that repo root's subset is widened
-    back to the full sweep instead (§ that constant's own docstring) -- a
-    change to an untracked-by-the-graph dependency must never narrow the
-    sweep. `visited_files_by_repo_root=None` with `changed_only=True` also
-    falls back to a full sweep per repo root (nothing to derive a subset
-    from).
+    `changed_only` (§ chunk C5, AC11): this function's own default stays
+    False (`subset=None`, the full sweep every pre-existing call site got
+    before this parameter existed) — it is the neutral primitive default,
+    not a policy choice. The POLICY choice lives at the CLI layer: PM
+    ruling, 2026-08-15, the entrypoint gate runs --changed-only or --delta,
+    never a full sweep, so `publish.py`'s own `--changed-only` CLI flag now
+    defaults ON and threads `True` here on a default invocation; `--full-
+    sweep` is the CLI's opt-out. When True, `changed_files_by_repo_root`
+    (§ docs/plans/2026-08-16-percolate-round-timing-and-changed-only.md
+    chunk C4 -- this run's REAL changed-set, sourced from the sync layer's
+    own copy/update decisions unioned with the transform sweep's actual
+    rewrites, § engine.py `PhaseResult.changed_files`; deliberately NOT
+    `visited_files_by_repo_root`, a read-set that made this gate collapse
+    to a full sweep on essentially every round -- see that plan's Problem
+    statement) is fed through `derive_changed_entrypoints` (chunk C4 of the
+    2026-08-10 plan) to compute a subset, unioned with `_compute_always_
+    swept_entrypoints`'s always-swept floor so an entrypoint no changed-set
+    could ever select still gets scanned every run. If any changed path
+    carries a suffix in `_CHANGED_ONLY_UNMODELED_SUFFIXES`, that repo
+    root's subset is widened back to the full sweep instead (§ that
+    constant's own docstring) -- a change to an untracked-by-the-graph
+    dependency must never narrow the sweep. `changed_files_by_repo_root=
+    None` with `changed_only=True` falls back to a full sweep for every
+    repo root (nothing to derive a subset from); a repo root PRESENT in the
+    dict but mapped to `None` (§ that dict's own construction -- a row
+    whose changed-set could not be determined this run) falls back to a
+    full sweep for THAT repo root only, same fail-wide reasoning.
     """
     assert engine_ctx.engine_claude_klabauter is not None  # narrowed by caller (never called under dry-run)
     engine_claude_klabauter = engine_ctx.engine_claude_klabauter
@@ -1975,26 +2175,42 @@ def dispatch_end_of_run_entrypoint_gate(
 
         subset: "Optional[Sequence[str]]" = None
         if changed_only:
-            visited = (
-                visited_files_by_repo_root.get(repo_root, set())
-                if visited_files_by_repo_root is not None
-                else set()
-            )
+            # § chunk C4 (docs/plans/2026-08-16-percolate-round-timing-and-
+            # changed-only.md) -- a repo root absent from the dict, OR the
+            # dict itself `None`, OR present but mapped to `None` (this run's
+            # changed-set for that root could not be determined, § the
+            # caller's own dict-construction comment) all fall back to the
+            # full sweep here -- three distinct "undeterminable" shapes, one
+            # fallback, per the docstring above.
+            repo_root_changed: "Optional[set[Path]]"
+            if changed_files_by_repo_root is None:
+                repo_root_changed = None
+            else:
+                repo_root_changed = changed_files_by_repo_root.get(repo_root, set())
+
             changed_paths: "list[str]" = []
             unmodeled_hit = False
-            for visited_path in visited:
-                try:
-                    rel = visited_path.relative_to(repo_root).as_posix()
-                except ValueError:
-                    continue  # outside repo_root -- cannot be a repo-relative changed path
-                changed_paths.append(rel)
-                if Path(rel).suffix in _CHANGED_ONLY_UNMODELED_SUFFIXES:
-                    unmodeled_hit = True
+            if repo_root_changed is not None:
+                for changed_path in repo_root_changed:
+                    try:
+                        rel = changed_path.relative_to(repo_root).as_posix()
+                    except ValueError:
+                        continue  # outside repo_root -- cannot be a repo-relative changed path
+                    changed_paths.append(rel)
+                    if Path(rel).suffix in _CHANGED_ONLY_UNMODELED_SUFFIXES:
+                        unmodeled_hit = True
 
-            if visited_files_by_repo_root is None or unmodeled_hit:
+            # An engine that predates `derive_changed_entrypoints` cannot narrow
+            # anything -- fail WIDE (full sweep), never narrow. A published mirror
+            # can be an older engine than the one driving this round, so this is
+            # version skew, not a test-fixture concession: raising here would abort
+            # a legitimate publish, and defaulting to a narrow subset would ship an
+            # unswept entrypoint.
+            _derive = getattr(engine_claude_klabauter, "derive_changed_entrypoints", None)
+            if repo_root_changed is None or unmodeled_hit or _derive is None:
                 subset = None  # full sweep fallback -- see docstring
             else:
-                selected = engine_claude_klabauter.derive_changed_entrypoints(
+                selected = _derive(
                     changed_paths, repo_root, entrypoints=entrypoints
                 )
                 always_swept = _compute_always_swept_entrypoints(engine_claude_klabauter, repo_root, entrypoints)
@@ -2033,6 +2249,20 @@ def dispatch_end_of_run_entrypoint_gate(
             )
             ok = False
             continue
+
+        # § C1 (docs/plans/2026-08-16-percolate-round-timing-and-changed-
+        # only.md) — `result.scanned` was already computed here, but was
+        # printed only on a failure or timeout, never on a clean run. That
+        # number is the single number that decides whether `--changed-only`
+        # is narrowing anything at runtime, so it is reported unconditionally
+        # now, alongside the full entrypoint population this repo root
+        # shipped. Purely additive — does not participate in `ok`.
+        print(
+            f"  [timing] entrypoint gate for {repo_root}: scanned "
+            f"{result.scanned}/{len(entrypoints)} entrypoint(s)"
+            + (" (--changed-only subset)" if subset is not None else " (full sweep)"),
+            file=sys.stdout,
+        )
 
         if not result.ok:
             print(
@@ -2378,6 +2608,267 @@ def dispatch_end_of_run_install_doc_payload_check(
             ok = False
 
     return ok
+
+
+_SOURCE_ARGV_PARITY_BASELINE_PATH = (
+    _REPO_ROOT / "coordinator_core" / "tests" / "engine_cli_argv_parity_baseline.json"
+)
+
+
+def _load_source_argv_parity_baseline_keys() -> "set[tuple] | None":
+    """Load C2's committed baseline (`engine_cli_argv_parity_baseline.json`)
+    from the SOURCE repo — THIS checkout, `_REPO_ROOT`, never the
+    destination mirror tree a gate call is assessing. `.percolate-ignore`
+    carries a `*test_*.py` glob and the baseline sits under
+    `coordinator_core/tests/`, so it is not guaranteed to exist inside a
+    published mirror — reading it from the source side is the only read
+    that is certain to find it.
+
+    Returns the same per-token key shape
+    `test_engine_cli_argv_parity.py::_load_baseline_keys` uses
+    (`("unaccepted"|"undeclared_required", module, directive_id, cli,
+    token)`), or `None` if the file is missing or unreadable/malformed —
+    the caller MUST treat `None` as a fail-hard condition, never as an
+    empty baseline. A pairing recorded in this baseline is a KNOWN,
+    pre-existing defect this plan did not undertake to fix — filed
+    separately where one exists (see this repo's `state/bug-backlog/`) —
+    not an endorsement that it is fine to ship.
+    """
+    try:
+        doc = json.loads(_SOURCE_ARGV_PARITY_BASELINE_PATH.read_text(encoding="utf-8"))
+        keys: "set[tuple]" = set()
+        for entry in doc["entries"]:
+            base = (entry["module"], entry["directive_id"], entry["cli"])
+            for token in entry.get("unaccepted", []):
+                keys.add(("unaccepted", *base, token))
+            for token in entry.get("undeclared_required", []):
+                keys.add(("undeclared_required", *base, token))
+        return keys
+    except Exception:  # noqa: BLE001 - any read/parse failure is fail-hard, not permissive
+        return None
+
+
+def dispatch_end_of_run_argv_parity_gate(
+    repo_roots: "List[Path]",
+    *,
+    target_filtered: bool,
+) -> bool:
+    """Run `directive_cli_arity.argv_parity_report` ONCE per distinct
+    destination repo root touched by this `main()` invocation, after every
+    row has synced — END-OF-RUN ONLY, same shape as
+    `dispatch_end_of_run_unscanned_published_check` /
+    `dispatch_end_of_run_function_gate`
+    (docs/plans/2026-08-15-bind-the-klabauter-publish-rows-into-a-parity-
+    group.md, chunk C4, AC4/AC6).
+
+    The report runs against the ASSEMBLED DESTINATION tree — the mirror as
+    a consumer will actually execute it, `repo_root/coordinator_core` paired
+    against `repo_root/coordinator/bin` — never against this repo. The
+    mirror's layout preserves both subtrees unchanged from source, so
+    `resolve_bin_script` resolves against the destination root with no path
+    rewriting (verified non-issue, recorded per this chunk's own brief so a
+    future reader does not have to rediscover it).
+
+    BASELINE-RELATIVE, same subset semantics as C2's
+    `test_engine_cli_argv_parity.py`: the gate fails ONLY on an
+    `unaccepted`/`undeclared_required` token that is NOT already present in
+    the committed baseline (`_load_source_argv_parity_baseline_keys`), i.e.
+    NEW skew introduced since that baseline was pinned — never on the
+    pre-existing red set the baseline enumerates. Both this gate and C2's
+    test consume the same oracle over the same corpus, so they share the
+    same reasoning the plan's own § Anti-scope gives for AC2: enumerate a
+    pre-existing defect in the baseline rather than gate on it being empty.
+    One genuine pre-existing skew survives in this repo as of authoring
+    time (`merge_assemble` d4 -> `merge-gate-and-pr pr-body`, missing
+    required `--ship-verdict`/`--release-notes`; filed separately,
+    `state/bug-backlog/2026-08-15-merge-assemble-d4-invokes-merge-gate-and-
+    0de925b03e8d.yaml`, NOT this gate's to fix) — a gate with the OLD
+    empty-baseline semantics would fail every publish round on that one
+    known defect, which is a gate operators learn to ignore. A pairing
+    listed in the baseline is a KNOWN defect, not an endorsed one.
+
+    If the baseline cannot be loaded (missing, unreadable, malformed —
+    `_load_source_argv_parity_baseline_keys` returns `None`), this gate
+    FAILS with that reason stated, for every repo root, before comparing
+    anything — a gate that cannot find its baseline and silently passes is
+    worse than no gate at all.
+
+    A pairing failing on EITHER `unaccepted` (an emitted flag the target
+    parser does not declare) OR `undeclared_required` (a declared-required
+    flag/subcommand the emitter does not emit) is a candidate finding — the
+    second direction is exactly the hazard the klabauter parser-before-
+    emitter reorder (§ `_assert_klabauter_parity_group_ordering`) exists to
+    guard against for non-additive parser changes, so a gate blind to it
+    could not detect what that reorder was built to catch. `unresolved`
+    pairings are never treated as failures nor as clean passes — they are
+    outside what static AST reading could prove for this round and are
+    silently excluded from the verdict, matching C1's `argv_parity_report`
+    contract (`unresolved` is never `clean`, but this gate has no stronger
+    claim to make about a pairing it cannot read) and matching C2's own
+    baseline, which never keys an `unresolved` pairing by token.
+
+    SEVERITY — FAIL-HARD UNCONDITIONALLY, not degraded under `--target`,
+    unlike `dispatch_end_of_run_identity_check` /
+    `..._install_doc_payload_check`'s advisory-under-`--target` split. A
+    prior-art check across this module's own end-of-run legs found no
+    universal rule either way: some carry "advisory under --target"
+    language (the two named above), others (`dispatch_end_of_run_function_
+    gate`, `dispatch_end_of_run_entrypoint_gate`) do not — the choice is
+    case-by-case per gate, not governed by settled doctrine, and THIS
+    sentence is the only place a future reader can learn why THIS gate
+    chose fail-hard. The reason: a `--target` subset publish is precisely
+    how a partial mirror gets constructed — "a sibling row hasn't synced
+    yet, so the destination looks skewed" is the exact condition this gate
+    exists to detect, never an excuse to suppress detecting it. Degrading
+    it under `--target` would blind the gate on the one invocation shape
+    most likely to produce the skew it is built to catch. The baseline
+    relaxation above is a DIFFERENT axis (which skew counts at all) and
+    does not weaken this one (whether `--target` softens a real finding —
+    it never does).
+
+    Never short-circuits on failure and is never short-circuited by a
+    sibling leg's failure — `main()` calls every end-of-run leg
+    unconditionally (2026-08-14 aggregate-instead-of-abort fix) so one round
+    surfaces every defect class instead of one at a time.
+
+    HAZARD — false positive on operator-local mirror edits: this gate reads
+    the destination WORKING TREE, which this plan's own § Anti-scope
+    records as carrying ~28 uncommitted modifications under
+    `coordinator_core/` today, unrelated to this run's publish.
+    `2026-08-04-publish-from-a-committed-ref.md` holds the SOURCE side of a
+    publish still (reads a committed ref, not the live source tree) — it
+    says nothing about the DESTINATION working tree, which this gate reads
+    as-is. A pairing can therefore fail on a file this round never
+    published, reading as a false FATAL at exit 2 on an otherwise-clean
+    round. To make that diagnosable rather than re-discovered, every
+    reported pairing's `module` path is tagged, in the printed failure, as
+    either `published-by-this-round` (present under one of `repo_roots`'
+    corresponding row's known allowlisted surface for this run) or
+    `destination-only` (present in the destination tree but not attributable
+    to anything this invocation just wrote) — see `_argv_parity_pairing_origin`.
+
+    Returns True iff every repo root's resolvable pairings carry no NEW
+    skew beyond the baseline; False iff any repo root has a new
+    `unaccepted`/`undeclared_required` finding, the report itself could not
+    be produced, the baseline itself could not be loaded, or a repo root is
+    not a directory. Never raises — same reporting contract as the other
+    end-of-run legs. Never called under `--dry-run`: `main()`'s dry-run
+    early return covers every end-of-run leg identically, and a preview run
+    mutates no destination for this gate to meaningfully assess.
+
+    A `repo_root` that is not a directory FAILS this gate rather than being
+    silently skipped: every `repo_root` passed in is a distinct destination
+    this round is expected to have assembled, so a missing/non-directory
+    root means the round did not actually land what it claims to have
+    landed there (e.g. a race with a concurrent process on this box) — the
+    exact permissive-degradation shape this gate's baseline-load path
+    already refuses (see above).
+    """
+    baseline_keys = _load_source_argv_parity_baseline_keys()
+    if baseline_keys is None:
+        print(
+            "  Error: end-of-run argv-parity gate could not load its source-repo "
+            f"baseline ({_SOURCE_ARGV_PARITY_BASELINE_PATH}) -- failing hard rather "
+            "than degrading to permissive.",
+            file=sys.stderr,
+        )
+        return False
+
+    ok = True
+    for repo_root in repo_roots:
+        if not repo_root.is_dir():
+            print(
+                f"  Error: end-of-run argv-parity gate expected a destination repo "
+                f"root at {repo_root} but it is not a directory -- failing hard "
+                "rather than silently skipping an unassembled destination.",
+                file=sys.stderr,
+            )
+            ok = False
+            continue
+        try:
+            report = directive_cli_arity.argv_parity_report(repo_root)
+        except Exception as exc:  # noqa: BLE001 - AC15 fail-closed path, same as any phase raise
+            print(
+                f"  Error: end-of-run argv-parity gate raised for {repo_root}: {exc}",
+                file=sys.stderr,
+            )
+            ok = False
+            continue
+
+        failing = []
+        for pairing in report.pairings:
+            if pairing.unresolved:
+                continue
+            base = (pairing.module, pairing.directive_id, pairing.cli)
+            new_unaccepted = sorted(
+                token
+                for token in pairing.unaccepted
+                if ("unaccepted", *base, token) not in baseline_keys
+            )
+            new_undeclared_required = sorted(
+                token
+                for token in pairing.undeclared_required
+                if ("undeclared_required", *base, token) not in baseline_keys
+            )
+            if new_unaccepted or new_undeclared_required:
+                failing.append((pairing, new_unaccepted, new_undeclared_required))
+        if not failing:
+            continue
+
+        ok = False
+        lines = []
+        for pairing, new_unaccepted, new_undeclared_required in failing:
+            origin = _argv_parity_pairing_origin(repo_root, pairing.module)
+            if new_unaccepted:
+                lines.append(
+                    f"    {pairing.module} ({origin}) -> {pairing.cli!r}: emits "
+                    f"unaccepted flag(s) {new_unaccepted!r} not in the source-repo baseline"
+                )
+            if new_undeclared_required:
+                lines.append(
+                    f"    {pairing.module} ({origin}) -> {pairing.cli!r}: does not "
+                    f"emit declared-required {new_undeclared_required!r} not in the "
+                    "source-repo baseline"
+                )
+        print(
+            f"  Error: end-of-run argv-parity gate FAILED for {repo_root}: "
+            f"{len(failing)} engine-module -> CLI pairing(s) skewed in the "
+            "published mirror beyond the committed baseline "
+            "(emitter/parser argv contract broken):\n"
+            + "\n".join(lines),
+            file=sys.stderr,
+        )
+
+    return ok
+
+
+def _argv_parity_pairing_origin(repo_root: Path, rel_module: str) -> str:
+    """Best-effort tag for a failing pairing's `module` path, distinguishing
+    a file this run's git-tracked source content is expected to have
+    published (`published-by-this-round`) from one that is present only in
+    the destination working tree's own local state
+    (`destination-only`) — the diagnosability aid this gate's own docstring
+    HAZARD section names. Never raises; an inconclusive read reports
+    `unknown-origin` rather than guessing.
+    """
+    module_path = repo_root / Path(rel_module)
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "status", "--porcelain", "--", rel_module],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except Exception:  # noqa: BLE001 - diagnostic aid only, never fatal
+        return "unknown-origin"
+    if result.returncode != 0:
+        return "unknown-origin"
+    if result.stdout.strip():
+        return "destination-only (locally modified in the mirror working tree)"
+    if module_path.exists():
+        return "published-by-this-round"
+    return "unknown-origin"
 
 
 _UNSCANNED_EXCEPTIONS_PATH = Path(__file__).resolve().parent / "percolate-published-unscanned-exceptions.yaml"
@@ -3911,7 +4402,13 @@ def check_marketplace_version_regression(
     src_json = source_dir / "marketplace.json"
     tgt_json = dest_dir / "marketplace.json"
     if not src_json.is_file() or not tgt_json.is_file():
-        return True  # no source marketplace.json (N/A) or no target yet (first publish)
+        # No repo-wide `marketplace.json` exists in this tree at all (verified
+        # by a full-tree search, not inferred from this one row) — every row
+        # takes this branch, every run. Said explicitly here rather than left
+        # as a silent True, so this reads as "inapplicable to this target"
+        # and not as "checked, no regression found."
+        print(f"  Version-regression gate: N/A for {name} — no marketplace.json present.", file=out)
+        return True
 
     src_ver = _extract_json_version(src_json)
     tgt_ver = _extract_json_version(tgt_json)
@@ -3962,7 +4459,12 @@ def check_version_consistency(
 ) -> bool:
     marketplace = source_dir / ".claude-plugin" / "marketplace.json"
     if not marketplace.is_file():
-        return True  # skips manifest sub-plugin targets that ship no marketplace.json
+        # Same repo-wide absence as `check_marketplace_version_regression`
+        # above — no row in this tree ships a `.claude-plugin/marketplace.json`,
+        # so this branch is taken every row, every run. Stated explicitly so
+        # it reads as "not applicable to this target," not as a pass.
+        print(f"  Version-consistency gate: N/A for {name} — no .claude-plugin/marketplace.json present.", file=out)
+        return True
 
     coordinator_bin_env = os.environ.get("COORDINATOR_BIN")
     vc_gate = (
@@ -4099,6 +4601,7 @@ def run_pre_sync_gates(
     totals: "RunTotals",
     *,
     dry_run: bool,
+    round_pinned_shas: "Optional[dict[str, str]]" = None,
     out: IO[str] = sys.stdout,
     err: IO[str] = sys.stderr,
 ) -> GateResult:
@@ -4113,7 +4616,10 @@ def run_pre_sync_gates(
     Between dirty-tree and version-regression, every contributing root
     (docs/plans/2026-08-04-publish-from-a-committed-ref.md C1b) is
     materialized from its committed ref via `_git_materialize_ref`, over the
-    SAME root set the dirty-tree loop above just walked. `GateResult.source_dir`
+    SAME root set the dirty-tree loop above just walked — pinned to the
+    round-wide sha in `round_pinned_shas` (§ `_round_pin_source_sha`) rather
+    than a fresh per-call `HEAD` resolution, so every row in this round
+    reads the same commit for a shared toplevel even if HEAD moves mid-round. `GateResult.source_dir`
     is UNCONDITIONALLY the shadow of `target.source_dir` from that point on —
     never the target's raw resolved `source_dir` — so even a row with no
     declared allowlist (which never enters the branch below) publishes from a
@@ -4137,21 +4643,40 @@ def run_pre_sync_gates(
     returns `proceed=False` (mirrors the bash `continue`) having already
     cleaned up its own temp tree.
     """
+    # `round_pinned_shas` defaults to a fresh, call-scoped dict when the
+    # caller supplies none (e.g. a test exercising this function in
+    # isolation) — degrades to "pin once per THIS call" rather than "pin
+    # once per round", since there is no round to share across without a
+    # caller-supplied dict. The production call site (`main`) always passes
+    # its own round-wide dict, which is what actually closes the mid-round
+    # HEAD-drift window this pin exists for.
+    if round_pinned_shas is None:
+        round_pinned_shas = {}
+
     if not check_live_install_clobber(target.dest_dir, target.name, dry_run=dry_run, out=out, err=err):
         return GateResult(proceed=False, source_dir=target.source_dir)
 
     contributing_roots = _contributing_roots(target)
     publish_relevant_paths = _publish_relevant_paths(target, contributing_roots)
-    for root in contributing_roots:
-        if not check_dirty_tree(
-            root,
-            target.name,
-            dry_run=dry_run,
-            pathspec=publish_relevant_paths[root],
-            out=out,
-            err=err,
-        ):
-            return GateResult(proceed=False, source_dir=target.source_dir)
+    _dirty_tree_loop_start = time.perf_counter()
+    try:
+        for root in contributing_roots:
+            if not check_dirty_tree(
+                root,
+                target.name,
+                dry_run=dry_run,
+                pathspec=publish_relevant_paths[root],
+                out=out,
+                err=err,
+            ):
+                return GateResult(proceed=False, source_dir=target.source_dir)
+    finally:
+        print(
+            f"  [timing] {target.name}: run_pre_sync_gates: check_dirty_tree loop: "
+            f"{time.perf_counter() - _dirty_tree_loop_start:.3f}s "
+            f"({len(contributing_roots)} root(s))",
+            file=err,
+        )
 
     # Materialize every contributing root from a committed ref (docs/plans/
     # 2026-08-04-publish-from-a-committed-ref.md C1b) BEFORE any gate reads
@@ -4190,9 +4715,15 @@ def run_pre_sync_gates(
     shadow_toplevels: "set[Path]" = set()
     try:
         for root in contributing_roots:
-            shadow[root] = _git_materialize_ref(root)
-            sha = _git_rev_parse(root, "HEAD")
-            print(f"  Provenance: {root} shipped from {sha or 'unknown'}", file=out)
+            # Round-pinned sha (docs/plans/2026-08-04-publish-from-a-committed-
+            # ref.md C1b amendment) — resolved ONCE per (round, toplevel) via
+            # `round_pinned_shas`, never a fresh per-call `HEAD` read, so this
+            # sha is IDENTICAL to whatever `main`'s round-start pass (or an
+            # earlier row's late pin) already recorded. `late=True`: any pin
+            # happening here is by definition after round start.
+            sha = _round_pin_source_sha(root, round_pinned_shas, out=out, late=True)
+            shadow[root] = _git_materialize_ref(root, ref=sha)
+            print(f"  Provenance: {root} shipped from {sha}", file=out)
             for cached_shadow_toplevel in _MATERIALIZED_REF_CACHE.values():
                 if shadow[root] == cached_shadow_toplevel or cached_shadow_toplevel in shadow[root].parents:
                     shadow_toplevels.add(cached_shadow_toplevel)
@@ -4229,28 +4760,37 @@ def run_pre_sync_gates(
         print(f"  Allowlist enforcement: {target.allowlist.replace(',', ', ')}", file=out)
         source_map_dict = _parse_source_map(target.source_map)
         shadow_source_map = {entry: shadow[root] for entry, root in source_map_dict.items()}
+        _allowlist_block_start = time.perf_counter()
         try:
-            restricted_tmp_src = build_allowlisted_source(
-                effective_source_dir,
-                target.allowlist,
-                source_map=shadow_source_map or None,
-                stderr=err,
+            try:
+                restricted_tmp_src = build_allowlisted_source(
+                    effective_source_dir,
+                    target.allowlist,
+                    source_map=shadow_source_map or None,
+                    stderr=err,
+                )
+            except AllowlistError as exc:
+                print(f"  Error: failed to build allowlisted source tree — skipping {target.name}. ({exc})", file=err)
+                print("", file=out)
+                return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+
+            print(f"  Restricted source: {restricted_tmp_src}", file=out)
+            effective_source_dir = restricted_tmp_src
+
+            if not check_working_data_paths(
+                restricted_tmp_src, paths=get_pre_filter_paths(restricted_tmp_src), stderr=err
+            ):
+                print(f"  Error: secondary working-data assertion failed — skipping {target.name}.", file=err)
+                shutil.rmtree(restricted_tmp_src, ignore_errors=True)
+                print("", file=out)
+                return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
+        finally:
+            print(
+                f"  [timing] {target.name}: run_pre_sync_gates: allowlist "
+                f"(build_allowlisted_source + check_working_data_paths): "
+                f"{time.perf_counter() - _allowlist_block_start:.3f}s",
+                file=err,
             )
-        except AllowlistError as exc:
-            print(f"  Error: failed to build allowlisted source tree — skipping {target.name}. ({exc})", file=err)
-            print("", file=out)
-            return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
-
-        print(f"  Restricted source: {restricted_tmp_src}", file=out)
-        effective_source_dir = restricted_tmp_src
-
-        if not check_working_data_paths(
-            restricted_tmp_src, paths=get_pre_filter_paths(restricted_tmp_src), stderr=err
-        ):
-            print(f"  Error: secondary working-data assertion failed — skipping {target.name}.", file=err)
-            shutil.rmtree(restricted_tmp_src, ignore_errors=True)
-            print("", file=out)
-            return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
 
         try:
             assert_allowlist_applied(
@@ -4372,6 +4912,66 @@ class RunTotals:
 def warn(totals: RunTotals, message: str, *, out: IO[str] = sys.stdout) -> None:
     print(f"  WARNING: {message}", file=out)
     totals.warnings += 1
+
+
+# ---------------------------------------------------------------------------
+# Round timing (docs/plans/2026-08-16-percolate-round-timing-and-changed-
+# only.md, chunk C1) — nothing has ever timed a percolate round; every cost
+# claim before this chunk was structural inference from a code read, not
+# measurement. `_time_phase` wraps one `dispatch_*` call or one
+# `process_target`-owned phase in a `perf_counter` span and appends
+# `(row_label, phase_label, elapsed_seconds)` to `sink` when one is supplied
+# — `sink=None` (the default; every pre-existing call site that does not
+# thread one through) costs one `perf_counter()` pair and nothing else, per
+# this chunk's "cheap and unconditional-safe" constraint. `row_label` is
+# `"<round>"` for a phase that runs once per invocation rather than once per
+# publish row (the end-of-run gates in `main()`).
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _time_phase(
+    sink: "Optional[List[tuple[str, str, float]]]",
+    row_label: str,
+    phase_label: str,
+):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        if sink is not None:
+            sink.append((row_label, phase_label, time.perf_counter() - start))
+
+
+def _print_round_timing_summary(
+    timings: "List[tuple[str, str, float]]",
+    wall_start: float,
+    *,
+    out: IO[str] = sys.stdout,
+) -> None:
+    """End-of-round summary (§ C1 AC2) — printed on the round's existing
+    stdout channel, never a separate file/channel. Reports an explicit
+    unattributed remainder (wall time minus the sum of the recorded spans)
+    rather than letting spans that do not add up pass silently — per this
+    chunk's brief, a breakdown that quietly loses time is worse than no
+    breakdown at all, because it will be believed. Line shape (`  [timing]
+    ...`) deliberately avoids `NEW:`/`UPDATE:`/`DELETE:`/`REMOVE:`/`RENAME:`/
+    `  --- ... ---`/`Target:` — the tokens `percolate-round.py`'s
+    `_extract_change_lines`/`_split_stdout_by_row_dest`/
+    `_build_commit_pathspec` parse out of this same stream (verified by
+    reading those functions, not by inspection alone).
+    """
+    print("  [timing] per-phase elapsed:", file=out)
+    for row_label, phase_label, elapsed in timings:
+        print(f"  [timing]   {row_label}: {phase_label}: {elapsed:.3f}s", file=out)
+    attributed = sum(elapsed for _, _, elapsed in timings)
+    wall_elapsed = time.perf_counter() - wall_start
+    unattributed = wall_elapsed - attributed
+    print(
+        f"  [timing] round wall time: {wall_elapsed:.3f}s; "
+        f"attributed: {attributed:.3f}s; unattributed: {unattributed:.3f}s",
+        file=out,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -5021,6 +5621,7 @@ def dispatch_mirror_like(
     dry_run: bool,
     renamed_dir_names: "frozenset[str] | None" = None,
     out: IO[str] = sys.stdout,
+    changed_sink: "Optional[set[str]]" = None,
 ) -> None:
     """Calls `publish_sync.sync_mirror`/`sync_flat_mirror` directly
     (in-process — never subprocessed), and folds the returned (synced,
@@ -5041,7 +5642,24 @@ def dispatch_mirror_like(
     this from the row's own rename-generation ledger BEFORE this call, so
     a directory the upcoming content-transform sweep is about to reproduce
     is exempted from this sync pass's own orphan-deletion (state/audits/
-    2026-08-05-first-full-payload-identity-findings.md Group E)."""
+    2026-08-05-first-full-payload-identity-findings.md Group E).
+
+    `changed_sink` (optional, § docs/plans/2026-08-16-percolate-round-
+    timing-and-changed-only.md chunk C4): when supplied, it is passed to
+    `sync_fn` as its `changed_paths` param and the sync engine populates it
+    directly from each real `_needs_copy` copy decision, in the same
+    `dst_dir`-relative posix id shape `dispatch_percolate_post_rsync`'s
+    `visited_files`/`changed_files` already use. `REMOVE:` deletions are
+    excluded there — a deletion is not new content for the entrypoint gate's
+    closure walk to re-scan.
+
+    This signal is NOT derived from `sync_fn`'s printed output. It was, and a
+    scrape cannot express "I do not know": a format change silently yields an
+    empty set, and empty means "skip the sweep" to the consumer, so the failure
+    landed on the narrow side and shipped an unswept entrypoint. The
+    undeterminable case belongs to the caller, which passes `None` and gets a
+    full sweep. `None` here (the default, every pre-existing call site) is a
+    no-op. `sync_fn`'s stdout is untouched either way."""
     print(f"  Mode: {target.mode} (copy + delete)", file=out)
     print("", file=out)
 
@@ -5071,9 +5689,25 @@ def dispatch_mirror_like(
     sync_fn = getattr(publish_sync_module, mode_descriptor.entry_point)
     if mode_descriptor.accepts_renamed_dir_names:
         mirror_kwargs = {**mirror_kwargs, "renamed_dir_names": renamed_dir_names}
-    synced, removed = sync_fn(
-        effective_source_dir, target.dest_dir, ignore_matcher, dry_run, **mirror_kwargs
-    )
+    # The changed-set comes from the sync engine's own copy decisions, never
+    # from re-parsing what it printed. A scrape degrades to an EMPTY set when
+    # the output format moves, and empty reads downstream as "nothing changed,
+    # skip the sweep" — failing narrow, which ships an unswept entrypoint. The
+    # undeterminable case must reach the consumer as None so it falls back to a
+    # full sweep: failing wide costs minutes, failing narrow costs correctness.
+    if changed_sink is None:
+        synced, removed = sync_fn(
+            effective_source_dir, target.dest_dir, ignore_matcher, dry_run, **mirror_kwargs
+        )
+    else:
+        synced, removed = sync_fn(
+            effective_source_dir,
+            target.dest_dir,
+            ignore_matcher,
+            dry_run,
+            changed_paths=changed_sink,
+            **mirror_kwargs,
+        )
 
     totals.synced += synced
     totals.deleted += removed
@@ -5087,16 +5721,7 @@ def dispatch_mirror_like(
 def _is_git_repo(path: Path) -> bool:
     if (path / ".git").is_dir():
         return True
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--git-dir"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return False
-    return result.returncode == 0
+    return _resolve_git_dir(cwd=str(path)) is not None
 
 
 def _git_head(path: Path) -> str:
@@ -5129,10 +5754,49 @@ class GitMaterializeError(RuntimeError):
     silently reintroduce the TOCTOU this plan closes for that root)."""
 
 
-def _git_rev_parse(path: Path, *args: str) -> Optional[str]:
-    """Runs `git -C <path> rev-parse <args>` and returns stripped stdout, or
-    `None` on any non-zero exit or `OSError` (e.g. `git` not on `PATH`) —
-    never raises, so callers decide how to fail."""
+@dataclass(frozen=True)
+class _GitRevParseResult:
+    """Full outcome of a `git rev-parse` invocation — `_git_rev_parse`'s
+    `Optional[str]` collapses failure to a bare `None`, discarding exactly
+    the `returncode`/`stderr` a caller needs to tell "definitely not a git
+    work tree" (`returncode == 128` with `not a git repository` in
+    `stderr`) apart from a transient failure (lock contention, a path that
+    momentarily does not exist, `git` unavailable). `oserror` carries the
+    `OSError` message when the subprocess could not even be spawned."""
+
+    stdout: Optional[str]
+    returncode: Optional[int]
+    stderr: str
+    oserror: Optional[str] = None
+
+    @property
+    def ok(self) -> bool:
+        return self.stdout is not None
+
+    @property
+    def not_a_work_tree(self) -> bool:
+        """True only for the one failure shape that actually establishes
+        "not inside a git work tree": `rev-parse --show-toplevel` (or any
+        rev-parse call) exiting 128 with git's own `not a git repository`
+        text. Every other failure — lock contention, OSError, any other
+        non-zero exit — is a transient/unknown failure, not a structural
+        claim about the path."""
+        return self.returncode == 128 and "not a git repository" in self.stderr.lower()
+
+    def describe_failure(self) -> str:
+        """One line stating what actually happened, for callers that must
+        report failure without asserting a repo-shape defect they have not
+        established."""
+        if self.oserror is not None:
+            return f"git could not be run: {self.oserror}"
+        return f"git rev-parse exited {self.returncode}: {self.stderr.strip() or '<no stderr>'}"
+
+
+def _git_rev_parse_detailed(path: Path, *args: str) -> _GitRevParseResult:
+    """Runs `git -C <path> rev-parse <args>` and returns the full outcome
+    (stdout, returncode, stderr) rather than collapsing failure to `None`
+    — the detail `_git_rev_parse` discards. Never raises; an `OSError`
+    (e.g. `git` not on `PATH`) is captured into `.oserror` instead."""
     try:
         result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", *args],
@@ -5140,11 +5804,23 @@ def _git_rev_parse(path: Path, *args: str) -> Optional[str]:
             text=True,
             check=False,
         )
-    except OSError:
-        return None
+    except OSError as exc:
+        return _GitRevParseResult(stdout=None, returncode=None, stderr="", oserror=str(exc))
     if result.returncode != 0:
-        return None
-    return result.stdout.strip()
+        return _GitRevParseResult(stdout=None, returncode=result.returncode, stderr=result.stderr)
+    return _GitRevParseResult(stdout=result.stdout.strip(), returncode=0, stderr=result.stderr)
+
+
+def _git_rev_parse(path: Path, *args: str) -> Optional[str]:
+    """Runs `git -C <path> rev-parse <args>` and returns stripped stdout, or
+    `None` on any non-zero exit or `OSError` (e.g. `git` not on `PATH`) —
+    never raises, so callers decide how to fail. Callers that need to tell
+    a transient failure apart from a genuine non-work-tree should use
+    `_git_rev_parse_detailed` instead; this wrapper exists for callers that
+    only ever wanted the happy-path string (§ call sites in `run_pre_sync_
+    gates` and `_git_materialize_ref`'s provenance print, which already
+    treat `None` as `'unknown'`/`''` rather than raising)."""
+    return _git_rev_parse_detailed(path, *args).stdout
 
 
 _MATERIALIZED_REF_CACHE: "dict[tuple[str, str], Path]" = {}
@@ -5169,6 +5845,20 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
 
     Never a `tar` subprocess — that shell-out site is not a member of the
     closed list in `docs/reference/shell-out-carve-outs.md`.
+
+    `-c core.autocrlf=false -c core.eol=lf`: on a Windows host with the
+    invoking repo's eol config in play, a bare `git archive` applies the
+    `text=auto` smudge and materializes CRLF for a file whose blob is LF. The
+    mirror's `core.autocrlf` is `false`, so nothing normalizes it back at the
+    destination, and a round would write whole-file line-ending flips across
+    every published text file. Invisible on macOS/Linux, silent on Windows.
+
+    Measured here on `cockpit-contract/LICENSE` (3021-byte LF blob): bare
+    archive 3082 bytes / 61 CRLF; `core.eol=lf` alone unchanged at 3082 / 61;
+    `core.autocrlf=false` alone 3021 / 0; both 3021 / 0. `autocrlf=false` is
+    the flag doing the work on this corpus — `eol=lf` is kept because it is
+    the setting that pins the *intended* ending rather than merely disabling
+    conversion, and the pair is what the reporting sibling verified on theirs.
     """
     shadow_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-materialize-"))
     fd, archive_path_str = tempfile.mkstemp(prefix="claude-klabauter-publish-archive-", suffix=".tar")
@@ -5176,19 +5866,48 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     archive_path = Path(archive_path_str)
     try:
         try:
-            result = subprocess.run(
-                ["git", "-C", str(toplevel), "archive", "--format=tar", "-o", str(archive_path), sha],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            _git_archive_start = time.perf_counter()
+            try:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(toplevel),
+                        "-c",
+                        "core.autocrlf=false",
+                        "-c",
+                        "core.eol=lf",
+                        "archive",
+                        "--format=tar",
+                        "-o",
+                        str(archive_path),
+                        sha,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            finally:
+                print(
+                    f"  [timing] _extract_git_archive: git archive: "
+                    f"{time.perf_counter() - _git_archive_start:.3f}s ({toplevel}, {sha})",
+                    file=sys.stderr,
+                )
             if result.returncode != 0:
                 raise GitMaterializeError(
                     f"git archive {sha!r} failed for {toplevel} (exit {result.returncode}): "
                     f"{result.stderr.strip()}"
                 )
-            with tarfile.open(archive_path) as archive:
-                archive.extractall(path=shadow_dir, filter="tar")
+            _extractall_start = time.perf_counter()
+            try:
+                with tarfile.open(archive_path) as archive:
+                    archive.extractall(path=shadow_dir, filter="tar")
+            finally:
+                print(
+                    f"  [timing] _extract_git_archive: extractall: "
+                    f"{time.perf_counter() - _extractall_start:.3f}s ({shadow_dir})",
+                    file=sys.stderr,
+                )
         except Exception:
             # Review: code-reviewer Finding 1 — shadow_dir is created via
             # mkdtemp above, before either failure mode below can occur. On
@@ -5206,6 +5925,66 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     return shadow_dir
 
 
+def _round_pin_source_sha(
+    root: Path,
+    pinned_shas: "dict[str, str]",
+    *,
+    out: IO[str] = sys.stdout,
+    late: bool = False,
+) -> str:
+    """Resolves the committed HEAD sha for the git toplevel containing
+    `root` ONCE per round and caches it in `pinned_shas` (keyed by toplevel
+    path string) — the fix for a measured defect where `_git_materialize_ref`
+    resolved `ref="HEAD"` freshly on every call, so a row processed later in
+    a round could pick up a peer's commit that landed mid-round (four
+    distinct SHAs observed across one round's `[timing]` log, docs/plans/
+    2026-08-04-publish-from-a-committed-ref.md's own promise of "a publish
+    round is a snapshot of one commit" broken in practice on a
+    50-70-concurrent-session box). Every contributing root sharing one
+    toplevel therefore reuses the SAME cached sha, not just the same
+    `_git_materialize_ref` cache entry.
+
+    Raises `GitMaterializeError` under the same two conditions
+    `_git_materialize_ref` itself raises for (`root` not inside a git work
+    tree, or `HEAD` unresolvable there) so callers can route the failure
+    through their existing per-row skip handling — this function never
+    silently falls back to an unpinned read.
+
+    `late=True` marks a pin resolved during per-row processing rather than
+    `main`'s round-start pre-pinning pass — a contributing root main's pass
+    did not walk (e.g. `--target` admitted only a subset, or a row's
+    `source_map` names a root no earlier row shared). Decision: pin it on
+    first sight rather than silently resolving a fresh, unrecorded HEAD or
+    hard-failing the round for a case the round-start pass simply never
+    saw. The `late=True` print makes that late pin visible in the
+    provenance log instead of reading identically to a round-start pin."""
+    toplevel_result = _git_rev_parse_detailed(root, "--show-toplevel")
+    if toplevel_result.stdout is None:
+        if toplevel_result.not_a_work_tree:
+            raise GitMaterializeError(f"{root} is not inside a git work tree — cannot pin a round source sha")
+        raise GitMaterializeError(
+            f"could not determine the git toplevel for {root} — cannot pin a round source sha "
+            f"({toplevel_result.describe_failure()})"
+        )
+    toplevel = Path(toplevel_result.stdout)
+    key = str(toplevel)
+    cached = pinned_shas.get(key)
+    if cached is not None:
+        return cached
+
+    sha_result = _git_rev_parse_detailed(toplevel, "HEAD")
+    if sha_result.stdout is None:
+        raise GitMaterializeError(
+            f"could not resolve HEAD to a commit for {toplevel} — cannot pin a round source sha "
+            f"({sha_result.describe_failure()})"
+        )
+    sha = sha_result.stdout
+    pinned_shas[key] = sha
+    label = "Round source (pinned late)" if late else "Round source pinned"
+    print(f"  {label}: {toplevel} @ {sha}", file=out)
+    return sha
+
+
 def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
     """Materializes `root` as it exists at the committed `ref` into an
     on-disk shadow tree, and returns the shadow path corresponding to
@@ -5217,31 +5996,57 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
     's five klabauter rows is a subdirectory of this repo's own single git
     toplevel, so naively archiving per-root would do N full-tree
     extractions of the SAME commit for any row whose `source_map` routes
-    multiple entries into one repo (9,854 tracked files, ~84 MiB pack, per
-    row, per publish run) — and would destroy the nesting relationship
-    between the real roots, since two shadow trees that should be one tree
-    become disjoint copies.
+    multiple entries into one repo — a per-root extraction is one whole
+    tracked-file population's worth of work, per row, per publish run
+    (23,804 tracked files per `git ls-files | wc -l`, measured 2026-08-16;
+    a point-in-time observation of a growing repo, not a constant — pack
+    size not re-verified at this edit) — and would destroy the nesting
+    relationship between the real roots, since two shadow trees that
+    should be one tree become disjoint copies.
 
-    Raises `GitMaterializeError` if `root` is not inside a git work tree,
-    or if `ref` does not resolve to a commit there — never falls back to a
-    live-tree copy.
+    Raises `GitMaterializeError` if `root` is genuinely not inside a git
+    work tree, or if `ref` does not resolve to a commit there — never
+    falls back to a live-tree copy. A transient git failure (lock
+    contention, a momentarily-missing path, `git` unavailable) raises with
+    the actual returncode/stderr instead of asserting either of those two
+    structural claims it has not established (see incident: a concurrent-
+    publish lock collision on `dist/mirror-native/` was misreported as
+    "not inside a git work tree" for a path that was, in fact, tracked).
     """
-    toplevel_str = _git_rev_parse(root, "--show-toplevel")
-    if toplevel_str is None:
-        raise GitMaterializeError(f"{root} is not inside a git work tree — cannot materialize {ref!r}")
-    toplevel = Path(toplevel_str)
+    toplevel_result = _git_rev_parse_detailed(root, "--show-toplevel")
+    if toplevel_result.stdout is None:
+        if toplevel_result.not_a_work_tree:
+            raise GitMaterializeError(f"{root} is not inside a git work tree — cannot materialize {ref!r}")
+        raise GitMaterializeError(
+            f"could not determine the git toplevel for {root} — cannot materialize {ref!r} "
+            f"({toplevel_result.describe_failure()})"
+        )
+    toplevel = Path(toplevel_result.stdout)
 
     prefix = _git_rev_parse(root, "--show-prefix") or ""
 
-    sha = _git_rev_parse(toplevel, ref)
-    if sha is None:
-        raise GitMaterializeError(f"could not resolve ref {ref!r} to a commit for {toplevel}")
+    sha_result = _git_rev_parse_detailed(toplevel, ref)
+    if sha_result.stdout is None:
+        raise GitMaterializeError(
+            f"could not resolve ref {ref!r} to a commit for {toplevel} ({sha_result.describe_failure()})"
+        )
+    sha = sha_result.stdout
 
     cache_key = (str(toplevel), sha)
     shadow_toplevel = _MATERIALIZED_REF_CACHE.get(cache_key)
     if shadow_toplevel is None:
+        # Review: a single post-extraction line carries the same MISS signal as
+        # the removed pre-extraction print, without reading as two separate events.
+        _materialize_start = time.perf_counter()
         shadow_toplevel = _extract_git_archive(toplevel, sha)
+        print(
+            f"  [timing] _git_materialize_ref: cache MISS for {cache_key!r}: extracted in "
+            f"{time.perf_counter() - _materialize_start:.3f}s",
+            file=sys.stderr,
+        )
         _MATERIALIZED_REF_CACHE[cache_key] = shadow_toplevel
+    else:
+        print(f"  [timing] _git_materialize_ref: cache HIT for {cache_key!r}", file=sys.stderr)
 
     return shadow_toplevel / prefix
 
@@ -5389,15 +6194,28 @@ def compute_delta_invalidation_signature(
     return h.hexdigest()
 
 
-def _delta_row_source_sha(target: "ResolvedTarget") -> Optional[str]:
+def _delta_row_source_sha(
+    target: "ResolvedTarget",
+    round_pinned_shas: "dict[str, str]",
+    *,
+    out: IO[str] = sys.stdout,
+) -> Optional[str]:
     """Combined committed-HEAD sha across every one of `target`'s
     contributing source roots (§ `_contributing_roots`), sorted for a
     stable signature. `None` (never skip) if ANY root is not inside a git
-    work tree or its HEAD cannot be resolved."""
+    work tree or its HEAD cannot be resolved.
+
+    Reads through `round_pinned_shas` (§ `_round_pin_source_sha`,
+    `late=True`) rather than a fresh `_git_rev_parse(root, "HEAD")` — the
+    delta skip-check and post-publish record must agree with the sha this
+    row actually materialized and published from, not with whatever HEAD a
+    peer session's mid-round commit happens to have moved to by the time
+    this function runs."""
     parts: List[str] = []
     for root in _contributing_roots(target):
-        sha = _git_rev_parse(root, "HEAD")
-        if sha is None:
+        try:
+            sha = _round_pin_source_sha(root, round_pinned_shas, out=out, late=True)
+        except GitMaterializeError:
             return None
         parts.append(f"{root}:{sha}")
     return "|".join(sorted(parts))
@@ -5431,7 +6249,12 @@ def write_delta_record(
     )
 
 
-def delta_row_unchanged(setup_dir: Path, target: "ResolvedTarget", signature: str) -> bool:
+def delta_row_unchanged(
+    setup_dir: Path,
+    target: "ResolvedTarget",
+    signature: str,
+    round_pinned_shas: "dict[str, str]",
+) -> bool:
     """True iff `target` can be PROVEN unchanged since its last recorded
     `--delta` publish (§ module comment above `_git_is_clean` — every
     check here is written to fail closed toward "do not skip"):
@@ -5486,7 +6309,7 @@ def delta_row_unchanged(setup_dir: Path, target: "ResolvedTarget", signature: st
         return False
     if record.get("signature") != signature:
         return False
-    source_sha = _delta_row_source_sha(target)
+    source_sha = _delta_row_source_sha(target, round_pinned_shas)
     if source_sha is None or record.get("source_sha") != source_sha:
         return False
     if not _is_git_repo(target.dest_dir):
@@ -5619,6 +6442,577 @@ def _ensure_dest_ready(target: ResolvedTarget, totals: RunTotals, *, out: IO[str
     print(f"  Skipping {target.name}.", file=out)
     print("", file=out)
     return False
+
+
+# ---------------------------------------------------------------------------
+# Declared-ref assertion (C8, docs/plans/2026-08-15-klabauter-release-
+# channels.md) -- DoE's highest-severity finding: nothing on the copy path
+# previously asserted the dest's checked-out branch, so a publish intended
+# for one branch could land silently on whatever happened to be checked out.
+# Runs at dest resolution, per-row, BEFORE `dispatch_mirror_like` and before
+# any destination write this function's caller (`process_target`) performs --
+# placement is deliberate, see that call site's own comment. Generic: asserts
+# ANY row's dest against ITS OWN declared `publish.mirrors.<key>.track_ref`
+# (C9, docs/reference/klabauter-release-channels.md § "The declared registry
+# fact"); nothing here names klabauter.
+#
+# Refusing is the feature -- this never checks the dest out itself.
+# ---------------------------------------------------------------------------
+_PUBLISH_MIRRORS_PREFIX = "publish.mirrors."
+_PUBLISH_MIRROR_PATH_SUFFIX = ".path"
+_PUBLISH_MIRROR_TRACK_REF_SUFFIX = ".track_ref"
+# The raw portable-row dest-sigil prefix (`publish-mirror:<key>`,
+# resolve_target.py's "Publish-mirror" row shape) -- distinct from
+# `_PUBLISH_MIRRORS_PREFIX` above, which is the RESOLVED registry key
+# namespace (`publish.mirrors.<key>.*`); `_engine_declaring_mirror_keys`
+# reads the former (raw rows) and yields keys in the latter's namespace.
+_PUBLISH_MIRROR_SIGIL_PREFIX = "publish-mirror:"
+# LAST-RESORT default for an absent `track_ref`, matching the live
+# `plugin.mirrors.<key>.track_ref` precedent's own parsers (`read_mirrors.py`,
+# `coordinator_core/plugin_health/drift.py`) byte-for-byte. Reached only when
+# `_resolve_remote_default_branch` also can't answer (no `origin` remote, or
+# its HEAD symref was never set) -- `assert_dest_on_declared_ref` tries the
+# dest's actual resolved remote default branch FIRST, so a registered mirror
+# whose remote default isn't `main` is compared against its real default
+# rather than an assumed one (state/subagent-share/93578a3d.../
+# coordinatorcode-reviewer-e094bd79.md P1).
+_DEFAULT_PUBLISH_TRACK_REF = "origin/main"
+
+
+def _publish_mirror_key_for_repo_root(repo_root: Path) -> Optional[str]:
+    """Reverse-lookup: which `publish.mirrors.<key>` registry entry's
+    declared `.path` resolves to `repo_root`?
+
+    The row-parsing pipeline (`percolate.targets.load_targets` ->
+    `resolve_target.resolve_publish_row`) resolves the mirror `key` into an
+    already-resolved `dest_dir` well before a `ResolvedTarget` reaches this
+    module -- the key itself is not carried on the row, so it has to be
+    recovered here by matching `dest_dir`'s repo root back against the
+    registry's declared paths. Enumerates the merged registry
+    (`registry.toml` then `registry.local.toml`, later wins) the same order
+    `coordinator_core.machine_resolver.registry_get` resolves any single key.
+
+    Returns `None` (not a registered `publish.mirrors.*` destination, or the
+    registry is unreadable) when no entry's path matches -- this assertion is
+    then out of scope for the row, not a refusal; a dest outside the
+    `publish.mirrors.*` namespace has no declared ref to assert against."""
+    from coordinator_core.machine_resolver import _flatten, _load_toml, registry_dir
+
+    reg_dir = registry_dir()
+    merged: dict = {}
+    for fname in ("registry.toml", "registry.local.toml"):
+        merged.update(_flatten(_load_toml(Path(reg_dir) / fname)))
+    norm_root = os.path.realpath(str(repo_root))
+    for key, value in merged.items():
+        if not key.startswith(_PUBLISH_MIRRORS_PREFIX) or not key.endswith(_PUBLISH_MIRROR_PATH_SUFFIX):
+            continue
+        if isinstance(value, list):
+            value = "\n".join(str(item) for item in value)
+        path_s = str(value) if value is not None else ""
+        if not path_s:
+            continue
+        if os.path.realpath(path_s) == norm_root:
+            return key[len(_PUBLISH_MIRRORS_PREFIX) : -len(_PUBLISH_MIRROR_PATH_SUFFIX)]
+    return None
+
+
+def _dest_checked_out_ref(repo_root: Path) -> Optional[str]:
+    """The dest's current local branch name (`git symbolic-ref --short HEAD`),
+    or `None` on any failure -- git absent, not a work tree, or a detached
+    HEAD (symbolic-ref has no ref to report, exits non-zero), which is
+    already a correct mismatch: a detached dest never matches a declared
+    branch name. `symbolic-ref`, not `rev-parse --abbrev-ref`, deliberately
+    -- the latter fails on an unborn branch (a freshly-created dest with no
+    commits yet still has a real checked-out branch name to assert).
+
+    Invoked from OUTSIDE the clone via `git -C` -- never `cd`, the
+    publish-mirror guard refuses that including for read-only git."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "symbolic-ref", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    ref = result.stdout.strip()
+    return ref or None
+
+
+def _resolve_remote_default_branch(repo_root: Path) -> Optional[str]:
+    """The dest's ACTUAL remote default branch (`origin/<branch>`), read from
+    the local `refs/remotes/origin/HEAD` symbolic ref -- the pointer a plain
+    `git clone` sets automatically, no network call. `None` when no such ref
+    exists (no `origin` remote, or it was never set) -- the caller degrades
+    to `_DEFAULT_PUBLISH_TRACK_REF` in that case, same as before this
+    function existed. Deliberately local-only: a network `git ls-remote` on
+    this pre-write gate would trade a wrong-name default for a slow/offline-
+    fragile one, worse than the fallback it would replace."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    ref = result.stdout.strip()
+    return ref or None
+
+
+def _expected_local_branch(track_ref: str) -> str:
+    """`track_ref` values follow the live `plugin.mirrors.<key>.track_ref`
+    shape -- `origin/<branch>` or a bare branch/tag name
+    (`refresh-plugin-live-install.py`'s own checkout leg strips the
+    `origin/` prefix to name the local branch it checks out); normalize the
+    same way so the comparison is against what the dest's local branch name
+    would actually be, not the remote-qualified spelling."""
+    if track_ref.startswith("origin/"):
+        return track_ref[len("origin/") :]
+    return track_ref
+
+
+# Per-portable-file cache for `_engine_declaring_mirror_keys` (below) --
+# keyed on the resolved `publish-targets.portable` path (str), not on
+# `setup_dir` itself, so distinct portable files (distinct tests, or a
+# future distinct percolation source) never share an entry, while N rows
+# against the SAME portable file within one publish round parse it once.
+_ENGINE_DECLARING_MIRROR_KEYS_CACHE: "dict[str, frozenset]" = {}
+
+
+def _engine_declaring_mirror_keys(setup_dir: Optional[Path]) -> "frozenset[str]":
+    """Which `publish.mirrors.<key>` registry keys the PRIMARY portable
+    topology (`setup/publish-targets.portable`) actually writes
+    `coordinator_core` into for -- i.e. which mirrors carry the engine
+    payload (the `claude-klabauter` row, klabauter shape) versus which are
+    registered but deliberately engine-free (coordinator-claude shape).
+
+    Derived from the SAME rows that already declare klabauter's engine
+    payload -- self-maintaining DATA, not a second registry key an operator
+    has to remember to set (`assert_dest_engine_root_viable`'s SCOPE
+    docstring, second narrowing). A row counts when its dest sigil is
+    `publish-mirror:<key>` (field 2) and its dest_subdir (field 4) is
+    exactly `coordinator_core` or a strict descendant of it -- same
+    strict-descendant reading `allowlist.py::_apply_exclusions` uses for
+    inclusion entries, not a bare prefix match (`coordinator_core-extra`
+    must not count).
+
+    Reads the UNRESOLVED row set the same way `raw_dest_sigil_by_name`
+    does -- no machine-local resolution, no subprocess -- so this stays
+    cheap enough for the per-row call site below. Memoized per resolved
+    portable-file path (see cache above); `setup_dir=None` (call site could
+    not resolve one) falls back to this repo's own `setup/`, matching
+    `_resolve_percolate_root_and_rung`'s rung-3 last resort.
+
+    Fails OPEN (empty set, "declares nothing here") on ANY resolution
+    failure -- portable file missing or unreadable -- same posture as
+    `_publish_mirror_key_for_repo_root` returning `None`: a config-read
+    failure must never turn into a publish refusal."""
+    resolved_setup_dir = setup_dir if setup_dir is not None else (_REPO_ROOT / "setup")
+    try:
+        portable_file = _resolve_portable_file(resolved_setup_dir)
+    except Exception:
+        return frozenset()
+
+    cache_key = str(portable_file)
+    cached = _ENGINE_DECLARING_MIRROR_KEYS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    keys: "set[str]" = set()
+    try:
+        if portable_file.is_file():
+            for raw_row in _iter_portable_rows(portable_file):
+                fields = raw_row.split("|")
+                if len(fields) < 5:
+                    continue
+                sigil = fields[2]
+                if not sigil.startswith(_PUBLISH_MIRROR_SIGIL_PREFIX):
+                    continue
+                dest_subdir = fields[4]
+                if dest_subdir == "coordinator_core" or dest_subdir.startswith("coordinator_core/"):
+                    keys.add(sigil[len(_PUBLISH_MIRROR_SIGIL_PREFIX) :])
+    except Exception:
+        keys = set()
+
+    result = frozenset(keys)
+    _ENGINE_DECLARING_MIRROR_KEYS_CACHE[cache_key] = result
+    return result
+
+
+def assert_dest_engine_root_viable(
+    target: "ResolvedTarget",
+    totals: RunTotals,
+    *,
+    setup_dir: Optional[Path] = None,
+    out: IO[str] = sys.stdout,
+) -> bool:
+    """Refuse this row when the dest is in a state the published-engine rung
+    would reject: detached HEAD, or `coordinator_core/` absent from the dest
+    after this round would complete (C10). Returns True (proceed) for a dest
+    with no `.git` ancestor at all (`_ensure_dest_ready` owns that refusal).
+
+    DoE synthesized a broken mirror and drove the ladder against it
+    (`DoE-claude coordinator/tests/test_engine_root_degraded_mirror_outcomes.py`,
+    `be3dec68b027`, five cases, mutation-tested): a clean consumer box hits
+    `unresolved`/root `None` -- a LOUD failure, not wrong bits. A MIXED
+    machine (a consumer repo alongside a reachable live checkout) is the
+    only one of the five shapes that silently falls through to the live
+    working tree instead -- that fallback is NOT the general behaviour of
+    every consumer, only of that mixed-machine shape. An engine-working repo
+    never consumes the published engine at all, so it cannot bite either way.
+    `_prepublish_projection.py` records `coordinator/percolate/` "observed
+    absent on the 2026-08-12-registered claude-klabauter mirror" and falls
+    through today, so the degraded state this guard closes is real, not
+    theoretical.
+
+    A test proving what a degraded mirror DOES (their fixture above) is not
+    a guard preventing publish from CREATING one -- different doors, which
+    is why this still ships against their fixture rather than being
+    satisfied by it.
+
+    This closes the PUBLISH-TIME path only. NAMED RESIDUAL, not solved
+    here: a session can be mid-turn when someone runs `git checkout` in the
+    mirror outside a publish, and under whole-box dogfooding a promotion
+    (`klabauter-promote.py`) IS a checkout event -- the same silent fallback
+    to the live working tree, arriving through a door this guard does not
+    cover. See docs/reference/klabauter-release-channels.md's "Named
+    residuals" section (C11's live-ops preflight is a partial mitigation,
+    not a fix).
+
+    SCOPE, corrected post-review (state/subagent-share -- coordinatorcode-
+    reviewer-e094bd79.md, two P1s): DoE's own evidence for this guard is a
+    REGISTERED mirror going degraded ("the 2026-08-12-registered claude-
+    klabauter mirror") -- `resolve_engine_root()`'s downstream consumers only
+    ever reach a dest through the `publish.mirrors.*` registry, so a dest
+    this row's registry has no entry for is never on that path at all and
+    the check is out of scope for it, same rationale C9
+    (`assert_dest_on_declared_ref`) already applies via
+    `_publish_mirror_key_for_repo_root`. Without this, EVERY mirror row --
+    a docs mirror, a flat toplevel mirror, an unregistered test/ad-hoc dest
+    -- was refused merely for lacking a `coordinator_core/` it was never
+    meant to have.
+
+    SCOPE, second narrowing (cross-repo memo 2026-08-16-doe-claude-em-
+    engine-guards-block-coordinator-claude-publish.md): registration alone
+    is still too wide -- `coordinator_claude` (`publish.mirrors.
+    coordinator_claude`, path per `machine-local get publish.mirrors.
+    coordinator_claude.path`) IS a registered mirror and is DELIBERATELY
+    engine-free by design (the doctrine-only OSS mirror; it has never
+    carried `coordinator_core/`), so all 5 of its rows refused under the
+    registration-only predicate -- 0/5 rows succeeded.
+    Registration answers "does a declared registry entry exist for this
+    dest", not "does this mirror carry the engine payload"; those are
+    different facts and only the second one is what this guard is FOR.
+    Narrowed again to `_engine_declaring_mirror_keys()`: a registered
+    mirror's key is in scope for this guard IFF the portable topology
+    itself writes `coordinator_core` into it somewhere (the `claude-
+    klabauter` row does; no `coordinator_claude` row does). Derived rather
+    than a THIRD registry key (`declares_engine`) an operator would have to
+    remember to set -- "the operator remembers" is not an artifact, and a
+    derived-from-data predicate is self-maintaining against the same rows
+    that already declare klabauter's payload. Default is `False` (not
+    declaring), so an engine-free mirror is never judged on an absence that
+    defines it, and this second narrowing is itself scoped BENEATH the
+    first: an unregistered dest still short-circuits above without ever
+    reaching this check.
+
+    POST-WRITE, not just current state: a dest whose OWN `coordinator_core/`
+    is exactly what THIS row's write is about to populate (source already
+    carries it) must not be judged on its pre-write absence -- that is a
+    virgin-dest false refusal, not a degraded mirror. `target.dest_dir ==
+    engine_root_dir` already covered the "this row IS the coordinator_core
+    row" shape; `target.source_dir / "coordinator_core"` covers the same
+    row-writes-the-payload-directly shape when the dest nests it one level
+    down. A sibling row (bin/scripts/lib) whose OWN write never touches
+    `coordinator_core/` still correctly reads CURRENT state -- its write
+    can't make coordinator_core appear or vanish, so "does it exist right
+    now" is the right question for it; a true first-ever multi-row bootstrap
+    ordering gap (an entrypoint row runs before the emitter row has ever
+    written coordinator_core once) is a NAMED RESIDUAL, not solved here --
+    same posture as the residual above, and out of scope per the "do not
+    move guard placement" constraint on this pass."""
+    repo_root = _dest_repo_root(target.dest_dir)
+    if repo_root is None:
+        return True
+
+    mirror_key = _publish_mirror_key_for_repo_root(repo_root)
+    if mirror_key is None:
+        # Not a registered `publish.mirrors.*` destination -- no declared
+        # engine-root expectation to assert against (see SCOPE above).
+        return True
+
+    if mirror_key not in _engine_declaring_mirror_keys(setup_dir):
+        # Registered, but the portable topology never writes coordinator_core
+        # into this mirror -- an engine-free mirror by design (coordinator-
+        # claude shape), out of scope for this guard (see SCOPE, second
+        # narrowing, above). Default False keeps this check inert for a
+        # mirror that never declared an engine payload in the first place.
+        return True
+
+    actual_ref = _dest_checked_out_ref(repo_root)
+    if actual_ref is None:
+        print(
+            f"  Error: dest at {repo_root} is on a detached HEAD -- the "
+            "published-engine rung would reject it.",
+            file=sys.stderr,
+        )
+        print(f"  Skipping {target.name}.", file=out)
+        print("", file=out)
+        return False
+
+    engine_root_dir = repo_root / "coordinator_core"
+    will_have_engine_root = (
+        engine_root_dir.is_dir()
+        or target.dest_dir == engine_root_dir
+        or (target.source_dir / "coordinator_core").is_dir()
+    )
+    if not will_have_engine_root:
+        print(
+            f"  Error: {engine_root_dir} would be absent after this round -- "
+            "the published-engine rung would reject it.",
+            file=sys.stderr,
+        )
+        print(f"  Skipping {target.name}.", file=out)
+        print("", file=out)
+        return False
+    return True
+
+
+def assert_dest_on_declared_ref(
+    target: "ResolvedTarget", totals: RunTotals, *, out: IO[str] = sys.stdout
+) -> bool:
+    """Refuse this row when the dest's checked-out branch does not match its
+    declared `publish.mirrors.<key>.track_ref` (C9). Returns True (proceed)
+    for a dest with no `.git` ancestor at all (`_ensure_dest_ready` owns that
+    refusal) and for a dest outside the `publish.mirrors.*` namespace (no
+    declared ref exists to assert against)."""
+    repo_root = _dest_repo_root(target.dest_dir)
+    if repo_root is None:
+        return True
+    key = _publish_mirror_key_for_repo_root(repo_root)
+    if key is None:
+        return True
+
+    from coordinator_core.machine_resolver import registry_get
+
+    track_ref = (
+        registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}")
+        or _resolve_remote_default_branch(repo_root)
+        or _DEFAULT_PUBLISH_TRACK_REF
+    )
+    expected_branch = _expected_local_branch(track_ref)
+    actual_ref = _dest_checked_out_ref(repo_root)
+    if actual_ref is None:
+        print(f"  Error: could not read the checked-out ref at {repo_root}.", file=sys.stderr)
+        print(f"  Skipping {target.name}.", file=out)
+        print("", file=out)
+        return False
+    if actual_ref != expected_branch:
+        print(
+            f"  Error: dest is not on the declared publish ref for '{key}' "
+            f"(expected '{expected_branch}', dest is on '{actual_ref}').",
+            file=sys.stderr,
+        )
+        print(f"  Skipping {target.name}.", file=out)
+        print("", file=out)
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Candidate-to-main divergence report (C14, docs/plans/2026-08-15-klabauter-
+# release-channels.md) -- discharges "promotion-by-memory". The PM owns the
+# promotion ACT; what must not depend on memory -- theirs or an EM's -- is
+# NOTICING that one is due. This computes the notice, every publish round,
+# for any dest whose declared `publish.mirrors.<key>.track_ref` (C9) names a
+# channel other than the default `origin/main` -- i.e. any mirror that
+# actually carries a candidate/release branch, not just klabauter by name.
+#
+# Thresholds are a first guess, deliberately, not a ruling -- PM, 2026-08-15:
+# "lick your LLM finger, stick it in the air, and call it... so long as I get
+# a reminder if it's getting bad." At the measured ~7.3h median inter-round
+# publish cadence (docs/reference/klabauter-release-channels.md), 300 commits
+# is roughly a fortnight of real drift and 750 roughly a month -- a later
+# reader should be adjusting these two numbers, not re-deriving the policy:
+#   - advisory  at 300 commits ahead of origin/main, OR 14 days since the
+#     last promotion, whichever comes first;
+#   - escalated wording at 750 commits.
+#
+# Reported, never gated -- a publish must never fail, not even a non-zero
+# exit, because this delta is large. Any failure in the computation itself
+# (no candidate branch yet -- the live state today, no origin/main, a git
+# error) degrades to a quiet skip: a diagnostic that can break the publish
+# path is worse than no diagnostic.
+# ---------------------------------------------------------------------------
+_CANDIDATE_DIVERGENCE_ADVISORY_COMMITS = 300
+_CANDIDATE_DIVERGENCE_ADVISORY_DAYS = 14
+_CANDIDATE_DIVERGENCE_ESCALATED_COMMITS = 750
+
+
+def _git_rev_list_count(repo_root: Path, range_spec: str) -> Optional[int]:
+    """`git rev-list --count <range_spec>` from OUTSIDE the clone (`git -C`,
+    never `cd` -- same publish-mirror-guard constraint as `_dest_checked_out_
+    ref`). Returns `None` on any failure -- git absent, not a work tree, an
+    unknown ref on either side of the range (e.g. no candidate branch yet),
+    or malformed output -- so the caller can treat "no answer" as "nothing to
+    report" rather than a crash."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-list", "--count", range_spec],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return int(result.stdout.strip())
+    except ValueError:
+        return None
+
+
+def _git_merge_base_date(repo_root: Path, ref_a: str, ref_b: str) -> Optional[datetime]:
+    """Commit date (`%cI`, timezone-aware ISO 8601) of `git merge-base ref_a
+    ref_b`, or `None` on any failure. No promotion-record artifact exists
+    yet (`klabauter-promote.py` does not write one) -- this is the honest
+    fallback source for "days since last promotion" the plan calls for: the
+    point where the candidate line last touched `main` is the best available
+    proxy for "when was this last promoted", named as a fallback rather than
+    silently reported as if it were a real promotion record."""
+    try:
+        mb_result = subprocess.run(
+            ["git", "-C", str(repo_root), "merge-base", ref_a, ref_b],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        return None
+    if mb_result.returncode != 0:
+        return None
+    sha = mb_result.stdout.strip()
+    if not sha:
+        return None
+    try:
+        date_result = subprocess.run(
+            ["git", "-C", str(repo_root), "log", "-1", "--format=%cI", sha],
+            capture_output=True,
+            text=True,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        return None
+    if date_result.returncode != 0:
+        return None
+    iso = date_result.stdout.strip()
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+
+
+def report_candidate_divergence(repo_root: Path, *, out: IO[str] = sys.stdout) -> None:
+    """Emit an advisory when a dest's declared candidate/release branch (C9's
+    `publish.mirrors.<key>.track_ref`) has drifted from `origin/main` past
+    the thresholds above -- called from `main()`, once per distinct
+    published dest repo root, after the round lands.
+
+    Skips silently (no `key`, `track_ref` is the default `origin/main` --
+    this dest mirrors main itself, no candidate channel exists to diverge --
+    or the divergence computation fails for any reason) rather than raising:
+    a publish must never fail on this report's account (plan body, "Reported,
+    never gated"). Below-threshold divergence is also silent, deliberately
+    -- this is an advisory for a PM to act on, not a per-round status line,
+    and the guard-messaging register this repo follows treats repetition as
+    the failure mode, not the omission.
+
+    Reports THREE numbers, per the PM's own target register (plan body):
+    the actual distance, the recommendation, and the post-promotion delta --
+    the last is always 0 in this topology, because promotion fast-forwards
+    `main` onto the candidate ref (docs/reference/klabauter-release-
+    channels.md's promotion mechanism, arm 3) rather than resetting to some
+    smaller residual; that is the number that makes the recommendation
+    actionable rather than nagging."""
+    try:
+        key = _publish_mirror_key_for_repo_root(repo_root)
+        if key is None:
+            return
+
+        from coordinator_core.machine_resolver import registry_get
+
+        # Review: E-divergence-report — reuse _resolve_remote_default_branch
+        # (slice D) rather than falling straight to the _DEFAULT_PUBLISH_
+        # TRACK_REF constant, matching the sibling resolution at
+        # assert_dest_on_declared_ref above.
+        track_ref = (
+            registry_get(f"{_PUBLISH_MIRRORS_PREFIX}{key}{_PUBLISH_MIRROR_TRACK_REF_SUFFIX}")
+            or _resolve_remote_default_branch(repo_root)
+            or _DEFAULT_PUBLISH_TRACK_REF
+        )
+        if track_ref == _DEFAULT_PUBLISH_TRACK_REF:
+            return  # this mirror tracks main itself -- no candidate channel to diverge
+        candidate_branch = _expected_local_branch(track_ref)
+
+        commits_ahead = _git_rev_list_count(repo_root, f"origin/main..{candidate_branch}")
+        if commits_ahead is None:
+            return  # no candidate branch yet (today's live state), no origin/main, or a git error
+
+        last_promotion_date = _git_merge_base_date(repo_root, "origin/main", candidate_branch)
+        days_since: Optional[int] = None
+        promotion_source = "no promotion record exists — falling back to the merge-base date"
+        if last_promotion_date is not None:
+            if last_promotion_date.tzinfo is None:
+                last_promotion_date = last_promotion_date.replace(tzinfo=timezone.utc)
+            days_since = max(0, (datetime.now(timezone.utc) - last_promotion_date).days)
+
+        # Review: E-divergence-report — the days-only trigger is gated on
+        # commits_ahead > 0 so a stationary candidate (0 commits ahead, just a
+        # stale merge-base date) never fires a "recommend promoting ... drops
+        # the delta from 0 to 0" advisory -- there is nothing to promote.
+        advisory = commits_ahead > 0 and (
+            commits_ahead >= _CANDIDATE_DIVERGENCE_ADVISORY_COMMITS
+            or (days_since is not None and days_since >= _CANDIDATE_DIVERGENCE_ADVISORY_DAYS)
+        )
+        if not advisory:
+            return
+
+        escalated = commits_ahead >= _CANDIDATE_DIVERGENCE_ESCALATED_COMMITS
+        severity = "ESCALATED" if escalated else "advisory"
+        if days_since is not None:
+            days_clause = f"{days_since}d since last promotion ({promotion_source})"
+        else:
+            days_clause = "days-since-promotion unavailable"
+
+        print("", file=out)
+        print(
+            f"  [{severity}] '{candidate_branch}' is {commits_ahead} commit(s) ahead of "
+            f"origin/main ({days_clause}).",
+            file=out,
+        )
+        print(
+            f"  Recommend promoting '{candidate_branch}' to main now -- that drops the "
+            "delta from "
+            f"{commits_ahead} to 0.",
+            file=out,
+        )
+    except Exception:
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -5816,12 +7210,179 @@ def _sweep_stale_publish_staging_dirs(
         warn(totals, f"stale publish-staging sweep failed for {dest_dir}: {exc}", out=out)
 
 
+def _dir_trees_equal(a: Path, b: Path) -> bool:
+    """Cheap recursive equality check (relative file paths + size + mtime,
+    never byte content) used only by `_swap_publish_staging_into_dest_root`
+    to decide whether a root-dest top-level DIRECTORY genuinely needs its
+    rename-aside swap, or can be left untouched.
+
+    A root-dest row's `staging_dir` is seeded by `shutil.copytree`-ing the
+    ENTIRE previous `dest_dir` (§ `_create_publish_staging_dir`), so every
+    sibling row's top-level directory this row does not itself manage rides
+    along as an untouched copy — `copytree`'s default `copy2` preserves
+    mtimes, so an untouched copy's (size, mtime) pairs match the original
+    exactly. Swapping those unconditionally would rename-aside (and risk a
+    Windows sharing violation on) every OTHER row's live output for no
+    reason — exactly the defect this whole change exists to stop causing.
+    A directory this row's own manifest actually updated differs in at
+    least one file's size or mtime and is swapped; an unmodified sibling
+    copy does not, and is left alone."""
+    if not b.is_dir():
+        return False
+    a_stat = {p.relative_to(a).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns) for p in a.rglob("*") if p.is_file()}
+    b_stat = {p.relative_to(b).as_posix(): (p.stat().st_size, p.stat().st_mtime_ns) for p in b.rglob("*") if p.is_file()}
+    return a_stat == b_stat
+
+
+def _swap_publish_staging_entry(dest_entry: Path, staging_entry: Path) -> None:
+    """Swaps ONE top-level name from `staging_entry` into `dest_entry` —
+    the per-entry primitive `_swap_publish_staging_into_dest_root` uses in
+    place of a single whole-tree rename. A file is replaced with
+    `os.replace` (same-filesystem, effectively atomic). A directory is
+    renamed aside first (`dest_entry` -> `dest_entry` + `.prior`), then
+    `staging_entry` -> `dest_entry`; a failure of that second rename
+    restores the aside copy, so a partial failure leaves `dest_entry`
+    exactly as it was before this call, never missing."""
+    if staging_entry.is_dir():
+        prior = dest_entry.with_name(dest_entry.name + ".prior")
+        if dest_entry.exists():
+            os.rename(dest_entry, prior)
+        try:
+            os.rename(staging_entry, dest_entry)
+        except OSError:
+            if prior.exists():
+                os.rename(prior, dest_entry)
+            raise
+        if prior.exists():
+            shutil.rmtree(prior, onerror=_rmtree_clear_readonly_onerror)
+    else:
+        os.replace(staging_entry, dest_entry)
+
+
+def _swap_publish_staging_into_dest_root(dest_dir: Path, staging_dir: Path) -> None:
+    """Root-dest branch of `_swap_publish_staging_into_dest`, taken when
+    `dest_dir` IS a repo root (§ that function's docstring for the
+    detection and the tradeoff this branch accepts). Never renames
+    `dest_dir` itself — instead swaps top-level names one at a time via
+    `_swap_publish_staging_entry`, so a live handle held anywhere under a
+    SIBLING row's subtree (another `claude-klabauter*` row's own subdir, or
+    a coordinator ceremony interpreter running out of this same live
+    engine install) can never block this row's own publish the way a
+    whole-tree rename of the repo root can on Windows.
+
+    Add/update: for each top-level entry in `staging_dir`, swap it into
+    `dest_dir` — except a directory whose content already matches `dest_dir`
+    byte-for-byte per `_dir_trees_equal` (an untouched sibling-row copy;
+    § that function's docstring) is left alone entirely, not even
+    renamed-aside. `.git` is never a candidate here: `_create_publish_
+    staging_dir` never copies it into `staging_dir` in the first place.
+
+    Removal: a top-level FILE present in `dest_dir` but absent from
+    `staging_dir` is deleted, matching what a whole-tree replace would
+    have discarded — `staging_dir` is a full copy of `dest_dir` taken
+    before this row's own sync/transform pipeline ran (§ `_create_
+    publish_staging_dir`), and nothing else ever mutates this staging_dir
+    instance, so a file that vanished from it was deliberately removed by
+    THIS row's own processing (e.g. `sync_flat_mirror`'s own "not in
+    source" deletion phase, which already runs against this same staging
+    copy — see `process_target`'s `sync_target = replace(target,
+    dest_dir=staging_dir)`). `.git` is excluded from this walk explicitly
+    (belt-and-braces; it was never in `staging_dir` to begin with, so it
+    could never be flagged as absent-from-staging regardless).
+
+    Top-level DIRECTORIES are never removed here: `staging_dir` is seeded
+    as a full recursive copy of `dest_dir` (§ `_create_publish_staging_
+    dir`), so a directory present in `dest_dir` before this call is always
+    still present in `staging_dir` too (untouched or updated) — it can
+    never be "absent from staging", so no directory-removal case exists to
+    preserve. This is a real asymmetry with the subdir-row whole-tree path
+    (which discards an entire missing directory the same as a missing
+    file), accepted because this row's actual dispatch mode
+    (`sync_flat_mirror`) never manages directories at all (file-only, by
+    that function's own Phase 1/2 split) — a hypothetical future root-dest
+    row in a directory-managing mode would need this reconsidered, and
+    should say so rather than silently relying on this note.
+
+    Never touches `.git/coordinator-sessions/` (nested under `.git`,
+    already excluded) or any other entry the row does not own; ownership
+    for the add/update leg is exactly "named in `staging_dir`" — never
+    inferred by listing `dest_dir` — and for the removal leg is exactly
+    "a file that was in `dest_dir`'s original copy and is no longer in
+    `staging_dir`"."""
+    staged_names = {p.name for p in staging_dir.iterdir()}
+    for staging_entry in sorted(staging_dir.iterdir(), key=lambda p: p.name):
+        dest_entry = dest_dir / staging_entry.name
+        if staging_entry.is_dir() and dest_entry.is_dir() and _dir_trees_equal(staging_entry, dest_entry):
+            continue
+        _swap_publish_staging_entry(dest_entry, staging_entry)
+
+    if dest_dir.is_dir():
+        for dest_entry in sorted(dest_dir.iterdir(), key=lambda p: p.name):
+            if dest_entry.name == ".git":
+                continue
+            if dest_entry.is_file() and dest_entry.name not in staged_names:
+                dest_entry.unlink()
+
+    # Every entry this loop moved is gone from `staging_dir` already
+    # (`os.replace`/`os.rename` both remove the source); what remains is
+    # leftover cruft this row does not own (a `_dir_trees_equal`-skipped
+    # sibling copy) — discard the whole staging tree now, matching the
+    # whole-tree branch's own contract that `staging_dir` never survives a
+    # successful swap. `_rmtree_clear_readonly_onerror` clears a Windows
+    # read-only bit rather than aborting the walk partway (§ that
+    # function's own docstring).
+    if staging_dir.exists():
+        shutil.rmtree(staging_dir, onerror=_rmtree_clear_readonly_onerror)
+
+
 def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
     """Replaces `dest_dir`'s content with the fully-verified content of
     `staging_dir` (§ `_create_publish_staging_dir`) — the ONLY point in a
     staged publish row where the real destination is ever mutated, reached
     only after sync + the content-transform sweep + its guards + inject +
     pre_ci have all already succeeded against `staging_dir`.
+
+    Root-dest branch (`dest_dir` IS a repo root — detected via `(dest_dir /
+    ".git").exists()`, the same signal `_ensure_dest_ready` already uses to
+    distinguish a toplevel row's own `.git` from a `dest_subdir` row's
+    ancestor `.git`; a `dest_subdir` row's `dest_dir` never holds `.git`
+    directly, only an ancestor does, so this check cannot false-positive on
+    one): delegates to `_swap_publish_staging_into_dest_root` and returns
+    immediately, BEFORE any of the whole-tree steps below ever run. On
+    Windows, renaming a directory fails with a sharing violation if ANY
+    process holds an open handle ANYWHERE in that subtree — for a repo-root
+    `dest_dir` that subtree is the union of every sibling row's own output
+    plus a live engine install's `.git`/`.git/coordinator-sessions/`
+    interpreters, so the single `os.rename(dest_dir, prior_backup)` below
+    can essentially never succeed for that row (`claude-klabauter-publish-
+    repo-toplevel`, diagnosed via `WinError 32`/`PermissionError(13, ...)`).
+    The root branch trades whole-tree swap atomicity for PER-ENTRY
+    atomicity to make that rename avoidable at all — a `dest_subdir` row
+    keeps the stronger whole-tree guarantee unchanged below; only the
+    root-dest row takes the weaker, entry-scoped one. This tradeoff is
+    deliberate, already decided, not open for re-litigation here.
+
+    That branch also makes step 3 below (the `.git` re-home) and the
+    `PublishSwapPartial` stranded-`.git` raise UNREACHABLE for the only row
+    that could ever hit them: `_swap_publish_staging_into_dest_root` never
+    touches `.git` at all (it is never copied into `staging_dir` — §
+    `_create_publish_staging_dir` — and this function's root branch
+    explicitly skips the name `".git"` in both its add/update and removal
+    legs), so no `.git`-bearing `prior_backup` is ever created for that row
+    under the new code, and the stranded-`.prior`-with-`.git` refuse-loudly
+    guard at the top of this function (below) is also never reached for it
+    (the root branch returns before that check runs). A pre-existing
+    stranded `.prior` from a run of the OLD code cannot exist for this row
+    either: the diagnosis established this row's root `os.rename(dest_dir,
+    prior_backup)` always failed on Windows (the mirror root's files carry
+    stale mtimes from before this fix), so `prior_backup` itself was never
+    successfully created historically. Verified against the code, not
+    assumed: the only remaining caller of step 3 / `PublishSwapPartial` is
+    a `dest_subdir` row, which never has a `.git` of its own to strand in
+    the first place (§ this docstring's own prior paragraph on seven of
+    eight rows carrying a `dest_subdir`) — so in practice this class is now
+    dead for every row, kept only because a hypothetical row shape this
+    driver does not currently declare could still reach it.
 
     `.git` is deliberately NOT pre-moved into `staging_dir` before the swap.
     It rides with `dest_dir` into `prior_backup` untouched, and is re-homed
@@ -5899,6 +7460,10 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
     by file and date, not paraphrase, if reopening this. This sits ALONGSIDE
     the "re-diagnose from first principles" warning above, not instead of it.
     No retry is added here, or anywhere in this change."""
+    if (dest_dir / ".git").exists():
+        _swap_publish_staging_into_dest_root(dest_dir, staging_dir)
+        return
+
     prior_backup = staging_dir.with_name(staging_dir.name + ".prior")
 
     escaped_prefix = glob.escape(f".{dest_dir.name}.publish-staging-")
@@ -6114,12 +7679,16 @@ def process_target(
     identity_file_exists: bool,
     identity: Optional[PercolateIdentity],
     dry_run: bool,
+    round_pinned_shas: "Optional[dict[str, str]]" = None,
     engine_ctx: PercolateEngineContext,
     percolate_store_path: Optional[Path] = None,
     publish_sync_module: object = None,
     shadow_roots_sink: "Optional[List[Path]]" = None,
     visited_files_sink: "Optional[set[Path]]" = None,
     published_dest_dirs_sink: "Optional[set[Path]]" = None,
+    changed_files_sink: "Optional[set[Path]]" = None,
+    changed_undetermined_sink: "Optional[set[Path]]" = None,
+    timing_sink: "Optional[List[tuple[str, str, float]]]" = None,
     out: IO[str] = sys.stdout,
 ) -> None:
     print(f"=== {target.name} ({target.mode}) ===", file=out)
@@ -6131,11 +7700,21 @@ def process_target(
             print(f"  Error: source path does not exist: {root}", file=sys.stderr)
             print(f"  Skipping {target.name}.", file=out)
             print("", file=out)
+            if timing_sink is not None:
+                timing_sink.append((target.name, "REFUSED: source path absent", 0.0))
             return
 
-    gate_result = run_pre_sync_gates(
-        target, setup_dir, identity_file_exists, identity, totals, dry_run=dry_run, out=out
-    )
+    with _time_phase(timing_sink, target.name, "run_pre_sync_gates"):
+        gate_result = run_pre_sync_gates(
+            target,
+            setup_dir,
+            identity_file_exists,
+            identity,
+            totals,
+            dry_run=dry_run,
+            round_pinned_shas=round_pinned_shas,
+            out=out,
+        )
     if not gate_result.proceed:
         # Individual gate checks already emitted their own "Skipping" line —
         # matches bash, where each gate's own `continue` block prints it once.
@@ -6147,6 +7726,8 @@ def process_target(
         # try/finally below, so it is the only point this path reaches; clean
         # up here or they leak.
         _cleanup_shadow_roots(gate_result.shadow_roots)
+        if timing_sink is not None:
+            timing_sink.append((target.name, "REFUSED: pre-sync gate declined", 0.0))
         return
     effective_source_dir = gate_result.source_dir
     restricted_tmp_src = gate_result.restricted_tmp_src
@@ -6166,6 +7747,30 @@ def process_target(
     # `try`, and any exception.
     staging_dir: Optional[Path] = None
     staging_swapped = False
+
+    # C8 (declared-ref assertion) — MUST run before the one-shot bootstrap
+    # just below (`repo-cut`'s bootstrap already writes to `target.dest_dir`)
+    # and before every other write this function performs, per that helper's
+    # own module comment.
+    with _time_phase(timing_sink, target.name, "assert_dest_on_declared_ref"):
+        declared_ref_ok = assert_dest_on_declared_ref(target, totals, out=out)
+    if not declared_ref_ok:
+        if timing_sink is not None:
+            timing_sink.append((target.name, "REFUSED: dest not on declared ref", 0.0))
+        return
+
+    # C10 (docs/plans/2026-08-15-klabauter-release-channels.md) — same
+    # placement reasoning as C8 immediately above: before every write this
+    # function performs, beside C8's refusal so the two share one shape
+    # rather than growing two dialects.
+    with _time_phase(timing_sink, target.name, "assert_dest_engine_root_viable"):
+        engine_root_viable = assert_dest_engine_root_viable(
+            target, totals, setup_dir=setup_dir, out=out
+        )
+    if not engine_root_viable:
+        if timing_sink is not None:
+            timing_sink.append((target.name, "REFUSED: dest engine root not viable", 0.0))
+        return
 
     try:
         # One-shot bootstrap (AC4/AC5/AC6) — runs strictly AHEAD
@@ -6196,7 +7801,11 @@ def process_target(
                     out=out,
                 )
 
-        if not _ensure_dest_ready(target, totals, out=out):
+        with _time_phase(timing_sink, target.name, "_ensure_dest_ready"):
+            dest_ready = _ensure_dest_ready(target, totals, out=out)
+        if not dest_ready:
+            if timing_sink is not None:
+                timing_sink.append((target.name, "REFUSED: dest not ready", 0.0))
             return
 
         print("", file=out)
@@ -6218,18 +7827,24 @@ def process_target(
             )
             print(f"  Skipping {target.name}.", file=out)
             print("", file=out)
+            if timing_sink is not None:
+                timing_sink.append((target.name, "REFUSED: percolate engine unavailable", 0.0))
             return
         else:
             try:
-                dispatch_percolate_pre_rsync(engine_ctx, percolate_store_path, target)
+                with _time_phase(timing_sink, target.name, "dispatch_percolate_pre_rsync"):
+                    dispatch_percolate_pre_rsync(engine_ctx, percolate_store_path, target)
                 # C-W3 item 7 — the 2 standalone Shape E guard hooks (game-dev
                 # source-dir-absent against SOURCE; prune-stale-handoff-cruft
                 # against DEST, pre-sync timing) — see `dispatch_standalone_guards`.
-                dispatch_standalone_guards(engine_ctx, target, effective_source_dir)
+                with _time_phase(timing_sink, target.name, "dispatch_standalone_guards"):
+                    dispatch_standalone_guards(engine_ctx, target, effective_source_dir)
             except EngineUnavailableError as exc:
                 print(f"  Error: {exc}", file=sys.stderr)
                 print(f"  Skipping {target.name}.", file=out)
                 print("", file=out)
+                if timing_sink is not None:
+                    timing_sink.append((target.name, "REFUSED: engine unavailable mid-row", 0.0))
                 return
 
             # Every phase from here through `dispatch_percolate_pre_ci` can
@@ -6272,6 +7887,17 @@ def process_target(
         # cross.
         sync_totals = RunTotals() if staging_dir is not None else totals
         sync_out: IO[str] = io.StringIO() if staging_dir is not None else out
+
+        # `row_sync_changed` (§ docs/plans/2026-08-16-percolate-round-timing-
+        # and-changed-only.md chunk C4) — the sync layer's own copy/update
+        # decisions (§ `dispatch_mirror_like`'s `changed_sink`), sourced ONLY
+        # for a mirror-like row (the one mode this chunk captures, § its own
+        # module comment). `None` for every other mode (manifest, repo-cut)
+        # — undeterminable, not empty — so `dispatch_percolate_post_rsync`'s
+        # `sync_changed_paths=None` correctly fails this row's changed-set
+        # WIDE rather than narrowing it to "nothing" (§ that param's own
+        # fail-wide contract).
+        row_sync_changed: "Optional[set[str]]" = None
 
         if target.mode in mirror_like_wire_names():
             # `publish_sync_module` is resolved ONCE in `main()` (§ AC15,
@@ -6408,23 +8034,29 @@ def process_target(
                 # every call site (outer AND inner).
                 except (ImportError, OSError, ValueError, RuntimeError):
                     renamed_dir_names = None
-            dispatch_mirror_like(
-                publish_sync_module,
-                sync_target,
-                effective_source_dir,
-                sync_totals,
-                dry_run=dry_run,
-                renamed_dir_names=renamed_dir_names,
-                out=sync_out,
-            )
+            row_sync_changed = set()
+            with _time_phase(timing_sink, target.name, "dispatch_mirror_like"):
+                dispatch_mirror_like(
+                    publish_sync_module,
+                    sync_target,
+                    effective_source_dir,
+                    sync_totals,
+                    dry_run=dry_run,
+                    renamed_dir_names=renamed_dir_names,
+                    out=sync_out,
+                    changed_sink=row_sync_changed,
+                )
         elif target.mode == "manifest":
-            manifest_ok = sync_manifest(effective_source_dir, sync_target.dest_dir, sync_totals, dry_run=dry_run, out=sync_out)
+            with _time_phase(timing_sink, target.name, "sync_manifest"):
+                manifest_ok = sync_manifest(effective_source_dir, sync_target.dest_dir, sync_totals, dry_run=dry_run, out=sync_out)
             if not manifest_ok:
                 _forward_sync_diagnostics(sync_out, out)
                 totals.warnings += sync_totals.warnings
                 totals.audit_files.extend(sync_totals.audit_files)
                 print(f"  Skipping {target.name}.", file=out)
                 print("", file=out)
+                if timing_sink is not None:
+                    timing_sink.append((target.name, "REFUSED: manifest sync failed", 0.0))
                 return
         else:
             # `repo-cut` (and any future bootstrap-bearing mode) has no
@@ -6439,6 +8071,8 @@ def process_target(
             if mode_descriptor is None or not mode_descriptor.is_bootstrap_bearing:
                 print(f"  Error: unknown mode '{target.mode}'", file=sys.stderr)
                 print("", file=out)
+                if timing_sink is not None:
+                    timing_sink.append((target.name, "REFUSED: unknown mode", 0.0))
                 return
 
         # Forward non-noise diagnostics (WARNING/Error lines — a genuinely
@@ -6464,29 +8098,41 @@ def process_target(
             # caller's `visited_files_sink` below, AFTER the swap, so the
             # end-of-run unscanned-published check still sees real paths.
             row_visited: "set[Path]" = set()
+            # `row_changed_files` (§ docs/plans/2026-08-16-percolate-round-
+            # timing-and-changed-only.md chunk C4): the wire's `changed_files`
+            # for this row's post_rsync phase, § `dispatch_percolate_post_
+            # rsync`'s own return-value docstring. `None` (undeterminable) for
+            # any row whose `row_sync_changed` above stayed `None`. Folded
+            # into the caller's `changed_files_sink`/`changed_undetermined_
+            # sink` below, AFTER the swap, same timing as `row_visited`.
+            row_changed_files: "Optional[frozenset[str]]" = None
             try:
-                rename_manifest = dispatch_percolate_post_rsync(
-                    engine_ctx,
-                    percolate_store_path,
-                    sync_target,
-                    effective_source_dir,
-                    visited_sink=row_visited,
-                )
-                inject_shadow_toplevels = dispatch_percolate_inject(
-                    engine_ctx,
-                    sync_target,
-                    percolate_root=setup_dir.parent,
-                    visited_sink=row_visited,
-                )
-                dispatch_percolate_pre_ci(
-                    engine_ctx,
-                    percolate_store_path,
-                    sync_target,
-                    effective_source_dir,
-                    rename_manifest,
-                    identity_dest_dir=target.dest_dir,
-                    percolate_root=setup_dir.parent,
-                )
+                with _time_phase(timing_sink, target.name, "dispatch_percolate_post_rsync"):
+                    rename_manifest, row_changed_files = dispatch_percolate_post_rsync(
+                        engine_ctx,
+                        percolate_store_path,
+                        sync_target,
+                        effective_source_dir,
+                        visited_sink=row_visited,
+                        sync_changed_paths=row_sync_changed,
+                    )
+                with _time_phase(timing_sink, target.name, "dispatch_percolate_inject"):
+                    inject_shadow_toplevels = dispatch_percolate_inject(
+                        engine_ctx,
+                        sync_target,
+                        percolate_root=setup_dir.parent,
+                        visited_sink=row_visited,
+                    )
+                with _time_phase(timing_sink, target.name, "dispatch_percolate_pre_ci"):
+                    dispatch_percolate_pre_ci(
+                        engine_ctx,
+                        percolate_store_path,
+                        sync_target,
+                        effective_source_dir,
+                        rename_manifest,
+                        identity_dest_dir=target.dest_dir,
+                        percolate_root=setup_dir.parent,
+                    )
             except EngineUnavailableError as exc:
                 # A raise from dispatch_percolate_inject itself attaches
                 # whatever it materialized before failing (§ that function's
@@ -6497,6 +8143,8 @@ def process_target(
                 print(f"  Error: {exc}", file=sys.stderr)
                 print(f"  Skipping {target.name}.", file=out)
                 print("", file=out)
+                if timing_sink is not None:
+                    timing_sink.append((target.name, "REFUSED: engine unavailable in post_rsync/inject/pre_ci", 0.0))
                 # `staging_dir` is discarded by the `finally` block below
                 # (`staging_swapped` stays False) — the real destination was
                 # never touched by this row's sync, sweep, guards, or inject.
@@ -6524,10 +8172,12 @@ def process_target(
             # the fold below silently drops the new field on every row.
             report_buffer = io.StringIO()
             report_totals = RunTotals()
-            _report_published_diff(staging_dir, target.dest_dir, report_totals, out=report_buffer)
+            with _time_phase(timing_sink, target.name, "_report_published_diff"):
+                _report_published_diff(staging_dir, target.dest_dir, report_totals, out=report_buffer)
             _report_rename_manifest(rename_manifest, out=report_buffer)
             try:
-                _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
+                with _time_phase(timing_sink, target.name, "_swap_publish_staging_into_dest"):
+                    _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
             except PublishSwapPartial as exc:
                 # Do NOT swallow: re-raise either way so the row still marks
                 # FAILED and the operator sees `exc`'s message. Whether to
@@ -6552,6 +8202,12 @@ def process_target(
                         for staged_path in row_visited:
                             rel = staged_path.relative_to(staging_dir)
                             visited_files_sink.add(target.dest_dir / rel)
+                    if row_changed_files is None:
+                        if changed_undetermined_sink is not None:
+                            changed_undetermined_sink.add(target.dest_dir)
+                    elif changed_files_sink is not None:
+                        for relative_id in row_changed_files:
+                            changed_files_sink.add(target.dest_dir / relative_id)
                     if published_dest_dirs_sink is not None:
                         published_dest_dirs_sink.add(target.dest_dir)
                 else:
@@ -6569,6 +8225,19 @@ def process_target(
                 for staged_path in row_visited:
                     rel = staged_path.relative_to(staging_dir)
                     visited_files_sink.add(target.dest_dir / rel)
+            # `row_changed_files` fold (§ docs/plans/2026-08-16-percolate-
+            # round-timing-and-changed-only.md chunk C4) — `None` means this
+            # row's changed-set is undeterminable (§ its own comment above),
+            # recorded via `changed_undetermined_sink` so the caller's
+            # per-repo-root aggregation fails WIDE (full sweep) for this
+            # row's repo root rather than silently treating it as "changed
+            # nothing".
+            if row_changed_files is None:
+                if changed_undetermined_sink is not None:
+                    changed_undetermined_sink.add(target.dest_dir)
+            elif changed_files_sink is not None:
+                for relative_id in row_changed_files:
+                    changed_files_sink.add(target.dest_dir / relative_id)
             # § `dispatch_end_of_run_unscanned_published_check` fix (unscanned-
             # published-guard false-positive) — reached ONLY after this row's
             # swap has actually landed, i.e. `target.dest_dir` right now holds
@@ -6663,14 +8332,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--changed-only",
         action="store_true",
+        default=True,
         help=(
             "Scope the end-of-run ENTRYPOINT gate (§ chunk C5) to entrypoints "
             "whose transitive first-party import closure actually reaches a "
             "file this run visited, plus an always-swept floor of entrypoints "
-            "no changed set could ever select. Opt-in, default OFF -- omitting "
-            "this flag sweeps every shipped entrypoint every run, unchanged "
-            "from before this flag existed. What counts as a 'release publish' "
-            "that should default this on is an open PM item, not decided here."
+            "no changed set could ever select. DEFAULT ON (PM ruling, "
+            "2026-08-15): the entrypoint gate runs --changed-only or --delta, "
+            "never a full sweep, at the entrypoint gate. This flag is accepted "
+            "for explicitness/back-compat; pass --full-sweep to opt out."
+        ),
+    )
+    p.add_argument(
+        "--full-sweep",
+        action="store_true",
+        help=(
+            "Opt out of the --changed-only default (PM ruling, 2026-08-15) and "
+            "sweep every shipped entrypoint every run, as every publish did "
+            "before that default existed."
         ),
     )
     p.add_argument(
@@ -6727,6 +8406,98 @@ def _modes_in_run_from_rows(rows: Sequence[str]) -> Optional[frozenset[str]]:
     )
 
 
+# ---------------------------------------------------------------------------
+# Klabauter parity-group ordering invariant (2026-08-15, docs/plans/2026-08-15-
+# bind-the-klabauter-publish-rows-into-a-parity-group.md, chunk C3). The eight
+# `publish-mirror:claude_klabauter` rows in `setup/publish-targets.portable`
+# split one argv contract across independently-landing rows: `claude-klabauter`
+# (source `coordinator_core`) COMPOSES argv and hands it to the five
+# entrypoint-carrying rows below, which PARSE it with strict
+# `argparse.parse_args`. Each row stages then swaps independently, so a round
+# is internally inconsistent for its whole duration; the direction of that
+# window matters. A parser row landing ahead of an emitter that later adds a
+# flag parses fine (harmless, for additions only); an emitter row landing
+# ahead of its parser exits 2 before running (the 2026-08-15 live incident
+# the plan's § Problem records). `setup/publish-targets.portable` therefore
+# orders every entrypoint row BEFORE the emitter row; these two constants
+# record that invariant so `main()` can refuse a table edited back into
+# emitter-first order instead of silently reconstructing the bug.
+#
+# SCOPED TO ADDITIVE parser changes only — removals, renames, newly-
+# `required=True` arguments, and tightened `choices` INVERT this ordering's
+# safety and must be staged over two publish rounds instead (widen the
+# parser, publish, THEN narrow the emitter). This constant and the assert
+# below do not, and cannot, make those non-additive cases safe — they only
+# enforce the row shape that keeps the additive case benign.
+# ---------------------------------------------------------------------------
+_KLABAUTER_PARITY_EMITTER_ROW = "claude-klabauter"
+_KLABAUTER_PARITY_ENTRYPOINT_ROWS = (
+    "claude-klabauter-bin",
+    "claude-klabauter-scripts",
+    "claude-klabauter-lib",
+    "claude-klabauter-coordinator-lib",
+    "claude-klabauter-coordinator-bin",
+)
+
+
+def _assert_klabauter_parity_group_ordering(rows: Sequence[str]) -> bool:
+    """Pre-flight refusal (LOUD, not a warning): every row named in
+    `_KLABAUTER_PARITY_ENTRYPOINT_ROWS` must publish before
+    `_KLABAUTER_PARITY_EMITTER_ROW`. `rows` is the resolved row list
+    `load_targets` returns, in the same file order `main()`'s publish loop
+    iterates. Returns `False` — after printing a FATAL naming the violating
+    row(s) to stderr — if the emitter's index is not strictly greater than
+    every present entrypoint row's index; `True` otherwise. Never raises:
+    `main()` folds this into its own `return 1` pre-sync-gate-decline path
+    (§ `main`'s exit-code contract — this fires before any row has synced,
+    so it is a declined pre-sync gate, not a post-publish verification
+    failure, and must map to exit 1, not 2).
+
+    A row named here that is simply ABSENT from `rows` (e.g. a `--target`
+    subset that excludes it) is not a violation — this check only orders
+    rows that are actually present in this run; it is not a completeness
+    check on the parity group's membership.
+
+    Why loud, not advisory: a violation means the table was edited into the
+    exact shape the 2026-08-15 incident exhibited (emitter first, parser
+    last) — this ordering exists specifically to prevent republishing that
+    bug, so silently proceeding here would defeat the fix at the one point
+    it can still catch a regression before it ships.
+
+    `index_by_name` keeps only the LAST occurrence of a duplicated row name
+    (dict comprehension, later key wins) — an accidental duplicate row name
+    in the table would make this check blind to whichever occurrence sorts
+    earlier. Not exploitable today: row names in `setup/publish-targets.
+    portable` are unique, and that uniqueness is enforced elsewhere
+    (`load_targets`/allowlist loading), not by this function. This check
+    assumes, but does not itself verify, unique row names.
+    """
+    index_by_name = {row.split("|", 1)[0]: i for i, row in enumerate(rows)}
+    emitter_index = index_by_name.get(_KLABAUTER_PARITY_EMITTER_ROW)
+    if emitter_index is None:
+        return True
+    violations = [
+        entrypoint_name
+        for entrypoint_name in _KLABAUTER_PARITY_ENTRYPOINT_ROWS
+        if entrypoint_name in index_by_name and index_by_name[entrypoint_name] > emitter_index
+    ]
+    if violations:
+        print(
+            "[publish.py] FATAL: klabauter parity-group ordering violated — "
+            f"'{_KLABAUTER_PARITY_EMITTER_ROW}' (argv emitter) is ordered "
+            f"before {', '.join(violations)} (argv parser row(s)) in "
+            "setup/publish-targets.portable. The emitter must publish LAST "
+            "among this parity group, after every entrypoint row, or a "
+            "round can land a flag the parser side has not learned yet — "
+            "the 2026-08-15 incident this ordering exists to prevent. Move "
+            f"'{_KLABAUTER_PARITY_EMITTER_ROW}' below "
+            f"{', '.join(_KLABAUTER_PARITY_ENTRYPOINT_ROWS)} in the table.",
+            file=sys.stderr,
+        )
+        return False
+    return True
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Exit-code contract (state/bug-backlog/2026-08-10-coordinator-publish-s-
     exit-code-is-not-a-542c9750e55a.yaml): a caller may trust the exit code
@@ -6753,6 +8524,21 @@ def main(argv: Optional[List[str]] = None) -> int:
     row failure, making the two indistinguishable from the exit code alone.
     """
     args = build_arg_parser().parse_args(argv)
+
+    # § C1 (docs/plans/2026-08-16-percolate-round-timing-and-changed-only.md)
+    # — round wall clock starts here, before any argv-driven work, so the
+    # end-of-round "unattributed remainder" this chunk prints covers
+    # everything `main()` itself does, not just the row loop.
+    _round_wall_start = time.perf_counter()
+    round_timings: "List[tuple[str, str, float]]" = []
+
+    # Review: code-reviewer P2 — consume (pop, not just read) the inherited-
+    # lock-roots token here, once, at the very top of `main()`, so it cannot
+    # survive `os.environ` into any nested or second-order invocation this
+    # process spawns (e.g. a future `publish.py` calling `publish.py`). The
+    # captured value is threaded down to the lock loop below via
+    # `_inherited_roots_token`; PID-binding/verification happens there.
+    _inherited_roots_token = os.environ.pop(_INHERITED_LOCK_ROOTS_ENV, "")
 
     # Review: code-reviewer Finding 2 — capture the rung that actually
     # resolved `percolate_root`/`setup_dir` here, once, and thread it into
@@ -6847,6 +8633,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 file=sys.stderr,
             )
             return 1
+
+    # Klabauter parity-group ordering pre-flight (C3): refuse loudly before any
+    # row publishes if the table has been edited back into emitter-first order.
+    # See `_assert_klabauter_parity_group_ordering`'s own docstring for why
+    # this is a declined pre-sync gate (exit 1), not a post-publish
+    # verification failure (exit 2) — no row has synced yet at this point.
+    if not _assert_klabauter_parity_group_ordering(rows):
+        return 1
 
     # percolate-engine cutover (C-W2) — resolve the engine repo's engine + load/validate
     # the store ONCE, before the target loop (both are shared preconditions
@@ -6994,6 +8788,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     # which row happened to touch them. Shared between the two checks — one
     # collection pass, not two independently-drifting ones.
     end_of_run_check_roots: "List[Path]" = []
+    # C-round-scan attribution (§ `_attribute_identity_findings`) — every
+    # row this invocation reached, grouped by the same repo-root key
+    # `end_of_run_check_roots` uses, so a failing end-of-run identity
+    # finding can be mapped back to the row whose `dest_subdir` it falls
+    # under. Populated in lockstep with `end_of_run_check_roots` below
+    # (including a `--delta`-skipped row — `skipped_row_names` is what lets
+    # the attribution distinguish "this row published the finding this run"
+    # from "the finding pre-exists in this row's subtree, untouched").
+    end_of_run_rows_by_repo_root: "dict[Path, List[ResolvedTarget]]" = {}
     # § `dispatch_end_of_run_unscanned_published_check` — needs each row's
     # OWN resolved section (for its `file_surface` params), not just its
     # repo root, so this is a separate accumulator rather than folded into
@@ -7011,6 +8814,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     # against what THIS run's sweep/inject actually visited instead of
     # re-deriving eligibility via `iter_surface_files` at check time.
     end_of_run_visited_by_repo_root: "dict[Path, set[Path]]" = {}
+    # § `dispatch_end_of_run_entrypoint_gate` chunk C4 (docs/plans/2026-08-16-
+    # percolate-round-timing-and-changed-only.md) — the real CHANGED-set (not
+    # a read-set, § `end_of_run_visited_by_repo_root` above) this run's rows
+    # actually wrote at the destination, keyed the same way. Unioned in below
+    # from `process_target`'s `changed_files_sink`. `end_of_run_changed_
+    # undetermined_roots` names every repo root with at least one row whose
+    # changed-set could not be determined this run (§ `process_target`'s
+    # `changed_undetermined_sink`) — the gate must fail WIDE (full sweep) for
+    # any such root, never narrow to the partial union already accumulated.
+    end_of_run_changed_by_repo_root: "dict[Path, set[Path]]" = {}
+    end_of_run_changed_undetermined_roots: "set[Path]" = set()
     # § `dispatch_end_of_run_unscanned_published_check` fix (unscanned-published-
     # guard FALSE-POSITIVE on a file this invocation never published) — the set
     # of `dest_dir`s this run actually SWAPPED (§ `process_target`'s
@@ -7089,6 +8903,38 @@ def main(argv: Optional[List[str]] = None) -> int:
     # structurally.
     parsed_rows: "dict[str, ResolvedTarget]" = {row: parse_target_row(row) for row in rows}
 
+    # Round-wide source-sha pin (docs/plans/2026-08-04-publish-from-a-
+    # committed-ref.md C1b amendment) — resolved HERE, once per contributing
+    # root's git toplevel, before any row's gates or materialization run, so
+    # every row in THIS round reads the same commit for a shared toplevel
+    # even if HEAD moves mid-round (measured: four distinct SHAs materialized
+    # across one round on this box, from peer commits landing mid-round).
+    # `round_pinned_shas` is threaded through every `process_target` call
+    # below and read by `run_pre_sync_gates` via `_round_pin_source_sha`,
+    # which is idempotent — this pass and any row's later use of the same
+    # toplevel agree on one sha. A root that fails to resolve here (not a
+    # git work tree, or HEAD unresolvable) is deliberately left unpinned
+    # rather than aborting the whole round: `run_pre_sync_gates` hits the
+    # identical failure lazily (`late=True`) when that specific row is
+    # processed, and its existing per-row GitMaterializeError handling skips
+    # just that row — the same outcome a pre-round hard failure would have
+    # forced on every OTHER row too.
+    round_pinned_shas: "dict[str, str]" = {}
+    for row in rows:
+        candidate = parsed_rows[row]
+        if requested_names and candidate.name not in requested_names:
+            continue
+        for root in _contributing_roots(candidate):
+            try:
+                _round_pin_source_sha(root, round_pinned_shas, out=sys.stdout, late=False)
+            except GitMaterializeError as exc:
+                print(
+                    f"[publish.py] WARNING: could not pin a round source sha for {root} "
+                    f"at round start ({exc}); {candidate.name} will retry (and skip on "
+                    "failure) when its own gates run.",
+                    file=sys.stderr,
+                )
+
     lock_repo_roots: "List[Path]" = []
     if not args.dry_run:
         for row in rows:
@@ -7133,10 +8979,28 @@ def main(argv: Optional[List[str]] = None) -> int:
     # inherited entry is skipped — every other root in `lock_repo_roots`
     # (e.g. a sibling row's destination this same run also touches) is
     # still acquired below, same as before this fix.
-    _inherited_roots_raw = os.environ.get(_INHERITED_LOCK_ROOTS_ENV, "")
-    _inherited_lock_realpaths = {
-        os.path.realpath(p) for p in _inherited_roots_raw.split(os.pathsep) if p
-    }
+    # Review: code-reviewer P2 — the skip is only honoured when the entry's
+    # PID matches this process's TRUE parent (`os.getppid()`); a malformed
+    # entry (no `=`, non-integer PID) or a PID mismatch (stray exported
+    # value, a nested/second-order invocation) is fail-closed — that root is
+    # NOT added to `_inherited_lock_realpaths`, so it acquires the lock
+    # below exactly as if no token were present at all.
+    _inherited_roots_raw = _inherited_roots_token
+    _inherited_lock_realpaths: "set[str]" = set()
+    _true_parent_pid = os.getppid()
+    for _entry in _inherited_roots_raw.split(os.pathsep):
+        if not _entry:
+            continue
+        _pid_str, _sep, _path = _entry.partition("=")
+        if not _sep:
+            continue  # malformed — no `=` delimiter; fail closed (still locks)
+        try:
+            _entry_pid = int(_pid_str)
+        except ValueError:
+            continue  # malformed — non-integer PID; fail closed (still locks)
+        if _entry_pid != _true_parent_pid:
+            continue  # PID mismatch — not from the true parent; fail closed (still locks)
+        _inherited_lock_realpaths.add(os.path.realpath(_path))
 
     publish_lock_stack = ExitStack()
     for _lock_root in lock_repo_roots:
@@ -7169,6 +9033,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                     continue
                 repo_root = _dest_repo_root(target.dest_dir) or target.dest_dir
                 end_of_run_check_roots.append(repo_root)
+                end_of_run_rows_by_repo_root.setdefault(repo_root, []).append(target)
                 if engine_ctx.engine_claude_klabauter is not None and engine_ctx.store is not None:
                     try:
                         section = engine_ctx.engine_claude_klabauter.resolve_target(engine_ctx.store, target.name)
@@ -7177,6 +9042,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         pass  # unresolvable target already surfaces via process_target's own dispatch below
                 row_visited: "set[Path]" = set()
                 row_published_dest_dirs: "set[Path]" = set()
+                row_changed: "set[Path]" = set()
+                row_changed_undetermined: "set[Path]" = set()
 
                 # --delta whole-row skip (task brief "Deliverable 2") — a skip
                 # here runs NO gates, sync, or engine phases for this row; it
@@ -7190,7 +9057,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 # published nothing THIS run, so it is correctly out of scope
                 # for that check's verdict too).
                 if delta_active and delta_signature is not None and delta_row_unchanged(
-                    setup_dir, target, delta_signature
+                    setup_dir, target, delta_signature, round_pinned_shas
                 ):
                     print(f"=== {target.name} ({target.mode}) ===", file=sys.stdout)
                     if target.mode in mirror_like_wire_names():
@@ -7221,17 +9088,40 @@ def main(argv: Optional[List[str]] = None) -> int:
                         identity_file_exists=identity_file_exists,
                         identity=identity,
                         dry_run=args.dry_run,
+                        round_pinned_shas=round_pinned_shas,
                         engine_ctx=engine_ctx,
                         percolate_store_path=percolate_store_path,
                         publish_sync_module=publish_sync_module,
                         shadow_roots_sink=all_shadow_roots,
                         visited_files_sink=row_visited,
                         published_dest_dirs_sink=row_published_dest_dirs,
+                        changed_files_sink=row_changed,
+                        changed_undetermined_sink=row_changed_undetermined,
+                        timing_sink=round_timings,
                     )
                 except (SystemExit, Exception) as exc:  # noqa: BLE001 - row isolation, see ledger comment above
                     code = getattr(exc, "code", None)
+                    # `OSError.__repr__` (what `{exc!r}` prints) emits only
+                    # `(errno, strerror)` — it discards `.filename`/
+                    # `.filename2`/`.winerror`, the very attributes
+                    # `os.rename`/`os.replace` populate and that name the
+                    # actual path(s) a sharing-violation/permission failure
+                    # hit. Surfacing them here is what let this defect
+                    # (`claude-klabauter-publish-repo-toplevel`'s root-dest
+                    # rename, WinError 32) be diagnosed from the FATAL line
+                    # alone instead of a dispatched investigation.
+                    filename = getattr(exc, "filename", None)
+                    filename2 = getattr(exc, "filename2", None)
+                    winerror = getattr(exc, "winerror", None)
+                    path_detail = ""
+                    if filename is not None or filename2 is not None or winerror is not None:
+                        path_detail = (
+                            f" [filename={filename!r}, filename2={filename2!r}, "
+                            f"winerror={winerror!r}]"
+                        )
                     print(
-                        f"  FATAL: {target.name} aborted mid-row ({exc!r}, code={code!r}) — "
+                        f"  FATAL: {target.name} aborted mid-row ({exc!r}, code={code!r}"
+                        f"{path_detail}) — "
                         "marking this row FAILED and continuing with the remaining "
                         "requested rows (a single row's fatal guard must not silently "
                         "take the rest of the run with it).",
@@ -7259,6 +9149,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                 end_of_run_published_dest_dirs_by_repo_root.setdefault(repo_root, set()).update(
                     row_published_dest_dirs
                 )
+                end_of_run_changed_by_repo_root.setdefault(repo_root, set()).update(row_changed)
+                if row_changed_undetermined:
+                    end_of_run_changed_undetermined_roots.add(repo_root)
 
                 # Record this row's new delta state ONLY after a verified
                 # successful publish (`totals.processed` incremented — §
@@ -7267,7 +9160,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 # always falls through to the full path next time, which is
                 # the safe direction.
                 if delta_active and delta_signature is not None and totals.processed > prev_processed:
-                    post_source_sha = _delta_row_source_sha(target)
+                    post_source_sha = _delta_row_source_sha(target, round_pinned_shas)
                     post_dest_head = (
                         _git_head(target.dest_dir) if _is_git_repo(target.dest_dir) else ""
                     )
@@ -7331,6 +9224,18 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"({len(succeeded_row_names)} row(s) landed, {len(failed_row_names)} did not).",
                 file=sys.stderr,
             )
+        # C14 (docs/plans/2026-08-15-klabauter-release-channels.md) —
+        # candidate-to-main divergence report, after the round lands. Skipped
+        # under --dry-run: nothing landed to report on, and this run's own
+        # dest roots may not even exist yet in that mode. Runs over every
+        # distinct dest repo root this invocation reached (`end_of_run_check_
+        # roots`, populated unconditionally in the row loop above), not just
+        # klabauter by name — the underlying check is generic over any
+        # declared `publish.mirrors.<key>.track_ref` (see that function's own
+        # docstring).
+        if not args.dry_run:
+            for _divergence_root in dict.fromkeys(end_of_run_check_roots):
+                report_candidate_divergence(_divergence_root)
         if args.dry_run:
             print("  (dry-run — no changes were made)")
         if args.dry_run:
@@ -7344,6 +9249,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             # End-of-run gates never run under --dry-run (see `dispatch_end_
             # of_run_identity_check`'s own "Never called under --dry-run"
             # note), so there is nothing further to aggregate for this branch.
+            _print_round_timing_summary(round_timings, _round_wall_start)
             return 1 if failed_row_names else 0
 
         # 2026-08-14 aggregate-instead-of-abort fix: this used to be an early
@@ -7362,41 +9268,58 @@ def main(argv: Optional[List[str]] = None) -> int:
         # failure) so a single run surfaces every defect it can find, not just
         # the first.
         deduped_roots = list(dict.fromkeys(end_of_run_check_roots))
-        identity_ok = dispatch_end_of_run_identity_check(
-            engine_ctx,
-            deduped_roots,
-            target_filtered=bool(args.target),
-        )
-        install_doc_ok = dispatch_end_of_run_install_doc_payload_check(
-            deduped_roots,
-            target_filtered=bool(args.target),
-        )
-        unscanned_ok = dispatch_end_of_run_unscanned_published_check(
-            end_of_run_row_sections,
-            target_filtered=bool(args.target),
-            visited_files_by_repo_root=end_of_run_visited_by_repo_root,
-            published_dest_dirs_by_repo_root=end_of_run_published_dest_dirs_by_repo_root,
-        )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_identity_check"):
+            identity_ok = dispatch_end_of_run_identity_check(
+                engine_ctx,
+                deduped_roots,
+                target_filtered=bool(args.target),
+                percolate_root=percolate_root,
+                rows_by_repo_root=end_of_run_rows_by_repo_root,
+                skipped_row_names=skipped_row_names,
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_install_doc_payload_check"):
+            install_doc_ok = dispatch_end_of_run_install_doc_payload_check(
+                deduped_roots,
+                target_filtered=bool(args.target),
+            )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_unscanned_published_check"):
+            unscanned_ok = dispatch_end_of_run_unscanned_published_check(
+                end_of_run_row_sections,
+                target_filtered=bool(args.target),
+                visited_files_by_repo_root=end_of_run_visited_by_repo_root,
+                published_dest_dirs_by_repo_root=end_of_run_published_dest_dirs_by_repo_root,
+            )
         # § chunk C4B (AC3) — wires C4's `run_function_gate` into the driver.
         # FAIL-HARD unconditionally (see that function's own docstring for the
         # judgement-call rationale) — engine_ctx.engine_claude_klabauter is narrowed non-None by
         # the same `not dry_run` guard the other three legs rely on.
-        function_gate_ok = dispatch_end_of_run_function_gate(
-            engine_ctx,
-            deduped_roots,
-            target_filtered=bool(args.target),
-        )
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_function_gate"):
+            function_gate_ok = dispatch_end_of_run_function_gate(
+                engine_ctx,
+                deduped_roots,
+                target_filtered=bool(args.target),
+            )
         # § chunk C3 (AC3/AC4) — wires C2's `run_entrypoint_gate` into the
         # driver. FAIL-HARD unconditionally, same shape as `function_gate_ok`
         # immediately above; a distinct, complementary check (§ that
         # function's own docstring) — neither leg subsumes the other.
-        entrypoint_gate_ok = dispatch_end_of_run_entrypoint_gate(
-            engine_ctx,
-            deduped_roots,
-            target_filtered=bool(args.target),
-            visited_files_by_repo_root=end_of_run_visited_by_repo_root,
-            changed_only=bool(args.changed_only),
-        )
+        # § chunk C4 (docs/plans/2026-08-16-percolate-round-timing-and-
+        # changed-only.md) — a repo root in `end_of_run_changed_undetermined_
+        # roots` maps to `None` (undeterminable, § `dispatch_end_of_run_
+        # entrypoint_gate`'s own per-root fallback), never to its partial
+        # `end_of_run_changed_by_repo_root` union — fail WIDE, not narrow.
+        end_of_run_changed_files_by_repo_root: "dict[Path, Optional[set[Path]]]" = {
+            root: (None if root in end_of_run_changed_undetermined_roots else changed)
+            for root, changed in end_of_run_changed_by_repo_root.items()
+        }
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_entrypoint_gate"):
+            entrypoint_gate_ok = dispatch_end_of_run_entrypoint_gate(
+                engine_ctx,
+                deduped_roots,
+                target_filtered=bool(args.target),
+                changed_files_by_repo_root=end_of_run_changed_files_by_repo_root,
+                changed_only=bool(args.changed_only) and not bool(args.full_sweep),
+            )
         # Review: staff-eng (MAJOR-2, slice-D-drift-store.md) wired the output
         # functional-identifier drift detector into this sequence, because
         # nothing called it and a scrub that renamed a wire identifier shipped
@@ -7413,6 +9336,18 @@ def main(argv: Optional[List[str]] = None) -> int:
         # the candidate stream. Enabling it therefore blocks every publish while
         # detecting nothing. Re-enable only once extraction is position-aware.
         drift_check_ok = True
+        # § chunk C4 (AC4/AC6) — wires C1's `argv_parity_report` into the
+        # driver as an end-of-run leg, over the same deduplicated
+        # destination roots as the four legs above. FAIL-HARD
+        # unconditionally (see that function's own docstring for the
+        # judgement-call rationale); target_filtered is still passed
+        # through for call-site symmetry and the docstring's own record of
+        # why severity does not vary on it here.
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_argv_parity_gate"):
+            argv_parity_ok = dispatch_end_of_run_argv_parity_gate(
+                deduped_roots,
+                target_filtered=bool(args.target),
+            )
         gates_ok = (
             identity_ok
             and install_doc_ok
@@ -7420,6 +9355,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             and function_gate_ok
             and entrypoint_gate_ok
             and drift_check_ok
+            and argv_parity_ok
         )
         if not gates_ok:
             print(
@@ -7427,6 +9363,12 @@ def main(argv: Optional[List[str]] = None) -> int:
                 "published bytes as unverified (AC15 fail-closed).",
                 file=sys.stderr,
             )
+
+        # § C1 — printed once here, ahead of every return below it (row
+        # failure, gate failure, or clean success): all three return points
+        # from here down are sequential, not alternative branches, so one
+        # placement covers all of them without duplicating the summary print.
+        _print_round_timing_summary(round_timings, _round_wall_start)
 
         # Checked AFTER the gates above run (2026-08-14 aggregate-instead-of-
         # abort fix), not before — see this branch's `--dry-run` counterpart

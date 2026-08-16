@@ -98,9 +98,17 @@ _MAX_HUNK_FILES = 10
 # process has no console to inherit (e.g. spawned by a scheduled task or a GUI
 # Claude Code host). POSIX: empty dict — CREATE_NO_WINDOW is a Windows-only
 # attribute, so the ternary short-circuits before touching it.
-_NO_CONSOLE_WINDOW = (
-    {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
-)
+# Passed as a keyword rather than splatted from a dict: splatting an untyped mapping
+# into subprocess.run defeats overload resolution. POSIX accepts creationflags=0
+# (CPython rejects only a nonzero value there).
+_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+# Sized against the machine load norm (50-70 concurrent LLM sessions): a git plumbing
+# call here is single-object work, so a breach is a wedged process, not a slow one.
+# Its absence was break-class — this module fans out ~3 spawns per tracked file, so one
+# uninterruptible git hung the whole cold-path check with no operator recourse.
+# → state/audits/2026-08-15-fleet-composed-op-spawn-census.md
+_GIT_TIMEOUT_SECS = 60.0
 
 _LIVE_WALK_EXCLUDES = {".git", "__pycache__"}
 _LIVE_WALK_SUFFIXES_EXCLUDE = {".pyc"}
@@ -118,12 +126,18 @@ def _run_git(args: list[str], *, source: Path) -> str:
     swallowing per the spec's "fail loud on git errors" constraint.
     """
     cmd = ["git", "-C", str(source)] + args
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        **_NO_CONSOLE_WINDOW,
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECS,
+            creationflags=_CREATION_FLAGS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"git command timed out after {_GIT_TIMEOUT_SECS:g}s: {' '.join(cmd)}"
+        ) from exc
     if result.returncode != 0:
         raise RuntimeError(
             f"git command failed (exit {result.returncode}): {' '.join(cmd)}\n"
@@ -140,30 +154,47 @@ def _git_ls_files(source: Path) -> list[str]:
     return output.splitlines()
 
 
-def _git_ls_tree_sha(source: Path, baseline_sha: str, relpath: str) -> object:
-    """Return the blob SHA of *relpath* at *baseline_sha*, or ``ABSENT_BASELINE``.
+def _git_ls_tree_all(source: Path, baseline_sha: str) -> dict[str, str]:
+    """Return ``{relpath: blob_sha}`` for every blob in the tree at *baseline_sha*.
 
-    Uses ``git ls-tree <sha> -- <relpath>``; only blob entries are considered.
+    One ``git ls-tree -r -z <sha>`` replaces one ``git ls-tree <sha> -- <relpath>``
+    spawn per tracked file — 1,666 files were 1,666 spawns just for this lookup.
+    ``-z`` NUL-terminates records and disables path quoting, so parsing here
+    doesn't have to unquote/unescape paths (the old per-path lookup queried an
+    exact known relpath and never had to parse a path back out of the output).
+
+    ``--no-optional-locks``: read-only plumbing. Per docs/wiki/machine-load-norm.md,
+    git index contention on this machine is constant, so a stat-cache write-back
+    that's free on an idle box is fleet-wide index.lock contention here.
+
+    Callers look up individual relpaths in the returned dict with a
+    ``ABSENT_BASELINE`` default — a relpath absent from this dict means it was
+    not recorded in the baseline tree, same semantic the old per-path
+    empty-output branch encoded.
     """
     # ls-tree itself failing (e.g. invalid SHA) is a hard error — let RuntimeError
-    # propagate to the caller.  An absent path returns an empty string with exit 0,
-    # handled below.
+    # propagate to the caller, matching the old per-path helper's contract.
     output = _run_git(
-        ["ls-tree", baseline_sha, "--", relpath],
+        ["--no-optional-locks", "ls-tree", "-r", "-z", baseline_sha],
         source=source,
     )
 
+    result: dict[str, str] = {}
     if not output:
-        return ABSENT_BASELINE
+        return result
 
-    # ls-tree line format: "<mode> <type> <sha>\t<path>"
-    parts = output.split("\t", 1)
-    if len(parts) < 2:
-        return ABSENT_BASELINE
-    meta = parts[0].split()
-    if len(meta) < 3 or meta[1] != "blob":
-        return ABSENT_BASELINE
-    return meta[2]
+    for record in output.split("\x00"):
+        if not record:
+            continue
+        # ls-tree line format: "<mode> <type> <sha>\t<path>"
+        meta, sep, path = record.partition("\t")
+        if not sep:
+            continue
+        parts = meta.split()
+        if len(parts) < 3 or parts[1] != "blob":
+            continue
+        result[path] = parts[2]
+    return result
 
 
 def _git_hash_object(source: Path, relpath: str, file_path: Path) -> object:
@@ -193,6 +224,102 @@ def _git_hash_object(source: Path, relpath: str, file_path: Path) -> object:
     raise RuntimeError(
         f"git hash-object returned empty output for existing file: {file_path}"
     )
+
+
+def _run_git_stdin(args: list[str], *, source: Path, input_text: str) -> str:
+    """Like ``_run_git`` but pipes *input_text* to the subprocess's stdin.
+
+    Used for ``git hash-object --stdin-paths``: paths travel via stdin, not
+    argv, so this sidesteps the Windows 32767-char command-line cap entirely
+    (unlike ``percolate-gate.py::_git_log_batched``'s pathspec argv, which has
+    to chunk against that cap because git log takes pathspecs as arguments).
+    """
+    cmd = ["git", "-C", str(source)] + args
+    try:
+        result = subprocess.run(
+            cmd,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_TIMEOUT_SECS,
+            creationflags=_CREATION_FLAGS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"git command timed out after {_GIT_TIMEOUT_SECS:g}s: {' '.join(cmd)}"
+        ) from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"git command failed (exit {result.returncode}): {' '.join(cmd)}\n"
+            f"stderr: {result.stderr.strip()}"
+        )
+    return result.stdout
+
+
+# Chunk size for `git hash-object --stdin-paths` batches. Paths travel via
+# stdin (see `_run_git_stdin`), so this is NOT bounded by the Windows argv-length
+# cap `percolate-gate.py::_git_log_batched` chunks against — it exists purely to
+# bound a single subprocess's stdin/stdout size and keep each call comfortably
+# inside `_GIT_TIMEOUT_SECS` rather than one call handling the whole repo.
+_HASH_OBJECT_BATCH_SIZE = 4000
+
+
+def _git_hash_object_batch(source: Path, relpaths: list[str]) -> dict[str, object]:
+    """Return ``{relpath: blob_sha | ABSENT_LIVE}`` for files at ``source/relpath``.
+
+    Batches ``git hash-object --stdin-paths`` in ``_HASH_OBJECT_BATCH_SIZE``-sized
+    chunks, replacing one ``git hash-object --path <relpath> -- <file>`` spawn per
+    file. Correct ONLY because every caller's *file* is literally located at
+    ``source / relpath`` — the pathname git derives from a bare ``--stdin-paths``
+    line already equals the relpath gitattributes must match against, so no
+    override is needed.
+
+    This is NOT used for the live-side blob. ``git hash-object``'s own synopsis
+    offers ``--path <file>`` (an attribute-path override — decouples content
+    location from the pathname used for gitattributes matching; load-bearing
+    when live/relpath and source/relpath are different files on disk) or
+    ``--stdin-paths`` (batched, but each stdin line does double duty as both
+    content location AND attribute-matching pathname) — never both in the same
+    invocation. The live side needs the override, so it stays a per-file
+    ``--path`` call via ``_git_hash_object``; only the memoization in
+    ``_classify_with_baseline``/``_classify_two_way`` removes its redundant
+    re-hashing, not batching.
+
+    Missing files resolve to ``ABSENT_LIVE`` via a local ``Path.exists()`` check
+    (no subprocess) rather than asking git to fail loud per-line and parsing
+    stderr for it — cheaper, and doesn't depend on hash-object's per-line
+    partial-failure behavior across a batch.
+
+    ``--no-optional-locks``: read-only plumbing; see `_git_ls_tree_all`.
+    """
+    result: dict[str, object] = {}
+    existing: list[str] = []
+    for relpath in relpaths:
+        if (source / relpath).exists():
+            existing.append(relpath)
+        else:
+            result[relpath] = ABSENT_LIVE
+
+    for start in range(0, len(existing), _HASH_OBJECT_BATCH_SIZE):
+        chunk = existing[start:start + _HASH_OBJECT_BATCH_SIZE]
+        stdin_text = "\n".join(chunk) + "\n"
+        output = _run_git_stdin(
+            ["--no-optional-locks", "hash-object", "--stdin-paths"],
+            source=source,
+            input_text=stdin_text,
+        )
+        stripped = output.strip("\n")
+        shas = stripped.split("\n") if stripped else []
+        if len(shas) != len(chunk):
+            raise RuntimeError(
+                f"git hash-object --stdin-paths returned {len(shas)} lines for "
+                f"{len(chunk)} input paths in source {source} — output/input "
+                "count mismatch."
+            )
+        for relpath, sha in zip(chunk, shas):
+            result[relpath] = sha
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -416,8 +543,19 @@ def _classify_with_baseline(
     live: Path,
     baseline_sha: str,
     relpaths: list[str],
+    baseline_map: dict[str, str],
+    incoming_map: dict[str, object],
 ) -> dict[str, list]:
     """Classify *relpaths* using the three-way (baseline vs live vs incoming) algorithm.
+
+    *baseline_map* and *incoming_map* are pre-resolved via one batched
+    ``git ls-tree -r`` and one batched ``git hash-object --stdin-paths`` call
+    (``_git_ls_tree_all`` / ``_git_hash_object_batch``) rather than per-relpath
+    spawns inside this loop — only the live-side blob (which needs the
+    per-file ``--path`` override, see ``_git_hash_object_batch``'s docstring)
+    is still resolved one spawn per relpath here. The live-side results are
+    captured into the returned ``live_sha_map`` so callers building hunks
+    downstream don't re-hash the same files a second time.
 
     Bucket precedence (checked in order):
       1. ``live == incoming``          → unchanged
@@ -444,14 +582,15 @@ def _classify_with_baseline(
     unchanged: list[str] = []
     forward_safe: list[str] = []
     consumer_modified: list[dict] = []
+    live_sha_map: dict[str, object] = {}
 
     for relpath in relpaths:
-        incoming_file = source / relpath
         live_file = live / relpath
 
-        baseline = _git_ls_tree_sha(source, baseline_sha, relpath)
-        incoming = _git_hash_object(source, relpath, incoming_file)
+        baseline = baseline_map.get(relpath, ABSENT_BASELINE)
+        incoming = incoming_map.get(relpath, ABSENT_LIVE)
         live_blob = _git_hash_object(source, relpath, live_file)
+        live_sha_map[relpath] = live_blob
 
         if live_blob == incoming:
             # Covers: clean copy, consumer already at new version, new-in-source
@@ -473,6 +612,7 @@ def _classify_with_baseline(
         "unchanged": unchanged,
         "forward_safe": forward_safe,
         "consumer_modified": consumer_modified,
+        "live_sha_map": live_sha_map,
     }
 
 
@@ -480,8 +620,16 @@ def _classify_two_way(
     source: Path,
     live: Path,
     relpaths: list[str],
-) -> list[dict]:
+    incoming_map: dict[str, object],
+) -> tuple[list[dict], dict[str, object]]:
     """Baseline-free two-way comparison: return diverged entries with polarity "unknown".
+
+    *incoming_map* is pre-resolved via one batched ``git hash-object --stdin-paths``
+    call (``_git_hash_object_batch``) rather than a per-relpath spawn in this loop.
+    The live-side blob still costs one spawn per relpath here (see
+    ``_git_hash_object_batch``'s docstring for why it can't batch); those results
+    are captured into the returned ``live_sha_map`` so the caller doesn't
+    re-hash the same files building hunks afterward.
 
     Two skip cases (not divergence):
     1. Both absent (``live is ABSENT_LIVE and incoming is ABSENT_LIVE``) — the
@@ -509,12 +657,13 @@ def _classify_two_way(
       docs/plans/2026-06-09-classifier-polarity-disambiguation.md § C1 step 3
     """
     diverged: list[dict] = []
+    live_sha_map: dict[str, object] = {}
     for relpath in relpaths:
-        incoming_file = source / relpath
         live_file = live / relpath
 
-        incoming = _git_hash_object(source, relpath, incoming_file)
+        incoming = incoming_map.get(relpath, ABSENT_LIVE)
         live_blob = _git_hash_object(source, relpath, live_file)
+        live_sha_map[relpath] = live_blob
 
         # Skip case 1: both absent (spec-required guard).
         if live_blob is ABSENT_LIVE and incoming is ABSENT_LIVE:
@@ -528,7 +677,7 @@ def _classify_two_way(
         if live_blob != incoming:
             diverged.append({"relpath": relpath, "polarity": "unknown"})
 
-    return diverged
+    return diverged, live_sha_map
 
 
 # ---------------------------------------------------------------------------
@@ -775,16 +924,27 @@ def run(
     #     Spec backlink:
     #       docs/plans/2026-06-26-coordinator-install-update-friction-fix-slate.md § C-R2a
     if baseline_sha is not None:
-        _cat_file_result = subprocess.run(
-            ["git", "-C", str(source), "cat-file", "-e",
-             f"{baseline_sha}^{{commit}}"],
-            capture_output=True,
-            **_NO_CONSOLE_WINDOW,
-        )
-        if _cat_file_result.returncode != 0:
+        try:
+            _cat_file_result = subprocess.run(
+                ["git", "-C", str(source), "cat-file", "-e",
+                 f"{baseline_sha}^{{commit}}"],
+                capture_output=True,
+                timeout=_GIT_TIMEOUT_SECS,
+                creationflags=_CREATION_FLAGS,
+            )
+        except subprocess.TimeoutExpired:
+            # Reachability is unprovable within budget — degrade to the two-way
+            # fallback rather than hanging the check, matching the non-zero-exit path.
+            _cat_file_result = None
+        if _cat_file_result is None or _cat_file_result.returncode != 0:
+            _why = (
+                f"timed out after {_GIT_TIMEOUT_SECS:g}s"
+                if _cat_file_result is None
+                else f"exit {_cat_file_result.returncode}"
+            )
             baseline_status = (
                 f"baseline SHA {baseline_sha} unreachable in source clone "
-                f"(git cat-file -e exit {_cat_file_result.returncode}); "
+                f"(git cat-file -e {_why}); "
                 "falling back to two-way comparison"
             )
             baseline_sha = None
@@ -803,7 +963,12 @@ def run(
         # ----------------------------------------------------------------
         # No/malformed baseline → two-way fallback (live vs incoming).
         # ----------------------------------------------------------------
-        diverged = _classify_two_way(source, live, union)
+        # One batched hash-object call for the whole union set, replacing one
+        # spawn per file — see `_git_hash_object_batch`'s docstring.
+        incoming_map_2w = _git_hash_object_batch(source, union)
+        diverged, live_sha_map_2w_full = _classify_two_way(
+            source, live, union, incoming_map_2w
+        )
 
         # Split diverged into consumer_added (live-only files not tracked in source)
         # and consumer_modified (source-tracked files with live != incoming) — these
@@ -818,13 +983,15 @@ def run(
             key=lambda e: e["relpath"],
         )
 
-        # Build a live_sha_map for hunk rendering — only for consumer_modified files
-        # (consumer_added have no incoming counterpart to diff against).
-        live_sha_map_2w: dict[str, object] = {}
-        for entry in consumer_modified_2w:
-            relpath = entry["relpath"]
-            live_file = live / relpath
-            live_sha_map_2w[relpath] = _git_hash_object(source, relpath, live_file)
+        # live_sha_map_2w for hunk rendering — only consumer_modified files need
+        # it (consumer_added have no incoming counterpart to diff against).
+        # Sliced from the map _classify_two_way already built, not re-hashed —
+        # this loop used to be a second `_git_hash_object` spawn per modified
+        # file, duplicating work the classify call had just done.
+        live_sha_map_2w = {
+            entry["relpath"]: live_sha_map_2w_full[entry["relpath"]]
+            for entry in consumer_modified_2w
+        }
         diverged_hunks: list[dict] = _build_hunks(
             source, live, consumer_modified_2w, live_sha_map_2w
         )
@@ -866,16 +1033,25 @@ def run(
     # Three-way classification (baseline present).
     # ----------------------------------------------------------------
 
-    buckets = _classify_with_baseline(source, live, baseline_sha, tracked)
+    # Two batched calls replace one ls-tree + one hash-object spawn per tracked
+    # file: `_git_ls_tree_all` reads the whole baseline tree once, and
+    # `_git_hash_object_batch` hashes every source-side file in one (chunked)
+    # `--stdin-paths` call — see their docstrings.
+    baseline_map = _git_ls_tree_all(source, baseline_sha)
+    incoming_map = _git_hash_object_batch(source, tracked)
+    buckets = _classify_with_baseline(
+        source, live, baseline_sha, tracked, baseline_map, incoming_map
+    )
     # ``consumer_added`` already computed above from the live walk.
 
-    # Build a live_sha_map for hunk rendering.
-    # buckets["consumer_modified"] is list[{"relpath": str, "polarity": str}].
-    live_sha_map: dict[str, object] = {}
-    for entry in buckets["consumer_modified"]:
-        relpath = entry["relpath"]
-        live_file = live / relpath
-        live_sha_map[relpath] = _git_hash_object(source, relpath, live_file)
+    # live_sha_map for hunk rendering — sliced from the map _classify_with_baseline
+    # already built while classifying, not re-hashed. buckets["consumer_modified"]
+    # is list[{"relpath": str, "polarity": str}]; buckets["live_sha_map"] covers
+    # every relpath in *tracked* (a superset), so every entry here is present.
+    live_sha_map = {
+        entry["relpath"]: buckets["live_sha_map"][entry["relpath"]]
+        for entry in buckets["consumer_modified"]
+    }
 
     consumer_modified_hunks = _build_hunks(
         source, live, buckets["consumer_modified"], live_sha_map

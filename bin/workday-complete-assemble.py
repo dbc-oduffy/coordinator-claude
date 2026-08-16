@@ -53,40 +53,7 @@ from pathlib import Path
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
-_USAGE_FAIL = 2
-_TRANSPORT_FAIL = 3
-
-
-def main(argv: list[str]) -> int:
-    prog = "workday-complete-assemble"
-    if not argv or argv[0] not in ("brief", "apply"):
-        print(f"{prog}: usage: {prog} brief|apply [...]", file=sys.stderr)
-        return _USAGE_FAIL
-
-    subcmd, rest = argv[0], argv[1:]
-
-    try:
-        require_colocated_engine_on_path(__file__)
-    except RuntimeError as exc:
-        print(f"{prog}: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        return _TRANSPORT_FAIL
-
-    try:
-        if subcmd == "brief":
-            from coordinator_core.workday_complete.brief import main as sub_main
-        else:
-            from coordinator_core.workday_complete.apply import main as sub_main
-    except ImportError as exc:
-        print(
-            f"{prog}: coordinator_core.workday_complete.{subcmd} not importable: {exc}",
-            file=sys.stderr,
-        )
-        return _TRANSPORT_FAIL
-
-    return sub_main(rest)
-
+from entry_point_shim import run_target  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(run_target("workday-complete-assemble", sys.argv[1:]))

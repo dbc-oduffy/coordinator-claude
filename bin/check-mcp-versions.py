@@ -30,6 +30,11 @@ import shutil
 import subprocess
 import sys
 
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+
 GENERATES = []  # writes only ~/.claude/.mcp-version-check (cooldown marker), outside claude-klabauter's own tracked tree
 
 COOLDOWN_DAYS = 7
@@ -37,12 +42,22 @@ COOLDOWN_DAYS = 7
 _PINNED_RE = re.compile(r"^(?P<pkg>.+)@(?P<ver>[0-9][0-9.]*)$")
 
 
+def _claude_config_dir() -> str:
+    """`<harness-config>/` root, routed through the canonical seam rather than
+    hand-rolled `~/.claude` — see coordinator_core._settings_home.claude_config_dir()'s
+    module docstring for the CLAUDE_HOME/CLAUDE_CONFIG_DIR naming split this closes."""
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core._settings_home import claude_config_dir
+
+    return str(claude_config_dir())
+
+
 def _settings_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+    return os.path.join(_claude_config_dir(), "settings.json")
 
 
 def _marker_path() -> str:
-    return os.path.join(os.path.expanduser("~"), ".claude", ".mcp-version-check")
+    return os.path.join(_claude_config_dir(), ".mcp-version-check")
 
 
 def _cooldown_active(marker: str) -> tuple[bool, int]:

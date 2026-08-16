@@ -181,7 +181,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -196,8 +195,6 @@ from coordinator_core.ops.review_freeze_diff import (  # noqa: E402
     _validate_slice_id,
     freeze_diff,
 )
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
-
 
 def _resolve_repo_root(explicit: str) -> Path | None:
     """Resolve the repo root: --repo-root verbatim if supplied, else the git
@@ -206,57 +203,18 @@ def _resolve_repo_root(explicit: str) -> Path | None:
     idiom used across this tree's other standalone bin/*.py entrypoints)."""
     if explicit:
         return Path(explicit)
-    try:
-        proc = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"{_PROG}: failed to run `git rev-parse --show-toplevel`: {exc}", file=sys.stderr)
-        return None
-    if proc.returncode != 0 or not proc.stdout.strip():
+    from coordinator_core.git.repo_root import show_toplevel
+
+    root = show_toplevel(os.getcwd())
+    if not root:
         print(f"{_PROG}: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
         return None
-    return Path(proc.stdout.strip())
+    return Path(root)
 
 
 _PENDING_VERDICT = "pending"
 _DEFAULT_RECORD_REVIEWER = "code-reviewer"
 _DEFAULT_RECORD_SCOPE = "session"
-
-
-def _paths_contributing_nothing(repo_root: Path, range_: str, paths: list[str]) -> list[str]:
-    """Which ``--paths`` entries matched no change in ``range_``.
-
-    A pathspec that matches nothing is indistinguishable, in the frozen diff,
-    from one the reviewer simply had no findings on — the slice is smaller than
-    the caller asked for and nothing says so. The common cause is a path that
-    moved: a concurrent archival sweep renames the file mid-session, the old
-    path stops matching, and its content silently leaves the review slice.
-
-    Returned for a stderr warning, never an error: a path legitimately unchanged
-    across the range is a valid outcome, same as the whole-diff empty case.
-    A failed or timed-out probe yields no entry — this check may under-report,
-    but must never invent an omission that would send a reviewer hunting.
-    """
-    missing: list[str] = []
-    for path in paths:
-        try:
-            proc = subprocess.run(
-                ["git", "-C", str(repo_root), "diff", "--name-only", range_, "--", path],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                **no_console_creationflags(),
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        if proc.returncode == 0 and not proc.stdout.strip():
-            missing.append(path)
-    return missing
 
 
 def _diff_loc(diff_path: str) -> int:
@@ -406,19 +364,6 @@ def main(argv: list[str]) -> int:
             f"(paths={args.paths or 'all'}) — froze an empty diff, not an error",
             file=sys.stderr,
         )
-    elif args.paths:
-        uncovered = _paths_contributing_nothing(repo_root, args.range_, args.paths)
-        if uncovered:
-            print(
-                f"{_PROG}: warning: {len(uncovered)} of {len(args.paths)} --paths "
-                f"entries matched no change in {args.range_!r} and contributed "
-                f"nothing to this slice: {', '.join(uncovered)}. The frozen diff is "
-                "narrower than requested. If the path moved (a concurrent archival "
-                "sweep is the usual cause), re-freeze against its current location — "
-                "a reviewer cannot tell an omitted file from a clean one.",
-                file=sys.stderr,
-            )
-
     print(result["diff_path"])
 
     if args.no_trail_record:

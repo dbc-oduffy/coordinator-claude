@@ -19,80 +19,12 @@ Subcommands (argv[1] selects):
       acquired, or stale-takeover — all rc=0 per `claim_plan`'s bool
       contract), returns 0 silently; the ceremony proceeds.
 
-  coverage-gate --from-handoff <path>
-      Step 2.9 "Coverage gate (chain-end path)". Wraps
-      review-coverage-gate.py's DAG-mode VERDICT line (`--from-handoff`) and
-      applies the halt-or-override policy: `VERDICT=INDETERMINATE` halts
-      (exit 2) UNLESS `COORDINATOR_OVERRIDE_COVERAGE_GATE=1` is set in the
-      environment (a PM-authorized bypass — there is no CLI flag for this,
-      matching the SKILL's env-var-only override convention), in which case
-      a warning is printed and the subcommand exits 0.
-
-      C10 (docs/plans/2026-08-05-coverage-gate-planning-artifact-class.md,
-      AC14): the pre-C10 binary `VERDICT=UNCOVERED` token no longer exists.
-      Below the code-partition coverage ratio threshold the underlying gate
-      now reports `VERDICT=WARN`, which never halts — for ORDINARY coverage
-      nothing hard-blocks, ever (see coordinator_core.coverage's module-level
-      hard-block decision note for the deliberate, named scope of that
-      ruling — it does NOT extend to the partition-mandatory chain-verdict
-      case, tracked separately at
-      state/sizings/2026-08-06-partition-mandatory-must-refuse-the-chai.yaml).
-      On `VERDICT=WARN` this subcommand relays the underlying gate's stderr,
-      prints the `coordinator:review-code` remediation OFFER, and exits 0 —
-      the underlying gate's own exit code for WARN. `COORDINATOR_OVERRIDE_
-      COVERAGE_GATE` is still read and its use is noted on the WARN path for
-      backward compatibility, but it is now a no-op (there is nothing left
-      to override on this path) — this subcommand does NOT gain a new
-      override surface, per the plan's Anti-scope. `VERDICT=COVERED` always
-      exits 0. This subcommand owns the halt policy; review-coverage-gate.py
-      itself deliberately does not (see its own docstring) — mirrors the
-      sibling merge-gate-and-pr.py's `coverage-gate` subcommand shape for
-      /merging-to-main, one halt-policy wrapper per ceremony caller.
-
-      On `VERDICT=COVERED`, this subcommand additionally runs SKILL.md's
-      trail-range-termination disbelief predicate
-      (`coordinator_core.workstream_complete.directives_review.
-      verify_trail_range_termination`) over the on-disk review-trail
-      records: a COVERED verdict is corroborated only if at least one
-      record's range-tip is at or after the current chain tip. An
-      uncorroborated COVERED verdict (every record's tip is an unterminated
-      `..HEAD` range, unparseable, or simply absent) prints a fail-loud
-      `NOTE:` diagnostic to stderr naming every rejected record's reason —
-      it never changes the exit code (still 0), matching the
-      advisory-not-blocking contract every other verdict in this
-      subcommand already honors.
-
-      Negative-spec (F2, carried from the ported SKILL comment): `--from-handoff`
-      selects DAG mode, in which `--scope-paths` is flat-range-only and is
-      silently ignored by the underlying gate — this subcommand therefore does
-      NOT expose a `--scope-paths` flag; do not add one without re-reading
-      review-coverage-gate.py's DAG-mode branch first.
-
-      Side effect (C2b, docs/plans/2026-07-31-review-trail-chain-ancestry-
-      discriminator.md § C2b): this subcommand always invokes
-      review-coverage-gate.py with `--mint-chain-waivers` — on a DAG-mode
-      UNCOVERED verdict, the underlying `coverage.gate` op mints a per-SHA
-      chain-ancestry waiver for each uncovered chain commit, from the
-      ancestry it already derived. 2026-08-10 (state/audits/2026-08-10
-      session-shape-misclassification fallout): the mint site itself
-      (`coordinator_core/chain_ancestry_waivers.py::record_chain_ancestry_
-      waiver`) now refuses to mint for any sha whose chain is positively
-      established as owned by a LIVE foreign session — see that function's
-      own docstring. Default-on minting is restored; the fix for the
-      misclassification incident is that refusal, not an opt-in flag (a
-      prior dispatch had inverted the default instead — reverted).
-
-      2026-08-07 update (state/audits/2026-08-07-review-gate-scoping-
-      predecessor-and-planning-artifacts.md): this subcommand is no longer
-      the SOLE ceremony-close caller of review-coverage-gate.py's
-      `--mint-chain-waivers` path — `brightline-gate` below also makes this
-      same call (from its own PARTITION-MANDATORY branch) so that either
-      subcommand is self-sufficient regardless of which one an EM reaches
-      for first. The two callers cannot double-mint or diverge: the mint is
-      idempotent per (sha, chain_id) (see coordinator_core.ops.coverage_gate's
-      `mint_chain_waivers` docstring). Every OTHER invocation of
-      review-coverage-gate.py (the ad-hoc EM CLI, diagnostics) still omits
-      the flag and stays read-only.
+  coverage-gate — REMOVED (state/kill-ledger.md K-005, 2026-08-16 — "waiver
+      system dies"). This subcommand, its `review-coverage-gate.py` child,
+      and the `coverage.gate` op it wrapped were the chain-ancestry-waiver
+      mint's sole surviving consumer once the waiver system itself was
+      killed; all three went with it. See
+      docs/wiki/cost-budgets-and-the-kill-disposition.md.
 
   write-trail --sha-range <A..B> --reviewer <name> --scope <chain|session>
               --verdict <ok|warn|blocked|waived|pending> --diff-loc <N>
@@ -109,24 +41,20 @@ Subcommands (argv[1] selects):
       (chain+plan two-oracle) mode. The gate itself
       (coordinator_core/ops/review_brightline_gate.py) is PURE COMPUTE+EMIT —
       it always exits 0 on a successful compute and never encodes halt
-      policy. This subcommand owns that policy, distinct from and never
-      merged with the `coverage-gate` verdict above:
-        tier=A  (a deferred:false code-bearing plan row declares a repo the
-                 chain walk saw zero commits in, or was indeterminate on) =>
-                 HARD STOP (nonzero exit) UNLESS COORDINATOR_OVERRIDE_BRIGHTLINE=1
-                 AND the /autonomous sentinel (see
-                 coordinator_core.session.autonomous_sentinel.sentinel_path
-                 — platform-resolved, NOT a hardcoded /tmp path) exists, OR
-                 a recorded reviewer-findings artifact under
-                 state/review-trail/findings/ already names the unwalked
-                 repo. The override is REFUSED (tier=A still halts) when the
-                 sentinel is absent — an interactive EM cannot self-override.
-        tier=B/none => communicate the full BRIGHTLINE line loudly (all
-                 three oracle numbers + basis) and prompt for a RECORDED EM
-                 reviewer-count decision (COORDINATOR_BRIGHTLINE_REVIEWER_COUNT),
-                 cross-checked against the count of matching artifacts under
-                 state/review-trail/findings/ when set. Never a hard stop —
-                 the EM's judgment call, not the gate's.
+      policy. This subcommand owns that policy.
+
+      The `tier` field this line used to carry, and the `if tier == "A"`
+      hard-stop branch that read it, are REMOVED (state/kill-ledger.md
+      K-004, 2026-08-16, Verdict A — measured across 151 records: tier=B
+      135, tier=none 16, tier=A zero; tier=B fell through to a plain
+      communicate-only exit 0, changing only a `basis` substring, so
+      removing it changes nothing observable). Communicate the full
+      BRIGHTLINE line loudly (all three oracle numbers + basis) and prompt
+      for a RECORDED EM reviewer-count decision
+      (COORDINATOR_BRIGHTLINE_REVIEWER_COUNT), cross-checked against the
+      count of matching artifacts under state/review-trail/findings/ when
+      set. Never a hard stop on its own — the EM's judgment call, not the
+      gate's:
 
                  C13 (docs/plans/2026-08-05-coverage-gate-planning-artifact-
                  class.md, AC20/AC21; narrowed 2026-08-08 by
@@ -182,9 +110,9 @@ Subcommands (argv[1] selects):
                  unsatisfiable-by-timing for a chain with no later peer
                  write yet. See `directives_review.chain_partition_verdict_
                  discharged`'s own docstring for the full incident writeup.
-                 `single-reviewer-ok` and every ordinary tier=B/none case are
-                 UNCHANGED — this does not restore the pre-C10 hard-block
-                 posture, it adds one discharge check on top of it.
+                 `single-reviewer-ok` and every ordinary communicate-only
+                 case are UNCHANGED — this does not restore the pre-C10
+                 hard-block posture, it adds one discharge check on top of it.
 
 Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-port.md [DEAD-CITATION: plan file never committed to this repo]
   (M3 chunk WSC-2). Source: DoE-claude
@@ -194,19 +122,14 @@ Spec backlink: docs/plans/2026-07-21-doe-skill-bash-to-claude-klabauter-python-p
 Exit codes:
   claim-plan    — 0 (claimed/re-entrant/stale-takeover), 1 (contention or
                   infra error — both fail the same way; see docstring above)
-  coverage-gate — 0 (covered, warn — C10: warn never halts, see above — or
-                  indeterminate-but-overridden), 2 (indeterminate halt —
-                  propagated from the underlying gate's own INDETERMINATE
-                  exit contract)
   write-trail   — propagates coordinator-write-review-trail.py's own exit
                   code verbatim (0 success, 1 missing required arg, 2 native
                   op transport/refusal failure)
-  brightline-gate — 0 (tier=B/none communicate-only, including — C13 —
+  brightline-gate — 0 (communicate-only, including — C13 —
                   verdict=PARTITION-MANDATORY whose uncovered set is
-                  foreign/ancestor-only, or tier=A overridden), 1 (tier=A
-                  hard stop; the underlying gate could not be reached / did
-                  not emit a parseable BRIGHTLINE line; or — C13 —
-                  verdict=PARTITION-MANDATORY with no discharging
+                  foreign/ancestor-only), 1 (the underlying gate could not
+                  be reached / did not emit a parseable BRIGHTLINE line; or
+                  — C13 — verdict=PARTITION-MANDATORY with no discharging
                   review-trail verdict on disk AND at least one uncovered
                   commit this session itself authored, or with diagnostics
                   unavailable)
@@ -214,6 +137,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import os
 import re
@@ -234,6 +158,8 @@ from coordinator_core.ops.list_review_trail_records import (  # noqa: E402
 from coordinator_core.workstream_complete.directives_review import (  # noqa: E402
     CHAIN_VERDICT_PARTITION_MANDATORY as _CHAIN_VERDICT_PARTITION_MANDATORY,
     EXECUTION_BASIS_NOT_RECORDED,
+    ChainAttributionWindow,
+    build_chain_slices,
     chain_partition_execution_basis_report,
     chain_partition_uncovered_shas,
     classify_untrusted_trail_ranges,
@@ -242,7 +168,6 @@ from coordinator_core.workstream_complete.directives_review import (  # noqa: E4
 from coordinator_core.coverage import (  # noqa: E402
     SPEC_DISPATCH_EXEMPT_REASON,
     _UUID_RE,
-    _chain_ancestry_waived_shas,
     _classify_bookkeeping_shas,
     _commit_touched_paths,
     _derive_dag_chain_set,
@@ -302,57 +227,12 @@ def cmd_claim_plan(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
-# coverage-gate
+# coverage-gate subcommand and its `review-coverage-gate.py` child are
+# REMOVED (state/kill-ledger.md K-005, 2026-08-16 — "waiver system dies"):
+# the mint was `run_coverage_gate`'s/`coverage.gate`'s sole surviving
+# consumer once the waiver system died, so both went with it — see
+# docs/wiki/cost-budgets-and-the-kill-disposition.md.
 # ---------------------------------------------------------------------------
-
-def _run_review_coverage_gate(from_handoff: str, mint_chain_waivers: bool = True) -> tuple[int, str, str]:
-    """Invoke the sibling review-coverage-gate.py in DAG mode and return
-    (returncode, stdout, stderr). Isolated for test monkeypatching.
-
-    Passes `--mint-chain-waivers` by default: this subcommand IS a
-    ceremony-close caller (docs/plans/2026-07-31-review-trail-chain-ancestry-
-    discriminator.md § C2b) that may request minting (see that flag's own
-    docstring for why every other/diagnostic invocation of
-    review-coverage-gate.py must omit it). As of 2026-08-07
-    (state/audits/2026-08-07-review-gate-scoping-predecessor-and-planning-
-    artifacts.md), `cmd_brightline_gate` also calls this same function for
-    its own mint side effect — the mint is idempotent per (sha, chain_id),
-    so either or both ceremony-close subcommands calling it is safe.
-    The mint fires whenever `--from-handoff`'s resulting uncovered-shas set
-    is non-empty, regardless of verdict — a COVERED chain whose only
-    uncovered commits are planning artifacts still mints; a no-op when that
-    set is empty, on INDETERMINATE, or in flat mode. `mint_chain_waivers=False`
-    (the `--no-mint` passthrough) omits the flag for wall-clock/dry
-    measurement callers that must not mutate state; this call is always
-    DAG-mode (`--from-handoff` is required by this subcommand's own argparse
-    definition below).
-
-    2026-08-10 (state/audits/2026-08-10 session-shape-misclassification
-    fallout): the default-on-mint posture is unchanged by that incident —
-    the fix is a refusal at the mint site itself
-    (`chain_ancestry_waivers.record_chain_ancestry_waiver`), which blocks
-    minting for a sha whose chain is positively established as owned by a
-    LIVE foreign session, terminal-safe otherwise (see that function's own
-    docstring). A prior dispatch flipped this default to opt-in instead;
-    that regressed the ordinary halt→disposition→re-run path (a re-run
-    would halt again on the same uncovered set) and has been reverted."""
-    cmd = [
-        sys.executable,
-        os.path.join(_SCRIPT_DIR, "review-coverage-gate.py"),
-        "--from-handoff",
-        from_handoff,
-    ]
-    if mint_chain_waivers:
-        cmd.append("--mint-chain-waivers")
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        **no_console_creationflags(),  # popup-safe-env-suppressed
-    )
-    return proc.returncode, proc.stdout, proc.stderr
-
 
 def _resolve_repo_root() -> str | None:
     """The process cwd's repo toplevel — mirrors review-coverage-gate.py's
@@ -385,6 +265,52 @@ def _resolve_repo_root() -> str | None:
 #: derivation failure for a given `from_handoff` cannot flip to success
 #: later in the same short-lived, spawn-per-call process.
 _DAG_SHAS_CACHE: dict[str, tuple[str, list[str]] | None] = {}
+
+
+#: Plan C4 (docs/plans/2026-08-15-composition-invocation-budgets.md) —
+#: per-run `_commit_touched_paths` cache, keyed by sha, shared across this
+#: close's `_classify_bookkeeping_shas` call sites (`_resolve_dag_
+#: candidates`, `_resolve_chain_planning_shas`, `_resolve_chain_spec_
+#: dispatch_exempt_shas`, `_classify_uncovered_shas`) so a sha's touched-
+#: paths batch is fetched at most once per close, not once per resolver.
+#: A `contextvars.ContextVar` rather than a plain module-global: several
+#: existing tests replace `_resolve_chain_code_shas`/`_resolve_chain_
+#: planning_shas`/etc. wholesale via `monkeypatch.setattr(_mod,
+#: "_resolve_chain_code_shas", lambda from_handoff: ...)`, so threading the
+#: cache through an added call parameter would break every one of those
+#: call sites' arity — the cache must reach the resolvers without widening
+#: their signature.
+#:
+#: `_reset_touched_paths_cache` (called once, at the top of `cmd_
+#: brightline_gate`'s PARTITION-MANDATORY block, before any of the four
+#: sibling resolvers run) REPLACES this ContextVar's value with a brand
+#: new empty dict — it does not need a `with`/`finally` teardown, because
+#: every entry is a pure, content-addressed `sha -> touched-paths`
+#: mapping: even if a stale dict from an EARLIER close in this same
+#: process were consulted, no entry in it could ever be wrong for a
+#: DIFFERENT close (same repo, same shas). The reset call still means the
+#: cache does not, in practice, outlive one close: each new close's first
+#: sibling call overwrites the ContextVar with its own fresh dict, so the
+#: previous close's dict becomes unreachable (dropped) at that point,
+#: never consulted again. It is also never shared across the ~16
+#: concurrent sessions this tree carries — each is its own process with
+#: its own ContextVar default. Outside any call to `_reset_touched_paths_
+#: cache`, `.get()` returns `None` and every resolver falls back to its
+#: own call-local `{}`, exactly as it did before C4.
+_TOUCHED_PATHS_CACHE: contextvars.ContextVar[dict[str, "frozenset[str]"] | None] = (
+    contextvars.ContextVar("_TOUCHED_PATHS_CACHE", default=None)
+)
+
+
+def _reset_touched_paths_cache() -> dict[str, "frozenset[str]"]:
+    """Start a fresh, empty plan-C4 touched-paths cache for the close about
+    to run, discarding whatever any prior close in this process left behind
+    (see `_TOUCHED_PATHS_CACHE`'s own docstring for why no explicit
+    teardown is needed). Returns the new dict for callers that also want a
+    direct handle on it."""
+    cache: dict[str, "frozenset[str]"] = {}
+    _TOUCHED_PATHS_CACHE.set(cache)
+    return cache
 
 
 def _derive_dag_shas(from_handoff: str) -> tuple[str, list[str]] | None:
@@ -427,7 +353,15 @@ def _resolve_dag_candidates(from_handoff: str) -> tuple[str, list[str]] | None:
     Returns `(repo_root, candidates)`, or `None` on any resolution failure —
     extracted verbatim from `_resolve_chain_tip_sha`'s prior body so that
     function's own behavior and return value are unchanged by this
-    refactor."""
+    refactor.
+
+    Shares plan C4's per-close touched-paths cache via `_TOUCHED_PATHS_
+    CACHE` (the ContextVar, not an added parameter — see that variable's
+    own docstring for why: several existing tests replace this module's
+    resolvers wholesale with single-argument lambdas, and widening the call
+    signature would break every one of those call sites). Outside a
+    `_reset_touched_paths_cache` call, falls back to a call-local `{}`,
+    exactly as before C4."""
     resolved = _derive_dag_shas(from_handoff)
     if resolved is None:
         return None
@@ -440,7 +374,10 @@ def _resolve_dag_candidates(from_handoff: str) -> tuple[str, list[str]] | None:
     # legitimate candidate exactly as it was before this class existed.
     # Only exhaust_set (today's bookkeeping semantics, unchanged) is
     # excluded.
-    exhaust_set, _planning_set, _note = _classify_bookkeeping_shas(dag_shas, repo_root, {})
+    cache = _TOUCHED_PATHS_CACHE.get()
+    if cache is None:
+        cache = {}
+    exhaust_set, _planning_set, _note = _classify_bookkeeping_shas(dag_shas, repo_root, cache)
     candidates = [sha for sha in dag_shas if sha not in exhaust_set]
     if not candidates:
         # Every chain commit is bookkeeping-only — fall back to the full
@@ -487,17 +424,25 @@ def _resolve_chain_planning_shas(from_handoff: str) -> list[str]:
     the session-oracle path. Returns `[]` on any resolution failure,
     mirroring `_resolve_chain_code_shas`'s own fail-safe posture: this
     backs a discharge-widening leg that must degrade toward "no planning
-    credit available", never crash the gate."""
+    credit available", never crash the gate.
+
+    Shares plan C4's per-close touched-paths cache via `_TOUCHED_PATHS_
+    CACHE` — see `_resolve_dag_candidates`'s docstring for why a ContextVar,
+    not an added parameter."""
     resolved = _derive_dag_shas(from_handoff)
     if resolved is None:
         return []
     repo_root, dag_shas = resolved
-    _exhaust_set, planning_set, _note = _classify_bookkeeping_shas(dag_shas, repo_root, {})
+    cache = _TOUCHED_PATHS_CACHE.get()
+    if cache is None:
+        cache = {}
+    _exhaust_set, planning_set, _note = _classify_bookkeeping_shas(dag_shas, repo_root, cache)
     return [sha for sha in dag_shas if sha in planning_set]
 
 
 def _resolve_chain_spec_dispatch_exempt_shas(
-    from_handoff: str, uncovered_planning_shas: list[str],
+    from_handoff: str,
+    uncovered_planning_shas: list[str],
 ) -> tuple[frozenset[str], dict[str, str]]:
     """The live-path twin of `coverage.run_coverage_gate`'s spec-dispatch
     PLANNING exemption (`coverage._spec_dispatch_exempt_planning_shas`),
@@ -515,16 +460,22 @@ def _resolve_chain_spec_dispatch_exempt_shas(
     degrades to `(frozenset(), {})` — no exemption available — mirroring
     every other resolver in this module's fail-safe posture: this backs a
     discharge-widening leg that must never manufacture an exemption from
-    incomplete data, only ever narrow toward "still owed"."""
+    incomplete data, only ever narrow toward "still owed".
+
+    Shares plan C4's per-close touched-paths cache via `_TOUCHED_PATHS_
+    CACHE` — see `_resolve_dag_candidates`'s docstring for why a ContextVar,
+    not an added parameter."""
     if not uncovered_planning_shas:
         return frozenset(), {}
     resolved = _derive_dag_shas(from_handoff)
     if resolved is None:
         return frozenset(), {}
     repo_root, dag_shas = resolved
-    touched_paths_cache: dict[str, frozenset[str]] = {}
+    cache = _TOUCHED_PATHS_CACHE.get()
+    if cache is None:
+        cache = {}
     bookkeeping_set, planning_set, _note = _classify_bookkeeping_shas(
-        dag_shas, repo_root, touched_paths_cache
+        dag_shas, repo_root, cache
     )
     try:
         trail_paths = _list_review_trail_paths()
@@ -535,7 +486,7 @@ def _resolve_chain_spec_dispatch_exempt_shas(
         frozenset(dag_shas),
         bookkeeping_set,
         planning_set,
-        touched_paths_cache,
+        cache,
         trail_paths,
         repo_root,
     )
@@ -569,12 +520,19 @@ def _resolve_chain_code_shas(from_handoff: str) -> list[str]:
     internally — rather than hand-rolling a second one. Returns `[]` on any
     resolution failure (mirrors `_resolve_chain_tip_sha`'s own fail-safe
     posture: this backs a diagnostics-only union-coverage leg that must
-    degrade toward "leg (b) unavailable", never crash the gate)."""
+    degrade toward "leg (b) unavailable", never crash the gate).
+
+    Shares plan C4's per-close touched-paths cache via `_TOUCHED_PATHS_
+    CACHE` — see `_resolve_dag_candidates`'s docstring for why a ContextVar,
+    not an added parameter."""
+    cache = _TOUCHED_PATHS_CACHE.get()
+    if cache is None:
+        cache = {}
     resolved = _resolve_dag_candidates(from_handoff)
     if resolved is None:
         return []
     repo_root, candidates = resolved
-    touched_by_sha, _note = _commit_touched_paths(candidates, repo_root, {})
+    touched_by_sha, _note = _commit_touched_paths(candidates, repo_root, cache)
     code_shas = []
     for sha in candidates:
         paths = touched_by_sha.get(sha) or frozenset()
@@ -881,36 +839,126 @@ _VOUCHED_SHAS_CACHE: dict = {}
 
 def _resolve_vouched_shas(session_id: str | None) -> frozenset[str]:
     """The `vouched_shas` callable `directives_review._record_membership_
-    shas` injects (2026-08-06, read-side vouch-honouring fix): the
-    gate-minted chain-ancestry waiver store
-    (`coverage._chain_ancestry_waived_shas`, scoped to `session_id` — the
-    reading trail record's own session_id, i.e. the chain identity that
-    would have minted a matching waiver). A sha named here is exempted from
-    the foreign-session strip by `_record_membership_shas`, honouring a
-    gate-minted waiver on the coverage read side the way the write side's
-    `ForeignSessionRangeRefused` guard already names as the sanctioned
-    remedy.
+    shas` injects. Formerly the gate-minted chain-ancestry waiver store
+    (`coverage._chain_ancestry_waived_shas`, scoped to `session_id`) — that
+    mechanism is removed outright (state/kill-ledger.md K-005, 2026-08-16 —
+    "waiver system dies"). No waiver source remains, so this resolver
+    always returns empty; the foreign-session strip in
+    `_record_membership_shas` now proceeds unconditionally. Kept as a named
+    seam (isolated for test monkeypatching) rather than inlined."""
+    return frozenset()
 
-    Fail-safe toward narrowing, never toward crediting: an unresolvable repo
-    root, or the underlying reader raising, returns an empty set — the
-    caller (`_record_membership_shas`) treats that identically to "no vouch
-    exists," so the foreign strip proceeds exactly as before this resolver
-    existed. `_chain_ancestry_waived_shas` already degrades an
-    unreadable/absent waiver directory to an empty set on its own (never
-    raises), but this wrapper does not rely on that alone — any other
-    exception (e.g. repo root resolution) is caught here too. Isolated for
-    test monkeypatching."""
-    key = session_id
-    if key in _VOUCHED_SHAS_CACHE:
-        return _VOUCHED_SHAS_CACHE[key]
-    result: frozenset[str] = frozenset()
-    try:
-        repo_root = _resolve_repo_root()
-        if repo_root:
-            result = _chain_ancestry_waived_shas(repo_root, session_id)
-    except Exception:  # noqa: BLE001 - a broken vouch lookup must narrow, never crash
-        result = frozenset()
-    _VOUCHED_SHAS_CACHE[key] = result
+
+#: Module-level memo for `_resolve_chain_attribution_window`, keyed on
+#: `repo_root` — a chain-terminal close resolves the window exactly once
+#: per process (see that function's own docstring). `False` (not present
+#: in the dict) means "not yet attempted"; a present entry of `None` means
+#: "attempted and failed" (merge-base unresolvable, or the bulk walk
+#: raised) — memoized too, so a failing resolution is not retried once per
+#: surviving trail record.
+_CHAIN_ATTRIBUTION_WINDOW_CACHE: dict[str, "ChainAttributionWindow | None"] = {}
+
+
+def _git_run_no_optional_locks(cmd: list[str], cwd: str | None = None) -> tuple[int, str, str]:
+    """`chain_attribution.GitRunner`-shaped wrapper that inserts
+    `--no-optional-locks` immediately after `git` for every read-only
+    invocation this resolver makes (docs/wiki/machine-load-norm.md) —
+    this fleet runs dozens of concurrent sessions against the same
+    working tree, and an unguarded `git log`/`git merge-base` can block on
+    (or be blocked by) a peer's index lock for no reason, since neither
+    call here ever mutates the index. Delegates to
+    `_git_run_for_session_attribution` for the actual Windows-safe
+    subprocess shape (`CREATE_NO_WINDOW`, no shell, never raises)."""
+    if cmd and cmd[0] == "git":
+        cmd = [cmd[0], "--no-optional-locks", *cmd[1:]]
+    return _git_run_for_session_attribution(cmd, cwd)
+
+
+def _resolve_merge_base_head_range(repo_root: str) -> str | None:
+    """`<merge-base(origin/main, HEAD)>..HEAD` — the same default range
+    `coverage.run_coverage_gate`'s flat-mode fallback resolves (see that
+    module's own `git merge-base origin/main HEAD` call), reused here as
+    the ONE covering range C6a's `ChainAttributionWindow` is built over.
+    Returns `None` on any git failure or empty merge-base output — never a
+    partial/best-guess range; a caller failing to resolve this must fall
+    back to the pre-window per-record path, never synthesize a narrower
+    range that could fail to cover a sha in play."""
+    rc, out, _err = _git_run_no_optional_locks(
+        ["git", "merge-base", "origin/main", "HEAD"], repo_root,
+    )
+    if rc != 0:
+        return None
+    merge_base = out.strip()
+    if not merge_base:
+        return None
+    return f"{merge_base}..HEAD"
+
+
+def _resolve_chain_attribution_window(repo_root: str | None) -> "ChainAttributionWindow | None":
+    """C6b wiring (docs/plans/2026-08-15-composition-invocation-budgets.md):
+    resolves ONE `ChainAttributionWindow` over `merge-base(origin/main,
+    HEAD)..HEAD` for this process, then hands it to
+    `chain_partition_uncovered_shas` as `chain_window` at the PARTITION-
+    MANDATORY call site in `cmd_brightline_gate`.
+
+    WINDOW-COVERAGE PRECONDITION (see `ChainAttributionWindow`'s own
+    docstring and `chain_attribution.foreign_shas_from_window`'s): this
+    function's `commit_map` is built from ONE
+    `chain_attribution.bulk_commit_attribution_map` walk over exactly the
+    range `_resolve_merge_base_head_range` resolves — the SAME range
+    `grep_attributed_for_session` (a closure over
+    `chain_attribution.bulk_grep_attributed_shas`) is scoped to. Neither
+    leg is widened, truncated, or lazily populated relative to the other:
+    a sha this window's `commit_map` does not contain is a sha outside
+    `merge-base..HEAD` entirely, never a sha inside that range this
+    resolver merely chose not to fetch. `_record_membership_shas` (the
+    window's only consumer) already treats a sha absent from `commit_map`
+    as "the window fast path does not apply to this record" and falls
+    back to the per-record `narrow_foreign_shas` spawn rather than reading
+    absence as foreign — this resolver's job is only to make that fallback
+    the exception, not the rule, for an ordinary close.
+
+    Returns `None` (never raises) on an unresolvable `repo_root`, an
+    unresolvable merge-base, or any exception from the underlying bulk
+    walk (`session_attribution.GitLogFailed` on a non-zero `git log`, or
+    any other failure) — every caller already treats `chain_window=None`
+    as byte-identical to the pre-C6a/C6b behaviour (a per-record spawn
+    fallback), so a failed resolution here degrades performance, never
+    correctness.
+
+    Memoized per `repo_root` in `_CHAIN_ATTRIBUTION_WINDOW_CACHE` for the
+    lifetime of this process — one resolution (two git spawns: the
+    merge-base lookup plus the bulk `git log` walk) per close, not one per
+    surviving trail record, mirroring every other resolver cache in this
+    file."""
+    key = repo_root or ""
+    if key in _CHAIN_ATTRIBUTION_WINDOW_CACHE:
+        return _CHAIN_ATTRIBUTION_WINDOW_CACHE[key]
+    result: "ChainAttributionWindow | None" = None
+    if repo_root:
+        sha_range = _resolve_merge_base_head_range(repo_root)
+        if sha_range:
+            try:
+                commit_map = chain_attribution.bulk_commit_attribution_map(
+                    sha_range, repo_root, _git_run_no_optional_locks,
+                )
+            except Exception:  # noqa: BLE001 - a broken window walk must fall back, never crash the gate
+                commit_map = None
+            if commit_map is not None:
+                def _grep_attributed_for_session(
+                    session_id: str | None,
+                    _range: str = sha_range,
+                    _repo_root: str = repo_root,
+                ) -> frozenset[str]:
+                    return chain_attribution.bulk_grep_attributed_shas(
+                        _range, session_id, _repo_root, _git_run_no_optional_locks,
+                    )
+
+                result = ChainAttributionWindow(
+                    commit_map=commit_map,
+                    grep_attributed_for_session=_grep_attributed_for_session,
+                )
+    _CHAIN_ATTRIBUTION_WINDOW_CACHE[key] = result
     return result
 
 
@@ -918,8 +966,8 @@ def _clear_process_caches() -> None:
     """Test-only reset hook for every module-level, never-cleared-in-
     production process cache this file owns (`_RANGE_SHAS_CACHE`,
     `_DAG_SHAS_CACHE`, `_FOREIGN_SHAS_CACHE`, `_GREP_ATTRIBUTED_SHAS_CACHE`,
-    `_VOUCHED_SHAS_CACHE`) — review-integrator finding N2. Each is a correct,
-    intentional design for
+    `_VOUCHED_SHAS_CACHE`, `_CHAIN_ATTRIBUTION_WINDOW_CACHE`) —
+    review-integrator finding N2. Each is a correct, intentional design for
     production (spawn-per-call, one short-lived process per gate run —
     nothing outlives it to be poisoned), but a cross-test contamination
     hazard for any test suite that calls the real resolvers more than once
@@ -934,6 +982,7 @@ def _clear_process_caches() -> None:
     _FOREIGN_SHAS_CACHE.clear()
     _GREP_ATTRIBUTED_SHAS_CACHE.clear()
     _VOUCHED_SHAS_CACHE.clear()
+    _CHAIN_ATTRIBUTION_WINDOW_CACHE.clear()
 
 
 def _describe_uncovered_shas(shas: list[str], repo_root: str | None) -> list[str]:
@@ -966,7 +1015,8 @@ def _describe_uncovered_shas(shas: list[str], repo_root: str | None) -> list[str
 
 
 def _classify_uncovered_shas(
-    shas: list[str], repo_root: str | None,
+    shas: list[str],
+    repo_root: str | None,
 ) -> tuple[list[str], list[str]]:
     """Split `shas` into `(planning, code)`, in input order, using the SAME
     classifier the gate itself already applies to decide `chain_code_shas`
@@ -982,10 +1032,17 @@ def _classify_uncovered_shas(
     `repo_root=None`, or an empty `shas`, degrades to `([], list(shas))` —
     every sha reads as unclassified CODE, the message's prior behavior,
     rather than guessing at a classification this diagnostic couldn't
-    resolve."""
+    resolve.
+
+    Shares plan C4's per-close touched-paths cache via `_TOUCHED_PATHS_
+    CACHE` — see `_resolve_dag_candidates`'s docstring for why a ContextVar,
+    not an added parameter."""
     if not repo_root or not shas:
         return [], list(shas)
-    _exhaust_set, planning_set, _note = _classify_bookkeeping_shas(shas, repo_root, {})
+    cache = _TOUCHED_PATHS_CACHE.get()
+    if cache is None:
+        cache = {}
+    _exhaust_set, planning_set, _note = _classify_bookkeeping_shas(shas, repo_root, cache)
     planning = [sha for sha in shas if sha in planning_set]
     code = [sha for sha in shas if sha not in planning_set]
     return planning, code
@@ -1078,8 +1135,8 @@ def _basis_weighable_clause(fields: dict) -> str:
     replacing) the gate's own machine `basis` string: names WHICH oracle arm
     drove `reviewers_required`, not just the raw metric triple the
     BRIGHTLINE stdout line already carries. Must contain no `"` character —
-    `basis` is re-parsed downstream by `_UNWALKED_REPOS_RE`/
-    `_findings_name_unwalked_repo`, whose match terminates on one."""
+    the persisted record's `basis` field is a bare string, and a caller
+    parsing it as a delimited value would terminate on the first one."""
     oracles = {
         "plan_oracle": int(fields.get("plan_oracle") or 0),
         "chain_oracle": int(fields.get("chain_oracle") or 0),
@@ -1095,7 +1152,7 @@ def _basis_weighable_clause(fields: dict) -> str:
 
 def _resolve_broadly_reviewed_shas(
     trail_records: list[dict],
-    chain_code_shas: list[str],
+    chain_code_shas: frozenset[str] | list[str],
     chain_dag_shas: list[str],
     chain_planning_shas: list[str],
 ) -> frozenset[str]:
@@ -1113,6 +1170,18 @@ def _resolve_broadly_reviewed_shas(
     docs/wiki/review-scale.md — "consume verdicts, don't re-derive them";
     this reuses the existing seam rather than writing a second, independent
     coverage classifier.
+
+    AC3 (plan C3) — `chain_code_shas` is deliberately the CALLER's already-
+    capped, already-displayed sha set (<=30: 3 buckets x cap 10), not the
+    full chain code-obligation set. `chain_partition_uncovered_shas` ->
+    `_collect_discharging_range_shas` short-circuits its trail-record walk
+    the moment `covered` names every entry of the sha set it was asked
+    about — that ceiling is what this narrowing shrinks, bounding the
+    number of records (and their `resolve_range_shas` git spawns) this
+    walk pays for. Coverage credit stays capped at the queried set
+    (`_record_membership_shas`'s contract), so narrowing never changes the
+    answer for a sha actually in the query — it only stops crediting shas
+    nobody asked about, which were never displayed anyway.
 
     Never read by `chain_partition_uncovered_shas`, `discharged`, or the
     verdict — this is a second, standalone call whose return value only
@@ -1355,140 +1424,6 @@ def _load_trail_records() -> list[dict]:
     return records
 
 
-_MAX_REJECTED_REASONS_SHOWN = 10
-
-
-def _warn_if_covered_verdict_unterminated(verdict_line: str, from_handoff: str) -> None:
-    """Step 2.9's disbelief predicate, wired: a `VERDICT=COVERED` line is
-    trustworthy only if at least one on-disk review-trail record's
-    range-tip reaches the CHAIN'S OWN TIP at gate-run time — the newest
-    substantive commit the coverage gate actually reasoned over, resolved
-    by `_resolve_chain_tip_sha` (NOT raw `git rev-parse HEAD` — see that
-    function's docstring for why raw HEAD is structurally unsatisfiable on
-    this fleet's shared `work/*` branches), via
-    `coordinator_core.workstream_complete.directives_review.
-    verify_trail_range_termination` — see that module for the verified
-    2026-07-25 `work/machine-a/2026-07-21` incident this closes: 8 stale
-    `<sha>..HEAD` records reading as COVERED 12 commits past the newest
-    concrete-range record).
-
-    Prints a fail-loud diagnostic naming every rejected record's reason
-    when the predicate cannot corroborate the verdict. Deliberately never
-    changes `cmd_coverage_gate`'s return code — this subcommand's own
-    halt policy already resolves COVERED to exit 0 unconditionally (see
-    module docstring); this check qualifies what the verdict line means,
-    it does not turn COVERED into a second halt path. Any failure inside
-    this function (git unavailable, trail records unreadable) is caught
-    and reported as its own diagnostic note — a broken disbelief check
-    must never crash the gate it backs."""
-    if "VERDICT=COVERED" not in verdict_line:
-        return
-    try:
-        chain_tip_sha = _resolve_chain_tip_sha(from_handoff)
-        if not chain_tip_sha:
-            print(
-                "NOTE: trail-range-termination disbelief check skipped — "
-                "could not resolve the chain's own tip (DAG chain-set "
-                "derivation indeterminate/empty, or git unavailable).",
-                file=sys.stderr,
-            )
-            return
-        records = _load_trail_records()
-        if verify_trail_range_termination(records, chain_tip_sha, _git_is_ancestor):
-            return
-        rejected = classify_untrusted_trail_ranges(records)
-        reasons = [reason for _record, reason in rejected[:_MAX_REJECTED_REASONS_SHOWN]]
-        remainder = len(rejected) - len(reasons)
-        reason_text = "; ".join(reasons) if reasons else "no review-trail records on disk"
-        if remainder > 0:
-            reason_text += f"; +{remainder} more"
-        print(
-            f"NOTE: VERDICT=COVERED could not be corroborated — no on-disk "
-            f"review-trail record's range-tip reaches chain tip "
-            f"{chain_tip_sha}. {len(rejected)} record(s) rejected: {reason_text}",
-            file=sys.stderr,
-        )
-    except Exception as exc:  # noqa: BLE001 - diagnostics-only, must never be fatal
-        print(
-            f"NOTE: trail-range-termination disbelief check could not run: {exc}",
-            file=sys.stderr,
-        )
-
-
-def cmd_coverage_gate(args: argparse.Namespace) -> int:
-    returncode, stdout, stderr = _run_review_coverage_gate(args.from_handoff, mint_chain_waivers=not args.no_mint)
-
-    # Review: F9 (carried from the ported SKILL comment) — parse the VERDICT
-    # token out of stdout; do NOT rely on the gate's exit code (it exits 0 on
-    # both COVERED/UNCOVERED, matching review-brightline-gate.py's shape).
-    verdict_line = stdout.strip()
-    if verdict_line:
-        print(verdict_line)
-
-    override = os.environ.get("COORDINATOR_OVERRIDE_COVERAGE_GATE", "0") == "1"
-
-    # A malformed INDETERMINATE result can carry an empty verdict_line (see
-    # review-coverage-gate.py's own "must propagate even when verdict_line is
-    # empty" comment) — fall back to the underlying exit code so that case
-    # still halts as INDETERMINATE rather than silently falling through to
-    # the COVERED passthrough at the bottom of this function.
-    if "VERDICT=INDETERMINATE" in verdict_line or returncode == 2:
-        if stderr:
-            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-        if override:
-            print(
-                "WARNING: COORDINATOR_OVERRIDE_COVERAGE_GATE=1 — INDETERMINATE "
-                "gate bypassed by PM override.",
-                file=sys.stderr,
-            )
-            return 0
-        print(
-            "HALT: coverage gate INDETERMINATE — DAG derivation failed; check "
-            "handoff DAG integrity before proceeding.",
-            file=sys.stderr,
-        )
-        print(
-            "Override (PM-authorized only): set COORDINATOR_OVERRIDE_COVERAGE_GATE=1 "
-            "to bypass.",
-            file=sys.stderr,
-        )
-        return 2
-
-    if "VERDICT=WARN" in verdict_line:
-        # C10 (docs/plans/2026-08-05-coverage-gate-planning-artifact-class.md,
-        # AC14): the pre-C10 binary UNCOVERED halt-or-override path is
-        # retired. WARN is an offer, never a refusal — ordinary coverage
-        # never hard-blocks (see coordinator_core.coverage's module-level
-        # hard-block decision note). The uncovered commits are already
-        # surfaced on stderr by the gate itself; no re-run needed here, just
-        # relay, then print the remediation offer and exit 0.
-        if stderr:
-            print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-        print(
-            "WARN: coverage gate below threshold. The gate does not block on "
-            "this — but the listed commits are still owed: dispatch "
-            "coordinator:review-code over them, then re-run the gate.",
-            file=sys.stderr,
-        )
-        if override:
-            print(
-                "NOTE: COORDINATOR_OVERRIDE_COVERAGE_GATE=1 was set but has no "
-                "effect — the coverage gate no longer halts on WARN (C10), so "
-                "there is nothing to override.",
-                file=sys.stderr,
-            )
-        return 0
-
-    if stderr:
-        print(stderr, end="" if stderr.endswith("\n") else "\n", file=sys.stderr)
-
-    _warn_if_covered_verdict_unterminated(verdict_line, args.from_handoff)
-
-    # VERDICT=COVERED, or the underlying gate could not be reached at all —
-    # propagate its own exit code rather than reinterpreting it.
-    return returncode
-
-
 # ---------------------------------------------------------------------------
 # write-trail
 # ---------------------------------------------------------------------------
@@ -1547,6 +1482,8 @@ def cmd_write_trail(args: argparse.Namespace) -> int:
 #: unrelated (a regex fragment matching the raw stdout token, not a
 #: comparison constant) and is out of scope for this dedup.
 
+# tier= field removed from the frozen line (state/kill-ledger.md K-004,
+# 2026-08-16, Verdict A — "waiver system dies" sibling cut, the tier branch).
 _BRIGHTLINE_RE = re.compile(
     r"^BRIGHTLINE reviewers_required=(?P<reviewers_required>\d+) "
     r"reviewers_suggested=(?P<reviewers_suggested>\d+) "
@@ -1554,37 +1491,99 @@ _BRIGHTLINE_RE = re.compile(
     r"plan_oracle=(?P<plan_oracle>\d+) "
     r"chain_oracle=(?P<chain_oracle>\d+) "
     r"session_oracle=(?P<session_oracle>\d+) "
-    r"tier=(?P<tier>none|A|B) "
     r"verdict=(?P<verdict>single-reviewer-ok|PARTITION-MANDATORY) "
     r'basis="(?P<basis>[^"]*)"$'
 )
 
-_UNWALKED_REPOS_RE = re.compile(r"tier=A declared-but-unwalked repo\(s\)=(?P<repos>[^ ]*)")
+
+#: op_latency `op=` label for the whole `--from-handoff` chain (K-004,
+#: 2026-08-16 — "No stage of it is instrumented ... one timing span in
+#: cmd_brightline_gate makes this decidable"). Deliberately a single span
+#: over the subprocess boundary — `d-run-chain-plan-brightline-gate` →
+#: this function → `review-brightline-gate.py` → `_from_handoff_main` →
+#: `_compute_chain_oracle` → `coverage.py::_derive_dag_chain_set` — rather
+#: than four separate op rows, since the child process is opaque to this
+#: caller and the ONE number K-004 needs is end-to-end wall-clock against
+#: DISPATCH_TIMEOUT_SECS, not a stage breakdown. Distinct from `coverage.
+#: gate`'s op rows (K-004 Verdict B: "a DIFFERENT handler ... deliberately
+#: not substituted as a proxy") — this label must never be conflated with
+#: that one when reading op-latency.jsonl.
+_OP_LATENCY_LABEL = "review_brightline_gate.from_handoff"
 
 
 def _run_review_brightline_gate(argv: list[str]) -> tuple[int, str, str]:
     """Invoke the sibling review-brightline-gate.py in --from-handoff mode and
-    return (returncode, stdout, stderr). Isolated for test monkeypatching."""
+    return (returncode, stdout, stderr). Isolated for test monkeypatching.
+
+    Records one op_latency span (op=`_OP_LATENCY_LABEL`) over the whole
+    subprocess call — see that constant's docstring for why this is the
+    single instrumentation point for the K-004 `chain_oracle` walk. Same
+    fail-open contract as `coordinator_core.telemetry.op_latency` itself:
+    a telemetry failure here must never fail the gate, so both the started
+    and completed recordings are wrapped in their own swallow-all
+    try/except, independent of the subprocess call they bracket."""
     cmd = [
         sys.executable,
         os.path.join(_SCRIPT_DIR, "review-brightline-gate.py"),
         "--from-handoff",
         *argv,
     ]
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        check=False,
-        **no_console_creationflags(),  # popup-safe-env-suppressed
+
+    import time as _time
+
+    from coordinator_core.telemetry.op_latency import (
+        new_correlation_id,
+        record_op_latency,
+        record_op_started,
     )
-    return proc.returncode, proc.stdout, proc.stderr
+
+    repo_root_str = _resolve_repo_root()
+    repo_root = Path(repo_root_str) if repo_root_str else None
+
+    t_start = _time.time()
+    perf_start = _time.perf_counter()
+    corr_id = new_correlation_id()
+    try:
+        record_op_started(
+            op=_OP_LATENCY_LABEL, t_start=t_start, corr_id=corr_id, repo_root=repo_root,
+        )
+    except Exception:
+        pass
+
+    outcome = "ok"
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            **no_console_creationflags(),  # popup-safe-env-suppressed
+        )
+        if proc.returncode != 0:
+            outcome = "error"
+        return proc.returncode, proc.stdout, proc.stderr
+    except BaseException:
+        outcome = "error"
+        raise
+    finally:
+        elapsed_ms = (_time.perf_counter() - perf_start) * 1000.0
+        try:
+            record_op_latency(
+                op=_OP_LATENCY_LABEL,
+                t_start=t_start,
+                elapsed_ms=elapsed_ms,
+                outcome=outcome,
+                repo_root=repo_root,
+                corr_id=corr_id,
+            )
+        except Exception:
+            pass
 
 
 def _parse_brightline_line(stdout: str) -> dict | None:
     """Return the last BRIGHTLINE line's fields as a dict, or None if the gate
     did not emit one (transport failure, malformed compute — treat as a
-    fail-loud infra error, never a silent tier=none pass)."""
+    fail-loud infra error, never a silent pass)."""
     lines = [ln for ln in stdout.splitlines() if ln.strip()]
     if not lines:
         return None
@@ -1625,12 +1624,29 @@ def _persist_brightline_verdict(
     from_handoff: str,
     git_range: str | None,
     fields: dict,
+    chain_slices: list[dict] | None = None,
 ) -> None:
     """Write the just-computed brightline verdict to the persistence seam
     (`chain_partition_verdict_store`) so the NEXT `wsc.brief()`/`wsc.apply()`
     call can read it without an EM re-typing `decisions["chain_partition_
     verdict"]` (root cause: cross-repo/inbox/2026-08-04-project-rag-em-
     brightline-partition-mandatory-does-not-halt.md, "mechanism 2").
+
+    `chain_slices` (AC4, Seam 2/3): C7's slate, already decorated by the
+    caller. `None` (the default) omits the key entirely — `write_verdict_
+    record`'s own contract (absent means "not computed for this call",
+    never confused with a resolved-and-empty `[]`). `cmd_brightline_gate`
+    calls this function twice for EVERY PARTITION-MANDATORY verdict that
+    reaches the point of computing an owed set — whether that set turns
+    out non-empty (undischarged) or empty (discharged/vacuous): once here,
+    unconditionally and BEFORE the owed-set is known (so every early-return
+    path still gets a persisted record exactly as before this parameter
+    existed), and again once the slate is resolved,
+    passing `chain_slices` — a non-empty list in the undischarged case, or
+    `[]` in the discharged case — either way the second call overwrites
+    the same on-disk record (same session-keyed path) with `chain_slices`
+    added. Both calls target the SAME record; this is not two competing
+    verdicts, only two writes of one.
 
     Best-effort and NON-FATAL: any failure (session id unresolvable, repo
     root unresolvable, disk write error) is reported loudly on stderr and
@@ -1662,7 +1678,7 @@ def _persist_brightline_verdict(
             from_handoff=from_handoff,
             git_range=git_range,
             basis=fields["basis"],
-            tier=fields["tier"],
+            chain_slices=chain_slices,
         )
     except OSError as exc:
         print(
@@ -1671,47 +1687,6 @@ def _persist_brightline_verdict(
             "forward this run.",
             file=sys.stderr,
         )
-
-
-def _autonomous_sentinel_exists() -> bool:
-    """The /coordinator:autonomous sentinel — path resolution is delegated to
-    coordinator_core.session.autonomous_sentinel.sentinel_path(), the single
-    shared resolver both the writer (misc-session-and-guards.py) and every
-    reader use, so writer and reader can never drift onto different tmp-dir
-    conventions again (see that module's docstring for the incident this
-    fixes)."""
-    session_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    if not session_id:
-        return False
-    from coordinator_core.session.autonomous_sentinel import sentinel_path
-
-    return sentinel_path(session_id).exists()
-
-
-def _findings_name_unwalked_repo(basis: str) -> bool:
-    """Finding-6-adjacent escape hatch: a tier=A halt is also lifted when a
-    reviewer has already recorded findings under state/review-trail/findings/
-    that name the declared-but-unwalked repo from the gate's own basis text —
-    the repo was reviewed by other means, just not walked by the chain DAG."""
-    m = _UNWALKED_REPOS_RE.search(basis)
-    if not m:
-        return False
-    repos = [r for r in m.group("repos").split(",") if r]
-    if not repos:
-        return False
-    findings_dir = Path("state") / "review-trail" / "findings"
-    if not findings_dir.is_dir():
-        return False
-    for path in findings_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            text = path.read_text(errors="ignore")
-        except OSError:
-            continue
-        if any(repo in text for repo in repos):
-            return True
-    return False
 
 
 def _findings_count_for_chain() -> int:
@@ -1746,15 +1721,13 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
         )
         return 1
 
-    tier = fields["tier"]
     basis = fields["basis"]
 
     # AC6 (plan C3) — append a human-weighable clause to the machine basis
-    # BEFORE persistence, so the appended text flows into the same record
-    # `_findings_name_unwalked_repo` regexes and `wsc.brief()`/`wsc.apply()`
-    # read back. APPENDED, never a replacement: the existing metric-triple
-    # substring (including a `tier=A declared-but-unwalked repo(s)=` token,
-    # when present) stays intact and is still the first thing in the string.
+    # BEFORE persistence, so the appended text flows into the persisted
+    # record and `wsc.brief()`/`wsc.apply()` read back. APPENDED, never a
+    # replacement: the existing metric-triple substring stays intact and is
+    # still the first thing in the string.
     # `_basis_weighable_clause` always returns a non-empty string — no
     # guard needed here; a conditional would read as if the clause could
     # legitimately be absent, which it can't (Review: code-reviewer).
@@ -1772,9 +1745,6 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
     # when `decisions` doesn't supply an explicit override — an explicit
     # `decisions["chain_partition_verdict"]` always wins over the persisted
     # record (see that module + `brief()`'s own read-site docstrings).
-    # Printed/persisted regardless of tier — tier gates whether THIS gate run
-    # halts, not whether the verdict it already resolved is worth carrying
-    # forward.
     _persist_brightline_verdict(args.from_handoff, args.git_range, fields)
     print(
         f'ACTION: the chain-scoped verdict "{fields["verdict"]}" has been '
@@ -1791,50 +1761,16 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
         file=sys.stderr,
     )
 
-    if tier == "A":
-        override_env = os.environ.get("COORDINATOR_OVERRIDE_BRIGHTLINE", "0") == "1"
-        sentinel_present = _autonomous_sentinel_exists()
-        findings_cover_repo = _findings_name_unwalked_repo(basis)
-
-        if findings_cover_repo:
-            print(
-                "NOTE: tier=A unwalked-repo halt lifted — a recorded reviewer "
-                "finding under state/review-trail/findings/ already names the "
-                "declared-but-unwalked repo.",
-                file=sys.stderr,
-            )
-            return 0
-
-        if override_env and sentinel_present:
-            print(
-                "WARNING: COORDINATOR_OVERRIDE_BRIGHTLINE=1 — tier=A "
-                "declared-but-unwalked-repo halt bypassed under /autonomous "
-                "sentinel.",
-                file=sys.stderr,
-            )
-            return 0
-
-        if override_env and not sentinel_present:
-            print(
-                "STOP: COORDINATOR_OVERRIDE_BRIGHTLINE=1 set but no /autonomous "
-                "sentinel present — override REFUSED (interactive EM, PM must "
-                "decide).",
-                file=sys.stderr,
-            )
-        print(
-            "HALT: brightline tier=A — a deferred:false code-bearing plan row "
-            "declares a repo the chain walk never touched (or was "
-            "indeterminate on). Dispatch coordinator:review-code on that repo, "
-            "or record findings under state/review-trail/findings/ naming it, "
-            "before proceeding.",
-            file=sys.stderr,
-        )
-        print(f'basis: "{basis}"', file=sys.stderr)
-        return 1
+    # tier=A hard-stop branch (declared-but-unwalked-repo halt, with its
+    # COORDINATOR_OVERRIDE_BRIGHTLINE/autonomous-sentinel escape hatch and
+    # the state/review-trail/findings/-name-match lift) is REMOVED
+    # (state/kill-ledger.md K-004, 2026-08-16, Verdict A — measured across
+    # 151 records: tier=A never fired). See
+    # docs/wiki/cost-budgets-and-the-kill-disposition.md.
 
     # C13 (docs/plans/2026-08-05-coverage-gate-planning-artifact-class.md,
-    # AC20/AC21): the ONE narrow refusal carved out of the "tier in {B,
-    # none} never hard-stops" posture below. Checked BEFORE the
+    # AC20/AC21): the ONE narrow refusal carved out of the "never
+    # hard-stops" communicate-only posture below. Checked BEFORE the
     # communicate-only branch — a PARTITION-MANDATORY verdict with nothing
     # discharging it on the review-trail must never fall through to a
     # relay-and-exit-0 path. Does NOT fire on `single-reviewer-ok` or any
@@ -1874,68 +1810,32 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
         # reached PARTITION-MANDATORY had no discharge path at all short of
         # `/handoff`. The honest answer: a chain that owes no code review
         # cannot fail to discharge one.
-        # 2026-08-07 (state/audits/2026-08-07-review-gate-scoping-
-        # predecessor-and-planning-artifacts.md, candidate fix #2): fold the
-        # mint into brightline-gate itself, so this subcommand is
-        # self-sufficient regardless of whether an EM reached for
-        # `coverage-gate` first. This is the SAME call `coverage-gate` makes
-        # (`_run_review_coverage_gate` passes `--mint-chain-waivers` by
-        # default, omitted when `--no-mint` is given), so it inherits that
-        # call's own contract: best-effort, minting one waiver per sha in
-        # the uncovered set whenever that set is non-empty regardless of
-        # verdict — a COVERED chain whose only uncovered commits are
-        # planning artifacts still mints — a no-op when that set is empty,
-        # on INDETERMINATE, or in flat mode, and idempotent per
-        # (sha, chain_id) (coordinator_core.ops.coverage_gate's own docstring
-        # — "that side effect is itself idempotent per (sha, chain_id), see
-        # record_chain_ancestry_waiver"). Running `coverage-gate` and then
-        # `brightline-gate` in sequence therefore cannot double-mint or
-        # produce a different result than either alone — this call is purely
-        # additive coverage of the "brightline-gate reached first" case.
-        # Discarded here deliberately: this subcommand owns its own verdict
-        # line/parsing (the BRIGHTLINE line already printed above); the
-        # underlying coverage-gate verdict is not this subcommand's output
-        # contract, only its minting side effect is wanted at this call site.
-        #
-        # 2026-08-10: the RETURNCODE is not part of that deliberate discard.
-        # A child that dies outright (cc_invoke RuntimeError, engine timeout
-        # on this box's load norm, engine-won't-start) mints nothing, prints
-        # nothing, and the uncovered-set narration below then proceeds as if
-        # the mint had fired — describing shas as unwaived when no mint was
-        # ever attempted, which makes that narration self-fulfilling for any
-        # caller who only ever runs this wrapper. Surfaced, never fatal: the
-        # mint is best-effort by contract (see `_run_review_coverage_gate`),
-        # so a failure here degrades the narration's precision, not the
-        # gate's verdict. Observed-but-unasserted in cross-repo/inbox/
-        # 2026-08-10-doe-claude-em-brightline-unrecordable-narration-is-
-        # false.md § "A mint we could not confirm fired".
-        # The returncode alone cannot carry this: review-coverage-gate.py
-        # returns 1 both for an ordinary HALT verdict (engine ran, mint
-        # fired) and for its own failure paths (cc_invoke RuntimeError,
-        # malformed result, empty verdict_line). The honest discriminator is
-        # the frozen stdout contract — a `VERDICT=` line is printed on every
-        # path where the engine actually ran, and on none of the failure
-        # paths (review-coverage-gate.py's `main`, all three `return 1`
-        # sites print to stderr only). Both conditions are required: rc==0 is
-        # reachable only after that verdict line is printed, so a zero exit
-        # is itself proof the engine ran.
-        mint_rc, mint_out, mint_err = _run_review_coverage_gate(
-            args.from_handoff, mint_chain_waivers=not args.no_mint,
-        )
-        if mint_rc != 0 and "VERDICT=" not in (mint_out or ""):
-            print(
-                "NOTE: the chain-ancestry waiver mint could not be confirmed "
-                f"— review-coverage-gate.py exited {mint_rc} without a "
-                "VERDICT line, so it failed before minting. Any "
-                '"unrecordable" line below may name a sha that WOULD be '
-                "recordable had the mint run; re-run "
-                "`review-coverage-gate.py --from-handoff <baton> "
-                "--mint-chain-waivers` directly before trusting it. Child "
-                f"stderr: {(mint_err or '').strip()[:500]}",
-                file=sys.stderr,
-            )
+        # 2026-08-07 through 2026-08-15: this branch folded a chain-ancestry
+        # waiver mint (`_run_review_coverage_gate(..., mint_chain_waivers=
+        # True)`) in here so `brightline-gate` was self-sufficient without
+        # requiring `coverage-gate` to have run first. Removed outright
+        # (state/kill-ledger.md K-005, 2026-08-16 — "waiver system dies"):
+        # the whole chain-ancestry-waiver mechanism, including the mint this
+        # call fed, is gone. See docs/wiki/cost-budgets-and-the-kill-
+        # disposition.md.
         dag_resolved = _derive_dag_shas(args.from_handoff)
         trail_records = _load_trail_records()
+        # Per-run touched-paths cache (plan C4, docs/plans/2026-08-15-
+        # composition-invocation-budgets.md): reset the shared `_TOUCHED_
+        # PATHS_CACHE` ContextVar to a fresh dict for THIS close, so the
+        # four sibling resolvers below (`_resolve_chain_code_shas`,
+        # `_resolve_chain_planning_shas`, `_resolve_chain_spec_dispatch_
+        # exempt_shas`, `_classify_uncovered_shas`) share one `git log
+        # --no-walk --name-only` batch per sha instead of one each. See
+        # `_TOUCHED_PATHS_CACHE`'s own docstring for why a reset (not a
+        # `with`/`finally` scope) is sufficient: the cache is a pure,
+        # content-addressed sha->paths map, so it never needs explicit
+        # teardown, and the reset here means it cannot outlive this close
+        # in practice — the previous close's dict, if any, becomes
+        # unreachable at this line. Never module-global: a ContextVar, not
+        # a plain module attribute, and this tree carries ~16 concurrent
+        # sessions, each its own process with its own ContextVar default.
+        _reset_touched_paths_cache()
         chain_code_shas = _resolve_chain_code_shas(args.from_handoff)
         chain_dag_shas = _resolve_chain_dag_shas(args.from_handoff)
         dag_resolution_failed = dag_resolved is None
@@ -1944,6 +1844,17 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
         # below and the execution-basis-report companion below it — same
         # `from_handoff` input, same repo state (Review: code-reviewer).
         chain_planning_shas = _resolve_chain_planning_shas(args.from_handoff)
+        # C6b wiring (docs/plans/2026-08-15-composition-invocation-budgets.md):
+        # the ONE `merge-base(origin/main, HEAD)..HEAD` window this close's
+        # `narrow_foreign_shas` fan-out can answer from, in-memory, instead of
+        # per surviving trail record. `chain_repo_root` is `dag_resolved`'s
+        # own `repo_root` half (already resolved above, same process, same
+        # cwd) — never re-derived. `None` (an unresolvable merge-base, or any
+        # failure in the underlying bulk walk) degrades byte-identically to
+        # every pre-C6a/C6b caller: `chain_partition_uncovered_shas` below
+        # takes the per-record `narrow_foreign_shas` spawn path unchanged.
+        chain_repo_root = dag_resolved[0] if dag_resolved is not None else _resolve_repo_root()
+        chain_window = _resolve_chain_attribution_window(chain_repo_root)
         if chain_owes_no_code_review:
             uncovered: list[str] = []
             discharged = True
@@ -1954,6 +1865,7 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                     narrow_foreign_shas=_resolve_foreign_session_shas,
                     vouched_shas=_resolve_vouched_shas,
                     chain_planning_shas=chain_planning_shas,
+                    chain_window=chain_window,
                 )
                 if chain_code_shas and chain_dag_shas
                 else []
@@ -2050,15 +1962,59 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                 foreign_shas, own_shas = _partition_foreign_uncovered_shas(
                     uncovered, closing_session_id,
                 )
-                # AC7 (plan C4) — an aiming aid only: which of the shas
-                # about to be listed below already carry a discharging
-                # review-trail verdict recorded outside this chain's
-                # narrower (foreign/vouched-scoped) credit rule. Computed
-                # once, read-only, and never fed back into `uncovered`,
-                # `discharged`, `code_shas_only`, or any other count above.
+                # AC4/Seam 2/3 — the recordable partition on the SAME
+                # evidence source the write guard consults
+                # (`_resolve_vouched_shas`), computed ONCE here and reused
+                # by both `build_chain_slices` below and the waived/
+                # unwaived narration further down (never re-derived a
+                # second time — the defect class this plan exists to
+                # stop). `vouched` is only resolved when there is a
+                # foreign sha to test it against; an empty `foreign_shas`
+                # needs no waiver lookup at all.
+                vouched = _resolve_vouched_shas(closing_session_id) if foreign_shas else frozenset()
+                waived_foreign = [s for s in foreign_shas if s in vouched]
+                unwaived_foreign = [s for s in foreign_shas if s not in vouched]
+                recordable_shas = frozenset(own_shas) | frozenset(waived_foreign)
+                # AC7 (plan C4) / AC3 (plan C3) — an aiming aid only: which
+                # of the shas about to be listed below already carry a
+                # discharging review-trail verdict recorded outside this
+                # chain's narrower (foreign/vouched-scoped) credit rule.
+                # Computed once, read-only, and never fed back into
+                # `uncovered`, `discharged`, `code_shas_only`, or any other
+                # count above. Narrowed to the <=30 shas the three buckets
+                # below actually display (cap=10 x 3) — NOT the full
+                # `chain_code_shas` — because `_resolve_broadly_reviewed_
+                # shas`'s own short-circuit
+                # (`_collect_discharging_range_shas`'s `covered >=
+                # chain_code_sha_set` break) fires on the SIZE OF THE QUERY
+                # SET, so a smaller query set here directly bounds the
+                # number of trail records (and their `resolve_range_shas`
+                # git spawns) this walk pays for. Coverage credit is capped
+                # at the queried set (`_record_membership_shas`'s "coverage
+                # credit capped at chain_code_shas" contract), so narrowing
+                # the query never changes the answer FOR A QUEUED SHA — it
+                # only stops crediting shas nobody asked about, which are
+                # never displayed anyway.
+                cap = 10
+                _displayed_shas = (
+                    frozenset(code_shas_only[:cap])
+                    | frozenset(planning_shas[:cap])
+                    | frozenset(unwaived_foreign[:cap])
+                )
                 broadly_reviewed = _resolve_broadly_reviewed_shas(
-                    trail_records, chain_code_shas, chain_dag_shas,
+                    trail_records, _displayed_shas, chain_dag_shas,
                     chain_planning_shas,
+                )
+                # No waiver source remains (state/kill-ledger.md K-005,
+                # 2026-08-16 — "waiver system dies") — every chain_slices
+                # entry's certifies_review is now unconditionally False.
+                chain_slices = build_chain_slices(
+                    uncovered,
+                    recordable_shas=recordable_shas,
+                    waiver_records={},
+                )
+                _persist_brightline_verdict(
+                    args.from_handoff, args.git_range, fields, chain_slices=chain_slices,
                 )
                 if own_shas:
                     print(
@@ -2088,7 +2044,6 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                     "verdict (no record's range names them):",
                     file=sys.stderr,
                 )
-                cap = 10
                 if code_shas_only:
                     print(f"  {len(code_shas_only)} code commit(s):", file=sys.stderr)
                     for line in _annotate_already_reviewed(
@@ -2156,82 +2111,35 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                             file=sys.stderr,
                         )
                 if foreign_shas:
-                    # 2026-08-10 narration fix (cross-repo/inbox/2026-08-10-
-                    # doe-claude-em-brightline-unrecordable-narration-is-
-                    # false.md): this block used to call EVERY foreign sha
-                    # unrecordable. All three premise clauses were true and
-                    # the conclusion was false — `review_trail_write.
-                    # _guard_foreign_session_range` Case 1 refuses a
-                    # foreign-trailer sha UNLESS it carries a chain-ancestry
-                    # waiver minted for this chain, and this same runner
-                    # mints exactly those waivers by default at the
-                    # `_run_review_coverage_gate` call site above. A
-                    # predecessor session in DoE-claude read the old string,
-                    # concluded its chain could not be recorded, and handed
-                    # the workstream on; the write the narration called
-                    # impossible is the write that closed their gate.
-                    # Partition on the SAME evidence source the write guard
-                    # consults (`_resolve_vouched_shas`, exact-sha set
-                    # membership as in `coverage._narrow_foreign_session_
-                    # scope`), never a second oracle. Rendering-only:
-                    # `uncovered`, `chain_code_shas`, `own_shas`, the HALT
-                    # branch, the verdict and the return code are untouched.
+                    # `waived_foreign`/`unwaived_foreign` are already
+                    # computed above (same `vouched` evidence source the
+                    # write guard consults, `_resolve_vouched_shas`) — never
+                    # re-derived here, matching Seam 2's "recordable is
+                    # supplied by the caller" contract.
                     #
-                    # Fail-safe polarity here is INVERTED from this file's
-                    # usual "degrade toward narrowing": an empty or failed
-                    # waiver lookup must never produce a false RECORDABLE
-                    # claim, so it degrades to the pre-existing unrecordable
-                    # wording (the status quo) rather than inventing
-                    # recordability. `_resolve_vouched_shas` already returns
-                    # an empty frozenset on any failure, so that degradation
-                    # is automatic: empty set ⇒ zero waived ⇒ every foreign
-                    # sha renders exactly as it did before this change.
-                    vouched = _resolve_vouched_shas(closing_session_id)
-                    waived_foreign = [s for s in foreign_shas if s in vouched]
-                    unwaived_foreign = [s for s in foreign_shas if s not in vouched]
+                    # AC5 register rewrite (docs/wiki/guard-messaging.md
+                    # § Register): the waived-foreign fact is stated once,
+                    # plus a terse alternative — no self-legitimacy
+                    # (asserting what the waiver "really" permits), no
+                    # restatement of the waiver's own mechanism, no DR
+                    # citation. The uncapped per-sha list now lives on the
+                    # persisted `chain_slices` record (this call's own
+                    # `_persist_brightline_verdict` above) instead of being
+                    # enumerated a second time in prose here.
                     if waived_foreign:
                         print(
                             f"  {len(waived_foreign)} of these "
                             f"{len(uncovered)} commit(s) are foreign-session "
-                            "(authored by a predecessor session) but ARE "
-                            "RECORDABLE by this session: each carries a "
-                            "gate-minted chain-ancestry waiver for this "
-                            "chain, which the foreign-session write guard "
-                            "honours. Write one record per commit: "
-                            "coordinator-write-review-trail --sha-range "
-                            '"<sha>^..<sha>" --scope chain. Range SHAPE '
-                            "constraint: use concrete endpoints like that — "
-                            "a stored range ending in a literal `..HEAD` is "
-                            "dropped by the stored-HEAD defense before any "
-                            "waiver is consulted "
-                            "(coverage._record_range_has_stored_head), so a "
-                            "`..HEAD` record would not discharge these even "
-                            "though a per-commit record does. The waiver "
-                            "explains why the write guard PERMITS this "
-                            "write: it relaxes the foreign-session strip "
-                            "(coverage.py::_narrow_foreign_session_scope) "
-                            "so a covering record MAY credit these "
-                            "commits. It is NOT evidence that anyone "
-                            "reviewed them (the waiver record carries "
-                            "certifies_review: false; see "
-                            "chain_ancestry_waivers._READER_NOTE and "
-                            "docs/decisions/DR-245-gate-minted-chain-"
-                            'ancestry-waivers-supersede-in.md ("The '
-                            'disclosed limit" section). Write a record '
-                            "ONLY for commits this session actually "
-                            "reviewed.",
+                            "and recordable via a chain-ancestry waiver for "
+                            "this chain — not evidence anyone reviewed them "
+                            "(see gates.review_scale.chain_slices for the "
+                            "full list). Record only commits this session "
+                            "reviewed: coordinator-write-review-trail "
+                            '--sha-range "<sha>^..<sha>" --scope chain '
+                            "(concrete endpoints only — a `..HEAD` range is "
+                            "dropped before the waiver is consulted).",
                             file=sys.stderr,
                         )
-                        for line in _annotate_already_reviewed(
-                            _describe_uncovered_shas(waived_foreign[:cap], repo_root),
-                            broadly_reviewed,
-                        ):
-                            print(f"    {line}", file=sys.stderr)
-                        if len(waived_foreign) > cap:
-                            print(
-                                _format_capped_overflow_note(len(waived_foreign), cap),
-                                file=sys.stderr,
-                            )
                     if unwaived_foreign:
                         print(
                             f"  {len(unwaived_foreign)} of these "
@@ -2297,12 +2205,24 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                 )
             print(f'basis: "{basis}"', file=sys.stderr)
             return 1 if own_shas else 0
+        else:
+            # AC4/Seam 3 — the gate RAN and resolved the owed set to empty
+            # (vacuous "owes no code review", or an ordinary discharge
+            # with nothing uncovered). Persist `chain_slices=[]`
+            # explicitly rather than leaving the key absent: absent means
+            # "did not compute a slate for this close"
+            # (`write_verdict_record`'s own None-vs-`[]` contract); a
+            # clean, fully-reviewed close is the resolved-and-empty case,
+            # not the not-run case, and must render as such on read-back.
+            _persist_brightline_verdict(
+                args.from_handoff, args.git_range, fields, chain_slices=[],
+            )
 
-    # tier in {B, none} — communicate loudly, never hard-stop. The EM (not
-    # this script) decides reviewers_required; this only cross-checks a
-    # recorded decision against findings already on disk when one is given.
+    # Communicate loudly, never hard-stop. The EM (not this script) decides
+    # reviewers_required; this only cross-checks a recorded decision against
+    # findings already on disk when one is given.
     print(
-        f"BRIGHTLINE tier={tier} verdict={fields['verdict']} — "
+        f"BRIGHTLINE verdict={fields['verdict']} — "
         f"reviewers_suggested={fields['reviewers_suggested']} "
         f"reviewers_low={fields['reviewers_low']} "
         f"plan_oracle={fields['plan_oracle']} chain_oracle={fields['chain_oracle']} "
@@ -2360,21 +2280,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_claim.add_argument("slug")
     p_claim.set_defaults(func=cmd_claim_plan)
 
-    p_gate = sub.add_parser("coverage-gate")
-    p_gate.add_argument("--from-handoff", required=True, dest="from_handoff")
-    p_gate.add_argument(
-        "--no-mint",
-        action="store_true",
-        dest="no_mint",
-        help="Omit --mint-chain-waivers when invoking review-coverage-gate.py "
-        "(read-only; for wall-clock/dry measurement callers that must not "
-        "mutate state). Default: mint on (unchanged behaviour). The mint "
-        "site itself refuses to mint for a sha whose chain is owned by a "
-        "LIVE foreign session — see chain_ancestry_waivers.record_chain_"
-        "ancestry_waiver.",
-    )
-    p_gate.set_defaults(func=cmd_coverage_gate)
-
     p_trail = sub.add_parser("write-trail")
     p_trail.add_argument("--sha-range", required=True, dest="sha_range")
     p_trail.add_argument("--reviewer", required=True)
@@ -2394,17 +2299,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_brightline = sub.add_parser("brightline-gate")
     p_brightline.add_argument("--from-handoff", required=True, dest="from_handoff")
     p_brightline.add_argument("git_range", nargs="?", default=None)
-    p_brightline.add_argument(
-        "--no-mint",
-        action="store_true",
-        dest="no_mint",
-        help="Omit --mint-chain-waivers when invoking review-coverage-gate.py "
-        "(read-only; for wall-clock/dry measurement callers that must not "
-        "mutate state). Default: mint on (unchanged behaviour). The mint "
-        "site itself refuses to mint for a sha whose chain is owned by a "
-        "LIVE foreign session — see chain_ancestry_waivers.record_chain_"
-        "ancestry_waiver.",
-    )
     p_brightline.set_defaults(func=cmd_brightline_gate)
 
     return parser

@@ -49,7 +49,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -73,7 +72,7 @@ from cc_invoke import (  # noqa: E402
 # (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
 _ENGINE_ROOT = str(require_engine_on_path(__file__))
 
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
 
 _OP_CLUSTER = "queue.cluster"
 _OP_AGE_PING = "queue.age_ping"
@@ -110,21 +109,7 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
     """Resolve repo_root — `--repo-root` wins; else `git rev-parse --show-toplevel`."""
     if explicit:
         return explicit
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            **no_console_creationflags(),
-        )
-    except OSError:
-        return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
+    return show_toplevel()
 
 
 def _dispatch_read(op: str, params: dict, repo_root: str) -> tuple[Any, int]:

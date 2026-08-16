@@ -101,7 +101,14 @@ Negative-spec:
     enclosing engine checkout -> the pointer-file/registry ladder.
   - Does NOT hard-error or nag when the op is unregistered/engine absent --
     degrades to a fully silent skip (exit 0, no output). DoE is a consumer;
-    it must never nag about the engine repo's activation state.
+    it must never nag about the engine repo's activation state. This
+    silent-skip contract is scoped to INFRASTRUCTURE conditions (unresolved
+    CLAUDE_KLABAUTER_ROOT, unregistered op, dispatch failure) only -- it does NOT cover
+    argv handling: `--help`/`-h` prints usage and exits 0 WITHOUT running the
+    sweep, and any other unrecognized argument prints usage and exits 2 --
+    same class of defect the sender's own de-bash verify pass caught in
+    `start_project_rag.py --help` (a flag reaching the working path before
+    anything decides what it means).
 """
 
 from __future__ import annotations
@@ -195,7 +202,24 @@ def _get_raw_response() -> Optional[Dict[str, Any]]:
         return None
 
 
+_USAGE = (
+    "usage: check-auto-reconcile.py\n\n"
+    "Renders the handoff.reconcile_open op's surfaced[] list for the fleet\n"
+    "/workday-start Morning Briefing. Takes no arguments; an unrecognized\n"
+    "argument prints this usage and exits 2 rather than silently running the\n"
+    "full corpus sweep."
+)
+
+
 def main() -> None:
+    argv = sys.argv[1:]
+    if argv:
+        if argv[0] in ("-h", "--help"):
+            print(_USAGE)
+            sys.exit(0)
+        print(_USAGE)
+        sys.exit(2)
+
     response = _get_raw_response()
     if response is None:
         sys.exit(0)

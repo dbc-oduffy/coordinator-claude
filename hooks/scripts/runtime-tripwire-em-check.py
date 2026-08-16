@@ -65,22 +65,6 @@ oracle):
   RUNTIME_TRIPWIRE_OPUS_MIN        -- Opus/unknown-model threshold (25)
   RUNTIME_TRIPWIRE_SONNET_MIN      -- Sonnet threshold (12)
   RUNTIME_TRIPWIRE_HAIKU_MIN       -- Haiku threshold (10)
-  COORDINATOR_SUPPRESS_DISPATCH_RESTATEMENT -- suppresses the
-                                      once-per-session DISPATCH-DEFAULT-
-                                      RESTATEMENT line below (DR-110;
-                                      cadence retired to once-per-session
-                                      by DR-123). Unlike the five vars
-                                      above, this one is NOT a byte-faithful
-                                      mirror of anything in the retired bash
-                                      oracle -- the restatement is a
-                                      2026-07-28 addition with no bash-era
-                                      precedent, so there is no prior escape
-                                      hatch this one reproduces.
-  COORDINATOR_EM_REPORT_ALTITUDE_OFF -- disables the EM-REPORT-ALTITUDE
-                                      surfacer below entirely (no claude-klabauter
-                                      round-trip, no advisory text, ever).
-                                      Also a 2026-07-30 addition with no
-                                      bash-era precedent.
 
 Negative-spec:
   - Does NOT block execution -- PostToolUse is advisory only.
@@ -175,85 +159,16 @@ treated as NOT a detection, never as zero).
 Contract addition: stdout may now also carry a zero-tool-use advisory,
 composed alongside the runtime-tripwire nudge and/or the push-failure
 advisory in the SAME additionalContext envelope -- never a separate write,
-never stderr, never plain stdout. See docs/wiki/coordinator-tripwires.md
+never stderr, never plain stdout. See docs/wiki/coordinator-tripwires/
 § ZERO-TOOL-USE-DETECT for the full two-stage design and Stage 1
 (`hooks/scripts/subagent-zero-tool-use-detect.py`, SubagentStop).
-
-DISPATCH-DEFAULT-RESTATEMENT (added 2026-07-28, DR-110; retired to
-once-per-session 2026-08-02, DR-123, docs/decisions/
-DR-123-the-per-turn-dispatch-restatement-is-ret.md): folded onto this same
-UserPromptSubmit-gated seam for the same reason ZERO-TOOL-USE-DETECT-SURFACE
-was -- this hook is already the cheapest steady-state per-human-turn hot path
-in the census, and a fresh registration would double that spawn cost.
-Originally fired on every UserPromptSubmit at frequency parity with the
-harness's own once-per-turn "do not call the Agent tool unless the user
-requested it" directive (DR-110); that per-turn cadence also failed (see
-`_DISPATCH_DEFAULT_LINE`'s own comment block, above its definition, for the
-full history), so it now fires at most once per session, and never on the
-session's first UserPromptSubmit.
-
-Contract addition: stdout may now also carry the dispatch-default line on
-UserPromptSubmit, composed in the SAME additionalContext envelope as every
-other advisory this hook emits -- never a separate write, never stderr --
-at most once per session (never on turn one; see `_dispatch_default_restatement`)
-unless `COORDINATOR_SUPPRESS_DISPATCH_RESTATEMENT` is set (see the
-escape-hatch env var inventory above).
-
-EM-REPORT-ALTITUDE (added 2026-07-30; folded onto this same seam for the
-same per-`python3`-spawn-count reason as every addition above -- see
-AUTO-PUSH-MID-SESSION-DETECT / ZERO-TOOL-USE-DETECT-SURFACE): measures the
-EM's own just-finished PM-facing reply against the word-budget and
-lead-with-the-outcome contract in global-doctrine/CLAUDE.md
-§ Communication Style, and reports back what the measurement found -- it
-does not itself state or restate that contract, only names when a reply
-appears to have missed it. Gated hard to `Stop`: a reply is only complete,
-and only worth measuring, at the turn's own end -- `UserPromptSubmit` and
-`PostToolUse:Agent` fire mid-turn or on an unrelated tool's return, where
-there is no finished EM reply to measure yet.
-
-Advisory only, never blocking, deliberately: this hook's whole contract is
-additionalContext, never exit 2, and that is worth restating here
-specifically. The naive alternative -- block the Stop on a long or
-citation-heavy reply and force a rewrite -- hands the EM another turn in
-which to write MORE, which is the exact defect this measures; a blocking
-channel here would fight its own purpose rather than correct it.
-
-Cost gate: before any claude-klabauter round-trip, a cheap local precondition
-(`_em_report_altitude_precondition`) requires that the just-finished
-reply's text is actually obtainable -- a non-empty `last_assistant_message`
-on the payload, or a `transcript_path` that exists on disk right now.
-Neither present means nothing can be measured, so this returns without
-resolving claude-klabauter, importing `coordinator_core`, or round-tripping the
-engine at all -- same shape as every other cheap-precondition-before-
-engine-resolve check in this file (see `_zero_tool_use_local_evidence`).
-Deliberately NOT a message-length prefilter, and do not add one later: the
-measured corpus that motivated this detector had real citation-density
-violations in replies of 10, 16 and 29 words, so a length gate would
-silently exempt most of what this exists to catch.
-
-Contract addition: stdout may now also carry an EM-report-altitude
-advisory on `Stop`, composed in the SAME additionalContext envelope as
-every other advisory this hook emits -- never a separate write, never
-stderr. Escape hatch: `COORDINATOR_EM_REPORT_ALTITUDE_OFF` (see the
-escape-hatch env var inventory above).
-
-Fires at most once per session (added 2026-07-31): a session-scoped
-sentinel (`<git COMMON dir>/coordinator-sessions/<session_id>/
-em-report-altitude-nudged`, resolved via `_resolve_git_common_dir` --
-portability fix, see that helper's docstring) caps this advisory to a
-single emission per session, written only at the point a real message is
-returned -- never on
-a fail-open/no-advisory-this-time path. Same fix also absorbs this hook
-being registered as a Stop hook on two delivery surfaces at once (a
-separate, PM-tracked registration defect): the sentinel makes the second
-same-Stop invocation a no-op the same way it silences a later Stop.
 
 SUBAGENT-ARRIVAL-CHECK -- STOOD DOWN 2026-07-31 (PM ruling, reversible, not
 a deletion). The overrun nudge this section describes no longer fires:
 `_SUBAGENT_OVERRUN_TRIPWIRE_ENABLED` (declared above the imports) gates the
 whole dispatch-tracking section of `main()` off, and `main()` now returns
-early with only the three unrelated advisories (push-failure, zero-tool-
-use, EM-report-altitude) still emitting. The prose below describing the
+early with only the two unrelated advisories (push-failure, zero-tool-use)
+still emitting. The prose below describing the
 arrival-check design is preserved verbatim as the recoverable record; it
 does not describe live behaviour until the constant is flipped back to
 `True`. See that constant's own docstring for the measured basis and the
@@ -372,9 +287,9 @@ from pathlib import Path
 # companion actions for a full restore live outside this file: (1)
 # re-register the `Stop` hook entry for `runtime-tripwire-stop-watcher.py`
 # in coordinator/hooks/hooks.json (removed alongside this stand-down); (2)
-# nothing else -- the three OTHER `em-check.py` registrations in hooks.json
-# (push-failure / zero-tool-use / EM-report-altitude) were never touched by
-# this stand-down and keep firing throughout.
+# nothing else -- the OTHER `em-check.py` registrations in hooks.json
+# (push-failure / zero-tool-use) were never touched by this stand-down and
+# keep firing throughout.
 _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED = False
 
 # Test-only override, NOT a production escape hatch: the pre-existing pytest
@@ -512,9 +427,8 @@ def _resolve_git_common_dir(git_root: str) -> str:
 
     Originally scoped to ONLY the ZERO-TOOL-USE-DETECT-SURFACE part below
     (see `_zero_tool_use_paths`'s docstring). Widened (portability fix) to
-    also root `sessions_dir` in `main()`, `_check_push_failures`'s cursor
-    dir, and `_check_em_report_altitude`'s sentinel path -- all three
-    previously joined `git_root + ".git" + "coordinator-sessions"` directly,
+    also root `sessions_dir` in `main()` and `_check_push_failures`'s cursor
+    dir -- both previously joined `git_root + ".git" + "coordinator-sessions"` directly,
     which silently never persisted under a worktree (`<git_root>/.git` is a
     FILE there, not a directory). Every caller of this helper degrades to ""
     on an unresolvable common dir and treats that as "skip, do not build a
@@ -610,7 +524,26 @@ def _resolve_state_root(git_root: str) -> str:
 
 
 def _git_root() -> str:
-    """`git rev-parse --show-toplevel`, fail-open to "" on any error."""
+    """Repo root as `git rev-parse --show-toplevel` would report it, fail-open to "".
+
+    Resolved by an in-process parent walk for a `.git` entry (directory in a normal
+    clone, file in a linked worktree or submodule) rather than by spawning git. This
+    hook is registered on Stop, PostToolUse(Agent) and UserPromptSubmit, so a spawn
+    here is paid several times per turn by every session on the box; the walk is
+    ~0.15ms against ~25ms and one process for the subprocess form.
+
+    Negative spec: do NOT reintroduce a `git rev-parse` spawn here as a routine path.
+    The subprocess below is a fallback for the case the walk cannot resolve (a bare
+    repo, or a `GIT_DIR`-driven invocation with no `.git` above cwd), not a default.
+    """
+    try:
+        start = Path.cwd().resolve()
+        for candidate in (start, *start.parents):
+            if (candidate / ".git").exists():
+                return str(candidate)
+    except Exception:
+        pass
+
     try:
         import subprocess
 
@@ -776,9 +709,7 @@ def _push_failure_verdict(git_root: str) -> dict | None:
     CLI form the origin memo documents, which is the human-facing shape, not
     the right call site for a 5s-timeout hook. Do not "restore" the CLI form
     here without first confirming the op is registered AND exercising this
-    script end-to-end on a real Stop/UserPromptSubmit/PostToolUse payload --
-    same caution `_check_em_report_altitude` states at its own direct-call
-    site, above.
+    script end-to-end on a real Stop/UserPromptSubmit/PostToolUse payload.
 
     Returns the raw `{"verdict": ..., "evidence": {...}, "remedy_hint": ...}`
     result dict on a well-formed response (verdict is one of the five known
@@ -830,7 +761,7 @@ def _push_failure_verdict(git_root: str) -> dict | None:
 # regardless of which of the five op verdicts (or the pre-op fallback path)
 # produced it.
 _PUSH_FAILURE_REFERENCE_LINE = (
-    resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT")
+    resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md")
 )
 
 
@@ -982,7 +913,7 @@ def _render_push_failure_verdict(
 # ---------------------------------------------------------------------------
 
 _HOOKS_JSON_STALE_REFERENCE_LINE = (
-    resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires.md § PLUGIN-HOOKS-JSON-RESTART-GATED")
+    resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires/related.md")
 )
 
 
@@ -1092,7 +1023,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     11:10Z (non-fast-forward, branch diverged from a peer machine). Nothing
     surfaced it in-session -- the EM found it only by manually `cat`-ing the
     log while investigating something unrelated. Registered:
-    `docs/wiki/coordinator-tripwires.md` § AUTO-PUSH-MID-SESSION-DETECT.
+    `docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md`.
 
     Predicate (deliberately NOT "the log has lines" -- see module docstring
     Design-constraints discussion in the originating plan report): the log is
@@ -1162,7 +1093,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     # ruling: one shared log per repo, matching common-dir-keyed session
     # bookkeeping elsewhere in this hook. This reader now points at the
     # same target so reader/writer parity holds by construction in every
-    # topology. See `docs/wiki/coordinator-tripwires.md` §
+    # topology. See `docs/wiki/coordinator-tripwires/` §
     # AUTO-PUSH-MID-SESSION-DETECT.
     common_dir = _resolve_git_common_dir(git_root)
     if not common_dir:
@@ -1280,7 +1211,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
             "failure:\n"
             "  {last}\n"
         ).format(n=n_new, branch=branch, last=last_line) + resolve_wiki_citation(
-            "Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT"
+            "Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md"
         )
 
     return (
@@ -1292,7 +1223,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
         "Crash insurance may be silently NOT insuring right now — consider "
         "`git push`, or read the full log for the failure class.\n"
     ).format(n=n_new, branch=branch, last=last_line) + resolve_wiki_citation(
-        "Reference: docs/wiki/coordinator-tripwires.md § AUTO-PUSH-MID-SESSION-DETECT"
+        "Reference: docs/wiki/coordinator-tripwires/tripwire-registry/auto-push-mid-session-detector-auto-push-mid-session-detect.md"
     )
 
 
@@ -1301,7 +1232,7 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
 # same UserPromptSubmit-gated seam per DEC-6 -- see module docstring). Reads
 # Stage 1's ("subagent-zero-tool-use-detect.py", SubagentStop) durable
 # records via a thin engine op and surfaces this session's unsurfaced ones
-# on the EM's next turn. See docs/wiki/coordinator-tripwires.md
+# on the EM's next turn. See docs/wiki/coordinator-tripwires/
 # § ZERO-TOOL-USE-DETECT for the two-stage design.
 # ---------------------------------------------------------------------------
 
@@ -1479,7 +1410,7 @@ def _format_zero_tool_use_records(records: list) -> str:
         "deliverable — verify on disk before trusting it — or an agent you "
         "deliberately told not to use tools (probe / pure-judgment call), "
         "where zero is correct and needs no verification.\n"
-        + resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires.md § ZERO-TOOL-USE-DETECT")
+        + resolve_wiki_citation("Reference: docs/wiki/coordinator-tripwires/tripwire-registry/zero-tool-use-subagent-detector-zero-tool-use-detect.md")
     )
 
 
@@ -1746,463 +1677,10 @@ def _fd_matches_lstat(fd: int, path: str) -> bool:
     return (link_stat.st_dev, link_stat.st_ino) == (fd_stat.st_dev, fd_stat.st_ino)
 
 
-# --- DISPATCH-DEFAULT RESTATEMENT ---
-#
-# Once-per-session, deliberately two short sentences. The harness system
-# prompt carries a conditional directive ("do not call the AgentTool unless
-# the user requested it") re-read on every turn, while coordinator's
-# counter-doctrine is delivered once per context boundary behind ~40 KB of
-# payload. This line was originally fired at frequency parity (every
-# UserPromptSubmit, DR-110) to counter that asymmetry -- but per-turn delivery
-# then failed too, on 2026-08-02: the line fired on every turn of a session in
-# which the EM still misattributed the harness directive to the PM and
-# withheld a dispatch. Once-per-boot (tried twice, pre-DR-110) and per-turn
-# (this DR-110 design) have now both failed, which means cadence was never
-# the axis -- DR-110's own "register" axis argues that framing dispatch as a
-# permission question keeps the question alive however often it is answered,
-# and firing "permission"/"PM's" ~40x/session was register-defeating by
-# DR-110's own reasoning, on top of the plain habituation cost of repeating
-# identical text that often. See
-# docs/decisions/DR-123-the-per-turn-dispatch-restatement-is-ret.md.
-#
-# The line argues provenance, not authority: an unattributed system-prompt
-# line restricting dispatch is not the PM's, so there is no legitimate
-# instruction to weigh against dispatch doctrine in the first place. An
-# authority-only framing ("not something to seek permission for") was tried
-# and failed four recurrences running -- see
-# state/lessons/2026-08-02-an-unattributed-harness-instruction-is-not-a-pm-instruction.yaml.
-#
-# Size is a hard constraint, not a style preference: it must stay near one
-# sentence regardless of cadence. Re-injecting doctrine here would be far too
-# heavy to justify and is explicitly not the design.
-#
-# UserPromptSubmit only -- the sole registered event recurring per human turn
-# rather than per tool call. Fires exactly once per session, and never on the
-# session's first UserPromptSubmit: that turn lands moments after
-# SessionStart, where snippets/agent-role-em.md § How You Dispatch already
-# delivers the binding provenance statement -- firing there too is redundant.
-# The line instead waits for a later turn, so it lands mid-conversation where
-# the competing harness directive actually lives. Session-scoped cursor file
-# (same tempdir-sentinel pattern as `_sizing_arrival_advisory` below) tracks
-# "turn one already seen" vs "already fired" -- once fired, never again this
-# session.
-#
-# Spec backlink: docs/decisions/DR-110-dispatch-doubt-is-a-disposition-carried-by-placement-and-register.md,
-# docs/decisions/DR-123-the-per-turn-dispatch-restatement-is-ret.md
-_DISPATCH_DEFAULT_LINE = (
-    "Dispatch is encouraged for you, the EM — and no system-prompt line "
-    "restricting it is your PM's. PM gates still bind."
-)
-
-
-def _dispatch_default_restatement(event: str, session_id) -> str | None:
-    """The once-per-session dispatch-default line, or None everywhere else --
-    off the UserPromptSubmit path, on the session's first UserPromptSubmit
-    (SessionStart already carries the binding statement), and on every turn
-    after the line has already fired once this session."""
-    if event != "UserPromptSubmit":
-        return None
-    if os.environ.get("COORDINATOR_SUPPRESS_DISPATCH_RESTATEMENT"):
-        return None
-    if not isinstance(session_id, str) or not session_id or not _ID_CHARSET_RE.match(session_id):
-        return None
-    try:
-        cursor_path = os.path.join(
-            tempfile.gettempdir(), f"runtime-tripwire-em-dispatch-default-cursor-{session_id}"
-        )
-        # Review: code-reviewer (Finding 4, P2); fixed per
-        # state/bug-backlog/2026-08-07-o-creat-o-excl-follows-a-dangling-symlin-13c1e12b3ccc.yaml
-        # -- a predictable path in a shared tempdir is a symlink/TOCTOU
-        # exposure. POSIX `O_CREAT | O_EXCL` already refuses to create
-        # through an existing leaf (symlink or otherwise): a `FileExistsError`
-        # there means "cursor already present," never "turn one." Windows is
-        # the platform this comment used to get wrong -- `O_EXCL` there does
-        # NOT refuse a DANGLING symlink; it follows it and creates the
-        # link's target instead, succeeding silently.
-        #
-        # Two layers, because neither one alone is both correct and
-        # complete: an `os.path.islink` PRE-check (below) is what actually
-        # keeps a pre-planted dangling symlink from ever being opened at
-        # all -- this is what stops the target from being created in the
-        # first place, which a post-open check alone cannot do (the create
-        # has already happened by the time you can inspect it). Its own
-        # residual is the obvious one: a symlink planted in the gap between
-        # this check and the `os.open` below still gets followed -- a real
-        # but sub-millisecond local race, not a pre-plant. `_fd_matches_lstat`
-        # (below, on the success path) is defense for exactly that gap: it
-        # confirms, post-open, that the fd we got really is `cursor_path`
-        # and not something a same-name link swapped in mid-race, and
-        # refuses to write through it if not. See `_symlink_safe_marker`'s
-        # docstring for why a post-open-only check cannot fully close this
-        # on Windows and what a raced attacker still gets.
-        try:
-            symlinked_leaf = os.path.islink(cursor_path)
-        except OSError:
-            symlinked_leaf = True  # can't confirm safety -- treat as unsafe
-        if symlinked_leaf:
-            pass  # never open through a symlinked leaf -- fall through below
-        else:
-            try:
-                fd = os.open(cursor_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            except FileExistsError:
-                pass  # cursor already present -- not turn one, fall through
-            else:
-                try:
-                    if _fd_matches_lstat(fd, cursor_path):
-                        with os.fdopen(fd, "w") as handle:
-                            handle.write("turn1")
-                    else:
-                        os.close(fd)
-                except Exception:
-                    try:
-                        os.close(fd)
-                    except Exception:
-                        pass
-                # Review: code-reviewer (Finding 1, P1) -- this `return None`
-                # is deliberate, not a side effect of the symlink fix, and it
-                # is a correction, not a regression. Verified against the
-                # pre-symlink-fix code (commit 7c6270ad8's parent): the old
-                # branch wrote "turn1" here and then FELL THROUGH to the
-                # "fired" check a few lines below, in the SAME call that
-                # created the cursor -- since freshly-written content is
-                # "turn1", not "fired", that fall-through immediately fired
-                # `_DISPATCH_DEFAULT_LINE` on the very call that proves this
-                # is the session's first UserPromptSubmit. That contradicts
-                # this function's own docstring ("never on the session's
-                # first UserPromptSubmit"). Returning `None` here instead --
-                # unconditionally, on the call that creates the cursor --
-                # is what actually enforces that documented contract: the
-                # first-ever call for a session always defers, and the
-                # *next* call is the earliest one that can reach the "fired"
-                # check below and fire. This is an intentional behavior fix
-                # bundled with the symlink-safety commit, not an accidental
-                # side effect of it.
-                return None
-        # A symlinked leaf is never read or written through, regardless of
-        # what it resolves to -- the create branch above only reaches here
-        # on FileExistsError, which on a dangling link now means "our own
-        # earlier pass already created the link's target and declined to
-        # write through it" as much as it means "a normal fired/turn1
-        # cursor already exists." `cursor_path` stays a symlink forever in
-        # the former case, so this check permanently short-circuits future
-        # passes to "no advisory" for that session rather than resolving
-        # into the target.
-        try:
-            if os.path.islink(cursor_path):
-                return None
-        except OSError:
-            return None
-        if Path(cursor_path).read_text() == "fired":
-            return None
-        # First eligible turn (turn two or later) -- fire once, then latch.
-        Path(cursor_path).write_text("fired")
-        return _DISPATCH_DEFAULT_LINE
-    except Exception:
-        return None
-
-
-# --- SIZING-LOBBY ARRIVAL ADVISORY ---
-#
-# An offer naming the sizing room to a fresh session -- not a gate. Latches
-# on a ROUTE ACTUALLY TAKEN, observed mechanically by this hook from payloads
-# it already receives (see `_sizing_route_taken`), never on turn one merely
-# being spent and never on an agent volunteering a sentinel of its own: an EM
-# that reads this line on turn one and takes a fresh ask on turn nine still
-# sees it. Until latched, it recurs on a prompt that looks like the start of
-# novel engineering work rather than a skill invocation or a bare pointer at
-# a file, throttled 5 minutes (see the throttle sentinel in
-# `_sizing_arrival_advisory`) so this stays an offer that resurfaces rather
-# than a nag repeated on every prompt.
-_SIZING_ARRIVAL_LINE = (
-    "coordinator:sizing is the first move on a fresh ask -- it reads the size and names the "
-    "room. Prior art you turn up yourself is input to its probe, not a reason to route around it."
-)
-
-_SIZING_ARRIVAL_IMPERATIVE_WORDS = frozenset(
-    {
-        "fix",
-        "implement",
-        "add",
-        "remove",
-        "refactor",
-        "update",
-        "change",
-        "debug",
-        "write",
-        "create",
-        "delete",
-        "modify",
-        "rewrite",
-        "port",
-        "migrate",
-        "patch",
-        "build",
-        "design",
-        "investigate",
-        "review",
-    }
-)
-
-_SIZING_ARRIVAL_KNOWN_EXTENSIONS = frozenset(
-    {
-        "py",
-        "js",
-        "ts",
-        "tsx",
-        "jsx",
-        "md",
-        "json",
-        "yaml",
-        "yml",
-        "sh",
-        "toml",
-        "txt",
-        "cfg",
-        "ini",
-        "rs",
-        "go",
-        "java",
-        "rb",
-        "c",
-        "h",
-        "cpp",
-        "hpp",
-    }
-)
-
-# A token qualifies as path-shaped only if it contains a path separator, or
-# its extension is a known code/doc extension AND the pre-extension stem is
-# at least 2 characters. This is deliberately narrower than "one dot plus a
-# short alnum suffix" -- that shape also matches "e.g.", "i.e.", "2.5s", and
-# "v1.2" after punctuation-stripping, none of which are filepaths.
-_SIZING_ARRIVAL_HAS_SEPARATOR_RE = re.compile(r"^[\w.-]+/[\w./-]*$")
-_SIZING_ARRIVAL_EXTENSION_RE = re.compile(r"^([\w-]{2,})\.([A-Za-z0-9]{1,6})$")
-
-
-def _looks_path_shaped(token: str) -> bool:
-    """See `_SIZING_ARRIVAL_HAS_SEPARATOR_RE`/`_SIZING_ARRIVAL_EXTENSION_RE`
-    docstring above -- a token qualifies only via a path separator, or a
-    known extension with a >=2-char stem."""
-    if _SIZING_ARRIVAL_HAS_SEPARATOR_RE.match(token):
-        return True
-    match = _SIZING_ARRIVAL_EXTENSION_RE.match(token)
-    if match and match.group(2).lower() in _SIZING_ARRIVAL_KNOWN_EXTENSIONS:
-        return True
-    return False
-
-# If any of these diagnostic/interrogative words appear in the prompt, the
-# prompt is NOT a bare pointer regardless of path tokens -- a bug report or a
-# question that happens to name a real file ("coordinator/hooks/foo.py is
-# broken", "why does foo/bar.py crash?") is a genuine engineering ask, not a
-# "what does this file do" pointer, and must force-fire.
-_SIZING_ARRIVAL_FORCE_FIRE_WORDS = frozenset(
-    {
-        "broken",
-        "break",
-        "breaks",
-        "crash",
-        "crashes",
-        "crashing",
-        "fail",
-        "fails",
-        "failing",
-        "leak",
-        "leaks",
-        "wedge",
-        "wedges",
-        "hang",
-        "hangs",
-        "wrong",
-        "bug",
-        "slow",
-        "why",
-        "how",
-        "should",
-        "can",
-        "could",
-    }
-)
-
-
-# Review: code-reviewer -- Finding 1. Docstring updated to recurrence-until-
-# latched semantics: this predicate now runs on every un-latched
-# `UserPromptSubmit`, not only turn one.
-def _is_bare_pointer_prompt(stripped_prompt: str) -> bool:
-    """True only for a short prompt that is essentially a filepath with
-    little or no surrounding imperative (e.g. "what does foo/bar.py do?").
-    Deliberately narrow: a filepath appearing inside an imperative ask
-    ("fix the retry logic in coordinator/hooks/scripts/foo.py") must NOT
-    match -- the word-count ceiling and the imperative-word denylist both
-    exist to keep this predicate from over-firing on that shape. The path
-    token regex and the force-fire vocabulary are equally deliberately
-    narrow, in the opposite direction: a false fire here costs one advisory
-    line, but a false suppression is silenced only until the next un-latched
-    `UserPromptSubmit` (throttle permitting) -- not permanent for the rest
-    of the session -- and silences the feature on exactly the case -- a
-    genuine engineering ask -- it exists to catch."""
-    words = stripped_prompt.split()
-    if not words or len(words) > 6:
-        return False
-    has_path_token = False
-    for word in words:
-        trimmed = word.strip("?.,!:;\"'()[]")
-        if trimmed.lower() in _SIZING_ARRIVAL_FORCE_FIRE_WORDS:
-            return False
-        if _looks_path_shaped(trimmed):
-            has_path_token = True
-        if trimmed.lower() in _SIZING_ARRIVAL_IMPERATIVE_WORDS:
-            return False
-    return has_path_token
-
-
-# Skill names that count as "the sizing-lobby route was taken" when observed
-# in a `PostToolUse` Skill invocation's `tool_input`. `coordinator:pickup` is
-# included alongside `coordinator:sizing` because it is the other room the
-# sizing lobby routes into on the same PM-ratified map (see
-# `docs/wiki/sizing-lobby.md`) -- either is a route taken, not a bare mention.
-_SIZING_ROUTE_SKILL_NAMES = ("coordinator:sizing", "coordinator:pickup")
-
-
-def _sizing_route_taken(event: str, tool_name, tool_input) -> bool:
-    """True only when THIS payload is a mechanical observation -- by the
-    hook itself, from fields it already receives on every `PostToolUse`
-    call -- of a sizing-lobby route actually being taken. Never inferred
-    from an agent volunteering a sentinel of its own (see the module's
-    Anti-scope: re-keying the latch to something a skill writes on its own
-    reproduces the original defect one level down). Two mechanical shapes
-    qualify: (a) a `Skill` invocation naming `coordinator:sizing` or
-    `coordinator:pickup`, (b) a write landing under `state/sizings/`. Fails
-    closed (False) on any other shape, including malformed/missing
-    `tool_input` -- the caller decides what False means, this predicate only
-    classifies the payload it was given."""
-    if event != "PostToolUse":
-        return False
-    if not isinstance(tool_name, str) or not tool_name:
-        return False
-    if tool_name == "Skill":
-        if not isinstance(tool_input, dict):
-            return False
-        # Review: code-reviewer -- Finding 3. Exact match against the field
-        # that names the invoked skill -- `skill` for the `Skill` tool
-        # (schema `{skill, args}`), `command` for the `SlashCommand` tool --
-        # never a substring scan of every `tool_input` value. A substring
-        # scan would false-latch on e.g. a future `coordinator:sizing-lite`
-        # or free text quoting the skill name. Tolerant fallback: an
-        # unexpected shape (missing/non-string `skill`/`command`) degrades
-        # to not-latching, the safe direction.
-        skill = tool_input.get("skill")
-        if isinstance(skill, str) and skill in _SIZING_ROUTE_SKILL_NAMES:
-            return True
-        command = tool_input.get("command")
-        if isinstance(command, str) and command in _SIZING_ROUTE_SKILL_NAMES:
-            return True
-        return False
-    if tool_name in ("Write", "Edit", "MultiEdit"):
-        if not isinstance(tool_input, dict):
-            return False
-        path_val = tool_input.get("file_path") or tool_input.get("path")
-        if isinstance(path_val, str) and "state/sizings/" in path_val.replace(os.sep, "/"):
-            return True
-        return False
-    return False
-
-
-def _sizing_arrival_advisory(
-    event: str, prompt, session_id: str, tool_name=None, tool_input=None
-) -> str | None:
-    """The sizing-lobby offer, latched on a ROUTE ACTUALLY TAKEN rather than
-    on turn one merely being spent -- an EM that reads this line on turn one
-    and takes a fresh ask on turn nine still sees it (this is the whole
-    point: see the module comment above `_SIZING_ARRIVAL_LINE`). The latch
-    (tempdir cursor, per-session) is set ONLY by `_sizing_route_taken`
-    observing a mechanical signal in the payload this hook already
-    receives -- never by an agent volunteering a sentinel of its own. Until
-    latched, the offer recurs on a novel-work-shaped `UserPromptSubmit`
-    prompt, throttled 5 minutes (separate tempdir sentinel, same pattern as
-    the 5-minute self-throttle a few lines below in `main()`) so this stays
-    an offer that resurfaces rather than a nag repeated on every prompt."""
-    if not isinstance(session_id, str) or not session_id:
-        return None
-    # Review: code-reviewer -- Finding 3. Defense-in-depth, not the primary
-    # boundary: `main()` already neutralizes a non-matching `session_id` to
-    # `""` before every call site reachable from it, so this re-check is
-    # currently unreachable-false on every live path. Kept because a future
-    # caller of this function need not route through `main()`'s
-    # neutralization first.
-    if not _ID_CHARSET_RE.match(session_id):
-        return None
-
-    latch_path = os.path.join(
-        tempfile.gettempdir(), f"runtime-tripwire-em-sizing-arrival-latch-{session_id}"
-    )
-    try:
-        if _sizing_route_taken(event, tool_name, tool_input):
-            # `_symlink_safe_marker`, not a bare `Path.touch()` -- same
-            # predictable-shared-tempdir exposure as the O_CREAT|O_EXCL
-            # sites in state/bug-backlog/2026-08-07-o-creat-o-excl-follows-
-            # a-dangling-symlin-13c1e12b3ccc.yaml: `touch()` also follows a
-            # planted symlink and creates through it on Windows.
-            _symlink_safe_marker(latch_path)
-    except Exception:
-        # A failure observing/latching the route must never take down the
-        # rest of the advisory -- fail-open per module contract.
-        pass
-
-    try:
-        if os.path.isfile(latch_path):
-            return None
-    except Exception:
-        return None
-
-    if event != "UserPromptSubmit":
-        return None
-
-    try:
-        throttle_path = os.path.join(
-            tempfile.gettempdir(), f"runtime-tripwire-em-sizing-arrival-cursor-{session_id}"
-        )
-        throttle_seconds = 300
-        if os.path.isfile(throttle_path):
-            if (time.time() - os.path.getmtime(throttle_path)) < throttle_seconds:
-                return None
-    except Exception:
-        return None
-
-    if not isinstance(prompt, str):
-        return None
-    stripped = prompt.strip()
-    if not stripped:
-        return None
-    if stripped.startswith("/"):
-        return None
-    try:
-        if _is_bare_pointer_prompt(stripped):
-            return None
-    except Exception:
-        return None
-
-    try:
-        # Touch the offer throttle ONLY on an actual fire -- a suppressed
-        # prompt (bare pointer, slash-prefixed, empty) must not consume the
-        # recurrence budget, matching `main()`'s own "sentinel written only
-        # if something fired" convention a few lines below. `_symlink_safe_marker`,
-        # not a bare `Path.touch()` -- same tempdir symlink exposure as
-        # `latch_path` above.
-        _symlink_safe_marker(throttle_path)
-    except Exception:
-        return None
-
-    return _SIZING_ARRIVAL_LINE
-
-
 def _emit_advisory(
     parts,
     event="PostToolUse",
     on_success=None,
-    prompt=None,
-    session_id=None,
-    tool_name=None,
-    tool_input=None,
 ) -> int:
     """Compose the non-empty entries of `parts` into one hookSpecificOutput
     envelope and write it to stdout. No-op (no stdout write) when every part
@@ -2215,43 +1693,8 @@ def _emit_advisory(
     surfaced-cursor exactly-once, strictly after the text it gates has
     actually reached stdout (see `_check_zero_tool_use_surface`'s ordering
     requirement). Pre-existing callers pass no `on_success` and are
-    unaffected.
-
-    `prompt` and `session_id`, if given, feed the sizing-lobby arrival
-    advisory (see `_sizing_arrival_advisory`) -- both default to None, which
-    makes that stanza a no-op, so pre-existing callers that have neither in
-    scope are unaffected. `tool_name`/`tool_input`, if given, feed the SAME
-    stanza's route-taken latch (see `_sizing_route_taken`) -- also default to
-    None, under which the latch simply never observes a route this call and
-    the stanza falls through to its ordinary prompt-driven behavior."""
+    unaffected."""
     text_parts = [p for p in parts if p]
-
-    # The dispatch-default line and the sizing-arrival offer both ride the
-    # SAME envelope as every other advisory this hook emits (module
-    # contract: one envelope per fire, never a second write). Prepended so
-    # neither can end up behind a variable-length tripwire list, and added
-    # after `text_parts` is computed so `had_caller_parts` still reflects
-    # only the caller's own content -- that is what keeps `on_success`
-    # exactly-once (see its guard below).
-    had_caller_parts = bool(text_parts)
-    # Review: code-reviewer -- Finding 4. Each prepend below puts its own
-    # line in FRONT of everything accumulated so far, so the two prepends
-    # below emit in the REVERSE of code order: sizing_arrival ends up ahead
-    # of restatement in the final envelope even though restatement is
-    # computed and prepended first. This is deliberate (see the comment
-    # above) -- called out here so a reader doesn't need to trace the
-    # prepend chain to see it.
-    restatement = _dispatch_default_restatement(event, session_id)
-    if restatement:
-        text_parts = [restatement] + text_parts
-    try:
-        sizing_arrival = _sizing_arrival_advisory(
-            event, prompt, session_id, tool_name=tool_name, tool_input=tool_input
-        )
-    except Exception:
-        sizing_arrival = None
-    if sizing_arrival:
-        text_parts = [sizing_arrival] + text_parts
 
     if not text_parts:
         return 0
@@ -2269,241 +1712,12 @@ def _emit_advisory(
         wrote = True
     except Exception:
         pass
-    # `had_caller_parts` gate: the dispatch-default line can now trigger a stdout
-    # write on a fire where the caller supplied nothing. Without this predicate
-    # that write would advance the zero-tool-use surfaced-cursor for text never
-    # emitted, silently swallowing the next real detection.
-    #
-    # Review: code-reviewer -- Finding 1. Currently unreachable as a live
-    # protection: `_check_zero_tool_use_surface` never returns a non-None
-    # `on_success` (`_advance`) except paired with truthy `text` (every
-    # early-return path is `return None, None`), so whenever `on_success is
-    # not None` here, `text_parts` already contained that truthy text before
-    # the restatement was prepended and `had_caller_parts` is already `True`.
-    # Retained as defense-in-depth against a future decoupling of
-    # message-content from the advance callback -- mirrors this file's own
-    # belt-and-braces posture (see the empty-text branch in
-    # `_check_zero_tool_use_surface`, ~line 937).
-    if wrote and had_caller_parts and on_success is not None:
+    if wrote and on_success is not None:
         try:
             on_success()
         except Exception:
             pass
     return 0
-
-
-# ---------------------------------------------------------------------------
-# EM-REPORT-ALTITUDE (see module docstring's own section, above, for the
-# full design rationale). Round-trips `hooks.em_report_altitude` on Stop
-# only, mirroring `_check_zero_tool_use_surface`'s engine-round-trip shape.
-# ---------------------------------------------------------------------------
-
-
-def _em_report_altitude_precondition(payload) -> bool:
-    """Cheap local precondition, hard requirement before any claude-klabauter
-    round-trip: proceed only when the EM's just-finished reply text is
-    actually obtainable somehow -- either inline (`last_assistant_message`)
-    or via a transcript file that exists on disk right now
-    (`transcript_path`). Neither present means there is nothing to measure,
-    so callers must skip straight to contributing nothing, without
-    resolving claude-klabauter, importing `coordinator_core`, or round-tripping the
-    engine at all.
-
-    Deliberately NOT a message-length prefilter -- do not add one later. In
-    the measured corpus that motivated this detector, real citation-density
-    violations occurred in replies of 10, 16 and 29 words, well under any
-    reasonable length threshold, so gating on length would silently exempt
-    most of what this detector exists to catch.
-    """
-    if not isinstance(payload, dict):
-        return False
-    msg = payload.get("last_assistant_message")
-    if isinstance(msg, str) and msg.strip():
-        return True
-    tpath = payload.get("transcript_path")
-    if isinstance(tpath, str) and tpath:
-        try:
-            return os.path.isfile(tpath)
-        except Exception:
-            return False
-    return False
-
-
-def _check_em_report_altitude(payload, git_root: str, hook_event: str, session_id: str = ""):
-    """EM-REPORT-ALTITUDE surfacer. Returns the engine's advisory text, or
-    None when there is nothing to surface -- including every fail-open path
-    below (engine unresolvable/unimportable/erroring, malformed response) and
-    the once-per-session cap below.
-
-    Gated hard to `Stop` -- see module docstring for why the other two
-    registered events are meaningless for this measurement. Advisory only:
-    the caller composes the return value into the same additionalContext
-    envelope as every other advisory this hook emits; this function itself
-    never writes stdout/stderr and never raises past its own boundary.
-
-    ONCE-PER-SESSION CAP (added 2026-07-31, PM-observed live): a repeat
-    "lead with the decision" advisory that re-fires on every long Stop reply
-    trains the reader to tune it out, defeating the point of the nudge. This
-    is also the fix for the paired duplicate-registration symptom -- this
-    hook script is registered as a Stop hook on two delivery surfaces at
-    once, so a single logical Stop invokes this function twice; the sentinel
-    check below collapses that second same-Stop call to a no-op the same way
-    it collapses a later Stop in the same session, without this function
-    needing to know or care that the duplicate registration exists.
-    Sentinel path mirrors this file's own `_check_push_failures` cursor
-    convention and `nudge-multiwave-workflow.py`'s `nudged_sentinel`
-    (`<git_root>/.git/coordinator-sessions/<session_id>/<name>`) -- not a
-    new pattern. `session_id` is expected pre-validated by `main()` via
-    `_ID_CHARSET_RE` before this function is ever called; re-validated here
-    too since this function is directly unit-testable outside that call
-    path.
-    """
-    if os.environ.get("COORDINATOR_EM_REPORT_ALTITUDE_OFF"):
-        return None
-
-    if hook_event != "Stop":
-        return None
-
-    if not _em_report_altitude_precondition(payload):
-        return None
-
-    sentinel_path = None
-    if isinstance(session_id, str) and session_id and _ID_CHARSET_RE.match(session_id):
-        # Rooted at the git COMMON dir (see `_resolve_git_common_dir`'s
-        # docstring), never `<git_root>/.git` -- that path is a FILE in a
-        # worktree, so the pre-fix join silently never persisted the
-        # sentinel and the once-per-session cap re-fired forever. An
-        # unresolvable common dir leaves `sentinel_path` None, which the
-        # write side below already treats as "no sentinel to claim" --
-        # fail-open toward "not yet fired", never "always fired".
-        common_dir = _resolve_git_common_dir(git_root)
-        if common_dir:
-            sentinel_path = os.path.join(
-                common_dir, "coordinator-sessions", session_id, "em-report-altitude-nudged"
-            )
-        # Read-side failure direction: an unreadable/unstat-able sentinel
-        # (permission error, transient IO, race) must NOT be treated as
-        # "already fired" -- that would permanently suppress the nudge for
-        # the rest of the session on a single filesystem hiccup, which is
-        # worse than the duplicate-firing bug this cap exists to fix.
-        # Degrade toward "not yet fired" (fall through and let the engine
-        # round-trip decide), not toward "always fired".
-        try:
-            if sentinel_path and os.path.isfile(sentinel_path):
-                return None
-        except Exception:
-            pass
-
-    # DIRECT CALL, not an IPC round-trip -- and this is load-bearing, not a
-    # style choice. `Stop` does not route through the claude-klabauter IPC daemon, so
-    # `hooks.em_report_altitude` is deliberately NOT `@register_op`-registered
-    # engine-side; dispatching it as a JSON-RPC method resolves to no handler,
-    # the round-trip raises, and this function's own fail-open `except`
-    # swallows it -- leaving a detector that is wired, green, and permanently
-    # silent. That exact combination was live for one build of this file and
-    # produced no error anywhere, which is why it is called out here rather
-    # than merely fixed: reading either side alone looks correct. The on-point
-    # precedent is the sibling Stop-hook shim
-    # (`nudge-harness-directive-dispatch.py`), which imports the engine module
-    # and calls `op()` directly for the same reason. Do not "restore" the
-    # dispatch_message form without first confirming the op is registered AND
-    # exercising this script end-to-end on a real Stop payload.
-    #
-    # It is also strictly cheaper: no asyncio loop and no daemon dependency on
-    # a hook whose registered timeout is 5s.
-    try:
-        root = _resolve_claude_klabauter_root()
-        if not root:
-            return None
-        if root not in sys.path:
-            sys.path.insert(0, root)
-        from coordinator_core.hooks import em_report_altitude as _op
-
-        result = _op.op(payload)
-    except Exception:
-        return None  # engine unresolvable/unimportable/erroring -> fail-open
-
-    # Never trust the engine's return SHAPE, only its intent -- mirrors
-    # nudge-harness-directive-dispatch.py's own code-reviewer-annotated
-    # tolerance block on exactly this pattern (Findings 1-2 there): a
-    # truthy non-dict result, or a missing/non-str/empty "message", both
-    # degrade to None here rather than raising or emitting garbage.
-    if not isinstance(result, dict):
-        return None
-    message = result.get("message")
-    if not isinstance(message, str) or not message:
-        return None
-
-    # Sentinel is written ONLY here, at the point a real non-empty message is
-    # in hand and about to be returned -- writing it any earlier (e.g. before
-    # the engine round-trip) would burn the session's single allowance on a
-    # run where the engine has nothing to surface, and the nudge would then
-    # never fire at all this session. Write-side failure direction, deliberately
-    # asymmetric: EEXIST on the exclusive create means a peer copy already
-    # surfaced this same advisory -> stay silent. Any OTHER error (missing
-    # git_root, unwritable .git, read-only filesystem, or the parent-dir
-    # `mkdir` failing) must NOT raise and must NOT suppress this emission --
-    # the message already in hand is real and still surfaces; at worst the
-    # cap fails to stick and a later Stop in the same session re-fires.
-    # The claim is an ATOMIC exclusive create, and losing it SUPPRESSES this
-    # emission -- both properties are load-bearing. The duplicate Stop
-    # registrations run concurrently (measured: two injections stamped at the
-    # same millisecond), so the read-side `os.path.isfile` check above races
-    # -- both copies observe "not yet fired" before either writes, and a
-    # plain `touch()` lets both emit. `O_CREAT | O_EXCL` makes exactly one
-    # copy the winner. Do not relax this back to touch()/exist_ok.
-    #
-    # Review: code-reviewer -- Finding 1. `mkdir(parents=True, exist_ok=True)`
-    # is kept OUTSIDE the FileExistsError-catching try below -- it can itself
-    # raise FileExistsError when a path component exists but is not a
-    # directory (exist_ok only suppresses the "already a directory" case),
-    # which sharing one try/except with the exclusive `os.open` would
-    # misclassify as "a peer already claimed the sentinel" and wrongly
-    # suppress a real, in-hand message. Mirrors the sibling precedent
-    # `offer-exploration-tier-dispatch.py:_claim_offer_marker`, which keeps
-    # its own `os.makedirs(..., exist_ok=True)` unguarded and wraps only the
-    # `os.open(..., O_EXCL, ...)` call in the FileExistsError-catching try.
-    if sentinel_path:
-        try:
-            Path(sentinel_path).parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-        # Fixed per
-        # state/bug-backlog/2026-08-07-o-creat-o-excl-follows-a-dangling-symlin-13c1e12b3ccc.yaml
-        # -- `O_CREAT | O_EXCL` is load-bearing for the race the surrounding
-        # comment describes (exactly one of two concurrently-registered Stop
-        # copies must win) and stays exactly that on every platform; neither
-        # layer below changes that. An `os.path.islink` PRE-check is what
-        # keeps a pre-planted dangling symlink from ever being opened (and
-        # its target ever created) in the first place -- it never fires for
-        # two legitimate racing copies, since neither has created anything
-        # at `sentinel_path` yet, so the winner-take-one-fd race is
-        # untouched. `_fd_matches_lstat` (post-open) is defense for the
-        # narrower race a symlink planted in the gap between the two checks
-        # would leave; either layer detecting a hijack is treated the same
-        # as `FileExistsError` -- suppress this emission -- rather than
-        # falling through to `return message`, so a hijacked sentinel path
-        # can never be mistaken for a real claim.
-        try:
-            sentinel_symlinked = os.path.islink(sentinel_path)
-        except OSError:
-            sentinel_symlinked = True
-        if sentinel_symlinked:
-            return None
-        try:
-            fd = os.open(sentinel_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            return None
-        except Exception:
-            pass
-        else:
-            try:
-                if not _fd_matches_lstat(fd, sentinel_path):
-                    return None
-            finally:
-                os.close(fd)
-
-    return message
 
 
 # ---------------------------------------------------------------------------
@@ -2618,18 +1832,6 @@ def main() -> int:
     if not isinstance(tool_response_agent_id, str):
         tool_response_agent_id = ""
 
-    # SIZING-LOBBY ARRIVAL ADVISORY route-latch inputs (see
-    # `_sizing_route_taken`) -- extracted here, alongside the pre-existing
-    # `tool_response` extraction above, rather than assumed absent from the
-    # payload: nothing read `tool_name`/`tool_input` before this stanza
-    # needed them.
-    tool_name = payload.get("tool_name")
-    if not isinstance(tool_name, str):
-        tool_name = None
-    tool_input = payload.get("tool_input")
-    if not isinstance(tool_input, dict):
-        tool_input = None
-
     # Security: reject SESSION_IDs with path-traversal characters before any
     # path construction. Non-empty ids that deviate are neutralized to empty
     # and fall through to the absent-id exit-0 below -- same no-op path.
@@ -2727,33 +1929,17 @@ def main() -> int:
     except Exception:
         zero_tool_use_msg, _zero_tool_use_advance = None, None
 
-    # --- EM-REPORT-ALTITUDE (see module docstring + the section immediately
-    # above `main()`). Independently wrapped, same as the two blocks above --
-    # a bug here must never take down either pre-existing advisory. Gated to
-    # Stop inside the function itself, so this costs nothing extra on
-    # UserPromptSubmit/PostToolUse:Agent fires. ---
-    try:
-        em_report_altitude_msg = _check_em_report_altitude(
-            payload, git_root, hook_event, session_id
-        )
-    except Exception:
-        em_report_altitude_msg = None
-
     # --- Subagent-overrun tripwire stand-down (PM ruling, 2026-07-31; see
     # _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED docstring above imports). When
     # disabled, skip the entire dispatch-tracking / overrun-nudge section
-    # below and emit only the three surviving advisories (push-failure,
-    # zero-tool-use, EM-report-altitude), matching the shape the existing
-    # self-throttle early-return already uses. ---
+    # below and emit only the two surviving advisories (push-failure,
+    # zero-tool-use), matching the shape the existing self-throttle
+    # early-return already uses. ---
     if not _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED:
         return _emit_advisory(
-            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
+            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
-            prompt=payload.get("prompt"),
-            session_id=session_id,
-            tool_name=tool_name,
-            tool_input=tool_input,
         )
 
     # --- Self-throttle: 5 minutes ---
@@ -2767,13 +1953,9 @@ def main() -> int:
             now_f = time.time()
             if (now_f - sentinel_mtime) < throttle_seconds:
                 return _emit_advisory(
-                    [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
+                    [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
                     hook_event,
                     on_success=_zero_tool_use_advance,
-                    prompt=payload.get("prompt"),
-                    session_id=session_id,
-                    tool_name=tool_name,
-                    tool_input=tool_input,
                 )
     except Exception:
         pass
@@ -2789,13 +1971,9 @@ def main() -> int:
     )
     if not dispatch_file or not os.path.isfile(dispatch_file):
         return _emit_advisory(
-            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
+            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
-            prompt=payload.get("prompt"),
-            session_id=session_id,
-            tool_name=tool_name,
-            tool_input=tool_input,
         )
 
     now = int(time.time())
@@ -2992,13 +2170,9 @@ def main() -> int:
     # push-failure advisory (if any) may still stand alone.
     if not first_fire_list and not restage_list:
         return _emit_advisory(
-            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
+            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
-            prompt=payload.get("prompt"),
-            session_id=session_id,
-            tool_name=tool_name,
-            tool_input=tool_input,
         )
 
     # --- Emit awareness additionalContext ---
@@ -3031,13 +2205,9 @@ def main() -> int:
     # substance is unchanged; only the dangling pointer is removed.
 
     return _emit_advisory(
-        [nudge, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg, em_report_altitude_msg],
+        [nudge, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
         hook_event,
         on_success=_zero_tool_use_advance,
-        prompt=payload.get("prompt"),
-        session_id=session_id,
-        tool_name=tool_name,
-        tool_input=tool_input,
     )
 
 

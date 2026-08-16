@@ -35,7 +35,7 @@ cross-repo/fleet-shared hook.
 # lines) has been fully ported to
 # coordinator_core/ops/validate_install_contract.py (claude-klabauter), with a
 # co-located pytest suite (coordinator_core/ops/test_validate_install_
-# contract.py, 27 tests). This file is now a thin DoE-side (contract)
+# contract.py, 37 tests). This file is now a thin DoE-side (contract)
 # trampoline over that claude-klabauter (engine) module, per DR-047 (DoE owns
 # contract/generator, claude-klabauter owns engine). The `jq` and `bash >= 4.3`
 # runtime preconditions from the bash oracle are gone — this is a
