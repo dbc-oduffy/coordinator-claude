@@ -5853,12 +5853,24 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
     destination, and a round would write whole-file line-ending flips across
     every published text file. Invisible on macOS/Linux, silent on Windows.
 
-    Measured here on `cockpit-contract/LICENSE` (3021-byte LF blob): bare
-    archive 3082 bytes / 61 CRLF; `core.eol=lf` alone unchanged at 3082 / 61;
-    `core.autocrlf=false` alone 3021 / 0; both 3021 / 0. `autocrlf=false` is
-    the flag doing the work on this corpus — `eol=lf` is kept because it is
-    the setting that pins the *intended* ending rather than merely disabling
-    conversion, and the pair is what the reporting sibling verified on theirs.
+    Both flags are load-bearing, each in a DIFFERENT `.gitattributes` regime —
+    do not strip either as redundant:
+
+    - Path with **no `text` attribute** (e.g. this repo's vendored
+      `cockpit-contract/LICENSE`): conversion is driven by `core.autocrlf`
+      alone, so `autocrlf=false` disables it and `eol=lf` is the no-op.
+      Measured, 3021-byte LF blob: bare 3082/61 CRLF; `eol=lf` alone 3082/61;
+      `autocrlf=false` alone 3021/0; both 3021/0.
+    - Path with explicit **`text=auto`** (DoE-claude sets `* text=auto`
+      repo-wide, covering `coordinator/dist/publish-repo-toplevel/`): the
+      ATTRIBUTE drives conversion and the target ending comes from `core.eol`,
+      which defaults to `native` = CRLF on Windows. There `autocrlf=false`
+      changes nothing and `eol=lf` is the load-bearing flag. Measured by
+      doe-claude-em, 12290-byte LF blob: bare 12514/224 CRLF; both 12290/0.
+
+    Only the pair is correct across both regimes. A regression pin must cover
+    one path of each kind — a pin over attribute-free paths alone stays green
+    if `eol=lf` is later dropped.
     """
     shadow_dir = Path(tempfile.mkdtemp(prefix="claude-klabauter-publish-materialize-"))
     fd, archive_path_str = tempfile.mkstemp(prefix="claude-klabauter-publish-archive-", suffix=".tar")
