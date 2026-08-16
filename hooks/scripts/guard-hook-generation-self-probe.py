@@ -107,6 +107,13 @@ except Exception:
 
     def _arm_lazy_ops() -> None:
         return None
+try:
+    from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
+    # must still fail open to the subprocess rung below, not crash on import.
+    def _git_root_walk() -> str | None:
+        return None
 
 
 _SELF_PROBE_TIMEOUT_SECS = 5
@@ -119,7 +126,15 @@ def _resolve_this_repo_root() -> str | None:
     `__file__` lives under the doctrine-plane source tree regardless of which
     consumer repo's session invoked it via live `--plugin-dir` resolution, so
     a `__file__`-based root would mis-file every non-doctrine-plane session's
-    failure record)."""
+    failure record).
+
+    In-process parent walk (`_git_root_walk`, cwd-based like this function's own contract)
+    first -- no subprocess on the routine path; `git rev-parse --show-toplevel` below is kept
+    only as a fallback for the case the walk cannot resolve.
+    """
+    walked = _git_root_walk()
+    if walked:
+        return walked
     import subprocess
 
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)

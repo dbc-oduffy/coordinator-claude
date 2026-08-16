@@ -2,6 +2,7 @@
 name: consolidate-git
 description: "Cleans up branch sprawl — consolidates and prunes stale branches."
 version: 1.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # Consolidate Git — Branch + Worktree Cleanup

@@ -98,19 +98,11 @@ def _resolve_repo_root(candidate_abs: str) -> str | None:
     per-repo git root, and it also lets the test harness point candidates at fixture
     repos with their own .git.
     """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", os.path.dirname(candidate_abs), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_kw(),
-        )
-    except OSError:
+    if cc_invoke.ensure_engine_on_path(__file__) is None:
         return None
-    if proc.returncode != 0:
-        return None
-    root = proc.stdout.strip()
-    return root or None
+    from coordinator_core.git.repo_root import show_toplevel
+
+    return show_toplevel(cwd=os.path.dirname(candidate_abs))
 
 
 def _build_parser() -> argparse.ArgumentParser:

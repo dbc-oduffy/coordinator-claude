@@ -243,6 +243,28 @@ the SINK:
      co-review this carve-out; this comment is the backlink that makes that
      co-review discoverable from here.
 
+  11. INTERPRETER-INVOCATION READ-SHAPE (fold dispatch fix,
+      ``_is_interpreter_read_shape``, MEASURED false positive). Point 3/5's
+      original posture treated the bare PRESENCE of an interpreter marker
+      (``python3``/``perl``/``ruby``/``node``) in a mentioning segment as
+      always enough to deny, on the theory that an interpreter can write
+      with no textual trace of its own. That denied a genuinely read-only
+      command observed live: a governed filename appearing inside a QUOTED
+      Python string literal (e.g. ``python3 -c "print('reads CLAUDE.md')"``)
+      with no write call anywhere in the payload. A segment is now
+      READ-shaped -- exempted from the point-3 interpreter-marker deny, same
+      as a content-safe ``git`` subcommand -- iff ALL hold: its own command
+      token IS one of the four interpreters (not merely mentioned
+      downstream/upstream of one); it carries no write marker
+      (``_has_write_marker``, unchanged, still catches every point-3 write
+      primitive on the raw text); no OS-exec escape hatch
+      (``os.system(``/``subprocess.*(``/``shell=True``/``eval(``/``exec(``);
+      no ``eval``/``xargs``; and the identifier mention does not survive
+      ``_strip_quoted_spans`` (i.e. it is quoted content, never a bare path
+      operand). A write marker, an OS-exec call, or a bare mention still
+      denies exactly as before -- this narrows only the no-write,
+      quoted-mention shape.
+
 NEGATIVE-SPEC -- known, accepted over-denial, preserved from the prior
 revision: a SEGMENT that mentions a governed surface AND also contains an
 unrelated write marker in that SAME segment (e.g. ``git diff
@@ -288,6 +310,28 @@ classification at all, so a payload whose destination is NOT a governed
 surface never needs to satisfy this hook's heuristics in the first place.
 See ``coordinator/snippets/findings-self-persist-sentinel.md`` for the
 doctrine-side half of this fix.
+
+NEGATIVE-SPEC UPDATE (dispatch fix, see
+``test_allow_heredoc_body_prose_mention_with_unrelated_write_target``
+and ``test_allow_printf_scratch_redirect_with_quoted_prose_mention``): the
+SAME-SEGMENT shape immediately above (a single ``python3 -c`` payload
+where the identifier mention and ``.write_text(`` sit in one segment) is
+still deliberately left denying, unchanged, for the reasons given above.
+Two narrower shapes ARE now fixed, because each has a mechanism this hook
+CAN reliably distinguish without argument-position parsing: (1) a bare
+``>``/``>>`` redirect whose own target token does not name a governed
+identifier, in a segment where the identifier's only appearance is inside
+a quoted span (the printf/scratch-redirect shape); and (2) a HEREDOC BODY
+line containing a Python triple-quoted assignment that mentions a
+governed name in its own prose, that ``_ASSIGN_RE`` was misreading as a
+live shell variable assignment for point 4's cross-segment scan, even
+though the assignment and the unrelated ``.write_text(`` call are
+DIFFERENT lines/segments never executed as shell at all. Neither fix
+touches this SAME-SEGMENT ``-c`` shape, NEGATIVE-SPEC-1 (git-diff-plus-
+unrelated-redirect with a BARE, unquoted mention), or any
+``open(...,'w')`` true positive -- see ``_has_write_marker_for_point3``
+and the point-4 heredoc-stripping comment in ``is_denied_bash_write`` for
+the narrowing logic and why each stays scoped.
 
 Contract: reads PreToolUse JSON from stdin (mirrors
 ``check-claude-md-size.py``): exit 0 = allow (silent), exit 2 = BLOCK
@@ -403,6 +447,70 @@ _WGET_OUTPUT_RE = re.compile(r"\bwget\b.{0,200}?(-O\b|--output-document\b)", re.
 #: a lowercase `w` followed by whitespace and a non-whitespace filename
 #: token, anywhere inside a `sed` invocation.
 _SED_WRITE_SCRIPT_RE = re.compile(r"\bsed\b.{0,200}?\bw\s+\S", re.DOTALL)
+
+
+def _redirect_target_token(segment: str) -> "str | None":
+    """The token immediately following the last real (non-fd-duplication,
+    non-``/dev/null``) bare ``>``/``>>`` in ``segment`` -- the actual
+    redirect destination. ``None`` when ``segment`` carries no such
+    redirect, or the redirect is trailing with nothing after it. Used only
+    by ``_has_write_marker_for_point3`` to tell a redirect that targets a
+    governed surface from one that merely shares a segment with a QUOTED
+    mention of one."""
+    masked = _SAFE_REDIRECT_RE.sub(lambda m: " " * len(m.group(0)), segment)
+    last = None
+    for match in _BARE_REDIRECT_RE.finditer(masked):
+        last = match
+    if last is None:
+        return None
+    rest = segment[last.end() :].lstrip()
+    if not rest:
+        return None
+    if rest[0] in ("'", '"'):
+        quote = rest[0]
+        end = rest.find(quote, 1)
+        return rest[1:end] if end != -1 else rest[1:]
+    end = 0
+    while end < len(rest) and not rest[end].isspace():
+        end += 1
+    return rest[:end]
+
+
+def _has_write_marker_for_point3(segment: str) -> bool:
+    """Point 3's write-marker check, narrowed for the BARE-REDIRECT shape
+    only -- observed live: ``printf '%s\\n' "..." "CLAUDE.md holds every op
+    to a budget" ... > "scratch/spin-msg.txt"``, where the governed mention
+    is prose INSIDE a quoted ``printf`` argument and the redirect's real
+    target is an unrelated scratch file. The prior revision counted any
+    bare-redirect marker anywhere in a mentioning segment as denying, with
+    no check of what the redirect actually targets -- correct for
+    NEGATIVE-SPEC-1's accepted case (``git diff <governed-path> >
+    /tmp/out.txt``, where the mention is a BARE, unquoted path operand --
+    still denies below via ``bare_mention``) but wrong for this one, where
+    the mention never appears outside a quoted span at all.
+
+    A redirect counts as evidence of a governed write iff EITHER the
+    identifier mention survives ``_strip_quoted_spans`` (a bare operand,
+    e.g. ``git diff CLAUDE.md > /tmp/out``) OR the redirect's own target
+    token names a governed identifier (``> CLAUDE.md`` or ``>
+    "CLAUDE.md"`` alike -- a real write, however the target happens to be
+    quoted). When neither holds, the redirect itself is set aside and
+    every OTHER write marker (``tee``, ``sed -i``, ``cp``/``mv``,
+    ``open(...,'w')``, ``curl -o``, ...) is still checked at its existing
+    broad, unnarrowed, fail-closed scope -- this function narrows only the
+    plain-redirect case reproduced above, nothing else. Used only by the
+    point-3 loop in ``is_denied_bash_write``; every other caller of
+    ``_has_write_marker`` (the git/wrapper/grant carve-outs, point 4) is
+    unchanged."""
+    if not _has_redirect_marker(segment):
+        return _has_write_marker(segment)
+    target = _redirect_target_token(segment)
+    target_mentions = bool(target) and _mentions_governed_identifier(target)
+    bare_mention = _mentions_governed_identifier(_strip_quoted_spans(segment))
+    if target_mentions or bare_mention:
+        return True
+    without_redirect = _BARE_REDIRECT_RE.sub(" ", _SAFE_REDIRECT_RE.sub(" ", segment))
+    return _has_write_marker(without_redirect)
 
 
 def _has_write_marker(text: str) -> bool:
@@ -970,6 +1078,96 @@ def _has_xargs_pipe_indirection(segments: "list[str]") -> bool:
     return any(_XARGS_RE.search(segment) for segment in segments)
 
 
+#: Markers that prove a segment can actually EXECUTE arbitrary code via an
+#: OS-level escape hatch reachable from an interpreter with no textual write
+#: marker of its own (``os.system(``, ``subprocess.*(...)``, ``shell=True``,
+#: ``eval(``/``exec(``) -- used only by ``_is_interpreter_read_shape`` below,
+#: to keep that carve-out from misclassifying a payload that could still
+#: write via one of these as a read.
+_OS_EXEC_RE = re.compile(
+    r"\bos\.system\(|\bsubprocess\.(run|call|Popen|check_call|check_output)\("
+    r"|shell\s*=\s*True|\beval\(|\bexec\("
+)
+
+
+def _has_os_exec_marker(text: str) -> bool:
+    return bool(_OS_EXEC_RE.search(text))
+
+
+def _is_interpreter_read_shape(segment: str) -> bool:
+    """MEASURED FALSE POSITIVE FIX -- a read-only command was denied purely
+    because a governed filename appeared inside a QUOTED Python string
+    literal (e.g. ``python3 -c "print('reads CLAUDE.md')"``): the bare
+    presence of an interpreter marker (``python3``) in the same segment as a
+    governed-identifier mention was, by module docstring point 3/5's original
+    design, ALWAYS enough to deny -- "an interpreter payload can write a
+    file with no textual trace of a write marker at all, so the interpreter
+    marker alone is treated as cannot-prove-a-read". That posture is kept
+    for every OTHER indirection marker (``eval``, ``xargs``, a ``sh -c``
+    subshell, bare command substitution) -- this carve-out narrows ONLY the
+    bare-interpreter-invocation case, and only when every other signal this
+    hook can cheaply check says "read":
+
+      - the segment's own command token is one of the four interpreters
+        (``python``/``python3``/``perl``/``ruby``/``node``) -- a mention
+        reached via a DIFFERENT command piping into an interpreter, or a
+        nested ``sh -c "python3 ..."``, does not qualify (stays subject to
+        the existing, unnarrowed handling);
+      - no write marker anywhere in the segment (``_has_write_marker`` --
+        catches ``open(...,'w')``, ``.write(``/``.write_text(``, ``tee``,
+        ``sed -i``, ``cp``/``mv``, ``curl -o``, every other point-3 write
+        primitive, on the RAW unstripped text, so a write hidden inside a
+        quoted -c payload is still caught exactly as before);
+      - no OS-exec escape hatch (``_has_os_exec_marker`` -- ``os.system(``,
+        ``subprocess.*(``, ``shell=True``, ``eval(``/``exec(`` -- a payload
+        that could shell out to write with no textual write marker of its
+        own);
+      - no ``eval``/``xargs`` marker (the two remaining indirection markers
+        an interpreter segment could still smuggle);
+      - the governed-identifier mention does NOT survive
+        ``_strip_quoted_spans`` -- i.e. it appears ONLY inside a quoted span
+        (a Python string literal nested inside the shell's own quoting of
+        the ``-c`` argument), never as a bare path operand. A bare mention
+        (``python3 fix_doctrine.py CLAUDE.md``) is real evidence the file is
+        an operand and stays denied;
+      - the segment is NOT a ``-m <module>`` invocation. REGRESSION FOUND
+        DURING THIS FIX (``test_deny_lookalike_grant_module_name_does_not_
+        match``): without this exclusion, ANY ``python3 -m <arbitrary
+        module>`` invocation whose only mention is quoted content -- not
+        only the one recognised, known-safe grant CLI
+        (``_is_claude_md_grant_read_shape``, already checked earlier in the
+        caller's carve-out chain) -- would be silently treated as read-shape
+        too, including a deliberate lookalike module name this hook must
+        keep denying. A ``-m`` invocation is exactly the "opaque CLI, must
+        be explicitly recognised by name" shape point 9 already exists for;
+        this carve-out covers only the OTHER interpreter shape (``-c``/a
+        script file), where no such recognised-CLI mechanism exists at all.
+
+    Every existing true-positive regression test
+    (``test_deny_interpreter_write_mode_open_on_claude_md``,
+    ``test_deny_interpreter_payload_writing_governed_surface``,
+    ``test_deny_genuine_interpreter_write_to_governed_surface_still_blocked``)
+    carries an explicit write marker in the same segment, so
+    ``_has_write_marker`` alone already keeps every one of them denying --
+    this carve-out never reaches the quoted-span check for any of them."""
+    token = _segment_command_token(segment)
+    if token is None:
+        return False
+    if _command_token_basename(token) not in _PYTHON_BASENAMES and _command_token_basename(
+        token
+    ) not in ("perl", "ruby", "node"):
+        return False
+    if _python_dash_m_module(segment) is not None:
+        return False
+    if _has_write_marker(segment):
+        return False
+    if _has_os_exec_marker(segment):
+        return False
+    if _EVAL_RE.search(segment) or _XARGS_RE.search(segment):
+        return False
+    return not _mentions_governed_identifier(_strip_quoted_spans(segment))
+
+
 def is_denied_bash_write(cmd: str) -> bool:
     """The whole predicate, isolated from stdin/exit-code plumbing so it is
     directly unit-testable. Returns True (deny) iff:
@@ -1002,7 +1200,27 @@ def is_denied_bash_write(cmd: str) -> bool:
 
     segments = _split_top_level_segments(cmd)
 
-    if _has_var_assignment_indirection(segments) and _has_write_marker(cmd):
+    # Point 4's assignment-indirection scan is a shell-only concept ("a
+    # variable is assigned a governed path, then dereferenced by a later
+    # segment's write"). Scanning it over the RAW segments misfires on a
+    # heredoc BODY: a Python source line like `add = """... CLAUDE.md
+    # ..."""` inside `python3 - <<'PY' ... PY` is data on stdin, never
+    # shell-parsed, but `_ASSIGN_RE` matches its `add =` prefix as though it
+    # were a live `NAME=value` shell assignment -- observed live, denying a
+    # heredoc whose body happened to contain both a governed-name mention in
+    # one string literal and an unrelated `.write_text(` call writing a
+    # DIFFERENT (non-governed) file in another. Heredoc-stripping this scan
+    # (and only this scan) removes that false trigger while leaving point
+    # 3's per-segment loop below -- which still runs over the RAW,
+    # unstripped segments -- fully able to catch a REAL write inside a
+    # heredoc body, e.g. `open('CLAUDE.md','w').write(...)` on its own
+    # body line: that line still mentions the identifier AND carries the
+    # write-mode-open marker in the SAME (unstripped) segment, so point 3
+    # denies it exactly as before. See module docstring points 4/5 and the
+    # dispatch brief's second reproduction.
+    stripped_cmd = _strip_heredoc_bodies(cmd)
+    stripped_segments = _split_top_level_segments(stripped_cmd)
+    if _has_var_assignment_indirection(stripped_segments) and _has_write_marker(stripped_cmd):
         return True
 
     if _has_xargs_pipe_indirection(segments):
@@ -1017,9 +1235,10 @@ def is_denied_bash_write(cmd: str) -> bool:
             _is_git_read_shape(segment)
             or _is_commit_wrapper_read_shape(segment)
             or _is_claude_md_grant_read_shape(segment)
+            or _is_interpreter_read_shape(segment)
         ):
             continue
-        if _has_write_marker(segment) or _has_indirection_marker(segment):
+        if _has_write_marker_for_point3(segment) or _has_indirection_marker(segment):
             return True
 
     return False
@@ -1061,6 +1280,19 @@ def _looks_quoted_content_shaped(cmd: str) -> bool:
     ]
     if not mentioning_segments:
         return False
+    # A QUOTED mention can still be the redirect's own destination
+    # (`echo x > "CLAUDE.md"`). That denies correctly on the point-3 path,
+    # but it is NOT this shape: the remedy sentence below presumes the real
+    # destination is some other, non-governed path, and here it is the
+    # governed file itself. Emitting the quoted-content prose for it tells
+    # the operator "the governed name is quoted content, not a write
+    # target" about a command whose write target is exactly that governed
+    # name -- a message that contradicts the block it is explaining. Fall
+    # through to the default shape, which names the correct remedy.
+    for segment in mentioning_segments:
+        target = _redirect_target_token(segment)
+        if target and _mentions_governed_identifier(target):
+            return False
     return all(
         not _mentions_governed_identifier(_strip_quoted_spans(segment))
         for segment in mentioning_segments

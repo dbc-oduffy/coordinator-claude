@@ -228,16 +228,10 @@ def _resolve_repo_root() -> str:
     positional), never claude-klabauter's own checkout.
     """
     try:
-        from coordinator_core.win_portability import no_console_creationflags
+        from coordinator_core.git.repo_root import show_toplevel
 
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-        resolved = (proc.stdout or "").strip()
-        if proc.returncode == 0 and resolved:
+        resolved = show_toplevel()
+        if resolved:
             return resolved
     except OSError:
         pass

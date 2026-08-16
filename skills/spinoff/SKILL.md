@@ -68,7 +68,7 @@ Then mark the fork in the source session's own task tracker (or session memory) 
 
 ## See also
 
-- `commands/handoff.md` — end-of-session continuation handoffs.
-- `commands/pickup.md` — picking up a handoff (recognizes `kind: spinoff` and emits a banner).
+- `skills/handoff/SKILL.md` — end-of-session continuation handoffs.
+- `skills/pickup/SKILL.md` — picking up a handoff (recognizes `kind: spinoff` and emits a banner).
 - `CLAUDE.md` § "Handoff Lineage — Single Predecessor, No Adjacency-Inference" — doctrine on why `predecessor: none` is correct for spinoffs.
 - `schemas/handoff.schema.json` — frontmatter schema enumerating allowed `kind:` values.

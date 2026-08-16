@@ -3,6 +3,7 @@ name: review
 description: "Review a plan/design doc or code diff — findings land on either one."
 version: 2.0.0
 argument-hint: "--surface plan|diff"
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # coordinator:review

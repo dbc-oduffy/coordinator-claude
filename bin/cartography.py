@@ -81,7 +81,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -129,25 +128,18 @@ def _resolve_repo_root(explicit: str | None) -> str:
     """
     if explicit:
         return explicit
-    try:
-        from coordinator_core.win_portability import no_console_creationflags
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.git.repo_root import show_toplevel
 
-        proc = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-    except OSError:
-        proc = None
-    if proc is None or proc.returncode != 0 or not proc.stdout.strip():
+    root = show_toplevel(os.getcwd())
+    if not root:
         print(
             f"cartography: cannot resolve git repo root from {os.getcwd()} "
             "(pass --repo explicitly)",
             file=sys.stderr,
         )
         sys.exit(2)
-    return proc.stdout.strip()
+    return root
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:

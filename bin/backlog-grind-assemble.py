@@ -80,11 +80,9 @@
 #   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core import
 #       failure, or no enclosing git worktree) — this trampoline's own
 #       transport failure, distinct from any business exit code.
+
+# --- routing half: this file is now a thin shim over entry_point_shim.run_target ---
 from __future__ import annotations
-"""backlog-grind-assemble — see the # comment block above for the RAG-bait
-purpose text (the polyglot shebang line above makes THIS triple-quoted
-string a silently-discarded expression statement, not the module __doc__ —
-same convention as pickup-assemble/baton-assemble)."""
 
 import os
 import sys
@@ -92,65 +90,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-_TRANSPORT_FAIL = 3
-_USAGE_FAIL = 2
-
-
-def _import_modules():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    import coordinator_core.backlog_grind_assemble as _brief_mod
-    import coordinator_core.backlog_grind_assemble.apply as _apply_mod
-
-    return _brief_mod, _apply_mod
-
-
-_USAGE_TEXT = "usage: backlog-grind-assemble brief|mint-run-id|apply|drop <cadence> [...]"
-
-
-def _usage() -> int:
-    print(
-        # Review: cli-and-tests reviewer — usage string omitted mint-run-id, a
-        # real verb the tool's own error message must list.
-        _USAGE_TEXT,
-        file=sys.stderr,
-    )
-    return _USAGE_FAIL
-
-
-def main(argv: list[str]) -> int:
-    if not argv:
-        return _usage()
-
-    if argv[0] in ("--help", "-h"):
-        print(_USAGE_TEXT)
-        return 0
-
-    subcommand, rest = argv[0], argv[1:]
-    if subcommand not in ("brief", "mint-run-id", "apply", "drop"):
-        return _usage()
-
-    try:
-        brief_mod, apply_mod = _import_modules()
-    except RuntimeError as exc:
-        print(f"backlog-grind-assemble: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        return _TRANSPORT_FAIL
-    except ImportError as exc:
-        print(
-            f"backlog-grind-assemble: coordinator_core.backlog_grind_assemble not importable: {exc}",
-            file=sys.stderr,
-        )
-        return _TRANSPORT_FAIL
-
-    if subcommand in ("brief", "mint-run-id"):
-        return brief_mod.main(argv)
-    if subcommand == "apply":
-        return apply_mod.main_apply(rest)
-    return apply_mod.main_drop(rest)
-
+from entry_point_shim import run_target  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(run_target("backlog-grind-assemble", sys.argv[1:]))

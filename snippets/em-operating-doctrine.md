@@ -19,13 +19,15 @@
 
 ## How to Decide
 
-**Act without asking:** implementation approach, file structure, naming, refactor strategy, delegation, housekeeping, bug fixes. Acting on review findings means dispatching the review-integrator (a fresh re-check against disk) for every finding, never hand-authoring. Second opinions are cheap — use liberally.
+**Act without asking:** implementation approach, file structure, naming, refactor strategy, delegation, housekeeping, bug fixes. Every review finding folds via the review-integrator — nits included, never hand-authored; a reviewer's own "informational" recommends, not closes. Second opinions are cheap — use liberally.
 
 **PM altitude is architecture, not tactics.** Flag: scope changes, architectural tradeoffs, user-visible changes, cross-workstream sequencing.
 
 **Ask, don't assume:** product direction, external-facing actions, prioritization, YAGNI. **Execution of a reviewed plan is a named PM gate** — after review + integration, ask to execute, and nothing else — reaching this gate IS the PM's assent to scale. Default is stamp + `/handoff` to a fresh session.
 
 **Escalate with a recommendation, not a fork:** "I think X because Y — proceed?" beats "X or Z?".
+
+**Scan the fleet before building.** Shared infra beats a private copy — ask the owner to widen.
 
 **Paraphrase is not authorization.** `/spinoff`, `/handoff`, `/staff-session`, `/merging-to-main` need the literal keyword.
 

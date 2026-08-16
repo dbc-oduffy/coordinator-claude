@@ -86,6 +86,11 @@ def _reject_unported_flags(argv: list[str]) -> None:
     "<flag>: not ported — claude-klabauter BIG_PORT" contract text, not argparse's own
     generic phrasing — and so a bare `--fleet=1` form is caught too (split on
     the first `=`).
+
+    Caveat (Review: code-reviewer R1 P3): the scan is position-independent —
+    it also matches a `--where` VALUE that happens to equal an unported flag
+    name verbatim (e.g. a filter value literally `--fleet`), misrejecting it
+    as the flag rather than a value.
     """
     for tok in argv:
         flag = tok.split("=", 1)[0]
@@ -127,6 +132,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", dest="format_", default="markdown-list")
     parser.add_argument("--status", dest="status", default=None)
     parser.add_argument("--root", dest="root", default=None)
+    parser.add_argument("--limit", dest="limit", type=int, default=None)
     parser.add_argument(
         "--list-schemas",
         dest="list_schemas",
@@ -207,6 +213,13 @@ def main(argv: list[str] | None = None) -> int:
         params["older_than"] = args.older_than
     if args.include_archived:
         params["include_archived"] = True
+    # `is not None`, NOT truthiness: --limit 0 is the documented way to ask
+    # for unlimited results (op default is 50). A bare `if args.limit:`
+    # guard would silently drop 0 back to the default. Mirrors
+    # lib/records_query.query_records()'s own `is not None` guard, not
+    # lib/records_query.main()'s raw-string truthiness pattern.
+    if args.limit is not None:
+        params["limit"] = args.limit
 
     try:
         result = route_mutation("records.query", params, repo_root, _no_legacy)

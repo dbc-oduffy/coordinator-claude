@@ -130,6 +130,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import importlib.util
 import re
 import subprocess
 import sys
@@ -154,6 +155,22 @@ _REPO_ROOT = _BIN_DIR.parent.parent
 for _rung in (_LIB_DIR, _REPO_ROOT):
     if str(_rung) not in sys.path:
         sys.path.insert(0, str(_rung))
+
+_PUBLISH_PY = _BIN_DIR / "publish.py"
+
+
+def _import_publish_module():
+    """Import `coordinator/bin/publish.py` in-process via `importlib.util`
+    (same idiom `percolate-sweep-scope-probe.py::_import_publish_module`
+    uses) so this gate consults `resolve_percolate_identity_path`'s two-rung
+    ladder rather than carrying a second, drifting copy of it."""
+    spec = importlib.util.spec_from_file_location("_percolate_gate_publish", _PUBLISH_PY)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not build a module spec for {_PUBLISH_PY}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +386,20 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
         low_hits.extend(_scan_file(path, _TIER_LOW))
 
     identity_file = Path(args.identity_file) if args.identity_file else None
-    if identity_file is not None and not identity_file.is_file():
+    resolved_identity_file: Optional[Path] = None
+    if identity_file is not None:
+        setup_dir = identity_file.parent
+        try:
+            publish_module = _import_publish_module()
+            resolved_identity_file = publish_module.resolve_percolate_identity_path(setup_dir)
+        except Exception:
+            # Ladder resolution itself failed (e.g. publish.py import broke) --
+            # fall back to the single per-repo stat this gate used before the
+            # ladder existed, rather than mis-firing UNCONFIGURED on a resolver
+            # bug that has nothing to do with identity-file presence.
+            resolved_identity_file = identity_file if identity_file.is_file() else None
+
+    if identity_file is not None and resolved_identity_file is None:
         print(
             "  NOTE: setup/.percolate-identity not found — machine-slug detection"
         )
@@ -384,14 +414,19 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
             "        This Step 2c scan covers generic shapes only; operator-specific"
         )
         print("        tokens are NOT scanned until .percolate-identity is in place.")
-    elif identity_file is not None:
+    elif resolved_identity_file is not None:
+        if resolved_identity_file != identity_file:
+            print(
+                f"  NOTE: machine-slug detection configured via {resolved_identity_file} "
+                "(machine-local rung; no per-repo setup/.percolate-identity)."
+            )
         try:
             from percolate.phase4_audit import parse_percolate_identity  # noqa: E402
 
-            identity = parse_percolate_identity(identity_file)
+            identity = parse_percolate_identity(resolved_identity_file)
             if not identity.review:
                 print(
-                    "  NOTE: setup/.percolate-identity exists but PERSONAL_REVIEW_PATTERNS is"
+                    "  NOTE: .percolate-identity exists but PERSONAL_REVIEW_PATTERNS is"
                 )
                 print(
                     "        empty — machine-slug detection is effectively unconfigured."

@@ -136,19 +136,11 @@ def _resolve_repo_root(handoff_path: str) -> str | None:
     (see module docstring).
     """
     handoff_abs = os.path.abspath(handoff_path)
-    try:
-        proc = subprocess.run(
-            ["git", "-C", os.path.dirname(handoff_abs), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_kw(),
-        )
-    except OSError:
+    if cc_invoke.ensure_engine_on_path(__file__) is None:
         return None
-    if proc.returncode != 0:
-        return None
-    root = proc.stdout.strip()
-    return root or None
+    from coordinator_core.git.repo_root import show_toplevel
+
+    return show_toplevel(cwd=os.path.dirname(handoff_abs))
 
 
 def cmd_stamp_phase(handoff_path: str, phase: str, plan_path: str | None) -> int:

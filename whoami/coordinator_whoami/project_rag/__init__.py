@@ -6,7 +6,8 @@ Consumers invoke the CLI via ``python -m coordinator_whoami.project_rag``.
 Public API surfaces (authored in Tasks 2 and 4):
 - ``compose() -> dict`` — host introspection; returns CLI-output-shaped dict
 - ``compose_envelope() -> dict`` — projects compose() output into contract envelope
-- ``persist(envelope: dict) -> None`` — writes envelope to install-profile.json
+- ``persist(envelope: dict) -> None`` — writes envelope to
+  ``<settings-home>/project-rag/install-profile.json`` (DR-072)
 
 Spec backlink: docs/plans/2026-05-19-whoami-substrate-migration.md § 8 Task 1
 """

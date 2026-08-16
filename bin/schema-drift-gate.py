@@ -38,7 +38,6 @@ Spec backlink: coordinator_core/ops/schema_drift_gate.py module docstring (op co
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,20 +51,15 @@ _OP = "schema.drift_gate"
 
 
 def _resolve_repo_root() -> str | None:
-    """`git rev-parse --show-toplevel` from cwd; None on any failure."""
+    """Repo toplevel from cwd; None on any failure."""
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **cc_invoke._no_console_kw(cc_invoke.resolve_engine_root(__file__)),
-        )
-    except OSError:
+        if cc_invoke.ensure_engine_on_path(__file__) is None:
+            return None
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel()
+    except Exception:
         return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
 
 
 def _legacy_fn() -> "NoReturn":  # type: ignore[name-defined]

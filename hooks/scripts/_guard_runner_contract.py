@@ -10,7 +10,7 @@ discharges it? If the operator remembers, the work is not finished." The
 2026-08-06 in-process prototype proved the mechanism works; this module is
 the durable, greppable statement of the contract that proof was promoted
 into, registered alongside it in
-`coordinator/docs/wiki/coordinator-tripwires/tripwire-registry.md` under the
+`coordinator/docs/wiki/coordinator-tripwires/guard-on-runner-contract.md` under the
 `GUARD-ON-RUNNER-CONTRACT` token (same commit, per the greppability rule).
 
 Sibling module, not a `preuse-write-dispatch.py` docstring/constant surface

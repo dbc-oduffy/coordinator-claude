@@ -68,6 +68,13 @@ if _HOOKS_DIR not in sys.path:
 
 from _message_envelope import CHANNEL_DENY, compose, emit  # noqa: E402
 from _win_portability import no_console_creationflags  # noqa: E402
+try:
+    from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
+    # must still fail open to the subprocess rung below, not crash on import.
+    def _git_root_walk() -> str | None:
+        return None
 
 _OVERRIDE_SENTINEL_NAME = ".coordinator-override-worktree-guard"
 
@@ -88,11 +95,16 @@ def _deny_message():
 
 
 def _git_root() -> "str | None":
-    """`git rev-parse --show-toplevel`, 1s timeout — same idiom as
-    block-workflow-unmodeled-agent.py's `_git_root()`. Any failure (not a
-    git repo, git missing, timeout) returns None and the sentinel check is
-    skipped — fails toward "no override", never toward a crash.
+    """Repo root as `git rev-parse --show-toplevel` would report it — same idiom as
+    block-workflow-unmodeled-agent.py's `_git_root()`: an in-process parent walk
+    (`_git_root_walk`) first, no subprocess on the routine path, with the 1s-timeout
+    `git rev-parse --show-toplevel` subprocess below kept only as a fallback for the case the
+    walk cannot resolve. Any failure (not a git repo, git missing, timeout) returns None and
+    the sentinel check is skipped — fails toward "no override", never toward a crash.
     """
+    walked = _git_root_walk()
+    if walked:
+        return walked
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],

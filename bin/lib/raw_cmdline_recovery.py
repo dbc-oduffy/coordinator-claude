@@ -1,11 +1,15 @@
 """raw_cmdline_recovery — shared Windows raw-cmdline argv recovery.
 
-Consumers: `coordinator/bin/coordinator-write-review-trail.py` and
-`coordinator/bin/scoped-git-commit` — the two entrypoints named in
-`gen-launcher-shim.py`'s `_RAW_CMDLINE_ENTRYPOINTS` (mirrored, not imported,
-against `coordinator_core/install/substrate.py`'s `_RAW_CMDLINE_TARGETS`).
-Both already insert `coordinator/bin/lib` onto `sys.path` before importing
-their own siblings, so no new bootstrap step is needed at either call site.
+Consumers: `coordinator/bin/coordinator-write-review-trail.py`,
+`coordinator/bin/scoped-git-commit`, and `coordinator/bin/cross-repo-memo.py`
+— the three entrypoints named in `gen-launcher-shim.py`'s
+`_RAW_CMDLINE_ENTRYPOINTS` (mirrored, not imported, against
+`coordinator_core/install/substrate.py`'s `_RAW_CMDLINE_TARGETS`).
+`cross-repo-memo.py` is in both `_RAW_CMDLINE_ENTRYPOINTS` and
+`_RAW_CMDLINE_TARGETS` and calls `recover_windows_argv` at its own
+`sys.exit(main(...))` line, same as the other two. All three already insert
+`coordinator/bin/lib` onto `sys.path` before importing their own siblings, so
+no new bootstrap step is needed at any call site.
 
 Why this exists as a standalone module rather than being copied a second
 time: the recovery logic (read the `%CMDCMDLINE%` capture file, locate this
@@ -22,14 +26,37 @@ entrypoint) ever runs, and is lost regardless of caller (PowerShell, a
 Python ``subprocess.run`` list-form call, or cmd.exe itself — measured, not
 a caller-side quoting bug). ``%CMDCMDLINE%``, captured verbatim by the
 launcher into a temp file named by ``_LAUNCHER_RAW_CMDLINE_FILE`` before
-invoking Python, still carries the original, unmangled text (measured) —
-this recovers argv from THAT text instead of trusting the already-mangled
-``sys.argv`` the interpreter received.
+invoking Python, still carries the original, unmangled text ONLY when the
+caller outer-quoted the whole post-``/c``/``/k`` string (measured: first and
+last character of the remainder after the switch are both ``"``) —
+PowerShell's ``cmd /c ""<exe>" <args>"`` form does this; git-bash/MSYS and
+Python's own ``subprocess.run([...])`` list-form do not, and hand this
+process a ``%CMDCMDLINE%`` capture from which the caret is ALREADY GONE by
+the time this module ever reads it. On a non-outer-quoted spawn this
+function is handed already-stripped text and cannot recover it — no parse
+here can reconstruct bytes cmd.exe destroyed before this process started.
+This module can only detect that condition and refuse to vouch for the
+result; see ``UnsoundRawCmdlineTransport`` below.
+
+**The outer-quote-pair test is a heuristic, not an exact classifier.** It
+trades false-refusals against false-successes and gets some shapes wrong in
+both directions: ``cmd /c "<exe>" --note "hello world"`` starts and ends
+with a quote (looks SOUND) while still being lossy in general, because the
+test only inspects the remainder's first/last character, not every
+argument's internal quoting. Do not present this rule as precise; it is the
+best boundary measurement supports, not a proof.
 
 Best-effort and fail-safe: any parse mismatch (missing env var, non-Windows,
 the recovered token count disagreeing with the mangled ``argv``) falls back
 to ``argv`` unchanged — recovery must never crash, nor silently drop or
-reorder an argument the caller actually passed.
+reorder an argument the caller actually passed. **This is a hard negative
+spec, not an oversight:** the missing-env-var branch in particular must
+NEVER become a refusal. It is the escape hatch that this transport's
+remediation message points callers at ("invoke the extensionless entrypoint
+directly through an interpreter") — a caller that took that advice will not
+have `_LAUNCHER_RAW_CMDLINE_FILE` set at all, and if that branch started
+refusing, the guard would block its own remediation path and every rung
+would die. A future hardening pass must not "fix" this branch into a raise.
 
 2026-08-14: the capture file now lives inside a per-invocation `mkdir`-ed
 directory, not directly under `%TEMP%` (see `gen-launcher-shim.py::
@@ -60,6 +87,142 @@ from pathlib import Path
 RAW_CMDLINE_FILE_ENV = "_LAUNCHER_RAW_CMDLINE_FILE"
 
 
+class UnsoundRawCmdlineTransport(Exception):
+    """Raised when the captured ``%CMDCMDLINE%`` cannot vouch for argv fidelity.
+
+    Two distinct causes collapse to this one exception, deliberately — a
+    caller catching it does not need to distinguish them to respond
+    correctly, and separate exception types would invite a caller to treat
+    one as safer than the other, which it is not:
+
+    - UNSOUND: a ``/c``/``/k`` switch was found, but the remainder is not
+      wrapped in a single outer quote pair (first and last character both
+      ``"``) — a transport shape measured to already have the caret (and
+      potentially other metacharacters) stripped before this process ever
+      started.
+    - UNKNOWN: no ``/c``/``/k`` switch token was found at all — an
+      unrecognised shape this module has no measured basis to vouch for.
+      Silence on an unrecognised shape is the failure mode this exception
+      exists to close; it does NOT fall back to the fail-safe branches
+      below, which are reserved for conditions where non-recovery is known
+      to be safe (e.g. no capture was ever made).
+
+    Every entrypoint calling `recover_windows_argv` MUST catch this at its
+    own ``sys.exit(main(...))`` line and respond per its own contract — an
+    uncaught traceback here is a `docs/wiki/guard-messaging.md` § Register
+    violation, not an acceptable failure mode.
+    """
+
+
+def _find_switch_end(raw: str) -> int | None:
+    """Scan ``raw``'s leading tokens for a case-insensitive ``/c``/``/k``
+    switch token and return the index immediately after it, or ``None`` if
+    none is found.
+
+    Anchors structurally, not lexically — does NOT search for the literal
+    substring ``cmd.exe /c``, since ``/d``, ``/s``, an overridden
+    ``COMSPEC``, or a quoted comspec token all vary the text ahead of the
+    switch (e.g. ``cmd.exe /d /s /c "..."`` or ``"C:\\...\\cmd.exe" /c
+    "..."`` — neither contains that substring). Skips a quoted comspec
+    token, if present, and any unrecognised unquoted leading token.
+
+    This deliberately scans past ANY leading token, not only a `/`-prefixed
+    one -- the plan body's prose ("scan the leading tokens for a
+    `/`-prefixed run terminated by ... `/c` or `/k`") reads narrower than
+    AC1's own acceptance text ("tolerant of leading `/d`/`/s`"), and a bare
+    (unquoted) comspec basename needs to be skippable too. Cross-referenced
+    per review: coordinator:code-reviewer (9245562b, P3) -- the wording gap
+    is between the plan's prose and its own AC1, not between the code and
+    AC1.
+
+    A quoted leading token's closing quote skip honours a backslash-escaped
+    ``\\"`` inside it (e.g. an 8.3-shortened or COMSPEC-override path
+    embedding one) — treating the first bare ``"`` as authoritative would
+    close the token early and leave the scan resuming mid-string, at an
+    offset with no relationship to where the real switch token starts.
+    """
+    pos = 0
+    n = len(raw)
+    while pos < n:
+        while pos < n and raw[pos].isspace():
+            pos += 1
+        if pos >= n:
+            break
+        if raw[pos] == '"':
+            end = pos + 1
+            while end < n:
+                if raw[end] == '"' and raw[end - 1] != "\\":
+                    break
+                end += 1
+            pos = (end + 1) if end < n else n
+            continue
+        start = pos
+        while pos < n and not raw[pos].isspace():
+            pos += 1
+        token = raw[start:pos]
+        if token.lower() in ("/c", "/k"):
+            return pos
+        # Any other leading token — a bare (unquoted) comspec basename, or
+        # an unrecognised switch — is skipped; scanning continues rather
+        # than concluding UNKNOWN on the first non-switch token, since a
+        # bare `cmd.exe` (no quotes) is itself a legitimate leading token.
+    return None
+
+
+def _classify_raw_cmdline_transport(raw: str) -> tuple[str, str | None]:
+    """Classify a captured ``%CMDCMDLINE%`` string's spawn-transport soundness.
+
+    Delegates the leading-token scan to `_find_switch_end` and classifies
+    the remainder that follows the ``/c``/``/k`` switch it finds.
+
+    Returns ``(status, remainder)``:
+    - ``("SOUND", remainder)`` — switch found, remainder is outer-quoted
+      (first and last character both ``"``).
+    - ``("UNSOUND", remainder)`` — switch found, remainder is NOT
+      outer-quoted. A legitimate argument may contain no metacharacter at
+      all and still have arrived through this shape — soundness is a
+      property of the TRANSPORT, never inferred from whether a caret is
+      visible in the text.
+    - ``("UNKNOWN", None)`` — no ``/c``/``/k`` switch token found.
+    """
+    switch_end = _find_switch_end(raw)
+    if switch_end is None:
+        return "UNKNOWN", None
+    remainder = raw[switch_end:].strip()
+    if len(remainder) >= 2 and remainder[0] == '"' and remainder[-1] == '"':
+        return "SOUND", remainder
+    return "UNSOUND", remainder
+
+
+#: Cap on the leading-tokens prefix `spawn_shape_prefix` records for the
+#: UNKNOWN case (no `/c`/`/k` switch found, so there is no structural
+#: boundary between transport tokens and caller payload to anchor on).
+#: Deliberately short — this is a spawn-shape fingerprint, not a payload
+#: capture.
+_UNKNOWN_SPAWN_SHAPE_CAP = 40
+
+
+def spawn_shape_prefix(raw: str) -> str:
+    """Return the leading transport tokens identifying ``raw``'s spawn
+    shape — comspec path, `/d`/`/s`/etc., and the `/c`/`/k` switch itself —
+    WITHOUT the remainder that follows it (the caller's actual command and
+    argument payload, which is never returned here).
+
+    This is what the C2b ledger persists in place of the raw capture: the
+    ledger's purpose is to decide the documented flip-condition (a
+    caller-shape distribution with zero unsound-or-unknown classifications
+    among successful invocations), which only needs the SHAPE of the
+    transport, never argument values, paths, or message text a caller
+    supplied. When no switch is found (UNKNOWN) there is no structural
+    boundary to anchor on, so the prefix is capped short rather than
+    returning the raw text unbounded.
+    """
+    switch_end = _find_switch_end(raw)
+    if switch_end is not None:
+        return raw[:switch_end].strip()
+    return raw[:_UNKNOWN_SPAWN_SHAPE_CAP].strip()
+
+
 def recover_windows_argv(argv: list[str], launcher_cmd_name: str) -> list[str]:
     """Recover un-mangled argv from the raw invoking cmdline on Windows.
 
@@ -71,6 +234,13 @@ def recover_windows_argv(argv: list[str], launcher_cmd_name: str) -> list[str]:
 
     See this module's docstring for the full recovery contract and its
     fail-safe guarantees.
+
+    Raises `UnsoundRawCmdlineTransport` if the captured `%CMDCMDLINE%` text
+    shows this invocation arrived through a transport known (or unknown-and-
+    therefore-unvouchable) to have already stripped metacharacters before
+    this process started — see `_classify_raw_cmdline_transport`. This is
+    distinct from every fail-safe branch below, which returns `argv`
+    unchanged for conditions where non-recovery is known to be safe.
     """
     if os.name != "nt":
         return argv
@@ -103,6 +273,11 @@ def recover_windows_argv(argv: list[str], launcher_cmd_name: str) -> list[str]:
                 pass  # best-effort — non-empty (a peer's dir, unlikely) or gone
     if not raw:
         return argv
+    status, _remainder = _classify_raw_cmdline_transport(raw)
+    if status != "SOUND":
+        raise UnsoundRawCmdlineTransport(
+            f"{status}: raw cmdline transport cannot vouch for argv fidelity"
+        )
     idx = raw.lower().find(launcher_cmd_name.lower())
     if idx == -1:
         return argv

@@ -501,17 +501,41 @@ def _emit_test_red_record(ft_rc: int, ft_content: str, classify_rc: int) -> None
     trace of why.
     """
     try:
+        # DR-276: `write_test_red_record` is a library function (not an op
+        # `main(argv)` -- no op entrypoint to route through `run_op_main`),
+        # so the write it performs is wrapped in `recording_declared_writes()`
+        # with an explicit `declare_write()` at the write site, per
+        # cli_entry's documented carve-out for a CLI that owns its own body
+        # (see gen-launcher-shim.py's `main()`). Kept inside this function's
+        # existing try/except -- any failure here (including an import
+        # failure) is swallowed by the same isolation-boundary contract
+        # (AC2) that already governs this function.
+        from coordinator_core.cli_entry import recording_declared_writes
+        from coordinator_core.machine_resolver import compute_machine
+        from coordinator_core.session.declared_writes import declare_write
+
         outcome = "green" if ft_rc == 0 else ("build-failure" if classify_rc == 2 else "test-failures")
         runner, failing = parse_failing_nodeids(ft_content)
-        write_test_red_record(
-            repo_root=Path(_REPO_ROOT),
-            tier="fast",
-            sha=_git_head_sha(),
-            exit_code=ft_rc,
-            outcome=outcome,
-            runner=runner,
-            failing=failing,
-        )
+        with recording_declared_writes(cwd=_REPO_ROOT):
+            write_test_red_record(
+                repo_root=Path(_REPO_ROOT),
+                tier="fast",
+                sha=_git_head_sha(),
+                exit_code=ft_rc,
+                outcome=outcome,
+                runner=runner,
+                failing=failing,
+            )
+            # Review: coordinator:code-reviewer — this recomputes the same
+            # `state/test-red/<machine>.yaml` path `write_test_red_record`
+            # (coordinator_core/ops/test_red_record.py) just wrote, because
+            # that function doesn't return the path it wrote. The two
+            # computations must stay in agreement; if either side's
+            # machine-resolution logic changes independently, this
+            # declare_write() call silently drifts out of sync with the
+            # actual write site.
+            record_path = Path(_REPO_ROOT) / "state" / "test-red" / f"{compute_machine()}.yaml"
+            declare_write(record_path)
     except Exception as exc:  # noqa: BLE001 -- must never affect the validate verdict/exit code
         _err(f"[workday-complete-step1] test-red record: write failed ({exc!r}) — continuing.")
 

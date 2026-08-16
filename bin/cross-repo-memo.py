@@ -103,6 +103,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -149,7 +150,12 @@ import cc_invoke  # noqa: E402 (late import after sys.path manipulation)
 from machine_local_impl_resolve import (  # noqa: E402 (late import after sys.path manipulation)
     machine_local_impl_path as _mlir_machine_local_impl_path,
 )
-from raw_cmdline_recovery import recover_windows_argv  # noqa: E402
+from raw_cmdline_recovery import (  # noqa: E402
+    RAW_CMDLINE_FILE_ENV,
+    UnsoundRawCmdlineTransport,
+    recover_windows_argv,
+    spawn_shape_prefix,
+)
 
 # Review: staff-eng (Finding 1) — cross-repo-memo.py is a member of both
 # gen-launcher-shim.py's _RAW_CMDLINE_ENTRYPOINTS and substrate.py's
@@ -163,6 +169,107 @@ from raw_cmdline_recovery import recover_windows_argv  # noqa: E402
 # to match the intent recorded in both generators' docstrings rather than
 # dropped from the sets, which would silently reverse that intent.
 _LAUNCHER_CMD_NAME = "cross-repo-memo.cmd"
+
+# C2b (docs/plans/2026-08-15-the-caret-fix-went-to-the-caller-that-never-
+# broke.md): detect-and-record, NOT refuse, on `UnsoundRawCmdlineTransport`.
+# The named limitation is soundness is not decidable from the capture text
+# alone -- refusal here would fleet-break this hot path for ~40 concurrent
+# sessions on a heuristic with known false-refusal shapes. This ledger exists
+# so a follow-up chunk can flip to refusal once it shows zero unsound-or-
+# unknown classifications among invocations that themselves succeeded. Same
+# ledger path and row shape as `scoped-git-commit`'s own copy of this pair of
+# helpers -- duplicated rather than imported because both files' writes are
+# scoped independently and `raw_cmdline_recovery.py` (the one module already
+# shared between them) is out of scope for this chunk.
+_RAW_CMDLINE_LEDGER_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "state",
+    "raw-cmdline-transport-ledger.jsonl",
+)
+
+
+def _peek_raw_cmdline_capture() -> "str | None":
+    """Best-effort, non-destructive peek at the raw `%CMDCMDLINE%` capture
+    file BEFORE `recover_windows_argv` reads-and-deletes it, so a subsequent
+    `UnsoundRawCmdlineTransport` can still be logged with the text that
+    justified it -- the exception itself carries only the classification
+    (SOUND/UNSOUND/UNKNOWN), never the raw text (see
+    `raw_cmdline_recovery.UnsoundRawCmdlineTransport`'s own docstring). Never
+    raises; any failure here must not affect the real recovery path below.
+    """
+    raw_file = os.environ.get(RAW_CMDLINE_FILE_ENV)
+    if not raw_file:
+        return None
+    try:
+        return Path(raw_file).read_text(encoding="utf-8", errors="replace").rstrip("\r\n")
+    except OSError:
+        return None
+
+
+def _record_unsound_raw_cmdline_transport(
+    entrypoint: str, exc: Exception, raw_capture: "str | None"
+) -> None:
+    """C2b's detect-and-record consequence for `UnsoundRawCmdlineTransport`:
+    warns on stderr and appends one JSONL row to the shared observation
+    ledger. Never raises, never changes the caller's exit code -- the caller
+    falls back to proceeding on the un-recovered (possibly caret-mangled)
+    argv, same as `recover_windows_argv`'s own other fail-safe branches.
+
+    Row: classification (parsed off `str(exc)`'s leading token -- the only
+    structured signal the exception carries), the entrypoint name, a UTC ISO
+    timestamp, and `spawn_shape` -- the leading transport tokens (comspec
+    path, `/d`/`/s`/etc., the `/c`/`/k` switch itself) `spawn_shape_prefix`
+    extracts from the raw capture, NEVER the remainder that follows the
+    switch. The remainder is the caller's actual command and argument
+    payload -- a commit message, memo body, or `--note` value can carry
+    secrets or sensitive text, and this ledger is shared append-space across
+    ~40 concurrent sessions (docs/wiki/machine-load-norm.md), readable by
+    every one of them. The ledger's own purpose only needs the transport
+    SHAPE: refusal on these two entrypoints flips on once the ledger shows a
+    caller-shape distribution with zero unsound-or-unknown classifications
+    among invocations that succeeded (C2b's flip-condition), which is a
+    question about spawn shape, never about payload content.
+
+    Concurrency: `state/` is shared append-space across ~40 concurrent
+    sessions (docs/wiki/machine-load-norm.md). A single `os.open` with
+    `O_APPEND | O_CREAT` plus one `os.write` call keeps each row's bytes from
+    tearing into a concurrent writer's row; cross-process row ORDER is not
+    guaranteed and does not need to be.
+
+    Message register (docs/wiki/guard-messaging.md § Register): one fact,
+    one terse pointer at the ledger, no self-legitimacy, no apology -- and
+    critically, no language implying the operation was stopped, because it
+    was not.
+    """
+    classification = (str(exc).split(":", 1)[0].strip()) or "UNKNOWN"
+    # Review: coordinator:code-reviewer (9245562b, P2) -- persist only the
+    # spawn-shape prefix, never the raw payload; see docstring above.
+    spawn_shape = spawn_shape_prefix(raw_capture or "")
+    print(
+        "%s: warning: raw cmdline transport for this invocation could not be "
+        "vouched for (%s) -- proceeding on possibly-mangled argv. Recorded to "
+        "%s." % (entrypoint, classification, _RAW_CMDLINE_LEDGER_PATH),
+        file=sys.stderr,
+    )
+    row = {
+        "classification": classification,
+        "spawn_shape": spawn_shape,
+        "entrypoint": entrypoint,
+        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+    }
+    try:
+        os.makedirs(os.path.dirname(_RAW_CMDLINE_LEDGER_PATH), exist_ok=True)
+        line = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
+        fd = os.open(
+            _RAW_CMDLINE_LEDGER_PATH, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644
+        )
+        try:
+            os.write(fd, line)
+        finally:
+            os.close(fd)
+    except OSError:
+        pass  # best-effort -- a ledger write failure must never block the memo path
+
 
 # --topic must be filesystem-safe to prevent path traversal out of cross-repo/.
 # Allows: lowercase alphanum + dashes, must start with alphanum. No '..', '/', '\'.
@@ -1105,17 +1212,10 @@ def _resolve_receiver_path(receiver_em_id: str) -> tuple[str | None, bool]:
 def _current_repo_root() -> str | None:
     """The git repo root of the cwd this CLI was invoked from — the sender's
     repo. Returns None when cwd is not inside a git repo or git is unavailable."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
+    cc_invoke.ensure_engine_on_path(__file__)
+    from coordinator_core.git.repo_root import show_toplevel
+
+    return show_toplevel()
 
 
 # ---------------------------------------------------------------------------
@@ -2069,7 +2169,16 @@ def _print_delivery_commit_notice(receiver_path: str, commit_outcome: "tuple[str
     )
 
 
-def _verify_delivery_landed(receiver_path: str, receiver_side_path: str) -> bool:
+_VERIFY_HEAD_RETRY_ATTEMPTS = 3
+_VERIFY_HEAD_RETRY_DELAY_SECONDS = 0.4
+
+
+def _verify_delivery_landed(
+    receiver_path: str,
+    receiver_side_path: str,
+    *,
+    expected_sha: str | None = None,
+) -> bool:
     """Prove the memo actually landed in the receiver's tree; print the verdict.
 
     The engine's success envelope is a CLAIM about a write into ANOTHER repo's
@@ -2077,7 +2186,7 @@ def _verify_delivery_landed(receiver_path: str, receiver_side_path: str) -> bool
     path it claims to have written and stopping there leaves the sender to run
     the `ls` themselves, which is the transcription this surface exists to
     discharge (CLAUDE.md § north star, the discharge test). Two cheap oracles
-    settle it here instead: the file is on disk, and git tracks it at HEAD.
+    settle it here instead: the file is on disk, and git tracks it at a commit.
 
     Returns True when both oracles pass. A failure is loud on stderr; as of
     2026-08-04, an untracked read-back (on disk but not committed) ALSO makes
@@ -2087,6 +2196,29 @@ def _verify_delivery_landed(receiver_path: str, receiver_side_path: str) -> bool
     "the work partly did not land"). The engine still owns the send's
     success/failure verdict (exit 0 vs 1) — this read-back only ever escalates
     a successful send to degraded, never turns it into a failure.
+
+    `expected_sha` (2026-08-15, false-warning-on-proven-delivery fix): the
+    receiver-side commit sha the engine's own `CommitOutcome.committed_sha`
+    already resolved, pathspec-scoped, in the same synchronous call chain
+    that performed the commit (coordinator_core/ops/fleet/memo_send.py) —
+    i.e. BEFORE this process ever runs. A bare `HEAD:<path>` read here is a
+    SEPARATE, LATER read of the same shared, concurrently-written receiver
+    tree (doctrine: 50-70 concurrently active LLMs is this machine's norm),
+    and can transiently miss a commit that unquestionably landed if some
+    OTHER session's own commit interleaves in the read window — the exact
+    "a receiver repo is a foreign, concurrently-written tree" hazard
+    `CommitOutcome.committed_sha`'s own docstring names for the identical
+    reason it resolves its sha the same way rather than off a blind HEAD
+    read. Checking `<sha>:<path>` instead of `HEAD:<path>` is race-immune:
+    once a commit object is written it is permanent (no `gc --prune` runs on
+    this hot path), so its existence can never be un-done by a LATER,
+    unrelated sibling commit moving HEAD — only a check anchored to HEAD can
+    be fooled by that. When `expected_sha` is absent (the engine's own
+    idempotent no-op arm reports `committed_sha=None`) or its check fails
+    (a real mismatch, not a guess to paper over), this falls through to the
+    HEAD-based oracle below, now with a bounded settle-retry rather than
+    failing loud on a single read — the oracle must still catch a genuinely
+    uncommitted delivery, so neither arm is weakened into never warning.
     """
     if not os.path.isfile(receiver_side_path):
         print(
@@ -2097,27 +2229,92 @@ def _verify_delivery_landed(receiver_path: str, receiver_side_path: str) -> bool
         return False
 
     memo_relpath = os.path.relpath(receiver_side_path, receiver_path)
+    # A git `HEAD:<path>` revspec addresses a path in a git TREE, and tree
+    # paths are always forward-slash-separated on every platform — a
+    # backslash is never a valid separator in that namespace. So converting
+    # backslashes to forward slashes before building the revspec is
+    # domain-correct everywhere, not a Windows special case: keying this on
+    # os.sep (as a prior version of this fix did) made a property of git
+    # conditional on a property of the host, which is the wrong axis. Hence
+    # a hardcoded "\\" replace, not os.sep — this must run identically
+    # regardless of which OS built receiver_side_path. Without it,
+    # os.path.relpath's Windows-native output 100%-false-negatives every
+    # send on Windows, and this oracle's own remediation text tells the
+    # operator to duplicate-deliver via --supersedes. Theoretical cost: a
+    # POSIX filename containing a literal backslash gets mangled — accepted,
+    # since such a name can't be addressed through a HEAD: revspec anyway,
+    # and block_illegal_filename keeps names like that out of this repo.
+    memo_relpath_posix = memo_relpath.replace("\\", "/")
+
+    # Sha-anchored fast path (race-immune — see docstring). `<sha>:<path>`
+    # addresses a fixed, immutable commit object, never HEAD, so a sibling
+    # session's own commit landing in this same window cannot affect the
+    # answer either way.
+    if expected_sha:
+        sha_check = subprocess.run(
+            ["git", "-C", receiver_path, "cat-file", "-e", f"{expected_sha}:{memo_relpath_posix}"],
+            capture_output=True,
+            text=True,
+        )
+        if sha_check.returncode == 0:
+            branch = subprocess.run(
+                ["git", "-C", receiver_path, "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True,
+                text=True,
+            )
+            branch_name = (
+                branch.stdout.strip() if branch.returncode == 0 and branch.stdout.strip() else "?"
+            )
+            print(
+                f"Delivery verified: on disk and committed as {expected_sha[:7]} "
+                f"on '{branch_name}' (engine-reported sha)."
+            )
+            return True
+        # expected_sha given but doesn't check out for this path — do not
+        # trust it blindly (a genuine failure must still be caught); fall
+        # through to the HEAD-based oracle below.
+
     # AC1: read HEAD, not the index — `git ls-files --error-unmatch` passes
     # for a path that was `git add`ed and then failed to commit (it's still
     # in the index), which is exactly the false-positive state this oracle
     # exists to catch. `cat-file -e HEAD:<path>` only succeeds when the path
     # is actually present in the committed tree.
-    at_head = subprocess.run(
-        ["git", "-C", receiver_path, "cat-file", "-e", f"HEAD:{memo_relpath}"],
-        capture_output=True,
-        text=True,
-    )
+    #
+    # Bounded settle-retry (2026-08-15): a blind HEAD read is the one part
+    # of this oracle with no fixed-object anchor, so it is the part still
+    # exposed to the concurrent-sibling-commit race the sha fast path above
+    # exists to dodge. `_INDEX_LOCK_MAX_ATTEMPTS`-shaped bound (memo_send.py)
+    # — a few short, capped attempts to let a genuinely in-flight sibling
+    # write settle, never an unbounded poll — before reporting the
+    # duplicate-delivery remediation, which must stay reserved for an
+    # UNPROVEN negative, not a transient one.
+    # `max(1, ...)` keeps the loop body reachable for any value the constant
+    # could be edited to: at zero attempts the oracle would fall through to
+    # the WARNING arm having never read HEAD at all, reporting a delivery
+    # uncommitted on no evidence — the exact failure this retry was added to
+    # stop.
+    at_head = None
+    for attempt in range(max(1, _VERIFY_HEAD_RETRY_ATTEMPTS)):
+        at_head = subprocess.run(
+            ["git", "-C", receiver_path, "cat-file", "-e", f"HEAD:{memo_relpath_posix}"],
+            capture_output=True,
+            text=True,
+        )
+        if at_head.returncode == 0:
+            break
+        if attempt < _VERIFY_HEAD_RETRY_ATTEMPTS - 1:
+            _time.sleep(_VERIFY_HEAD_RETRY_DELAY_SECONDS)
     if at_head.returncode != 0:
         print(
-            f"cross-repo-memo: WARNING — engine reported delivery but {memo_relpath} "
+            f"cross-repo-memo: WARNING — engine reported delivery but {memo_relpath_posix} "
             f"is not committed at HEAD in {receiver_path}. Re-send with "
-            f"--supersedes {memo_relpath}.",
+            f"--supersedes {memo_relpath_posix}.",
             file=sys.stderr,
         )
         return False
 
     described = subprocess.run(
-        ["git", "-C", receiver_path, "log", "-1", "--format=%h", "--", memo_relpath],
+        ["git", "-C", receiver_path, "log", "-1", "--format=%h", "--", memo_relpath_posix],
         capture_output=True,
         text=True,
     )
@@ -2478,6 +2675,19 @@ def _run_scoped_premise_checks(
 
     if artifact:
         artifact_path, line_pin = _split_artifact_line_pin(artifact)
+        # Review: coordinator:code-reviewer 9266869a finding 2 — same defect
+        # class as _verify_delivery_landed's HEAD: revspec bug (this commit's
+        # fix target), arriving via a different route: `artifact` is
+        # author-typed, not os.path.relpath output, so a Windows author who
+        # pastes an Explorer/PowerShell citation (backslash-separated) gets a
+        # false "NOT FOUND" premise verdict on any receiver, POSIX included.
+        # A backslash cannot legitimately appear in a tracked repo-relative
+        # path on either OS (Windows forbids it as a path component itself,
+        # POSIX repos sourced from Windows authors are the failure mode this
+        # exists to catch), so the blanket replace is safe. Advisory-only —
+        # never blocks, never changes exit code — hence normalized here
+        # rather than restructuring the probe helper.
+        artifact_path = artifact_path.replace("\\", "/")
         at_head, why = probe(["rev-parse", "--verify", "--quiet", f"HEAD:{artifact_path}"])
         if at_head == _PREMISE_UNKNOWN:
             print(
@@ -3499,7 +3709,8 @@ def _send_via_engine(
     # Stdout output (mirrors legacy path).
     abs_receiver = os.path.abspath(receiver_side_path)
     print(f"Receiver-side: {abs_receiver}")
-    landed = _verify_delivery_landed(receiver_path, abs_receiver)
+    delivery_sha = delivery_commit.get("sha") if isinstance(delivery_commit, dict) else None
+    landed = _verify_delivery_landed(receiver_path, abs_receiver, expected_sha=delivery_sha)
 
     # Sender-side (local) commit announcement — the fix for a recurring
     # false belief (surfaced repeatedly across EM sessions, most recently
@@ -5818,4 +6029,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)))
+    _raw_capture = _peek_raw_cmdline_capture()
+    try:
+        _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
+    except UnsoundRawCmdlineTransport as _exc:
+        # C2b: detect-and-record, not refuse -- see the constant/helpers
+        # above for the full rationale and flip-condition.
+        _record_unsound_raw_cmdline_transport(
+            "cross-repo-memo", _exc, _raw_capture
+        )
+        _argv = sys.argv[1:]
+    sys.exit(main(_argv))

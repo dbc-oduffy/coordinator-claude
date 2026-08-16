@@ -50,7 +50,6 @@ Negative-spec:
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -65,13 +64,9 @@ from coordinator_core.ops.draft_plan_aging import (  # noqa: E402
 from coordinator_core.orient_assemble.reader_result import (  # noqa: E402
     truncate_external_text,
 )
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
 
 _USAGE_FAIL = 2
-
-#: Matches `coordinator_core.ops.draft_plan_aging._GIT_LOG_TIMEOUT_SECS` —
-#: every git subprocess call in this codebase bounds its wait the same way.
-_GIT_TOPLEVEL_TIMEOUT_SECS = 15
 
 #: Cap on `unrecognized_status` lines printed — mirrors
 #: `readers_handoff_triage._UNRECOGNIZED_STATUS_LINE_CAP`; this diagnostic
@@ -89,21 +84,7 @@ def _resolve_repo_root(positional: str | None) -> str | None:
     """
     if positional:
         return positional
-    try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            timeout=_GIT_TOPLEVEL_TIMEOUT_SECS,
-            stdin=subprocess.DEVNULL,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    resolved = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not resolved:
-        return None
-    return resolved
+    return show_toplevel()
 
 
 def _usage(prog: str) -> int:

@@ -162,6 +162,13 @@ except Exception:
     # partial deploy) must still fail-open rather than crash on import.
     def resolve_claude_klabauter_root() -> str | None:
         return None
+try:
+    from _git_root_walk import git_root_walk as _git_root_walk
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
+    # must still fail open to the subprocess rung below, not crash on import.
+    def _git_root_walk() -> str | None:
+        return None
 
 
 # Windows: suppresses the console popup a subprocess.run(...) would otherwise
@@ -213,7 +220,14 @@ def _resolve_this_repo_root() -> str | None:
     root would silently mis-file every session running from a different consumer repo's
     failure record into the doctrine-source repo's own `state/` tree instead of the
     session's actual repo.
+
+    In-process parent walk (`_git_root_walk`, cwd-based like this function's own contract)
+    first -- no subprocess on the routine path; `git rev-parse --show-toplevel` below is kept
+    only as a fallback for the case the walk cannot resolve.
     """
+    walked = _git_root_walk()
+    if walked:
+        return walked
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],

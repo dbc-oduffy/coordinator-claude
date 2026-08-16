@@ -661,13 +661,21 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     carrier_bash_dispatch = build_carrier_bash_dispatch(matchers_by_tail)
     carrier_advisory_dispatch = build_carrier_advisory_dispatch(matchers_by_tail)
 
-    carriers = [
+    carrier_list = [
         carrier_write_dispatch,
         carrier_stop_family,
         carrier_bash_dispatch,
         carrier_advisory_dispatch,
     ]
-    carrier_tails = {c["script"] for c in carriers}
+    # Map shape, keyed by each carrier's own tail key -- the engine plane's
+    # reader (`hook_delivery_manifest.py`) requires `carriers` to be a JSON
+    # object keyed by carrier script tail, each value an object carrying a
+    # `guards` list. A list here parses but fails the reader's shape check
+    # (`carriers field is not an object`) -- see this plan's Problem section.
+    # `matcher` stays inside each value: it is load-bearing for our own
+    # AC-9 union check and the reader ignores unknown keys in a carrier body.
+    carriers = {c["script"]: c for c in carrier_list}
+    carrier_tails = set(carriers)
 
     direct = build_direct_entries(raw_token_by_tail, matchers_by_tail, carrier_tails)
     retired = build_retired_entries()
@@ -680,7 +688,7 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # and fails loud on any drift, including a retired tail resurfacing in
     # hooks.json without this generator's retired list being updated.
     seen_tails: Dict[str, int] = {}
-    for carrier in carriers:
+    for carrier in carriers.values():
         for guard in carrier["guards"]:
             seen_tails[guard["script"]] = seen_tails.get(guard["script"], 0) + 1
     for entry in direct:

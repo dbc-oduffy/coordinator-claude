@@ -86,17 +86,24 @@ A path outside the computed safe pathspec is silently dropped, never caller-wide
   `[[the-deliverable-cascade-has-never-written-a-terminal-status]]`
 - **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
   directly — no plan means this is its only write path.
-- **Every sizing-object observed terminal** (`shipped`/`declined`/`superseded`):
+- **Every terminal sizing-object THAT NO PLAN CITES** (`shipped`/`declined`/`superseded`):
   `close_gate.terminal_sizings` <!-- engine-gap: field=close_gate.terminal_sizings producer=unknown memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md -->
   `git mv` each to `archive/sizings/<YYYY-MM>/` unmodified — no `closed_at`/`closed_by` (schema
   disallows both). A record still at `sized`, `routed`, or `draft` is untouched no matter how
   finished it looks — only what a prior step already marked terminal moves.
+  **A cited sizing-object stays in `state/sizings/`, terminal or not.** `plan.schema.json`
+  constrains `sizing_object` to `^state/sizings/.+\.yaml$`, so the plan cannot be repointed at an
+  archived path; leaving the citation behind instead makes `assert-plan-sizing-citation` report
+  DANGLING. Archiving it is unlandable either way — in practice only a `route: dispatch` sizing,
+  which has no plan by construction, is ever movable here.
 - `coordinator-fold-execution-record` sidecars this session produced — read each `divergence`
   block (surface any crashed-executor marker), then delete.
 
 Nothing to close is an ordinary outcome — say so and move on.
 
-**3. Refresh.** `regenerate-orientation-cache`.
+**3. Refresh.** `regenerate-orientation-cache` — batch into the same shell call as step 1's
+`safe-commit-offer` when step 2 needed no separate CLI invocation of its own (no dirty-tree/queue
+CLI ran between them); keep it a separate call only when step 2 actually ran one.
 
 **4. Report.** Three lines: what landed (commit SHA), what you closed, what's deliberately open.
 Five for `scope_mode: spec-dispatch`: add the `code-reviewer` verdict + integration commit, and

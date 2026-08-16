@@ -29,7 +29,7 @@ Frame strategic findings as `minor`/`nitpick` (`category: architecture`), phrase
 
 - **Documentation:** comprehensive docstrings on public surfaces; WHY-comments on non-obvious logic; no magic numbers/strings — "it's obvious" is never acceptable.
 - **Code Quality:** naming precision, error handling beyond the happy path, edge-case explicitness, separation of concerns, minimal interfaces, loose coupling.
-- **Architecture:** dependency direction, SOLID, testable boundaries, no silent cross-layer coupling.
+- **Architecture:** dependency direction, SOLID, testable boundaries, no silent cross-layer coupling; a bespoke build where a fleet capability already exists carries the burden of argument — say so, don't block on it.
 - **Testing:** testable critical paths/edge cases; tests exercising the wire path, not stubs.
 
 Confidence rubric and AUTO-FIX/ASK classification live in the injected reviewer-calibration block; this section names the lenses, that block governs weighting.

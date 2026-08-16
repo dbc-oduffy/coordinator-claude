@@ -28,12 +28,9 @@
 #   2 — usage error (malformed arguments).
 #   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core
 #       import failure, or an unresolvable content root).
+
+# --- routing half: this file is now a thin shim over entry_point_shim.run_target ---
 from __future__ import annotations
-"""review-assemble — see the # comment block above for the RAG-bait
-purpose text (the polyglot shebang line above makes THIS triple-quoted
-string a silently-discarded expression statement, not the module
-__doc__ — same convention as baton-assemble/pickup-assemble/
-archive-stamp-cli)."""
 
 import os
 import sys
@@ -41,32 +38,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-_TRANSPORT_FAIL = 3
-
-
-def _import_module():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    import coordinator_core.review_assemble as _mod
-
-    return _mod
-
-
-def main(argv: list[str]) -> int:
-    try:
-        mod = _import_module()
-    except RuntimeError as exc:
-        print(f"review-assemble: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        return _TRANSPORT_FAIL
-    except ImportError as exc:
-        print(f"review-assemble: coordinator_core.review_assemble not importable: {exc}", file=sys.stderr)
-        return _TRANSPORT_FAIL
-
-    return mod.main(argv)
-
+from entry_point_shim import run_target  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(run_target("review-assemble", sys.argv[1:]))

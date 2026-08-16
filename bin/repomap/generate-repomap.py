@@ -1813,18 +1813,23 @@ def generate_repomap(
 
 
 def find_git_root(start: Path) -> Path | None:
-    """Find the git root directory from start path."""
+    """Find the git root directory from start path.
+
+    Resolves through ``coordinator_core.git.repo_root.show_toplevel`` rather
+    than spawning (chunk C5, docs/plans/2026-08-16-a-process-per-predicate.md)
+    — that seam walks for a `.git` entry and spawns only if the walk finds
+    none. Falls through to ``None`` on any failure, including the engine not
+    being importable: this script ships with its own tree-sitter requirements
+    and is runnable standalone, so an absent engine degrades rather than
+    raises.
+    """
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=start,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            return Path(result.stdout.strip())
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        from coordinator_core.git.repo_root import show_toplevel
+
+        top = show_toplevel(str(start))
+        if top:
+            return Path(top)
+    except (ImportError, OSError, subprocess.TimeoutExpired):
         pass
     return None
 

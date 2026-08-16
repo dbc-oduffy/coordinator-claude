@@ -152,6 +152,13 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from _message_envelope import compose, render  # noqa: E402
 from _win_portability import no_console_creationflags  # noqa: E402
+try:
+    from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
+    # must still fail open to the subprocess rung below, not crash on import.
+    def _git_root_walk() -> str | None:
+        return None
 
 #: Wiki section carrying the relocated override-hatch explanation (env var,
 #: sentinel file, PM-gate) -- see this hook's conversion relocation fragment
@@ -504,12 +511,16 @@ _OVERRIDE_SENTINEL_NAME = ".coordinator-override-workflow-model-guard"
 
 
 def _git_root() -> "str | None":
-    """`git rev-parse --show-toplevel`, 1s timeout -- same idiom as
-    nudge-multiwave-workflow.py's `_git_root()`. Any failure (not a git
-    repo, git missing, timeout) returns None and the sentinel check below
-    is skipped -- fails toward the env-var-only guard, never toward a
-    crash.
+    """Repo root as `git rev-parse --show-toplevel` would report it -- same idiom as
+    nudge-multiwave-workflow.py's `_git_root()`: an in-process parent walk (`_git_root_walk`)
+    first, no subprocess on the routine path, with the 1s-timeout `git rev-parse --show-toplevel`
+    subprocess below kept only as a fallback for the case the walk cannot resolve. Any failure
+    (not a git repo, git missing, timeout) returns None and the sentinel check below is skipped
+    -- fails toward the env-var-only guard, never toward a crash.
     """
+    walked = _git_root_walk()
+    if walked:
+        return walked
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--show-toplevel"],

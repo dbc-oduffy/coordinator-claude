@@ -3,6 +3,7 @@ name: merging-to-main
 description: "Keyword-gated by name. Merges a ready branch to main: PR, CI, cleanup."
 argument-hint: "[--force] [--force-merge-active-branch]"
 version: 2.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # Merging to Main
@@ -31,8 +32,11 @@ merging-to-main`.
 
 `d0` (`node --test tests/plugin-ecosystem/run.js`, halt-on-fail) runs first, then detect and run
 the project's own test runner (`pnpm test`/`npm test`, `pytest`/`python -m pytest`, `/validate`, or
-project-specific from `CLAUDE.md`/`package.json`). Fail on either → halt: _"Test suite failed. Fix
-first, or use `/merge-to-main --force` to bypass for hotfixes."_
+project-specific from `CLAUDE.md`/`package.json`). **This is the most expensive step in the whole
+ceremony** — the project's full suite is a machine-wide event, not a cheap check; its actual
+magnitude is whatever `python coordinator/tests/_spawn_budget.py` reports for this repo, never a
+hardcoded figure here, but treat "run the suite" as heavy every time you grant it. Fail on either →
+halt: _"Test suite failed. Fix first, or use `/merge-to-main --force` to bypass for hotfixes."_
 
 **`--force`** (skill flag, distinct from `apply`'s): skips this step including the Tier-U grant and
 `d0`. Log: _"Force-merge requested — test suite gate bypassed."_

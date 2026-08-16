@@ -79,7 +79,6 @@ from __future__ import annotations
 
 import datetime
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -122,18 +121,14 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
     if explicit:
         return explicit
     try:
-        result = subprocess.run(
-            ["git", "-C", os.getcwd(), "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_creationflags(),
-        )
-    except OSError:
+        _bootstrap_engine_root()
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel(cwd=os.getcwd())
+    except Exception:  # noqa: BLE001 — mirrors `_no_console_creationflags`'s
+        # best-effort bootstrap posture; an unresolvable engine root here
+        # degrades to None (caller reports "cannot resolve"), not a raise.
         return None
-    root = result.stdout.strip()
-    if result.returncode != 0 or not root:
-        return None
-    return root
 
 
 def _import_read_meta():

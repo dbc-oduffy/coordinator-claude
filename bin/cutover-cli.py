@@ -95,18 +95,26 @@ def _repo_root_for(record_path: str) -> str:
     crosses that boundary (C4c's `resolve_doe_repo_path()`), so this forwarder
     resolves relative to the record's OWN containing repo, not `_SCRIPT_DIR`.
     """
-    import subprocess
-
     abs_record = os.path.abspath(record_path)
     start_dir = os.path.dirname(abs_record) if os.path.isfile(abs_record) else abs_record
+    # Review: code-reviewer (P2) -- pre-conversion this whole resolution was
+    # wrapped in `try/except (subprocess.CalledProcessError, OSError): return
+    # os.getcwd()`. The conversion dropped the wrapper, leaving only the
+    # trailing `or os.getcwd()` to catch `show_toplevel()` returning `None`
+    # -- an import/path-resolution failure (missing CLAUDE_KLABAUTER_ROOT, broken
+    # coordinator_core install) now propagated as an unhandled exception
+    # instead of degrading to cwd. Restored to match every sibling
+    # converted `bin/*.py` site in this same commit (reap-sessions.py,
+    # sweep-boot.py, reaper-resting-batons.py, etc.), which all wrap this
+    # exact resolution in `try/except Exception` for the same reason.
     try:
-        return subprocess.run(
-            ["git", "-C", start_dir, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except (subprocess.CalledProcessError, OSError):
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root and claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel(start_dir) or os.getcwd()
+    except Exception:
         return os.getcwd()
 
 

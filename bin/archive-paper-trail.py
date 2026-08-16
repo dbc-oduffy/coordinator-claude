@@ -67,7 +67,6 @@ transport failure (exit 3), never silently routed to a retired shell body.
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
@@ -90,21 +89,9 @@ def _resolve_repo_root(positional: str | None) -> str | None:
     """
     if positional:
         return positional
-    try:
-        from coordinator_core.win_portability import no_console_creationflags
+    from coordinator_core.git.repo_root import show_toplevel
 
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-    except OSError:
-        return None
-    resolved = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not resolved:
-        return None
-    return resolved
+    return show_toplevel()
 
 
 def _no_fallback() -> None:

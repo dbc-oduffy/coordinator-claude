@@ -1,0 +1,227 @@
+"""claim-neighbours — the ask-anytime CLI: "who else is hitting these
+files?" for an arbitrary path set, no artifact required.
+
+Plan: docs/plans/2026-08-16-trace-a-claim-back-to-its-session.md, chunk C4.
+Sibling to C1's coordinator_core.session.claim_neighbours.find_neighbours,
+which answers the same question but starts from an ARTIFACT (a plan,
+sizing, or handoff) and resolves ITS file set first. This CLI skips that
+resolution entirely — the caller supplies the file set directly on the
+command line — and reuses C1's join, owner-fold, liveness, and
+peer-artifact-resolution internals for everything downstream of "here is a
+path set."
+
+Direct-import variant (same template C1's own module-vs-op split follows,
+and the coordinator/bin/claims-emit.py precedent this file mirrors): a
+plain in-process function call after resolving CLAUDE_KLABAUTER_ROOT, no
+cc_invoke/IPC hop — there is no registered op for this question, and none
+is warranted (this is a read-only local-filesystem join, not a mutation).
+
+Reuses C1's public bare-path-set seam,
+``claim_neighbours.find_neighbours_for_paths`` — the join, owner-fold,
+liveness, and peer-artifact-resolution internals live there now; this file
+only parses argv, dedupes the path set, and renders the three-bucket
+answer.
+
+READ-ONLY, per the plan's Anti-scope: this reports; it never claims,
+releases, or notifies. Nothing here gates, blocks, or messages a peer.
+
+Usage:
+  claim-neighbours <path> [<path> ...]
+    Prints, for the given repo-relative path set: which LIVE peer sessions
+    currently claim any of them (session id, their own claimed artifact if
+    one resolves, and which of the given paths overlap), which of the
+    given paths have no live claimant, and which could not be answered at
+    all (an incomplete claim-index walk, or no resolvable git repo) —
+    kept visibly distinct from "checked, found nobody" per the plan's
+    Problem section: conflating those two is the defect this whole plan
+    exists to close, and collapsing them here would reintroduce it one
+    layer up.
+
+Exit codes:
+  0 — ran; the answer may include "no live claimant" and/or "could not
+      determine" entries alongside any live neighbours (see above — none
+      of those outcomes is a CLI failure).
+  2 — usage error (no paths given, or an unrecognized flag).
+  3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, or coordinator_core not
+      importable).
+"""
+from __future__ import annotations
+
+import os
+import sys
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+
+_EXIT_OK = 0
+_EXIT_USAGE = 2
+_EXIT_TRANSPORT_FAIL = 3
+
+_USAGE = (
+    "usage: claim-neighbours <path> [<path> ...]\n"
+    "\n"
+    "Reports which LIVE peer sessions are pointed at any of the given\n"
+    "repo-relative paths right now. Read-only: never claims, releases, or\n"
+    "notifies anyone.\n"
+)
+
+_HELP_FLAGS = ("--help", "-h")
+
+
+class _Usage(Exception):
+    """Argument-shape rejection — mapped to exit 2, never to a guess."""
+
+
+def _parse_args(argv: list) -> list:
+    paths = []
+    for tok in argv:
+        if tok in _HELP_FLAGS:
+            raise _Usage("")
+        if tok.startswith("-") and tok != "-":
+            raise _Usage("unrecognized argument %r." % tok)
+        paths.append(tok)
+    if not paths:
+        raise _Usage("expected at least one path.")
+    return paths
+
+
+def _import_modules():
+    claude_klabauter_root = _resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    from coordinator_core.session import claim_neighbours as _claim_neighbours
+    from coordinator_core.session import core as _core
+    from coordinator_core.session.path_dialect import (
+        canonicalize_relative_path as _canonicalize_relative_path,
+    )
+
+    return (
+        _claim_neighbours,
+        _core,
+        _canonicalize_relative_path,
+    )
+
+
+def _dedup_paths(paths: list, canonicalize) -> list:
+    """De-dupe on the SAME dialect ``claim_index`` keys against (backslash
+    vs forward-slash), while keeping each first-seen ORIGINAL spelling —
+    ``claim_index.lookup()`` keys its returned dict on the caller's
+    original string, so the spelling passed through here must be the one
+    used to look the answer back up."""
+    seen = set()
+    out = []
+    for p in paths:
+        key = canonicalize(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
+def _gather(paths, *, claim_neighbours, cwd, sessions_dir, caller_sid):
+    """The join, via C1's public bare-path-set seam
+    ``claim_neighbours.find_neighbours_for_paths`` — this CLI no longer
+    reimplements the claim_index/liveness/peer-artifact join itself.
+
+    Returns ``(neighbours, no_claimant_paths, unanswerable_paths, error)``,
+    the same shape this function always returned; ``error`` is the seam's
+    ``lookup_raised`` when the whole lookup failed, else its
+    ``abort_cause`` (rendered the same way) when a partial walk flagged an
+    incomplete answer."""
+    joined = claim_neighbours.find_neighbours_for_paths(
+        paths, caller_sid=caller_sid, cwd=cwd, sessions_dir=sessions_dir
+    )
+
+    if joined.lookup_raised:
+        lookup_error = joined.lookup_raised
+    elif joined.abort_cause:
+        lookup_error = "claim-index walk incomplete: %s" % joined.abort_cause
+    else:
+        lookup_error = None
+
+    neighbours = [
+        (n.session_id, n.overlapping_paths, n.artifact_path) for n in joined.neighbours
+    ]
+    return neighbours, joined.no_claimant_paths, joined.unanswerable_paths, lookup_error
+
+
+def _render(neighbours, no_claimant_paths, unanswerable_paths, lookup_error) -> str:
+    lines = []
+    if neighbours:
+        for sid, overlap, artifact_path in neighbours:
+            where = artifact_path if artifact_path else "no claimed artifact"
+            lines.append("session %s (%s): %s" % (sid, where, ", ".join(overlap)))
+    else:
+        lines.append("no live peers on these paths")
+
+    if no_claimant_paths:
+        lines.append("no claimant: %s" % ", ".join(no_claimant_paths))
+
+    if unanswerable_paths:
+        suffix = (" (%s)" % lookup_error) if lookup_error else ""
+        lines.append("cannot determine: %s%s" % (", ".join(unanswerable_paths), suffix))
+
+    return "\n".join(lines)
+
+
+def main(argv: list) -> int:
+    try:
+        paths = _parse_args(argv)
+    except _Usage as exc:
+        message = str(exc)
+        if message:
+            print("claim-neighbours: %s" % message, file=sys.stderr)
+        print(_USAGE, file=sys.stderr)
+        return _EXIT_USAGE
+
+    try:
+        (
+            claim_neighbours,
+            core,
+            canonicalize_relative_path,
+        ) = _import_modules()
+    except RuntimeError as exc:
+        print("claim-neighbours: CLAUDE_KLABAUTER_ROOT resolution failed: %s" % exc, file=sys.stderr)
+        return _EXIT_TRANSPORT_FAIL
+    except ImportError as exc:
+        print("claim-neighbours: coordinator_core not importable: %s" % exc, file=sys.stderr)
+        return _EXIT_TRANSPORT_FAIL
+
+    paths = _dedup_paths(paths, canonicalize_relative_path)
+    cwd = os.getcwd()
+
+    caller_sid = ""
+    try:
+        caller_sid = core.resolve_session_id(cwd)
+    except Exception:  # noqa: BLE001 — advisory read, never raises
+        caller_sid = ""
+
+    try:
+        sessions_dir = core.sessions_dir(cwd)
+    except Exception:  # noqa: BLE001
+        sessions_dir = ""
+
+    if not sessions_dir:
+        print(
+            "claim-neighbours: cannot determine: no resolvable git repo at %s" % cwd,
+            file=sys.stderr,
+        )
+        return _EXIT_OK
+
+    neighbours, no_claimant_paths, unanswerable_paths, lookup_error = _gather(
+        paths,
+        claim_neighbours=claim_neighbours,
+        cwd=cwd,
+        sessions_dir=sessions_dir,
+        caller_sid=caller_sid,
+    )
+
+    print(_render(neighbours, no_claimant_paths, unanswerable_paths, lookup_error))
+    return _EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

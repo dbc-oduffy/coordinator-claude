@@ -38,6 +38,8 @@ Spec backlink: state/handoffs/2026-08-13-pcli-04-drift-gate.md
 Spec backlink: state/debt-backlog/2026-08-13-pcli-04-drift-gate-dispatch-feed-vs-the-bce793e4e50e.yaml
 """
 
+
+# --- routing half: this file is now a thin shim over entry_point_shim.run_gate_target ---
 from __future__ import annotations
 
 import os
@@ -46,43 +48,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
-_EXIT_ERROR = 2
-
-
-def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported
-    entrypoint. Plain in-process import (not cc_invoke's subprocess-spawn
-    RPC transport) — same shape as check-harvest-debt.py's `_import_main`."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    from coordinator_core.ops.check_pcli_drift_gate import main as _op_main
-
-    return _op_main
-
-
-def main(argv: list[str] | None = None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    if argv:
-        print(f"check-pcli-drift-gate.py: unexpected argument(s): {' '.join(argv)}", file=sys.stderr)
-        return _EXIT_ERROR
-
-    try:
-        op_main = _import_main()
-    except RuntimeError as exc:
-        print(f"check-pcli-drift-gate.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        return _EXIT_ERROR
-    except ImportError as exc:
-        print(
-            f"check-pcli-drift-gate.py: coordinator_core.ops.check_pcli_drift_gate not importable: {exc}",
-            file=sys.stderr,
-        )
-        return _EXIT_ERROR
-
-    return op_main([])
-
+from entry_point_shim import run_gate_target  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_gate_target("check-pcli-drift-gate", sys.argv[1:]))

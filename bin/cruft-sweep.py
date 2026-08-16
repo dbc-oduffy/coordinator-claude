@@ -243,6 +243,10 @@ from coordinator_core.resolve_coordinator_clone import (  # noqa: E402
     resolve_content_root,
 )
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from coordinator_core.machine_resolver import (  # noqa: E402
+    merged_flat_registry as _merged_flat_registry,
+    registry_get as _machine_registry_get,
+)
 # Phases A-D (2026-07-28 collapse — see CHUNK BOUNDARY addendum below) now
 # import their sweep logic directly from coordinator_core.ops.cruft_sweep,
 # the same way Phase E already did — this file no longer carries private
@@ -573,27 +577,17 @@ def parse_args(argv: List[str]) -> SweepConfig:
 
 def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
     """Read cruft_sweep.harness_retention_days from the machine-local
-    registry (if the `machine-local` CLI is on PATH and returns a
-    pure-digit value), overriding cfg.days. Mirrors the bash oracle's
-    `command -v machine-local` + `machine-local get ...` + `^[0-9]+$` guard
-    — falls through silently (cfg.days unchanged) on any absence/failure."""
-    ml_bin = shutil.which("machine-local")
-    if ml_bin is None:
-        return
-    try:
-        result = subprocess.run(
-            [ml_bin, "get", "cruft_sweep.harness_retention_days"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-            **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return
-    if result.returncode != 0:
-        return
-    value = (result.stdout or "").strip()
+    registry, overriding cfg.days. Zero-spawn: reads `registry.local.toml` /
+    `registry.toml` directly via `coordinator_core.machine_resolver.
+    registry_get` rather than shelling out to the `machine-local` CLI (that
+    binary lives under the resettable `~/.claude/bin/` and a Claude Code
+    reset can wipe it while the registry TOML under settings-home survives
+    untouched — see `registry_get`'s own docstring). Keeps the `^[0-9]+$`
+    guard the CLI round-trip enforced — falls through silently (cfg.days
+    unchanged) on any absence/non-digit value."""
+    value = _machine_registry_get("cruft_sweep.harness_retention_days")
+    if value:
+        value = value.strip()
     if value and value.isdigit():
         cfg.days = value
 
@@ -636,21 +630,9 @@ def _resolve_repo_root(cfg: "SweepConfig") -> str:
     --repo-root-flag concept of its own)."""
     if cfg.repo_root:
         return cfg.repo_root
-    git_bin = shutil.which("git")
-    if git_bin:
-        try:
-            result = subprocess.run(
-                [git_bin, "rev-parse", "--show-toplevel"],
-                capture_output=True, text=True, timeout=15, check=False,
-                **no_console_creationflags(),
-            )
-            if result.returncode == 0:
-                out = (result.stdout or "").strip()
-                if out:
-                    return out
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-    return os.getcwd()
+    from coordinator_core.git.repo_root import show_toplevel
+
+    return show_toplevel() or os.getcwd()
 
 
 def _handoffs_dir_from_glob(handoffs_glob: str) -> Path:
@@ -759,42 +741,24 @@ def _get_parent_whitelist() -> set:
 def _default_parent_roots() -> List[str]:
     """Unique parent directories of registered machine-local [repos] entries,
     order-preserving-deduplicated — mirrors the bash oracle's
-    `awk '!seen[$0]++'`. Empty if the `machine-local` CLI is unavailable.
+    `awk '!seen[$0]++'`. Zero-spawn: reads `registry.local.toml` /
+    `registry.toml` directly via `coordinator_core.machine_resolver.
+    merged_flat_registry` rather than a `machine-local keys` + one
+    `machine-local get` per key CLI round-trip. Empty if the registry is
+    unreadable (never raises — see `merged_flat_registry`'s never-block
+    contract).
 
     Trampoline-owned per the engine's negative-spec (does NOT implement
     --parent-root default-derivation itself — this resolves parent_roots and
     passes the resolved list in)."""
-    ml_bin = shutil.which("machine-local")
-    if ml_bin is None:
-        return []
-    try:
-        keys_result = subprocess.run(
-            [ml_bin, "keys"], capture_output=True, text=True, timeout=15,
-            check=False, **no_console_creationflags(),
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return []
-    if keys_result.returncode != 0:
-        return []
-
-    repo_keys = [
-        k.strip() for k in (keys_result.stdout or "").splitlines()
-        if k.strip().startswith("repos.")
-    ]
+    flat = _merged_flat_registry()
 
     seen: set = set()
     roots: List[str] = []
-    for key in repo_keys:
-        try:
-            get_result = subprocess.run(
-                [ml_bin, "get", key], capture_output=True, text=True,
-                timeout=15, check=False, **no_console_creationflags(),
-            )
-        except (OSError, subprocess.TimeoutExpired):
+    for key, val in flat.items():
+        if not key.startswith("repos."):
             continue
-        if get_result.returncode != 0:
-            continue
-        path_value = (get_result.stdout or "").strip()
+        path_value = ("" if val is None else str(val)).strip()
         if not path_value:
             continue
         parent = os.path.dirname(path_value)

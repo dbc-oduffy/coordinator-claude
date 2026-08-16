@@ -110,8 +110,10 @@ runtime to derive section vocabulary but does not write to any registry file.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime
 import hashlib
+import io
 import json
 import os
 import random
@@ -480,16 +482,10 @@ def _machine_local_repos_keys() -> list[str]:
 
 def _current_repo_root() -> str | None:
     """Return the git repo root of the cwd, or None if not inside a git repo."""
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True,
-        )
-    except OSError:
-        return None
-    if result.returncode != 0 or not result.stdout.strip():
-        return None
-    return result.stdout.strip()
+    _ensure_engine_on_path()
+    from coordinator_core.git.repo_root import show_toplevel
+
+    return show_toplevel()
 
 
 def _stamp_completion_scaffold_liveness(repo_root: str | None) -> None:
@@ -1091,6 +1087,178 @@ def _resolve_cited_sizing_deliverable_id(
             file=sys.stderr,
         )
         return None
+
+
+def _resolve_explicit_predecessor_edge_tier(
+    predecessor_relpath: str | None,
+    repo_root: str | None,
+    doc_type: str,
+    title: str,
+    *,
+    narrow_catch: bool,
+) -> str | None:
+    """C2 explicit-predecessor-edge tier (AC1/AC3/AC4/AC5/AC9) — folded to
+    ONE resolve-mint-warn implementation for both reachable call sites (the
+    `plan` arm and the newly-reached-type fallthrough for `spinoff`/
+    `roadmap-seed`/`recovery`). Reads `--predecessor`'s referenced
+    artifact's `deliverable_id` regardless of its `kind`, via
+    `deliverable_carry.resolve_explicit_predecessor_edge_deliverable_id`.
+
+    Review: coordinator:code-reviewer (be51a7b7) P1/P3 — EM ruling:
+    parameterise rather than collapse, since the two call sites' fail-soft
+    postures are deliberately different and must survive byte-for-byte:
+
+    - `narrow_catch=False` (the `plan` arm, formerly `_resolve_explicit_
+      predecessor_edge_carry`): swallows ANY exception silently (`except
+      Exception`), writes no degradation record — mirrors `_resolve_cited_
+      sizing_deliverable_id`'s own never-raises posture.
+    - `narrow_catch=True` (the newly-reached-type fallthrough): only
+      catches the enumerated `(DroppedDeliverableJoinError,
+      DivergentDeliverableIdError)` family (AC9's chunk body — "enumerate
+      them from deliverable_carry.py, do not catch bare Exception"); on
+      that catch, writes AC9's degradation record via
+      `_write_deliverable_carry_degradation` instead of AC5's warning (the
+      two are mutually exclusive — a degradation record already names the
+      failure). Any OTHER exception propagates uncaught — deliberately
+      narrower than the `plan` arm's posture; the family is exhaustive
+      against the real callee today
+      (test_ac9_error_family_discovery_matches_known_baseline pins it).
+
+    Both branches mint the final `deliverable_id` themselves (`carry` on a
+    resolved edge, `mint-from-title` on an empty/degraded resolution) so
+    each call site reduces to a single assignment. `deliverable_carry.py`'s
+    own accept/reject stderr diagnostic is swallowed here (redirected, not
+    printed) so AC5's "exactly once" naming contract is owned solely by
+    `_warn_predecessor_spine_not_inherited` below — a duplicate diagnostic
+    line naming the same predecessor would violate it.
+
+    ``predecessor_relpath`` is passed straight through as given (relative
+    to the process CWD), mirroring the `handoff` arm's own `_predecessor_
+    path` contract (`getattr(args, "predecessor", None)`, never joined
+    against `repo_root`).
+
+    Spec backlink: docs/plans/2026-08-14-baton-closes-when-its-plan-ships.md § C1/C2, AC1/AC3/AC4/AC5/AC9
+    """
+    if not predecessor_relpath:
+        return _mint_deliverable_id_from_title(title, doc_type)
+
+    _ensure_engine_on_path()
+    from coordinator_core.ops.deliverable_carry import (  # noqa: PLC0415
+        DivergentDeliverableIdError,
+        DroppedDeliverableJoinError,
+        resolve_explicit_predecessor_edge_deliverable_id,
+    )
+    from coordinator_core.ops.read_frontmatter_field import (  # noqa: PLC0415
+        read_frontmatter_field as _read_frontmatter_field,
+    )
+
+    if narrow_catch:
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                _edge_dlv = resolve_explicit_predecessor_edge_deliverable_id(
+                    _read_frontmatter_field, predecessor_relpath
+                )
+        except (DroppedDeliverableJoinError, DivergentDeliverableIdError) as _nr_carry_exc:
+            _fallback = _mint_deliverable_id_from_title(title, doc_type)
+            _write_deliverable_carry_degradation(
+                repo_root, doc_type, _nr_carry_exc, _fallback, title,
+                predecessor_path=predecessor_relpath,
+            )
+            return _fallback
+    else:
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                _edge_dlv = resolve_explicit_predecessor_edge_deliverable_id(
+                    _read_frontmatter_field, predecessor_relpath
+                )
+        except Exception:  # noqa: BLE001 -- best-effort; degrade to no-carry, never block scaffolding
+            _edge_dlv = None
+
+    if _edge_dlv:
+        return _mint_deliverable_id(
+            deliverable_id=_edge_dlv, carry_source="explicit predecessor edge"
+        )
+    _warn_predecessor_spine_not_inherited(predecessor_relpath)
+    return _mint_deliverable_id_from_title(title, doc_type)
+
+
+def _warn_predecessor_spine_not_inherited(predecessor_relpath: str) -> None:
+    """AC5 loud fallthrough — one line naming the predecessor whose spine
+    was not inherited, per docs/wiki/guard-messaging.md § Register: one
+    fact, stated once, plus the terse alternative (falls through to mint-
+    from-slug). No block, no override key. Callers only invoke this when a
+    predecessor edge WAS supplied and no rung resolved it (anti-scope: never
+    on the legitimate no-predecessor path)."""
+    print(
+        "coordinator-doc-new: predecessor "
+        f"{predecessor_relpath!r} carries no deliverable_id — spine not "
+        "inherited, falling through to mint-from-slug",
+        file=sys.stderr,
+    )
+
+
+def _write_deliverable_carry_degradation(
+    repo_root: str | None,
+    doc_type: str,
+    error: Exception,
+    fallback_deliverable_id: str | None,
+    title: str,
+    claimed_plan_path: str | None = None,
+    predecessor_path: str | None = None,
+) -> None:
+    """AC9's fail-soft degradation trace, shared by the `handoff` arm and
+    C1's newly-reached-type fallthrough (AC9's body: "reuse that code
+    path — do not author a second copy"). Emits one stderr line naming the
+    error type, then writes the same durable
+    `state/audits/<date>-*-deliverable-carry-degradation.jsonl` record the
+    `handoff` arm originally established (2026-08-03 deliverable-id-carry-
+    plan-handoff-agree).
+
+    Negative-spec: never raises — an unwritable `state/audits/` directory
+    degrades to a stderr-only note (the original `handoff` arm's own
+    posture), never blocking scaffolding.
+
+    Spec backlink: docs/plans/2026-08-14-baton-closes-when-its-plan-ships.md § C1, AC9
+    """
+    print(
+        f"coordinator-doc-new: {doc_type} deliverable-carry degraded to "
+        f"no-carry ({type(error).__name__}): {error}",
+        file=sys.stderr,
+    )
+    if not repo_root:
+        return
+    audit_dir = os.path.join(repo_root, "state", "audits")
+    try:
+        os.makedirs(audit_dir, exist_ok=True)
+        audit_path = os.path.join(
+            audit_dir,
+            f"{datetime.date.today().isoformat()}"
+            f"-{doc_type}-deliverable-carry-degradation.jsonl",
+        )
+        with open(audit_path, "a", encoding="utf-8") as audit_fh:
+            audit_fh.write(
+                json.dumps(
+                    {
+                        "timestamp": datetime.datetime.now(
+                            datetime.timezone.utc
+                        ).isoformat(),
+                        "error_type": type(error).__name__,
+                        "error_message": str(error),
+                        "claimed_plan_path": claimed_plan_path,
+                        "predecessor_path": predecessor_path,
+                        "fallback_deliverable_id": fallback_deliverable_id,
+                        "scaffolded_title": title,
+                    }
+                )
+                + "\n"
+            )
+    except OSError:
+        print(
+            "coordinator-doc-new: failed to write the durable audit "
+            f"record to {audit_dir!r} — the stderr warning above "
+            "is the only surviving record of this degradation",
+            file=sys.stderr,
+        )
 
 
 def _mint_artifact_id_from_title(prefix: str, title: str, doc_type: str, field: str) -> str | None:
@@ -4806,7 +4974,17 @@ def main() -> None:
                         carry_source="cited sizing-object",
                     )
                 else:
-                    _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+                    # Explicit-predecessor-edge tier (C2, AC1/AC3/AC4/AC9) —
+                    # ordered BEHIND the session-state-parent (held-claim)
+                    # tier above and the cited-sizing tier, so every input
+                    # that resolved via either of those today keeps
+                    # resolving identically (AC3's plan-arm collision case).
+                    # Fires only when both yielded nothing.
+                    _plan_predecessor_edge = getattr(args, "predecessor", None) or None
+                    _resolved_deliverable_id = _resolve_explicit_predecessor_edge_tier(
+                        _plan_predecessor_edge, _current_repo_root(), doc_type, title,
+                        narrow_catch=False,
+                    )
         elif doc_type == "handoff":
             # Session-plan/predecessor carry tier (2026-08-03 deliverable-id-
             # carry-plan-handoff-agree C1/AC1/AC2/AC6/AC19) — reachable for
@@ -4880,49 +5058,40 @@ def main() -> None:
                 # no-carry — the exact defect this arm exists to prevent,
                 # reintroduced by masking it. Do not widen this to
                 # `except Exception` in a future tidying pass.
-                print(
-                    "coordinator-doc-new: handoff deliverable-carry degraded to "
-                    f"no-carry ({type(_hnd_carry_exc).__name__}): {_hnd_carry_exc}",
-                    file=sys.stderr,
-                )
                 _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
                 _hnd_carried_initiative = None
-                if _hnd_repo_root:
-                    _hnd_audit_dir = os.path.join(_hnd_repo_root, "state", "audits")
-                    try:
-                        os.makedirs(_hnd_audit_dir, exist_ok=True)
-                        _hnd_audit_path = os.path.join(
-                            _hnd_audit_dir,
-                            f"{datetime.date.today().isoformat()}"
-                            "-handoff-deliverable-carry-degradation.jsonl",
-                        )
-                        with open(_hnd_audit_path, "a", encoding="utf-8") as _hnd_audit_fh:
-                            _hnd_audit_fh.write(
-                                json.dumps(
-                                    {
-                                        "timestamp": datetime.datetime.now(
-                                            datetime.timezone.utc
-                                        ).isoformat(),
-                                        "error_type": type(_hnd_carry_exc).__name__,
-                                        "error_message": str(_hnd_carry_exc),
-                                        "claimed_plan_path": _claimed_plan_path,
-                                        "predecessor_path": _predecessor_path,
-                                        "fallback_deliverable_id": _resolved_deliverable_id,
-                                        "scaffolded_title": title,
-                                    }
-                                )
-                                + "\n"
-                            )
-                    except OSError:
-                        print(
-                            "coordinator-doc-new: failed to write the durable audit "
-                            f"record to {_hnd_audit_dir!r} — the stderr warning above "
-                            "is the only surviving record of this degradation",
-                            file=sys.stderr,
-                        )
-        else:
-            # slug path — mint new id from title slug
+                _write_deliverable_carry_degradation(
+                    _hnd_repo_root, doc_type, _hnd_carry_exc,
+                    _resolved_deliverable_id, title,
+                    claimed_plan_path=_claimed_plan_path,
+                    predecessor_path=_predecessor_path,
+                )
+        elif doc_type == "sizing-object":
+            # AC9 — sizing-object is the earliest artifact in the
+            # deliverable chain (sizing-object.schema.json's own
+            # `deliverable_id` description; DR-207 DD#1) and never takes a
+            # carry via any rung — mint, or explicit/env id (already
+            # resolved above this elif chain), only.
             _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+        else:
+            # AC2/AC9 fallthrough — the carry cascade is the DEFAULT for
+            # every OTHER spine-bearing doc_type. Today that is `spinoff`,
+            # `roadmap-seed`, and `recovery`; a FUTURE doc_type added to
+            # `_spine_types` lands here automatically with no edit to this
+            # dispatch (AC2). No held-claim or claimed-plan tier exists for
+            # these types to collide with, so per AC9's evidence table the
+            # explicit-predecessor-edge tier (C2) is the ONLY admissible
+            # carry rung, ordered ahead of mint-from-slug and behind
+            # explicit/env id. Routed through `_resolve_explicit_
+            # predecessor_edge_tier(narrow_catch=True)` so AC9's fail-soft
+            # catch is the one thing standing between a forced resolution
+            # error and the caller — that catch, not a blanket swallow, is
+            # what AC9 pins.
+            _newly_reached_predecessor_edge = getattr(args, "predecessor", None) or None
+            _resolved_deliverable_id = _resolve_explicit_predecessor_edge_tier(
+                _newly_reached_predecessor_edge, _current_repo_root(), doc_type, title,
+                narrow_catch=True,
+            )
 
         # plan_id — always minted fresh for plan type (D3); never null.
         # Review: coordinator:code-reviewer (913d6318) F1 — pln- was never in the

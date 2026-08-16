@@ -1,7 +1,55 @@
 #!/usr/bin/env python3
-"""PreToolUse(Bash) naked-Python dispatcher.
+"""PreToolUse(Bash|PowerShell) fan-in dispatcher -- three hooks.json
+`Bash|PowerShell`-matcher registrations, one interpreter
+(state/audits/2026-08-16-doe-hook-consolidation-feasibility.md, this
+dispatch's own fold: `guard-doctrine-surface-bash-write.py` and
+`guard-repo-setup-claude-home-refusal.py` are folded IN, ahead of the
+engine-backed dispatch this file already hosted, following the same
+registry + dynamic-import + first-deny-wins shape `preuse-agent-dispatch.py`
+already ships for the Agent-matcher leg of PreToolUse.
 
-Replaces the former ~11-script bash dispatcher (which itself folded the
+FOLD SHAPE -- FIRST-DENY-WINS, NOT CONCATENATE-ALL, mirroring
+`preuse-agent-dispatch.py`'s own choice for the same reason: each of the two
+folded guards is a hard exit-0/exit-2 refusal (never an advisory), so the
+first one that denies is the whole verdict -- there is nothing for a second
+guard's text to add once the command is already blocked. The two folded
+guards run BEFORE the engine dispatch below (cheaper, DoE-resident, no
+sibling-repo resolution), in their PRIOR hooks.json registration order
+(`guard-doctrine-surface-bash-write.py` first, then
+`guard-repo-setup-claude-home-refusal.py`) -- registration order was never
+policy-significant between these two (their predicates are structurally
+disjoint: one keys on a governed-doctrine-surface mention, the other on the
+repo-setup scaffold mechanism naming Claude Home), so preserving it is a
+convenience, not a behaviour dependency. Only once NEITHER denies does this
+file's own engine-backed evaluation run, exactly as it did standalone.
+
+LAZY SCOPE DESCRIPTORS. Each folded guard carries an import-FREE, string-only
+precondition (`_pre_doctrine_surface`/`_pre_repo_setup`) computed from the
+raw payload's `tool_name`/`tool_input.command` alone -- no module import, no
+regex compilation, no `_claude_md_ledger`/wiki-anchor module load -- for the
+overwhelming majority of Bash/PowerShell calls that mention no governed
+identifier and no scaffold-mechanism marker at all. This is the same
+"a guard's expensive work must not run when its precondition is false" shape
+`stop-dispatch.py` ships for the Stop event; unlike that dispatcher's five
+guards, here BOTH preconditions are payload-text-only (no filesystem stat,
+no transcript read) since both folded guards' own predicates are themselves
+payload-text-only.
+
+FAILURE ISOLATION. Each of the two folded guards runs inside its own
+`try/except BaseException`, with a stderr skipped-list breadcrumb on the
+guard that raised -- one guard crashing removes only that guard's coverage
+(fail-open for it alone) and the dispatcher proceeds to the next guard, then
+to the engine dispatch, exactly as `stop-dispatch.py`/`preuse-agent-
+dispatch.py` isolate their own folded guards. This is a NEW isolation layer,
+not a narrowing of either guard's own contract: both guards already fail
+open internally on a malformed payload or an uncatchable classification (see
+each guard's own module docstring) -- this outer wrapper only catches a
+genuinely unexpected crash in THIS file's own invocation plumbing (a bug in
+`_import_guard`/`_invoke`, a malformed `sys.modules` entry), the same narrow
+residual `preuse-agent-dispatch.py`'s own docstring names for its guards 1-3.
+
+Original module purpose (still the majority of this file, unchanged below):
+replaces the former ~11-script bash dispatcher (which itself folded the
 no-verify, destructive-git-orphan, destructive-rm, destructive-git-clean,
 destructive-git-revert, blanket-git-add, runaway-find, git-c-over-cd, and
 probe-spray guards, plus commit validation) PLUS the 5-fold
@@ -79,13 +127,33 @@ This shim resolves and forwards; the engine plane decides what to render,
 since the guard MESSAGE is engine-owned under the same DR-047 split as the
 guard logic. Until ``evaluate_payload_json`` declares ``resolution_class``,
 the keyword is not passed and behavior is byte-for-byte identical to today.
+
+Provenance injection (2026-08-16, C2, F6/AC20): this dispatcher now resolves
+via ``resolve_claude_klabauter_root_with_provenance`` (the three-value seam) and
+forwards ``provenance`` alongside ``resolution_class``, under the SAME
+``inspect.signature`` feature-detect idiom -- inert until the engine plane
+declares the ``provenance`` keyword, same byte-for-byte-identical-until-then
+guarantee as ``resolution_class`` and ``policy_file`` above. This is the
+second observability surface for the provenance seam: the boot banner
+(``project-orientation.py::engine_resolution_banner``) is per-*session*, so a
+hook running under an inherited ``CLAUDE_KLABAUTER_ROOT``/``REPO_CLAUDE_KLABAUTER``
+override in an unrelated repo renders no banner at all -- but the override
+still leaks per-*process* through ``child_env()`` to every subprocess this
+dispatcher's engine call spawns, and THAT leak is what this per-call
+forwarding makes observable to the engine plane.
 """
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
 import inspect
+import io
+import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable, List, Optional, Tuple
 
 
 _HOOKS_DIR = str(Path(__file__).resolve().parent)
@@ -94,7 +162,7 @@ if _HOOKS_DIR not in sys.path:
 try:
     from _engine_root import (  # noqa: E402
         arm_lazy_ops as _arm_lazy_ops,
-        resolve_claude_klabauter_root_with_class as _resolve_engine,
+        resolve_claude_klabauter_root_with_provenance as _resolve_engine,
     )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
@@ -103,8 +171,8 @@ except Exception:
     # "unresolved" is spelled literally rather than imported as
     # RESOLUTION_UNRESOLVED: this leg exists precisely for the case where
     # that module is absent, so it cannot depend on a name from it.
-    def _resolve_engine() -> tuple[str | None, str]:
-        return None, "unresolved"
+    def _resolve_engine() -> tuple[str | None, str, str]:
+        return None, "unresolved", "none"
 
     def _arm_lazy_ops() -> None:
         return None
@@ -205,6 +273,208 @@ def _rearm_command_tool_name(raw: str) -> str:
         return raw
 
 
+# --------------------------------------------------------------------------
+# Fold: guard-doctrine-surface-bash-write.py + guard-repo-setup-claude-home-
+# refusal.py, first-deny-wins, ahead of the engine dispatch below. See module
+# docstring "FOLD SHAPE" / "LAZY SCOPE DESCRIPTORS" / "FAILURE ISOLATION".
+# --------------------------------------------------------------------------
+
+_COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
+
+
+def _extract_command_for_preconditions(raw: str) -> "Tuple[Optional[str], Optional[str]]":
+    """Best-effort, side-effect-free ``(tool_name, command)`` extraction from
+    the raw stdin payload -- used ONLY to compute the two folded guards'
+    lazy-import preconditions below. Never raises; any parse failure yields
+    ``(None, None)``, which simply skips both guards' import -- matching
+    what each guard's own ``main()`` would independently decide (fail open)
+    on the identical malformed input, so skipping the import here changes no
+    observable behaviour."""
+    try:
+        payload = json.loads(raw) if raw else {}
+        if not isinstance(payload, dict):
+            return None, None
+        tool_name = payload.get("tool_name")
+        tool_input = payload.get("tool_input")
+        cmd = tool_input.get("command") if isinstance(tool_input, dict) else None
+        return (
+            tool_name if isinstance(tool_name, str) else None,
+            cmd if isinstance(cmd, str) else None,
+        )
+    except Exception:
+        return None, None
+
+
+def _pre_doctrine_surface(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
+    if tool_name not in _COMMAND_TOOL_NAMES or not cmd:
+        return False
+    try:
+        from _claude_md_ledger import GOVERNED_AUTHORING_SURFACES
+    except Exception:
+        # Cannot cheaply prefilter without the ledger module -- import the
+        # guard itself and let IT decide, rather than silently skipping a
+        # command this precondition could not classify.
+        return True
+    lowered = cmd.lower()
+    for surface in GOVERNED_AUTHORING_SURFACES:
+        if surface.lower() in lowered or surface.rsplit("/", 1)[-1].lower() in lowered:
+            return True
+    return False
+
+
+def _pre_repo_setup(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
+    if tool_name not in _COMMAND_TOOL_NAMES or not cmd:
+        return False
+    return "repo-setup-args-and-register" in cmd or "scaffold_structure" in cmd
+
+
+@dataclass(frozen=True)
+class _BashGuard:
+    module_key: str
+    filename: str
+    precondition: Callable[["Optional[str]", "Optional[str]"], bool]
+
+
+# Prior hooks.json registration order -- see module docstring "FOLD SHAPE"
+# for why preserving it is a convenience, not a behaviour dependency.
+_BASH_GUARD_REGISTRY: "Tuple[_BashGuard, ...]" = (
+    _BashGuard("guard_doctrine_surface_bash_write", "guard-doctrine-surface-bash-write.py",
+               _pre_doctrine_surface),
+    _BashGuard("guard_repo_setup_claude_home_refusal", "guard-repo-setup-claude-home-refusal.py",
+               _pre_repo_setup),
+)
+
+
+class _ByteSink:
+    """Binary-mode facade for `_BufferedTextCapture.buffer`: writes bytes straight
+    through, UNMODIFIED, into the SAME ordered `io.BytesIO` the text channel's
+    `write(str)` encodes into -- no decode, no round-trip at capture time. Both
+    folded guards here write their deny message via `sys.stderr.buffer.write()`
+    (Windows CRLF-translation fix -- see each guard's own module docstring, and
+    `_stop_family_runner.py`'s `_ByteSink` docstring for the full rationale). This
+    dispatcher's own re-emission (below) writes `.encode("utf-8")` through
+    `sys.stderr.buffer`, never the text wrapper, so that guarantee survives the
+    round trip to the real process stderr."""
+
+    def __init__(self, sink: "io.BytesIO") -> None:
+        self._sink = sink
+
+    def write(self, data: bytes) -> int:
+        return self._sink.write(data)
+
+    def flush(self) -> None:
+        pass
+
+
+class _BufferedTextCapture(io.StringIO):
+    """Same shim `stop-dispatch.py`/`preuse-agent-dispatch.py` use: both
+    folded guards write their deny message via `sys.stderr.buffer.write()`
+    (Windows CRLF-translation fix -- see each guard's own module docstring),
+    which a plain `io.StringIO` has no `.buffer` attribute for. Both channels
+    land in ONE ordered `io.BytesIO` -- `write(str)` encodes into it,
+    `.buffer.write(bytes)` writes into it unmodified -- so `combined()`/
+    `combined_bytes()` are order-preserving AND byte-exact, rather than
+    concatenating two separately-accumulated buffers."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._bytes = io.BytesIO()
+        self.buffer = _ByteSink(self._bytes)
+
+    def write(self, s: str) -> int:
+        self._bytes.write(s.encode("utf-8"))
+        return len(s)
+
+    def combined(self) -> str:
+        return self.combined_bytes().decode("utf-8", "replace")
+
+    def combined_bytes(self) -> bytes:
+        return self._bytes.getvalue()
+
+    def getvalue(self) -> str:
+        return self.combined()
+
+
+def _import_bash_guard(guard: "_BashGuard") -> Any:
+    if guard.module_key in sys.modules:
+        return sys.modules[guard.module_key]
+    spec = importlib.util.spec_from_file_location(
+        guard.module_key, str(Path(_HOOKS_DIR) / guard.filename)
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(guard.filename)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[guard.module_key] = mod
+    try:
+        spec.loader.exec_module(mod)
+    except BaseException:
+        sys.modules.pop(guard.module_key, None)
+        raise
+    return mod
+
+
+def _invoke_bash_guard(main_fn: Callable[[], int], stdin_text: str) -> "Tuple[int, str]":
+    old_stdin = sys.stdin
+    err_buf = _BufferedTextCapture()
+    rc = 0
+    with contextlib.redirect_stderr(err_buf):
+        sys.stdin = io.StringIO(stdin_text)
+        try:
+            try:
+                rc = main_fn()
+            except SystemExit as exc:
+                rc = exc.code if isinstance(exc.code, int) else 0
+        finally:
+            sys.stdin = old_stdin
+    return (rc or 0), err_buf.combined()
+
+
+def _run_folded_bash_guards(raw: str) -> "Optional[int]":
+    """Runs the two folded guards, first-deny-wins. Returns 2 (already having
+    written the denying guard's stderr) the moment one denies; returns
+    ``None`` once neither denies (or both were skipped/crashed), signalling
+    the caller to fall through to the engine dispatch."""
+    tool_name, cmd = _extract_command_for_preconditions(raw)
+    skipped: "List[str]" = []
+
+    for guard in _BASH_GUARD_REGISTRY:
+        try:
+            if not guard.precondition(tool_name, cmd):
+                continue
+        except BaseException:
+            skipped.append(guard.module_key + " (precondition)")
+            continue
+        try:
+            mod = _import_bash_guard(guard)
+            rc, err = _invoke_bash_guard(mod.main, raw)
+        except BaseException:
+            skipped.append(guard.module_key)
+            continue
+        if rc == 2:
+            if skipped:
+                sys.stderr.write(
+                    "[preuse-bash-dispatch] guard(s) skipped (fail-open for "
+                    "those only): " + ", ".join(skipped) + "\n"
+                )
+            if err:
+                # Re-emit through .buffer, never the text wrapper -- err came
+                # from _BufferedTextCapture.combined(), which may carry a
+                # guard's raw sys.stderr.buffer.write() bytes (Windows
+                # CRLF-translation fix); a text-mode write here would
+                # reintroduce exactly the translation that convention exists
+                # to avoid. See _ByteSink's own docstring above.
+                sys.stderr.buffer.write(err.encode("utf-8"))
+                sys.stderr.buffer.flush()
+            return 2
+
+    if skipped:
+        sys.stderr.write(
+            "[preuse-bash-dispatch] guard(s) skipped (fail-open for those "
+            "only): " + ", ".join(skipped) + "\n"
+        )
+    return None
+
+
 def main() -> int:
     # SECURITY BOUNDARY, not only a cold-start optimization: this function
     # runs as a FRESH subprocess per PreToolUse(Bash) event, reads the
@@ -224,9 +494,19 @@ def main() -> int:
     # Do not "fix" either test's failure by deleting it; re-key the affected
     # confinement guards onto resolved caller-context first.
     raw = sys.stdin.read()
+
+    # Folded guards run on the ORIGINAL payload, before the PowerShell->Bash
+    # rearm below -- both already accept tool_name in ("Bash", "PowerShell")
+    # natively, so rearming first would only be a no-op relabel, not a
+    # behaviour change; keeping them on the untouched payload is the more
+    # conservative choice. First-deny-wins: a 2 here is the whole verdict.
+    folded_rc = _run_folded_bash_guards(raw)
+    if folded_rc is not None:
+        return folded_rc
+
     raw = _rearm_command_tool_name(raw)
 
-    root, resolution_class = _resolve_engine()
+    root, resolution_class, provenance = _resolve_engine()
     if not root:
         return 0  # fail-open ALLOW — engine unresolvable on this machine
 
@@ -253,15 +533,19 @@ def main() -> int:
         _params = inspect.signature(evaluate_payload_json).parameters
         accepts_policy_file = "policy_file" in _params
         accepts_resolution_class = "resolution_class" in _params
+        accepts_provenance = "provenance" in _params
     except (TypeError, ValueError):
         accepts_policy_file = False
         accepts_resolution_class = False
+        accepts_provenance = False
 
     kwargs = {}
     if accepts_policy_file:
         kwargs["policy_file"] = str(policy_file)
     if accepts_resolution_class:
         kwargs["resolution_class"] = resolution_class
+    if accepts_provenance:
+        kwargs["provenance"] = provenance
 
     try:
         out = evaluate_payload_json(raw, **kwargs)

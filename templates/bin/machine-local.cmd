@@ -71,15 +71,36 @@ if not exist "%_impl%" (
   exit /b 2
 )
 
+REM INTERPRETER CACHE, tier 1b. The where-python.exe tier below measured 306-555ms
+REM per call on a live Windows box, and it fires on EVERY call whenever
+REM __PYTHON_BIN__ was not substituted at install time, which is the steady state
+REM on installs whose substrate installer does not bake it. The answer it computes
+REM changes only when the operator installs or removes a Python, so it is cached to
+REM a one-line sidecar next to this shim and re-read with a single set-slash-p.
+REM The POSIX forwarder writes and reads the SAME file, so whichever entrypoint
+REM runs first warms the other. A cache naming an interpreter that no longer exists
+REM fails the exist check below and falls through to a fresh probe that rewrites it,
+REM so an uninstalled or moved Python self-heals. A torn line from a concurrent
+REM write likewise fails the exist check and re-probes: worst case is one slow call,
+REM never a wrong answer. Tier ordering is unchanged; this only skips repeated work.
+set "_pycache=%_settings_home%\bin\.python-bin"
+
 set "_py=__PYTHON_BIN__"
 if "%_py%"=="__PYTHON_BIN__" set "_py="
 if not "%_py%"=="" goto :run_baked
 
+if not exist "%_pycache%" goto :probe_path
+set /p _py=<"%_pycache%"
+if "%_py%"=="" goto :probe_path
+if exist "%_py%" goto :run_baked
+set "_py="
+
+:probe_path
 for /f "delims=" %%p in ('where python.exe 2^>nul') do (
     echo %%p| findstr /I /C:"\WindowsApps\" >nul
     if errorlevel 1 (
         set "_py=%%p"
-        goto :run_baked
+        goto :cache_and_run
     )
 )
 
@@ -89,6 +110,15 @@ if not errorlevel 1 goto :run_py3
 echo [machine-local] ERROR: no python3 (or python) found on PATH 1>&2
 echo [machine-local] https://www.python.org/downloads/windows/ 1>&2
 exit /b 2
+
+REM Best-effort cache write: a read-only settings-home must cost the caller a slow
+REM resolve, never a failed read, so stderr is discarded and the run proceeds either
+REM way. Redirection is written BEFORE the echo deliberately: the trailing form,
+REM echo then the redirect, would either capture a trailing space into the cached
+REM path or, when the path ends in a digit, be parsed as a numbered-handle redirect.
+:cache_and_run
+2>nul >"%_pycache%" echo %_py%
+goto :run_baked
 
 :run_baked
 "%_py%" "%_impl%" %*

@@ -415,6 +415,22 @@ except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
+# Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
+# -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
+# `.git` entry) rather than writing a fourth copy of that walk. This is NOT
+# the families-spanning shared READER/TRANSPORT module DR-047/DR-118 decline
+# (see `_find_repo_root_for_trace`'s own docstring below, kept verbatim) --
+# that ruling is about collapsing the three coordinator.local.md READERS
+# into one shared transport, not about sharing the tiny root-finding
+# primitive beneath them. Same `_engine_root` module this hook already
+# imports one line above, for an unrelated (claude-klabauter-root) purpose.
+try:
+    from _engine_root import _session_repo_root as _resolve_consuming_repo_root  # noqa: E402
+except Exception:
+    # Same defensive fallback as _resolve_claude_klabauter_root above.
+    def _resolve_consuming_repo_root() -> "Path | None":  # type: ignore[no-redef]
+        return None
+
 try:
     from _worktree_isolation_strip import compute_strip as _compute_worktree_strip  # noqa: E402
 except Exception:
@@ -559,20 +575,32 @@ def _resolve_contract_blocks(policy_file: Path, child_subagent_type: str) -> lis
 
 
 def _find_repo_root_for_trace() -> Optional[Path]:
-    """Walk upward from this file looking for `coordinator.local.md` -- this
-    repo's own root marker. Independent copy of the same walk
-    `_next_move_ledger._find_repo_root` uses for its own per-session file
-    under `state/subagent-share/<session_id>/` (DR-047/DR-118 decline a
-    families-spanning shared-transport module for this class of tiny,
-    independently-failing-open helper -- see that module's own docstring)."""
-    current = Path(__file__).resolve().parent
-    while True:
-        if (current / "coordinator.local.md").is_file():
-            return current
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent
+    """Anchor at the CONSUMING repo root: `CLAUDE_PROJECT_DIR` when set and a
+    real directory, else a zero-spawn pure-Python upward walk for a `.git`
+    entry (directory for a normal clone, file for a worktree). Independent
+    copy of the same anchoring `_next_move_ledger._find_repo_root` uses for
+    its own per-session file under `state/subagent-share/<session_id>/`
+    (DR-047/DR-118 decline a families-spanning shared-transport module for
+    this class of tiny, independently-failing-open helper -- see that
+    module's own docstring).
+
+    Delegates to `_engine_root._session_repo_root` for the actual walk (see
+    the module-level import above) -- reusing that shared root-resolution
+    primitive is explicitly NOT the shared-transport merge DR-047/DR-118
+    decline; only the READER stays a separate copy per those DRs.
+
+    Previously walked upward from THIS FILE's own `__file__` looking for a
+    directory containing `coordinator.local.md`, which only ever resolves
+    this plugin's own checkout -- correct by accident in a dev repo where
+    `--plugin-dir` points the plugin at the working tree itself, and a
+    silent miss on a marketplace install where the plugin lives under
+    `~/.claude/plugins/` and the consumer's `state/subagent-share/` tree
+    lives somewhere `__file__` can never reach."""
+    try:
+        root = _resolve_consuming_repo_root()
+        return Path(root) if root else None
+    except Exception:
+        return None
 
 
 _CATERING_TRACE_FILENAME = "catering-miss-trace.jsonl"

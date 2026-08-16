@@ -17,19 +17,20 @@ steps with no consumes-manifest CLI (dispatch/gate steps). Wiring detail through
 
 ## Step 0.9-1: Grant, Front Door
 
+One shell call — this grant covers the Tier-U consumers this ceremony invokes downstream,
+including the test-suite step inside `workday-complete-assemble`, which is the single most
+expensive thing this ceremony runs (source its magnitude from `python
+coordinator/tests/_spawn_budget.py`, never a hardcoded number here):
+
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-args-and-validate" parse-front-door "${ARGUMENTS:-}"
-```
-
-Capture stdout+exit code; non-zero stops. `eval` stdout to set `$FOR_DATE`/`$ONLY_MODE`/
-`$ONLY_FLAG`/`$SCOPE_SUMMARY`.
-
-```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-args-and-validate" check-cross-machine "${ARGUMENTS:-}"
 ```
 
-Fails loud on a cross-machine `--for-date` mismatch — stop and report.
+Capture stdout+exit code of each; non-zero on either stops. `eval` the front-door's stdout to set
+`$FOR_DATE`/`$ONLY_MODE`/`$ONLY_FLAG`/`$SCOPE_SUMMARY`. The cross-machine check fails loud on a
+cross-machine `--for-date` mismatch — stop and report.
 
 ## Step 2: Compute the Ceremony
 
@@ -119,6 +120,18 @@ Skip both under `$ONLY_MODE=1`. Read their counts straight off, never collapsed 
 Blocking. Exit 1 names every residual path owned by this session — resolve PROMOTE (durable home,
 restated in its own voice) or DROP per path, delete, re-run to confirm exit 0 (disposition detail:
 wiki).
+
+## Step 9d: claudemeta Manifest Cadence
+
+Skip the step entirely if `state/reference/generate-claudemeta-manifest.py` is absent —
+DoE-specific, no-op in every other repo. Where it exists, no prompt:
+
+```
+python state/reference/generate-claudemeta-manifest.py --cadence
+```
+
+One process, not a shell conditional — it checks, and regenerates plus commits only on real drift.
+Clean: silent. Drifted: surface the generator's own stdout line, nothing more.
 
 ## Step 10: Final Summary
 

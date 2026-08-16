@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PostToolUse(*) naked-Python advisory dispatcher.
+"""PostToolUse(Write|Edit|MultiEdit|NotebookEdit|Agent) naked-Python advisory dispatcher.
 
 Replaces the former bash postuse-advisory-dispatch.sh PostToolUse
 registration (context-pressure + runtime-tripwire checks) with ONE `python3`
@@ -28,8 +28,9 @@ SAME in-process `dispatch_message` IPC call shape, so folding it in adds
 one more `dispatch_message` call, not a second mechanism. Gated on
 `tool_name` internally (see `_TRACK_TOUCHED_FILES_TOOLS` below) to mirror
 that guard's own former hooks.json matcher -- this dispatcher's OWN matcher
-(`''`, every PostToolUse event) is a strict superset, so no matcher
-widening was needed to absorb it.
+(`Write|Edit|MultiEdit|NotebookEdit|Agent`, narrowed 2026-08-16 from `''`
+-- see the RE-SCOPE note below) is still a strict superset of this tuple,
+so no matcher widening was needed to absorb it.
 
 Contract (mirrors the bash hook it replaces -- postuse-advisory-dispatch.sh):
   stdin   -- PostToolUse JSON (tool_name, tool_input, session_id, transcript_path,
@@ -43,8 +44,10 @@ docs/plans/2026-07-04-pcore-04-advisory-hook-ops-claude-klabauter-engine.md, Tas
 C7: "current input: tool_name, session_id | add to input: transcript_path,
 agent_id". coordinator_core/hooks/postuse_advisory_dispatch.py's handler reads
 session_id / transcript_path / agent_id / tool_name via _payload.field().
-Context-pressure and runtime-tripwire remain ungated and universal (fire on
-every PostToolUse event regardless of tool_name); the first-Agent-dispatch
+Context-pressure and runtime-tripwire remain ungated internally (they do not
+inspect tool_name) but, since the 2026-08-16 RE-SCOPE below, fire only on the
+narrowed matcher's tool set rather than literally every PostToolUse event;
+the first-Agent-dispatch
 sidecar advisory is the exception -- it gates on tool_name == "Agent" (plus
 its own once-per-session sentinel), so tool_name is read for that check, not
 merely carried for input-declaration parity):
@@ -90,6 +93,26 @@ preuse-write-dispatch.py._resolve_claude_klabauter_root (kept in lockstep delibe
 see W2-stub-contract.md).
 
 NOTE: cutover is complete -- hooks.json registers only this Python hook now.
+
+RE-SCOPE (2026-08-16, state/handoffs/2026-08-16-untitled-6c1eb4ae.md Next
+Steps 1, third bullet; state/audits/2026-08-16-doe-spawn-totality-kill-list.md
+K-01): hooks.json's matcher for this dispatcher was narrowed from `''`
+(every PostToolUse event -- the single largest broad-matcher offender the
+2026-08-16 spawn-totality audit found) to `Write|Edit|MultiEdit|NotebookEdit
+|Agent`. DIVERGENCE FROM THE HANDOFF'S LITERAL "move the advisory to Stop":
+two of the four folded checks read fields a Stop payload never carries --
+the first-Agent-dispatch sidecar advisory needs `tool_name == "Agent"` and
+the unauthorized-handoff nudge needs `tool_name == "Write"` plus
+`file_path`/`content` from the SAME PostToolUse fire. A Stop event has no
+`tool_name` at all, so relaying it there would silently and permanently
+disable both (their own internal gates would simply never match again) --
+not a narrower firing cadence, an outright feature loss with no compensating
+registration. Narrowing the matcher instead of moving the event keeps all
+four checks' exact existing behaviour (context-pressure and runtime-tripwire
+lose nothing but firing cadence, both being throttle/bark-once gated
+already) while still dropping this dispatcher off the "" broad-matcher list.
+`_TRACK_TOUCHED_FILES_TOOLS` (below) is unaffected -- it was already a
+strict subset of the OLD matcher and remains one of the NEW, narrower matcher.
 """
 
 from __future__ import annotations
@@ -142,10 +165,13 @@ except Exception:
 
 
 #: `track-touched-files.py`'s own former matcher, mirrored here as an
-#: internal gate (C4b) -- this dispatcher's own hooks.json matcher (`''`,
-#: every PostToolUse event) is wider, so folding the bookkeeping call in
-#: without this gate would issue a wasted IPC round-trip on every
-#: non-write PostToolUse event (Bash, Agent, ...).
+#: internal gate (C4b). RE-SCOPE (2026-08-16, state/handoffs/2026-08-16-
+#: untitled-6c1eb4ae.md): this dispatcher's own hooks.json matcher was
+#: narrowed from `''` (every PostToolUse event) to `Write|Edit|MultiEdit|
+#: NotebookEdit|Agent` -- a strict superset of this tuple still (Agent is
+#: the added tool the write itself never fires for), so this internal gate
+#: remains live and load-bearing: it is what keeps the wasted IPC
+#: round-trip out of every Agent-tool fire now reaching this script.
 _TRACK_TOUCHED_FILES_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 
 

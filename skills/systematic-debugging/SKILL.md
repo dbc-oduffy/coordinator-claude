@@ -11,6 +11,7 @@ triggers:
   - this test keeps failing
   - it works sometimes
 argument-hint: "<the symptom, or a path/error to start from>"
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # /systematic-debugging — Root-Cause Discipline for a Single Issue

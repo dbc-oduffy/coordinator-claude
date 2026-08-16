@@ -107,6 +107,34 @@ _GUARD_SELF_SKIP_BASENAMES = {
 }
 
 
+def _show_toplevel(bin_dir: str) -> str:
+    """Repo root for *bin_dir*, or "" if it is not inside a git worktree.
+
+    Prefers ``coordinator_core.git.repo_root.show_toplevel`` (chunk C5,
+    docs/plans/2026-08-16-a-process-per-predicate.md), which walks for a
+    `.git` entry and spawns only when the walk finds none. Falls back to the
+    original spawn if the engine is not importable — this runs on the commit
+    path, where a guard that raises is worse than a guard that pays 13ms.
+
+    The sibling `--show-prefix` call below is deliberately NOT routed through
+    the seam: `show_prefix()` spawns there too (see that seam's own
+    docstring), so converting it would trade one spawn for one spawn plus an
+    indirection.
+    """
+    try:
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel(bin_dir) or ""
+    except ImportError:
+        proc = subprocess.run(
+            ["git", "-C", bin_dir, "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def _candidate_paths(bin_dir: str, staged_only: bool) -> list[str]:
     if not staged_only:
         return sorted(
@@ -115,16 +143,10 @@ def _candidate_paths(bin_dir: str, staged_only: bool) -> list[str]:
             if os.path.isfile(os.path.join(bin_dir, name))
         )
 
-    toplevel = subprocess.run(
-        ["git", "-C", bin_dir, "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if toplevel.returncode != 0:
+    git_root = _show_toplevel(bin_dir)
+    if not git_root:
         print("check-bin-sh-polyglot.py: ERROR — not a git repo", file=sys.stderr)
         return []
-    git_root = toplevel.stdout.strip()
 
     prefix_proc = subprocess.run(
         ["git", "-C", bin_dir, "rev-parse", "--show-prefix"],

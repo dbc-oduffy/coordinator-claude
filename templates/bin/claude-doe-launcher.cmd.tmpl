@@ -1,115 +1,270 @@
 @echo off
 setlocal enabledelayedexpansion
+
+rem Capture this script's own directory BEFORE the argv loop below. `shift`
+rem shifts %0 along with the rest, so after even one shift `%~dp0` no longer
+rem resolves to this batch file -- it resolves against whatever argument slid
+rem into %0, yielding a nonexistent `<cwd>\claude-doe`. Every later reference
+rem to the co-located Python wrapper must go through CDL_DIR, never %~dp0.
+set "CDL_DIR=%~dp0"
+
+rem --- argv triage. Two DIFFERENT classes of claude-doe-own flag arrive here,
+rem and conflating them is the Windows console-corruption bug:
+rem
+rem   SELF-TERMINATING (--dry-run, --print-plugin-dir, --help, -h) -- the
+rem     claude-doe Python wrapper answers these itself (see its _USAGE text) and
+rem     exits; no interactive TUI is ever rendered. `claude` rejects them
+rem     outright ("error: unknown option '--dry-run'"), so the WHOLE invocation
+rem     is delegated straight to the co-located extensionless `claude-doe` under
+rem     python3 (resolved via the ambient Windows PATH; this launcher does no
+rem     PATH prepending). Handled BEFORE plugin-dir resolution below -- none of
+rem     these flags need it, matching claude-doe's own "--help must never
+rem     require external state" rule (module docstring, 2026-08-14 note).
+rem
+rem   --doe-root <path> / --doe-root=<path> -- NOT self-terminating. It is a
+rem     resolution INPUT to an otherwise ordinary interactive launch, and it is
+rem     the shape the PowerShell `claude` shim uses on EVERY launch. Delegating
+rem     it hands the interactive TUI to the wrapper, so claude.exe ends up under
+rem     python.exe (and, reached from pwsh, under this cmd.exe as well) -- which
+rem     corrupts the Windows console input mode: xterm focus-report sequences
+rem     (ESC[I / ESC[O, DECSET 1004) stop being consumed and leak into input as
+rem     literal `[I`/`[O`, keystrokes misroute, and the host shell's prompt is
+rem     left corrupted after exit. So --doe-root is consumed HERE and folded
+rem     into the non-interactive --print-plugin-dir resolution below; claude is
+rem     then launched natively, as a direct child of this shell.
+rem
+rem This is a token-level scan with no positional awareness: if `claude` ever
+rem grew a flag that takes one of these names as its OWN value in a separate
+rem token, this loop would false-classify on it. Accepted as safe today because
+rem `claude`'s flag surface takes no such value; if that ever changes, this
+rem needs a real positional argument-parsing model, not a bodge.
+rem
+rem PASSTHRU accumulates the STRIPPED `%~1` (via TOK) and re-quotes each element
+rem itself. It cannot forward `%1` verbatim -- see the `&` rationale at the
+rem accumulation itself -- and `%*` cannot be reused either, because batch never
+rem rewrites it after `shift`, so it would carry the consumed --doe-root pair
+rem straight into `claude`. Re-quoting is therefore unavoidable here, and it is
+rem why the trailing-backslash normalisation below exists.
+rem Known residuals, pre-existing and not introduced by the accumulation: under
+rem `enabledelayedexpansion` a literal `!` inside an argument is eaten, and an
+rem embedded `"` is lossy -- batch has no faithful way to round-trip either.
+rem Callers needing them should use the .ps1 leg, which round-trips both.
+set "INTERCEPT="
+set "DOEROOT="
+set "DOEROOTSEEN="
+set "PASSTHRU="
+:cdl_parse
+rem KNOWN RESIDUAL: a deliberately-empty argument ("" on the command line) ends
+rem this loop, so it and everything after it are dropped. The obvious repair --
+rem also testing the unstripped `%1`, which is non-empty for "" -- is worse: any
+rem `%1` reference is substituted during PARSING, so an argument containing `&`
+rem then splits the line and the launcher dies with "& was unexpected at this
+rem time". Both were measured against a compiled stub. `&` in an argument (a
+rem prompt like -p "a & b") is realistic; an intentionally-empty argument to
+rem `claude` is not, so the loop guards the realistic case. Callers needing an
+rem empty argument should use the .ps1 leg, which round-trips it.
+if "%~1"=="" goto :cdl_parsed
+set "TOK=%~1"
+if /i "!TOK!"=="--dry-run" set "INTERCEPT=1"
+if /i "!TOK!"=="--print-plugin-dir" set "INTERCEPT=1"
+if /i "!TOK!"=="--help" set "INTERCEPT=1"
+if /i "!TOK!"=="-h" set "INTERCEPT=1"
+if /i "!TOK!"=="--doe-root" (
+  rem Last --doe-root wins, matching the Python wrapper's own repeat semantics.
+  rem A trailing bare --doe-root leaves DOEROOT empty and is rejected below
+  rem rather than silently dropped.
+  set "DOEROOTSEEN=1"
+  set "DOEROOT=%~2"
+  shift
+) else if /i "!TOK:~0,11!"=="--doe-root=" (
+  set "DOEROOTSEEN=1"
+  set "DOEROOT=!TOK:~11!"
+) else (
+  rem Accumulate through !TOK!, never %1. `%1` is substituted during PARSING,
+  rem before cmd tokenizes command separators, so an argument containing `&`
+  rem splits the line no matter how it is quoted: `"amp&x"` becomes `amp` plus
+  rem an attempt to run `x` as a command. Neither the quoted form
+  rem (set "PASSTHRU=!PASSTHRU! %1") nor the unquoted one survives that; both
+  rem were measured against a stub and both lose `&`.
+  rem !TOK! is a DELAYED expansion -- substituted after the line is parsed --
+  rem so whatever it holds can never be seen as syntax. TOK itself was filled
+  rem by `set "TOK=%~1"` above, whose surrounding literal quotes protect the
+  rem parse at that point. The inner "" re-quotes each argument, which also
+  rem preserves a deliberately-empty argument.
+  rem The re-quoting is what makes :cdl_append_arg necessary -- see there.
+  call :cdl_append_arg
+)
+shift
+goto :cdl_parse
+:cdl_parsed
+
+if defined INTERCEPT (
+  rem Delegate the ORIGINAL argv verbatim -- %* is untouched by the shifts
+  rem above, so the wrapper sees any --doe-root too and reports against the
+  rem same root.
+  python3 "!CDL_DIR!claude-doe" %*
+  rem !ERRORLEVEL!, NOT %ERRORLEVEL%. This `exit /b` sits inside a parenthesized
+  rem block, and %ERRORLEVEL% is substituted when the whole block is PARSED --
+  rem before python3 has run -- so the plain form always reports the code the
+  rem shell carried on entry, i.e. success. Measured on the installed launcher:
+  rem a --print-plugin-dir against a bad root exited 0 here while the wrapper
+  rem itself exited 1. The delayed form reads the value after the child returns.
+  exit /b !ERRORLEVEL!
+)
+if defined DOEROOTSEEN if not defined DOEROOT (
+  rem The same failure the Python wrapper raises for a valueless --doe-root,
+  rem raised here because the wrapper never sees this argv on the interactive
+  rem path -- and it exits 2 to match, which is the wrapper's code for a usage
+  rem error. Exiting 1 here made the message identical and the code divergent.
+  echo claude-doe.cmd: --doe-root requires a path argument 1>&2
+  exit /b 2
+)
+
 rem ---------------------------------------------------------------------------
 rem claude-doe.cmd - first-class Windows launcher for the coordinator plugin.
 rem
 rem Generated by coordinator gen-claude-doe-launcher.py -- edit the template, not
 rem this rendered copy.
 rem   Template:   <DoE>/coordinator/templates/bin/claude-doe-launcher.cmd.tmpl
-rem   Regenerate: <DoE>/coordinator/bin/gen-claude-doe-launcher.py
+rem   Regenerate: <claude-klabauter>/coordinator/bin/gen-claude-doe-launcher.py
 rem
 rem Spec backlink: tasks/2026-07-14-install-dogfood-friction.md par F5 -- the
-rem canonical launch surface `claude-doe` is a POSIX bash script. Git-for-Windows'
-rem usr\bin (bash + the coreutils claude-doe needs: mktemp/grep/sha256sum) and
-rem %USERPROFILE%\bin (jq, used by gen-settings-hooks on every launch) are NOT on
-rem the Windows PATH, so `claude-doe` / `bash` / `jq` are not bare-invocable from
-rem cmd/PowerShell/Windows Terminal. This launcher discovers the Git-for-Windows
-rem install root at RUNTIME (no hardcoded path -- the hand-made stopgap this
-rem replaces hardcoded "C:\Program Files\Git" <!-- foreign-path-ok: names the removed stopgap, not a real machine path -->, which breaks on a non-default
-rem Git install location), prepends its shell bins to PATH, then execs the POSIX
-rem wrapper. cwd is preserved (non-login shell) so claude starts in the current
+rem canonical launch surface `claude-doe` is naked Python (ported 2026-07-22, no
+rem longer a POSIX bash script). This launcher resolves --plugin-dir by calling
+rem the co-located extensionless `claude-doe` DIRECTLY under python3 -- no
+rem Git-for-Windows bash hop. A prior revision shelled out to Git-for-Windows
+rem bash (`bash -c "claude-doe --print-plugin-dir"`) for this resolution and
+rem prepended its usr\bin/bin to PATH, on the theory that gen-settings-hooks
+rem needed jq (%USERPROFILE%\bin) on every launch and claude-doe needed bash
+rem coreutils. Both premises are now false: the per-launch gen-settings-hooks
+rem call was removed 2026-07-20 (see claude-doe's own header), and its
+rem replacement (coordinator_core/install/gen_settings_hooks.py) uses stdlib
+rem `json`, not jq, when it does run. claude-doe itself is naked Python with no
+rem bash/coreutils dependency. Git-for-Windows is therefore not required for an
+rem ordinary launch at all; this launcher no longer discovers or depends on it.
+rem cwd is preserved (non-login shell) so claude starts in the current
 rem directory.
-rem
-rem Git-for-Windows discovery order (first hit wins):
-rem   1. `where git` -- resolves whatever git.exe is actually on THIS machine's
-rem      PATH (handles custom install drives/locations, portable installs, etc).
-rem      git.exe normally lives at <GitRoot>\cmd\git.exe or <GitRoot>\bin\git.exe;
-rem      GitRoot is git.exe's grandparent directory in either shape.
-rem   2. Common install locations, checked in order: %ProgramFiles%\Git,
-rem      %ProgramFiles(x86)%\Git, %LocalAppData%\Programs\Git.
-rem   3. Fail loud with remediation (do NOT silently guess and launch a broken
-rem      bash -- see coordinator doctrine "detect-then-silently-pick is a
-rem      footgun").
 rem ---------------------------------------------------------------------------
 
-set "GITROOT="
-
-rem cmd.exe parses a parenthesized block by scanning for the matching ")" BEFORE
-rem expanding variables, so a literal ")" inside such a block terminates it early.
-rem "%ProgramFiles(x86)%" therefore cannot be referenced inside an if-block: the
-rem ")" in "(x86)" closes the block and cmd dies with
-rem   "%\Git was unexpected at this time."
-rem which breaks EVERY launch. Hoist it into a paren-free variable out here, and
-rem use that inside the blocks below. (Delayed expansion does not save you --
-rem the block-termination happens at parse time.)
-set "PF_X86=%ProgramFiles(x86)%"
-
-rem --- Discovery 1: where git (first match on PATH) ---
-rem Review: code-reviewer (Finding 1) -- a GITROOT hit here must be validated
-rem (bin\bash.exe present) before it's locked in, or an unvalidated hit
-rem forever blocks Discovery-2 (both gated on "if not defined GITROOT") --
-rem matching Resolve-GitRoot's Test-Path check in the .ps1 sibling.
-for /f "delims=" %%G in ('where git 2^>nul') do (
-  if not defined GITROOT (
-    set "GITEXE=%%G"
-    for %%P in ("!GITEXE!") do set "GITEXEDIR=%%~dpP"
-    rem GITEXEDIR is <GitRoot>\cmd\ or <GitRoot>\bin\ (trailing backslash) --
-    rem strip the trailing slash then go up one level to GitRoot.
-    for %%P in ("!GITEXEDIR:~0,-1!") do set "GITROOT=%%~dpP"
-    for %%P in ("!GITROOT:~0,-1!") do set "GITROOT=%%~fP"
-    if not exist "!GITROOT!\bin\bash.exe" set "GITROOT="
-  )
-)
-
-rem --- Discovery 2: common install locations ---
-if not defined GITROOT (
-  if exist "%ProgramFiles%\Git\bin\bash.exe" set "GITROOT=%ProgramFiles%\Git"
-)
-if not defined GITROOT (
-  if exist "%PF_X86%\Git\bin\bash.exe" set "GITROOT=%PF_X86%\Git"
-)
-if not defined GITROOT (
-  if exist "%LocalAppData%\Programs\Git\bin\bash.exe" set "GITROOT=%LocalAppData%\Programs\Git"
-)
-
-rem --- Discovery 3: fail loud ---
-if not defined GITROOT (
-  echo claude-doe.cmd: could not locate a Git-for-Windows install. 1>&2
-  rem Parens are escaped as ^( ^) -- an unescaped ")" would close this if-block.
-  echo   Checked: where git, %%ProgramFiles%%\Git, %%ProgramFiles^(x86^)%%\Git, %%LocalAppData%%\Programs\Git 1>&2
-  echo   Remediation: install Git for Windows ^(https://git-scm.com/download/win^), 1>&2
-  echo   or launch claude-doe from a Git Bash terminal instead. 1>&2
-  exit /b 1
-)
-
-if not exist "%GITROOT%\bin\bash.exe" (
-  echo claude-doe.cmd: Git-for-Windows bash not found at "%GITROOT%\bin\bash.exe" 1>&2
-  rem Parens escaped -- an unescaped ")" here closes the if-block early, which
-  rem silently promotes the following "exit /b 1" to an UNCONDITIONAL statement:
-  rem the launcher then exits 1 on every run even when bash.exe is present.
-  echo   ^(resolved Git root: %GITROOT%^) 1>&2
-  echo   Remediation: repair/reinstall Git for Windows, or launch claude-doe from a Git Bash terminal. 1>&2
-  exit /b 1
-)
-
-set "GITUSR=%GITROOT%\usr\bin"
-set "GITBIN=%GITROOT%\bin"
-rem %USERPROFILE%\bin carries jq (used by gen-settings-hooks on every launch);
-rem GITUSR carries bash + coreutils (mktemp/grep/sha256sum). The inherited
-rem Windows PATH already carries node, the python3 shim, machine-local, claude.
-set "PATH=%GITUSR%;%GITBIN%;%USERPROFILE%\bin;%PATH%"
-
-rem Resolve the coordinator --plugin-dir via the POSIX wrapper (non-interactive,
-rem side-effect free), then launch claude NATIVELY. Running the interactive claude
-rem TUI *through* bash -c corrupts the Windows console input mode -- control keys
-rem such as Enter (Ctrl+M) and Ctrl+C arrive stripped to plain letters -- so bash
-rem is used ONLY to resolve the path; the interactive process must get a real
-rem Windows console.
+rem Resolve the coordinator --plugin-dir via the co-located Python wrapper
+rem (non-interactive, side-effect free), then launch claude NATIVELY. Running
+rem the interactive claude TUI *through* bash -c corrupts the Windows console
+rem input mode -- control keys such as Enter (Ctrl+M) and Ctrl+C arrive
+rem stripped to plain letters -- so python3 resolves the path only; the
+rem interactive process must get a real Windows console either way.
+rem `for /f` in a backtick form DISCARDS the child's exit code: %ERRORLEVEL% after
+rem the loop reflects the loop, not the command, and reads 0 even when the child
+rem died 127. Verified empirically, not assumed -- a probe with a child that exits
+rem 127 reports PPD_RC=0 through the backtick form and PPD_RC=127 through the
+rem redirect form below. That discarded code is the whole bug this block fixes, so
+rem the capture must not go back through `for /f`.
+rem Redirect stdout to a file instead: plain redirection DOES set %ERRORLEVEL%
+rem from the child. Only stdout is redirected -- the child's STDERR, the sole
+rem actionable diagnostic on failure, stays inherited to this console and is never
+rem re-printed or replaced.
+rem %RANDOM%%RANDOM% has a small non-zero collision chance under concurrent
+rem launches, and %TEMP% is assumed defined+writable rather than pre-checked --
+rem both accepted as out-of-scope for an ordinary Windows install (TEMP is
+rem essentially always set and writable there) rather than hardened, since doing
+rem so would mean either shelling out for a PID/GUID or reintroducing a
+rem Git-for-Windows/coreutils `mktemp` dependency this launcher deliberately
+rem dropped (see the header rationale above). A failure here surfaces via
+rem :ppd_child_failed with a generic diagnostic, not a temp-specific one.
+set "PPD_OUT=%TEMP%\claude-doe-plugindir-%RANDOM%%RANDOM%.txt"
+rem Fold a consumed --doe-root into the resolution call so the plugin dir is
+rem resolved against the root the caller named, not the ambient rungs.
+set "PPD_ROOTARG="
+if defined DOEROOT set "PPD_ROOTARG=--doe-root "!DOEROOT!""
+python3 "!CDL_DIR!claude-doe" !PPD_ROOTARG! --print-plugin-dir > "%PPD_OUT%"
+set "PPD_RC=%ERRORLEVEL%"
 set "PLUGINDIR="
-for /f "usebackq delims=" %%D in (`bash -c "claude-doe --print-plugin-dir"`) do set "PLUGINDIR=%%D"
-if not defined PLUGINDIR (
-  echo claude-doe.cmd: failed to resolve coordinator plugin dir ^(claude-doe --print-plugin-dir returned nothing^) 1>&2
-  exit /b 1
-)
-call claude --plugin-dir "%PLUGINDIR%" %*
+rem First line wins, matching the .ps1 leg's `Select-Object -First 1` -- without
+rem the `if not defined` guard, this loop re-assigns PLUGINDIR on every line, so a
+rem multi-line child would silently make the LAST line win instead, diverging from
+rem the PowerShell leg's explicit first-line semantics.
+for /f "usebackq delims=" %%D in ("%PPD_OUT%") do if not defined PLUGINDIR set "PLUGINDIR=%%D"
+rem Reading the captured file cannot fail the launch; erase before branching so
+rem every rung below leaves no temp file behind.
+erase /q "%PPD_OUT%" 2>nul
+if not "%PPD_RC%"=="0" goto :ppd_child_failed
+if not defined PLUGINDIR goto :ppd_empty_result
+goto :ppd_resolved
+
+:ppd_child_failed
+rem Non-zero exit: the child already explained itself on stderr above --
+rem propagate its code rather than overwrite that message with "returned nothing".
+exit /b %PPD_RC%
+
+:ppd_empty_result
+rem Exit 0 with empty stdout is the genuinely-empty case -- this generic text
+rem is only correct here.
+echo claude-doe.cmd: failed to resolve coordinator plugin dir ^(claude-doe --print-plugin-dir returned nothing^) 1>&2
+exit /b 1
+
+:ppd_resolved
+rem !PASSTHRU!, not %*: the consumed --doe-root pair must not reach `claude`,
+rem which would reject it as an unknown option. PASSTHRU already carries a
+rem leading space per element.
+rem NO `call` here. `call` performs an extra parse pass over the line, which
+rem DOUBLES every `^` in an argument: a stub receiving "car^x" sees "car^x"
+rem invoked directly and "car^^x" invoked through `call`, with the accumulation
+rem held constant. Measured both ways. `claude` is an executable, so the exit
+rem code still lands in %ERRORLEVEL% below; if it ever resolved to a batch file
+rem instead, control would not return here and that batch's own exit code would
+rem become this script's, which is the same value either way.
+rem Open the harness cross-session-messaging gate for the child -- same
+rem rationale as the .ps1 launcher's block, which is the primary surface; see
+rem there for the full trace. Short version: this launcher calls the Python
+rem wrapper only with --print-plugin-dir, which returns above the wrapper's
+rem own os.environ.setdefault and exits, so the gate arrives nowhere and the
+rem session binds no messaging inbox.
+rem
+rem `setlocal` at the top of this script scopes the assignment to this process,
+rem so it reaches `claude` below and is torn down on exit -- no restore needed
+rem here (unlike the .ps1, which runs inside the operator's own shell).
+rem
+rem The opt-out is the EMPTY STRING, never "0": "0" is a non-empty string and
+rem therefore truthy to the harness's plain-JS predicate, so =0 opens the gate
+rem while looking like it shuts it.
+rem
+rem Known limitation of THIS degraded fallback: cmd.exe drops an inherited
+rem empty-valued variable from its environment entirely (measured -- `if
+rem defined` reads NOT-DEFINED for a var a pwsh parent set to ''), so the
+rem empty-string opt-out cannot survive into or out of a cmd.exe hop and this
+rem branch cannot distinguish it from absent. Operators who need the opt-out
+rem must be on the .ps1 launcher, which honours it; that is also the
+rem console-integrity-correct surface on Windows.
+if not defined CLAUDE_CODE_HARBOR_KITE set "CLAUDE_CODE_HARBOR_KITE=1"
+claude --plugin-dir "%PLUGINDIR%"!PASSTHRU!
 exit /b %ERRORLEVEL%
+
+:cdl_append_arg
+rem Append one re-quoted argument to PASSTHRU, doubling any TRAILING run of
+rem backslashes first.
+rem
+rem WHY: this launcher re-quotes every argument as "<value>", and the receiving
+rem process splits with CommandLineToArgvW, whose rule is that a run of N
+rem backslashes IMMEDIATELY BEFORE a quote is halved and the quote is treated as
+rem an escape. So `C:\repo\` re-quoted as "C:\repo\" arrives as `C:\repo"` with
+rem the closing quote consumed -- and that argument then swallows every argument
+rem after it. Measured against a compiled PE stub:
+rem   --add-dir C:\repo\ --model opus
+rem     forwarded as %*       -> [--add-dir] [C:\repo\] [--model] [opus]
+rem     re-quoted, undoubled  -> [--add-dir] [C:\repo" --model opus]
+rem Silent, no error, and specific to re-quoting -- plain `%*` forwarding never
+rem had it. cmd and PowerShell tab-completion both append a trailing backslash to
+rem a directory argument, so this is ordinary input, not a pathological case.
+rem Doubling the run restores it: N backslashes become 2N, halve back to N, and
+rem the quote closes the argument as intended. ONLY a trailing run matters --
+rem interior backslashes are literal to CommandLineToArgvW and must not be
+rem touched, which is why this counts from the end rather than escaping wholesale.
+set "_cdl_bs="
+set "_cdl_t=!TOK!"
+:cdl_bscount
+if "!_cdl_t:~-1!"=="\" (
+  set "_cdl_bs=!_cdl_bs!\"
+  set "_cdl_t=!_cdl_t:~0,-1!"
+  goto :cdl_bscount
+)
+set "PASSTHRU=!PASSTHRU! "!TOK!!_cdl_bs!""
+exit /b 0

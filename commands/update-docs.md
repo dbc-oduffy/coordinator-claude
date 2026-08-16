@@ -53,6 +53,7 @@ printed no-op message verbatim, stop. Exit 1: continue.
 | 11h2 (EM) | `verify-coverage --sweep-root "$(pwd)"`. **Non-zero HALTS `/update-docs`** — retarget, add a rationale to `REF_ALLOWLIST` in the engine repo's `verify_coverage.py`, or create the artifact. |
 | 11i (EM) | `update-docs-probes queue-prune-sweep`. Pruned: fold into the commit, report the count. |
 | 11j (EM) | `reap-stale-subagent-sidecars` — reaps on session liveness AND an age floor AND a status carve-out, never `status:` alone. Reaped: `git rm` into the commit, report the count. |
+| 11k (EM) | Follow `pipelines/update-docs/claudemeta-manifest-cadence.md`. DoE-specific, no-op elsewhere. |
 | 13 (EM) | Skip on `--no-distill`. `update-docs-probes distill-threshold` (fires ≥50 artifacts, OR >14 days stale, OR no log + ≥20). Exit 1: announce to PM, chain `/distill` via Skill tool. |
 | 14 (EM) | Report, below. |
 | 15 (EM, `~/.claude` only) | Elsewhere: "Phase 15: skipped — not running from ~/.claude." Else follow `pipelines/update-docs/cross-repo-registry-refresh.md`. |
@@ -82,6 +83,7 @@ Append a line only if its condition holds:
 | `**Frontmatter Schema Drift:**` | N ≥ 1 violations, or the sweep errored — omit at 0 |
 | `**Distillation:**` | threshold fired and `/distill` was chained — omit when "not needed" |
 | `**Cross-Repo Registry:**` | unreachable candidate(s), or skipped (cwd-gated out) — omit when clean |
+| `**claudemeta Manifest:**` | regenerated on drift — omit when `--check` was clean or the generator is absent |
 
 Every other phase's count/file-list is never its own line — the commit already carries it, and
 its absence is not evidence the phase was skipped. Do not re-add "for completeness" (why: wiki).

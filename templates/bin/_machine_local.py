@@ -859,14 +859,13 @@ def _build_resolution_layers(reg_dir: str, _registry_local_data: dict | None = N
     Returns layers in priority order (index 0 = highest priority).
 
     `_registry_local_data`, if given, is an already-parsed registry.local.toml
-    dict, reused instead of re-parsing the file from disk. Review: code-reviewer
-    (Finding 4) — cmd_get's repos.* key-miss path already parses
-    registry.local.toml once for the explicit-empty-string sentinel check;
-    this lets it pass that parse in rather than re-reading + re-parsing the
-    same file a second time when building layers for the miss hint. Warnings
-    (_warn_schema, concern-namespace exclusivity) still fire only at the same
-    call site as before — this only avoids the redundant disk read/parse, it
-    does not change when or whether any warning is emitted.
+    dict, reused instead of re-parsing the file from disk. No current call site
+    passes it — cmd_get now avoids the double-parse this parameter was meant
+    for by building the layers once, up front, and passing them into
+    resolve_one directly (see cmd_get), rather than by pre-parsing just
+    registry.local.toml and threading it through here. The parameter is kept
+    as a general escape hatch for a future caller that legitimately has a
+    pre-parsed registry.local.toml dict on hand and nothing else.
     """
     reg_path = os.path.join(reg_dir, "registry.toml")
     reg_local_path = os.path.join(reg_dir, "registry.local.toml")
@@ -1062,21 +1061,28 @@ def _print_key_miss(key: str, candidates: list[str]) -> None:
         print(f"  did you mean one of: {joined}?", file=sys.stderr)
 
 
-def cmd_get(args: argparse.Namespace) -> int:
-    """Implement: machine-local get <key> [--default <v>]
+def resolve_one(key: str, layers: list[dict] | None = None) -> tuple[int, str | None]:
+    """Resolve ONE key to (rc, value) without printing — the single read-path kernel.
 
-    Operational failures (version guard, malformed TOML) exit 2 via sys.exit(EXIT_OPERATIONAL)
-    inside _load_toml / the version guard at module top, BEFORE reaching this return.
-    So a `return EXIT_NOT_FOUND` here is always a clean absence — never a broken reader.
+    Returns an rc from the §4.1 tri-state (0 found / 1 cleanly absent / 2 operational
+    failure) plus the resolved value on rc=0, or the operator-facing failure message
+    on rc=2.  `--default` handling and all stdout/stderr emission stay with the
+    callers, so this stays usable from both the CLI verbs and in-process consumers.
 
-    repos.<slug> keys are routed through resolve_sibling_repo (the 4-rung ladder)
-    before the generic resolution stack.  This prevents the generic stack from
-    returning the empty-string sentinel carried by registry.toml (`repos.x = ""`)
-    as a hit, which would silently report rc=0 with an empty path for any slug not
-    yet configured on this machine (the bug this routing avoids).
+    `layers` is an optional pre-built resolution stack (see _build_resolution_layers).
+    Pass it when resolving many keys in one process — cmd_dump does — so the TOML
+    layers are parsed once rather than once per key.  It is only consulted on the
+    generic (non-`repos.<slug>`) path; the repos ladder reads its own rungs by
+    contract and must not be short-circuited through the generic stack (see
+    resolve_sibling_repo's negative-spec).
+
+    Negative-spec: this function is the ONLY place the routing decision between the
+    repos 4-rung ladder and the generic resolution stack is made.  cmd_get and
+    cmd_dump both call it precisely so a batch read cannot answer differently from
+    a single read — a second reader that re-derived the routing would drift, and the
+    drift would be silent (a repos.* sentinel resolving as a hit in one verb but not
+    the other).
     """
-    key = args.key
-
     # Route repos.<slug> keys through the 4-rung sibling-repo resolver.
     # Only exact two-segment repos.* keys (repos.<single-slug>) are routed here;
     # deeper keys like repos.something.sub fall through to generic resolution.
@@ -1089,8 +1095,7 @@ def cmd_get(args: argparse.Namespace) -> int:
             # AmbiguousRepoMatch = detect-then-silently-pick footgun (misconfig).
             # EnvironmentError   = REPO_<SLUG> set but path absent (misconfig).
             # Both are EXIT_OPERATIONAL: the reader could not produce a clean answer.
-            print(f"machine-local: {exc}", file=sys.stderr)
-            return EXIT_OPERATIONAL
+            return EXIT_OPERATIONAL, f"machine-local: {exc}"
 
         if resolved is not None:
             # Emit forward-slash (POSIX) form for repos.* paths, unconditionally.
@@ -1107,8 +1112,7 @@ def cmd_get(args: argparse.Namespace) -> int:
             # ('/x/...' -> native drive form), which as_posix() leaves untouched
             # and which a native-Windows consumer would resolve as drive-relative
             # (doubled drive-letter directory).
-            print(_to_native_drive_path(resolved.as_posix()))
-            return EXIT_OK
+            return EXIT_OK, _to_native_drive_path(resolved.as_posix())
 
         # resolve_sibling_repo returns None for both "absent key" and "key explicitly
         # set to empty string" (rung 4 maps empty→None to prevent registry.toml
@@ -1117,45 +1121,141 @@ def cmd_get(args: argparse.Namespace) -> int:
         # as ""), the user explicitly stored it and it must round-trip with rc=0.
         # Only registry.local.toml is checked here — NOT registry.toml, which carries
         # repos.* = "" sentinels for undiscovered slugs.
-        reg_dir = _registry_dir()
-        reg_local_path = os.path.join(reg_dir, "registry.local.toml")
+        reg_local_path = os.path.join(_registry_dir(), "registry.local.toml")
         reg_local_data = _load_toml(reg_local_path)
         if reg_local_data:
             flat_local = _flatten_nested(reg_local_data)
             if key in flat_local:
-                print(str(flat_local[key]))
-                return EXIT_OK
+                return EXIT_OK, str(flat_local[key])
 
-        if args.default is not None:
-            print(args.default)
-            return EXIT_OK
+        return EXIT_NOT_FOUND, None
 
-        _print_key_miss(key, _all_keys(_build_resolution_layers(reg_dir, reg_local_data)))
-        return EXIT_NOT_FOUND
-
-    # Generic resolution for non-repos keys (unchanged).
-    reg_dir = _registry_dir()
-    layers = _build_resolution_layers(reg_dir)
+    # Generic resolution for non-repos keys.
+    if layers is None:
+        layers = _build_resolution_layers(_registry_dir())
 
     # Walk resolution order: concern.local → concern → registry.local → registry
     val = _resolve_key(key, layers)
 
     # Env override is BELOW all .toml layers (the Director of Engineering F1 / plan §4.3).
     if val is None:
-        env_val = os.environ.get(_env_key(key))
-        if env_val is not None:
-            val = env_val
+        val = os.environ.get(_env_key(key))
 
     if val is not None:
+        return EXIT_OK, val
+    return EXIT_NOT_FOUND, None
+
+
+def cmd_get(args: argparse.Namespace) -> int:
+    """Implement: machine-local get <key> [--default <v>]
+
+    Operational failures (version guard, malformed TOML) exit 2 via sys.exit(EXIT_OPERATIONAL)
+    inside _load_toml / the version guard at module top, BEFORE reaching this return.
+    So a `return EXIT_NOT_FOUND` here is always a clean absence — never a broken reader.
+
+    repos.<slug> keys are routed through resolve_sibling_repo (the 4-rung ladder)
+    before the generic resolution stack.  That routing, and the resolution itself,
+    live in resolve_one — shared with cmd_dump so single and batch reads cannot
+    diverge.
+    """
+    key = args.key
+    reg_dir = _registry_dir()
+
+    # repos.<slug> keys route through the 4-rung sibling ladder inside resolve_one
+    # and never touch the generic layers -- pre-building here would add a TOML
+    # parse to the single hottest call in the CLI for no benefit. Every other key
+    # builds the layers once, up front, and reuses them for both the resolve and
+    # (on miss) the hint -- avoiding the double-parse this fix addresses.
+    key_parts = key.split(".")
+    is_repos_key = len(key_parts) == 2 and key_parts[0] == "repos"
+    layers = None if is_repos_key else _build_resolution_layers(reg_dir)
+
+    rc, val = resolve_one(key, layers=layers)
+
+    if rc == EXIT_OPERATIONAL:
+        print(val, file=sys.stderr)
+        return EXIT_OPERATIONAL
+
+    if rc == EXIT_OK:
         print(val)
-        return 0
+        return EXIT_OK
 
     if args.default is not None:
         print(args.default)
-        return 0
+        return EXIT_OK
 
+    if layers is None:
+        layers = _build_resolution_layers(reg_dir)
     _print_key_miss(key, _all_keys(layers))
     return EXIT_NOT_FOUND
+
+
+def cmd_dump(args: argparse.Namespace) -> int:
+    """Implement: machine-local dump [--prefix <p>] — resolve EVERY key in one process.
+
+    Emits a single JSON object of key → resolved value on stdout.  Exists because the
+    enumerate-then-read pattern (`machine-local keys`, then one `machine-local get`
+    per key) costs 1+N processes for what is one file read: on Windows that measured
+    ~40 processes and tens of seconds for a whole-registry read, several times a day,
+    on a machine already saturated by concurrent sessions.  `dump` is the batch read
+    that pattern should have been.
+
+    Values are resolved through resolve_one — the same kernel `get` uses — so a
+    dumped value is byte-identical to what `get` would print for that key, repos
+    4-rung ladder and env-override layer included.
+
+    Keys that are cleanly absent (rc=1: unset, or a tracked-baseline `repos.x = ""`
+    sentinel that `get` correctly reports not-found) are OMITTED from the object.
+    Membership therefore means exactly "`get` would succeed" — a consumer never has
+    to re-check a key it found here.
+
+    `--include-unset` emits those absent keys as JSON `null` instead of omitting
+    them, so DECLARED-but-unresolvable stays distinguishable from UNREGISTERED in
+    ONE process. Without it, a consumer needing that distinction reads `keys`
+    alongside `dump` and pays the second process this verb exists to remove. It is
+    a flag rather than a change of default because the omitting contract is the
+    right one for the common case. `null` is deliberate over `""`: empty-string is
+    itself a stored value here (the `repos.x = ""` sentinel), so reusing it would
+    make the two states indistinguishable again inside the payload.
+
+    A per-key operational failure (rc=2: an ambiguous autodiscovery match, a
+    REPO_<SLUG> pointing at a missing path) does NOT abort the dump: every other key
+    still resolves and the object is still emitted, the failing key is named on
+    stderr, and the exit code is EXIT_OPERATIONAL so a caller checking rc learns the
+    batch was not fully answerable. Stdout stays pipe-clean JSON on every path.
+    """
+    reg_dir = _registry_dir()
+    layers = _build_resolution_layers(reg_dir)
+    all_keys = _all_keys(layers)
+
+    prefix = args.prefix
+    if prefix:
+        all_keys = [k for k in all_keys if k == prefix or k.startswith(f"{prefix}.")]
+
+    values: dict[str, str | None] = {}
+    failures: list[str] = []
+    for k in all_keys:
+        rc, val = resolve_one(k, layers)
+        if rc == EXIT_OK and val is not None:
+            values[k] = val
+        elif rc == EXIT_OPERATIONAL:
+            failures.append(f"  {k}: {val}")
+        elif args.include_unset:
+            values[k] = None
+
+    print(json.dumps(values, indent=2, sort_keys=True))
+
+    if failures:
+        print(
+            "machine-local dump: {} key(s) could not be resolved (values above are "
+            "complete for every other key):".format(len(failures)),
+            file=sys.stderr,
+        )
+        for line in failures:
+            print(line, file=sys.stderr)
+        return EXIT_OPERATIONAL
+
+    return EXIT_OK
 
 
 def cmd_has(args: argparse.Namespace) -> int:
@@ -3087,6 +3187,28 @@ def main() -> int:
         help="Only list keys equal to, or nested under (dotted), PREFIX (e.g. repos)",
     )
 
+    # dump
+    dump_p = subparsers.add_parser(
+        "dump",
+        help=(
+            "Resolve EVERY key in ONE process and print a JSON object of key → value. "
+            "The batch read: use instead of `keys` followed by one `get` per key, which "
+            "costs 1+N processes for one file read."
+        ),
+    )
+    dump_p.add_argument(
+        "--prefix", metavar="PREFIX", default=None,
+        help="Only dump keys equal to, or nested under (dotted), PREFIX (e.g. repos)",
+    )
+    dump_p.add_argument(
+        "--include-unset", action="store_true",
+        help=(
+            "Also emit declared-but-unresolvable keys, as JSON null. Keeps "
+            "DECLARED-but-unset distinguishable from UNREGISTERED without a second "
+            "`keys` process."
+        ),
+    )
+
     # path
     subparsers.add_parser("path", help="Print absolute path to active registry.toml")
 
@@ -3210,6 +3332,7 @@ def main() -> int:
         "get": cmd_get,
         "has": cmd_has,
         "keys": cmd_keys,
+        "dump": cmd_dump,
         "path": cmd_path,
         "dir": cmd_dir,
         "set": cmd_set,

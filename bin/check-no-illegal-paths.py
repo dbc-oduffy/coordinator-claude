@@ -66,31 +66,26 @@ def _git(repo_root: str, *args: str) -> str:
 
 
 def _resolve_repo_root(explicit: str | None) -> str:
+    from cc_invoke import ensure_engine_on_path  # noqa: E402  (sys.path-dependent)
+
+    ensure_engine_on_path(__file__)
+    from coordinator_core.git.repo_root import show_toplevel
+
     if explicit:
-        proc = subprocess.run(
-            ["git", "-C", explicit, "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode != 0:
+        root = show_toplevel(explicit)
+        if not root:
             print(
                 'check-no-illegal-paths: "%s" is not inside a git repo' % explicit,
                 file=sys.stderr,
             )
             sys.exit(2)
-        return proc.stdout.strip()
+        return root
 
-    proc = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
+    root = show_toplevel()
+    if not root:
         print("check-no-illegal-paths: not inside a git repo", file=sys.stderr)
         sys.exit(2)
-    return proc.stdout.strip()
+    return root
 
 
 def main(argv: list[str]) -> int:

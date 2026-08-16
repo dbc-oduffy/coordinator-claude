@@ -13,13 +13,23 @@ How to receive and apply reviewer findings correctly — the failure modes that 
 
 ## The integrator is a second checker, not a cheaper typist — so dispatching it is mandatory
 
-**Why this is the foundational rule:** the recurring violation is an EM reading a review, opening the cited files, and hand-authoring the changes the reviewer stated — skipping the integrator because the findings look small or obvious. This is forbidden regardless of finding size.
+The integrator's value is not that it is cheaper than an EM's headspace. It is **a fresh agent that re-checks each finding against HEAD before applying it.** A review is a snapshot; by the time it lands a finding may be wrong, stale (a concurrent executor moved the schema), or mis-scoped (§ Re-verify reviewer premises). The EM who types the change instead applies the reviewer's claim at face value, and any defect in it lands silently.
 
-The review-integrator's primary value is *not* that it costs a fraction of an EM's headspace (though it does). Its primary value is that it is **a fresh agent that independently re-checks each finding against the current state of disk before applying it.** A review is a snapshot; by the time it lands, a finding may be wrong, stale (a concurrent executor moved the schema), or mis-scoped (the rename collides with a constraint that landed after the review — see § Re-verify reviewer premises and the post-review schema-pinning worked variant). The integrator catches these because it reads HEAD, not the reviewer's frame. When the EM types the changes directly, that second independent check never happens — the EM applies the reviewer's claim at face value, and any defect in the finding lands silently in the artifact.
+So the cost framing misleads — "one line, dispatching an agent is wasteful" discards exactly the verification the dispatch exists to provide. **Finding size is not a license to self-author**; the smaller a finding looks, the cheaper the pass and the easier the skip.
 
-So the cost framing actively *misleads*: an EM who believes the integrator is just a token-saver will rationalize "this finding is one line, dispatching a whole agent is wasteful — I'll just type it" and in doing so discards exactly the verification the dispatch exists to provide. **Finding size is not a license to self-author.** The smaller and more obvious a finding looks, the cheaper the integrator pass is — and the easier it is to skip the check that occasionally catches the obvious-looking finding that was actually stale.
+Mechanics: dispatch `coordinator:review-integrator` (mode `auto`), read the returned escalation list, spot-check the diff. The EM routes and verifies, never authors. → `coordinator/snippets/em-operating-doctrine.md` § How to Decide.
 
-Mechanics of the mandatory pass: EM dispatches `coordinator:review-integrator` (mode `auto`), reviews the returned escalation list, spot-checks the diff. Tradeoff-free fixes the integrator folds silently; real tradeoffs it escalates as ASK for the EM to carry to the PM (§ Apply tradeoff-free fixes silently). The EM's job is to *route and verify*, never to *author*. → `coordinator/snippets/em-operating-doctrine.md` § How to Decide ("Acting on review findings means dispatching the review-integrator … never hand-authoring").
+### A reviewer's own disposition is a recommendation, not a closure
+
+The sibling failure is skipping the dispatch entirely: a slice returns `verdict: OK` with findings the reviewer already self-dispositioned — *"informational, no fix needed"* — and the EM reads that as closure. **Every finding folds, nits included; the sole exemption is believing the finding is wrong, said out loud and defended.** An `OK` slice with findings is still a slice with findings.
+
+`verified-no-action` is the legitimate bucket for this outcome, but it is reachable **only through an integrator that independently re-read the target**. Its definition presumes a dispatch already happened, so it cannot bind an EM who never dispatches.
+
+**Worse than hand-authoring, because it is invisible.** Hand-authoring leaves a diff. A skipped integrator leaves no sidecar disposition block, no `/distill` Phase-2.5 exclusion, no artifact — the slice simply looks clean. Every other corner-cut here leaves a trace; this one needs a named tell instead.
+
+**Tells.** *"nothing to apply"*, *"no integrator warranted for this slice"*, *"the reviewer already dispositioned it."* Same family as `skills/pickup/SKILL.md`'s stealth-skip tells. Reported upward as a considered choice it reads as rigour, which is the defer/hedge reflex wearing rigour's clothes. Tripwire: `REVIEWER-SELF-DISPOSITION-IS-NOT-CLOSURE`.
+
+Named from a live five-slice review, reported by `claude-klabauter-em`, where the skip produced the right answer by luck — the re-dispatched integrator returned `verified-no-action` with cited evidence, matching the EM's guess. A skipped step that happens to be right is the case doctrine must catch; the wrong-answer case reports itself.
 
 ## Integrator unavailable — the named exit
 

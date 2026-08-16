@@ -10,19 +10,21 @@ Guided install — agent runs mechanism, operator decides shape. Re-run anytime;
 
 If `/coordinator:install` already resolves, skip to Step Zero. COLD machine (nothing wired): run `python3 coordinator/scripts/install-maximalist.py` instead — do not hand-transcribe this doc's fences there (wiki). Reverses via `coordinator/commands/uninstall.md`.
 
-Every `${...}`-forwarder fence below resolves `$COORDINATOR_PYTHON`/`$REPO_CLAUDE_KLABAUTER`/`$CLAUDE_KLABAUTER_ROOT`/`$COORDINATOR_SETTINGS_HOME` the same way; not restated per step.
+Every `${...}`-forwarder fence below resolves `$COORDINATOR_PYTHON`/`$REPO_CLAUDE_KLABAUTER`/`$CLAUDE_KLABAUTER_ROOT`/`$COORDINATOR_SETTINGS_HOME` the same way; not restated per step. All unset: resolve the registry first, `export REPO_CLAUDE_KLABAUTER="$(machine-local get repos.claude_klabauter)"`, before running any fence below.
+
+**Windows.** Bare `${...}` forwarder names are not invocable from PowerShell/cmd — resolution fails silently, no output and no error. Append `.cmd` to every settings-home forwarder call.
 
 ## Step Zero — preflight and env-normalization
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/setup.py" --preflight
+"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/chain-walk.py" --preflight
 ```
 
-Needs `repos.claude_klabauter` registered first (`machine-local set repos.claude_klabauter <path>`). `python` probe hard-fails the install; `clone_auth` blocks unless `--accept-no-git-auth` or resolved interactively (`gh auth login`); rest advisory. `--non-interactive` + no auth + no `--accept-no-git-auth`: fail-loud. `--check-only`: report only. Full probe table and PowerShell-5.1-fallback note: wiki.
+`scripts/setup.py` is a deprecated shim forwarding to this file — call `chain-walk.py` directly. Needs `repos.claude_klabauter` registered first (`machine-local set repos.claude_klabauter <path>`). `python` probe hard-fails the install; `clone_auth` blocks unless `--accept-no-git-auth` or resolved interactively (`gh auth login`); rest advisory. `--non-interactive` + no auth + no `--accept-no-git-auth`: fail-loud. `--check-only`: report only. Full probe table and PowerShell-5.1-fallback note: wiki.
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/normalize-env" --dry-run
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/normalize-env" --yes
+"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/normalize-env.py" --dry-run
+"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/normalize-env.py" --yes
 ```
 
 Preview, then apply — consent-gated per mutation. `--check-only`: no mutating flag.
@@ -90,7 +92,7 @@ Git-LFS: if the binary is present, `git lfs install`; else advisory per-platform
 
 **scc** (optional), **jq** (`command -v jq` — required for JSON output, else text fallback), **pwsh 7+**/**Windows Terminal** (offer install per-platform if absent, interactive only; commands: wiki) — presence checks only, no branch beyond offer-or-skip.
 
-**NotebookLM (Pipeline D).** Check `grep -l "notebooklm-mcp"` in `~/.claude/settings.json` / `.mcp.json`. Not registered, interactive, `uv` present: offer to walk:
+**NotebookLM (Pipeline D).** Check `grep -l "notebooklm-mcp"` in `~/.claude/settings.json` / `~/.claude.json` / `.mcp.json`. Not registered, interactive, `uv` present: offer to walk:
 
 ```bash
 uv tool install notebooklm-mcp-cli
@@ -129,7 +131,7 @@ git rev-parse --show-toplevel 2>/dev/null
 "${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/bin/coordinator-resolve-validation-cmd.py" --read-key "${_EM_CONTEXT_REPO_ROOT:-$PWD}" engagement_posture
 ```
 
-Differs from the identity-file value: fail-loud, don't write the overlay.
+Differs from the identity-file value: fail-loud, don't write the overlay. Empty output (repo has no posture set): not a difference — proceed, treat as absent.
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/write-identity-file" --claude-home "${CLAUDE_HOME:-$HOME}/.claude" --operator-name "${OPERATOR_NAME}" --engagement-posture "${ENGAGEMENT_POSTURE}"
@@ -169,7 +171,7 @@ Only-if-absent, tier-gated to what discovery qualified.
 
 ## Phase 3 — Machine-local registry substrate
 
-Idempotent throughout; skip mutations under `--check-only`; never overwrite an existing `registry.toml`/`registry.local.toml`.
+Idempotent throughout; skip mutations under `--check-only`; never overwrite an existing `registry.toml`/`registry.local.toml`. `install-substrate.py`, `register-coordinator-mirror.py`, and `check-install-singularity.py` below derive their plugin root from their own on-disk location — since they live in the engine repo, that resolution is wrong; set `CLAUDE_PLUGIN_ROOT` explicitly (the harness-provided value from line 116's `render-template` fence) before calling any of the three.
 
 ```bash
 "${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/install-substrate.py"
@@ -214,6 +216,14 @@ Windows-only, additionally (skip on macOS/Linux):
 
 Second call is a graceful no-op if the engine repo isn't checked out.
 
+**Windows dogfood shape — verify the launch shape after rendering, not before.** The launchers and
+the `claude` shim are only correct if the interactive `claude.exe` ends up a DIRECT child of the
+invoking shell; an interposed `cmd.exe`/`python.exe` corrupts the console input mode and the only
+mitigation is disabling the shim, which strips the plugin from every session. Run
+`python -m pytest coordinator/tests/test_dogfood_launch_shape.py` from the DoE clone — it reads the
+rendered artifacts these two calls just wrote and walks the real Win32 process tree to prove
+parentage. Self-skips off the dogfood shape. Rule: `docs/wiki/windows-process-spawn-and-console.md` § 4.
+
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/gen-settings-hooks" ${ARGUMENTS}
 ```
@@ -228,14 +238,14 @@ Merge-never-clobber against `settings.json` ∪ `settings.local.json`; only `tru
 
 `~/.claude/plugins/` stays thin under this shape (pointer/config only, no plugin-source byte-copy) automatically — no separate mutation, verified by the singularity gate below.
 
-**Required verification, not a subagent step.** `bin/install-sandbox-check.py`'s filesystem tier runs automated; its running-in-Claude-Code tier (live skill/hook resolution via `--plugin-dir`) CANNOT run inside a subagent — the EM or PM must run `claude-doe --dry-run` then launch `claude --plugin-dir <sandbox>/coordinator` interactively before declaring the install surface complete.
+**Required verification, not a subagent step.** `bin/install-sandbox-check.py`'s filesystem tier runs automated; its running-in-Claude-Code tier (live skill/hook resolution via `--plugin-dir`) CANNOT run inside a subagent — the EM or PM must run `claude-doe --dry-run` then launch `claude --plugin-dir <sandbox>/coordinator` interactively before declaring the install surface complete. Windows: the bare `claude-doe` isn't PowerShell/cmd-invocable — run `claude-doe.cmd --dry-run` (cmd.exe) or `claude-doe.ps1 --dry-run` (PowerShell) instead; both intercept `--dry-run` themselves and never forward it to `claude`.
 
 ```bash
 "${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/register-coordinator-mirror.py" ${ARGUMENTS}
 ```
 
 ```bash
-PYTHONPATH="${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}${PYTHONPATH:+:$PYTHONPATH}" "${COORDINATOR_PYTHON:-python3}" -m coordinator_core.install.scaffold_structure --root "${CLAUDE_HOME:-$HOME}/.claude" --manifest-root "${CLAUDE_PLUGIN_ROOT}/coordinator"
+PYTHONPATH="${REPO_CLAUDE_KLABAUTER:-${CLAUDE_KLABAUTER_ROOT:-$HOME/claude-klabauter}}${PYTHONPATH:+:$PYTHONPATH}" "${COORDINATOR_PYTHON:-python3}" -m coordinator_core.install.scaffold_structure --root "${CLAUDE_HOME:-$HOME}/.claude" --manifest-root "${CLAUDE_PLUGIN_ROOT}"
 ```
 
 ```bash

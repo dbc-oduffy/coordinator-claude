@@ -900,6 +900,23 @@ def _probe_mem_ceiling_mechanism() -> str:
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             # Review: code-reviewer — P2: handle is pointer-sized; default c_int truncates on 64-bit.
             kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+            # Negative spec: without argtypes, ctypes marshals a real 64-bit HANDLE as a
+            # signed 32-bit int and raises ArgumentError, which the blanket handler below
+            # folds to "unknown" on every Windows host. Both calls take pointer-width handles.
+            kernel32.IsProcessInJob.restype = ctypes.c_int
+            kernel32.IsProcessInJob.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_void_p,
+                ctypes.POINTER(ctypes.c_int),
+            ]
+            kernel32.QueryInformationJobObject.restype = ctypes.c_int
+            kernel32.QueryInformationJobObject.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_int,
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.c_void_p,
+            ]
             current_process = kernel32.GetCurrentProcess()
             ok = kernel32.IsProcessInJob(current_process, None, ctypes.byref(in_job))
 
@@ -941,7 +958,15 @@ def _probe_mem_ceiling_mechanism() -> str:
             # "none"=probed-and-no-ceiling. No probe implemented here, so "unknown" is correct.
             return "unknown"
 
-    except Exception:
+    except Exception as exc:
+        # Negative spec: a probe defect and a host fact both render as "unknown"
+        # downstream. Name the exception on stderr so a code defect is visible rather
+        # than a permanent silent degrade; stdout stays pure JSON for the CLI adopters.
+        print(
+            f"coordinator_whoami: mem_ceiling_mechanism probe failed: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return "unknown"
 
 

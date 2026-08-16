@@ -17,7 +17,10 @@ from typing import Any
 
 from coordinator_whoami.envelope_base import build_envelope
 from coordinator_whoami.project_rag.cli import compose, WHOAMI_SCHEMA_VERSION, _resolve_bound_project_root
-from coordinator_whoami.project_rag._paths import resolve_user_marker_dir
+from coordinator_whoami.project_rag._paths import (
+    read_install_artifact_path,
+    resolve_install_artifact_path,
+)
 
 
 def compose_envelope() -> dict[str, Any]:
@@ -80,20 +83,25 @@ def compose_envelope() -> dict[str, Any]:
 
 
 def persist(envelope: dict[str, Any]) -> Path:
-    """Persist the envelope to ~/.claude/project-rag/install-profile.json under whoami_profile.
+    """Persist the envelope to <settings-home>/project-rag/install-profile.json
+    under whoami_profile.
 
     R2 (PM 2026-05-19): the whoami_profile sub-key now carries the ENVELOPE shape,
     not the legacy 12-key flat shape. Downstream consumers (/project-rag:doctor,
     install scripts, addon standalone CLI) update access paths. See Task 8 host
     relay memo for cleanup obligations.
+
+    DR-072: writes to the settings-home data plane, merge-reading via
+    read_install_artifact_path() so any existing keys on either plane survive
+    the move. See coordinator_whoami.project_rag._paths for the resolver.
     """
-    user_dir = resolve_user_marker_dir()
-    profile_path = user_dir / "install-profile.json"
+    read_path = read_install_artifact_path("install-profile.json")
+    profile_path = resolve_install_artifact_path("install-profile.json")
 
     existing: dict[str, Any] = {}
-    if profile_path.exists():
+    if read_path.exists():
         try:
-            existing = json.loads(profile_path.read_text(encoding="utf-8"))
+            existing = json.loads(read_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             existing = {}
     existing["whoami_profile"] = envelope
@@ -103,7 +111,7 @@ def persist(envelope: dict[str, Any]) -> Path:
         envelope.get("extras", {}).get("project_rag", {}).get("captured_at")
         or datetime.now(tz=timezone.utc).isoformat()
     )
-    user_dir.mkdir(parents=True, exist_ok=True)
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
     # Review: Reviewer A A-F1 — atomic write via tmp+os.replace; prevents partial reads on crash
     import os as _os
     tmp = profile_path.with_suffix(".json.tmp")

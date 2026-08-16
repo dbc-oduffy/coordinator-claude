@@ -26,8 +26,9 @@ skips to Step 3.
 
 **1b. Premise-provenance, every non-express-lane sizing.** Does the ask rest on a mechanism
 EXECUTED, one only READ, or no mechanism claim at all (`not-applicable`, narrow)? Pass
-`--premise-provenance executed|read|not-applicable` with a written `evidence` justification — the
-engine's `next_move` carries the discharge text, never hand-derive it.
+`--premise-provenance executed|read|not-applicable`; there is no `--evidence` flag — the written
+justification goes in the sizing-object's own `premise.evidence` at Step 4. The engine's
+`next_move` carries the discharge text, never hand-derive it.
 
 **2. Substrate probe — L/XL/shaky reads, mandatory on XXL.** Reuse cartography output
 (`architecture-survey`/`-audit`); for judgment the engine can't emit, dispatch the

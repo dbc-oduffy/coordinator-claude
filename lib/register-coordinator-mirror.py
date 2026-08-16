@@ -77,6 +77,15 @@ def _claude_home_argv(*args: str) -> list:
     bin dir is not necessarily on PATH anyway. Probe the known install
     locations for the `.cmd` first, then fall back to PATH lookup — shutil.which
     DOES honour PATHEXT — and only then to the bare name.
+
+    POSIX branch (state/audits/2026-07-25-claude-bin-mirror-read-rungs.md § 2,
+    this function's row): a bare "claude-home" PATH lookup is order-dependent
+    on whatever the invoking process's PATH happens to contain, which can
+    resolve to the retired mirror ahead of settings-home. Probe settings-home
+    by explicit path first, then PATH (`shutil.which`), then the retired
+    mirror by explicit path, with the bareword as the final rung — mirroring
+    `coordinator_core/install/maximalist.py::_claude_home_cli_argv`'s POSIX
+    branch. Negative spec: the mirror does not go ahead of `shutil.which`.
     """
     if os.name == "nt":
         # Review: code-reviewer (slice1b Finding 1) — EM-verified disposition:
@@ -118,6 +127,25 @@ def _claude_home_argv(*args: str) -> list:
             "with WinError 2 on Windows if not on PATH)",
             file=sys.stderr,
         )
+        return ["claude-home", *args]
+
+    # Review: review-integrator — same bareword defect flagged in
+    # maximalist.py's POSIX branch (audit row above); ladder now matches.
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    settings_home_cand = os.path.join(
+        os.environ.get("COORDINATOR_SETTINGS_HOME")
+        or os.path.join(home, ".coordinator-claude-settings"),
+        "bin",
+        "claude-home",
+    )
+    if os.path.isfile(settings_home_cand):
+        return [settings_home_cand, *args]
+    found = shutil.which("claude-home")
+    if found:
+        return [found, *args]
+    mirror_cand = os.path.join(home, ".claude", "bin", "claude-home")
+    if os.path.isfile(mirror_cand):
+        return [mirror_cand, *args]
     return ["claude-home", *args]
 
 

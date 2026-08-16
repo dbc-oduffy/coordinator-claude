@@ -176,12 +176,20 @@ def session_ensure_branch(
     if checkout_env is not None:
         checkout_env.update(_OVERRIDE_ENV)
 
-    subprocess.run(
+    # run_forwarding, not subprocess.run: `err` may be workday-start-step0's
+    # own `sys.stderr`, which is an io.StringIO with no fileno() when this
+    # gate runs in-process through coordinator_core.workday_complete.apply's
+    # capture-buffer dispatch — see coordinator_core.win_portability.
+    # run_forwarding's own docstring.
+    from coordinator_core.win_portability import no_console_creationflags, run_forwarding
+
+    run_forwarding(
         ["git", "checkout", "-b", new_branch],
         env=checkout_env,
         stdout=err,
         stderr=err,
         check=True,
+        **no_console_creationflags(),
     )
 
     push = subprocess.run(
@@ -189,6 +197,7 @@ def session_ensure_branch(
         env=checkout_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        **no_console_creationflags(),
     )
     if push.returncode != 0:
         print("WARN: push of new branch failed — crash-insurance push not established", file=err)

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import time
 import uuid
@@ -36,22 +37,53 @@ from typing import Optional
 
 _LEDGER_FILENAME = "next-move-ledger.jsonl"
 
+# Reuse the existing root-resolution PRIMITIVE (`_engine_root._session_repo_root`
+# -- CLAUDE_PROJECT_DIR when set and real, else a zero-spawn upward walk for a
+# `.git` entry) rather than writing a fourth copy of that walk. This is NOT
+# the families-spanning shared READER/TRANSPORT module DR-047/DR-118 decline
+# (see `_find_repo_root`'s own docstring below, kept verbatim) -- that ruling
+# is about collapsing the three coordinator.local.md READERS into one shared
+# transport, not about sharing the tiny root-finding primitive beneath them.
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+try:
+    from _engine_root import _session_repo_root as _resolve_consuming_repo_root  # noqa: E402
+except Exception:
+    # Defensive fallback -- a hook script copied/deployed WITHOUT its sibling
+    # _engine_root.py (e.g. an isolated test harness, or a partial deploy)
+    # must still fail-open (this rung simply never resolves) rather than
+    # crash on import.
+    _resolve_consuming_repo_root = None  # type: ignore[assignment]
+
 
 def _find_repo_root() -> Optional[str]:
-    """Walk upward from this file looking for `coordinator.local.md` --
-    this repo's own root marker. Mirrors `_posture._find_repo_root` (kept
-    as a separate copy rather than a shared import: DR-047/DR-118 decline a
-    families-spanning shared-transport module for this class of tiny,
-    independently-failing-open helper)."""
-    current = os.path.dirname(os.path.abspath(__file__))
-    while True:
-        candidate = os.path.join(current, "coordinator.local.md")
-        if os.path.isfile(candidate):
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            return None
-        current = parent
+    """Anchor at the CONSUMING repo root: `CLAUDE_PROJECT_DIR` when set and a
+    real directory, else a zero-spawn pure-Python upward walk for a `.git`
+    entry (directory for a normal clone, file for a worktree). Mirrors
+    `_posture._find_repo_root` (kept as a separate copy rather than a shared
+    import: DR-047/DR-118 decline a families-spanning shared-transport
+    module for this class of tiny, independently-failing-open helper).
+
+    Delegates to `_engine_root._session_repo_root` for the actual walk (see
+    the module-level comment above) -- reusing that shared root-resolution
+    primitive is explicitly NOT the shared-transport merge DR-047/DR-118
+    decline; only the READER stays a separate copy per those DRs.
+
+    Previously walked upward from THIS FILE's own `__file__` looking for a
+    directory containing `coordinator.local.md`, which only ever resolves
+    this plugin's own checkout -- correct by accident in a dev repo where
+    `--plugin-dir` points the plugin at the working tree itself, and a
+    silent miss on a marketplace install where the plugin lives under
+    `~/.claude/plugins/` and the consumer's `state/subagent-share/` tree
+    lives somewhere `__file__` can never reach."""
+    if _resolve_consuming_repo_root is None:
+        return None
+    try:
+        root = _resolve_consuming_repo_root()
+        return str(root) if root else None
+    except Exception:
+        return None
 
 
 def ledger_path(session_id: str) -> Optional[str]:

@@ -715,7 +715,49 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  from_repo:   {from_repo}")
         print(f"  change_kind: {args.change_kind}")
         print(f"  target_wiki: {args.target_wiki}")
+        # C5 floor (docs/plans/2026-08-14-cli-authored-writes-get-claimed.md):
+        # this genuine dual-path CLI's State-1 body writes in-process, so the
+        # write must be declared, not just printed. Guarded import: `route()`
+        # only calls legacy_fn() when coordinator_core.invoke was already
+        # unresolvable, so coordinator_core is usually unimportable here too —
+        # this degrades to a no-op except under the LESSON_PROMOTE_OUTBOX_ROOT
+        # test-isolation gate below, which forces legacy_fn with a live engine
+        # still on sys.path.
+        try:
+            from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
+
+            declare_write(path)
+        except ImportError:
+            pass
         return 0
+
+    def _run_legacy_with_write_declaration() -> int:
+        """Run `legacy_fn` inside cli_entry's declare-write collection when
+        the engine happens to be importable — see legacy_fn's own comment on
+        why this is usually a no-op degrade. Both legacy_fn call sites below
+        route through this instead of calling legacy_fn directly.
+
+        Review: coordinator:code-reviewer — the LESSON_PROMOTE_OUTBOX_ROOT
+        test-isolation gate is not a rare edge case: it is exactly the shape
+        this repo's own test suite invokes, with coordinator_core genuinely
+        importable, so `recording_declared_writes`/`declare_write` fire for
+        real under it. What keeps that safe is
+        `ipc._record_self_reported_touches`'s F1 containment (2026-08-04):
+        a declared path is only recorded as a session claim when it resolves
+        INSIDE the caller's own `_origin_worktree`; a fixture path outside
+        the repo tree (every existing test here uses a `tmpdir` outside the
+        repo as both the env-gate root and cwd) is skipped, never claimed
+        against whatever real session is an ancestor of the test process.
+        This stays safe only as long as fixtures for this gate live outside
+        the repo tree — an in-tree fixture path would be a live claim
+        against the wrong session.
+        """
+        try:
+            from coordinator_core.cli_entry import recording_declared_writes  # noqa: PLC0415
+        except ImportError:
+            return legacy_fn()
+        with recording_declared_writes(cwd=repo_root):
+            return legacy_fn()
 
     # Build queue.promote params from validated fields; from_repo passed explicitly
     # so the op does not fall to its basename+"-em" default (provenance parity, AC11).
@@ -738,9 +780,9 @@ def main(argv: list[str] | None = None) -> int:
     # above _cc_route("queue.append", ...) in that sibling CLI. In production,
     # LESSON_PROMOTE_OUTBOX_ROOT is NEVER set, so this check is a no-op.
     if os.environ.get(_OUTBOX_ROOT_ENV):
-        return legacy_fn()
+        return _run_legacy_with_write_declaration()
 
-    result = _cc_route("queue.promote", params, repo_root, legacy_fn)
+    result = _cc_route("queue.promote", params, repo_root, _run_legacy_with_write_declaration)
 
     # Native path: result is the bare dict from queue.promote.
     if isinstance(result, dict):

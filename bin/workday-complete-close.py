@@ -117,6 +117,16 @@ _STEP9_CLI = _BIN_DIR / "workday-complete-step9-append-changelog.py"
 _CEREMONY_HOOK_CLI = _BIN_DIR / "coordinator-ceremony-hook.py"
 _EMIT_CADENCE_CLI = _BIN_DIR / "emit-cadence.py"
 
+# Per-gap-date backfill dispatch (_dispatch_step9_row) invokes the entire
+# composed step9 ceremony once per row with NO bound at all — on this repo's
+# 50-70-concurrent-session load norm an unbounded spawn here can wedge a
+# ceremony with no session available to fix it (state/audits/
+# 2026-08-15-fleet-composed-op-spawn-census.md row 14). step9-append-changelog
+# itself bounds its OWN internal subprocess calls at 15-30s each but runs
+# several of them sequentially plus a possible git push; 120s gives that
+# composed chain headroom without being unbounded.
+_STEP9_ROW_DISPATCH_TIMEOUT_SECS = 120
+
 
 def _run(cli_path: Path, args: list[str], capture_stdout: bool = False) -> subprocess.CompletedProcess:
     """Invoke a sibling coordinator/bin CLI with the current interpreter, cwd
@@ -263,11 +273,23 @@ def _dispatch_step9_row(
     env.setdefault("RC_VALIDATE", "not-run")
     env.setdefault("RC_PLUGIN_SUITE", "n/a")
 
-    result = subprocess.run(
-        [sys.executable, str(_STEP9_CLI), *forward],
-        env=env,
-        **no_console_passthrough_kwargs(),
-    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(_STEP9_CLI), *forward],
+            env=env,
+            timeout=_STEP9_ROW_DISPATCH_TIMEOUT_SECS,
+            **no_console_passthrough_kwargs(),
+        )
+    except subprocess.TimeoutExpired:
+        # A timed-out row must fail THIS row only, never abort the rest of
+        # the backfill loop (cmd_backfill_dispatch_rows' per-row isolation
+        # contract — "one bad day should not abandon the rest").
+        print(
+            f"ERROR: backfill-dispatch-rows: step9-dispatch timed out after "
+            f"{_STEP9_ROW_DISPATCH_TIMEOUT_SECS}s for {date}",
+            file=sys.stderr,
+        )
+        return 1
     return result.returncode
 
 
@@ -296,8 +318,25 @@ def cmd_backfill_dispatch_rows(args: argparse.Namespace) -> int:
     processed_dates: set[str] = set()
     overall_rc = 0
 
+    if args.only_mode and not args.for_date:
+        print(
+            "ERROR: backfill-dispatch-rows: --only-mode requires --for-date "
+            "(without it every row is skipped and this command would exit 0 "
+            "having dispatched nothing)",
+            file=sys.stderr,
+        )
+        return 1
+
     for date, base, tip in rows:
         if args.only_mode and date != args.for_date:
+            continue
+
+        if date in processed_dates:
+            print(
+                f"WARN: backfill-dispatch-rows: duplicate row for {date} in "
+                "gap-rows input -- skipping (already dispatched)",
+                file=sys.stderr,
+            )
             continue
 
         processed_dates.add(date)

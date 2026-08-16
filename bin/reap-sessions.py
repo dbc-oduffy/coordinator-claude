@@ -48,7 +48,6 @@ Spec backlink: docs/plans/2026-07-19-debash-coordinator-windows.md § Wave F1 (f
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
@@ -99,18 +98,14 @@ def _resolve_repo_root(argv: list[str]) -> str | None:
     if argv:
         return argv[0]
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **_no_console_creationflags(),
-        )
-    except OSError:
+        claude_klabauter_root = _resolve_claude_klabauter_root()
+        if claude_klabauter_root and claude_klabauter_root not in sys.path:
+            sys.path.insert(0, claude_klabauter_root)
+        from coordinator_core.git.repo_root import show_toplevel
+
+        return show_toplevel()
+    except Exception:
         return None
-    resolved = (proc.stdout or "").strip()
-    if proc.returncode != 0 or not resolved:
-        return None
-    return resolved
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -3,6 +3,7 @@ name: parallel-code-review
 description: "Weekly pre-merge code-review gate — chunk reviewers, one verdict. /workweek-complete only."
 argument-hint: "[--force] [--gate-mode strict|advisory]"
 version: 2.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # Parallel Code Review

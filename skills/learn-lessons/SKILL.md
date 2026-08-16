@@ -2,6 +2,7 @@
 name: learn-lessons
 description: "Processes lessons/ entries as doctrine change-requests, local or central."
 version: 1.0.0
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # learn-lessons — Lesson Processing and Queue Activation

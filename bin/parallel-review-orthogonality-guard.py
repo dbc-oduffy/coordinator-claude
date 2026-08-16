@@ -88,6 +88,7 @@ from cc_invoke import require_engine_on_path  # noqa: E402
 # coordinator/bin/coordinator-lesson-add (9b979ee5f).
 require_engine_on_path(__file__)
 
+from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _PROG = "parallel-review-orthogonality-guard.py"
@@ -142,16 +143,11 @@ def _cmd_snapshot(args: argparse.Namespace) -> int:
     if args.repo_root:
         repo_root = Path(args.repo_root)
     else:
-        rev_parse = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-        if rev_parse.returncode != 0 or not rev_parse.stdout.strip():
+        toplevel = show_toplevel()
+        if not toplevel:
             print(f"{_PROG}: snapshot: cannot resolve git repo root from cwd", file=sys.stderr)
             return 1
-        repo_root = Path(rev_parse.stdout.strip())
+        repo_root = Path(toplevel)
 
     findings_dir = repo_root / "state" / "review-findings" / ts
     findings_dir.mkdir(parents=True, exist_ok=True)

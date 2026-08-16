@@ -94,11 +94,21 @@ def _default_template_path(shell_family: str = "bash") -> str:
 def _shell_family_from_argv(argv: list[str]) -> str:
     """Read `--shell <family>` out of argv without consuming or validating it —
     the engine owns both. Space-separated form only, matching the engine's
-    parser."""
+    parser.
+
+    When `--shell` is absent the default comes from the ENGINE
+    (`gen_claude_doe_shim._default_shell_family`), never a local literal: this
+    function only picks the template, while the engine independently picks the
+    shim filename and rc target from the same family. A local "bash" fallback
+    made those two disagree on Windows — the engine selected the `.ps1` shim and
+    the pwsh profile while this side handed it the bash `.sh` template, i.e. a
+    POSIX shim body written to a PowerShell shim path."""
     for i, arg in enumerate(argv):
         if arg == "--shell" and i + 1 < len(argv):
             return argv[i + 1]
-    return "bash"
+    from coordinator_core.ops.gen_claude_doe_shim import _default_shell_family
+
+    return _default_shell_family()
 
 
 def _import_runner():

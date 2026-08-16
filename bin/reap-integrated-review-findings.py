@@ -281,12 +281,20 @@ def _reap_integrated_legacy(
     # preserving) vs untracked (already served their purpose, nothing in
     # history to preserve -> plain remove).
     # -------------------------------------------------------------------
+    # Batched tracked/untracked split: one `git ls-files -z --` call over the
+    # whole `to_reap` set instead of one `--error-unmatch` spawn per file.
+    # `git ls-files` (no --error-unmatch) prints only the pathspecs that ARE
+    # tracked; anything requested but absent from that output is untracked —
+    # the same classification, one spawn instead of N.
+    rel_paths = [os.path.relpath(str(f), repo_root) for f in to_reap]
+    ls = _git(["ls-files", "-z", "--", *rel_paths], cwd=repo_root)
+    # git always emits forward-slash paths regardless of platform; normalize
+    # our own relpaths (backslash on Windows) the same way before comparing.
+    tracked_rels = {p for p in ls.stdout.split("\0") if p}
     tracked_to_reap: List[Path] = []
     untracked_to_reap: List[Path] = []
-    for f in to_reap:
-        rel = os.path.relpath(str(f), repo_root)
-        ls = _git(["ls-files", "--error-unmatch", "--", rel], cwd=repo_root)
-        if ls.returncode == 0:
+    for f, rel in zip(to_reap, rel_paths):
+        if rel.replace(os.sep, "/") in tracked_rels:
             tracked_to_reap.append(f)
         else:
             untracked_to_reap.append(f)

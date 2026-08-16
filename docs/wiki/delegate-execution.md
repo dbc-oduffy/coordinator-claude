@@ -7,7 +7,7 @@ related:
   - plugins/coordinator/agents/executor.md
   - docs/wiki/dispatching-parallel-agents.md
   - plugins/coordinator/skills/review-code/SKILL.md
-  - plugins/coordinator/commands/enrich-and-review.md
+  - coordinator/skills/enrich-and-review/SKILL.md
 ---
 
 # /delegate-execution — Dispatch Enriched Stubs to Executor Agents

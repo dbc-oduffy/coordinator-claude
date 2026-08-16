@@ -143,13 +143,12 @@ def main(argv: list[str]) -> int:
             i += 1
 
     if not root:
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        root = proc.stdout.strip() if proc.returncode == 0 else ""
+        from cc_invoke import ensure_engine_on_path  # noqa: E402  (sys.path-dependent)
+
+        ensure_engine_on_path(__file__)
+        from coordinator_core.git.repo_root import show_toplevel
+
+        root = show_toplevel() or ""
 
     if not root:
         return 0  # non-git consumer: no-op pass

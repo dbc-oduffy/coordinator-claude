@@ -116,7 +116,7 @@ After writing the agent file:
 
 1. Sync the `reviewer-calibration` snippet into your new file:
    `bin/verify-snippet-sync reviewer-calibration --fix`
-2. If your reviewer fires hooks or references other agents, add a tripwire entry in `docs/wiki/coordinator-tripwires/tripwire-registry.md` (search "Tripwires" for the pattern).
+2. If your reviewer fires hooks or references other agents, add a tripwire entry in `docs/wiki/coordinator-tripwires/tripwire-registry/` (search "Tripwires" for the pattern).
 3. Register the reviewer in `README.md` under the agents inventory.
 
 ### How to Test Install Changes
@@ -176,7 +176,7 @@ Before submitting a PR that adds or modifies an agent, skill, or command:
 - [ ] New component is registered in the README inventory count
 - [ ] Cross-references (file paths, skill names, command names) resolve — `python .github/scripts/run-all-checks.py` passes
 - [ ] No hardcoded local paths; build-for-someone-else's-machine rule followed
-- [ ] If the component fires hooks: tripwire added to `docs/wiki/coordinator-tripwires/tripwire-registry.md`
+- [ ] If the component fires hooks: tripwire added to `docs/wiki/coordinator-tripwires/tripwire-registry/`
 - [ ] If the component is a reviewer: upstream pre-flight wired into the producer skill
 
 ## Questions?

@@ -174,17 +174,10 @@ def main(argv: list[str] | None = None) -> int:
 
     repo_root = os.getcwd()
     try:
-        from coordinator_core.win_portability import no_console_creationflags  # noqa: F401
-        import subprocess
+        from coordinator_core.git.repo_root import show_toplevel
 
-        proc = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True,
-            text=True,
-            **no_console_creationflags(),
-        )
-        resolved = (proc.stdout or "").strip()
-        if proc.returncode == 0 and resolved:
+        resolved = show_toplevel()
+        if resolved:
             repo_root = resolved
     except OSError:
         pass

@@ -6,6 +6,7 @@ version: 1.0.0
 prerequisite:
   - agent:prior-art-checker
   - skill:coordinator:review
+allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # coordinator:plan

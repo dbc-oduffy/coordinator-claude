@@ -85,6 +85,7 @@ from typing import List, Optional
 from coordinator_core.win_portability import is_executable, no_console_creationflags
 from coordinator_core.py_probe_sh import python_probe_lines
 from coordinator_core.launchable import resolve_launchable
+from coordinator_core.machine_resolver import merged_flat_registry as _merged_flat_registry
 
 GENERATES = []  # installs/repairs hook bodies only under .git/hooks/, which is untracked
 
@@ -821,36 +822,31 @@ _HEALED_OUTCOMES = frozenset({"installed-absent", "rewritten-stale", "appended"}
 def _registry_repo_roots(bin_dir: str) -> List[tuple]:
     """Enumerate `(key, path)` for every `repos.*` entry set on this machine.
 
-    Goes through the sanctioned `machine-local` CLI (`keys --prefix repos`,
-    then `get` per key) rather than parsing registry TOML directly — the value
-    layer is split across a tracked declarations file and a gitignored
-    per-machine file, and only the CLI knows how they compose. Best-effort:
-    any failure yields an empty list, because a hook installer must degrade to
+    Zero-spawn: reads `registry.local.toml` over `registry.toml` directly
+    via `coordinator_core.machine_resolver.merged_flat_registry` rather than
+    a `machine-local keys --prefix repos` + one `machine-local get` per key
+    CLI round-trip. `repos.*` is a confirmed root-namespace-only key (never
+    a promoted concern-file namespace — see `merged_flat_registry`'s own
+    docstring), so that same two-file precedence chain is sound here without
+    a concern-file layer; the `MACHINE_LOCAL_<KEY>` env-override rung is not
+    consulted per-key, matching the CLI's own `keys` enumeration (which
+    lists declared registry keys, not env overrides — a repo can only be
+    *registered* through the TOML files this reads). `bin_dir` is unused —
+    kept for call-site compatibility; the prior CLI-based implementation
+    needed it to locate the `machine-local` binary, this one no longer
+    shells out to a binary at all. Best-effort: any failure (unreadable
+    registry) yields an empty list, because a hook installer must degrade to
     "healed nothing" rather than raise on a session-boot path.
     """
-    ml_bin = _resolve_machine_local_bin(bin_dir)
-    if not ml_bin:
-        return []
-    try:
-        out = subprocess.run(
-            [*resolve_launchable(ml_bin), "keys", "--prefix", "repos"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            **no_console_creationflags(),
-        )
-    except Exception:
-        return []
+    del bin_dir
+    flat = _merged_flat_registry()
     roots = []
-    for line in (out.stdout or "").splitlines():
-        key = line.strip()
-        # `keys` prefixes advisory notes (e.g. declared-but-unset keys) to
-        # stdout; only lines that are literally a repos.* key are candidates.
-        if not key.startswith("repos.") or " " in key:
+    for key, val in flat.items():
+        if not key.startswith("repos."):
             continue
-        val = _ml_get(ml_bin, key)
-        if val:
-            roots.append((key, val))
+        s = ("" if val is None else str(val)).strip()
+        if s:
+            roots.append((key, s))
     return roots
 
 
@@ -923,8 +919,8 @@ def ensure_hooks_fleet(bin_dir: str) -> int:
     if not roots:
         print(
             "[git_hook_install] WARNING: fleet heal found no registered repos "
-            "(machine-local unavailable, or no repos.* keys set on this "
-            "machine) — healed nothing. This is not the same fact as "
+            "(machine-local registry unreadable, or no repos.* keys set on "
+            "this machine) — healed nothing. This is not the same fact as "
             "'every repo is current'.",
             file=sys.stderr,
         )

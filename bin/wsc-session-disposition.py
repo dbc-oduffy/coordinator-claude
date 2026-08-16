@@ -116,6 +116,7 @@ import cc_invoke  # noqa: E402
 cc_invoke.ensure_engine_on_path(__file__)
 
 from coordinator_core.claim_state import resolve_claim_state  # noqa: E402
+from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
 from coordinator_core.wire_paths import rel_id  # noqa: E402
 
 _TRANSPORT_FAIL = 3
@@ -1506,10 +1507,7 @@ def _shq(s: str) -> str:
 
 
 def _git_show_toplevel() -> Path | None:
-    proc = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
-    if proc.returncode != 0:
-        return None
-    top = proc.stdout.strip()
+    top = show_toplevel()
     return Path(top) if top else None
 
 
