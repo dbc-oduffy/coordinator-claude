@@ -6,7 +6,7 @@ Check that plugin names in documentation stay in sync with the marketplace regis
 What this checks:
   - Reads the plugin list from .claude-plugin/marketplace.json (the flat-layout source of
     truth; the legacy setup/install.sh::PLUGIN_REGISTRY no longer ships).
-  - Verifies docs/agent-install.md fenced-code-block + --plugins + table-row contexts
+  - Verifies INSTALL.md fenced-code-block + --plugins + table-row contexts
     mention the default-on set and no ghost plugins.
   - Verifies docs/safety.md names every default-on plugin somewhere in its body (single-plugin,
     native-CLI install shape — nothing is "copied" any more, so there is no fixed enumeration
@@ -14,7 +14,7 @@ What this checks:
   - Verifies README.md fenced code blocks and table rows reference no ghost plugin names.
 
 Note: marketplace.json carries plugin names + sources but no install-default state, so the
-documented recommended set (coordinator + deep-research, per the agent-install.md tier table)
+documented recommended set (coordinator + deep-research, per the INSTALL.md tier table)
 is encoded below as DEFAULT_ON.
 
 What this does NOT check:
@@ -33,7 +33,7 @@ from pathlib import Path
 
 
 # Documented recommended ("default-on") set — coordinator (core) + deep-research
-# (recommended), per the agent-install.md tier table. marketplace.json does not
+# (recommended), per the INSTALL.md tier table. marketplace.json does not
 # carry an install-default state, so it is encoded here.
 DEFAULT_ON = {"coordinator", "deep-research"}
 
@@ -142,7 +142,7 @@ def _plugin_names_in_text(lines: list[str], known_names: set[str]) -> set[str]:
 
 def check_agent_install(path: Path, plugins: dict[str, dict], errors: list[str]) -> None:
     """
-    docs/agent-install.md checks:
+    INSTALL.md checks:
       - No ghost plugin names in fenced-code, --plugins lines, or table rows.
       - All default-on plugins are mentioned in fenced-code or --plugins lines.
     """
@@ -281,7 +281,7 @@ def main() -> int:
         return 2
 
     marketplace_json = repo_root / ".claude-plugin" / "marketplace.json"
-    agent_install = repo_root / "docs" / "agent-install.md"
+    agent_install = repo_root / "INSTALL.md"
     safety_md = repo_root / "docs" / "safety.md"
     readme = repo_root / "README.md"
 

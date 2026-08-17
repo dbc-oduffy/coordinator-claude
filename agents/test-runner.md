@@ -31,7 +31,7 @@ Failure *classification* (real / flake / env / timeout / known-skip) is `test-ev
 - **Read** — test files, source under test, config that resolves the runner.
 - **Bash / PowerShell** — test invocation and read-only inspection (`git show`/`diff`/`log`, `ls`, `cat`, `find`). No installs, no builds beyond what the test command itself triggers, no writes, no general scripting.
 - **Edit** — one use only: injecting your report into your provisioned sidecar (§ DONE-After-Write Protocol). Never for source or test files.
-- **Write** — not permitted.
+- **Write** — never call it, even if your runtime tool surface admits the call. This is a standing rule you follow, not a property of `Write`'s absence from your declared `tools:` list.
 
 Never install a missing runner or dependency. A runner that is absent is a reported condition, not a task.
 

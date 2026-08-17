@@ -55,7 +55,7 @@ The early-write probe and after-every-file growth check are delivered via the in
 
 ## Your Job
 
-Mechanical inventory only — no architecture analysis, quality evaluation, recommendations, or judgment; specialists handle that. No cross-pollination or messaging (no SendMessage tool).
+Mechanical inventory only — no architecture analysis, quality evaluation, recommendations, or judgment; specialists handle that. Never cross-pollinate or message peers — signal completion via TaskUpdate only; don't reach for SendMessage even if it turns out callable.
 
 1. Read your chunk assignments from the dispatch prompt.
 2. For each file, Read it and produce a structured inventory entry.

@@ -6,7 +6,7 @@
   "x-bump-class": "nested-field-additive",
   "x-bump-note": "1.1.0 -> 1.2.0 added deliverable_id (nullable, optional; DR-097 push-side notification duty discharged — memo delivered to claude-klabauter-em 2026-08-10 at their 8796e9bd4; vendoring order used: DoE lands first, claude-klabauter vendors on our ping, since this bump originates here). 1.0.0 -> 1.1.0 added key_results.items.properties.reassessment_proposal (strict, greenfield object nested in the key_results array).",
   "applies_to": "state/goals/*.yaml",
-  "description": "Goal artifact — a time-boxed outcome target with measurable key results. Stored per-goal in state/goals/<id>.yaml (whole-document YAML frontmatter is the whole file — no prose markdown body). Spec backlink: docs/plans/2026-07-06-deliverable-rollup-render-and-fk-population.md § C1. Spec backlink: docs/plans/2026-07-13-close-weekly-goal-loop.md § C1 (.md→.yaml migration, reverses the above's format decision)",
+  "description": "Goal artifact — a time-boxed outcome target with measurable key results. Stored per-goal in state/goals/<id>.yaml (whole-document YAML frontmatter is the whole file — no prose markdown body). Spec backlink: pln-deliverable-spine-rollup-c5-re-d2d16a § C1. Spec backlink: pln-close-the-weekly-goal-loop-yam-d31316 § C1 (.md→.yaml migration, reverses the above's format decision)",
   "type": "object",
   "required": ["id", "title", "status", "objective", "key_results", "created", "schema", "period", "period_value"],
   "_additionalProperties_note": "Permissive by design — additionalProperties is not set to false here, consistent with the handoff schema. A misspelled field will silently pass. This is intentional for forward-compatibility and matches the existing permissive pattern in other coordinator schemas. TOP-LEVEL posture reconfirmed 2026-07-25 (goal-kr-field-ownership-convention, C2): tightening was considered and DECLINED — debt-backlog.schema.json:10 cites this schema's permissiveness by name as its own precedent, and cross-repo-commitment.schema.json:10 cites goal implicitly via its own 'matches the existing permissive pattern in other coordinator schemas' clause (it names 'handoff' explicitly but not 'goal' by name — goal is one of those 'other coordinator schemas' it means, so a tightening here would still strand that citation even though the word 'goal' isn't present at cross-repo-commitment.schema.json:10 for a future reader to find directly). Unlike skill.schema.json:7 (which cleared a documented zero-out-of-set-keys corpus bar across 32 observed files before going strict), no equivalent corpus proof exists for goal records. By contrast, key_results.items.properties.reassessment_proposal (added in the same change) IS strict (additionalProperties: false + required) — it is a greenfield object with no sibling-schema citation to strand and no corpus to clear, so none of the grounds above apply to it; the top-level decline and the nested strictness are deliberately asymmetric, not in tension.",
@@ -128,7 +128,7 @@
     },
     "initiative": {
       "anyOf": [{"type": "string"}, {"type": "null"}],
-      "description": "Goal-side reverse FK to the initiative entity (state/initiatives/<id>.yaml) — lets a goal name the initiative it serves without scanning every initiative's goals[] array. Additive companion to the authoritative forward edge initiative.goals[] (many-to-many); this reverse edge is a single-value soft tag with no referential enforcement, fleet-consistent with the initiative: FK on handoff/plan/roadmap (D9 present-as-null, never .optional(); non-empty string when non-null). On conflict between this field and initiative.goals[], the forward array is authoritative for cockpit's buildLadder render. Spec backlink: cross-repo/inbox/2026-07-13-claude-klabauter-em-goal-side-initiative-reverse-fk-additive.md"
+      "description": "Goal-side reverse FK to the initiative entity (state/initiatives/<id>.yaml) — lets a goal name the initiative it serves without scanning every initiative's goals[] array. Additive companion to the authoritative forward edge initiative.goals[] (many-to-many); this reverse edge is a single-value soft tag with no referential enforcement, fleet-consistent with the initiative: FK on handoff/plan/roadmap (D9 present-as-null, never .optional(); non-empty string when non-null). On conflict between this field and initiative.goals[], the forward array is authoritative for cockpit's buildLadder render. Spec backlink: cross-repo/archive/2026-07-13-claude-klabauter-em-goal-side-initiative-reverse-fk-additive.md"
     },
     "goal_id": {
       "type": "string",
@@ -136,7 +136,7 @@
     },
     "deliverable_id": {
       "anyOf": [{"type": "string", "pattern": "^dlv-(?!placeholder-replace-with)[0-9a-zA-Z][0-9a-zA-Z.-]*$"}, {"type": "null"}],
-      "description": "The durable deliverable join key, minted once at the earliest artifact and carried verbatim by every downstream artifact; null or absent when this record predates the spine. Spec backlink: docs/plans/2026-08-08-sizing-objects-join-the-deliverable-spine.md § C9."
+      "description": "The durable deliverable join key, minted once at the earliest artifact and carried verbatim by every downstream artifact; null or absent when this record predates the spine. Spec backlink: pln-sizing-objects-join-the-delive-0fcd0a § C9."
     }
   }
 }

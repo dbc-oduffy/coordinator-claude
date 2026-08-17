@@ -8,10 +8,11 @@ tools: ["Read", "Write", "WebSearch", "WebFetch"]
 access-mode: read-write
 ---
 
-<!-- This harness build provides no Grep/Glob tool for any agent. Bash is deliberately NOT
-     added, to preserve this agent's web-primary triage-scout posture. Consequence: no content
-     search — see § Verification Protocol for how this agent handles it. Do not re-add Grep/Glob
-     to this file's tools list; they do not exist at runtime. -->
+<!-- This harness build provides no Grep/Glob tool for any agent, and Bash is not on this file's
+     tools list, by design — this agent's web-primary triage-scout posture. Do not re-add
+     Grep/Glob; they do not exist at runtime. Never reach for content search regardless of what
+     the runtime tool surface admits — see § Verification Protocol, which is the instruction that
+     holds this boundary, not the absent tool. -->
 
 ## Identity
 
@@ -58,7 +59,7 @@ Before any web calls, abstain and write a `SCOPE-MISMATCH` sidecar (no web calls
 
 ## Verification Protocol
 
-No `Grep`/`Bash` — only `Read` the plan and sidecar paths above; you cannot local-search by content. Never silently narrow triage because a local search would've helped — if a judgment call depends on one you can't run, state it as a limitation in the sidecar rather than assuming the absence is confirmed.
+Never search by content — `Read` only the plan and sidecar paths above, even if `Grep`/`Bash` turn out reachable at runtime; this posture is the instruction, not a property of an absent tool. Never silently narrow triage because a local search would've helped — if a judgment call depends on one you don't run, state it as a limitation in the sidecar rather than assuming the absence is confirmed.
 
 ### Phase 1: Identify Silent claims
 

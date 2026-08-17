@@ -41,9 +41,11 @@ EXIT CODES — tied to the tri-state verdict, never conflated with a crash
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 _TAG = "gate-validate-invocable"
+_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 
 
 def _parse_args(argv: list[str]) -> tuple[list[str], str | None]:
@@ -87,8 +89,25 @@ def main(argv: list[str] | None = None) -> int:
 
     # Deferred import: keeps this CLI's own cold-start cheap for the common
     # `--help`/usage-error path, and avoids importing the full op-registry
-    # tree before argv is validated.
-    from coordinator_core.ops.gate_validate_invocable import _gate_validate_invocable
+    # tree before argv is validated. Root resolution is layout-INDEPENDENT
+    # (not a fixed dirname-hop count): a published-mirror consumer puts bin/
+    # at the repo root, not <root>/coordinator/bin as our tree and
+    # klabauter's do, so this reuses cc_invoke._resolve_claude_klabauter_root -- the
+    # same idiom coordinator-invoke.py already uses -- rather than a third
+    # root-resolution scheme.
+    # Spec backlink: cross-repo/inbox/2026-08-17-doe-claude-em-mirror-entrypoints-missing-coordinator-core.md
+    try:
+        if _LIB_DIR not in sys.path:
+            sys.path.insert(0, _LIB_DIR)
+        from cc_invoke import _resolve_claude_klabauter_root
+
+        _root = _resolve_claude_klabauter_root()
+        if _root not in sys.path:
+            sys.path.insert(0, _root)
+        from coordinator_core.ops.gate_validate_invocable import _gate_validate_invocable
+    except Exception as exc:  # noqa: BLE001 — honest floor over an uncaught traceback
+        print(f"{_TAG}: coordinator_core not importable: {exc}", file=sys.stderr)
+        return 3
 
     params = {"changed_files": changed_files}
     if diff_base is not None:

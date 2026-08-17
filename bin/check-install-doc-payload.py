@@ -1,4 +1,4 @@
-"""check-install-doc-payload.py — assert install-doc commands resolve in the
+r"""check-install-doc-payload.py — assert install-doc commands resolve in the
 published tree.
 
 Why this exists: the klabauter row-1 P0 (state/audits/2026-08-05-klabauter-
@@ -314,7 +314,7 @@ def extract_foreign_repo_refs(snippet: str) -> List[str]:
 
 
 def parse_foreign_repo_ref(tok: str) -> Optional[tuple]:
-    """Validate a `foreign-repo:...`-prefixed *tok* for well-formedness.
+    r"""Validate a `foreign-repo:...`-prefixed *tok* for well-formedness.
 
     Returns `(repo_name, relative_path)` (with `relative_path`'s backslashes
     normalized to `/`) when *tok* is well-formed. Returns `("", tok)` when

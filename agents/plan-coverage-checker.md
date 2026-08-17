@@ -50,13 +50,18 @@ If `report_sidecar:` is absent: emit `DEGRADED`, reason "no provisioned sidecar 
    - `problem_set: <path>` — read the file. Frontmatter `status: ratified` → its `## Problems` items are the primary oracle (an internal audit table found via 1–4 becomes secondary). Missing file or non-`ratified` status → not an oracle; fall through.
    - `problem_set: inline (§ ...)` — validate via a `> Ratified by PM <name> <date>` blockquote inside the cited section. Present → that section's list is the primary oracle. Absent → draft, doesn't count; fall through.
    - `problem_set: none` — fall through.
+0b. **Sizing object** — only when `sizing_object:` is literally present in plan frontmatter. Read that file before falling through to 1–4. **Every plan routed through `coordinator:plan` carries one**: Branch A refuses entry to plan-authoring without a sizing object on disk, so `sizing_object:` is the norm, not an edge case, and a plan whose scope came from the lobby has its problem set THERE rather than in the plan body.
+   - The scope enumeration is the oracle. Read it in this order: a structured scope field on the object if one exists, else the `=== SCOPE — IN ===` block inside `premise.evidence`. **`premise.evidence` is free text whose field name describes something else** — that is a known schema defect (`sizing-object.schema.json` is `additionalProperties: false` with no slot for scope, gates, or EM-settled decisions), so scope, exclusions and gates get written there for want of anywhere else. Parse it anyway; do not treat a scope list found there as malformed.
+   - `=== SCOPE — OUT ===` and `=== GATES ===` blocks, where present, are the DEFERRAL RECORD for Lens 2 — an oracle item named there is deliberately excluded with a reason, never MISSED. `pm_resolution` on the object is the ratification evidence Lens 2 looks for.
+   - A sizing-object oracle is primary; an internal audit table found via 1–4 becomes secondary, same precedence as rung 0.
+   - Object missing, unreadable, or carrying no recoverable scope enumeration → fall through.
 1. A heading matching `/^#+\s*(Audit|Findings|Issues|Known.*Issues|Substrate.*Findings|Bugs|Gaps|Items)\b/i` with a list underneath.
 2. A heading containing "found"/"discovered"/"scan results" followed by a list.
 3. A table (frontmatter or body) with a column named `id`/`item`/`issue`/`finding`/`gap`.
 4. An explicit `**Oracle:**` marker.
 
 **No oracle found after all heuristics:**
-1. **Advisory nudge — runs BEFORE the stop below.** `scope_mode` `feature`/`architecture`/`spike` and heuristic 0 fell through → write one advisory line: *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* Rides alongside the verdict, doesn't force INCOMPLETE. Silent for `production-patch`/audit/unset scope_modes.
+1. **Advisory nudge — runs BEFORE the stop below.** `scope_mode` `feature`/`architecture`/`spike` and heuristics 0 and 0b both fell through → write one advisory line: *"no PM-ratified problem-set found; EM, confirm problem understanding with the PM before dispatch."* Rides alongside the verdict, doesn't force INCOMPLETE. Silent for `production-patch`/audit/unset scope_modes.
 2. Emit `SCOPE-MISMATCH`, reason "no audit/findings oracle found." Stop.
 
 **Slate detection** — a heading matching `/^#+\s*(Fix.*Slate|Chunks|Tasks|Dispatch.*Plan|Work.*Items|Implementation.*Plan)\b/i`, or a table with a `task`/`chunk`/`fix`/`action` column. No slate but an oracle exists → classify all oracle items MISSED.
@@ -172,7 +177,7 @@ plan: <plan-path-relative-to-repo-root>
 **Plan:** <path>
 **Verdict:** COMPLETE | INCOMPLETE | BLOCKED-SURFACE-TO-PM | SCOPE-MISMATCH | DEGRADED
 **Sub-label:** INCOMPLETE — Mechanical: N, Judgment: M  *(only emit when verdict is INCOMPLETE; omit this line for all other verdicts)*
-**Oracle items:** N (source: <heading | table | ratified problem-set: `<path>` | inline ratified problem-set>)
+**Oracle items:** N (source: <heading | table | ratified problem-set: `<path>` | inline ratified problem-set | sizing object: `<path>`>)
 **Slate items:** M
 **Missed:** X | **Ambiguous:** A | **OOS-weak:** Y | **Hedges:** Z | **Unratified-deferrals:** U | **Malformed-rows:** R | **Missing-writes:** V | **Open-on-landed:** O | **Substrate-drift:** W | **Deferral-args:** G
 **Advisory:** <advisory finding line, if applicable — omit when not applicable>

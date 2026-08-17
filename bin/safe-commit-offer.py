@@ -32,12 +32,21 @@ all.
 
 Usage:
   safe-commit-offer [--session <id>] [--root <worktree-root>] [--json]
-                     [--message <subject>] [--groups-json <file>] [--dry-run]
+                     [--message <subject>] [--groups-json <file>]
+                     [--invoker <attended|unattended>] [--dry-run]
     Computes the safe pathspec for the resolved (or explicit) session and
     commits+pushes it — grouped mechanically (`--message`/`--groups-json`
     absent) or per caller-supplied groups. Reports what was committed, its
     sha/push state, and the excluded paths with why — AFTER the fact, never
-    as a gate. ``--dry-run`` computes only, commits nothing.
+    as a gate. ``--dry-run`` computes only, commits nothing. ``--invoker``
+    declares which shape a MECHANICALLY-grouped call is (`--message`/
+    `--groups-json` build explicit groups themselves, so `--invoker` is
+    inert alongside either): ``unattended`` for the real SessionEnd-hook
+    trigger, ``attended`` for an EM ceremony that chose this fallback over
+    authoring its own groups. Omitted — the commit asserts nothing about
+    why it happened. See the engine module's own docstring
+    (`coordinator_core.ops.session.safe_commit_offer._default_groups`) for
+    the full three-way framing contract.
 
 Exit codes:
   0 — ran (an empty result is itself a valid "nothing to commit" outcome).

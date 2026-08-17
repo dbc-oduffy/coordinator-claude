@@ -2872,11 +2872,19 @@ def _argv_parity_pairing_origin(repo_root: Path, rel_module: str) -> str:
 
 
 _UNSCANNED_EXCEPTIONS_PATH = Path(__file__).resolve().parent / "percolate-published-unscanned-exceptions.yaml"
-# `.git` is destination-repo plumbing, never touched by any row's sync —
-# a STRUCTURAL exclusion from dispatch_end_of_run_unscanned_published_check's
-# "published" set, not a ratified content exception. See that function's own
-# docstring for the full rationale.
-_STRUCTURAL_NEVER_PUBLISHED_PREFIX = ".git"
+# `.git`/`.fleet-env` are destination-repo plumbing / a dest-local virtualenv,
+# never touched by any row's sync — a STRUCTURAL exclusion from
+# dispatch_end_of_run_unscanned_published_check's "published" set, not a ratified
+# content exception. See that function's own docstring for the full rationale.
+# Sourced from `coordinator_core.percolate.surface.STRUCTURAL_NEVER_PUBLISHED_
+# PREFIXES` — the single shared tuple `guards._walk_for_guard` and
+# `engine.run_parse_sweep`/`run_content_transform_sweep` also derive their own
+# copies from, so a name added there cannot drift out of sync with this
+# full-repo-walk leg. Resolved lazily inside `_is_structurally_never_published`
+# (via `_import_percolate_surface_module`, the same CLAUDE_KLABAUTER_ROOT-already-on-
+# sys.path idiom every other percolate import in this file uses) rather than at
+# module-import time, because CLAUDE_KLABAUTER_ROOT is not yet resolved when this module
+# is first imported.
 # `__pycache__/` is a LOCALLY-GENERATED build artifact, not something any
 # row's sync ever copies into the destination (verified:
 # `coordinator/lib/percolate/publish_sync.py` contains zero `__pycache__`/
@@ -2898,25 +2906,38 @@ _STRUCTURAL_NEVER_PUBLISHED_PREFIX = ".git"
 
 def _is_structurally_never_published(path: Path, repo_root: Path) -> bool:
     """True iff `path` (a file under `repo_root`) is excluded from the
-    `published` set at the mechanism level — `.git/*` plumbing,
-    `__pycache__/*` build-artifact directories, or a stray `*.pyc`/`*.pyo`
-    outside one (the rare pre-`__pycache__`-layout shape, still bytecode a
-    row never publishes). See `_STRUCTURAL_NEVER_PUBLISHED_DIR_NAMES`'s
-    comment for the rationale; kept as one predicate so both `published`-set
-    comprehensions in `dispatch_end_of_run_unscanned_published_check` stay
-    in lockstep rather than drifting via copy-paste.
+    `published` set at the mechanism level — `.git/*` plumbing, a dest-local
+    `.fleet-env/*` virtualenv, `__pycache__/*` build-artifact directories, or a
+    stray `*.pyc`/`*.pyo` outside one (the rare pre-`__pycache__`-layout shape,
+    still bytecode a row never publishes). Kept as one predicate so both
+    `published`-set comprehensions in
+    `dispatch_end_of_run_unscanned_published_check` stay in lockstep rather
+    than drifting via copy-paste.
 
     `__pycache__`/`.pyc`/`.pyo` detection delegates to `percolate.publish_sync
     ._is_structural_build_artifact` — the SAME predicate the orphan-sweep /
     top-level-presence guard in that module now uses, so the two guards
     cannot silently disagree about what counts as a locally-generated build
-    artifact. `.git` stays local to this function: it is a full-repo-walk
-    concept (`_is_structurally_never_published` walks a WHOLE repo tree,
-    including `.git/`) that `publish_sync.py` has no equivalent for — that
-    module's callers only ever see already-restricted, `.git`-free rel_path
-    strings (see that module's own comment on this split)."""
+    artifact.
+
+    `.git`/`.fleet-env` stay local to this function rather than folding into
+    `_is_structural_build_artifact`: `_is_structurally_never_published` walks a
+    WHOLE repo tree (including `.git/` and a dest-local `.fleet-env/`) that
+    `publish_sync.py` has no equivalent for — that module's callers only ever
+    see already-restricted rel_path strings with every dot-prefixed top-level
+    directory (`.git`, `.fleet-env` alike) already filtered out upstream
+    (`_sync_mirror_top_level_files`'s `not p.name.startswith(".")`, the
+    orphan-sweep's own `non_dot_dst` filter — see that module's own comment on
+    this split), so a `.fleet-env` name reaching `_is_structural_build_
+    artifact` there would be dead code, never a live input. Sourced from
+    `coordinator_core.percolate.surface.STRUCTURAL_NEVER_PUBLISHED_PREFIXES`
+    (§ module comment above) rather than a local literal, so this leg cannot
+    silently diverge from `guards._walk_for_guard`/`engine.run_parse_sweep`'s
+    own copies of the same tuple."""
+    surface_module = _import_percolate_surface_module()
+    structural_prefixes = surface_module.STRUCTURAL_NEVER_PUBLISHED_PREFIXES
     parts = path.relative_to(repo_root).parts
-    if any(part == _STRUCTURAL_NEVER_PUBLISHED_PREFIX for part in parts):
+    if any(part in structural_prefixes for part in parts):
         return True
     return _is_structural_build_artifact("/".join(parts))
 

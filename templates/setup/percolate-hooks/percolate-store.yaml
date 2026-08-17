@@ -899,6 +899,68 @@ targets:
             - "*.ps1"
             - "*.cmd"
 
+  # INSTALL.md at the publish repo root, sourced from this repo's own root (`.`,
+  # allowlist-narrowed to that one file) rather than from a committed copy under
+  # dist/ -- one body for one truth, with the DoE-only fenced regions stripped by
+  # the engine's INSTALL.md transform at copy time.
+  #
+  # Its Phase-2 delete sweep is bounded by this repo's ROOT `.percolate-ignore`,
+  # not by anything in this block: the restricted source carries exactly INSTALL.md,
+  # so every other top-level file at the publish repo root is an orphan to this row
+  # and is reaped unless that ignore file protects it. Read that file before adding
+  # any row-root file anywhere in the topology.
+  #
+  # exclude_prefixes replaces base's list with the publish repo's own top-level
+  # directory set, matching coordinator-claude-publish-repo-toplevel: this row's
+  # dest_dir is the mirror ROOT, so an inherited base list would walk the whole
+  # published tree to transform a single root-level file.
+  coordinator-claude-repo-root-install-md:
+    hooks:
+      - path-rewrite
+      - substitute
+      - stem-rewrite
+      - depersonalize
+      - basename-rename
+      - guard
+    file_surface:
+      exclude_prefixes:
+        - ".claude-plugin"
+        - ".git"
+        - ".github"
+        - "agents"
+        - "bin"
+        - "commands"
+        - "docs"
+        - "hooks"
+        - "lib"
+        - "schemas"
+        - "skills"
+        - "snippets"
+        - "templates"
+        - "whoami"
+        - "cockpit-contract"
+    guards:
+      # Registry codename-leak guard -- same rationale as the coordinator-claude
+      # target's guards: block above. INSTALL.md names sibling repos and machine
+      # paths in its DoE-only regions; those regions are stripped before this
+      # guard runs, and the guard is what proves the strip was complete.
+      - kind: "no-residual-pattern"
+        params:
+          pattern_source:
+            registry_codenames: true
+            form: "alternation"
+          include_extensions:
+            - "*.md"
+            - "*.sh"
+            - "*.py"
+            - "*.json"
+            - "*.ts"
+            - "*.toml"
+            - "*.js"
+            - "*.mjs"
+            - "*.ps1"
+            - "*.cmd"
+
   # Mirrors coordinator-claude-publish-repo-setup/post-rsync/10-transform.sh.
   # target_dir is already narrow (the publish repo's setup/ subtree only, per
   # that hook's own scope comment) -- no file_surface override needed; base's

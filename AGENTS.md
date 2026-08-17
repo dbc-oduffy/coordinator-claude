@@ -6,11 +6,8 @@
 
 ## Start here: the install playbook
 
-<!-- The link below is repo-published-layout-relative: in the published coordinator-claude repo
-     AGENTS.md sits at the root and agent-install.md at docs/, so it resolves for the OSS user. In
-     the source/dev tree these live under dist/publish-repo-toplevel/ and dist/publish-repo-docs/,
-     so run doc-link-checker against the PUBLISHED layout, not the dev tree (where it false-positives). -->
-Read and follow **[`docs/agent-install.md`](docs/agent-install.md)** — that is the authoritative, step-by-step playbook written for you.
+Read and follow **`INSTALL.md`** — the root sibling of this file — that is the authoritative,
+step-by-step playbook written for you.
 
 It tells you:
 - What you are installing and why the order of steps matters
@@ -22,7 +19,7 @@ It tells you:
 
 ## Why this file exists
 
-`AGENTS.md` is a cross-tool convention filename that agents look for unprompted when they land in a repo. It means you can find the right entry point even when the human never pasted a one-liner — just navigate here, then to `docs/agent-install.md`.
+`AGENTS.md` is a cross-tool convention filename that agents look for unprompted when they land in a repo. It means you can find the right entry point even when the human never pasted a one-liner — just navigate here, then to `INSTALL.md`.
 
 ## What you must NOT do
 

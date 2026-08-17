@@ -60,7 +60,13 @@ before its gated directive(s) proceed — each option's inline guidance says wha
 to choose from. Mechanics detail: wiki.
 
 The claim step is a **mutual-exclusion check**, not cosmetic staleness — it's what stops two
-concurrent pickups of the same handoff from both proceeding.
+concurrent pickups of the same artifact from both proceeding. It fires at **brief**, not apply —
+the `apply` claim directive is a second, idempotent grab.
+
+**A brief that stands down is the end of the pickup, not a warning to read past.** Handoff and
+memo alike: `directives: []` plus a foreign holder in `gates.claim` / `gates.claim_grant` means
+stop before the body — don't read it, don't form a disposition, don't send anything outward.
+Reconcile with the holder or drop.
 
 **A claim already held by THIS session is not contention.** Read `gates.claim_grant.held_by_self`
 and `directives[].already_satisfied` — trust that signal over hand-comparing a raw `claimed_by`

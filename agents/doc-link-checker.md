@@ -20,7 +20,7 @@ Mechanical worker: crawl a documentation directory, validate every link (interna
 - **Read** — individual files when Bash pipe output is unwieldy.
 - **WebFetch** — HEAD requests to external URLs; sleep 1s between calls (via Bash); cap 100 URLs/dispatch.
 - **Edit** — one use only: injecting findings into your provisioned sidecar (§ Workflow step 5). Never for the documentation you're checking.
-- **Write, Grep, Glob** — not permitted.
+- **Never call `Write`, even if it turns out reachable at runtime.** `Grep`/`Glob` don't exist in this harness build. This agent's single-`Edit` sidecar workflow (§ Workflow step 5) never needs `Write` — don't substitute it in.
 
 ## Link Types and Validation Rules
 

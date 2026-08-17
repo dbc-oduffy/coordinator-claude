@@ -1962,19 +1962,22 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                 foreign_shas, own_shas = _partition_foreign_uncovered_shas(
                     uncovered, closing_session_id,
                 )
-                # AC4/Seam 2/3 — the recordable partition on the SAME
-                # evidence source the write guard consults
-                # (`_resolve_vouched_shas`), computed ONCE here and reused
-                # by both `build_chain_slices` below and the waived/
-                # unwaived narration further down (never re-derived a
-                # second time — the defect class this plan exists to
-                # stop). `vouched` is only resolved when there is a
-                # foreign sha to test it against; an empty `foreign_shas`
-                # needs no waiver lookup at all.
-                vouched = _resolve_vouched_shas(closing_session_id) if foreign_shas else frozenset()
-                waived_foreign = [s for s in foreign_shas if s in vouched]
-                unwaived_foreign = [s for s in foreign_shas if s not in vouched]
-                recordable_shas = frozenset(own_shas) | frozenset(waived_foreign)
+                # AC4/Seam 2/3 — the recordable partition, computed ONCE
+                # here and reused by both `build_chain_slices` below and the
+                # foreign-ancestry narration further down (never re-derived a
+                # second time — the defect class that plan exists to stop).
+                #
+                # A foreign-attributed commit is recordable by an ordinary
+                # review-trail write over its own concrete `<sha>^..<sha>`
+                # range: `_guard_foreign_session_range`'s Case 1 — the
+                # refusal a waiver used to exempt — is REMOVED
+                # (state/kill-ledger.md K-005, 2026-08-16), so such a
+                # commit falls through to Case 2 like any other. Partitioning
+                # recordability on `vouched` outlived that refusal: with
+                # `_resolve_vouched_shas` now always empty, it marked every
+                # ancestor commit unrecordable and told the closing EM prose
+                # narration was the only discharge available.
+                recordable_shas = frozenset(own_shas) | frozenset(foreign_shas)
                 # AC7 (plan C4) / AC3 (plan C3) — an aiming aid only: which
                 # of the shas about to be listed below already carry a
                 # discharging review-trail verdict recorded outside this
@@ -1999,7 +2002,7 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                 _displayed_shas = (
                     frozenset(code_shas_only[:cap])
                     | frozenset(planning_shas[:cap])
-                    | frozenset(unwaived_foreign[:cap])
+                    | frozenset(foreign_shas[:cap])
                 )
                 broadly_reviewed = _resolve_broadly_reviewed_shas(
                     trail_records, _displayed_shas, chain_dag_shas,
@@ -2033,9 +2036,10 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                         "the on-disk review-trail carries no verdict that "
                         "is both non-pending and non-waived, but every "
                         "uncovered commit is an ancestor/foreign-session "
-                        "commit — none of them are recordable by this "
-                        "session. This is a communicate-only gate here, "
-                        "not a halt.",
+                        "commit — none authored by this session. This is a "
+                        "communicate-only gate here, not a halt; a review "
+                        "this session runs over that ancestry is still "
+                        "recordable (see below).",
                         file=sys.stderr,
                     )
                 print(
@@ -2111,61 +2115,40 @@ def cmd_brightline_gate(args: argparse.Namespace) -> int:
                             file=sys.stderr,
                         )
                 if foreign_shas:
-                    # `waived_foreign`/`unwaived_foreign` are already
-                    # computed above (same `vouched` evidence source the
-                    # write guard consults, `_resolve_vouched_shas`) — never
-                    # re-derived here, matching Seam 2's "recordable is
-                    # supplied by the caller" contract.
+                    # Register (docs/wiki/guard-messaging.md § Register): one
+                    # fact, one runnable alternative. The uncapped per-sha
+                    # list lives on the persisted `chain_slices` record (this
+                    # call's own `_persist_brightline_verdict` above) rather
+                    # than being enumerated a second time in prose here.
                     #
-                    # AC5 register rewrite (docs/wiki/guard-messaging.md
-                    # § Register): the waived-foreign fact is stated once,
-                    # plus a terse alternative — no self-legitimacy
-                    # (asserting what the waiver "really" permits), no
-                    # restatement of the waiver's own mechanism, no DR
-                    # citation. The uncapped per-sha list now lives on the
-                    # persisted `chain_slices` record (this call's own
-                    # `_persist_brightline_verdict` above) instead of being
-                    # enumerated a second time in prose here.
-                    if waived_foreign:
+                    # Negative-spec: this text must not name a chain-ancestry
+                    # waiver, and must not tell the reader the write is
+                    # refused. Both were true only while
+                    # `_guard_foreign_session_range`'s Case 1 existed; K-005
+                    # removed it. Naming the gap in narration is no longer
+                    # the discharge available — the record is.
+                    print(
+                        f"  {len(foreign_shas)} of these {len(uncovered)} "
+                        "commit(s) were authored by a predecessor session in "
+                        "this chain. Reviewing them is still OWED, and a "
+                        "record this session writes discharges them: "
+                        "coordinator-write-review-trail --sha-range "
+                        '"<sha>^..<sha>" --scope chain (concrete endpoints '
+                        "only — a `..HEAD` range is dropped before the range "
+                        "is resolved). Record only what this session "
+                        "reviewed.",
+                        file=sys.stderr,
+                    )
+                    for line in _annotate_already_reviewed(
+                        _describe_uncovered_shas(foreign_shas[:cap], repo_root),
+                        broadly_reviewed,
+                    ):
+                        print(f"    {line}", file=sys.stderr)
+                    if len(foreign_shas) > cap:
                         print(
-                            f"  {len(waived_foreign)} of these "
-                            f"{len(uncovered)} commit(s) are foreign-session "
-                            "and recordable via a chain-ancestry waiver for "
-                            "this chain — not evidence anyone reviewed them "
-                            "(see gates.review_scale.chain_slices for the "
-                            "full list). Record only commits this session "
-                            "reviewed: coordinator-write-review-trail "
-                            '--sha-range "<sha>^..<sha>" --scope chain '
-                            "(concrete endpoints only — a `..HEAD` range is "
-                            "dropped before the waiver is consulted).",
+                            _format_capped_overflow_note(len(foreign_shas), cap),
                             file=sys.stderr,
                         )
-                    if unwaived_foreign:
-                        print(
-                            f"  {len(unwaived_foreign)} of these "
-                            f"{len(uncovered)} commit(s) are unrecordable by "
-                            "an ordinary review-trail write: authored by a "
-                            "predecessor session, carrying no chain-ancestry "
-                            "waiver for this chain, and the foreign-session "
-                            "guard refuses any range naming them, so no "
-                            "record this session writes can discharge them. "
-                            "The review is still OWED, not waived away: "
-                            "naming this gap and its cause in the "
-                            "workstream-complete narration IS the discharge "
-                            "for it — do not read this refusal as license "
-                            "to leave the ancestry silently uncovered.",
-                            file=sys.stderr,
-                        )
-                        for line in _annotate_already_reviewed(
-                            _describe_uncovered_shas(unwaived_foreign[:cap], repo_root),
-                            broadly_reviewed,
-                        ):
-                            print(f"    {line}", file=sys.stderr)
-                        if len(unwaived_foreign) > cap:
-                            print(
-                                _format_capped_overflow_note(len(unwaived_foreign), cap),
-                                file=sys.stderr,
-                            )
                 if own_shas:
                     print(
                         f"REMEDY: record a per-commit review-trail verdict "

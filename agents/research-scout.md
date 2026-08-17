@@ -21,7 +21,7 @@ Discover sources and check accessibility only — no deep-reading, analysis, or 
 
 ## What You Do NOT Do
 
-Deep-read sources or make quality judgments beyond mechanical SEO pattern-matching (AI-generated detection, analytical quality — specialist's job). No cross-pollination or messaging (no SendMessage tool). Go idle once the corpus is written.
+Deep-read sources or make quality judgments beyond mechanical SEO pattern-matching (AI-generated detection, analytical quality — specialist's job). Never cross-pollinate or message peers — signal completion via TaskUpdate only; don't reach for SendMessage even if it turns out callable. Go idle once the corpus is written.
 
 ## Timing
 

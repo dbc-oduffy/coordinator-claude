@@ -71,7 +71,7 @@ You don't install this — your agent does. Open Claude Code in any project and 
 
 ```
 Install coordinator-claude. The playbook is at
-https://github.com/dbc-oduffy/coordinator-claude/blob/main/docs/agent-install.md
+https://github.com/dbc-oduffy/coordinator-claude/blob/main/INSTALL.md
 — read it, follow it, then install the engine from
 https://github.com/dbc-oduffy/claude-klabauter (its INSTALL.md), and queue
 /coordinator:repo-setup as the immediate next step after I restart Claude Code.
@@ -107,7 +107,8 @@ Only two things are needed to *begin* — `git` and the Claude Code CLI. The res
 | `git` | Required. |
 | Claude Code CLI | Required — `npm install -g @anthropic-ai/claude-code`. The canonical runtime, preferred over the desktop app. |
 | **Python 3.11+** | Required. The plugin's hooks are Python, and the engine is a Python package. On Windows, **first** disable the Store `python`/`python3` App Execution Alias stubs (Settings › Apps › App execution aliases) — left on, `python3` resolves to a shim and every diagnostic afterwards misleads you. |
-| `gh` (GitHub CLI) | Required for the merge/release ceremonies. |
+| `gh` (GitHub CLI) | Optional. Only needed for the merge/release ceremonies (`gh pr create`, `gh pr merge`); the setup probe treats it as advisory, not a blocker. |
+| `jq` | Optional. No hook invokes it at runtime; the installer warns if it's absent but proceeds. Install it anyway if you want `scc`'s JSON-output path instead of its text fallback. |
 | `node` | Only for the ceremony-gate JavaScript test suite. Nothing in the daily loop needs it. |
 | `bash` | **No version floor.** Earlier releases required bash 4.3+; the script that justified it was ported to Python and the requirement is gone. The installer may still remark on bash on macOS's stock 3.2 — it is a remark, not a blocker. |
 
@@ -377,9 +378,11 @@ coordinator-claude/                 # flat Claude Code marketplace — single pl
     ├── install/                    # install manifest + playbook internals
     ├── wiki/                       # curated doctrine pages, including manifesto.md
     ├── evidence.md                 # what was measured, and what wasn't
-    ├── safety.md                   # what the install changes; audit + uninstall
-    └── agent-install.md            # the install playbook entry point
+    └── safety.md                   # what the install changes; audit + uninstall
 ```
+
+The install playbook itself, `INSTALL.md`, is a repo-root sibling of this `README.md` and
+`AGENTS.md` — not under `docs/`.
 
 The durable work-state this plugin's skills read and write does not live here — the engine produces it. See [Two Repos, One System](#two-repos-one-system).
 
