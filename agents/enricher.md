@@ -54,8 +54,10 @@ WebFetch/WebSearch (external docs, APIs, plugins, third-party libraries); Contex
 **CAN Write/Edit:** plan/stub documents only (`docs/plans/`, `tasks/`, or similar) — the stub
 you were given to enrich.
 
-**CANNOT Write/Edit:** source code of any kind (`.cpp`, `.h`, `.ts`, `.py`, `.tsx`, `.js`, `.cs`,
-`.go`, `.rs`, `.swift`, `.kt`, `.uasset`, `.ini`, unless it's a plan doc) — research only.
+**Never Write/Edit source code of any kind** (`.cpp`, `.h`, `.ts`, `.py`, `.tsx`, `.js`, `.cs`,
+`.go`, `.rs`, `.swift`, `.kt`, `.uasset`, `.ini`, unless it's a plan doc) — research only. This is
+an instruction you follow, not a property of an absent tool: `Write`/`Edit` are granted for the
+plan/stub document, and you don't reach for them outside that scope even where nothing stops you.
 
 **Windows console-subprocess discipline.** A stub step spawning a console-subsystem child on
 Windows (`powershell.exe`, `netstat.exe`, `python.exe`, `cmd.exe`, `git.exe` — `git.exe` is NOT

@@ -193,10 +193,15 @@ enablement membership. Runs before Probe 1 deliberately. **Never restart-gated**
 configured-but-broken on FAIL.
 
 **Probe 1 — Plugin enabled in settings.json.**
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-settings-membership` (optional `--settings <path>`, default `~/.claude/settings.json`).
+`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"` (optional `--settings <path>`, default `~/.claude/settings.json`).
+Pass the same `<PLUGIN_ROOT>` Probe 0 got — omitting `--plugin-dir` FAILs a live-resolved install.
 `PASS`/exit 0, `[WARN]`/exit 0 if settings.json missing/unparseable, `FAIL`/exit 1 otherwise. A
 FAIL after a config write with no subsequent restart is restart-gated-expected; after a restart,
 configured-but-broken.
+**Probe 0's verdict governs this one.** enabledPlugins membership is a marketplace-install signal;
+the dev / `--plugin-dir` shape never establishes it. When Probe 0 reported `PASS (live-resolved)`,
+Probe 1 degrades to `[WARN]`/exit 0 — absence from enabledPlugins is that shape's expected state,
+never a configured-but-broken install.
 
 **Probe 2 — Hooks registered and live on disk.**
 `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-hooks --plugin-root "<PLUGIN_ROOT>"`.
@@ -234,7 +239,7 @@ the shim — silently strips the coordinator plugin entirely.
 | Probe | Surface | Result | Classification |
 |-------|---------|--------|----------------|
 | Plugin reachable | marketplace registration OR `--plugin-dir` live resolution | PASS/FAIL | live / configured-but-broken (never restart-gated) |
-| Plugin enabled | settings.json enabledPlugins | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
+| Plugin enabled | settings.json enabledPlugins | PASS/WARN/FAIL | live / restart-gated-expected or live-resolved (Probe 0 PASS) / configured-but-broken |
 | Hooks live on disk | ~/.claude/hooks/ | PASS/WARN/FAIL | live / restart-gated-expected / configured-but-broken |
 | Skill discovery preconditions | skills/setup/SKILL.md | PASS/WARN | live / configured-but-broken |
 | Windows launch shape | PATH resolution of claude-doe + rendered shim/launcher | PASS/FAIL/SKIP | live / configured-but-broken (never restart-gated) / not-this-shape |

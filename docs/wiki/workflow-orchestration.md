@@ -70,6 +70,36 @@ Workflow doctrine concentrates at `/execute-plan` rather than blanket-covering e
 
 ---
 
+## The Workflow vehicle rewrites the dispatched agent's tool surface
+
+A dispatched agent's `tools:` frontmatter is an enforced allowlist under plain `Agent` dispatch —
+but not under Workflow, where the vehicle rewrites the surface in both directions at once.
+Reported: a `coordinator:` agent dispatched via `Workflow.agent()` received exactly `Read, Write,
+Bash, StructuredOutput` against a definition declaring more. `ToolSearch` and `Task*` were
+**removed**; `StructuredOutput` was **added** (the Workflow tool's own doc: a schema'd `agent()`
+call forces emission through a `StructuredOutput` tool — retry-cap failure mode below). A reader
+who knows only "tools get removed" will mis-model the add side.
+
+That surface figure is an agent's self-report, not an attempted call, and is not to be cited as a
+measurement (`SELF-REPORTED-TOOL-SURFACE-IS-NOT-EVIDENCE`). The `StructuredOutput` add is
+independently documented; the Bash narrowing below has its own empirical evidence.
+
+**Bash narrowing has a demonstrated correctness cost.** A Workflow-dispatched
+`coordinator:executor` was denied `pnpm vitest`/`pnpm run typecheck` by its Bash allowlist, wrote
+41 tests it could not run, and honestly reported every AC "PASS (by inspection)." The EM then ran
+the suite: 40/41 passed, and the one failure was a real defect inspection couldn't catch. Treat
+"PASS (by inspection)" as unverified — the EM runs the tests before trusting the chunk (see
+`/execute-plan`'s EM-verify step).
+
+**Plain `Agent` is the contrast, not a second instance.** Three definitions probed empirically
+under plain `Agent` each received their own declaration minus platform variance — the allowlist
+holds there, and Bash arrives unconfined. So the rewrite is a property of this vehicle, and a
+chunk that needs its declared surface intact is a reason to prefer plain dispatch. Carried over
+from plain `Agent` and therefore not vehicle-specific: `ToolSearch` and declared MCP tools are not
+received on either path (DR-168, rule 3).
+
+---
+
 ## Reading a Workflow failure — verify disk before re-dispatch
 
 A Workflow reporting a failure has almost always **already persisted its executors' file edits** — the general "files persist before failure" crash-doctrine applies here too. Two failure shapes recur, both more benign than the verdict string reads:

@@ -1,3 +1,13 @@
+#!/usr/bin/env python3
+# Unix shebang — load-bearing, not decoration. Unlike its peers in this
+# directory, this file is installed by BYTE COPY (shutil.copyfile via
+# coordinator_core.install.wrapper_onto_path) as an extension-less, exec-bit
+# POSIX target at <settings-home>/bin/claude-doe. The peers that lack a shebang
+# at source (doctor.py, cross-repo-memo.py) are fine because their installed
+# copies are GENERATED trampolines whose content is authored with one. Nothing
+# injects a shebang into a byte copy, so without this line execve returns
+# ENOEXEC, the shell falls back to parsing Python as sh, and no session can
+# launch. Guard: coordinator_core/install/tests/test_installed_posix_targets_have_shebang.py
 # claude-doe — persistent launch wrapper for the DoE-maximalist coordinator delivery shape.
 #
 # Purpose: resolve the DoE clone, validate its coordinator/ sub-directory, then exec claude

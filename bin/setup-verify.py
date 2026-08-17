@@ -205,16 +205,46 @@ def cmd_check_override_flags(args: argparse.Namespace) -> int:
 # forever blind, which is the same vacuous pass F6 above was raised to kill.
 # An extension list is load-bearing here: widen it when a new hook language
 # lands, never shrink it.
+#
+# That rule stands, but it is NOT the only way this probe goes blind, and
+# treating it as such cost a second blindness (machine-b, 2026-08-17): the
+# regex was correct and matched zero of 27 hooks anyway, because the paths had
+# moved out of `command` into `args` under the bootstrap-exec seam. The scanned
+# FIELD SET is load-bearing exactly as much as the extension list is — see
+# `_walk_hook_commands`. Before editing this pattern, confirm the path is
+# actually reaching it.
 _HOOK_COMMAND_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/(\S+\.(?:py|sh))")
 
 
 def _walk_hook_commands(obj):
-    """Yield every string found at a "command" key anywhere in the hooks.json tree."""
+    """Yield every coordinator-owned hook path found on a hook entry anywhere in
+    the hooks.json tree.
+
+    Scans `args[]` as well as `command`, because a hook entry's script path is
+    not reliably in `command`. Under the bootstrap-exec seam every coordinator
+    entry reads `"command": "python3"` with the real target in `args`:
+
+        {"command": "python3",
+         "args": ["-c", "<exec-the-file-at-argv-tail bootstrap>",
+                  "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-dispatch.py", ...]}
+
+    Scanning `command` alone matched zero of 27 registered hooks on machine-b
+    2026-08-17 — the same forever-blind vacuous pass the negative-spec above was
+    written to kill, arriving through a different door: the paths moved out of
+    the scanned field rather than changing extension. The regex itself was never
+    wrong (`hooks/scripts/foo.py` satisfies it), so widening the alternation —
+    which this probe's own FAIL text used to recommend — would have fixed
+    nothing. Scan every field a path can hide in, not just the obvious one.
+    """
     if isinstance(obj, dict):
-        if "command" in obj and isinstance(obj["command"], str):
-            m = _HOOK_COMMAND_RE.search(obj["command"])
-            if m:
-                yield m.group(1)
+        for key in ("command", "args"):
+            value = obj.get(key)
+            for text in (value,) if isinstance(value, str) else (
+                [v for v in value if isinstance(v, str)] if isinstance(value, list) else ()
+            ):
+                m = _HOOK_COMMAND_RE.search(text)
+                if m:
+                    yield m.group(1)
         for v in obj.values():
             yield from _walk_hook_commands(v)
     elif isinstance(obj, list):
@@ -297,8 +327,13 @@ def cmd_check_hooks(args: argparse.Namespace) -> int:
         )
         print(
             "  A registered-but-unrecognised hook set means the probe has gone blind, "
-            "not that the hooks are absent — widen the extension alternation in "
-            "_HOOK_COMMAND_RE to cover the language the hooks now use.",
+            "not that the hooks are absent. Check, in order: (1) which field carries "
+            "the script path — _walk_hook_commands scans `command` and `args`, so a "
+            "path reachable only through some other key is invisible here; (2) whether "
+            "the path is still spelled ${CLAUDE_PLUGIN_ROOT}/hooks/...; (3) only then, "
+            "the extension alternation. Do NOT reach for (3) first — the 2026-08-17 "
+            "blindness was (1), the paths having moved into `args` under the "
+            "bootstrap-exec seam, and no alternation change would have fixed it.",
             file=sys.stderr,
         )
         return 1
@@ -374,7 +409,31 @@ def cmd_check_settings_membership(args: argparse.Namespace) -> int:
         print("PASS — coordinator plugin found in enabledPlugins")
         return 0
 
+    # SKILL.md amendment (DoE-claude 25121f849): absence from `enabledPlugins`
+    # is the dev / `--plugin-dir` install shape's EXPECTED state, not
+    # configured-but-broken. When Probe 0's route-2 evidence holds at the same
+    # --plugin-dir, degrade to WARN/exit 0 rather than failing an install that
+    # is demonstrably live. WARN, not SKIP, so the row stays visible.
+    if args.plugin_dir:
+        source_dir = Path(args.plugin_dir)
+        manifest_ok, commands_present, hooks_present = _route2_evidence(source_dir)
+        if manifest_ok and (commands_present or hooks_present):
+            print(
+                f"[WARN] coordinator plugin not in enabledPlugins, but is live-resolved "
+                f"via --plugin-dir at {source_dir} — expected for a dev/--plugin-dir "
+                f"install, which does not use marketplace enablement. Not a fault.",
+                file=sys.stderr,
+            )
+            return 0
+
     print("FAIL — coordinator plugin NOT found in enabledPlugins")
+    if not args.plugin_dir:
+        print(
+            "  If this is a dev / --plugin-dir install, pass --plugin-dir <plugin-root> "
+            "so this probe can consult the same live-resolved evidence Probe 0 uses; "
+            "such installs never populate enabledPlugins.",
+            file=sys.stderr,
+        )
     return 1
 
 
@@ -387,6 +446,44 @@ def cmd_check_settings_membership(args: argparse.Namespace) -> int:
 
 def _default_claude_plugins_dir() -> Path:
     return Path(os.path.expanduser("~")) / ".claude" / "plugins"
+
+
+def _route2_evidence(source_dir: Path) -> "tuple[bool, bool, bool]":
+    """Positive-evidence test for a plugin live-resolved via `--plugin-dir`
+    rather than marketplace-registered: `(manifest_ok, commands_present,
+    hooks_present)`.
+
+    A directory merely existing is not evidence — the caller requires
+    `manifest_ok and (commands_present or hooks_present)`.
+
+    Shared deliberately by Probe 0 (`cmd_check_plugin_registered`, route 2) and
+    Probe 1 (`cmd_check_settings_membership`, the live-resolved degrade). Those
+    two probes disagreeing about the same install on the same box is the exact
+    defect this helper exists to prevent: on machine-b 2026-08-17, Probe 0
+    passed a dev-tree install as `PASS (live-resolved)` while Probe 1 FAILed it
+    as configured-but-broken, and Probe 1's non-zero exit is the one that sets
+    the skill's verdict. One discriminator, one answer.
+    """
+    manifest_path = source_dir / ".claude-plugin" / "plugin.json"
+    manifest_ok = False
+    if manifest_path.is_file():
+        try:
+            manifest_ok = isinstance(json.loads(manifest_path.read_text()), dict)
+        except (OSError, json.JSONDecodeError):
+            manifest_ok = False
+
+    commands_dir = source_dir / "commands"
+    commands_present = commands_dir.is_dir() and any(commands_dir.glob("*.md"))
+
+    hooks_present = False
+    hooks_json_path = source_dir / "hooks" / "hooks.json"
+    if hooks_json_path.is_file():
+        try:
+            hooks_present = bool(list(_walk_hook_commands(json.loads(hooks_json_path.read_text()))))
+        except (OSError, json.JSONDecodeError):
+            hooks_present = False
+
+    return manifest_ok, commands_present, hooks_present
 
 
 def cmd_check_plugin_registered(args: argparse.Namespace) -> int:
@@ -559,25 +656,7 @@ def cmd_check_plugin_registered(args: argparse.Namespace) -> int:
     if args.plugin_dir:
         source_dir = Path(args.plugin_dir)
         manifest_path = source_dir / ".claude-plugin" / "plugin.json"
-        manifest_ok = False
-        if manifest_path.is_file():
-            try:
-                manifest_data = json.loads(manifest_path.read_text())
-                manifest_ok = isinstance(manifest_data, dict)
-            except (OSError, json.JSONDecodeError):
-                manifest_ok = False
-
-        commands_dir = source_dir / "commands"
-        commands_present = commands_dir.is_dir() and any(commands_dir.glob("*.md"))
-
-        hooks_present = False
-        hooks_json_path = source_dir / "hooks" / "hooks.json"
-        if hooks_json_path.is_file():
-            try:
-                hooks_data = json.loads(hooks_json_path.read_text())
-                hooks_present = bool(list(_walk_hook_commands(hooks_data)))
-            except (OSError, json.JSONDecodeError):
-                hooks_present = False
+        manifest_ok, commands_present, hooks_present = _route2_evidence(source_dir)
 
         if manifest_ok and (commands_present or hooks_present):
             print(
@@ -639,6 +718,14 @@ def build_parser() -> argparse.ArgumentParser:
         "check-settings-membership", help="Check enabledPlugins for coordinator membership"
     )
     p_settings.add_argument("--settings", default=None)
+    p_settings.add_argument(
+        "--plugin-dir",
+        default=None,
+        help="Plugin root, as passed to check-plugin-registered. When given and the "
+        "same route-2 live-resolved evidence holds there, absence from enabledPlugins "
+        "degrades to WARN/exit 0 instead of FAIL — the dev/--plugin-dir install shape "
+        "never populates enabledPlugins.",
+    )
     p_settings.set_defaults(func=cmd_check_settings_membership)
 
     p_plugin_reg = sub.add_parser(

@@ -224,6 +224,20 @@ try:
 except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
     SESSION_LEDGER_BLOCK_LINES = None
 
+# `canonical_kind` — the ONE canonical legacy<->target `kind` aliasing
+# function (coordinator_core.frontmatter.baton_class), routed through here
+# instead of a local literal --type alias table so this CLI stays covered by
+# `coordinator_core/tests/test_baton_class_is_the_only_membership_set.py`'s
+# single-owner rule. Same best-effort degrade-to-None posture as
+# SESSION_LEDGER_BLOCK_LINES above: an unresolvable engine costs the legacy
+# --type spellings' normalization (they fail the known-type gate below
+# instead, same as any other unrecognized --type), not a crash on every
+# other doc type.
+try:
+    from coordinator_core.frontmatter.baton_class import canonical_kind as _canonical_kind  # noqa: E402
+except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
+    _canonical_kind = None
+
 
 def _no_console_creationflags() -> dict:
     """``subprocess`` kwargs that suppress a console window on Windows.
@@ -628,7 +642,9 @@ def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str |
         return
 
     try:
-        repo_rel = os.path.relpath(out_path, repo_root).replace(os.sep, "/")
+        repo_rel = os.path.relpath(
+            os.path.realpath(out_path), os.path.realpath(repo_root)
+        ).replace(os.sep, "/")
         parsed = parse_frontmatter(content)
         frontmatter = parsed.get("frontmatter")
         body = parsed.get("body") or ""
@@ -3174,6 +3190,12 @@ def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
 
     Required fields: schema, intent, estimate (tshirt + provisional),
     route, detents, fork, xl_exit, status, premise (provenance).
+    `name` is OPTIONAL and scaffolded commented-out — see
+    schemas/sizing-object.schema.json's `name` description for the
+    60-char cap and label-not-identifier contract; this function never
+    derives one from `title`/slug/`intent`, and leaves it commented so
+    an unedited scaffold does not surface a placeholder in cockpit's
+    tab strip.
     `title` is used only to seed the
     `intent` placeholder (sizing-object has no `title` field of its own —
     `intent` is the PM's verbatim ask). All enum-valued fields are
@@ -3207,6 +3229,7 @@ def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
     intent_placeholder = title if title else "PLACEHOLDER — replace with the PM's ask, verbatim"
     lines = [
         "schema: sizing-object",
+        "# name: PLACEHOLDER  # OPTIONAL, <=60 chars — a display LABEL only, nothing joins on it; do NOT slice from intent",
         f"intent: {_yaml_quote(intent_placeholder)}",
         "estimate:",
         "  tshirt: XS  # XS | S | M | L | XL | XXL — reuses loe.tshirt; coarse ROUTING estimate only",
@@ -4531,14 +4554,15 @@ def main() -> None:
     # + older manifest, or the reverse) needs both spellings to keep scaffolding.
     # Normalize here, before the known-type gate and every doc_type branch below,
     # mirroring the --type flight-recorder alias pattern immediately below.
+    # Routed through `baton_class.canonical_kind()` (see the module-level
+    # best-effort import above) rather than a local literal alias dict — that
+    # dict would re-pair a retired `kind` value with its D1 successor outside
+    # `baton_class.py`, exactly what
+    # `coordinator_core/tests/test_baton_class_is_the_only_membership_set.py`
+    # forbids.
     # Spec backlink: docs/plans/2026-07-29-baton-kind-vocabulary-one-axis-per-field.md
-    _LEGACY_TYPE_ALIASES = {
-        "spinoff-goal": "goal-seed",
-        "spinoff-roadmap": "roadmap-baton",
-        "spinoff-roadmap-creator": "roadmap-seed",
-    }
-    if doc_type in _LEGACY_TYPE_ALIASES:
-        _canonical_type = _LEGACY_TYPE_ALIASES[doc_type]
+    _canonical_type = _canonical_kind(doc_type) if _canonical_kind is not None else doc_type
+    if _canonical_type and _canonical_type != doc_type:
         print(
             f"note: --type {doc_type} is a legacy alias — the canonical name is "
             f"--type {_canonical_type}. Both keep working; consider updating the caller.",
@@ -5470,7 +5494,9 @@ def main() -> None:
         _ensure_engine_on_path()
         from coordinator_core.locked_write import MutateAbort as _MutateAbort  # noqa: PLC0415
 
-        _plan_repo_rel_path = os.path.relpath(out_path, _write_repo_root).replace(os.sep, "/")
+        _plan_repo_rel_path = os.path.relpath(
+            os.path.realpath(out_path), os.path.realpath(_write_repo_root)
+        ).replace(os.sep, "/")
         try:
             _sizing_reverse_old_text = _write_sizing_reverse_edge(
                 _sizing_abs_path, _plan_repo_rel_path, _write_repo_root,
@@ -5566,7 +5592,11 @@ def main() -> None:
         # <path>), not a filesystem handle a caller reopens locally --
         # os.path.relpath() returns native-separator (backslash) strings on
         # Windows, which those downstream consumers don't expect.
-        print(os.path.relpath(out_path, _anchored_repo_root).replace(os.sep, "/"))
+        print(
+            os.path.relpath(
+                os.path.realpath(out_path), os.path.realpath(_anchored_repo_root)
+            ).replace(os.sep, "/")
+        )
     else:
         print(out_path)
 

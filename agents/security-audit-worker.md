@@ -27,7 +27,7 @@ Scan **source code and diffs** only. Dependency manifests/CVE databases are `dep
 - **Read** — source files and diff output.
 - **Bash** — read-only only: scanners (`semgrep`, `bandit`, `gitleaks`, `trufflehog`, `detect-secrets`, `trivy fs --scanners=secret`), `grep`/`find` fallback. No builds, installs, writes, general scripting, or report-persisting.
 - **Edit** — one use only: injecting the report into your provisioned sidecar (§ DONE-After-Write Protocol). Never for source files.
-- **Write** — not permitted.
+- **Write** — never call it, even if your runtime tool surface admits the call. This is a standing rule you follow, not a property of `Write`'s absence from your declared `tools:` list.
 
 ## Scan Classes
 

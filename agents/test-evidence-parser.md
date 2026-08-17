@@ -20,7 +20,7 @@ Test *output* only — no architectural judgments about test design, no refactor
 
 ## Tools Policy
 
-Read (the raw-output path) and Edit (the sentinel replacement) only. No Bash, Write, Grep, or Glob — the test command never runs in this dispatch.
+Use Read (the raw-output path) and Edit (the sentinel replacement) only. Never call Bash, Write, Grep, or Glob, and never run the test command, whether or not your runtime tool surface admits any of them — this is a standing rule you follow, not a property of their absence from your declared `tools:` list.
 
 ## Workflow
 

@@ -8,42 +8,44 @@ contract: ../wiki/agent-install-contract.md
 > **Chain position:** coordinator-claude is the **root of the OSS plugin-adoption chain** —
 > nothing installs "above" it, and it is always installed first among the peer plugins. Any
 > downstream repo that adopts the contract may declare coordinator-claude as a dependency.
-> As of **W0.5 Option B+C** (PM-ratified 2026-07-19), coordinator-claude itself declares ONE
-> hard direct dep of its own: **claude-klabauter** (the engine) — a mandatory prerequisite of
-> coordinator in every environment, including OSS-mirror installs. "DAG root" below means root
-> of the plugin chain, not zero dependencies. **claude-klabauter is currently a private repo**
-> (open-source release pending); until then, the maintainer grants access directly on
-> request — the same distribution model already used for `project-rag`. A denied/404 clone is
-> not a broken URL — see § Fail-loud claude-klabauter resolution below.
+> As of **W0.5 Option B+C** (PM-ratified 2026-07-19, identity corrected 2026-08-17),
+> coordinator-claude itself declares ONE hard direct dep of its own: **claude-klabauter** (the
+> engine) — a mandatory prerequisite of coordinator in every environment, including OSS-mirror
+> installs. "DAG root" below means root of the plugin chain, not zero dependencies. The
+> chain-walker resolves the engine root that backs claude-klabauter at runtime via
+> `CLAUDE_KLABAUTER_ROOT`'s four-rung ladder — see § Fail-loud claude-klabauter resolution below for that
+> mechanism; it is an internal resolution detail, not a second dependency.
 
-> **You are an agent reading this file** because the setup skill dispatched you to walk the
-> install chain for coordinator-claude. Follow the install contract at
-> `docs/wiki/agent-install-contract.md`. Do not improvise. If a step fails, stop and report.
+> **You are an agent reading this file** either because you were asked to install this repo, or
+> because the setup skill dispatched you to walk the install chain for coordinator-claude — both
+> arrivals land here. Follow the install contract at `docs/wiki/agent-install-contract.md`. Do
+> not improvise. If a step fails, stop and report.
 
 ---
 
 ## Chain posture
 
 coordinator-claude is the root of the plugin-adoption chain (chain step 5 of 5). As of W0.5
-Option B+C, it declares **one hard direct dep**: `claude-klabauter` (`severity: hard`,
-`functional_probe_kind: claude_klabauter_seam_resolvable`). The chain-walker visits coordinator-claude,
-probes that one dep, and terminates once it is satisfied:
+Option B+C (identity corrected 2026-08-17), it declares **one hard direct dep**:
+`claude-klabauter` (`severity: hard`, `functional_probe_kind: claude_klabauter_seam_resolvable`). The
+chain-walker visits coordinator-claude, probes that one dep, and terminates once it is
+satisfied:
 
 "coordinator install-chain walker — chain step 5 of 5: all deps satisfied."
 
 No upstream probe is needed in the plugin-chain sense — as the root of THAT chain, there is
 nothing above coordinator-claude to walk — but the claude-klabauter probe still runs (it is
-the walker's own mandatory engine dependency, not a plugin-chain edge). If claude-klabauter is
-unresolvable, the walker fails loud: the `claude_klabauter_seam_resolvable` probe kind bypasses the
-ordinary sibling-directory check (claude-klabauter is registry/env-resolved via CLAUDE_KLABAUTER_ROOT's
-four-rung ladder, not sibling-colocated) — see § Fail-loud claude-klabauter resolution below. Any
-downstream consumer that depends on coordinator-claude recurses into this same terminal state;
-coordinator is visited exactly once even when reached via multiple paths, via the disk-resident
-visited-set per contract § Visited-set protocol.
+the walker's own mandatory engine dependency, not a plugin-chain edge). The probe kind's name
+(`claude_klabauter_seam_resolvable`) is an internal-mechanism label, not a second dependency identity —
+it resolves the engine root that backs claude-klabauter via CLAUDE_KLABAUTER_ROOT's four-rung ladder, not
+sibling-colocation. If it is unresolvable, the walker fails loud — see § Fail-loud claude-klabauter
+resolution below. Any downstream consumer that depends on coordinator-claude recurses into this
+same terminal state; coordinator is visited exactly once even when reached via multiple paths,
+via the disk-resident visited-set per contract § Visited-set protocol.
 
 ### Fail-loud claude-klabauter resolution
 
-Because `coordinator/scripts/setup.py` (the chain-walker itself) is a trampoline into
+Because claude-klabauter's `coordinator/scripts/setup.py` (the chain-walker itself) is a trampoline into
 Claude-klabauter-authored `coordinator_core.ops.setup_chain_walker`, CLAUDE_KLABAUTER_ROOT must already be
 resolvable just to IMPORT the walker — a genuine chicken-egg constraint. If CLAUDE_KLABAUTER_ROOT cannot
 be resolved via any of its four rungs, `setup.py` fails loud at that import step (exit 95, the
@@ -68,11 +70,12 @@ purposes. Use the right one.
 > **For the OSS solo install (the common path), the only post-restart verb you need is
 > `/coordinator:install`** (then `/coordinator:repo-setup` to onboard a project). The three-verb
 > disambiguation below is for agents arriving in a multi-repo chain-walk context — see
-> [`docs/agent-install.md`](../../dist/publish-repo-docs/agent-install.md) for the solo playbook.
+> [`INSTALL.md`](../../../INSTALL.md) for the solo playbook.
 
 - **`/coordinator:setup`** — the **install-chain walker** required by the agent-install contract.
   Reads `agent-install-manifest.json`, walks the `direct_deps` list (one hard entry —
-  claude-klabauter, as of W0.5), and terminates cleanly once satisfied. This is the verb you
+  claude-klabauter, as of W0.5, identity corrected 2026-08-17), and terminates cleanly once
+  satisfied. This is the verb you
   invoke when performing a first-time or refreshed install-chain verification. It is specified
   by the contract at `docs/wiki/agent-install-contract.md` and is what the `setup_skill` field
   in the manifest points to.
@@ -89,6 +92,70 @@ purposes. Use the right one.
 
 In short: `/coordinator:setup` walks the install chain (contract); `/coordinator:install` installs
 the plugin; `/coordinator:repo-setup` onboards a project. All three coexist; none replaces another.
+
+**Naming collision, not synonymous.** A settings-home `bin/coordinator-install` entry is landing
+on claude-klabauter's side (a forwarder generated from their own `bin/` listing, with no file
+authored in this repo). That entry means the **chain root** — walking the whole install chain,
+the scope of `/coordinator:setup` above — not the narrow OSS-plugin-install leg this section's
+`/coordinator:install` names. Same name, two scopes, across the two surfaces an installing agent
+reads in sequence. The bin entry is not renamed to remove the collision — the grepped name has
+to win — so read this paragraph rather than assuming the slash-command and the bin entry are the
+same verb.
+
+## Settings-home provisioning
+
+`~/.coordinator-claude-settings` (`$COORDINATOR_SETTINGS_HOME`) must be populated on install —
+`bin/` (the agent-helper forwarders plus the `SETTINGS_HOME_BIN` PATH block), `machine-local/`
+(the registry substrate), and `.coordinator-venv/` (the coordinator venv). This is a required
+post-condition of installing this repo, in **both** delivery shapes — the DoE-maximalist path
+(`coordinator/scripts/install-maximalist.py`) and the plugin-layered OSS path
+(`/coordinator:install` Phase 3, `coordinator/lib/install-substrate.py` in the engine root).
+
+**The post-condition is outcome-conditional, not "running it installs."** claude-klabauter's ruling
+(their installer must provision the interpreters declared consumers resolve to — including the
+bare `python3` this repo's `hooks.json` registers hooks under — and must FAIL with named
+remediation rather than override a PEP-668 guard) makes a designed refusal a CONFORMING outcome on
+a guarded box, not a defect. The install command is expected to refuse there, by design. Read this
+section's requirement as: **either** `~/.coordinator-claude-settings` is provisioned as above,
+**or** the installer exits with the reserved designed-refusal code below, naming the supported
+interpreter — never as an unconditional "the directory gets populated."
+
+**Designed-refusal exit code: `96`** (`entry_point_contract.refusal_exit_code` in claude-klabauter's
+own manifest; source constant `scripts/setup.py::EXIT_INTERPRETER_UNSUPPORTED`). 96 never means a
+genuine provisioning failure — it is reserved so this post-condition names a discriminator a test
+can read rather than parsing stderr prose. Confirmed live on claude-klabauter's side
+(`cross-repo/inbox/2026-08-17-claude-klabauter-em-exit-96-reserved-and-your-programmatic-entry-point-is-dangling.md`);
+as of that memo the reservation and the manifest field are landed but the raise site itself is not
+yet — it is owned by their machine-first-install-surface plan's C2, authorized and executing. If a
+reader hits this section before that emitter lands, the refusal path is contracted but not yet
+observable end-to-end; the code value itself will not move.
+
+**Both delivery shapes provision identically for these three components — verified by code path,
+not by running a fresh install on this (shared, multi-session) machine.** `/coordinator:install`
+Phase 3 invokes `coordinator/lib/install-substrate.py` with no flags, which imports and calls
+`coordinator_core.install.substrate.main()` → `run(setup_only=False, check_only=...)`.
+`coordinator_core/install/maximalist.py` calls the same `substrate.run(setup_only=False, ...)`
+(directly, or via the `coordinator/scripts/install-maximalist.py` trampoline that imports it).
+Both therefore run
+the unconditional `bin/` + PATH-guard-block step (`substrate.py`'s step 3e-bin, which calls
+`write_path_entry_guard_blocks` unconditionally whenever `check_only` is false) and the
+`machine-local/`/venv steps identically — `setup_only=True` is the only branch that would skip
+them, and neither install path passes it. There is no reduced OSS-shape for bin/, machine-local/,
+or the venv; the plugin-layered and maximalist paths are the same provisioning code, invoked two
+ways.
+
+**Discharge split, by ownership.** DoE declares this post-condition (this section, and
+`docs/wiki/agent-install-contract.md`); **claude-klabauter owns the proof** — a test in their own
+tree pinning that the plugin-layered invocation shape (no `--setup-only`) provisions the
+directory, since a DoE-side paragraph citing their `file:line`s rots on their next refactor
+(`install_health_run.py` lives at `coordinator_core/ops/install_health_run.py`, not
+`coordinator_core/install/` — a citation drift caught during this chunk's own investigation).
+Claude-klabauter has accepted owning that test half
+(`cross-repo/inbox/2026-08-17-claude-klabauter-em-coordinator-install-entry-custody-and-what-it-should-invoke.md`
+§ Unchanged: "4b is ours and unaffected — you declare the settings-home post-condition, we own the
+test"). No gap was found in this investigation that would need a new memo — the mechanism-parity
+finding above and the exit-96 answer close out what this section exists to declare; only the
+raise-site landing (their C2) is still pending, tracked in the memo thread, not by this plan.
 
 ## Install via the chain-walker
 
@@ -127,10 +194,16 @@ manifest still validates clean. coordinator-claude's own manifest opts in (see
 `standalone_setup_script.entry_point_contract` are present, `programmatic_entry_point` is the
 authoritative Point-2 witness; `standalone_setup_script.entry_point_contract` describes only the
 chain-walk invocation and is the Point-2 fallback only when `programmatic_entry_point` is absent.
-For coordinator-claude the declared Point-2 entry IS `install-maximalist.py`
+For coordinator-claude the declared Point-2 entry IS `coordinator_core/install/maximalist.py`
 (`--non-interactive`/`--check-only`) via `programmatic_entry_point`; `setup.py`
 (`--i-am-agent`/`--check`) is the chain-walk dispatch target, not the install entry; see
-`docs/wiki/agent-install-contract.md` § Two entries, two roles.
+`docs/wiki/agent-install-contract.md` § Two entries, two roles. Both entries now live in
+Claude-klabauter, not in this repo (migration `b644d5a9b`) — `programmatic_entry_point.posix`
+resolves to `coordinator_core/install/maximalist.py` and `standalone_setup_script.posix` to
+`scripts/setup.py`, both repo-root-relative to whichever engine root resolves. A same-purpose
+legacy trampoline, `coordinator/scripts/install-maximalist.py`, also exists in claude-klabauter but
+not in claude-klabauter — a distinct file that imports the canonical target above, not an alias
+for it.
 
 **Opt-in compliance marker.** A v3 manifest declares itself checkable via:
 
@@ -179,7 +252,7 @@ install coordinator@coordinator-claude` — after which a fresh session loads th
 the install docs).
 (Registering the GitHub repo rather than a clone path keeps the install self-contained under
 `~/.claude`; the clone is only a build-time input.) See
-[`docs/agent-install.md`](../../dist/publish-repo-docs/agent-install.md) for the full guided install playbook.
+[`INSTALL.md`](../../../INSTALL.md) for the full guided install playbook.
 
 ---
 

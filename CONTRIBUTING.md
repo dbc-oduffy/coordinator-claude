@@ -135,7 +135,7 @@ claude plugin install coordinator@coordinator-claude
 > A clone-bound (directory-source) marketplace resolves from this path on every load and is **not**
 > copied into `~/.claude` — exactly what you want while iterating, but it means moving or deleting
 > the clone orphans the plugins. That is why the user-facing playbook
-> ([`docs/agent-install.md`](docs/agent-install.md)) registers the public GitHub repo instead. When
+> ([`INSTALL.md`](INSTALL.md)) registers the public GitHub repo instead. When
 > you are done developing, re-add from GitHub (`claude plugin marketplace add dbc-oduffy/coordinator-claude`)
 > to return to a self-contained install.
 

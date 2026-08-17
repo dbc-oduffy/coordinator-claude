@@ -54,7 +54,8 @@ returned `route`/`detents`/`next_move` verbatim — it already carries the disch
 non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence` and the
 property-attests verbatim from the decision object. Undecided direction-class items go in
 `surfaced_to_pm`, never folded into `fork`/`xl_exit`. `status` reaches terminal only via its own
-ceremony, never hand-edited.
+ceremony, never hand-edited. Optionally populate `name` — a few words, whiteboard length; never a
+slice of `intent`.
 
 **5. `post_size_prompt_pending` (M+) — ask once, in the PM's register, and stop:** *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in

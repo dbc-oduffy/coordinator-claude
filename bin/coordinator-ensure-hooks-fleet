@@ -39,14 +39,34 @@ if _LIB_DIR not in sys.path:
 # root, not from _LIB_DIR, so it must be on sys.path too or the import below
 # raises ModuleNotFoundError every time this entrypoint runs as a subprocess
 # (which is how it is invoked from session-init and from the test suite).
-_REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+#
+# Root resolution is layout-INDEPENDENT, not a fixed dirname-hop count: a
+# published-mirror consumer puts bin/ at the repo root (not
+# <root>/coordinator/bin, as our tree and klabauter's do), so a fixed
+# "two dirname() hops up" walk resolves one level ABOVE the mirror root and
+# finds nothing there. Reuses cc_invoke._resolve_claude_klabauter_root -- the same
+# idiom coordinator-invoke.py already uses (env/pointer-file/registry
+# ladder, terminal self-location fallback) -- rather than a third
+# root-resolution scheme.
+# Spec backlink: cross-repo/inbox/2026-08-17-doe-claude-em-mirror-entrypoints-missing-coordinator-core.md
+try:
+    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
 
-from git_hook_install import ensure_hooks_fleet  # noqa: E402
+    _REPO_ROOT = _resolve_claude_klabauter_root()
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    from git_hook_install import ensure_hooks_fleet  # noqa: E402
+
+    _BOOTSTRAP_ERROR: Exception | None = None
+except Exception as exc:  # never block a session start -- see main() below
+    ensure_hooks_fleet = None  # type: ignore[assignment]
+    _BOOTSTRAP_ERROR = exc
 
 
 def main() -> int:
+    if _BOOTSTRAP_ERROR is not None:
+        print(f"coordinator-ensure-hooks-fleet: {_BOOTSTRAP_ERROR}", file=sys.stderr)
+        return 0
     try:
         return ensure_hooks_fleet(_BIN_DIR)
     except Exception as exc:  # never block a session start

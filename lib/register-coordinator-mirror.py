@@ -131,7 +131,7 @@ def _claude_home_argv(*args: str) -> list:
 
     # Review: review-integrator — same bareword defect flagged in
     # maximalist.py's POSIX branch (audit row above); ladder now matches.
-    home = os.environ.get("HOME") or os.path.expanduser("~")
+    home = os.environ.get("HOME") or os.environ.get("USERPROFILE") or os.path.expanduser("~")
     settings_home_cand = os.path.join(
         os.environ.get("COORDINATOR_SETTINGS_HOME")
         or os.path.join(home, ".coordinator-claude-settings"),

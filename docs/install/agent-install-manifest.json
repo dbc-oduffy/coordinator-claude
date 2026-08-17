@@ -3,8 +3,8 @@
   "repo_id": "coordinator-claude",
   "setup_skill": "/coordinator:setup",
   "standalone_setup_script": {
-    "posix": "coordinator/scripts/setup.py",
-    "windows": "coordinator/scripts/setup.ps1",
+    "posix": "scripts/setup.py",
+    "windows": "scripts/setup.cmd",
     "entry_point_contract": {
       "non_interactive_flag": "--i-am-agent",
       "check_only_flag": "--check",
@@ -12,7 +12,7 @@
     }
   },
   "programmatic_entry_point": {
-    "posix": "coordinator/scripts/install-maximalist.py",
+    "posix": "coordinator_core/install/maximalist.py",
     "entry_point_contract": {
       "non_interactive_flag": "--non-interactive",
       "check_only_flag": "--check-only",
@@ -25,8 +25,6 @@
       "severity": "hard",
       "sibling_dir_name": "claude-klabauter",
       "upstream_url": "https://github.com/dbc-oduffy/claude-klabauter",
-      "distribution": "private-access-on-request",
-      "distribution_note": "The coordinator_core engine publishes from claude-klabauter to the public repo claude-klabauter, which is live — upstream_url resolves and a consumer installs the engine from it directly. Because the engine is a separate install, coordinator-claude's bin/ entrypoints resolve it at runtime through the env/registry rungs of cc_invoke rather than from anything inside this mirror; a check that strips those rungs is asserting a standalone-runnable contract this distribution does not make.",
       "functional_probe_kind": "claude_klabauter_seam_resolvable",
       "functional_probe_args": {},
       "consumer_install_args": []

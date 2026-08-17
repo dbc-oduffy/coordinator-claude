@@ -16,7 +16,12 @@ Executing a plan is restructure-then-dispatch, not "type the plan's steps": buil
 dispatch-gate graph, decompose into per-chunk dispatches — parallel where gates allow, serial
 where they don't, default vehicle a background Workflow. A serial chain is still N fresh
 dispatches with EM-verify between, never one long-lived executor. No per-chunk reviewer gate —
-EM-serial verify between waves, code review defers to `/workstream-complete`. Dispatched
+EM-serial verify between waves, code review defers to `/workstream-complete`. **EM-verify means
+the EM itself runs the chunk's tests, never trusts a dispatched executor's pass claim at face
+value** — a dispatch vehicle can narrow the executor's Bash surface below what the chunk's tests
+need (wiki: `workflow-orchestration.md`), and an honest executor then reports "PASS (by
+inspection)" instead of "passed." Inspection-only is not verification; the EM runs the tests
+before marking the chunk landed. Dispatched
 executors are always Sonnet; self-execute only on a named token-economics carve-out. Invoking
 this skill IS the dispatch request. Phase boundaries are not stop boundaries: ship Phase N green,
 dispatch Phase N+1 immediately, no checkpoint offer.
@@ -86,7 +91,9 @@ authoring mechanics: wiki.
 ## Phase 2: Create Flight Recorder
 
 TaskCreate: one session-goal task (objective + plan path), one task per plan phase/major task,
-session-goal marked `in_progress` immediately.
+session-goal marked `in_progress` immediately. `TaskCreate` absent from this session's surface
+(`ToolSearch("select:TaskCreate")` returns nothing) → fall back to `coordinator-tasks-mirror` for
+the same flight-recorder role; do not assume either state without checking.
 
 ---
 

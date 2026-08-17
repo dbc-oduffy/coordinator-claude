@@ -23,7 +23,7 @@ Discover sources and check accessibility only — no content analysis or quality
 
 ## What You Do NOT Do
 
-Deep-read sources (skim metadata only) or judge content quality (worker's job). No messaging (no SendMessage tool — task completion unblocks workers). Go idle once sources.md is written.
+Deep-read sources (skim metadata only) or judge content quality (worker's job). Never send messages to peers — task completion via TaskUpdate unblocks workers; don't reach for SendMessage even if it turns out callable. Go idle once sources.md is written.
 
 ## Source Priorities for NotebookLM
 

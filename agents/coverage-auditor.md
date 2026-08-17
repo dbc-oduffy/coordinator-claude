@@ -51,7 +51,7 @@ runs/delete (see boundaries below).
 | Re-litigate or re-inflate the synthesis | You point, you don't rewrite — new prose routes through the synthesizer |
 | Flag `[SWEEP ADDITION]` content as absent | Synthesizer-authored; no upstream claim record (§ Input Universe) |
 | Grade "under-represented" | Classification is strictly binary — that's editorial judgment, beyond this task |
-| Commit, push, or delete files | Read-only enforced |
+| Commit, push, or delete files | Never — a rule you follow, not an absent tool. `Bash` is granted for the § Persistence write-fallback only |
 | Dispatch subagents or create teams | Standalone audit pass |
 
 ## Pipeline-Conditional Tool Grant

@@ -14,7 +14,7 @@ claude plugin install coordinator@coordinator-claude
 ```
 
 followed, in a fresh session, by `/coordinator:install` (environment wiring) and
-`/coordinator:repo-setup` (per-project scaffolding). Source: `docs/agent-install.md` §§ 1d, 3.
+`/coordinator:repo-setup` (per-project scaffolding). Source: `INSTALL.md` §§ 1d, 3.
 
 ---
 
@@ -31,7 +31,7 @@ not a separate plugin, and there is no longer a multi-plugin layout
 (`web-dev`/`data-science`/`deep-research`/`game-dev` subdirectories, from an earlier version of
 this system, do not exist in this distribution).
 
-Source: `docs/agent-install.md` § 1d.
+Source: `INSTALL.md` § 1d.
 
 ### `/coordinator:install` — environment wiring
 
@@ -304,7 +304,7 @@ Source: `coordinator/commands/uninstall.md`.
 Earlier versions of coordinator-claude shipped a bespoke `setup/install.sh` bash installer, and
 an earlier version of this document was written against it. That installer is not part of this
 distribution — the native `claude plugin` CLI plus `/coordinator:install` is the canonical,
-supported path (see `docs/agent-install.md`), and the bash installer's publish target is
+supported path (see `INSTALL.md`), and the bash installer's publish target is
 deliberately disabled in this repo's own build. If you find a reference to `setup/install.sh`
 anywhere else in this distribution's docs, it is stale — please open an issue.
 

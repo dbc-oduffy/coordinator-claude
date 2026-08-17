@@ -3504,42 +3504,23 @@ def _commit_archived_outbox_draft(outbox_path: str, dest: str, sender_root: str)
         )
 
 
-def _print_live_peer_advisory(receiver_path: str) -> None:
-    """Advisory-only: name the live sessions whose `cwd` is inside
-    `receiver_path`, so the sender knows whether the recipient repo's EM is
-    around right now.
-
-    Wired here, and ONLY here, per
-    `state/handoffs/2026-08-13-live-peer-roster.md` § 4/AC7: this is the one
-    place "is the recipient even here?" actually blocks a decision, and the
-    only ingredient this CLI already has is a receiver REPO path, not a
-    session UUID — `session.resolve_address` (keyed on a UUID) cannot answer
-    that question, so it has to be the roster.
-
-    Never blocks, never changes the exit code, at any stage. Any failure —
-    the engine unresolvable, the roster read raising — degrades to printing
-    nothing, same as `peer_roster.build_roster`'s own advisory-read
-    discipline. Anti-scope (same handoff): a READ surface only — this never
-    calls `SendMessage` and never suggests the caller do so.
-
-    The calling session's own row (`is_self`) is excluded from the printed
-    set: this line answers "who is over there," not "am I over there."
-    """
-    try:
-        cc_invoke.ensure_engine_on_path(__file__)
-        from coordinator_core.session import peer_roster
-
-        rows = peer_roster.build_roster(receiver_path)
-    except Exception:
-        return
-
-    repo_label = os.path.basename(os.path.normpath(receiver_path)) or receiver_path
-    addresses = [row.address for row in rows if not row.is_self and row.address]
-
-    if not addresses:
-        print(f"No live sessions in {repo_label}.")
-        return
-    print(f"{len(addresses)} live session(s) in {repo_label}: {', '.join(addresses)}")
+# Negative-spec (doe-claude-em memo, 2026-08-17 — PM ruling on their side,
+# adopted here): the send tail MUST NOT enumerate live sessions in the
+# RECEIVER's repo. A `_print_live_peer_advisory` used to print
+# "<n> live session(s) in <repo>: <address>, <address>" here; nothing in the
+# send, commit, or archive branches on receiver liveness (a memo send is
+# asynchronous by construction — it lands in `cross-repo/inbox/` and waits
+# for a pickup), so the line gated no decision and was pure SendMessage
+# affordance handed to a sender at the moment of maximum temptation to
+# follow up out-of-band.
+#
+# The address that DOES earn its keep points the other way: `sent_by:`
+# frontmatter (resolved once per send in
+# `coordinator_core.ops.fleet.memo_send._resolve_sent_by`, stamped with an
+# explicit `unresolved` sentinel rather than omitted) is resolved at PICKUP
+# time into `gates.sender_reachability` — one address, keyed to the one EM
+# who wrote the memo, delivered to the replier. Guard:
+# `coordinator/tests/test_memo_send_no_receiver_roster.py`.
 
 
 # Review: code-reviewer (Finding 2) — extracted from what were two ~100-line
@@ -3750,7 +3731,6 @@ def _send_via_engine(
     # as "Receiver-side: <path>", plus a relay instruction nobody follows
     # ("nobody does the second bit anyway" — PM). Both lines are cut; the
     # single "Receiver-side:" statement above is the one fact, stated once.
-    _print_live_peer_advisory(receiver_path)
     # Review: code-reviewer (Finding 3) — pass the already-materialized
     # invoke_kind (never None) at both call sites for consistency, rather
     # than one site passing a possibly-None raw arg — a future edit to the
@@ -4754,7 +4734,11 @@ def _build_legacy_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Path to a prior memo this one supersedes (exercises supersession chain). "
-            "Written as `supersedes:` in frontmatter."
+            "Written as `supersedes:` in frontmatter. ALSO changes the receiver "
+            "filename on a collision: a same-date+topic send that would normally be "
+            "refused instead lands as a fresh "
+            "`<date>-<sender>-<topic>--supersedes-<predecessor>.md`. It does not "
+            "close or flip the predecessor."
         ),
     )
     parser.add_argument(
@@ -5020,7 +5004,11 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
             "--supersedes", metavar="PATH", default=None,
             help="[legacy form] Path to a prior memo this one supersedes "
                  "(exercises supersession chain). Written as `supersedes:` "
-                 "in frontmatter.",
+                 "in frontmatter. ALSO changes the receiver filename on a "
+                 "collision: a same-date+topic send that would normally be "
+                 "refused instead lands as a fresh "
+                 "`<date>-<sender>-<topic>--supersedes-<predecessor>.md`. It "
+                 "does not close or flip the predecessor.",
         )
         parser.add_argument(
             "--self-receipt", action="store_true", default=False,
