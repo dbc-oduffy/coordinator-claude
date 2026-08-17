@@ -82,6 +82,12 @@ def _parse_args(argv: list[str]) -> tuple[list[str], str | None]:
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
+    if "--help" in args or "-h" in args:
+        print(
+            f"usage: {_TAG} [--diff-base REF] <path> [<path> ...]",
+            file=sys.stdout,
+        )
+        return 0
     try:
         changed_files, diff_base = _parse_args(args)
     except SystemExit as exc:
