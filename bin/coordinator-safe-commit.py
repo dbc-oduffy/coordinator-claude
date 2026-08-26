@@ -505,6 +505,57 @@ def _resolve_python_invocation() -> "tuple[str, List[str]]":
     return python_bin, list(python_args)
 
 
+def _own_touched_paths_for_banner() -> "tuple[Optional[Set[str]], str]":
+    """Best-effort resolve of THIS session's own `touched.txt`, for
+    `_scoped_commit_suggestion`'s attribution banner ONLY — presentation,
+    never a filter. It must never change which paths the generated script
+    commits (2026-08-26 follow-up requirement); it only labels them so an
+    operator skimming a dozens-of-entries list can see how many are NOT
+    theirs at a glance.
+
+    Returns `(None, reason)` on ANY resolution failure — no session id in
+    the usual env-var chain, no sessions dir, no touched.txt, an unreadable
+    touched.txt — so the caller renders an explicit "attribution
+    unavailable, every path below is unattributed" banner. A missing
+    signal must never render as "0 belong to other sessions": that is a
+    false all-clear manufactured from absent data, the same failure class
+    this whole mitigation exists to prevent. Deliberately does NOT call
+    this file's own heavier `resolve_session_id()` (module-level, ~line
+    1056) — that function's own liveness-probe fallback and stderr/exit
+    side effects are wrong for a presentation-only best-effort lookup; this
+    reads the same env-var chain `do_scoped` checks first, with no probe
+    and no side effect on failure."""
+    session_id = (
+        os.environ.get("COORDINATOR_SESSION_ID")
+        or os.environ.get("CLAUDE_SESSION_ID")
+        or os.environ.get("CLAUDE_CODE_SESSION_ID")
+        or ""
+    )
+    if not session_id:
+        return None, (
+            "no session id found (COORDINATOR_SESSION_ID/CLAUDE_SESSION_ID/"
+            "CLAUDE_CODE_SESSION_ID all unset)"
+        )
+    try:
+        from coordinator_core.session import core as cs_core  # noqa: PLC0415
+    except ImportError as exc:
+        return None, f"session module unavailable ({exc})"
+    try:
+        base = cs_core.sessions_dir()
+    except OSError as exc:
+        return None, f"sessions dir unresolved ({exc})"
+    if not base:
+        return None, "sessions dir unresolved (empty)"
+    touched_path = os.path.join(base, session_id, "touched.txt")
+    if not os.path.isfile(touched_path):
+        return None, f"no touched.txt at {touched_path}"
+    try:
+        lines = Path(touched_path).read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        return None, f"touched.txt unreadable ({exc})"
+    return {ln.strip() for ln in lines if ln.strip()}, "ok"
+
+
 def _scoped_commit_suggestion(subject: str, host_is_windows: Optional[bool] = None) -> str:
     """Build a copy-pasteable retry command for the concurrency-refusal deny
     message in `do_scoped` — the rung-B shape
@@ -551,6 +602,20 @@ def _scoped_commit_suggestion(subject: str, host_is_windows: Optional[bool] = No
     (`coordinator/tests/test_coordinator_safe_commit.py::
     test_t17e_scoped_commit_suggestion_runs_from_cwd_without_native_coordinator_core`)
     for the automated round-trip.
+
+    2026-08-26 fix (break-class): the script this function writes to
+    tempfile no longer commits on a bare unattended run of the emitted
+    `<python> <script-path>` command — it prints the full dirty-path list
+    and count, states plainly that it is the whole shared tree's dirty set
+    (not the operator's requested paths) and may include a sibling
+    session's work, names the `DIRTY_TREE_PATHS` line to trim, and raises
+    `SystemExit` unless the operator has hand-flipped a `CONFIRM_TRIMMED =
+    True` sentinel in the script body — no env-var or CLI-flag override
+    exists for this, deliberately (a flag a caller could set once and
+    forget defeats the point). T17e above now performs that hand-edit
+    itself before the round-trip run, matching what a human operator must
+    do. See `test_t17g_scoped_commit_suggestion_names_the_widening_and_
+    refuses_unattended` for the pre-fix-failing regression pin.
 
     Params come from `_current_dirty_files()` (this session's own dirty
     tree, the same source `do_scoped` itself stages from) and `os.getcwd()`
@@ -603,22 +668,84 @@ def _scoped_commit_suggestion(subject: str, host_is_windows: Optional[bool] = No
     worktree_root = os.getcwd()
     dirty = _current_dirty_files()
     paths = dirty if dirty else ["<your-paths>"]
+    # 2026-08-26 fix (break-class): `paths` above is the WHOLE shared tree's
+    # dirty set, not what the operator asked to commit — on this fleet's
+    # ~17-session shared tree that silently absorbs sibling sessions' work
+    # into the operator's own commit (see this dispatch's brief; already
+    # happened 3x in one day). The real fix — narrowing the default to this
+    # session's own touched-file set via `do_scoped`'s `touched.txt` — is a
+    # design decision (a stale/empty/unavailable touched set has no obvious
+    # correct fallback) and is out of scope here. This mitigation makes the
+    # widening loud instead of silent: the generated script prints the full
+    # path list and count, states plainly it is the whole dirty tree, names
+    # the exact line to trim, and refuses to run unattended via a
+    # `CONFIRM_TRIMMED` sentinel the operator must flip by hand — no env-var
+    # override, matching `coordinator-doc-new.py`'s "edit this generated
+    # block before it takes effect" convention rather than inventing a new
+    # gate shape.
+    # Attribution banner (presentation only — MUST NOT change `paths`/what
+    # gets committed, per the 2026-08-26 follow-up constraint). `foreign`
+    # is either "provably not in this session's own touched.txt" or, when
+    # that signal is unavailable, EVERY path — a missing signal must never
+    # render as "0 foreign", which would be a false all-clear manufactured
+    # from absent data.
+    own_touched, own_touched_reason = _own_touched_paths_for_banner()
+    if own_touched is None:
+        foreign = list(paths)
+        attribution_line = (
+            "attribution unavailable (%s) — every path below is treated as "
+            "unattributed, not as \"none foreign\"" % own_touched_reason
+        )
+    else:
+        foreign = [p for p in paths if p not in own_touched]
+        attribution_line = "%d of %d paths below are NOT in this session's own touched.txt" % (
+            len(foreign),
+            len(paths),
+        )
+    foreign_set = sorted(set(foreign))
+
     script_text = (
+        "DIRTY_TREE_PATHS = %s  # <-- trim this to only files THIS workstream owns\n"
+        "FOREIGN_OR_UNATTRIBUTED_PATHS = %s\n"
+        "\n"
+        "print('This script will commit ALL %%d files currently dirty in the shared' %% len(DIRTY_TREE_PATHS))\n"
+        "print('working tree, not just the paths you asked to commit.')\n"
+        "print(%s)\n"
+        "print('A foreign/unattributed file may belong to another live session and may')\n"
+        "print('still be mid-edit — committing it can publish a red or half-finished')\n"
+        "print('change under your own message, not just someone else\\'s finished work:')\n"
+        "for _p in DIRTY_TREE_PATHS:\n"
+        "    _flag = ' [foreign/unattributed]' if _p in FOREIGN_OR_UNATTRIBUTED_PATHS else ''\n"
+        "    print('  ' + _p + _flag)\n"
+        "print()\n"
+        "print('Before running: edit DIRTY_TREE_PATHS on line 1 of this script down to only')\n"
+        "print('the paths this workstream owns, then set CONFIRM_TRIMMED = True below.')\n"
+        "\n"
+        "CONFIRM_TRIMMED = False  # <-- flip to True only after trimming DIRTY_TREE_PATHS above\n"
+        "\n"
+        "if not CONFIRM_TRIMMED:\n"
+        "    raise SystemExit(\n"
+        "        'coordinator-safe-commit-remediation: refusing to run unattended — '\n"
+        "        'trim DIRTY_TREE_PATHS above to this workstream\\'s own files, then '\n"
+        "        'set CONFIRM_TRIMMED = True.'\n"
+        "    )\n"
+        "\n"
         "from coordinator_core.ops.ceremony import commit_pipeline\n"
         "result = commit_pipeline.run_commit_pipeline(\n"
         "    %s,\n"
         "    session_id=%s,\n"
         "    subject=%s,\n"
-        "    stage_paths=%s,\n"
-        "    caller_paths=set(%s),\n"
+        "    stage_paths=DIRTY_TREE_PATHS,\n"
+        "    caller_paths=set(DIRTY_TREE_PATHS),\n"
         ")\n"
         "print('committed=%%r sha=%%r' %% (bool(result.committed_sha), result.committed_sha))\n"
         % (
+            json.dumps(paths),
+            json.dumps(foreign_set),
+            json.dumps(attribution_line),
             json.dumps(worktree_root),
             json.dumps("coordinator-safe-commit-remediation"),
             json.dumps(subject or "<subject>"),
-            json.dumps(paths),
-            json.dumps(paths),
         )
     )
     try:

@@ -100,6 +100,7 @@ string a silently-discarded expression statement, not the module __doc__ —
 same convention as archive-stamp-cli / session-claim-cli)."""
 
 import argparse
+import functools
 import json
 import os
 import re
@@ -172,7 +173,18 @@ def resolve_session_id(_repo_root: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def primary_consumed_handoff_paths(repo_root: Path, sid: str) -> list[str]:
+class PrimaryScanResult(NamedTuple):
+    """`primary_consumed_handoff_scan`'s two disjoint sets. `adopted` is what
+    the live-consume leg may resolve against; `mirror_conflicts` is the
+    ledger-vs-mirror HOLDER MISMATCH set — a claim the ledger says this
+    session holds while the tracked frontmatter positively names a DIFFERENT
+    session. Both repo-relative POSIX, both sorted."""
+
+    adopted: list[str]
+    mirror_conflicts: list[str]
+
+
+def primary_consumed_handoff_scan(repo_root: Path, sid: str) -> PrimaryScanResult:
     """This bin script's OWN detector set: every file under state/handoffs/
     whose claim state — resolved ledger-first via
     `coordinator_core.claim_state.resolve_claim_state`, frontmatter mirror
@@ -185,25 +197,71 @@ def primary_consumed_handoff_paths(repo_root: Path, sid: str) -> list[str]:
     closes) was invisible to it. Deliberately NOT the same computation as
     branch_resolution.py's anchored `step0_evidence["consumed_handoff_paths"]`
     one layer down — this is a self-contained local scan, not a cross-package
-    agreement."""
+    agreement.
+
+    HOLDER-MISMATCH PARTITION (2026-08-26). A ledger-resolved holder match
+    whose frontmatter mirror positively names a DIFFERENT session is NOT
+    evidence that this session consumed that baton — it is the residue of an
+    INCOMPLETE takeover. `pickup_assemble.apply` promotes the ledger claim to
+    `apply` stage BEFORE any directive runs; a run that then halts at
+    `claim_grant` (or fails) leaves that durable ledger claim behind with
+    `d2`'s frontmatter stamp never landed. The mirror still names the peer
+    who actually holds the baton, and the ledger names a session that only
+    ever read it. Adopting that as `predecessor-consumed` caps a PEER's
+    workstream: the live incident (2026-08-26, session
+    2f937280 vs. baton holder 24d63e82 on
+    `state/handoffs/2026-08-22-warm-engine-and-door-install-from-published-
+    root.md`) resolved predecessor-consumed against a peer's in_flight baton
+    and stood `d-complete-entry` down as "already exists for chain", so the
+    session's own work got no completion entry.
+
+    Narrower than "any ledger/mirror disagreement", and deliberately the
+    complement of `ClaimState.disagreement`: the branch-switch-revert case
+    this whole ledger-first read exists for leaves the mirror EMPTY
+    (`mirror_holder is None`), which stays in `adopted` untouched. Only a
+    mirror that positively names somebody else is partitioned out — see
+    `ClaimState.disagreement`'s own docstring, which records that a
+    same-slot holder mismatch is left for callers to detect via
+    `ledger_holder`/`mirror_holder`. This is that caller.
+
+    Negative-spec: does NOT release, demote, or otherwise mutate the
+    conflicting ledger claim — read-only, like every other leg here. The
+    conflict is reported to the caller so the disposition can decline to
+    rest on it; reaping it belongs to the claim-hygiene surface, not to a
+    session-shape detector."""
     handoffs_dir = repo_root / "state" / "handoffs"
     if not handoffs_dir.is_dir():
-        return []
-    matches = []
+        return PrimaryScanResult([], [])
+    matches: list[Path] = []
+    conflicts: list[Path] = []
     for f in handoffs_dir.rglob("*"):
         if not f.is_file():
             continue
         state = resolve_claim_state(f, repo_root=repo_root)
-        if state.holder == sid:
+        if state.holder != sid:
+            continue
+        if state.mirror_holder and state.mirror_holder != sid:
+            conflicts.append(f)
+        else:
             matches.append(f)
     matches.sort()
+    conflicts.sort()
     # POSIX separators, not the native ones: this value becomes the ceremony's
     # `consumed_handoff` wire-id — it is written into frontmatter, exported as
     # WSC_CONSUMED_HANDOFF, and string-compared against handoff paths recorded
     # by other sessions and other platforms. A backslashed form compares
     # unequal to the same handoff recorded anywhere else. `repo_root / value`
     # still resolves correctly on Windows, which accepts forward slashes.
-    return [f.relative_to(repo_root).as_posix() for f in matches]
+    return PrimaryScanResult(
+        [f.relative_to(repo_root).as_posix() for f in matches],
+        [f.relative_to(repo_root).as_posix() for f in conflicts],
+    )
+
+
+def primary_consumed_handoff_paths(repo_root: Path, sid: str) -> list[str]:
+    """The ADOPTABLE half of `primary_consumed_handoff_scan` — see that
+    function for the holder-mismatch partition this excludes."""
+    return primary_consumed_handoff_scan(repo_root, sid).adopted
 
 
 def primary_consumed_handoff(repo_root: Path, sid: str) -> str | None:
@@ -1242,6 +1300,7 @@ def _detection(
     detector_c_status: str | None = None,
     match_facts: dict[str, Any] | None = None,
     memo_path: str | None = None,
+    mirror_conflicts: list[str] | None = None,
 ) -> dict[str, Any]:
     """Builds one `DispositionResolution.detection` record. A helper rather
     than one inline dict literal per return path so the key names cannot
@@ -1252,12 +1311,24 @@ def _detection(
     resolution that preempted a coincidence-prone Detector C match, both
     supply it (see
     THE PRECEDENCE CONTRACT on `resolve_disposition`). `memo_path` is set
-    only on a `deciding_leg == "memo-predecessor"` resolution."""
+    only on a `deciding_leg == "memo-predecessor"` resolution.
+
+    `mirror_conflicts` is set on EVERY leg the detector chain can reach after
+    the primary scan ran (see `primary_consumed_handoff_scan`'s
+    HOLDER-MISMATCH PARTITION): the paths whose ledger claim names this
+    session while their frontmatter names somebody else. It is a REFUSAL
+    fact, not a leg — whichever leg then decided, this key says a
+    live-consume candidate was declined and why the shape may be wrong.
+    Omitted entirely when there is no conflict, so its presence, not its
+    value, is the signal — the same presence-vs-absence discipline
+    `exact_match_count` already uses one layer up."""
     record = {"deciding_leg": deciding_leg, "detector_c_status": detector_c_status}
     if match_facts:
         record.update(match_facts)
     if memo_path is not None:
         record["memo_path"] = memo_path
+    if mirror_conflicts:
+        record["live_consume_mirror_conflicts"] = list(mirror_conflicts)
     return record
 
 
@@ -1266,6 +1337,7 @@ def _memo_predecessor_result(
     c_status: str | None,
     c_match_facts: dict[str, Any] | None,
     memo_path: str,
+    mirror_conflicts: list[str] | None = None,
 ) -> "DispositionResolution":
     """The `memo-predecessor` `DispositionResolution` — factored out because
     `resolve_disposition` builds this identical five-argument shape from two
@@ -1278,7 +1350,13 @@ def _memo_predecessor_result(
         "",
         diagnostics,
         [],
-        _detection("memo-predecessor", c_status, c_match_facts, memo_path),
+        _detection(
+            "memo-predecessor",
+            c_status,
+            c_match_facts,
+            memo_path,
+            mirror_conflicts=mirror_conflicts,
+        ),
     )
 
 
@@ -1504,14 +1582,46 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
             "cannot flip disposition."
         )
 
-    consumed_paths = primary_consumed_handoff_paths(repo_root, sid)
+    consumed_paths, mirror_conflicts = primary_consumed_handoff_scan(repo_root, sid)
+    if mirror_conflicts:
+        diagnostics.append(
+            f"WARN: {len(mirror_conflicts)} handoff(s) name this session as ledger claim holder "
+            f"while their tracked frontmatter names a DIFFERENT holder — an incomplete takeover "
+            f"(a pickup that promoted its ledger claim and then halted without landing d2's "
+            f"frontmatter stamp), not a consume. NOT adopted as predecessor-consumed; the "
+            f"detector chain continues below:"
+        )
+        for path in mirror_conflicts:
+            diagnostics.append(f"  {path}")
+        diagnostics.append(
+            "If this session genuinely holds one of these batons, complete the pickup (so the "
+            "frontmatter stamp lands) or export WSC_DISPOSITION=predecessor-consumed with "
+            "WSC_CONSUMED_HANDOFF=<path>. If it does not, release the stale claim via "
+            "`pickup-assemble drop <path>`."
+        )
+
+    # Bound once, above every return below, so a holder-mismatch conflict
+    # reaches `.detection` on whichever leg ends up deciding — the refusal
+    # moves the disposition, and this is the only fact that says WHY it
+    # moved. `coordinator_core.workstream_complete._session_shape_is_
+    # uncertain` reads this key to raise `jp-session-shape`, restoring the
+    # correction channel a "certain" live-consume resolution had none of.
+    # functools.partial rather than a hand-declared wrapper that re-lists
+    # `_detection`'s first four parameters — Review: coordinator-code-reviewer
+    # (Finding 1, nit). A hand-copied signature here would silently stop
+    # forwarding any future parameter added to `_detection` unless this
+    # wrapper were edited in lockstep; partial forwards every positional/
+    # keyword argument through by construction, so that drift is structurally
+    # impossible rather than merely unlikely.
+    _det = functools.partial(_detection, mirror_conflicts=mirror_conflicts or None)
+
     if consumed_paths:
         return DispositionResolution(
             "predecessor-consumed",
             consumed_paths[0],
             diagnostics,
             consumed_paths,
-            _detection("live-consume"),
+            _det("live-consume"),
         )
 
     arch = detector_a(repo_root, sid)
@@ -1583,7 +1693,9 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
                     f"matched, single_match_kind={single_match_kind!r}) — see THE PRECEDENCE "
                     f"CONTRACT on resolve_disposition."
                 )
-                return _memo_predecessor_result(diagnostics, c_status, c_match_facts, memo_path)
+                return _memo_predecessor_result(
+                    diagnostics, c_status, c_match_facts, memo_path, mirror_conflicts or None
+                )
             if coincidence_prone:
                 # AMENDMENT BREADCRUMB (2026-08-20, wsc-identity-gates-key-on-the-
                 # deliverable C4): this is the caller's ADOPTION of Detector C's
@@ -1619,7 +1731,7 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
                 arch,
                 diagnostics,
                 [arch],
-                _detection(
+                _det(
                     "detector-c" if arch_via == "crash-recovery" else "archive",
                     c_status if arch_via == "crash-recovery" else None,
                     c_match_facts if arch_via == "crash-recovery" else None,
@@ -1645,7 +1757,9 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
                 f"WSC_DISPOSITION=predecessor-consumed (chain-terminal legacy alias also "
                 f"accepted) and WSC_CONSUMED_HANDOFF={shipped_by_me} before continuing."
             )
-        return _memo_predecessor_result(diagnostics, c_status, c_match_facts, memo_path)
+        return _memo_predecessor_result(
+            diagnostics, c_status, c_match_facts, memo_path, mirror_conflicts or None
+        )
 
     if shipped_by_me:
         diagnostics.append(
@@ -1683,7 +1797,7 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
         "",
         diagnostics,
         [],
-        _detection(
+        _det(
             "detector-c" if c_status == "crash-recovery" else "none",
             c_status,
             c_match_facts if c_status == "crash-recovery" else None,

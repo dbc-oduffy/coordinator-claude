@@ -35,3 +35,8 @@ node_modules/
 # Coordinator universal scratch rule (added 2026-05-20)
 scratch/
 tasks/_*.log
+
+# A percolate round's own state, written into the mirror by the round that ran. Round
+# working memory, not published product: tracking it makes each round's manifest a diff
+# in the next one. See coordinator-tripwires/a-rounds-own-manifest-is-not-payload.md.
+.percolate/

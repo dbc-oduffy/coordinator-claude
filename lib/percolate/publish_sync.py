@@ -276,7 +276,12 @@ def _orphan_sweep_override() -> "bool | frozenset[str]":
     `_empty_source_prune_override`, kept as its own function/env var rather
     than merged with it: the two knobs gate independently destructive
     actions (empty-source pruning vs. top-level orphan deletion) and must
-    stay separately settable."""
+    stay separately settable.
+
+    Names match the literal top-level directory name, case-sensitively and
+    after whitespace stripping only. A name typed in the wrong case simply
+    does not match and the directory stays in `at_risk` — the run aborts as
+    though no override were given, which fails safe rather than open."""
     raw = os.environ.get("COORDINATOR_OVERRIDE_ORPHAN_SWEEP", "")
     if not raw:
         return False

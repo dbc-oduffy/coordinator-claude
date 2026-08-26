@@ -298,9 +298,26 @@ Don't infer coordinator is live from the absence of errors — confirm it direct
 2. **Coordinator commands resolve.** Type `/` and confirm coordinator-namespaced commands (e.g.
    `/coordinator:validate`, `/coordinator:install`) appear in the list. Their absence means the
    plugin never took effect.
-3. **Hooks are wired.** `cat ~/.claude/settings.json` and confirm the `hooks` block is populated
-   (`SessionStart`, `PreToolUse`, etc. each list entries) rather than empty, and that hook command
-   paths are fully substituted — no literal `${CLAUDE_PLUGIN_ROOT}` left in a command string.
+3. **Hooks are wired.** Coordinator ships its hooks in the plugin's own
+   `coordinator/hooks/hooks.json`, which the harness reads directly — so on a plugin install
+   `~/.claude/settings.json` has an **empty** `hooks` block and that is CORRECT, not a fault. Do
+   not "fix" it by hand. Confirm instead that the resolved plugin root has `hooks/hooks.json` and
+   that it lists the events (`SessionStart`, `PreToolUse`, `Stop`, …):
+
+   ```
+   python3 -c "import json;h=json.load(open('<resolved-plugin-root>/hooks/hooks.json'))['hooks'];print({k:len(v) for k,v in h.items()})"
+   ```
+
+   **One exception, and it inverts the check:** `--plugin-dir` delivery disables plugin-declared
+   hook auto-wire, so in that mode `settings.json` hooks are GENERATED from `hooks.json` and a
+   populated block is what correct looks like — an empty one there means auto-wire is genuinely
+   broken, not expected. `coordinator/docs/wiki/claude-code-platform-gotchas.md` §
+   "Plugin hooks belong in `hooks/hooks.json`" carries the ruling. The marketplace path these
+   steps describe is the empty-is-correct one.
+
+   A populated `hooks` block outside that exception means something wrote hooks there directly —
+   a pre-plugin install shape. Then, and only then, check those command strings are fully
+   substituted with no literal `${CLAUDE_PLUGIN_ROOT}` left in them.
 
 A coordinator-less session and a session with genuinely missing/corrupted doctrine look identical
 from the outside — step 1 above is what tells them apart, and it is the fastest check to run

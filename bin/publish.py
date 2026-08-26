@@ -1849,12 +1849,26 @@ def _function_gate_expected_seed_rel_paths_for_rel_root(
     tautology: a row whose `coordinator/` directory genuinely landed but
     is missing one seed file inside it (a real regression) still expects
     that entry and still fails the equality check, exactly as before.
+    An EMPTY `staging_dir` is not a flat payload — it is a row that staged
+    nothing. Directory-presence alone cannot tell those apart, and reading
+    absence as "legitimately flat" would degrade this gate from "assert the
+    payload landed" to "assert whatever landed is self-consistent" for
+    exactly the total-staging-failure case it exists to catch: expected and
+    resolved would both collapse to the empty set and the row would swap
+    through. The narrowing therefore requires at least one staged entry;
+    a row that produced nothing keeps the full all-three expectation and
+    fails. A row that staged SOME of a nested payload but lost
+    `coordinator/` specifically is still admitted here — no live row is
+    nested at `rel_root == ""` (every row carrying `coordinator/` or
+    `coordinator_core/` lands at a non-empty `dest_subdir`), so that case
+    is currently held off by row configuration rather than by this code.
+
     `staging_dir=None` (a caller that predates this, or a `rel_root !=
     ""` call — the `coordinator_core` row's own mis-rooting check never
     reaches this branch at all) falls back to the pre-existing
     all-three-toplevel behavior, unchanged."""
     entries = _function_gate_in_scope_seed_entries(rel_root)
-    if not rel_root and staging_dir is not None:
+    if not rel_root and staging_dir is not None and any(staging_dir.iterdir()):
         entries = [
             (rel_path, name)
             for rel_path, name in entries
@@ -10763,6 +10777,58 @@ def _assert_klabauter_parity_group_ordering(rows: Sequence[str]) -> bool:
     return True
 
 
+def _walk_published_payload(published_dest_dirs: "Iterable[Path]") -> "set[Path]":
+    """Every payload path on disk under THIS run's own published dest dirs —
+    the widening that carries `declared_payload` past the percolation SCAN
+    surface (`include_extensions`/`narrow_to_include_extensions`), which names
+    only transform-eligible files and so omits a binary the row genuinely
+    published. Measured witness: `coordinator_core/warm/door/door.exe` is
+    tracked at the klabauter mirror's HEAD, sits inside a declared directory,
+    and appears in no scan set.
+
+    Path enumeration only — no content read, no per-path spawn, no `ast.parse`
+    (§ `payload_parity`'s own 3.27s-against-a-500ms-ceiling anti-scope, binding
+    here too).
+
+    NEGATIVE SPEC — every prune below is load-bearing, none is tidiness:
+
+    - `.git`: a flat-mirror row's `dest_dir` IS the mirror root (`LICENSE` and
+      `.gitignore` sit in `declared_payload` today), so an unpruned walk names
+      thousands of git objects as declared payload. `declared_payload` drives
+      the ADD side of `percolate-round.py :: _pathspec_from_manifest`, so they
+      reach the commit leg, which declines every one — and a non-empty
+      `declined_paths` refuses the round's push outright (§
+      `_round_refusal_reason`). Unpruned, this widening breaks every future
+      round rather than merely costing a slow walk.
+    - `surface.PUBLISH_STAGING_DIR_RE`: a crashed round's scratch, which no row
+      declares. 1,028 files of one reached the public mirror in round
+      `eebf1c67`; letting this walk re-declare one would reopen that incident
+      through the back door.
+    - `__pycache__`/`.pyc`/`.pyo`: generated locally AT the destination by
+      anything that runs Python there, published by no row (§
+      `publish_sync._is_structural_build_artifact`, same vocabulary).
+
+    Each prune reuses the SSOT the rest of this system already walks on; none
+    introduces a fresh exclusion vocabulary."""
+    from coordinator_core.percolate.surface import (  # noqa: PLC0415 - lazy, this walk is the only user
+        PUBLISH_STAGING_DIR_RE as _STAGING_DIR_RE,
+    )
+
+    found: "set[Path]" = set()
+    for published_dir in published_dest_dirs:
+        for walk_root, walk_dirs, walk_files in os.walk(published_dir):
+            walk_dirs[:] = [
+                d
+                for d in walk_dirs
+                if d not in (".git", "__pycache__") and not _STAGING_DIR_RE.search(d)
+            ]
+            for walk_file in walk_files:
+                if walk_file.endswith((".pyc", ".pyo")):
+                    continue
+                found.add(Path(walk_root) / walk_file)
+    return found
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Exit-code contract (state/bug-backlog/2026-08-10-coordinator-publish-s-
     exit-code-is-not-a-542c9750e55a.yaml): a caller may trust the exit code
@@ -11669,6 +11735,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             _root_changed = end_of_run_changed_by_repo_root.get(_manifest_root) or set()
             _root_removed = end_of_run_removed_by_repo_root.get(_manifest_root) or set()
             _root_declared = end_of_run_visited_by_repo_root.get(_manifest_root) or set()
+            # § AC1, docs/dispatch-briefs/2026-08-26-open-the-
+            # percolate-removal-side/C1.md — the row scope a removal-side
+            # derivation must intersect against, sourced from the SAME
+            # `published_dest_dirs_sink` accumulator the unscanned-published
+            # guard already reads (§ its own comment above), never re-derived.
+            _root_published_dest_dirs = (
+                end_of_run_published_dest_dirs_by_repo_root.get(_manifest_root) or set()
+            )
             # A no-change round MUST still write its manifest when the row
             # declared a payload. The changed/removed-only guard that used to
             # stand here is precisely what strands a refused round's bytes: the
@@ -11679,6 +11753,40 @@ def main(argv: Optional[List[str]] = None) -> int:
             # non-empty on exactly the rounds the other two are empty on.
             if not _root_changed and not _root_removed and not _root_declared:
                 continue
+            # § AC2 — `_root_declared` (`end_of_run_visited_by_repo_root`) only
+            # names what the percolation-surface walk SCANNED
+            # (`include_extensions`/`narrow_to_include_extensions`-eligible),
+            # not everything the row actually published -- a payload file
+            # whose extension is not transform-eligible (e.g. a binary) is
+            # tracked at dest HEAD but absent from that scan. Widen past the
+            # scan surface by enumerating every path already on disk under
+            # THIS run's own published dest dirs directly -- `os.walk`-class
+            # path enumeration of directories already known, no per-path
+            # spawn, no content read (§ `payload_parity`'s 3.27s-at-500ms-
+            # ceiling anti-scope, binding here too).
+            #
+            # NARROW, after the widening above and never before it: a path
+            # THIS round deleted as absent from source is the opposite of a
+            # declared payload path -- the row's own claim is that it does not
+            # belong -- yet it reaches both operands. The percolation-surface
+            # scan and the orphan sweep (`publish_sync :: sync_mirror`'s
+            # `REMOVE DIR:` leg) are separate passes over the same tree, so a
+            # path one row swept can still be scanned under a sibling row's
+            # `dest_dir`, and can still be on disk under a sibling
+            # `published_dest_dirs` entry for `_walk_published_payload` to
+            # name. Left in, the overlap is silently self-defeating rather
+            # than loud: the removal rule is `(head_tree n row_scope) -
+            # declared_payload` (§ `percolate-round.py ::
+            # _pathspec_from_manifest`), so exactly the paths the round most
+            # explicitly intends to delete are the ones it protects. Measured
+            # on the `coordinator-claude` mirror 2026-08-26 (cross-repo/inbox/
+            # 2026-08-26-doe-claude-em-coordinator-claude-remeasured-declared-
+            # payload-protects-the-removals.md): the retired `whoami/` package
+            # sat in `declared_payload` and `removed` at once, 23 of that
+            # mirror's 67 outstanding removals.
+            _root_declared_paths = (
+                set(_root_declared) | _walk_published_payload(_root_published_dest_dirs)
+            ) - _root_removed
             _round_manifest = _RoundManifest(
                 round_id=_manifest_round_id,
                 added_or_updated=frozenset(
@@ -11686,7 +11794,10 @@ def main(argv: Optional[List[str]] = None) -> int:
                 ),
                 removed=frozenset(_rel_id(p, _manifest_root) for p in _root_removed),
                 declared_payload=frozenset(
-                    _rel_id(p, _manifest_root) for p in _root_declared
+                    _rel_id(p, _manifest_root) for p in _root_declared_paths
+                ),
+                published_dest_dirs=frozenset(
+                    _rel_id(p, _manifest_root) for p in _root_published_dest_dirs
                 ),
             )
             _write_manifest(
