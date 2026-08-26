@@ -1419,7 +1419,7 @@ def dispatch_percolate_pre_ci(
         print(
             f"  [timing] {target.name}: dispatch_percolate_pre_ci: run_percolate: "
             f"{time.perf_counter() - _run_percolate_start:.3f}s",
-            file=sys.stderr,
+            file=sys.stdout,
         )
 
     guard_results = list(wire.get("guard_results", []))
@@ -1507,7 +1507,7 @@ def dispatch_percolate_pre_ci(
                 f"  [timing] {target.name}: dispatch_percolate_pre_ci: run_identity_check: "
                 f"{time.perf_counter() - _identity_check_start:.3f}s "
                 f"(scan_dest={scan_dest})",
-                file=sys.stderr,
+                file=sys.stdout,
             )
 
         # The checker's scanned/checked counts are emitted on the passing path, not
@@ -5586,7 +5586,7 @@ def run_pre_sync_gates(
             f"  [timing] {target.name}: run_pre_sync_gates: check_dirty_tree loop: "
             f"{time.perf_counter() - _dirty_tree_loop_start:.3f}s "
             f"({len(contributing_roots)} root(s))",
-            file=err,
+            file=out,
         )
 
     # Materialize every contributing root from a committed ref (docs/plans/
@@ -5705,7 +5705,7 @@ def run_pre_sync_gates(
                 f"  [timing] {target.name}: run_pre_sync_gates: allowlist "
                 f"(build_allowlisted_source + check_working_data_paths): "
                 f"{time.perf_counter() - _allowlist_block_start:.3f}s",
-                file=err,
+                file=out,
             )
 
         try:
@@ -7265,7 +7265,7 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
                 print(
                     f"  [timing] _extract_git_archive: git archive: "
                     f"{time.perf_counter() - _git_archive_start:.3f}s ({toplevel}, {sha})",
-                    file=sys.stderr,
+                    file=sys.stdout,
                 )
             if result.returncode != 0:
                 raise GitMaterializeError(
@@ -7280,7 +7280,7 @@ def _extract_git_archive(toplevel: Path, sha: str) -> Path:
                 print(
                     f"  [timing] _extract_git_archive: extractall: "
                     f"{time.perf_counter() - _extractall_start:.3f}s ({shadow_dir})",
-                    file=sys.stderr,
+                    file=sys.stdout,
                 )
         except Exception:
             # Review: code-reviewer Finding 1 — shadow_dir is created via
@@ -7508,11 +7508,11 @@ def _git_materialize_ref(root: Path, ref: str = "HEAD") -> Path:
         print(
             f"  [timing] _git_materialize_ref: cache MISS for {cache_key!r}: extracted in "
             f"{time.perf_counter() - _materialize_start:.3f}s",
-            file=sys.stderr,
+            file=sys.stdout,
         )
         _MATERIALIZED_REF_CACHE[cache_key] = shadow_toplevel
     else:
-        print(f"  [timing] _git_materialize_ref: cache HIT for {cache_key!r}", file=sys.stderr)
+        print(f"  [timing] _git_materialize_ref: cache HIT for {cache_key!r}", file=sys.stdout)
 
     return shadow_toplevel / prefix
 

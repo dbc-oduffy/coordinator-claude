@@ -1291,3 +1291,30 @@ When splitting a plan chunk at ledger-construction (C9 → C9a/C9b), cross-check
 `enforce-agent-dispatch-mode.sh` raises a child dispatch's permission mode **up** to the host session's posture, never lower — so a **bypass** host silently elevates `acceptEdits`/`auto` children to bypass. The `COORDINATOR_AGENT_MODE_OK` escape hatch that opts a child out of the elevation **must live in the Claude Code process env**: setting it via project `settings.local.json` mid-session does NOT take effect (the value is read from the process environment at dispatch, not re-read from settings) — it needs a relaunch.
 
 **Apply:** a faithful per-mode dispatch probe (verifying each posture behaves as intended) needs the env var pre-set before launch, or a **fresh session per mode** — you cannot flip it mid-session via settings and observe the change.
+
+## A Silent Dispatch Is a Delivery Failure, Not an Execution One
+
+A subagent that goes idle without returning a report has usually **finished normally**. Its full
+final text is on disk regardless of whether the harness hands it back:
+
+```
+~/.claude/projects/<project-slug>/<session-id>/subagents/agent-<name>-<hash>.jsonl
+```
+
+The report is the last assistant message's `text` block; `stop_reason: end_turn` on that message
+confirms a clean finish. Read the transcript, never the `.output` symlink — for a local agent that
+points at the whole subagent conversation and will overflow the reading session.
+
+Recovery is cheap, so the threshold for reaching for it is low: **after the second silent dispatch
+in a session, read the transcripts rather than continuing to treat it as flake.** Measured once at
+eight-of-eight silent, all eight complete on disk.
+
+This matters most where a missing report gets substituted rather than noticed. A review ceremony
+that falls back to `em-verified` on silence overwrites an independent verdict with the author's
+own and still produces a green trail — a lost `blocked` reads as a clean close. Recover before you
+record. Tripwire: `AN-IDLE-SUBAGENT-HAS-NOT-NECESSARILY-FAILED`.
+
+**Do not build the recovery into a `SubagentStop` hook here.** Opening and interpreting a
+transcript is engine decision logic; this plane owns only the thin relay shim across the DR-047
+seam, and `subagent-zero-tool-use-detect.py`'s AC7 pins that it never opens a transcript. Automatic
+recovery belongs in an engine op.
