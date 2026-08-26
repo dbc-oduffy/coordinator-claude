@@ -95,7 +95,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, Callable, NamedTuple, cast
 
 GENERATES = []  # writes only tempfile.mkstemp() params files (cc_invoke + cc_invoke_bare), always unlinked; no tracked artifact
 
@@ -557,6 +557,149 @@ def _front_insert_on_path(root: str) -> str:
     return root
 
 
+PROVENANCE_UNIMPORTED = "unimported"
+PROVENANCE_MATCH = "match"
+PROVENANCE_DIVERGENT = "divergent"
+PROVENANCE_UNRESOLVED = "unresolved"
+
+
+class EngineProvenance(NamedTuple):
+    """Result of `provenance_against` — `(verdict, imported_file, engine_root)`.
+
+    A NamedTuple rather than a plain 3-tuple: five call sites already unpack
+    the sibling `engine_import_provenance()` shape this mirrors, and a future
+    caller-identity/axis field (tracked separately) must be able to append
+    without turning every existing `verdict, imported_file, root = ...`
+    unpack site into a silent-arity hazard. A NamedTuple fails loudly at
+    authoring time on wrong arity instead of silently reordering values.
+    """
+
+    verdict: str
+    imported_file: str | None
+    engine_root: str | None
+
+
+class ProvenanceReport(NamedTuple):
+    """Wrapper-authored record: `EngineProvenance` plus the caller identity and
+    axis that only the CALL SITE knows.
+
+    `EngineProvenance` (`provenance_against`'s own return shape) stays
+    axis-blind by design — it only compares an already-imported module's
+    `__file__` against a caller-supplied root, and has no way to know which of
+    the two resolver axes (dispatch vs. locator, see
+    `docs/reference/engine-vs-locator-resolver-routing.md`) that root came
+    from, or which of the five reporting sites is asking. This NamedTuple is
+    what a caller-identity-aware sink (the counter C6 lands) actually
+    consumes: `caller` names the wrapper (`"ensure_engine_on_path"`,
+    `"require_engine_on_path"`, `"require_colocated_engine_on_path"`,
+    `"require_dispatch_engine_on_path"`, or `"_seam_present"`), and `axis` is
+    the literal `"dispatch"` or `"locator"` for that call site — never
+    re-derived, since the two axes can return different roots on a
+    conformant box (see `resolve_engine_root`'s and
+    `require_dispatch_engine_on_path`'s own docstrings).
+
+    Negative-spec: does NOT replace `EngineProvenance` at `provenance_against`'s
+    own boundary — that function's return type is unchanged. This wraps its
+    result at the wrapper/`_seam_present` call sites only, via `_report_provenance`
+    below.
+    """
+
+    verdict: str
+    imported_file: str | None
+    engine_root: str | None
+    caller: str
+    axis: str
+
+
+def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
+    """Call `provenance_against` with `root` (the caller's OWN resolved root,
+    never a re-resolved or module-level one — AC12) and wrap the result as a
+    `ProvenanceReport` carrying `caller` and `axis`.
+
+    This is the query call itself — "report through the query" — not a sink.
+    The returned `ProvenanceReport` is not yet persisted or emitted anywhere;
+    C6 (`docs/plans/2026-08-26-the-seam-reports-what-it-got.md` § C6) owns
+    where it lands. Every one of `provenance_against`'s own no-raise/no-import/
+    no-sys.path-mutation guarantees apply unchanged here — this is a thin,
+    non-fallible wrap of its result, not a new fallible step.
+    """
+    provenance = provenance_against(root=root)
+    return ProvenanceReport(
+        provenance.verdict,
+        provenance.imported_file,
+        provenance.engine_root,
+        caller,
+        axis,
+    )
+
+
+def provenance_against(*, root: str | None) -> EngineProvenance:
+    """Where the ALREADY-IMPORTED ``coordinator_core`` actually came from,
+    against a caller-SUPPLIED ``root`` — not the root this module would
+    itself resolve.
+
+    ``root`` is keyword-only on purpose: a call site written as
+    ``provenance_against(_resolve_claude_klabauter_root())`` at a locator-axis wrapper
+    must read as wrong (missing the required keyword) rather than silently
+    type-checking with the wrong root bound positionally.
+
+    Why this is not redundant with `_front_insert_on_path`. Front-inserting a
+    resolved root onto `sys.path` is the correct guard and it wins in a clean
+    process, but it is defeated by the module cache: once ANYTHING in the
+    process has done a bare `import coordinator_core`, `sys.modules` is bound
+    and every later insert is a no-op. On a box with an editable install
+    (`site-packages/__editable__.coordinator_core-*.pth` naming a working
+    tree) that ambient path is on `sys.path` from site init, so the losing
+    case is the default rather than the exception. The insert asserts an
+    intent; this asserts the outcome — against whatever root the CALLER
+    considers authoritative, not a root re-derived here.
+
+    Negative spec -- what this deliberately does NOT do:
+
+    - It does NOT import `coordinator_core`. A consumer that has not
+      imported the engine gets `PROVENANCE_UNIMPORTED`, never an import as a
+      side effect of asking a question.
+    - It does NOT resolve `root` itself, and does NOT fall back to any
+      locator when `root` is falsy -- callers own resolution; this function
+      only compares. A falsy `root` degrades to `PROVENANCE_UNRESOLVED`,
+      same as an import whose `__file__` is unreadable.
+    - It does NOT raise, on any input or any filesystem state. A single
+      outer `except Exception` degrades every fallible step to
+      `PROVENANCE_UNRESOLVED` rather than letting a filesystem edge case
+      escape past a caller's fail-open contract.
+    - It does NOT mutate `sys.path` to repair a divergence, here or anywhere
+      else in this function.
+
+    The failure this exists to make visible is silent, not loud: both trees
+    export the same names, so a consumer reading the wrong one differs only
+    in behaviour or timing that will not reproduce elsewhere -- and can
+    still pass every budget and assertion it is checked against.
+    """
+    try:
+        module = sys.modules.get("coordinator_core")
+        if module is None:
+            return EngineProvenance(PROVENANCE_UNIMPORTED, None, None)
+
+        imported_file = getattr(module, "__file__", None)
+        if not imported_file:
+            return EngineProvenance(PROVENANCE_UNRESOLVED, None, None)
+
+        if not root:
+            return EngineProvenance(PROVENANCE_UNRESOLVED, str(imported_file), None)
+
+        imported_resolved = Path(imported_file).resolve()
+        root_resolved = Path(root).resolve()
+        try:
+            imported_resolved.relative_to(root_resolved)
+        except ValueError:
+            return EngineProvenance(
+                PROVENANCE_DIVERGENT, str(imported_resolved), str(root_resolved)
+            )
+        return EngineProvenance(PROVENANCE_MATCH, str(imported_resolved), str(root_resolved))
+    except Exception:
+        return EngineProvenance(PROVENANCE_UNRESOLVED, None, None)
+
+
 def ensure_engine_on_path(script_file: str) -> str | None:
     """Resolve the engine root via ``resolve_engine_root`` and put it on ``sys.path``.
 
@@ -587,7 +730,9 @@ def ensure_engine_on_path(script_file: str) -> str | None:
         return None
     if not root:
         return None
-    return _front_insert_on_path(root)
+    root = _front_insert_on_path(root)
+    _report_provenance("ensure_engine_on_path", root, "locator")
+    return root
 
 
 def require_engine_on_path(script_file: str) -> str:
@@ -606,7 +751,9 @@ def require_engine_on_path(script_file: str) -> str:
     Returns the resolved root.
     """
     root = resolve_engine_root(script_file)
-    return _front_insert_on_path(root)
+    root = _front_insert_on_path(root)
+    _report_provenance("require_engine_on_path", root, "locator")
+    return root
 
 
 def require_colocated_engine_on_path(script_file: str) -> str:
@@ -626,7 +773,9 @@ def require_colocated_engine_on_path(script_file: str) -> str:
     Returns the resolved root.
     """
     root = resolve_colocated_claude_klabauter_root(script_file)
-    return _front_insert_on_path(root)
+    root = _front_insert_on_path(root)
+    _report_provenance("require_colocated_engine_on_path", root, "locator")
+    return root
 
 
 def require_dispatch_engine_on_path() -> str:
@@ -670,7 +819,9 @@ def require_dispatch_engine_on_path() -> str:
     (C16), and docs/reference/engine-root-env-var-routing.md for which call sites
     are on which axis.
     """
-    return _front_insert_on_path(_resolve_claude_klabauter_root())
+    root = _front_insert_on_path(_resolve_claude_klabauter_root())
+    _report_provenance("require_dispatch_engine_on_path", root, "dispatch")
+    return root
 
 
 # ---------------------------------------------------------------------------
@@ -709,15 +860,20 @@ def _seam_present(claude_klabauter_root: str) -> bool:
         sys.path.insert(0, claude_klabauter_root)
     try:
         spec = importlib.util.find_spec("coordinator_core.invoke")
-        return spec is not None
+        result = spec is not None
     except (ModuleNotFoundError, ValueError):
-        return False
+        result = False
     finally:
         if _injected:
             try:
                 sys.path.remove(claude_klabauter_root)
             except ValueError:
                 pass
+    # Reported AFTER the find_spec probe completes (never before): reporting
+    # before the probe returns `unimported` in exactly the case the probe is
+    # about to create, and this site would report nothing useful, forever.
+    _report_provenance("_seam_present", claude_klabauter_root, "dispatch")
+    return result
 
 
 # ---------------------------------------------------------------------------

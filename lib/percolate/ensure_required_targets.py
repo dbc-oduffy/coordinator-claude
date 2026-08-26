@@ -43,6 +43,23 @@ import tempfile
 from pathlib import Path
 from typing import IO, NamedTuple
 
+# Standalone entry point: invoked by script path (`if __name__ == "__main__"`
+# below), so `sys.path[0]` is this file's own directory
+# (`coordinator/lib/percolate/`) and never the repo root. Bootstrap the root
+# explicitly rather than relying on the editable-install `.pth` -- that `.pth`
+# is a machine-global side effect, not a property of this repo, and a
+# checkout without it must still run this script.
+# Presence-vs-precedence: this `not in sys.path` check only guarantees the
+# root is *somewhere* on sys.path, not that it wins first-match against a
+# same-named competing package. That is fine here -- this is a one-shot
+# standalone script with a single external dependency (`coordinator_core`)
+# and no competing same-named package expected in a typical invocation --
+# but it is a real gap; do not copy this shape into a context where a
+# shadowing package is plausible (see `maximalist.py`'s precedence fix).
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 from coordinator_core.win_portability import is_executable
 from coordinator.lib.percolate.publish_modes import MIRROR_WIRE_NAME
 from coordinator.lib.percolate.resolve_target import (

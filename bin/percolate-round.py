@@ -734,9 +734,10 @@ mis-scoped are now fixed in-process (§ C1, docs/dispatch-briefs/2026-08-26-
 open-the-percolate-removal-side-without-65ff4e/C1.md, superseding docs/plans/
 2026-08-26-a-refused-round-strands-its-payload-forever.md) -- this flag
 still stays False because flipping it is an external, irreversible action on
-two mirrors this repo does not own (`coordinator-claude` --
-claude-central-em; `claude-klabauter`), which needs their assent by memo
-first, not because the derivation is still known-wrong.
+two public mirrors -- `coordinator-claude` (doe-claude-em) and
+`claude-klabauter` (OURS, PM 2026-08-26; an earlier revision of this
+docstring said this repo owned neither, which was wrong for klabauter) --
+not because the derivation is still known-wrong.
 
 What now holds: the removal rule is `(head_tree ∩ row_scope) -
 declared_payload` (§ `_pathspec_from_manifest`), not the bare `head_tree -
@@ -760,12 +761,95 @@ Binary and other non-transform-eligible payload files (`door.exe`'s shape)
 are named in `declared_payload` even though the surface walk never visited
 them.
 
-What still gates this flag: nothing left to derive -- the next step is a
-memo to the two mirrors' owners proposing the flip, evidenced by the
-zero-live-on-disk-count measurement C1's dispatch brief requires before that
-memo may be written. Do not re-derive today's measurement from scratch;
-read it off the manifests already on disk (`.percolate/round-manifest.json`
-under each mirror) instead."""
+WHAT GATES THIS FLAG, corrected 2026-08-26 -- and the retired gate is worth
+naming because it was retired by dissolving, not by being satisfied.
+
+RETIRED: per-mirror scoping / mirror-owner assent. This flag is a bare module
+constant with no env override, CLI flag or per-target config, so an assent
+scoped to ONE mirror could not be honoured -- which is why doe-claude-em's
+mirror-scoped assent was offered and then withdrawn as unfulfillable. The PM
+then settled it from the other end: klabauter is ours, so both owners can
+assent and the scoping work is unnecessary. Note the shape, because it
+generalises: a property someone proposes to scope by SPACE (per-mirror,
+per-target, per-path) where the scoping does not bite is usually a property
+that varies over TIME instead. Every safety question on this deliverable has
+had that shape (§ DoE-claude coordinator/docs/wiki/verification-discipline.md,
+tripwire A-SAFETY-PROPERTY-HOLDS-OVER-AN-INTERVAL-NOT-OVER-A-THING).
+
+LIVE: a round on the FIXED WALK at each mirror, which has never run. The
+`declared_payload` widening landed at `e6ca74a70` (2026-08-26T13:36:43Z) and
+both mirror manifests predate it -- klabauter's declares 48,929 paths against
+a 4,661-path tree, of which 44,264 are `.fleet-env`, and its Leg B candidate
+set reads 0. That 0 is the silent-inertness failure `e6ca74a70` pins, not an
+empty backlog: the same round reported 47 uncarried removals.
+
+DO NOT read a Leg B number off a manifest without first establishing that the
+manifest was written by a round on the CURRENT walk -- i.e. that it postdates
+the newest change to `declared_payload`'s derivation (publish.py ::
+`_walk_published_payload` and its manifest-write caller). That is the method;
+`e6ca74a70` is merely the change that made it matter first, and pinning this
+check to that SHA would rot the same way the instruction below did.
+
+The previous revision said the opposite -- "do not re-derive from scratch,
+read it off the manifests already on disk". It was true when written and false
+twelve minutes later, and it had no tell: the prose does not change, the
+artifact still exists, and nothing prompts a provenance check. An instruction
+that points at a RESULT rots silently; one that points at the METHOD, or names
+what would invalidate it, does not. That is the whole reason this paragraph is
+phrased as a property rather than a timestamp.
+
+A stale manifest fails toward INERT (over-declaring empties the removal set),
+so what it costs is not a wrong deletion; it is a confident zero that reads as
+a clean pass."""
+
+
+def _pending_removal_warning(dest: str) -> str:
+    """The revert instruction this module prints on its two decline paths is
+    NOT the neutral undo its own architecture comment claims (§ `_cmd_round`,
+    "the sync into `dest` ... is fully `git reset --hard HEAD && git clean
+    -fd`-revertible, so a decline here leaves a synced-but-uncommitted `dest`,
+    never a lost push"). Returns text to append to that instruction, or "".
+
+    The premise held while the dest worktree carried nothing but the current
+    round's bytes. It stopped holding the moment stranded removals began
+    accumulating there -- which is the condition this whole deliverable exists
+    because of. A path deleted from dest's worktree and still tracked at dest
+    HEAD exists NOWHERE else: publish.py's `_report_published_diff` compares
+    staging against that same worktree, so once a path is absent from it the
+    removal is unobservable and never re-reported. The worktree IS the only
+    record. `reset --hard && git clean -fd` restores every one of them and
+    walks the mirror back to a state both removal legs have to re-earn --
+    silently, and by following this module's own documented remedy.
+
+    Measured 2026-08-26 at the `coordinator-claude` mirror: 66 such paths (43
+    stranded from an earlier pass, 23 from a hand sweep). A HIGH-tier leak
+    refusal there would have cost the entire backlog with no signal that it
+    had.
+
+    Named, never blocked. The revert is still the right move for an operator
+    who wants the round undone; what was missing is that it is not free. Reads
+    `git status --porcelain` and counts ` D` (deleted in worktree, tracked at
+    HEAD). Fails toward saying nothing on a probe failure -- an unreadable
+    dest must not manufacture a warning about a count it does not have.
+
+    Reported by doe-claude-6e (2026-08-26)."""
+    result = _run(
+        ["git", "-C", dest, "--no-optional-locks", "status", "--porcelain"],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
+    if result.returncode != 0:
+        return ""
+    pending = sum(1 for line in result.stdout.splitlines() if line[:2] == " D")
+    if not pending:
+        return ""
+    return (
+        f"\n    WARNING: that revert is not free. dest holds {pending} pending "
+        "removal(s) -- paths already deleted from its worktree and still tracked "
+        "at its HEAD. The worktree is their ONLY record; a publish round cannot "
+        "re-report a removal it can no longer observe. `reset --hard` restores "
+        "them and discards the backlog. To keep them, commit the deletions at "
+        "dest instead, or leave dest as it is and re-run the round."
+    )
 
 
 def _dest_head_tree(repo_root: str) -> set:
@@ -900,6 +984,53 @@ def _pathspec_from_manifest(manifest: _RoundManifest, repo_root: str) -> List[st
         _refuse_removals_present_on_disk(repo_root_path, removal_candidates)
         for rel in removal_candidates:
             seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
+
+    # UNGATED, and deliberately so -- a second removal source that needs no
+    # `_REMOVAL_SIDE_ENABLED` because it cannot make the mistake that flag
+    # exists to prevent. `manifest.removed` is publish.py's own per-row record
+    # of what THIS round's source stopped publishing
+    # (`_report_published_diff`), so it is row-scoped by construction and is a
+    # POSITIVE assertion rather than an inference from absence. It structurally
+    # cannot name an unprocessed row's payload or a never-scanned binary --
+    # the two hazards AC1 and AC2 exist to contain on the gated leg.
+    #
+    # The two legs cover DISJOINT cases and neither retires the other (§ AC6
+    # RESOLVED in the brief). Measured 2026-08-26: of 43 paths stranded at the
+    # `coordinator-claude` mirror, ZERO appear in `manifest.removed`, and none
+    # ever will -- `_report_published_diff` derives its removed-set by
+    # comparing the staging dir against dest's WORKING TREE, so a path already
+    # absent from that worktree leaves nothing to observe. This leg therefore
+    # prevents NEW stranding; only the gated leg above can clear the backlog.
+    #
+    # Paths still present on disk are skipped rather than named. `explicit_stage`
+    # runs `git add -- <paths>`, which stages a deletion only when the path is
+    # GONE from the worktree; on a path still present and clean it is a pure
+    # no-op. Naming one would put an entry in the pathspec that silently
+    # accomplishes nothing -- measured on `whoami/`, all 23 of which sit in
+    # `manifest.removed` while their mirror worktree copy is intact and clean
+    # against HEAD. The skip is reported, never swallowed: a removal this round
+    # observed and could not carry is exactly the class this module was told to
+    # stop losing quietly.
+    removed_still_on_disk: List[str] = []
+    # `lexists`, not `exists` -- same reason as `_refuse_removals_present_on_
+    # disk`'s own test, and load-bearing HERE FIRST because this leg is
+    # UNGATED. `exists` follows symlinks, so a tracked symlink with a missing
+    # target reads as absent, skips this guard, and is named for deletion: the
+    # one file class where "not on disk" describes the target, not the path.
+    for rel in sorted(manifest.removed):
+        if os.path.lexists(repo_root_path / rel):
+            removed_still_on_disk.append(rel)
+            continue
+        seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
+    if removed_still_on_disk:
+        print(
+            f"percolate-round: {len(removed_still_on_disk)} path(s) this round "
+            "reported as removed are still present in dest's worktree, so a "
+            "commit cannot express their deletion -- left out of the pathspec "
+            "rather than named as a silent no-op. Their worktree copy must be "
+            "swept before any rule can retire them.",
+            file=sys.stderr,
+        )
     return _filter_commit_pathspec(repo_root_path, repo_root_norm, seen, repo_root=repo_root)
 
 
@@ -915,7 +1046,7 @@ class RemovalCandidateOnDiskError(RuntimeError):
 def _refuse_removals_present_on_disk(dest_root: Path, candidates: Sequence[str]) -> None:
     """AC6 -- the removal side may not delete a path that exists on disk.
 
-    Added as a CONDITION OF ASSENT by claude-central-em (2026-08-26), in their
+    Added as a CONDITION OF ASSENT by doe-claude-em (2026-08-26), in their
     words "in the code, not in the procedure", before the removal side may be
     opened against a mirror this repo does not own.
 
@@ -941,8 +1072,17 @@ def _refuse_removals_present_on_disk(dest_root: Path, candidates: Sequence[str])
     with this invariant in place the pre-flight dry run is a CHECK, not a
     load-bearing gate. An irreversible rule against a public mirror should not
     depend on a human having run the right measurement at the right moment.
+
+    `lexists`, NOT `exists`. `exists` follows symlinks, so a TRACKED symlink
+    whose target is missing reads as absent, passes this refusal untouched,
+    and is deleted by the removal side -- the one file class where "not on
+    disk" is a statement about the target rather than about the path itself.
+    Zero tracked symlinks on either mirror today; this is what keeps the first
+    one from being reaped silently on the round that introduces it.
     """
-    present = [rel for rel in candidates if (dest_root / rel).exists()]
+    import os  # noqa: PLC0415 - lazy, matching this module's other `os` users
+
+    present = [rel for rel in candidates if os.path.lexists(dest_root / rel)]
     if not present:
         return
     shown = present[:20]
@@ -1855,9 +1995,17 @@ def _cmd_round_default(
     preceding dry run at all). The Step 3 gate -- same predicate, same
     inputs (touched-file count / MEDIUM leak hits / inverse-drift hits) --
     sits immediately before commit/push instead of before the sync: the
-    sync into `dest` (a local git clone) is fully `git reset --hard HEAD &&
-    git clean -fd`-revertible, so a decline here leaves a synced-but-
-    uncommitted `dest`, never a lost push.
+    sync into `dest` (a local git clone) is `git reset --hard HEAD && git
+    clean -fd`-revertible, so a decline here leaves a synced-but-uncommitted
+    `dest`, never a lost push.
+
+    THAT REVERSIBILITY IS NOT UNIFORM ACROSS TIME, and the qualifier is
+    load-bearing rather than pedantic. It holds for the bytes this round
+    ADDED. It does not hold for removals already pending in the dest worktree
+    from an earlier round: those paths exist nowhere but that worktree (§
+    `_pending_removal_warning`), so the same command that neutralises this
+    round's adds destroys them. Both decline paths below now name the count
+    rather than printing the remedy as if it were free.
 
     The old `--dry-run-first` opt-in (a second, pre-sync materialization
     pass) was retired outright by a later PM ruling (2026-08-23, in-session
@@ -1991,7 +2139,8 @@ def _cmd_round_default(
                 print(
                     "percolate-round: HIGH-tier content leak detected — refusing to "
                     "commit/push (already synced to dest; revert with `git -C <dest> "
-                    "reset --hard && git clean -fd` if desired).",
+                    "reset --hard && git clean -fd` if desired)."
+                    + _pending_removal_warning(dest),
                     file=sys.stderr,
                 )
                 return _EXIT_FAIL
@@ -2110,6 +2259,7 @@ def _cmd_round_default(
                             "synced-but-uncommitted content -- revert with `git -C <dest> "
                             "reset --hard && git clean -fd`, or re-run to confirm and "
                             "commit it."
+                            + _pending_removal_warning(dest)
                         )
                         return _EXIT_OK
                 else:
