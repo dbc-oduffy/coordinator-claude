@@ -613,24 +613,74 @@ class ProvenanceReport(NamedTuple):
 
 def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
     """Call `provenance_against` with `root` (the caller's OWN resolved root,
-    never a re-resolved or module-level one — AC12) and wrap the result as a
-    `ProvenanceReport` carrying `caller` and `axis`.
+    never a re-resolved or module-level one — AC12), wrap the result as a
+    `ProvenanceReport` carrying `caller` and `axis`, and hand it to the C6
+    sink (`coordinator_core.engine_provenance_counter.record_engine_provenance`
+    — see `docs/plans/2026-08-26-the-seam-reports-what-it-got.md` § C6 and
+    `state/sizings/2026-08-26-the-provenance-gap-closed-end-to-end-no.yaml`'s
+    `pm_resolution.warn_sink` for the counter-not-stderr shape and why).
 
-    This is the query call itself — "report through the query" — not a sink.
-    The returned `ProvenanceReport` is not yet persisted or emitted anywhere;
-    C6 (`docs/plans/2026-08-26-the-seam-reports-what-it-got.md` § C6) owns
-    where it lands. Every one of `provenance_against`'s own no-raise/no-import/
-    no-sys.path-mutation guarantees apply unchanged here — this is a thin,
-    non-fallible wrap of its result, not a new fallible step.
+    A fallible step that degrades, never raises — NOT the thin, non-fallible
+    wrap this docstring once claimed to be. The sink call touches the
+    filesystem under `state/`, and every wrapper and `_seam_present` in this
+    module discards this function's return value, so the whole body — the
+    query call, the sink call, and the `ProvenanceReport` construction — sits
+    inside one outer `except Exception` that degrades to an
+    `unresolved`-verdict `ProvenanceReport` rather than letting a filesystem
+    edge case propagate past a caller that must never raise on any input or
+    filesystem state (hard constraint 3). `provenance_against`'s own
+    no-raise/no-import/no-sys.path-mutation guarantees still hold unchanged
+    for the query half; this function's own body deliberately never touches
+    `sys.path` either — the sink lookup is a plain ambient import, retried
+    nowhere, so an environment where `coordinator_core` is not importable
+    degrades the same way any other failure here does.
+
+    The sink import is ambient-only (no `sys.path` mutation of any kind,
+    matching this function's own no-`sys.path`-reference guard test) — a
+    process where `coordinator_core.engine_provenance_counter` is not already
+    importable simply does not get a recorded count, same as any other
+    degrade-to-`unresolved` case below.
+
+    THE `unimported` EARLY RETURN IS HARD CONSTRAINT 2, NOT AN OPTIMIZATION.
+    The sink lives under `coordinator_core`, so importing it binds the very
+    package this seam exists to observe. Reporting it unconditionally would
+    make asking the question create its own answer: a wrapper front-inserts
+    its root, the sink import then binds `coordinator_core` from that root,
+    and every later call in the process measures a binding the detector
+    itself caused. Worse, hooks on the blocking `UserPromptSubmit` path call
+    these wrappers, and a consumer that had not imported the engine must get
+    `unimported` — never an import as a side effect of the question. So an
+    `unimported` verdict returns BEFORE the sink import, which also keeps
+    that hot path free of both filesystem work and a package import (AC9).
+    Nothing is lost by not counting it: `provenance_against` returns
+    `unimported` exactly when `sys.modules` has no `coordinator_core`, so
+    the three verdicts that can carry a divergence — `match`, `divergent`,
+    `unresolved` — are all still recorded, and they are the only ones C7's
+    inventory can say anything about.
     """
-    provenance = provenance_against(root=root)
-    return ProvenanceReport(
-        provenance.verdict,
-        provenance.imported_file,
-        provenance.engine_root,
-        caller,
-        axis,
-    )
+    try:
+        provenance = provenance_against(root=root)
+        report = ProvenanceReport(
+            provenance.verdict,
+            provenance.imported_file,
+            provenance.engine_root,
+            caller,
+            axis,
+        )
+        if report.verdict == PROVENANCE_UNIMPORTED:
+            return report
+        from coordinator_core.engine_provenance_counter import record_engine_provenance
+
+        record_engine_provenance(
+            caller,
+            axis,
+            report.verdict,
+            report.imported_file,
+            report.engine_root,
+        )
+        return report
+    except Exception:  # noqa: BLE001 -- never raise past this reporting seam
+        return ProvenanceReport(PROVENANCE_UNRESOLVED, None, None, caller, axis)
 
 
 def provenance_against(*, root: str | None) -> EngineProvenance:
