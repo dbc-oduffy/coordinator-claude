@@ -4601,13 +4601,33 @@ def write_publish_provenance_record(
     out: IO[str] = sys.stdout,
     err: IO[str] = sys.stderr,
 ) -> None:
-    """Persist, per row this round reached, whether it actually published
-    and — for rows that did — the git toplevel(s) it published from and the
-    sha `_round_pin_source_sha` pinned for each (AC1). A row in
-    `failed_row_names` or `skipped_row_names` is recorded with
-    `"published": false` and NO sha (Anti-scope 3, AC2) — never folded into
-    a round-wide claim; the record must never assert the mirror carries code
-    a specific row's own outcome contradicts.
+    """Persist, per row, whether it published and — for rows that did — the
+    git toplevel(s) it published from and the sha `_round_pin_source_sha`
+    pinned for each (AC1). A row in `failed_row_names` or `skipped_row_names`
+    is recorded with `"published": false` and NO sha (Anti-scope 3, AC2) —
+    never folded into a round-wide claim; the record must never assert the
+    mirror carries code a specific row's own outcome contradicts.
+
+    MERGES FORWARD; DOES NOT DESCRIBE ONE ROUND. Rebuilding `rows` from this
+    round's names alone made a row the round did not reach VANISH, which is
+    indistinguishable from a row that has never published — so a mirror
+    falling arbitrarily far behind source raised nothing anywhere. Found
+    2026-08-26: DoE's OSS mirror sat ~3h behind `c67e4984d` while the live
+    record listed only the nine `claude-klabauter-*` rows of the last round,
+    with no `coordinator-claude` entry at all; the lag had to be found by
+    hand-diffing two mirrors (doe-claude-em, same finding independently).
+    Rows this round reached are overwritten; rows it did not are carried
+    forward verbatim, so a stored sha always answers "published from what,
+    last time it published". `rows_in_last_round` names which rows the most
+    recent round actually reached, so carried-forward stays distinguishable
+    from just-published without reading two files.
+
+    A row that FAILED or was SKIPPED this round keeps `"published": false`
+    and no sha of its own, exactly as before — but its prior success, if any,
+    is preserved under `last_published` rather than erased. Anti-scope 3
+    forbids asserting a sha for THIS round's outcome; it does not require
+    forgetting that the row ever published, and forgetting is what made the
+    lag invisible.
 
     Does not touch `write_delta_record`/`_delta_state_path`/
     `delta_row_unchanged`/`_delta_row_source_sha` (Anti-scope 1) — this is a
@@ -4620,7 +4640,40 @@ def write_publish_provenance_record(
     more than this record, and a missing/stale record is read by the C2
     probe as "unknown", which is honest (AC5)."""
     try:
-        rows: "dict[str, Any]" = {}
+        now = datetime.now(timezone.utc).isoformat()
+        # Prior rows are the starting state, not a fresh dict — see the
+        # merge-forward paragraph above. An unreadable or absent record
+        # degrades to "no prior rows" rather than failing the write: the
+        # round's own outcome must still be recorded.
+        prior_rows: "dict[str, Any]" = {}
+        try:
+            prior_raw = json.loads(
+                _publish_provenance_record_path().read_text(encoding="utf-8")
+            )
+            if isinstance(prior_raw, dict) and isinstance(prior_raw.get("rows"), dict):
+                prior_rows = prior_raw["rows"]
+        except (OSError, ValueError):
+            prior_rows = {}
+
+        def _carried_last_published(name: str) -> "dict[str, Any]":
+            """The row's last SUCCESSFUL publish, carried across a round that
+            did not publish it. Reads either shape: an entry written before
+            this merge-forward change holds its sha inline; one written after
+            already carries a `last_published` block."""
+            prior = prior_rows.get(name)
+            if not isinstance(prior, dict):
+                return {}
+            if prior.get("published") and prior.get("toplevels"):
+                return {
+                    "last_published": {
+                        "at": prior.get("published_at"),
+                        "toplevels": prior["toplevels"],
+                    }
+                }
+            carried = prior.get("last_published")
+            return {"last_published": carried} if isinstance(carried, dict) else {}
+
+        rows: "dict[str, Any]" = dict(prior_rows)
         for name in succeeded_row_names:
             target = rows_by_name.get(name)
             toplevels: "dict[str, str]" = {}
@@ -4646,18 +4699,23 @@ def write_publish_provenance_record(
             # optimism per AC5) is recorded as not-published rather than
             # asserting a sha it cannot back up.
             rows[name] = (
-                {"published": True, "toplevels": toplevels}
+                {"published": True, "toplevels": toplevels, "published_at": now}
                 if toplevels
-                else {"published": False}
+                else {"published": False, "last_attempt_at": now, **_carried_last_published(name)}
             )
-        for name in failed_row_names:
-            rows[name] = {"published": False}
-        for name in skipped_row_names:
-            rows[name] = {"published": False}
+        for name in list(failed_row_names) + list(skipped_row_names):
+            rows[name] = {
+                "published": False,
+                "last_attempt_at": now,
+                **_carried_last_published(name),
+            }
 
         record = {
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": now,
             "rows": rows,
+            "rows_in_last_round": sorted(
+                set(succeeded_row_names) | set(failed_row_names) | set(skipped_row_names)
+            ),
         }
         record_path = _publish_provenance_record_path()
         record_path.parent.mkdir(parents=True, exist_ok=True)
