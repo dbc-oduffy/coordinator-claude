@@ -119,7 +119,7 @@ def _settings_home() -> Path:
     "~/.coordinator-claude-settings"; the shell-equivalent
     "$HOME/.coordinator-claude-settings" with empty $HOME collapses to
     "/.coordinator-claude-settings", which Windows resolves to the current
-    DRIVE ROOT (a stray 0-byte X:\\.coordinator-claude-settings was created that
+    DRIVE ROOT (a stray 0-byte ``<drive>:\\.coordinator-claude-settings`` was created that
     way, 2026-07-28). This resolver now (a) consults USERPROFILE so a bare
     cmd.exe session with no HOME still resolves on Windows, and (b) fails loud
     (ClaudeKlabauterResolutionError, caught by exec_cli into a clean stderr message)

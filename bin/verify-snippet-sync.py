@@ -60,6 +60,20 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
+
+require_dispatch_engine_on_path()
+# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+# what BINDS coordinator_core, and binding it HERE is the whole fix.
+# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+# nothing. Without this line the next module-level import below (a binder module
+# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+# the working tree instead of the dispatch root, and no later sys.path insert can
+# rebind an already-imported package. Removing it restores a silent wrong-tree
+# divergence that require_dispatch_engine_on_path now raises on.
+# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+# docs/research/engine-provenance-carrier-dependence.md
+import coordinator_core  # noqa: E402,F401
+
 from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 from machine_local_resolve import resolve_machine_local_bin  # noqa: E402
 

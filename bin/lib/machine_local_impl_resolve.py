@@ -76,7 +76,7 @@ do not fall under that parity obligation:
      cwd-relative ``COORDINATOR_SETTINGS_HOME``/``CLAUDE_HOME`` override;
      this module accepts one silently. (Same inheritance as #1.)
   3. ``registry_get`` repairs an MSYS/Cygwin mount-form return value
-     (``/x/...`` -> ``X:/...``) on BOTH the env-override rung and the
+     (``/<drive>/...`` -> ``<drive>:/...``) on BOTH the env-override rung and the
      file-read rung, byte-equivalently to
      ``coordinator_core._settings_home.native_path_form``; the oracle
      ``machine_resolver.registry_get`` does no normalization anywhere in its
@@ -253,7 +253,7 @@ def registry_dir() -> str:
 def _native_path_form(raw: str) -> str:
     """Byte-equivalent inline port of
     ``coordinator_core._settings_home.native_path_form`` — the MSYS/Cygwin
-    mount-form repair (``/x/...`` -> ``X:/...``), gated to ``os.name ==
+    mount-form repair (``/<drive>/...`` -> ``<drive>:/...``), gated to ``os.name ==
     "nt"``. This module cannot import that seam (see module docstring's HARD
     CONSTRAINT), so the repair is duplicated here under the same
     by-hand-parity obligation ``claude_home``/``settings_home`` already

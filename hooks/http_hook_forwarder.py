@@ -148,6 +148,15 @@ DIAL_COUNT_PATH_ENV = "COORDINATOR_FORWARDER_DIAL_COUNT_PATH"
 #: WHICH variation dialled. Small: this is a breadcrumb, not a log.
 _DIAL_RING_SIZE = 20
 
+#: Bounded ladder for the counter's atomic replace. CPython's ``open()`` does not request
+#: ``FILE_SHARE_DELETE``, so on Windows a replace of a file any reader currently holds open fails
+#: with ``PermissionError`` (WinError 5) rather than blocking. Measured against one polling
+#: reader, 2474 of 4000 single-attempt replaces failed that way; every one was swallowed by
+#: ``persist``'s never-raise contract and lost the arrival it carried. The cap keeps a contended
+#: write shorter than the response it already trails, and POSIX never enters the ladder at all.
+_REPLACE_RETRY_ATTEMPTS = 50
+_REPLACE_RETRY_SLEEP_SECONDS = 0.002
+
 
 def _utc_now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -205,7 +214,8 @@ class DialCounter:
 
       - **Whole-file atomic rewrite, no reader lock.** Written to a temp sibling and
         ``os.replace``d, so a concurrent read sees either the previous complete file or the next
-        one, never a torn one.
+        one, never a torn one. On Windows the replace is itself what the reader contends with --
+        see ``_REPLACE_RETRY_ATTEMPTS``.
     """
 
     def __init__(self, path: Optional[Path] = None) -> None:
@@ -243,18 +253,34 @@ class DialCounter:
             "recent": list(self._recent),
         }
 
-    def record_arrival(self) -> None:
-        """One request reached ``do_POST``. Called before anything about it is validated."""
+    def record_arrival(self) -> str:
+        """One request reached ``do_POST``. Called before anything about it is validated.
+
+        RETURNS ITS OWN ARRIVAL TIMESTAMP, and the caller must carry it to `record_event`. The
+        two calls take the lock separately -- they have to, since the body is parsed between
+        them -- so `_last_received_at` is shared mutable state that a second request can
+        overwrite in the gap. Reading it back in `record_event` stamped one request's ring entry
+        with another request's arrival time under concurrency. The ring is what says WHICH
+        variation dialled during a sweep, and a sweep is a concurrent population by construction,
+        so a misattributed timestamp there is a wrong answer to the question this file exists to
+        answer.
+        """
+        at = _utc_now()
         with self._lock:
             self._received_total += 1
-            self._last_received_at = _utc_now()
+            self._last_received_at = at
+        return at
 
-    def record_event(self, hook_event_name: Optional[str]) -> None:
-        """The arrival's body parsed and named this event."""
+    def record_event(self, hook_event_name: Optional[str], at: Optional[str] = None) -> None:
+        """The arrival's body parsed and named this event.
+
+        `at` is the timestamp `record_arrival` returned for THIS request -- see why there.
+        """
         key = hook_event_name or "<unnamed>"
+        stamped = at or _utc_now()
         with self._lock:
             self._received_by_event[key] = self._received_by_event.get(key, 0) + 1
-            self._recent.append({"at": self._last_received_at or _utc_now(), "event": key})
+            self._recent.append({"at": stamped, "event": key})
             if len(self._recent) > _DIAL_RING_SIZE:
                 del self._recent[: len(self._recent) - _DIAL_RING_SIZE]
 
@@ -267,19 +293,63 @@ class DialCounter:
     def persist(self) -> None:
         """Rewrite the file atomically.
 
+        THE LOCK IS HELD ACROSS THE WRITE, not merely across the snapshot, and that is a
+        correctness requirement rather than tidiness. This is a `ThreadingHTTPServer`: two
+        handlers persist concurrently. Snapshot under the lock and write outside it, and the
+        orderings interleave -- thread A snapshots at 1, thread B snapshots at 2, B writes, then
+        A writes -- and the file settles at 1 **permanently**, with an arrival correctly counted
+        in memory now absent from the only surface anyone reads. A counter that loses arrivals
+        under concurrency cannot be trusted to report a zero, which is the one thing it exists to
+        do. Serializing the writes costs nothing that matters: `persist` is called only after the
+        response has already been sent.
+
+        Each write carries the whole snapshot rather than a delta, so a write that loses a race
+        is corrected by the next one instead of compounding.
+
         Never raises: a counter able to take the forwarder down would be a worse defect than the
         one it measures.
         """
         try:
             with self._lock:
                 payload = json.dumps(self._snapshot_locked(), indent=2, sort_keys=True)
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_name("{0}.{1}.tmp".format(self._path.name, self._boot_id))
-            with open(tmp, "w", encoding="utf-8") as handle:
-                handle.write(payload + "\n")
-            os.replace(tmp, self._path)
+                self._path.parent.mkdir(parents=True, exist_ok=True)
+                tmp = self._path.with_name("{0}.{1}.tmp".format(self._path.name, self._boot_id))
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    handle.write(payload + "\n")
+                self._replace_with_retry(tmp)
         except Exception:
             return
+
+    def _replace_with_retry(self, tmp: Path) -> None:
+        """``os.replace(tmp, self._path)``, retried while a reader still owns the destination.
+
+        WHY THIS IS NOT DEFENSIVE PADDING. On Windows a replace of a file that any reader holds
+        open fails outright -- see ``_REPLACE_RETRY_ATTEMPTS`` for the mechanism and the measured
+        failure rate. Every such failure was swallowed by ``persist``'s never-raise contract, so
+        the arrival stayed correct in memory and vanished from the only surface anyone reads: the
+        counter under-reported by an amount set by how hard someone was reading it. A counter that
+        loses arrivals when observed cannot be trusted to report a zero, which is the one thing it
+        exists to do.
+
+        THE READER CANNOT BE FIXED INSTEAD, and that is why the cost lands here. Reading this file
+        off disk, with no endpoint and no perturbation of the count, is the counter's stated
+        contract; the sweep does exactly that; and the writer cannot enumerate its readers. So the
+        writer absorbs the contention.
+
+        Bounded, never unbounded. Exhausting the cap re-raises into ``persist``'s handler, which is
+        the pre-existing lost-write outcome -- no worse than before, and never a raise reaching the
+        caller. Called with the lock HELD, which is what serializes this ladder against other
+        handlers' persists; the cap is therefore also the bound on how long a contended write can
+        hold up the next one, and every persist behind it has already sent its response.
+        """
+        for attempt in range(_REPLACE_RETRY_ATTEMPTS):
+            try:
+                os.replace(tmp, self._path)
+                return
+            except PermissionError:
+                if attempt == _REPLACE_RETRY_ATTEMPTS - 1:
+                    raise
+                time.sleep(_REPLACE_RETRY_SLEEP_SECONDS)
 
 
 # `_engine_root.py` lives one directory down from this module (`coordinator/hooks/scripts/`),
@@ -343,19 +413,28 @@ def _resolved_engine_root() -> Optional[str]:
     return _engine_root_cache
 
 
-def _extract_hook_event_name(body: bytes) -> str:
-    """Best-effort read of `hook_event_name` off the incoming POST body, defaulting to
-    `PreToolUse` -- the only event this plan wires over http. Never raises: a malformed or
-    unparsable body is exactly a case this module must still be able to deny cleanly."""
+def _parse_hook_event_name(body: bytes) -> Optional[str]:
+    """The one parse. `None` means the body carried no usable `hook_event_name`.
+
+    Its two callers differ ONLY in what they do with that `None`, and that difference is
+    load-bearing (see `_counted_event_name`). The parsing itself is shared so a future change to
+    the body shape has one place to land rather than two to keep in step. Never raises.
+    """
     try:
         obj = json.loads(body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
-        return "PreToolUse"
+        return None
     if isinstance(obj, dict):
         name = obj.get("hook_event_name")
         if isinstance(name, str) and name.strip():
             return name
-    return "PreToolUse"
+    return None
+
+
+def _extract_hook_event_name(body: bytes) -> str:
+    """The event name for the DENY this module may author, defaulting to `PreToolUse` -- a
+    refusal has to name some event, and that is the only one this plan wires over http."""
+    return _parse_hook_event_name(body) or "PreToolUse"
 
 
 def _counted_event_name(body: bytes) -> Optional[str]:
@@ -368,15 +447,42 @@ def _counted_event_name(body: bytes) -> Optional[str]:
     counter exists to draw. `DialCounter`'s negative spec keeps "dialled but sent a shape we
     rejected" separate from "dialled normally", and that separation dies if this defaults.
     """
+    return _parse_hook_event_name(body)
+
+
+def _record_is_skewed(record: "dict", root: Path) -> bool:
+    """True when `record` names a listener whose engine has since been republished.
+
+    A skewed listener is ALIVE and answers `GET /health` 200 -- health never traverses
+    `_serve_line`, so it never reaches the version check. Only the fire itself discovers the
+    skew, by which time `_serve_line` has answered ENGINE_SKEW (-32002) and the guard has NOT
+    run. Classifying at the read is what lets this be a no-backend case instead of a verdict.
+
+    Resolved by name at call time, public alias preferred, private name as fallback. Both are
+    present in the published mirror today. THE FALLBACK IS NOT VESTIGIAL AND MUST NOT BE
+    COLLAPSED INTO A HARD CALL. Hooks and the engine are provisioned by separate layers, so a
+    clone can resolve an engine older than this one -- version skew between those two halves is
+    the very condition this function detects. A hard `record_is_skewed(...)` would raise
+    `AttributeError` on such an engine, the enclosing handler would read that as "no backend",
+    and every Bash call on that machine would DENY until someone noticed. Degrading to
+    not-skewed is strictly better: an engine too old to answer the question cannot be one that
+    republished under a running listener in the sense this guards against, and a hook must
+    never brick a Bash call over a predicate it could not find.
+    """
+    mod = _sup_mod()
+    fn = getattr(mod, "record_is_skewed", None) or getattr(mod, "_record_is_skewed", None)
+    if fn is None:
+        return False
     try:
-        obj = json.loads(body.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
-    if isinstance(obj, dict):
-        name = obj.get("hook_event_name")
-        if isinstance(name, str) and name.strip():
-            return name
-    return None
+        return bool(fn(record, root))
+    except Exception:
+        return False
+
+
+def _sup_mod() -> "Any":
+    from coordinator_core.warm import supervisor as _supervisor
+
+    return _supervisor
 
 
 def _deny_body(hook_event_name: str) -> bytes:
@@ -440,7 +546,7 @@ def _normalize_clone_root(raw: str) -> Optional[Path]:
     `claude-doe-shim.sh.tmpl` itself exports NOTHING and must not -- it resolves no plugin dir,
     and DR-087 forbids promoting its `.doe-root` pointer to rung-1 authority (negative-spec
     pinned in `test_launcher_templates_export_clone_root.py`). It delegates instead, terminating
-    in `claude-doe`, and `claude-klabauter coordinator/bin/claude-doe.py:650` does the
+    in `claude-doe`, and the engine's `coordinator/bin/claude-doe.py:650` does the
     `setdefault` ABOVE its `os.name == "nt"` branch, so it runs on every platform. A
     shim-launched POSIX session therefore DOES carry the header, and `_extract_cwd` is its
     second identity source rather than its only one.
@@ -534,6 +640,23 @@ def _resolve_backend(clone_root_header: Optional[str]) -> Optional[Tuple[str, in
             except Exception:
                 pass
             record = _supervisor.read_discovery(Path(engine_root))
+
+        # SKEW IS THE SAME FACT AS ABSENCE, arriving as a record that parses. `read_discovery`
+        # does no version check, so a skewed record is not `None` and would sail past the branch
+        # above; the listener is alive, so the caller's `OSError` deny arm never fires either.
+        # Forwarding it buys ONE UNGUARDED BASH CALL PER REPUBLISH -- the guard does not run, the
+        # relay hands the harness a -32002 the model reads as "the guard errored out", and
+        # nothing denies. Handled HERE rather than on the relay path so the module's contract
+        # holds unchanged: it still authors no permission decision about a VERDICT, because a
+        # skewed listener never produces one.
+        if record is not None and _record_is_skewed(record, Path(engine_root)):
+            try:
+                _supervisor.ensure_listener(Path(engine_root))
+            except Exception:
+                pass
+            record = _supervisor.read_discovery(Path(engine_root))
+            if record is not None and _record_is_skewed(record, Path(engine_root)):
+                return None
     except Exception:
         # `read_discovery` is documented never to raise; this except is belt-and-braces so an
         # engine-side regression cannot turn "no backend" into an unhandled exception that would
@@ -603,8 +726,7 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
         # send but this module could not parse is never filed under "the harness never dialled".
         # See `DialCounter`'s negative spec.
         counter = self._counter
-        if counter is not None:
-            counter.record_arrival()
+        arrived_at = counter.record_arrival() if counter is not None else None
         try:
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -618,8 +740,33 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
 
             body = self.rfile.read(length) if length else b""
             hook_event_name = _extract_hook_event_name(body)
+            counted_event_name = _counted_event_name(body)
             if counter is not None:
-                counter.record_event(_counted_event_name(body))
+                counter.record_event(counted_event_name, at=arrived_at)
+                # PERSISTED HERE: after the arrival is classified, before anything that can
+                # block. Everything above this line is a header read and a JSON parse -- cheap
+                # and incapable of hanging. Everything BELOW resolves discovery and forwards over
+                # a socket, which on a busy engine takes seconds and can be killed part-way.
+                #
+                # Leaving persistence to the handler's `finally` alone put both facts behind that
+                # slow work, so an arrival already correct in memory stayed invisible on disk for
+                # seconds and read, to any reader, as a no-dial -- the exact false negative this
+                # counter exists to prevent, measured as a 5s timeout in its own suite. One write
+                # here makes "the harness dialled, and it was this event" durable independently
+                # of whether the rest of the handler ever completes.
+                #
+                # COST, MEASURED -- it stays. This executes on every Bash call on this box, ahead
+                # of the verdict, which is the placement deliberately rejected for the
+                # end-of-handler persist, so it owed a number rather than an argument. n=400,
+                # warm, on Windows with ~32 live sessions contending for the same disk:
+                # **median 0.70 ms, p90 0.94 ms, p99 1.30 ms, max 1.57 ms** on a ~1.3 KB payload.
+                # Against DR-344's 50 ms budget that is ~1.4% at the median, and against the
+                # measured 45.1 ms warm round trip it is ~1.5% -- noise, in a workstream whose
+                # target is removing 271 ms. Kept unconditional on that evidence; an env-gate
+                # would buy a rounding error and cost the durability above on every real fire.
+                # Re-measure if the payload stops being small: the ring is bounded at
+                # _DIAL_RING_SIZE precisely so this write cannot grow without someone choosing it.
+                counter.persist()
 
             clone_root_header = self.headers.get(ROUTING_HEADER_NAME)
             if not clone_root_header or not clone_root_header.strip():
@@ -643,7 +790,7 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 return
 
             if counter is not None:
-                counter.record_forwarded(_counted_event_name(body))
+                counter.record_forwarded(counted_event_name)
             # BACKEND SAID SOMETHING -- relayed verbatim, allow included. This module authors no
             # permission decision on this path; whatever `_serve_line` returned is what the
             # harness sees.
@@ -692,6 +839,11 @@ class _ExclusiveServer(ThreadingHTTPServer):
 
     daemon_threads = True
     allow_reuse_address = False
+
+    #: Set by `make_server` immediately after bind. Declared here so the attribute is part of the
+    #: class rather than grafted on, and so a handler reaching it through `self.server` is
+    #: reading a documented member.
+    dial_counter: "Optional[DialCounter]" = None
 
     def server_bind(self) -> None:
         # SO_EXCLUSIVEADDRUSE only exists on Windows. Where it is absent (POSIX), the machine-

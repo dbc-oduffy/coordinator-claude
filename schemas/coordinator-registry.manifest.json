@@ -76,7 +76,7 @@
   "_reconstruction": "KNOWN_TYPES = {d.type for d in docTypes} ∪ set(queueTypes). docTypes is complete over every non-queue type (offerable and excluded alike), so this union byte-equals the pre-refactor coordinator-doc-new._KNOWN_TYPES. It is also a superset-safe match for the plan's pinned formula {docTypes} ∪ {kindOfferOverride.values()} ∪ queueTypes ∪ {lesson}, since spinoff/roadmap-baton/lesson already appear as docTypes entries. SIDECAR_TYPES = {d.type for d in docTypes if d.isSidecar}. QUEUE_TYPES = queueTypes. The C2 golden-tuple test MUST assert byte-equality against the current tuples.",
 
   "identity": {
-    "centralReceiverIds": ["doe-claude-em"],
+    "centralReceiverIds": ["doe-claude-em", "claude-central-em", "central-em", "central"],
     "repoAliases": [
       { "registryKey": "example_game_workbench_repo", "shortname": "example-game-repo", "dirBasename": "example-game-workbench-repo" }
     ],

@@ -649,6 +649,81 @@ def main(argv: list[str]) -> int:
     # `type: "http"` registration may flip before both legs ship.
     os.environ.setdefault("COORDINATOR_CLONE_ROOT", doe_clone)
 
+    # The http-hook override-channel CANARY, mirroring the two Windows legs
+    # (`claude-doe-launcher.ps1.tmpl` and `.cmd.tmpl`, which already carry it).
+    # A `type: "http"` registration reaches the caller's environment only
+    # through interpolated headers, and an `httpHookAllowedEnvVars` setting can
+    # veto a name by EMPTYING its header rather than by erroring. An emptied
+    # header is indistinguishable from a caller who set no override, and the
+    # guard resolves that ambiguity permissively -- so the channel carries a
+    # static literal that survives a veto beside this interpolated value, which
+    # does not. Declared-plus-empty-canary is a vetoed channel and answers "the
+    # guard did not run"; undeclared stays silent, so no legacy registration
+    # fails closed. Registration side: `hook_http.OVERRIDE_CANARY_ENV`.
+    #
+    # The value is arbitrary and only ever tested for non-emptiness. It is not
+    # a secret, not a token, and grants nothing.
+    #
+    # `setdefault` on a PRESENCE test, and here the empty string is MEANINGFUL
+    # rather than merely possible: an operator exporting it empty is simulating
+    # a veto, which a truthiness guard would silently overwrite with "1".
+    os.environ.setdefault("COORDINATOR_PROBE_CANARY", "1")
+
+    # The door credential (AC17). Unlike the two keys above this one is a
+    # SECRET, and unlike them it is READ rather than derived: the launcher is
+    # the only actor that can put it in a session's environment, because a hook
+    # fire cannot read a file.
+    #
+    # Minted on first absence and never rotated on a schedule -- see
+    # `door_credential`'s own lifetime section. A session's environment is
+    # fixed at launch, so a value that rotates under a live session stops
+    # authenticating it with nothing to notice.
+    #
+    # `setdefault` for the same operator-lever reason as the keys above; a
+    # failure to mint is swallowed deliberately, because a launcher that
+    # refuses to start a session over a credential the session could still run
+    # without is a worse outcome than an unauthenticated fire, which the door
+    # already answers loudly as `key-absent`.
+    #
+    # RECOMPUTED, NOT IMPORTED, and that is forced: this file is STANDALONE and
+    # cannot import `coordinator_core` (see `_machine_local_argv` above). It is
+    # therefore the second half of a two-implementation agreement with
+    # `coordinator_core.warm.door_credential`, exactly the shape
+    # `breadcrumb._runtime_base`'s own docstring already describes for the C
+    # door: a path the two halves disagree about produces NO ERROR ANYWHERE --
+    # the door reads an empty secret, every fire answers `key-absent`, and every
+    # surface stays green while no session on the box can authenticate. The
+    # three candidates below mirror `_runtime_base` exactly and must change in
+    # one move with it.
+    try:
+        _base = os.environ.get("COORDINATOR_WARM_RUNTIME_BASE", "").strip()
+        if not _base:
+            _base = os.environ.get("LOCALAPPDATA") or os.path.join(
+                os.path.expanduser("~"), ".cache"
+            )
+        _key_path = os.path.join(_base, "coordinator", "warm", "door-key")
+        _key = ""
+        try:
+            with open(_key_path, "r", encoding="utf-8") as _fh:
+                _key = _fh.read().strip()
+        except OSError:
+            _key = ""
+        if not _key:
+            import secrets as _secrets
+
+            _key = _secrets.token_hex(32)
+            os.makedirs(os.path.dirname(_key_path), exist_ok=True)
+            _tmp = _key_path + ".tmp"
+            _fd = os.open(_tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+            try:
+                os.write(_fd, _key.encode("utf-8"))
+            finally:
+                os.close(_fd)
+            os.replace(_tmp, _key_path)
+        os.environ.setdefault("COORDINATOR_DOOR_KEY", _key)
+    except Exception:  # noqa: BLE001 -- never block a launch on the credential
+        pass
+
     if os.name == "nt" or len(exec_prefix) > 1:
         # Windows has no exec(2). CPython maps `os.execv` onto the CRT's
         # P_OVERLAY spawn, which does NOT replace this process: it starts

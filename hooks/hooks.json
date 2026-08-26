@@ -387,6 +387,7 @@
         ]
       },
       {
+        "_comment": "POSTTOOLUSE-AGENT-DISPATCH FAN-IN (W0, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) -- folds the two former standalone PostToolUse|Agent registrations (agent-completion-log.py, track-dispatched-agents.py's PostToolUse enrich leg) into the single engine op `hooks.agent_postuse_dispatch` (published mirror HEAD 6bcbb8b7), fronted by this thin plumbing shim (postuse-agent-dispatch.py). 3 registrations -> 2 on this matcher. ADDITIVE, NOT A MIGRATION: both agent-completion-log.py and track-dispatched-agents.py stay registered elsewhere (track-dispatched-agents.py's SubagentStart leg, above) and keep their own direct callers/op literals unchanged -- only the PostToolUse|Agent registration surface moves. runtime-tripwire-em-check.py is NOT folded here -- its two ops return domain results, not hook envelopes, and it composes its own advisory prose; folding it would be a DR-047 crossing (W3), not this chunk's scope. W1b (docs/dispatch-briefs/2026-08-25-route-the-bash-guard-onto-the-native-htt/W1b.md) -- the postuse-agent-dispatch.py leg below moves to type: \"http\", the only fan-in registration that names exactly one engine op (census, same brief). PostToolUse is in _HTTP_DELIVERED_EVENTS (proven-delivered), the op resolves per _KNOWN_ENGINE_OPS, and (PostToolUse, postuse-agent-dispatch.py) is already classified recoverable in _RECOVERABLE_REGISTRATIONS (union of its two folded legs). The runtime-tripwire-em-check.py leg stays type: \"command\" -- it fans out to 3 ops, which the http transport cannot express (op_for_path resolves exactly one op per URL).",
         "matcher": "Agent",
         "hooks": [
           {
@@ -396,18 +397,7 @@
             "args": [
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          },
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 5,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-agent-dispatch.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           },

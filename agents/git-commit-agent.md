@@ -56,9 +56,28 @@ the kill-switch contract prescribes.
 `coordinator_core` is NOT importable from a bare interpreter — it lives in the engine clone, not
 on your `sys.path`, and a plain `import` raises `ModuleNotFoundError` on every host. That error is
 the expected state before you resolve the root, never evidence the route is gone. Resolve it the
-way the live hooks do — `resolve_claude_klabauter_root()` from `coordinator/hooks/scripts/_engine_root.py` in the
-plugin root — and put the returned path on `sys.path` before importing. **A `ModuleNotFoundError`
-you met without resolving the root is not an attempt at leg 1**, and reporting the commit
+way the live hooks do, with this exact prologue:
+
+```python
+import os, subprocess, sys
+_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.join(
+    subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                   capture_output=True, text=True, check=True).stdout.strip(),
+    "coordinator")
+sys.path.insert(0, os.path.join(_root, "hooks", "scripts"))
+from _engine_root import resolve_claude_klabauter_root
+sys.path.insert(0, resolve_claude_klabauter_root())
+from coordinator_core.ops.ceremony.commit_pipeline import run_commit_pipeline
+```
+
+`CLAUDE_PLUGIN_ROOT` is set in some dispatch contexts and absent in others, which is why the
+fallback is there and why neither branch is optional.
+
+**Run that prologue before concluding anything about leg 1's availability.** The ladder behind
+`resolve_claude_klabauter_root()` is env vars, then the machine-local registry, then a sibling walk — it
+consults no pointer file at the repo root, so a missing `<repo>/.doe-root` is not a diagnosis of
+anything and reporting one is a fabricated blocker. **A `ModuleNotFoundError` you met without
+running the prologue is not an attempt at leg 1**, and reporting the commit
 mechanism unavailable on the strength of it is the false-endorsement this file's closing section
 forbids. `scoped-git-commit` is not the fallback for it either: that launcher is retired, and its
 absence — or its presence — says nothing about leg 1. It picks the agree-case vs. private-index staging form from
@@ -99,6 +118,9 @@ this session but wrongly included in this commit passes the pipeline and fails r
   extra path is a STOP-and-report (see refusals table); an absent or unchanged one is not, and
   in a preflight/verify-only dispatch it is the expected state, never BLOCKED. 3) Only once the
   enumerated set matches exactly, commit per the route above.
+- **Expand a directory to its files before passing it.** The pipeline's pre-stage guard rejects a
+  directory pathspec outright — a directory matches whatever is inside it at commit time, a
+  peer's file added after your set was computed included. Enumerate and pass the files.
 
 ## Pathspec provenance
 

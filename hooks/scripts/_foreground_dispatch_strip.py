@@ -138,6 +138,17 @@ from typing import Any, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _message_envelope import resolve_wiki_citation  # noqa: E402
+try:
+    from _session_hub import ensure_session_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
+    # still fail open to the pre-gate behaviour, not crash on import.
+    def ensure_session_dir(session_dir: Any, session_id: Any) -> bool:
+        try:
+            Path(session_dir).mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return False
+        return True
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{4,}$")
 
@@ -282,7 +293,11 @@ def _mark_bg_capable(git_dir: Optional[str], session_id: str) -> None:
     try:
         if marker.exists():
             return
-        marker.parent.mkdir(parents=True, exist_ok=True)
+        # A session id the hub gate will not accept gets no directory minted
+        # for this marker (see `_session_hub`); the uncalibrated read that
+        # follows is the absent-key case this function already degrades to.
+        if not ensure_session_dir(marker.parent, session_id):
+            return
         marker.touch()
     except Exception:
         pass

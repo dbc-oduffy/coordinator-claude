@@ -114,6 +114,20 @@ class StructuralPinError(RuntimeError):
     """
 
 
+class ProvenanceDivergenceError(RuntimeError):
+    """Marks `require_dispatch_engine_on_path`'s divergent-provenance raise
+    (C9), distinct from `_resolve_claude_klabauter_root`'s missed-rung RuntimeError.
+
+    Review: code-reviewer P1 (slice f5bdd60b4) — a bare `except RuntimeError`
+    around this call (e.g. `agent-worktree-sweep.py`) previously reframed
+    EVERY cause under a "CLAUDE_KLABAUTER_ROOT resolution failed" banner, which is
+    false for this one (remedy is import ordering, not CLAUDE_KLABAUTER_ROOT).
+    Subclasses RuntimeError so an existing `except RuntimeError` caller still
+    catches it unchanged; a caller that needs to discriminate catches this
+    first, same pattern as `StructuralPinError`.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Lazy op registration is unconditional as of 2026-08-22 (the
 # import-path-costs-nothing sprint): coordinator_core.ops never eagerly
@@ -657,6 +671,16 @@ def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
     the three verdicts that can carry a divergence — `match`, `divergent`,
     `unresolved` — are all still recorded, and they are the only ones C7's
     inventory can say anything about.
+
+    FOOTGUN FOR TEST AUTHORS (Review: code-reviewer P2): the `except
+    Exception` below also catches `AssertionError` (a subclass of `Exception`
+    in Python), not just filesystem/import failures — hard constraint 3
+    forces the broad catch, so this is not fixable without weakening it. A
+    test that injects a raising double INSIDE this function's body to assert
+    something failed loudly will have that assertion silently swallowed
+    instead of propagating; probe `sys.modules`/return values directly, the
+    way this file's own AC2/AC9 tests do, never a raise from inside a
+    monkeypatched probe.
     """
     try:
         provenance = provenance_against(root=root)
@@ -671,12 +695,22 @@ def _report_provenance(caller: str, root: str, axis: str) -> ProvenanceReport:
             return report
         from coordinator_core.engine_provenance_counter import record_engine_provenance
 
+        # Review: code-reviewer P1 — omitting cwd left resolve_git_root_cheap's
+        # `if not cwd: return None` guard firing on every call, so the sink
+        # silently never wrote a record (indistinguishable at the call site
+        # from an intentional unresolvable-root degrade). os.getcwd() is a
+        # MISS-MODE-appropriate cwd for this sink: a symlinked-ancestor
+        # divergence between this and resolve_git_root's realpath answer only
+        # changes WHERE the append-only record lands, never a VERDICT (no
+        # guard decision rides on it), matching resolve_git_root_cheap's own
+        # documented caller contract.
         record_engine_provenance(
             caller,
             axis,
             report.verdict,
             report.imported_file,
             report.engine_root,
+            cwd=os.getcwd(),
         )
         return report
     except Exception:  # noqa: BLE001 -- never raise past this reporting seam
@@ -865,12 +899,40 @@ def require_dispatch_engine_on_path() -> str:
     Returns the resolved dispatch root, so a caller that also needs to hand it to
     ``cc_invoke`` can end on ``root = require_dispatch_engine_on_path()``.
 
+    HARDENED (C9, docs/plans/2026-08-26-the-seam-reports-what-it-got.md § C9):
+    raises RuntimeError when the reporting call resolves a ``divergent``
+    verdict — an earlier module-level import (of ``repo_identity``,
+    ``records_query``, ``machine_local_resolve``, or
+    ``coordinator_core.win_portability``) already bound ``coordinator_core``
+    into ``sys.modules`` off a tree other than this call's own resolved
+    ``root``, so the ``sys.path`` front-insert above is a no-op and the
+    caller is silently running the wrong tree. Landable only because C8
+    (docs/research/engine-provenance-carrier-dependence.md) enumerated every
+    carrier this defect shape was confirmed to reach and read each one's
+    touched surface as behaviourally identical between trees — this raise is
+    what turns a future carrier's genuinely-divergent surface into a loud
+    failure instead of a silent wrong-tree run. Explicitly NOT applied to
+    ``ensure_engine_on_path`` (see that function's own docstring for why its
+    degrade-to-None contract must stay intact for the engine-less scaffold
+    case) and not applied to the locator-axis wrappers above, which this
+    chunk's evidence does not cover.
+
+    A ``match``, ``unimported``, or ``unresolved`` verdict is unaffected —
+    this only raises on the one verdict that means "running the wrong tree".
+
     Spec backlink: docs/plans/2026-08-20-an-engine-root-is-not-named-for-the-repo.md
     (C16), and docs/reference/engine-root-env-var-routing.md for which call sites
     are on which axis.
     """
     root = _front_insert_on_path(_resolve_claude_klabauter_root())
-    _report_provenance("require_dispatch_engine_on_path", root, "dispatch")
+    report = _report_provenance("require_dispatch_engine_on_path", root, "dispatch")
+    if report.verdict == PROVENANCE_DIVERGENT:
+        raise ProvenanceDivergenceError(
+            "require_dispatch_engine_on_path: coordinator_core already bound "
+            f"from {report.imported_file!r}, diverges from dispatch root "
+            f"{report.engine_root!r}. Fix: call this before any earlier "
+            "module-level coordinator_core-binding import."
+        )
     return root
 
 
@@ -1576,6 +1638,190 @@ def _timeout_exceeded_message(op: str, timeout: int) -> str:
     )
 
 
+def _try_in_process_warm_reach(
+    op: str,
+    params: dict[str, Any],
+    repo_root: str,
+) -> dict[str, Any] | None:
+    """In-process warm-reach: try the warm engine's pipe before either
+    `cc_invoke()` or `cc_invoke_bare()` pays a cold subprocess spawn.
+
+    Returns the JSON-RPC response dict on a warm hit; returns None on
+    EVERY miss (warm disabled, no pipe, busy, someone else's pipe, a stale
+    ENGINE_SKEW server, read-deadline expiry, ...) or when warmth is
+    disabled outright. Never raises.
+
+    Mirrors `coordinator_core/invoke/__main__.py :: _dispatch_argv_body`'s
+    own steps 6/6a — that function is the oracle for this shape; read it at
+    source rather than trusting this docstring's paraphrase to stay in sync.
+
+    Step 1 (cost gate, before ANY `warm.client` import): `coordinator_core.
+    warm.settings.is_warm_enabled` imports only `machine_resolver.
+    registry_get`. `warm.client` unconditionally imports `warm.election` +
+    `warm.settings` at ITS OWN module level (29.2ms measured tax,
+    __main__.py's own step 6a comment) regardless of whether warmth is on —
+    so this function checks `is_warm_enabled()` first and returns
+    immediately on a False, before `warm.client` is ever imported.
+
+    Step 2: `WORKTREE_SCOPED_OPS` comes from `coordinator_core.op_scopes`,
+    NOT `coordinator_core.ipc` — `ipc.py`'s own re-export block documents
+    why: `ipc.py` does `import asyncio` at top level plus
+    `coordinator_core.lifecycle`, `session.declared_writes`, `locked_write`
+    and more, dragged into every op's import path if imported here;
+    `op_scopes.py` imports only types/typing. `_should_pass_repo` two
+    functions away already does this correctly (`from coordinator_core.
+    op_scopes import WORKTREE_SCOPED_OPS`); this mirrors that same import.
+
+    Step 3: builds the JSON-RPC 2.0 request envelope — jsonrpc/id/method/
+    params, `_origin_worktree` set to the caller-supplied `repo_root` when
+    `op` is worktree-scoped (central/none-scoped ops silently omit it, same
+    as `__main__.py`), and `_caller_cwd` set unconditionally (telemetry-only,
+    never read for authz/repo-scope resolution — see `__main__.py`'s own
+    comment on that field).
+
+    Step 4: imports `try_warm_dispatch` from `coordinator_core.warm.client`
+    and returns its result directly — `try_warm_dispatch` itself never
+    raises (module docstring), so this function inherits that guarantee.
+    """
+    from coordinator_core.warm.settings import is_warm_enabled
+
+    if not is_warm_enabled():
+        return None
+
+    from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
+
+    msg: dict[str, Any] = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": op,
+        "params": params,
+    }
+    if op in WORKTREE_SCOPED_OPS:
+        msg["_origin_worktree"] = repo_root
+    msg["_caller_cwd"] = os.getcwd()
+
+    from coordinator_core.warm.client import try_warm_dispatch
+
+    return try_warm_dispatch(msg)
+
+
+def _capture_warm_reach(
+    op: str,
+    params: dict[str, Any],
+    repo_root: str,
+) -> tuple[dict[str, Any] | None, str]:
+    """Call `_try_in_process_warm_reach`, capturing the stderr text a warm
+    hit prints directly rather than returns.
+
+    `try_warm_dispatch` (imported inside `_try_in_process_warm_reach`) pops
+    a served response's `_stderr` sibling field and prints it to THIS
+    process's real stderr itself (see `warm.client.try_warm_dispatch`'s own
+    docstring) — by the time `_try_in_process_warm_reach` returns, that text
+    is gone from the response and cannot be recovered from it. Wrapping the
+    one call in `contextlib.redirect_stderr` is the only way to recover it
+    at this boundary, so `cc_invoke`/`cc_invoke_bare` can feed it into their
+    own `_stderr_sink` the same way the spawned path's captured
+    `stderr_text` already is (`route_or_raise`'s `RouteMutationError.op_stderr`
+    parity — see this module's C2 brief).
+
+    Returns `(response, stderr_text)`. `response` is
+    `_try_in_process_warm_reach`'s own return value, UNCHANGED: `None` on
+    every miss (warm disabled, no pipe, busy, read-deadline expiry, ...), or
+    the JSON-RPC response dict on a warm-served hit (success or error
+    envelope alike). `stderr_text` is whatever was printed to stderr during
+    that one call — `""` on a miss, since `try_warm_dispatch` never reaches
+    the `_stderr`-pop step without a served response.
+    """
+    import contextlib
+    import io
+
+    _buf = io.StringIO()
+    with contextlib.redirect_stderr(_buf):
+        response = _try_in_process_warm_reach(op, params, repo_root)
+    return response, _buf.getvalue()
+
+
+def _apply_warm_envelope(
+    op: str,
+    envelope: dict[str, Any],
+    stderr_text: str,
+    _stderr_sink: list[str] | None,
+) -> dict[str, Any]:
+    """Apply the SAME rung-(2)/rung-(4) envelope handling `cc_invoke()`/
+    `cc_invoke_bare()` already apply to a parsed cold-spawn stdout, to a
+    warm-served response instead — so a warm hit and a cold spawn refuse
+    identically for the shapes a warm hit can actually produce (this
+    module's C2 brief, "THE RUNG MAPPING..."):
+
+      (1a) `error.code == WARM_DISPATCH_INDETERMINATE` — a mutating op,
+           delivered to the warm server but never answered. Raised as a
+           plain `RuntimeError` carrying the envelope's own message text,
+           and NEVER falls through to a spawn: re-running a mutation that
+           may already have landed is exactly the double-execution this
+           refusal exists to prevent. Discharges AC9a.
+      (2)  Any other error envelope — `error.code == STRUCTURAL_PIN_ERROR`
+           raises `StructuralPinError` (matching the spawned path's rc==2
+           branch in `_raise_on_process_failure`, so a caller catching
+           `StructuralPinError` by name keeps taking that branch on a warm
+           hit); every other error code raises plain `RuntimeError`.
+      (4)  Neither `result` nor `error` present — malformed envelope,
+           raises plain `RuntimeError`.
+
+    On success (`result` present, no `error`), appends `stderr_text` to
+    `_stderr_sink` (same contract as the cold path's own post-rung-4
+    `_stderr_sink` append) and returns the bare result dict — the warm-hit
+    analogue of `cc_invoke()`'s envelope strip and of `cc_invoke_bare()`'s
+    already-bare `--bare` stdout.
+
+    Both constants (`WARM_DISPATCH_INDETERMINATE`, `STRUCTURAL_PIN_ERROR`)
+    are imported lazily and each guarded by its own `try/except`, matching
+    this module's fail-open transport posture elsewhere: an import failure
+    here must not crash a warm-hit response that would otherwise resolve
+    cleanly, it only means that ONE code can't be special-cased and the
+    envelope falls through to the generic `RuntimeError` branch.
+    """
+    error = envelope.get("error")
+    if isinstance(error, dict):
+        code = error.get("code")
+        message = error.get("message", "?")
+
+        try:
+            from coordinator_core.warm.client import WARM_DISPATCH_INDETERMINATE
+        except Exception:  # noqa: BLE001 -- fail-open, see docstring
+            WARM_DISPATCH_INDETERMINATE = None
+        if WARM_DISPATCH_INDETERMINATE is not None and code == WARM_DISPATCH_INDETERMINATE:
+            # (1a) delivered-but-unanswered mutation -- refuse, never spawn.
+            raise RuntimeError(
+                f"cc_invoke: warm dispatch indeterminate (op={op}): {message}"
+            )
+
+        try:
+            from coordinator_core.ipc import STRUCTURAL_PIN_ERROR
+        except Exception:  # noqa: BLE001 -- fail-open, see docstring
+            STRUCTURAL_PIN_ERROR = None
+        if STRUCTURAL_PIN_ERROR is not None and code == STRUCTURAL_PIN_ERROR:
+            raise StructuralPinError(
+                f"cc_invoke: structural contract-pin failure (op={op}, warm hit) — "
+                f"non-self-healing, will recur on retry: code={code} message={message}"
+            )
+
+        raise RuntimeError(
+            f"cc_invoke: op returned JSON-RPC error envelope (op={op}, warm hit): "
+            f"code={code} message={message}"
+        )
+
+    if "result" not in envelope:
+        top_keys = list(envelope.keys())
+        raise RuntimeError(
+            f"cc_invoke: envelope missing 'result' key (op={op}, warm hit): "
+            f"top-level keys={top_keys!r}"
+        )
+
+    if _stderr_sink is not None and stderr_text.strip():
+        _stderr_sink.append(stderr_text)
+    return envelope["result"]
+
+
 # ---------------------------------------------------------------------------
 # Public: cc_invoke(op, params, repo_root) -> dict
 # ---------------------------------------------------------------------------
@@ -1637,6 +1883,16 @@ def cc_invoke(
     # An already-resolved root is accepted from route() to avoid a double resolution
     # on the State-2 path.
     claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
+
+    # Warm-first (C2, this module's dispatch brief): spawn only on a miss.
+    # None -> fall through to the unchanged cold-spawn block below. Non-None
+    # -> a warm-served response, handled by the SAME rung-(2)/(4) logic the
+    # cold-spawn's own parsed stdout gets below, applied to this envelope
+    # instead (see `_apply_warm_envelope`'s own docstring for the mapping).
+    _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
+    if _warm_response is not None:
+        return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)
+
     try:
         params_json = json.dumps(params, separators=(",", ":"))
     except TypeError as exc:
@@ -1798,6 +2054,18 @@ def cc_invoke_bare(
     NEVER returns legacy after a spawn.
     """
     claude_klabauter_root = _claude_klabauter_root if _claude_klabauter_root is not None else _resolve_claude_klabauter_root()
+
+    # Warm-first (C2, this module's dispatch brief): spawn only on a miss.
+    # None -> fall through to the unchanged cold-spawn block below. Non-None
+    # -> a warm-served response, handled by the SAME rung-(2)/(4) logic the
+    # cold-spawn's own parsed --bare stdout gets below, applied to this
+    # envelope instead (see `_apply_warm_envelope`'s own docstring for the
+    # mapping; its unwrap-to-`result` return is the warm-hit analogue of the
+    # already-bare `--bare` stdout this function otherwise parses).
+    _warm_response, _warm_stderr = _capture_warm_reach(op, params, repo_root)
+    if _warm_response is not None:
+        return _apply_warm_envelope(op, _warm_response, _warm_stderr, _stderr_sink)
+
     try:
         params_json = json.dumps(params, separators=(",", ":"))
     except TypeError as exc:

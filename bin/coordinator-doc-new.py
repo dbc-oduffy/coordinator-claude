@@ -60,7 +60,7 @@ Supported types:
                        (the DR-091 home -- same session-scoped root provision_report uses; SLUG is
                        sanitized from --scope; the <!-- FINDINGS --> sentinel is the Edit anchor)
   subagent-sidecar   — agent-side decision-object container (schemas/decision-object.schema.json
-                       $defs/subagent_sidecar)  requires --plan <path> --chunk <id> --out <path>
+                       subagent_sidecar schema definition) requires --plan, --chunk and --out
                        --out is REQUIRED (no default); the LIVE sidecar path is computed by
                        coordinator_core.dispatch.provision at spawn time under
                        state/subagent-share/<session-id>/<key>.md. This CLI branch is the

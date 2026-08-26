@@ -25,7 +25,7 @@ publish time (pre-commit anchor `/percolate` uses for inverse-drift detection).
 GATES — the per-target gates bash runs before dispatch (`setup/
 publish.sh`) are ported in `run_pre_sync_gates` and its
 helpers: identity-file owner+mode pre-source check (once, at driver
-startup — see `main`), live-install-clobber guard, dirty-tree guard,
+startup — see `main`), live-install-clobber guard,
 version-regression gate, version-consistency gate, and the non-fatal
 machine-slug warn. Chunk C-W1d2 per
 docs/plans/2026-07-21-percolate-python-port.md.
@@ -2440,11 +2440,126 @@ def dispatch_preswap_function_gate(
     return True
 
 
+# § chunk C4 (state/dispatch-briefs/2026-08-26-payload-parity-asks-an-index-not-
+# the-payload/C4.md, AC8) — the round's own token-index maintenance leg.
+# MODULE-LEVEL, not closures inside `main`: AC8's three branches (an
+# undetermined root, a refused row, a `PublishSwapPartial` root) are only
+# assertable if the call they route through can be reached without driving a
+# whole publish round, and `coordinator/bin/publish.py` maps to no test target
+# in this plan's spine, so nothing else would have exercised them.
+
+
+def _token_index_paths(root: "Path") -> "tuple[Path, Path]":
+    from coordinator_core.ops.percolate_build_token_index import (  # noqa: PLC0415 - lazy, engine import
+        _CURSOR_FILENAME,
+        _INDEX_DIRNAME,
+        _INDEX_FILENAME,
+    )
+
+    index_dir = root / _INDEX_DIRNAME
+    return index_dir / _INDEX_FILENAME, index_dir / _CURSOR_FILENAME
+
+
+def _invalidate_token_index(root: "Path") -> None:
+    """The single "invalidate this root" call every AC8 branch routes through
+    — deletes the index and its build cursor so the next round's round-entry
+    check (§ C3) treats this root as cold and pays the full scan once, rather
+    than trusting a stale-but-covered entry.
+
+    Idempotent: a root with no index on disk is already in the state this
+    call establishes, so invalidating twice, or invalidating a cold root, is
+    a no-op rather than an error."""
+    index_path, cursor_path = _token_index_paths(root)
+    index_path.unlink(missing_ok=True)
+    cursor_path.unlink(missing_ok=True)
+
+
+def _token_index_action_for_root(
+    root: "Path",
+    *,
+    invalidate_roots: "set[Path]",
+    undetermined_roots: "set[Path]",
+) -> str:
+    """`"invalidate"` or `"update"` for one repo root, naming AC8's branch
+    disposition in one place rather than spreading it across the manifest
+    loop's control flow.
+
+    `"invalidate"` for a root whose changed set is UNDETERMINED
+    (`row_changed_files is None`) or that carries a
+    `PublishSwapPartial(content_swapped=True)` row — in both cases a stamp
+    that still reads fresh would be worse than no index at all. A REFUSED row
+    never swapped, so it contributes nothing to either set and needs no
+    branch of its own: `"update"` over a delta it is absent from leaves its
+    files exactly as the index already had them."""
+    if root in invalidate_roots or root in undetermined_roots:
+        return "invalidate"
+    return "update"
+
+
+def _update_token_index_from_delta(
+    root: "Path", changed: "set[Path]", removed: "set[Path]"
+) -> None:
+    """Fold THIS round's own already-recorded delta into an existing on-disk
+    index. A root whose index was never built (cold — no file at
+    `index_path`) is left alone: building it is the round-entry trigger's/C3's
+    job, never this round's initiative (§ `token_index`'s own negative-spec)."""
+    from coordinator_core.percolate.payload_parity import _TOKEN_RE  # noqa: PLC0415 - lazy, engine import
+    from coordinator_core.percolate.token_index import (  # noqa: PLC0415
+        FileStamp,
+        SliceResult,
+        apply_update,
+        load_index,
+        serialize_index,
+    )
+    from coordinator_core.wire_paths import rel_id  # noqa: PLC0415
+
+    index_path, _cursor_path = _token_index_paths(root)
+    if not index_path.is_file():
+        return
+    index = load_index(index_path)
+    tokens_by_file: "dict[str, frozenset[str]]" = {}
+    stamps: "dict[str, Any]" = {}
+    # Review: coordinator:code-reviewer -- filter to `.py`, matching
+    # `_iter_py_files_sorted`'s own scope, so an incremental fold can never
+    # diverge from what a cold build over the same tree would ever produce.
+    for dest_path in changed:
+        if dest_path.suffix != ".py":
+            continue
+        rel = rel_id(dest_path, root)
+        # Post-swap `os.stat` of the DEST path, taken here — after every row
+        # for this root has already swapped (§ this function's call site in
+        # `main`, after the row loop) — never a staging-side stat, and never
+        # optimistic. A dest path missing or unreadable at stamp time drops
+        # it from coverage rather than guessing (§ `token_index`'s
+        # negative-spec).
+        try:
+            stat = dest_path.stat()
+            blob = dest_path.read_bytes()
+        except OSError:
+            continue
+        text = blob.decode("utf-8", errors="replace")
+        tokens_by_file[rel] = frozenset(_TOKEN_RE.findall(text))
+        stamps[rel] = FileStamp(size=stat.st_size, mtime_ns=stat.st_mtime_ns)
+    removed_rel = {
+        rel_id(dest_path, root) for dest_path in removed if dest_path.suffix == ".py"
+    }
+    slice_result = SliceResult(
+        tokens_by_file=tokens_by_file,
+        stamps=stamps,
+        resume_after=None,
+        files_visited=len(tokens_by_file),
+        done=True,
+    )
+    apply_update(index, slice_result, removed=removed_rel)
+    serialize_index(index, index_path)
+
+
 def dispatch_preswap_payload_parity_gate(
     target: "ResolvedTarget",
     staging_dir: Path,
     changed_files: "frozenset[str]",
     *,
+    token_index_path: "Optional[Path]" = None,
     out: IO[str] = sys.stdout,
 ) -> bool:
     """PRE-SWAP PAYLOAD-PARITY gate (chunk C2, state/dispatch-briefs/2026-08-
@@ -2473,15 +2588,31 @@ def dispatch_preswap_payload_parity_gate(
     see that function's docstring for why re-deriving it here would cost a
     second filesystem walk this gate does not need to pay for.
 
+    `token_index_path` (chunk C5) points at the token index maintained for
+    this row's REPO ROOT (`<repo_root>/.percolate/token-index.bin`, § C5
+    defect fix -- the writer, `_update_token_index_from_delta`, always keys
+    and locates the index at `_manifest_root`, a repo root, never a row's
+    own `dest_dir`); the prescreen seeks into it instead of reading every
+    payload file. `None` -- an absent, unreadable, or not-yet-built index --
+    degrades to the full scan and today's answer rather than to "no
+    candidates" (§ `payload_parity :: _files_referencing_needles`, AC5).
+    `token_index_root` is threaded alongside it so the reader and writer
+    agree on the SAME key space (repo-root-relative) rather than the reader
+    stripping `rel_root` back down to a `dest_dir`-relative key the writer
+    never produced.
+
     Never raises -- fail-closed reporting only, same contract as
     `dispatch_preswap_function_gate`."""
     rel_root = _dest_prefix_for(target.dest_dir)
+    token_index_root = _dest_repo_root(target.dest_dir)
     try:
         report = payload_parity.payload_parity_report(
             target.dest_dir,
             staging_dir,
             rel_root=rel_root,
             changed_files=changed_files,
+            token_index_path=token_index_path,
+            token_index_root=token_index_root,
         )
     except Exception as exc:  # noqa: BLE001 - fail-closed, same as the function gate
         print(f"  Error: payload parity gate raised for {target.name}: {exc}", file=sys.stderr)
@@ -3394,7 +3525,7 @@ def dispatch_end_of_run_argv_parity_gate(
     # primitive that spans multiple `-C` roots in a single invocation, so
     # that per-root spawn count is the structural floor, same as
     # `_git_ls_tree_entries_files`'s own per-root call in
-    # `_publish_relevant_allowlist_leg`. What this hoist removes is this
+    # that helper. What this hoist removes is this
     # function's OWN per-root call to a spawning helper sitting directly in
     # a loop it controls; the unavoidable per-root fan-out now lives
     # entirely inside the batch helper, which is the SAME single call site
@@ -3568,7 +3699,7 @@ def _argv_parity_pairing_origin_batch_by_root(
     still spawned once per DISTINCT root in `rel_modules_by_root` (no git
     invocation can span multiple `-C` roots at once, the same structural
     floor `_git_ls_tree_entries_files`'s own per-root call in
-    `_publish_relevant_allowlist_leg` accepts), but that per-root fan-out
+    that helper accepts), but that per-root fan-out
     is now entirely internal to this one function rather than driven by a
     loop the caller controls. Returns `{}` for an empty mapping.
     """
@@ -4383,370 +4514,6 @@ def _contributing_roots(target: ResolvedTarget) -> List[Path]:
 
 
 # ---------------------------------------------------------------------------
-# Publish-relevant path set (DR-227) — the path set `check_dirty_tree` is
-# narrowed to, wired into `run_pre_sync_gates`'s per-root dirty-tree loop
-# below. See docs/plans/2026-08-03-narrow-check-dirty-tree-to-publish-
-# relevant-paths.md ("The hazard this plan must resolve first") and
-# docs/decisions/DR-227-whole-tree-dirty-classifier-redundant-under-explicit-
-# path-scoping.md.
-# ---------------------------------------------------------------------------
-_RAW_SOURCE_GATE_PATHS = (
-    "marketplace.json",
-    ".claude-plugin/marketplace.json",
-    "plugin.json",
-    "CHANGELOG.md",
-)
-
-
-def _git_ls_tree_entry_files(root: Path, entry: str, ref: str = "HEAD") -> "set[str]":
-    """Returns the set of root-relative paths `git -C <root> ls-tree -r
-    --name-only <ref> -- <entry>` reports tracked at `ref` beneath `entry` —
-    the git-history half of `_publish_relevant_allowlist_leg`'s per-entry
-    expansion (docs/plans/2026-08-04-publish-from-a-committed-ref.md C7a2,
-    EM decision 2). Returns the empty set on any failure (root not a git
-    work tree, `ref` unresolved, `git` missing) — this call is supplementary
-    coverage for the dirty-tree pathspec, not an authoritative source, so a
-    failure here must never block or narrow what the live-filesystem half
-    already found; a `git status` pathspec entry that matches nothing is
-    harmless (state/lessons/2026-07-05-git-stash-push-pathspec-silently-
-    no-ops.yaml)."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "ls-tree", "-r", "--name-only", ref, "--", entry],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return set()
-    if result.returncode != 0:
-        return set()
-    return {line for line in result.stdout.splitlines() if line}
-
-
-def _git_ls_tree_entries_files(root: Path, entries: "list[str]", ref: str = "HEAD") -> "set[str]":
-    """Batched sibling of `_git_ls_tree_entry_files` — issues ONE `git
-    ls-tree -r --name-only <ref> -- <entry1> <entry2> ...` spawn per
-    contributing root instead of one spawn per allowlist entry
-    (`docs/plans/2026-08-07-n-plus-one-git-spawn-class-and-amplification-
-    gate.md` C34). `git ls-tree` accepts multiple pathspecs and resolves
-    each one independently against the tree — this is the pathspec/
-    object-shaped batching § Anti-scope 2 sanctions, never the range-shaped
-    batching § Anti-scope 1/4 forbids (there is no positive/negative range
-    algebra here to collapse; every pathspec either matches tracked paths
-    at `ref` or it doesn't, with no ordering or precedence between them).
-
-    Preserves `_git_ls_tree_entry_files`'s UNION contract exactly (DR-227,
-    `_publish_relevant_allowlist_leg`'s docstring): the return value is the
-    set-union of what calling `_git_ls_tree_entry_files` once per entry
-    would have returned — nothing more, nothing less. § Anti-scope 25:
-    an entry that matches no tracked path at `ref` contributes zero paths
-    to this union, exactly like a per-entry call already did (this
-    module's `git status` pathspec-matches-nothing-is-harmless precedent,
-    state/lessons/2026-07-05-git-stash-push-pathspec-silently-no-ops.yaml)
-    — this is safe to read as "no answer" (never as "resolved to no
-    files") ONLY because the caller's live-filesystem half already keeps
-    every unresolved entry's literal string in its per-root set regardless
-    of what this git-history half contributes (see
-    `_publish_relevant_allowlist_leg`'s docstring and its `else: rels.add(
-    entry)` unresolved-entry branch) — so a silently-omitted entry here
-    never becomes a silently-dropped allowlist entry overall; it fails in
-    the direction of "this leg contributes fewer paths for that entry",
-    never "the entry vanishes from the publish allowlist". Returns the
-    empty set on any failure (root not a git work tree, `ref` unresolved,
-    `git` missing, empty `entries`) — same failure contract as the
-    per-entry function.
-    """
-    if not entries:
-        return set()
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "ls-tree", "-r", "--name-only", ref, "--", *entries],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return set()
-    if result.returncode != 0:
-        return set()
-    return {line for line in result.stdout.splitlines() if line}
-
-
-def _publish_relevant_allowlist_leg(target: ResolvedTarget) -> "dict[Path, list[str]]":
-    """Per-contributing-root allowlist-derived slice of the publish-relevant
-    path set (DR-227) — plan Deliverable 1's rule (b)-i, factored out on its
-    own so the AC9 anti-drift test can compare THIS leg — and nothing
-    else — against `build_allowlisted_source`'s actual output.
-
-    Consumes `target.allowlist` via the SAME parse primitives
-    `build_allowlisted_source` uses (`parse_allowlist_csv` +
-    `split_inclusion_exclusion`, the public aliases `allowlist.py` exports
-    for this cross-module consumer), never a second hand-rolled parse — see the
-    plan's Anti-scope ("do not let the set be computed twice, differently")
-    and AC9. `!`-prefixed exclusion entries are never fed to git as a
-    literal path named `!...` (AC1); instead, any already-admitted relative
-    path they name (or that nests under them) is subtracted from the
-    surviving inclusion-derived set, mirroring `_apply_exclusions`'
-    narrows-only removal so this leg matches what `build_allowlisted_source`
-    actually leaves on disk (AC9), never a superset that includes
-    since-excluded content.
-
-    Each surviving inclusion entry is resolved to its contributing root via
-    `_parse_source_map(target.source_map)` (absent -> `target.source_dir`,
-    the single-source default), then EXPANDED against BOTH that root's real
-    filesystem tree AND `git ls-tree -r --name-only HEAD` scoped to the
-    entry (`_git_ls_tree_entries_files`, batched one spawn per contributing
-    root across that root's entries — plan
-    2026-08-07-n-plus-one-git-spawn-class-and-amplification-gate.md C34;
-    see that function's docstring for why batching by root, not by entry,
-    preserves this UNION exactly), UNIONED — never either alone (DR-227
-    AC9 anti-drift knot, docs/plans/2026-08-04-publish-from-a-committed-
-    ref.md C7a2, EM decision 2, resolved as BOTH directions together, not
-    one): a directory entry becomes every file beneath it (root-relative),
-    a file entry becomes itself, and an entry absent from disk is kept
-    UNRESOLVED (the literal entry string, unexpanded) rather than dropped
-    silently — a `git status` pathspec that matches nothing is harmless
-    (state/lessons/2026-07-05-git-stash-push-pathspec-silently-no-ops.yaml);
-    dropping the check outright would not be. The live-filesystem-only leg
-    this function computed pre-C7a2 diverges from what actually publishes
-    (post-C1a/C1b, from a committed ref) in BOTH directions: an untracked
-    worktree file is in the live leg but can never publish, and a file
-    present at `HEAD` but deleted in the worktree DOES publish yet was
-    absent from a live-only leg (its loss would never nudge the dirty-tree
-    gate). Unioning the two sources makes this leg a guaranteed SUPERSET of
-    anything publishable — see `_publish_relevant_paths`'s docstring — which
-    is what a nudge needs; it is deliberately never narrowed back to an
-    exact match, so `TestPublishRelevantPathsAntiDrift`'s invariant is
-    CONTAINMENT (this leg superset-of `build_allowlisted_source`'s actual
-    output), not equality.
-
-    Returns `{}` when `target.allowlist` is falsy — the caller,
-    `_publish_relevant_paths`, applies rule (a)'s whole-dir default in that
-    case; this function only ever computes the allowlist leg. A
-    contributing root with NO surviving inclusion entry (every entry
-    resolved elsewhere, or all were exclusions) is simply ABSENT from the
-    returned dict — never present with an empty list — so callers can tell
-    "no allowlist leg for this root" apart from "an allowlist leg that
-    happens to be empty" by a plain `.get(root)` truthiness check.
-
-    Invariant this leg's per-root exclusion matching relies on (Review:
-    code-reviewer — exclusion targets are matched against every root's
-    `rels` independently, without root-scoping the target itself): every
-    contributing root's admitted entries occupy a disjoint relative-path
-    namespace, enforced downstream by `_collision_preflight` (called inside
-    `build_allowlisted_source`, which runs AFTER this gate) — a real
-    cross-root collision aborts the actual publish at build time regardless
-    of what this gate computed.
-
-    NOTE: this function is consumed ONLY by the AC9 anti-drift test now —
-    the pathspec actually handed to `git status`, AND the rule-(c)
-    empty-leg fallback detection in `_publish_relevant_paths`, are both
-    computed at DIRECTORY granularity by
-    `_publish_relevant_allowlist_leg_dirspec` instead (see that function's
-    docstring for why), never by walking this leg's per-file output into a
-    git argv.
-    """
-    result: "dict[Path, list[str]]" = {}
-    if not target.allowlist:
-        return result
-
-    entries, exclusion_targets = split_inclusion_exclusion(parse_allowlist_csv(target.allowlist))
-    source_map = _parse_source_map(target.source_map)
-
-    per_root: "dict[Path, set[str]]" = {}
-    entries_by_root: "dict[Path, list[str]]" = {}
-    for entry in entries:
-        root = source_map.get(entry, target.source_dir)
-        entry_path = root / entry
-        rels: "set[str]" = set()
-        if entry_path.is_dir():
-            for f in entry_path.rglob("*"):
-                if f.is_file():
-                    rels.add(f.relative_to(root).as_posix())
-        elif entry_path.is_file():
-            rels.add(entry)
-        else:
-            rels.add(entry)  # unresolved — see docstring
-        per_root.setdefault(root, set()).update(rels)
-        entries_by_root.setdefault(root, []).append(entry)
-
-    # Git-history half, batched ONE `ls-tree` spawn per contributing root
-    # (not per entry) — see `_git_ls_tree_entries_files`'s docstring for the
-    # UNION-preservation and § Anti-scope 25 reconciliation this batching
-    # relies on.
-    for root, root_entries in entries_by_root.items():
-        per_root[root].update(_git_ls_tree_entries_files(root, root_entries))
-
-    if exclusion_targets:
-        for rels in per_root.values():
-            removed = {
-                r
-                for r in rels
-                if any(r == t or r.startswith(t + "/") for t in exclusion_targets)
-            }
-            rels.difference_update(removed)
-
-    for root, rels in per_root.items():
-        if rels:
-            result[root] = sorted(f":(literal){r}" for r in rels)
-
-    return result
-
-
-def _publish_relevant_allowlist_leg_dirspec(target: ResolvedTarget) -> "dict[Path, list[str]]":
-    """DIRECTORY-granularity sibling of `_publish_relevant_allowlist_leg`,
-    used to build the pathspec actually handed to `git status` (Review:
-    code-reviewer Finding 1 — the file-level `rglob` expansion in
-    `_publish_relevant_allowlist_leg` risks an unbounded `git status --
-    :(literal)f1 :(literal)f2 ...` argv for a directory allowlist entry with
-    many files, a real Windows argv-length hazard with no override escape).
-
-    A git pathspec naming a directory (`:(literal)<entry>`) already matches
-    every path beneath it in `git status` output WITHOUT a filesystem walk
-    or one arg per file (this does NOT hold for a SYMLINKED directory entry —
-    a pathspec naming a symlink matches the symlink itself, not a walk of its
-    target; no shipping allowlist row uses one today, so this is named but
-    unaddressed — Review: code-reviewer Finding 4) — so this leg is bounded
-    in size by the number of allowlist entries, never by files on disk, while
-    covering the exact same (or a WIDER) set of paths as the file-level leg.
-    It deliberately
-    does NOT replicate `_publish_relevant_allowlist_leg`'s per-file
-    exclusion subtraction: an exclusion entry nested under an admitted
-    directory entry is left uncovered-by-subtraction here, so the emitted
-    pathspec covers files an exclusion entry removes from the PUBLISHED
-    set too. That is the gate inspecting MORE than what is actually
-    published — the fail-closed direction, exactly like `.percolate-ignore`
-    never being subtracted (see `_publish_relevant_allowlist_leg`'s
-    docstring) — and a later reader must not "tighten" this back down to
-    per-file exclusion subtraction; that is what reintroduces the argv
-    hazard this function exists to avoid. An entry that exactly matches a
-    whole-entry exclusion (`!<entry>` naming that entry verbatim) IS
-    dropped — nothing from it is ever published, so omitting it costs no
-    coverage.
-
-    Returns `{}` when `target.allowlist` is falsy, and omits a root with no
-    surviving entry (never an empty list) — same contract as
-    `_publish_relevant_allowlist_leg`.
-
-    Invariant this function's whole-entry exclusion matching relies on, same
-    as its sibling `_publish_relevant_allowlist_leg` (Review: code-reviewer
-    Finding 3 — this invariant was documented only on that sibling's
-    docstring, not here, though this function trusts it identically):
-    `exclusion_set` is matched against `entry` with no root-scoping, which is
-    only sound because every contributing root's admitted entries occupy a
-    disjoint relative-path namespace, enforced downstream by
-    `_collision_preflight` (called inside `build_allowlisted_source`, which
-    runs AFTER this gate) — a real cross-root collision aborts the actual
-    publish at build time regardless of what this gate computed.
-    """
-    result: "dict[Path, list[str]]" = {}
-    if not target.allowlist:
-        return result
-
-    entries, exclusion_targets = split_inclusion_exclusion(parse_allowlist_csv(target.allowlist))
-    source_map = _parse_source_map(target.source_map)
-    exclusion_set = set(exclusion_targets)
-
-    per_root: "dict[Path, set[str]]" = {}
-    for entry in entries:
-        if entry in exclusion_set:
-            continue
-        root = source_map.get(entry, target.source_dir)
-        per_root.setdefault(root, set()).add(entry)
-
-    for root, ents in per_root.items():
-        if ents:
-            result[root] = sorted(f":(literal){e}" for e in ents)
-
-    return result
-
-
-def _publish_relevant_paths(
-    target: ResolvedTarget, roots: "Optional[List[Path]]" = None
-) -> "dict[Path, list[str]]":
-    """The publish-relevant path set for `target`, as a PER-CONTRIBUTING-ROOT
-    MAPPING (`dict[Path, list[str]]`, keyed by contributing root, values
-    root-relative `git status` pathspecs) — plan Deliverable 1, DR-227
-    (`docs/decisions/DR-227-whole-tree-dirty-classifier-redundant-under-
-    explicit-path-scoping.md`). NOT a flat set: a flat set handed to a
-    per-root `check_dirty_tree` loop feeds root B's paths to `git -C rootA`,
-    which exits non-zero and (via `_git_status_porcelain`'s pre-C1 swallow)
-    reads as clean — the exact fail-open hazard this plan exists to close
-    (see the plan's "The hazard this plan must resolve first" section).
-
-    Composition, per contributing root (`_contributing_roots(target)`):
-
-      (a) `target.allowlist` falsy -> every root's slice is the bare
-          whole-subtree form (`["."]`) — the same scope `check_dirty_tree`
-          uses today. No narrowing is legitimate when the publish reads the
-          whole root.
-      (b) Otherwise, per root, the UNION of:
-            - the allowlist leg, at DIRECTORY granularity
-              (`_publish_relevant_allowlist_leg_dirspec` — see its docstring
-              for why this is directory-, not file-, granular);
-            - `.percolate-ignore` for that root, unconditionally — read at
-              allowlist-BUILD time regardless of whether it is itself
-              allowlisted, and NEVER subtracted even when it matches an
-              ignore rule — fail-closed per AC5/AC1;
-            - for `target.source_dir` ONLY, `_RAW_SOURCE_GATE_PATHS` — kept
-              in this leg for `check_dirty_tree`'s own diagnostic purpose
-              (AC4: "uncommitted ≠ unpublishable, but it IS unshipped").
-              `check_marketplace_version_regression` / `check_version_consistency`
-              no longer read raw `target.source_dir` directly (docs/plans/
-              2026-08-04-publish-from-a-committed-ref.md C1b relocated them
-              to run against the materialized shadow tree, AFTER this dirty
-              check) — but an uncommitted edit to one of these paths is
-              still exactly the kind of "you will ship the last commit's
-              bytes, not what's on disk" surprise this dirty-check pathspec
-              exists to flag, so the paths stay in the leg regardless of
-              which tree the version gates themselves read.
-          Every emitted pathspec carries the `:(literal)` magic prefix so a
-          `*`/`?`/`[`-bearing entry cannot be glob-interpreted by git.
-      (c) A root whose ALLOWLIST LEG comes out empty (no inclusion entry
-          resolves to it, or every entry for it was an exclusion) falls
-          back to that root's whole-subtree `["."]` form INSTEAD of the (b)
-          union — fail-closed on a degenerate set, per DR-227. Never an
-          empty list: a `git status` with no pathspec after `--` inspects
-          nothing and reads as clean.
-
-    Deterministic (sorted) ordering within each root's slice (rule (d)).
-
-    `roots`, when supplied (Review: code-reviewer Finding 6 — the EM
-    dispositioned this as "thread it through" over "compute it twice and
-    trust it stays in sync"), is used AS-IS instead of recomputing
-    `_contributing_roots(target)` — the production call site
-    (`run_pre_sync_gates`) already needs the same roots list for its own
-    per-root loop and threads it here so the mapping's keys and that loop's
-    iteration cannot diverge by construction. Omitted (the default), this
-    computes `_contributing_roots(target)` itself — every existing direct
-    caller (tests) keeps working unchanged.
-    """
-    if roots is None:
-        roots = _contributing_roots(target)
-
-    if not target.allowlist:
-        return {root: ["."] for root in roots}
-
-    allowlist_leg = _publish_relevant_allowlist_leg_dirspec(target)
-
-    result: "dict[Path, list[str]]" = {}
-    for root in roots:
-        leg = allowlist_leg.get(root)
-        if not leg:
-            result[root] = ["."]
-            continue
-
-        slice_paths = set(leg)
-        slice_paths.add(":(literal).percolate-ignore")
-        if root == target.source_dir:
-            slice_paths.update(f":(literal){p}" for p in _RAW_SOURCE_GATE_PATHS)
-        result[root] = sorted(slice_paths)
-
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Identity-file owner+mode pre-source check — port of
 # `setup/publish.sh` (SEC: secaudit MEDIUM :46-51). Runs ONCE at
 # driver startup (see `main`), matching the bash original sourcing
@@ -5057,237 +4824,6 @@ def check_live_install_clobber(
 
 
 # ---------------------------------------------------------------------------
-# Dirty-tree guard — port of `setup/publish.sh`.
-# Override: COORDINATOR_OVERRIDE_DIRTY_TREE=1.
-# ---------------------------------------------------------------------------
-@functools.lru_cache(maxsize=None)
-def _git_is_inside_work_tree(path: Path) -> bool:
-    """Whether `path` sits inside a git work tree.
-
-    ROUND-SCOPED MEMO (`lru_cache`): this is STRUCTURAL -- it cannot change
-    while a round runs, and every row re-asks it for the same contributing
-    root, one `git` process each. The dirtiness probe beside it in
-    `check_dirty_tree` is deliberately NOT cached: that answer really does
-    move while a round runs, and a row must see the tree as it is.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return False
-    return result.returncode == 0
-
-
-# Rendered pathspec length per `git status` invocation in
-# `_git_status_porcelain`. Windows' CreateProcess cap is 32767 characters for
-# the WHOLE command line; this leaves headroom for the
-# `git -C <abs path> status --porcelain --` prefix and for the replicated
-# exclusion set each batch also carries. Batching unconditionally (rather than
-# only above the cap on Windows) keeps one code path under test on every
-# platform — the alternative is a Windows-only branch nothing else exercises.
-_PATHSPEC_ARGV_BUDGET = 24000
-
-
-def _git_status_porcelain(
-    path: Path, pathspec: Optional[List[str]] = None
-) -> "tuple[int, str]":
-    """Runs `git -C <path> status --porcelain -- <pathspec>` (default `.`,
-    the whole-subtree form every existing caller relies on — see
-    `check_dirty_tree`'s docstring) and returns `(returncode, stdout)` RAW —
-    unlike the pre-C1 shape this replaces, which swallowed a non-zero return
-    into `""`, indistinguishable from "clean" (the fail-open hazard DR-227
-    and this plan's hazard section name). Every caller is responsible for
-    its own returncode handling; `check_dirty_tree` is the only caller
-    today.
-
-    An `OSError` (e.g. `git` not on `PATH`) maps to `(1, "")` — a
-    non-zero-equivalent, the same fail-closed shape as a real non-zero git
-    exit, never silently treated as clean.
-
-    A LONG PATHSPEC IS SPLIT ACROSS CALLS, not truncated and not dropped.
-    Windows caps a `CreateProcess` command line at 32767 characters. A
-    mirror row whose allowlist names every file at its source top level
-    exceeds that: the `claude-klabauter-coordinator-bin` row's 948 entries
-    render to ~35k characters of `:(literal)…` pathspec, and Python's own
-    `CreateProcess` call raises `WinError 206` before git is reached.
-    Mapped to `(1, "")` by the handler below and met by
-    `check_dirty_tree`'s fail-CLOSED explicit-pathspec leg, that surfaced
-    as "REFUSED: pre-sync gate declined" — the row silently stopped
-    publishing while the round reported PASS for the other eight. Note
-    `git status` does NOT accept `--pathspec-from-file` (only the
-    commit/add family does), so the remedy `scoped-git-commit` uses for
-    the same cap is unavailable here; batching is.
-
-    BATCHING IS SOUND HERE BECAUSE EVERY ENTRY IS POSITIVE. A pathspec
-    that mixed in exclusions could not simply be partitioned — an
-    exclusion filters the magic set it is handed, so batches lacking it
-    would report the very paths it exists to suppress. That case cannot
-    arise: `_publish_relevant_allowlist_leg`'s docstring pins that
-    `!`-prefixed allowlist entries are resolved by SUBTRACTION upstream
-    and "never fed to git as a literal path named `!...`" (AC1). Every
-    entry arriving here is an inclusion, so the union of the batches
-    equals the single-call result. Should that upstream contract ever
-    change, this function must be revisited before the caller is.
-
-    A non-zero return from ANY batch is returned immediately, with that
-    batch's stdout discarded — a partial answer must never be handed to a
-    fail-closed caller as though it were a complete one.
-    """
-    spec = list(pathspec) if pathspec else ["."]
-    base = ["git", "-C", str(path), "status", "--porcelain", "--"]
-
-    batches: List[List[str]] = []
-    current: List[str] = []
-    used = 0
-    for entry in spec:
-        cost = len(entry) + 1
-        if current and used + cost > _PATHSPEC_ARGV_BUDGET:
-            batches.append(current)
-            current = []
-            used = 0
-        current.append(entry)
-        used += cost
-    batches.append(current)
-
-    out_chunks: List[str] = []
-    try:
-        for batch in batches:
-            result = subprocess.run(
-                base + batch,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                return (result.returncode, "")
-            out_chunks.append(result.stdout)
-    except OSError:
-        return (1, "")
-    return (0, "".join(out_chunks))
-
-
-def check_dirty_tree(
-    source_dir: Path,
-    name: str,
-    *,
-    dry_run: bool,
-    pathspec: Optional[List[str]] = None,
-    out: IO[str] = sys.stdout,
-    err: IO[str] = sys.stderr,
-) -> bool:
-    """Port of `setup/publish.sh`'s dirty-tree check, over `source_dir`. The
-    production call site (`run_pre_sync_gates`) narrows `pathspec` to the
-    DR-227 publish-relevant set (`_publish_relevant_paths`) —
-    `docs/plans/2026-08-03-narrow-check-dirty-tree-to-publish-relevant-paths.md`.
-
-    `pathspec`, when omitted (the default), preserves the PRE-narrowing
-    behaviour byte-for-byte: a bare `git status --porcelain -- .` scoped to
-    `source_dir`'s whole subtree, AND the original fail-open swallow (a
-    non-zero git return reads as "clean"). This is deliberate — every
-    existing `TestCheckDirtyTree` case exercising this shape is built on it
-    and must stay unaffected (plan AC2/AC7). This pathspec-less default is a
-    TEST-AFFORDANCE ONLY, not a supported production shape (DR-227,
-    docs/decisions/DR-227-whole-tree-dirty-classifier-redundant-under-
-    explicit-path-scoping.md) — a future caller must not silently pick up
-    whole-tree scope at what should be a pathspec-scoped call site.
-
-    WITH an explicit `pathspec`, a non-zero git return BLOCKS (prints a
-    diagnostic naming the failing pathspec and returns `False`) — it never
-    falls through to "clean". This is the fail-closed half of the same
-    change: an empty stdout after a git FAILURE must never be
-    indistinguishable from an empty stdout after a clean status.
-
-    This non-zero+pathspec branch is DELIBERATELY NOT routed through
-    `COORDINATOR_OVERRIDE_DIRTY_TREE` (Review: code-reviewer Finding 2). git
-    could not answer "is this dirty" at all here, so there is no dirty-diff
-    for an operator to consciously accept the risk of publishing past —
-    unlike the "uncommitted changes" leg below, where the tree state IS
-    knowable and the row proceeds from HEAD regardless.
-    `_publish_relevant_allowlist_leg_dirspec`'s directory-granularity
-    pathspec (Finding 1) removes the main foreseeable trigger for this
-    branch (unbounded per-file argv length); the exception stays
-    intentional independent of that fix. This is the ONLY leg of this
-    function that still returns `False` on a real (non-dry-run) call.
-
-    Post-`_git_materialize_ref` (plan `2026-08-04-publish-from-a-committed-
-    ref.md`, C1a/C1b), the publish reads a shadow tree extracted from a
-    committed ref, never `source_dir` itself — so a dirty `source_dir` can
-    no longer make uncommitted bytes ship; that is now structurally
-    impossible. What a dirty tree over the DR-227 publish-relevant pathspec
-    still means is narrower but real: the bytes about to ship (HEAD) are
-    STALE relative to what the operator has open in an editor. Because
-    stale-but-published beats silently-dropped, the "uncommitted changes"
-    leg below WARNS (naming the dirty paths individually) and PROCEEDS from
-    HEAD rather than skipping the row — a prior version of this function
-    dropped the row entirely on this leg, which cost a real incident (a
-    sync that shipped 27 files instead of 1202, and ~40 downstream false
-    positives from the silent drop). `COORDINATOR_OVERRIDE_DIRTY_TREE` is
-    now logically redundant on this leg (both branches warn-and-proceed)
-    but is left wired exactly as before — retiring it is a separate,
-    user-visible decision this change does not make. The working tree
-    itself is never touched, no matter which branch below fires.
-    """
-    if not _git_is_inside_work_tree(source_dir):
-        return True  # can't assess — same as bash's guarded `if git ... ; then`
-
-    returncode, dirty = _git_status_porcelain(source_dir, pathspec)
-    if returncode != 0:
-        if pathspec is None:
-            # Pre-C1 fail-open swallow, preserved byte-for-byte for the
-            # pathspec-less (test-affordance) call shape — AC2/AC7.
-            dirty = ""
-        else:
-            print(
-                f"  Error: git status failed for {source_dir} with pathspec "
-                f"{pathspec!r} (exit code {returncode}) — refusing to treat "
-                "this as clean.",
-                file=err,
-            )
-            print(f"  Skipping {name}.", file=out)
-            print("", file=out)
-            return False
-
-    if not dirty:
-        return True
-
-    sha = _git_head(source_dir) or "HEAD"
-
-    if dry_run:
-        print(
-            f"  WARNING: {source_dir} has uncommitted changes in the publish-relevant set — "
-            f"a real run would proceed from {sha}: the published bytes would be HEAD, not "
-            "what is open in an editor:",
-            file=err,
-        )
-        for line in dirty.splitlines():
-            print(f"    {line}", file=err)
-        return True
-
-    if os.environ.get("COORDINATOR_OVERRIDE_DIRTY_TREE", "0") == "1":
-        print(
-            f"  WARNING: {source_dir} is dirty; COORDINATOR_OVERRIDE_DIRTY_TREE=1 set — "
-            f"proceeding from {sha}: your uncommitted edits will not appear in the "
-            "published output, but the working tree is not modified.",
-            file=err,
-        )
-        return True
-
-    print(
-        f"  WARNING: {source_dir} has uncommitted changes in the publish-relevant set — "
-        f"proceeding from {sha}: the published bytes will be HEAD, not what is open in "
-        "an editor. Commit first (and re-run) to publish the current edits.",
-        file=err,
-    )
-    for line in dirty.splitlines():
-        print(f"    {line}", file=err)
-    return True
-
-
-# ---------------------------------------------------------------------------
 # Version-regression gate — port of `setup/lib/percolate-gate.sh`
 # `check_marketplace_version_regression` (~:77-115).
 # Override: COORDINATOR_OVERRIDE_VERSION_REGRESSION=1.
@@ -5532,28 +5068,29 @@ def run_pre_sync_gates(
 ) -> GateResult:
     """Runs the per-target GATES `setup/publish.sh` runs between "source path
     validated" and "sync dispatched", in the same order as the
-    bash original: live-install-clobber, dirty-tree, version-regression,
+    bash original: live-install-clobber, version-regression,
     version-consistency, machine-slug warn. (The identity-file owner+mode
     check is NOT run here — it runs once at driver startup, see `main` —
     `identity_file_exists`/`identity` are its already-computed results,
     threaded through for the machine-slug warn.)
 
-    Between dirty-tree and version-regression, every contributing root
+    Before any gate reads source bytes, every contributing root
     (docs/plans/2026-08-04-publish-from-a-committed-ref.md C1b) is
-    materialized from its committed ref via `_git_materialize_ref`, over the
-    SAME root set the dirty-tree loop above just walked — pinned to the
-    round-wide sha in `round_pinned_shas` (§ `_round_pin_source_sha`) rather
+    materialized from its committed ref via `_git_materialize_ref` — pinned to
+    the round-wide sha in `round_pinned_shas` (§ `_round_pin_source_sha`) rather
     than a fresh per-call `HEAD` resolution, so every row in this round
     reads the same commit for a shared toplevel even if HEAD moves mid-round. `GateResult.source_dir`
     is UNCONDITIONALLY the shadow of `target.source_dir` from that point on —
     never the target's raw resolved `source_dir` — so even a row with no
     declared allowlist (which never enters the branch below) publishes from a
     committed ref, not the live tree. `check_marketplace_version_regression`
-    and `check_version_consistency` are relocated to run AFTER materialization
-    for the same reason: they read raw source directly, and `check_dirty_tree`
-    is override-escapable / warn-only under --dry-run, so reading live source
-    there could ship a version regression past the gate that exists to stop
-    it. When an allowlist IS declared, `build_allowlisted_source` narrows the
+    and `check_version_consistency` run AFTER materialization for the same
+    reason: they read raw source directly, so reading the live tree there
+    could ship a version regression past the gate that exists to stop it.
+    A dirty source tree is NOT a gate of any kind here and never slows a
+    publish down: the bytes always come from the committed ref, so
+    uncommitted peer edits can neither leak into the published output nor
+    refuse the row. When an allowlist IS declared, `build_allowlisted_source` narrows the
     already-materialized shadow tree — it receives shadow roots via
     `real_src` + `source_map`, unchanged in shape, with no `git archive`
     knowledge of its own.
@@ -5582,32 +5119,10 @@ def run_pre_sync_gates(
         return GateResult(proceed=False, source_dir=target.source_dir)
 
     contributing_roots = _contributing_roots(target)
-    publish_relevant_paths = _publish_relevant_paths(target, contributing_roots)
-    _dirty_tree_loop_start = time.perf_counter()
-    try:
-        for root in contributing_roots:
-            if not check_dirty_tree(
-                root,
-                target.name,
-                dry_run=dry_run,
-                pathspec=publish_relevant_paths[root],
-                out=out,
-                err=err,
-            ):
-                return GateResult(proceed=False, source_dir=target.source_dir)
-    finally:
-        print(
-            f"  [timing] {target.name}: run_pre_sync_gates: check_dirty_tree loop: "
-            f"{time.perf_counter() - _dirty_tree_loop_start:.3f}s "
-            f"({len(contributing_roots)} root(s))",
-            file=out,
-        )
 
     # Materialize every contributing root from a committed ref (docs/plans/
     # 2026-08-04-publish-from-a-committed-ref.md C1b) BEFORE any gate reads
-    # source bytes, over the SAME root set `check_dirty_tree` just walked
-    # above — never a re-derived one, so the gate and the materialization it
-    # gates cannot disagree on scope. `shadow` maps every real contributing
+    # source bytes. `shadow` maps every real contributing
     # root to its shadow (committed-ref) counterpart; every gate and copy
     # from here on reads through `shadow`, never `target.source_dir` or a
     # `source_map` root directly — that includes the version gates below,
@@ -5619,11 +5134,7 @@ def run_pre_sync_gates(
     # back to a live-tree copy (silent reintroduction of the TOCTOU this
     # plan closes for that root) or silently skipping the root (silent
     # incomplete-tree publish). Refuse the publish loud, naming the failing
-    # root. Deliberately NOT routed through `COORDINATOR_OVERRIDE_DIRTY_TREE`
-    # — that override exists for an operator to knowingly accept a dirty
-    # DIFF; a non-materializable root has no diff to accept, the same
-    # reasoning `check_dirty_tree` already applies to its own non-zero-git
-    # branch.
+    # root.
     # C6 (docs/plans/2026-08-04-publish-from-a-committed-ref.md): report the
     # resolved provenance SHA per contributing root, unconditionally (real
     # run and --dry-run both) — "shipped from <sha>" is what makes a publish
@@ -5665,10 +5176,9 @@ def run_pre_sync_gates(
         return GateResult(proceed=False, source_dir=target.source_dir, shadow_roots=tuple(shadow_toplevels))
     effective_source_dir = shadow[target.source_dir]
 
-    # Relocated from above `check_dirty_tree` (docs/plans/2026-08-04-publish-
-    # from-a-committed-ref.md C1b) — these gates read raw source directly, and
-    # `check_dirty_tree` is override-escapable (COORDINATOR_OVERRIDE_DIRTY_TREE=1)
-    # and warn-only under --dry-run. Reading `target.source_dir` here, before
+    # These gates read raw source directly (docs/plans/2026-08-04-publish-
+    # from-a-committed-ref.md C1b), so they run AFTER materialization.
+    # Reading `target.source_dir` here, before
     # C1b, meant a bumped-but-uncommitted marketplace.json version would PASS
     # this gate while HEAD's older marketplace.json is what actually ships —
     # a version regression shipped past the exact gate meant to stop it. They
@@ -8066,9 +7576,10 @@ def _commit_failure_detail(result) -> list:
     (`coordinator_core/ops/ceremony/commit_pipeline.py`) already folds every one
     of those into `PipelineResult.diagnostics` before returning -- the three
     gate outcomes via their own `.diagnostics`, `dirty_gate` via a rendered
-    "dirty-tree gate: unattributable paths: ..." line, and the commit step's
-    stderr, all unconditionally. Re-reading the gate slots here prints the same
-    evidence twice on the one artifact a failed cold publish leaves.
+    "dirty-tree gate: unattributable paths: ..." line, a failed stage's own
+    `.failed` entries, and the commit step's stderr, all unconditionally.
+    Re-reading the gate slots here prints the same evidence twice on the one
+    artifact a failed cold publish leaves.
     """
     detail = []
     if result.reason:
@@ -8152,7 +7663,6 @@ def _commit_published_dests(
                 "state; the mirror is left dirty and this run exits non-zero.",
                 file=sys.stderr,
             )
-
             all_ok = False
             continue
         # Before the pathspec is frozen, not after: a re-moded path is only
@@ -8188,8 +7698,8 @@ def _commit_published_dests(
             # after a "successful" commit — i.e. still dirty, which is the
             # whole failure this step exists to end.
             caller_paths=set(paths),
-            # § COMMIT, NOT PUBLISH above. Not the default `"sync"`, and not
-            # `"none"` either: `"none"` leaves the `post-commit` hook armed
+            # § COMMIT, NOT PUBLISH above. Not `"sync"`, and not the
+            # default `"none"` either: `"none"` leaves the `post-commit` hook armed
             # (there it is the only publisher there is), which would put a
             # percolation's push back on the hook's branch policy — the
             # incidental protection this mode exists to replace.
@@ -9344,10 +8854,16 @@ def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
         STRUCTURAL_NEVER_PUBLISHED_PREFIXES as _STRUCTURAL,
     )
 
+    # `dest_dir.glob("*.prior")` never yields a dotted basename -- stdlib
+    # glob hides `.`-prefixed names from a pattern that does not itself
+    # start with `.`, and `_swap_publish_staging_into_dest_root` iterates
+    # `staging_dir.iterdir()` (no dotfile filter), so it can legally mint a
+    # dotted strand like `.github.prior`. Scan `iterdir()` directly instead.
     stranded = sorted(
         entry
-        for entry in dest_dir.glob("*.prior")
-        if not any(fnmatch.fnmatch(entry.name, pattern) for pattern in _STRUCTURAL)
+        for entry in dest_dir.iterdir()
+        if entry.name.endswith(".prior")
+        and not any(fnmatch.fnmatch(entry.name, pattern) for pattern in _STRUCTURAL)
     )
     if not stranded:
         return
@@ -9362,6 +8878,9 @@ def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
         "by hand (rename `<entry>.prior` back to `<entry>`, or reconcile "
         "against HEAD) before re-running this row -- publishing over it "
         "would let the removal side read that subtree as retired payload.",
+        # representative sample only -- the rendered message above carries
+        # the full `stranded` list; the sole consumer (`process_target`)
+        # only prints the message on this path, never reads this field.
         prior_backup=stranded[0],
         content_swapped=False,
     )
@@ -10503,17 +10022,66 @@ def process_target(
                 if timing_sink is not None:
                     timing_sink.append((target.name, "REFUSED: pre-swap function gate failed", 0.0, 0.0))
                 return
-            # WITHDRAWN, not forgotten: `dispatch_preswap_payload_parity_gate`
-            # is correct -- it refuses the real 2026-08-21 outage payload --
-            # but costs 1250ms against DR-344 constraint 1's 500ms ceiling,
-            # and its own plan says "over budget is a no-op that does not
-            # ship". The floor for any whole-payload scan is 437ms before a
-            # single call site is bound (31ms rglob + 281ms reading 59.9MB +
-            # 156ms needle diff), so no tuning reaches the ceiling and the
-            # shape has to change. The module, its tests, and the red budget
-            # pin (`TestAC11ProcessBudget`) all stay; re-spec is
-            # `state/debt-backlog/2026-08-21-payload-parity-gate-is-1250ms-against-dr-e876a92187a0.yaml`.
-            # Re-wire here when that lands. No ceiling was widened to keep it.
+            # RE-WIRED (chunk C5, state/dispatch-briefs/2026-08-26-payload-
+            # parity-asks-an-index-not-the-payload/C5.md): the gate itself
+            # never changed shape -- what changed is what it reads. The
+            # 1250ms cost this call site was withdrawn for (§ git history,
+            # commit 881d4a262) was the whole-payload rglob+read scan
+            # `_files_referencing_needles` falls back to when
+            # `token_index_path` is absent. C1-C4 built a persistent,
+            # incrementally-maintained inverted index keyed on the row's
+            # REPO ROOT (`coordinator_core.percolate.token_index`, on disk
+            # at `<repo_root>/.percolate/token-index.bin` -- § C5 defect fix:
+            # the writer, `_update_token_index_from_delta`, always keys and
+            # locates the index at `_manifest_root`, a repo root, never a
+            # row's own `dest_dir`, so the reader has to seek the same repo
+            # root or it finds nothing for every non-toplevel row) that the
+            # prescreen seeks into instead -- same index this round's own
+            # end-of-run leg below (`_update_token_index_from_delta`) keeps
+            # current. Passing its path through is what makes THIS call
+            # cheap. Review: coordinator:code-reviewer (slice C, P3) -- the
+            # gate is not merely "otherwise identical" to the one C2
+            # shipped: this diff also adds degrade-to-full-scan semantics on
+            # a `None`, unreadable, or unbuilt index, which C2 never had.
+            # Review: coordinator:code-reviewer (slice C, P2) -- the two
+            # lazy imports below used to sit ahead of any try/except, so an
+            # ImportError here (packaging/OSS-shaped subprocess missing this
+            # module -- the same hermetic-import concern
+            # `dispatch_preswap_function_gate` already probes for) would
+            # abort `process_target` with an uncaught exception instead of
+            # refusing through the documented fail-closed path. Folding the
+            # import into the same fail-closed boundary degrades to
+            # `token_index_path=None` (full scan, per the gate's own
+            # None-handling) on import failure, never an abort -- it does
+            # NOT touch what happens on a genuine gate refusal.
+            _row_token_index_repo_root = _dest_repo_root(target.dest_dir)
+            _row_token_index_path: "Optional[Path]" = None
+            if _row_token_index_repo_root is not None:
+                try:
+                    from coordinator_core.ops.percolate_build_token_index import (  # noqa: PLC0415 - lazy, this call site is the only user in process_target
+                        _INDEX_DIRNAME as _row_token_index_dirname,
+                    )
+                    from coordinator_core.ops.percolate_build_token_index import (  # noqa: PLC0415
+                        _INDEX_FILENAME as _row_token_index_filename,
+                    )
+                except ImportError:
+                    _row_token_index_path = None
+                else:
+                    _row_token_index_path = (
+                        _row_token_index_repo_root / _row_token_index_dirname / _row_token_index_filename
+                    )
+            with _time_phase(timing_sink, target.name, "dispatch_preswap_payload_parity_gate"):
+                preswap_parity_ok = dispatch_preswap_payload_parity_gate(
+                    target,
+                    staging_dir,
+                    row_changed_files,
+                    token_index_path=_row_token_index_path,
+                    out=out,
+                )
+            if not preswap_parity_ok:
+                if timing_sink is not None:
+                    timing_sink.append((target.name, "REFUSED: pre-swap payload parity gate failed", 0.0, 0.0))
+                return
             try:
                 with _time_phase(timing_sink, target.name, "_swap_publish_staging_into_dest"):
                     _swap_publish_staging_into_dest(target.dest_dir, staging_dir)
@@ -11297,6 +10865,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     # any such root, never narrow to the partial union already accumulated.
     end_of_run_changed_by_repo_root: "dict[Path, set[Path]]" = {}
     end_of_run_changed_undetermined_roots: "set[Path]" = set()
+    # § chunk C4 (state/dispatch-briefs/2026-08-26-payload-parity-asks-an-
+    # index-not-the-payload/C4.md, AC8) — a repo root with a row that raised
+    # `PublishSwapPartial(content_swapped=True)` (content DID land at dest,
+    # but the row still marks FAILED and never reaches the `end_of_run_
+    # changed_by_repo_root` fold below, since the exception is re-raised and
+    # caught by the row-isolation handler before that fold runs). Left alone,
+    # the token index would keep a stale-but-covered stamp for exactly the
+    # files this row just changed at dest — worse than absent (§ that
+    # module's own negative-spec). Routed through the same single
+    # "invalidate this root" call as an undetermined root, per AC8.
+    end_of_run_token_index_invalidate_roots: "set[Path]" = set()
     # § chunk C3.5 (docs/plans/2026-08-23-rebuild-the-percolate-round-as-six-
     # steps.md) — this run's own removed-paths accounting, keyed the same way
     # as `end_of_run_changed_by_repo_root`, folded from `process_target`'s
@@ -11598,6 +11177,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                         timing_sink=round_timings,
                     )
                 except (SystemExit, Exception) as exc:  # noqa: BLE001 - row isolation, see ledger comment above
+                    # § chunk C4 (AC8) — `content_swapped=True` means dest was
+                    # actually mutated by this row before the raise; this row's
+                    # own changed-set never reaches the fold below (the raise
+                    # happens before it), so the token index for this root must
+                    # be invalidated rather than left stale-but-covered.
+                    if isinstance(exc, PublishSwapPartial) and exc.content_swapped:
+                        end_of_run_token_index_invalidate_roots.add(repo_root)
                     code = getattr(exc, "code", None)
                     # `OSError.__repr__` (what `{exc!r}` prints) emits only
                     # `(errno, strerror)` — it discards `.filename`/
@@ -11853,8 +11439,29 @@ def main(argv: Optional[List[str]] = None) -> int:
         from coordinator_core.percolate.round import default_manifest_path as _default_manifest_path
         from coordinator_core.wire_paths import rel_id as _rel_id
 
+        # § chunk C4 (state/dispatch-briefs/2026-08-26-payload-parity-asks-an-
+        # index-not-the-payload/C4.md) — each round updates
+        # `coordinator_core.percolate.token_index`'s on-disk index from the
+        # SAME `_root_changed`/`_root_removed` sets the manifest above is
+        # built from (never a hand-rolled second delta — a probe's exactness
+        # result is a result about THOSE sets). One "invalidate this root"
+        # call covers all three branches AC8 names: an undetermined root, a
+        # refused row (never swapped, contributes nothing, needs no special
+        # case here), and a `PublishSwapPartial(content_swapped=True)` root
+        # (`end_of_run_token_index_invalidate_roots`, populated at the row
+        # exception handler above since that row's own delta never reaches
+        # `end_of_run_changed_by_repo_root`).
         _manifest_round_id = f"publish-{_uuid.uuid4().hex}"
         for _manifest_root in dict.fromkeys(end_of_run_check_roots):
+            # § chunk C4 (AC8) — one named disposition per root, both
+            # invalidating branches routed through the same single call.
+            _token_index_action = _token_index_action_for_root(
+                _manifest_root,
+                invalidate_roots=end_of_run_token_index_invalidate_roots,
+                undetermined_roots=end_of_run_changed_undetermined_roots,
+            )
+            if _token_index_action == "invalidate":
+                _invalidate_token_index(_manifest_root)
             if _manifest_root in end_of_run_changed_undetermined_roots:
                 continue
             _root_changed = end_of_run_changed_by_repo_root.get(_manifest_root) or set()
@@ -11929,6 +11536,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 _round_manifest,
                 _default_manifest_path(_manifest_root, _manifest_round_id),
             )
+            # § chunk C4 — reuse the SAME `_root_changed`/`_root_removed` sets
+            # the manifest just above was built from, never a re-derived
+            # delta. Skipped for a root this round already invalidated
+            # (§ `end_of_run_token_index_invalidate_roots` above) — folding a
+            # partial delta on top of a just-deleted index would only cover
+            # the delta, not the full tree, defeating the invalidation.
+            if _token_index_action == "update":
+                _update_token_index_from_delta(_manifest_root, _root_changed, _root_removed)
 
         # All four legs always run (never short-circuited by an earlier one's
         # failure) so a single run surfaces every defect it can find, not just

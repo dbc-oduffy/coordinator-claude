@@ -86,37 +86,6 @@
 /.coordinator-hooks-enabled
 /.coordinator-content-root-last-seen
 
-# The machine-local registry tree — same hazard, but it is the one entry here
-# that is not a single marker file. Its canonical home is the settings home
-# ($COORDINATOR_SETTINGS_HOME/machine-local); the path here is a compat pointer
-# to it. Tracking it ships one box's RESOLVED values — a Windows X:/ engine
-# root landing on a Mac — and re-materialises the path as a real directory on
-# every checkout, which permanently blocks the settings-home migration from
-# reaching its terminal symlink state.
-#
-# NO TRAILING SLASH, and that is the whole point of this paragraph. A `dir/`
-# rule matches only a real directory, so the trailing-slash form walks straight
-# past the symlink this path BECOMES once the migration completes: the rule
-# reads as present, reviews as correct, and matches nothing. That is worse than
-# a missing rule, because `git status` noise is the only symptom and it reads
-# as untidiness rather than as a broken ignore. The bare form matches a
-# directory and a symlink both, so it is correct before and after the
-# migration. Do not "tidy" a slash onto the end of this line.
-/machine-local
-
-# A nested ~/.claude/.claude/ is never a real surface. It is the artifact of a
-# caller passing $HOME/.claude where the RESOLVED $HOME was expected, so the
-# consumer appends .claude a second time. Nothing reads it, its contents shadow
-# nothing, and it must not travel to a peer.
-#
-# Bare, for the same reason as the rule above, even though this one is always a
-# real directory in practice -- a path-doubling bug creates a directory, not a
-# link. Writing it slashed would sit a silent counter-example six lines under a
-# paragraph headed NO TRAILING SLASH, and the next reader either infers a
-# distinction that was never stated or "fixes" the wrong one of the two. The
-# bare form is correct for a directory as well, so there is nothing to trade.
-/.claude
-
 # --- Credentials & secrets / machine-local auth state ---
 .credentials.json
 settings.local.json
@@ -175,54 +144,8 @@ sessions/
 image-cache/
 .last-cleanup
 
-# --- Per-project session data: transcripts OUT, auto-memory IN ---
-# The auto-memory store under projects/<slug>/memory/ is DELIBERATELY tracked.
-# It is the one thing under this prefix that is work product rather than
-# byproduct, and it is the ONLY thing here that cannot be regenerated: a
-# transcript can be replayed and a cache rebuilt, but a distilled memory exists
-# nowhere else the moment it is deleted.
-#
-# It is also actively deleted on a schedule. The workstream-complete drain gate
-# requires the store emptied to zero at every close, each entry promoted to a
-# durable home or dropped. Untracked, that deletion is unrecoverable and the
-# ceremony's own report is the only surviving record of what was destroyed --
-# a gate that deliberately destroys state, pointed at a store with no undo.
-#
-# Do not "restore" the blanket `projects/` rule. It was aimed at transcripts and
-# caches, and swept the memory stores up as collateral because they happen to
-# live under the same prefix. Measured on a working install: 40 memory files
-# against ~28,700 transcript/cache files under this prefix -- the rule is right
-# about 99.9% of what it matches and wrong about the part that matters.
-#
-# THE PATTERN IS `projects/**`, NOT `projects/`, AND THAT IS LOAD-BEARING.
-# git cannot re-include a path whose PARENT DIRECTORY is excluded -- it does not
-# descend into an excluded directory at all, so it never sees the negation. A
-# bare `projects/` makes all three `!` lines below dead on arrival with no error.
-# Excluding the CONTENTS instead leaves each directory traversable, and only
-# then does a negation bite. Hence four patterns where one looks sufficient; the
-# chain must be re-included level by level.
-projects/**
-!projects/*/
-!projects/*/memory/
-!projects/*/memory/**
-
-# The multi-machine caveat, stated so the tradeoff is chosen rather than
-# discovered: the slug is the project's ABSOLUTE PATH with separators replaced.
-# Machines whose checkouts sit at different paths (a Windows X:\repo and a macOS
-# /Users/you/repo) therefore write DISJOINT slugs and can never collide. Two
-# machines with the SAME layout -- a laptop and a desktop both at /Users/you/repo
-# -- write the SAME paths and will conflict.
-#
-# That is the accepted cost, not an oversight, because the two failure modes are
-# not comparable. A collision here is a MERGE CONFLICT in a small markdown file:
-# loud, both sides preserved in history, resolvable by hand in minutes. Not
-# tracking is SILENT PERMANENT LOSS on a schedule. Nothing else this file ignores
-# has that shape -- settings.json is ignored because tracking it actively bricks
-# the losing machine, which no memory file can do.
-#
-# In practice the conflict lands on memory/MEMORY.md, the index every write
-# touches, rather than on the entries themselves. Resolve it as a UNION of both
-# sides; two machines learning different things is the system working.
+# --- Per-project session data (memory, settings, pointers — machine-local) ---
+projects/
 
 # --- Tasks: ignore UUID-named TodoWrite files (8-hex prefix + rest) + caches; keep curated files ---
 # (lessons.md, improvement-queue.md, handoffs/ etc. stay tracked.)

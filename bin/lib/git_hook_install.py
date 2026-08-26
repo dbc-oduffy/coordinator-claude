@@ -311,6 +311,7 @@ def _resolve_claude_klabauter_bin_sh(bin_dir: str, script_name: str) -> Optional
 # Prior shape (retired here): `_ensure_hook` judged an installed hook
 # "already-current" by testing a hand-maintained `current_predicates` list
 # (e.g. `SCRIPT="<bin>/<script>"`, `exec "$_PY"`, `_py_resolve() {`) against
+# shell-doc-ok: those fragments are the generated sh hook's own text, matched literally.
 # the body on disk. That test is only ever as complete as whatever a human
 # remembered to add the LAST time `_shim_body` grew a new rung — and when
 # they forget, an installed-but-stale hook is certified current and skipped
@@ -460,6 +461,7 @@ def _shim_body(
     fallback = _sh_path(os.path.join("$HOME", _MARKETPLACE_SUFFIX, script_name))
     coord_bin_sh = _sh_path(coord_bin)
     # Settings-home forwarder rung: `${COORDINATOR_SETTINGS_HOME:-...}/bin/<name>`
+    # shell-doc-ok: that rung is the generated forwarder's own parameter expansion.
     # is a generated forwarder that calls `_resolve_claude_klabauter.exec_cli("<name>")`,
     # and `exec_cli` itself probes `<target>.py` when the bare name is absent —
     # so one rung here resolves correctly across a bin/ rename without a

@@ -104,8 +104,24 @@ def load_baseline(path: Path = BASELINE_PATH) -> dict:
 
 def derive_unresolved_writers(repo_root: Path = REPO_ROOT) -> set[str]:
     """Shell out to nothing -- imports `discover_generators` directly, the
-    ONE derivation this script trusts, never a re-implementation."""
-    require_dispatch_engine_on_path()
+    ONE derivation this script trusts, never a re-implementation.
+
+    Imports from `repo_root` -- the tree being SWEPT -- not from the dispatch
+    engine. This used to call `require_dispatch_engine_on_path()`, which is
+    the wrong axis for this question: dispatch answers "which engine executes
+    on this box" and resolves to the published klabauter mirror, while the
+    sweep asks "what does the code in THIS checkout do". Whenever claude-klabauter ran
+    ahead of the mirror the two disagreed, so the one sanctioned regenerate
+    path wrote a baseline `test_generator_provenance_ratchet.py` -- which
+    imports `coordinator_core` from the repo root under pytest -- then
+    rejected. C9's provenance hardening (`cc_invoke`) turned that silent
+    divergence into a loud `ProvenanceDivergenceError` and took the gate's
+    derivation down with it; sweeping the tree it was handed fixes both, and
+    makes the CLI and the gate agree by construction rather than by luck.
+    """
+    root_str = str(Path(repo_root).resolve())
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
     from coordinator_core.ops.generator_provenance import discover_generators
     from coordinator_core.ops.staleness_git import Verdict
 

@@ -673,6 +673,7 @@ def _acquire_lock(lock_dir: str) -> None:
 def _release_lock(lock_dir: str) -> None:
     """Release the lock dir — mirrors the bash oracle's
     `trap 'rmdir "$LOCK_DIR" 2>/dev/null || true' EXIT`. Best-effort: any
+    shell-doc-ok: that trap is the shell line this describes.
     failure (already removed, permissions) is swallowed, never raised."""
     try:
         os.rmdir(lock_dir)

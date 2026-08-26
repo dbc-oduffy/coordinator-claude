@@ -79,8 +79,8 @@ form (Shape A) resolves `safe-commit-offer`.
 it, report what landed. `--message "<subject>"` for one group, `--groups-json <file>` for several.
 A path outside the computed safe pathspec is silently dropped, never caller-widened.
 
-**Push checkpoint — `push.outstanding`.** Safe-commit does not publish; push runs on a cadence,
-and `/quick-wrap` is one of its named checkpoints. Once the commit has landed, call
+**Push checkpoint — `push.outstanding`.** The safe-commit mechanism no longer publishes; push runs
+on a cadence, and `/quick-wrap` is one of its named checkpoints. Once the commit has landed, call
 the primitive once and block on it (~150ms, synchronous — no detach or background wrapper):
 
 `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`

@@ -213,7 +213,7 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 # `_registry_machine_local_get` is the only reader this lib exposes for an
 # arbitrary registry key, and the allowlist-rot check needs exactly one class
@@ -322,9 +322,17 @@ def _resolve_live_targets_path() -> Optional[Path]:
     # contradicting the skip-clean contract this module's own docstring/Negative-spec and
     # the P-22 wiki row assert. Both RuntimeError sources are now folded into the same
     # clean-skip path.
+    # LOCATOR axis, not dispatch (`cc_invoke.require_dispatch_engine_on_path`'s own
+    # docstring: `_resolve_claude_klabauter_root()` "reaches the published mirror through the
+    # pointer-file/registry rung"). `coordinator_core.percolate` is one of the engine
+    # row's permanent `deny` entries, so it is absent from every published mirror by
+    # construction -- resolving the dispatch root here made the import below
+    # unsatisfiable on any box whose dispatch root is the mirror, which is the
+    # conformant shape. Rung 1 of the colocated ladder probes this file's own
+    # parents[2], landing in the checkout that actually carries the resolver.
     try:
-        claude_klabauter_root = require_dispatch_engine_on_path()
-    except RuntimeError:
+        require_colocated_engine_on_path(__file__)
+    except (RuntimeError, OSError):
         return None
     from coordinator_core.percolate.runtime_root import _rung4_shared_install
 

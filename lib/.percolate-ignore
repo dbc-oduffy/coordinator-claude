@@ -1,0 +1,32 @@
+# .percolate-ignore — coordinator/lib/ contributing source root for the claude-klabauter
+# OSS mirror (rows 6 and 7, `claude-klabauter-lib` / `claude-klabauter-coordinator-lib`, authored sibling-side in
+# DoE-claude:setup/publish-targets.portable).
+#
+# SOURCE_DIR for this file is `claude-klabauter/coordinator/lib/` itself. Patterns are
+# SOURCE_DIR-RELATIVE — they carry NO `coordinator/lib/` prefix, or they double-prefix
+# and match nothing. Read `coordinator_core/.percolate-ignore`'s MECHANISM
+# block for the full single-source explanation; it applies here verbatim.
+#
+# WHY THIS FILE EXISTS: the matcher is loaded from the ROW'S OWN source_root
+# (`round.py :: _percolate_ignore_matcher`, `Path(staging_dir) /
+# ".percolate-ignore"`), never from a parent directory. `coordinator/`
+# carries its own `.percolate-ignore`, but NO row sources from `coordinator/`
+# itself — the rows source `coordinator/lib` and `coordinator/bin` as
+# independent subtrees, so that parent file governs nothing that is actually
+# published. Without this file the matcher resolves to an empty pattern list,
+# `ignore.matches(...)` is False for everything, and `_smack_clear_recursive`
+# unlinks every destination entry including bytecode a prior run wrote —
+# forcing a recompile on next use, every round. Measured 2026-08-26:
+# 69 source .py, 7 .pyc standing at the destination and reaped every round.
+#
+# NEGATIVE SPEC: bytecode only. This file is NOT a general exclusion surface
+# for this row — `.percolate-ignore` is security-load-bearing on the copy leg
+# (leak prevention), and every pattern added here also stops that path being
+# swept from the destination. Adding a payload path here hides it from both
+# legs at once.
+
+# --- Python build artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/

@@ -71,25 +71,17 @@ CONTRACT MINIMUM (every enrolled guard must satisfy all of the following)
    inside one process; an import-time side effect in one guard is invisible
    to review and corrupts every guard imported after it.
 
-8. SYS.PATH PLACEMENT. The runner (not any individual guard) is responsible
-   for `sys.path` setup, and it places the sibling engine's root by calling
-   `_engine_root.place_engine_root_on_path()` -- never by hand-rolling an
-   append or an insert at a call site. That primitive puts the root at index 1,
-   immediately BEHIND the hooks directory (`coordinator/hooks/scripts/`) and
-   ahead of everything else, so a module-NAME collision between a
-   doctrine-plane-local helper and a same-named engine-side module still
-   resolves toward the doctrine-plane-local helper.
-   Do NOT reintroduce `sys.path.append` here. Appending satisfies the
-   hooks-dir-ahead requirement and nothing else: it puts the root behind
-   site-packages, and therefore behind an editable install of the engine, so
-   the resolver answers the published mirror while the import returns the
-   working tree -- in a clean process, every time. Placement is necessary but
-   not sufficient; it still loses to a module cache bound by an earlier bare
-   `import coordinator_core`, which `_engine_root.engine_import_provenance()`
-   is what actually detects.
-   If a caller needs the engine root resolved before its own self-resolution,
-   it must restore the hooks dir to the front of `sys.path` before the
-   guard-import phase runs, not leave the engine root ahead of it permanently.
+8. SYS.PATH ORDERING. The runner (not any individual guard) is responsible
+   for `sys.path` setup, and when it appends the sibling engine's root to
+   `sys.path` (see `_engine_root.py`'s engine-root resolver), it MUST use
+   `sys.path.append`, never `sys.path.insert(0, …)` -- the hooks directory
+   (`coordinator/hooks/scripts/`) must stay AHEAD of the sibling engine
+   root on `sys.path` so a module-NAME collision between a doctrine-plane-local
+   helper and a same-named engine-side module resolves toward the
+   doctrine-plane-local helper. If a caller needs the engine root resolved first for
+   some other reason, it must restore the hooks dir to the front of
+   `sys.path` before the guard-import phase runs, not leave the engine
+   root ahead of it permanently.
 
 9. MEASUREMENT MODE IS STANDALONE-INVOCATION-ONLY. `_message_envelope.emit()`
    already special-cases `COORDINATOR_HOOK_MESSAGE_MEASURE=1` to write a

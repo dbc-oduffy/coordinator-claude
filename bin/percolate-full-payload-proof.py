@@ -18,8 +18,7 @@ WHAT COUNTS AS "REAL" HERE (and what does not)
     unmodified: every gate `main()` itself dispatches runs for real --
     percolate-root resolution, the REAL (unedited) `percolate-store.yaml`
     and `publish-targets.portable`, identity-file presence/safety checks,
-    the dirty-tree gate's real git interactions, real git-ref
-    materialization, the real mirror-sync engine, the real content-transform
+    real git-ref materialization, the real mirror-sync engine, the real content-transform
     sweep, real per-row and end-of-run guards (including all three end-of-run
     legs, `dispatch_end_of_run_identity_check`,
     `dispatch_end_of_run_install_doc_payload_check`, and
@@ -41,24 +40,16 @@ WHAT COUNTS AS "REAL" HERE (and what does not)
     that function's docstring).
 
     This means the harness is bound to the CURRENT git-committed state of
-    the store/portable files and the CURRENT working tree's dirty-tree
-    posture at invocation time -- it is a proof of the pipeline, run
+    the store/portable files at invocation time -- it is a proof of the pipeline, run
     against whatever those two carry right now, not an assertion that they
     are release-ready today.
 
-DIRTY-TREE OVERRIDE -- NEVER SET SILENTLY
-    `COORDINATOR_OVERRIDE_DIRTY_TREE` is never set by this script. If the
-    dirty-tree gate blocks a row, that is reported as a named finding in
-    the verdict (§ `_run_one_pass`'s stderr capture, surfaced verbatim),
-    never worked around -- the audit's own leading hypothesis for the
-    historical 14,703-finding run is that this exact override let a
-    publish proceed against a half-edited LIVE-IMPORTED engine (the
-    override protects published *source*, not the transform engine
-    performing the publish), so treating it as a silent enabling knob here
-    would risk reproducing the same blind spot this proof exists to close.
-    `--allow-dirty-tree-override` opts in explicitly, off by default, and
-    is refused unless passed with `--i-understand-the-risk` too (§
-    `build_arg_parser`).
+DIRTY TREE IS NOT A GATE
+    There is no dirty-tree gate in the publish path and nothing here
+    overrides one. Every contributing root is materialized from its
+    committed ref, so the published bytes are HEAD's whatever the working
+    tree holds. `--allow-dirty-tree-override` / `--i-understand-the-risk`
+    are retired no-ops, accepted only so existing invocations keep running.
 
 TWO-PASS CONVERGENCE PROOF
     Pass 1 publishes into a freshly created (via `tempfile.mkdtemp`), truly
@@ -92,11 +83,11 @@ VERDICT SHAPE
     a pass.
 
 ROW-COMPLETENESS (a skipped ROW is the same failure class as a skipped LEG)
-    A dirty-tree refusal, a version-regression gate, or any other per-row
+    A version-regression gate, or any other per-row
     skip inside `process_target` makes `publish.py` print "Skipping
     {name}." (or "Skipping {name} (<reason>...)") to stdout and move on --
     the run still exits 0 if every OTHER row succeeded, which is exactly how
-    a real run against a committed-but-dirty-adjacent tree (7 declared rows,
+    a real run (7 declared rows,
     2 skipped) printed a bare top-line PASS despite the largest row (the
     engine itself) never having been checked at all. `_declared_row_names`
     derives the expected `claude-klabauter*` set from `load_targets()`'s OWN
@@ -108,11 +99,7 @@ ROW-COMPLETENESS (a skipped ROW is the same failure class as a skipped LEG)
     processed set (silently absent from the output entirely, not merely
     unlucky wording) still fails closed via `missing_rows`. Any non-empty
     `skipped_rows`/`missing_rows` on either pass forces `overall_ok = False`
-    unconditionally; `dirty_tree_findings` (parsed from the exact "Error:
-    <path> has uncommitted changes..." line the dirty-tree gate prints)
-    is surfaced alongside so the verdict names WHICH source paths were dirty
-    -- the common case -- rather than leaving the operator to dig through
-    the pass's full stdout/stderr to find out why a row vanished.
+    unconditionally.
 
 SOURCE PIN -- BOTH PASSES PUBLISH FROM THE SAME RESOLVED COMMIT SHA(S)
     A wiped scratch destination lives for the whole ~15 minute run; every
@@ -180,9 +167,8 @@ WHAT THIS DELIBERATELY DOES NOT COVER
     - Does not run any real publish against `$HOME/X/claude-klabauter` or
       any other live registry-resolved destination -- scratch only, by
       construction (§ `_rewrite_rows_dest_root`).
-    - Does not set `COORDINATOR_OVERRIDE_DIRTY_TREE` (see above) -- a dirty
-      working tree in the publish-relevant pathspec makes this script
-      report a dirty-tree finding and stop, it does not route around one.
+    - Does not inspect the working tree's dirtiness at all (see above) --
+      publish reads a committed ref, so a dirty tree is not a finding.
     - Does not assert the published bytes are ACTUALLY clean (zero
       persona/codename leaks) -- that is what the identity-check and
       install-doc-payload end-of-run legs this script drives already
@@ -230,19 +216,12 @@ _TOPLEVEL_ROW_NAME = "claude-klabauter-publish-repo-toplevel"
 _ROW_NAME_PREFIX = "claude-klabauter"
 
 # `publish.py`'s "Skipping {name}." line has two printed shapes (§ grep of
-# `Skipping {` across publish.py): a bare "Skipping {name}." (dirty-tree,
-# identity-file, gate failures) and "Skipping {name} (<reason>...)"
+# `Skipping {` across publish.py): a bare "Skipping {name}."
+# (identity-file, gate failures) and "Skipping {name} (<reason>...)"
 # (version-regression family). The lookahead stops at whichever terminator
 # comes first so both shapes yield a clean row name, never a name plus
 # trailing punctuation or a truncated reason fragment.
 _SKIPPING_LINE_RE = re.compile(r"Skipping (\S+?)(?=\.|\s\()")
-
-# The exact per-source-dir dirty-tree refusal line (§ publish.py's dirty-tree
-# gate) -- named here so a wording change is a one-line diff to find, same
-# discipline as the end-of-run leg markers below.
-_DIRTY_TREE_ERROR_RE = re.compile(
-    r"^\s*Error: (\S+) has uncommitted changes in the publish-relevant set", re.MULTILINE
-)
 
 # The exact marker substrings `dispatch_end_of_run_identity_check` and
 # `dispatch_end_of_run_install_doc_payload_check` (coordinator/bin/publish.py)
@@ -372,15 +351,6 @@ def _parse_skipped_row_names(stdout_text: str) -> List[str]:
     return sorted(
         {name for name in _SKIPPING_LINE_RE.findall(stdout_text) if name.startswith(_ROW_NAME_PREFIX)}
     )
-
-
-def _parse_dirty_tree_findings(stderr_text: str) -> List[str]:
-    """Every source path this pass's dirty-tree gate refused, in the order
-    reported -- surfaced verbatim in the verdict so a skipped row reads as
-    an ENVIRONMENT problem (uncommitted local edits) rather than a payload
-    defect, which is the common case and the one the operator most needs
-    named plainly rather than inferred from a bare row-name gap."""
-    return _DIRTY_TREE_ERROR_RE.findall(stderr_text)
 
 
 def _git_init_scratch_dest(scratch_dest_root: Path) -> None:
@@ -716,7 +686,6 @@ def _run_one_pass(
         declared_rows=declared_rows,
         skipped_rows=skipped_rows,
         missing_rows=sorted(set(declared_rows) - set(skipped_rows) - _processed_rows(stdout_text)),
-        dirty_tree_findings=_parse_dirty_tree_findings(stderr_text),
         provenance=_parse_provenance_lines(stdout_text),
     )
 
@@ -745,7 +714,7 @@ def _processed_rows(stdout_text: str) -> set:
 class PassResult:
     def __init__(
         self, *, pass_number, exit_code, stdout, stderr, leg_status, tree_hash,
-        declared_rows, skipped_rows, missing_rows, dirty_tree_findings, provenance,
+        declared_rows, skipped_rows, missing_rows, provenance,
     ):
         self.pass_number = pass_number
         self.exit_code = exit_code
@@ -756,7 +725,6 @@ class PassResult:
         self.declared_rows = declared_rows
         self.skipped_rows = skipped_rows
         self.missing_rows = missing_rows
-        self.dirty_tree_findings = dirty_tree_findings
         self.provenance = provenance
 
 
@@ -776,44 +744,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--allow-dirty-tree-override",
         action="store_true",
-        help=(
-            "Set COORDINATOR_OVERRIDE_DIRTY_TREE=1 for this run. OFF by default "
-            "-- see module docstring 'DIRTY-TREE OVERRIDE'. Requires "
-            "--i-understand-the-risk."
-        ),
+        help="Retired no-op: a dirty tree never gated this run.",
     )
     p.add_argument(
         "--i-understand-the-risk",
         action="store_true",
-        help="Required alongside --allow-dirty-tree-override; refuses to fire alone.",
+        help="Retired no-op, accepted for compatibility.",
     )
     return p
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_arg_parser().parse_args(argv)
-
-    if args.allow_dirty_tree_override and not args.i_understand_the_risk:
-        print(
-            "percolate-full-payload-proof: --allow-dirty-tree-override requires "
-            "--i-understand-the-risk too -- refusing to set "
-            "COORDINATOR_OVERRIDE_DIRTY_TREE on a bare flag (see module docstring "
-            "'DIRTY-TREE OVERRIDE').",
-            file=sys.stderr,
-        )
-        return 2
-
-    import os
-
-    if args.allow_dirty_tree_override:
-        os.environ["COORDINATOR_OVERRIDE_DIRTY_TREE"] = "1"
-        print(
-            "WARNING: COORDINATOR_OVERRIDE_DIRTY_TREE=1 set by explicit operator "
-            "opt-in (--allow-dirty-tree-override --i-understand-the-risk). This "
-            "protects published SOURCE content, not the live-imported transform "
-            "engine performing this publish -- see module docstring.",
-            file=sys.stderr,
-        )
 
     pin_module = _load_publish_module()  # preflight: fail fast on an import error before touching disk
 
@@ -922,16 +864,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             )
             if not_processed:
                 print(f"    NOT PROCESSED: {', '.join(not_processed)}")
-                if pass_result.dirty_tree_findings:
-                    print("    reason: dirty-tree gate refused these publish-relevant source paths:")
-                    for path in pass_result.dirty_tree_findings:
-                        print(f"      {path}")
-                else:
-                    print(
-                        "    reason: not a dirty-tree refusal (no matching "
-                        "'has uncommitted changes' line found) -- see this "
-                        "pass's stdout/stderr below for the actual skip reason"
-                    )
+                print(
+                    "    see this pass's stdout/stderr below for the skip reason"
+                )
         print("  end-of-run leg status, pass 1:")
         for leg, status in pass1.leg_status.items():
             print(f"    {leg}: {status}")

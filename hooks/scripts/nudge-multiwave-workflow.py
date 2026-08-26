@@ -142,6 +142,20 @@ except Exception:
 
 from _win_portability import no_console_creationflags  # noqa: E402
 try:
+    from _session_hub import session_id_is_real, ensure_session_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
+    # still fail open to the pre-gate behaviour, not crash on import.
+    def session_id_is_real(session_id: object) -> bool:
+        return bool(session_id)
+
+    def ensure_session_dir(session_dir: "str | os.PathLike[str]", session_id: object) -> bool:
+        try:
+            os.makedirs(os.fspath(session_dir), exist_ok=True)
+        except (OSError, TypeError, ValueError):
+            return False
+        return True
+try:
     from _git_root_walk import git_root_walk as _git_root_walk  # noqa: E402
 except Exception:
     # Defensive fallback -- a deploy missing its sibling _git_root_walk.py
@@ -341,6 +355,13 @@ def main() -> int:
         return 0
     if not _SESSION_ID_RE.match(session_id):
         return 0
+    # Every path below persists this hook's dedup state under
+    # `<hub>/<session_id>/`, so a session id the hub gate will not accept has
+    # no place to dedup from and must not mint a directory trying (see
+    # `_session_hub`). Skipping outright is the honest behaviour: the nudge
+    # is advisory, and only a benchmark or probe supplies such an id.
+    if not session_id_is_real(session_id):
+        return 0
 
     git_root = _git_root()
     if not git_root:
@@ -360,8 +381,8 @@ def main() -> int:
 
     if tool_name == "Workflow":
         try:
-            session_dir.mkdir(parents=True, exist_ok=True)
-            (session_dir / "workflow-launched").touch()
+            if ensure_session_dir(session_dir, session_id):
+                (session_dir / "workflow-launched").touch()
         except Exception:
             pass
         return 0
@@ -416,7 +437,7 @@ def main() -> int:
     dispatch_log = session_dir / "multiwave-dispatch-log"
 
     try:
-        session_dir.mkdir(parents=True, exist_ok=True)
+        ensure_session_dir(session_dir, session_id)
     except Exception:
         pass
 
