@@ -1227,6 +1227,143 @@ def _refuse_removals_present_on_disk(dest_root: Path, candidates: Sequence[str])
     )
 
 
+def _already_committed_non_executable_scripts(
+    repo_root: Path, staged: "list[str]"
+) -> "list[str]":
+    """Dest paths ALREADY COMMITTED at `100644` whose content opens `#!`.
+
+    Without this the fix above only reaches files a round happens to be
+    copying, and a mirror that already committed a script at `100644` stays
+    stuck forever: the file no longer changes, so it never enters a pathspec
+    again, while the mirror's CI `check-exec-bit` keeps failing every round and
+    the durable fix at source has nothing left to cross. That is the state
+    doe-claude-em's mirror was in after three rounds. Correcting it needs a
+    write at the mirror, which the publish-mirror guard denies by design and
+    correctly -- so the round, which is the sanctioned writer, has to do it.
+
+    Converging, not recurring work: a path leaves this set permanently once its
+    mode is recorded, and only `100644` entries are ever read.
+
+    Cost, measured 2026-08-26 against the real OSS mirror (1484 tracked files,
+    1411 at `100644`): one `git ls-files -s` process and 62.5 ms of process
+    time for the 2-byte reads, on a leg already committing. It found exactly
+    the one stuck file. Read against DR-344's 500ms end-to-end brightline
+    before widening this: it is a whole-index scan, and a much larger mirror
+    would want the read set narrowed rather than this budget quietly grown.
+    """
+    result = subprocess.run(
+        ["git", "ls-files", "-s"],
+        cwd=str(repo_root),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return []
+    already = set(staged)
+    stuck = []
+    for line in result.stdout.splitlines():
+        if not line.startswith("100644 "):
+            continue
+        _, _, rel_path = line.partition("	")
+        if not rel_path or rel_path in already:
+            continue
+        try:
+            with open(repo_root / rel_path, "rb") as fh:
+                if fh.read(2) == b"#!":
+                    stuck.append(rel_path)
+        except OSError:
+            continue
+    return stuck
+
+
+def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> int:
+    """Set mode `100755` IN THE DEST INDEX for every path in `pathspec` whose
+    destination file opens with `#!`. Returns how many paths were named.
+
+    WHY THE FILESYSTEM BIT IS NOT ENOUGH, which is the whole defect this
+    closes. `publish_sync._restore_shebang_executable_bit` chmods the copied
+    file on disk, and that is the module's only exec-bit mechanism. Both the
+    source and the mirror run `core.fileMode=false`, so git ignores the
+    filesystem bit entirely and the file lands `100644` however the source is
+    recorded. The bit therefore reached mirrors only from hosts where
+    `core.fileMode` happens to be true -- accidentally correct on macOS,
+    silently wrong on Windows, and visible only when a NEW executable is
+    published from the wrong host. Reported by doe-claude-em 2026-08-26 after
+    three rounds self-blocked: the round committed locally and then failed its
+    own mirror CI `check-exec-bit`, whose remediation ("run `git update-index
+    --chmod=+x` in source and commit") was both already satisfied at source and
+    unreachable at the mirror, since the publish-mirror guard correctly denies
+    a direct write there. Nothing on the side the failure named could fix it.
+
+    ONE PROCESS, BATCHED, NEVER PER FILE -- `git add --chmod=+x -- <paths>` in
+    a single call for the whole set (the amplification gate at
+    `coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py` governs
+    this loop). `add` rather than `update-index` because a newly published file
+    is not in the index yet and `update-index --chmod` requires an existing
+    entry; `add --chmod=+x` stages and sets the mode in the same operation. The
+    commit leg's own `git add` that follows preserves the recorded 100755,
+    because with `core.fileMode=false` git reuses the index mode rather than
+    re-reading it off disk -- which is the same property that makes the
+    on-disk chmod inert.
+
+    FAILURE IS NOT A ROUND FAILURE, AND THAT COVERS RAISING, NOT ONLY A
+    DECLINE. A path git refuses here (gitignored at dest, most likely) leaves
+    the round exactly where it stands today, at `100644`, so this can only
+    improve on the status quo and must never be the thing that fails a publish.
+    The whole body is wrapped for the same reason: this step sits BETWEEN the
+    pathspec derivation and the commit, so an exception escaping it leaves the
+    dest synced with paths staged-but-uncommitted — a strictly worse failure
+    class than the refusals around it, which all leave a state the next round
+    simply re-derives. It raised exactly once, on 2026-08-26, when
+    `_cmd_round_default` passed `_resolve_repo_root`'s `str` into a `Path /`
+    expression and took a live round down at the commit leg (doe-claude-em).
+    A best-effort mode fix has no business ending a publish.
+
+    `repo_root` therefore takes `str` or `Path`: `_resolve_repo_root` returns
+    `Optional[str]`, and coercing here rather than at the call site keeps a
+    future caller from re-introducing the same crash.
+    """
+    try:
+        root = Path(repo_root)
+        shebang_paths = []
+        for rel_path in pathspec:
+            try:
+                with open(root / rel_path, "rb") as fh:
+                    if fh.read(2) == b"#!":
+                        shebang_paths.append(rel_path)
+            except OSError:
+                continue
+        shebang_paths.extend(
+            _already_committed_non_executable_scripts(root, shebang_paths)
+        )
+        if not shebang_paths:
+            return 0
+        result = subprocess.run(
+            ["git", "add", "--chmod=+x", "--"] + shebang_paths,
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(
+                f"percolate-round: could not set the executable bit on "
+                f"{len(shebang_paths)} shebanged path(s) at dest "
+                f"({result.stderr.strip()}); they land non-executable, as they did "
+                "before this step existed.",
+                file=sys.stderr,
+            )
+            return 0
+        return len(shebang_paths)
+    except Exception as exc:  # noqa: BLE001 - a best-effort mode fix never ends a publish
+        print(
+            f"percolate-round: executable-bit step failed ({exc!r}); shebanged "
+            "paths land non-executable, as they did before this step existed. "
+            "The commit continues.",
+            file=sys.stderr,
+        )
+        return 0
+
+
 def _filter_commit_pathspec(
     dest_root: Path, dest_root_norm: str, seen: dict, *, repo_root: Optional[str] = None
 ) -> List[str]:
@@ -2460,6 +2597,16 @@ def _cmd_round_default(
                 resolve_current_session_id,
             )
             from coordinator_core.session import scope as session_scope  # noqa: PLC0415
+
+            # Before the pipeline stages: record 100755 for shebanged dest
+            # files. The on-disk chmod `publish_sync` performs is inert under
+            # `core.fileMode=false` -- see `_stage_shebang_exec_bits`.
+            executable_count = _stage_shebang_exec_bits(repo_root, pathspec)
+            if executable_count:
+                print(
+                    f"percolate-round: staged {executable_count} shebanged path(s) "
+                    "as executable at dest."
+                )
 
             pipeline_result = commit_pipeline.run_commit_pipeline(
                 repo_root,
