@@ -17,7 +17,7 @@ The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carv
 resolve the engine root, extract `session_id`/`cwd` from the raw
 SessionStart payload, call `write_session_start_record()` directly, in
 process. Deliberately NOT routed through `coordinator_core.hooks` /
-`coordinator_core.ipc.dispatch_message` (unlike track-dispatched-agents.py) —
+`coordinator_core.ipc.dispatch_from_hook` (unlike track-dispatched-agents.py) —
 `_write_bump_session_start.py`'s own "Negative-spec" section says not to: that
 package eagerly imports 13 hook modules for their `register_op()` side
 effects on every call, machinery this plain read/write pair does not need.

@@ -2,7 +2,7 @@
 # coordinator_core.sizing_assemble (the computed-skill assembler for
 # `/sizing`'s route table). Direct-import variant (template-variant #1,
 # mirrors coordinator/bin/pickup-assemble): a plain in-process function
-# call after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# call after resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md, DR-090
 # Spec backlink: docs/plans/2026-07-24-sizing-lobby-core.md, chunk C7
@@ -27,7 +27,7 @@
 #   1 — reserved for a future business-failure class (unused today —
 #       route() has no business-failure path, only usage errors).
 #   2 — usage error (missing/malformed --appetite or --tshirt).
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core
+#   3 — transport failure (the engine root unresolvable, coordinator_core
 #       import failure, or an unexpected exception inside route()).
 
 # --- routing half: this file is now a thin shim over entry_point_shim.run_target ---

@@ -113,11 +113,11 @@ wave, from the DONE summary — never the transcript.
 
 Per wave:
 1. Mark `in_progress`, tracker-sweep the item (wiki), dispatch each to a `run_in_background`
-   Sonnet executor with the spec, footprint, and the assembler's
+   Sonnet executor with the spec, footprint, and the brief's
    `d-mise-executor-dispatch-prompt-template` fields.
 2. On DONE (verify via disk — DONE path + scoped `git status`; never trust idle-alone; never
    double-dispatch onto a live footprint): dispatch a Haiku verifier per item using the
-   assembler's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
+   brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.
    Non-PASS → re-dispatch, revert+re-plan, defer, or early-stop.
 3. Wave gate: `backlog-grind-assemble apply mise-en-place --wave-path <path>... --granularity
    per-wave --message "mise: wave N — <items>"` over the union of changed paths — never hand-typed
@@ -148,6 +148,10 @@ diff freeze, inventory archival (COMPLETE only), tracker sweep.
   claim-side only, never a terminal-flip); unstarted → `pickup-assemble drop`; mid-stream → the
   one successor `/handoff`, naming every non-primary baton's residue.
 - **Verdict line** reads exactly `COMPLETE` or `CONTINUANCE` — never a bare "done."
+  The run-level verdict line MUST read exactly COMPLETE or CONTINUANCE; the word 'complete'
+  may not appear as the run's disposition unless the exhaustion check passed. Item-level,
+  wave-level and task-level uses of 'completed' (TaskUpdate, tracker sweep, baton
+  disposition) are unaffected.
 
 **Close:** scoped footprint clean, commit residue, report the verdict, discharge review routing.
 Standard stops there. Hibernate additionally verifies+pushes (never on push failure), authors+
@@ -167,7 +171,7 @@ Never merge to main; never worktrees, any phase. Full mechanics for every bullet
   audit what's on disk, finish the work; recovery IS the work the PM authorized, and asking
   whether to finish tractable, scoped, roadmap-aligned work is a failure of the role.
 - **Concurrent-session churn** (another session's commits sweeping staged changes, attribution
-  splits, shared-file merges) — the ordinary agree-case, closed by `ceremony.scoped_git_commit`.
+  splits, shared-file merges) — the ordinary agree-case, closed per `snippets/scoped-commit-route.md`.
   Then continue.
 - **Subsystem registration gaps** — a handler on disk but unregistered in `Subsystem.h`/`.cpp` is
   a routine finish-the-work case, not a PM question.
@@ -187,4 +191,8 @@ run the full Phase 6 tail, take CONTINUANCE.
 ## Relationship to Other Commands
 
 `/update-docs`, `/workday-complete`, `/merge-to-main` are PM-run afterward, never auto-invoked.
+`/autonomous` composes with this run: it governs the unattended posture (sentinel, nudge
+suppression), this command governs the backlog sequence — the sentinel is enabled here with
+`--mode mise-en-place` precisely so a reader can tell a `/mise` run's sentinel from an
+`/autonomous` one.
 `pipelines/mise-en-place/PIPELINE.md` carries this sequence at greater depth, where shipped.

@@ -91,6 +91,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 from coordinator_registry import doe_root, _DoeUnresolvable  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from cc_invoke import route as _cc_route  # noqa: E402
 import cli_shared  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
@@ -148,7 +149,7 @@ _DOE_ROOT_ENV = "DOE_ROOT"
 
 
 class _ClaudeKlabauterUnresolvable(RuntimeError):
-    """Raised when CLAUDE_KLABAUTER_ROOT cannot be resolved via env var or machine-local registry.
+    """Raised when the engine root cannot be resolved via env var or machine-local registry.
 
     Callers in the central write loop catch this and degrade gracefully (WARN + skip,
     exit 0) per AC13. The low-level resolver itself fails loud; this is the caller-layer
@@ -559,8 +560,22 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
     )
     parser.add_argument(
         "--body",
-        required=True,
-        help="Lesson body prose — 1-2 sentences describing the pattern and fix.",
+        default=None,
+        help=(
+            "Lesson body prose — 1-2 sentences describing the pattern and fix. "
+            "Exactly one of --body / --body-file is required."
+        ),
+    )
+    parser.add_argument(
+        "--body-file",
+        dest="body_file",
+        default=None,
+        help=(
+            "Read the lesson body from PATH ('-' for stdin) instead of --body. "
+            "Exactly one of --body / --body-file is required. The only body "
+            "transport that survives every launcher leg intact — see --body's "
+            "own refusal for why."
+        ),
     )
     parser.add_argument(
         "--change-kind",
@@ -625,6 +640,18 @@ def main(argv: list[str] | None = None) -> int:
     # Review: code-reviewer Slice-B — (B-F3) deleted unreachable dead block that re-validated
     # change_kind after argparse; argparse choices= already rejects invalid values with exit 2
     # naming the valid set, so the explicit check was dead code.
+
+    # coordinator_core is not on sys.path here by construction on the
+    # published mirror (not pip-installed there) — the _LIB_DIR insert at the
+    # top of this file only reaches coordinator/bin/lib, never the engine root.
+    require_dispatch_engine_on_path()
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
+
+    try:
+        refuse_newline_argv(args.body, flag_name="--body")
+        args.body = resolve_body(args.body, args.body_file)
+    except ArgvFidelityError as exc:
+        parser.error(str(exc))
 
     # --allow-new-wiki is documented (and only sound) as an escape hatch for a genuine
     # change_kind: wiki-new promotion, where the target intentionally does not exist yet.
@@ -724,6 +751,7 @@ def main(argv: list[str] | None = None) -> int:
         # test-isolation gate below, which forces legacy_fn with a live engine
         # still on sys.path.
         try:
+            require_dispatch_engine_on_path()
             from coordinator_core.session.declared_writes import declare_write  # noqa: PLC0415
 
             declare_write(path)
@@ -753,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         against the wrong session.
         """
         try:
+            require_dispatch_engine_on_path()
             from coordinator_core.cli_entry import recording_declared_writes  # noqa: PLC0415
         except ImportError:
             return legacy_fn()

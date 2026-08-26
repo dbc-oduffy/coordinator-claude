@@ -11,7 +11,7 @@ Spec backlink: docs/plans/2026-07-25-cutover-state-machine.md § C7, § D1, § D
 § AC6. Modeled on `coordinator/bin/review-coverage-gate.py`'s per-op
 `cc_invoke.route()` trampoline shape (the sanctioned-advance precedent D1
 cites) and `coordinator/bin/archive-stamp-cli.py`'s direct-import subcommand
-dispatch shape (help-flag handling, CLAUDE_KLABAUTER_ROOT transport-failure exit code).
+dispatch shape (help-flag handling, engine-root transport-failure exit code).
 
 Subcommands
     show <record_path>
@@ -63,7 +63,7 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402  (sys.path mutated above)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
 
 GENERATES = []  # writes only to DoE-side cutover records (state/roadmap/lifecycle-vocab/cutovers/), never under this claude-klabauter checkout — see _repo_root_for's docstring
 
@@ -101,7 +101,7 @@ def _repo_root_for(record_path: str) -> str:
     # wrapped in `try/except (subprocess.CalledProcessError, OSError): return
     # os.getcwd()`. The conversion dropped the wrapper, leaving only the
     # trailing `or os.getcwd()` to catch `show_toplevel()` returning `None`
-    # -- an import/path-resolution failure (missing CLAUDE_KLABAUTER_ROOT, broken
+    # -- an import/path-resolution failure (missing engine root, broken
     # coordinator_core install) now propagated as an unhandled exception
     # instead of degrading to cwd. Restored to match every sibling
     # converted `bin/*.py` site in this same commit (reap-sessions.py,
@@ -131,14 +131,14 @@ def _run_gate_shaped_op(op_key: str, record_path: str) -> int:
     def _legacy_fn() -> "NoReturn":  # type: ignore[name-defined]
         raise RuntimeError(
             f"cutover-cli: coordinator_core seam absent — no bash fallback for "
-            f"{op_key}. Install/repair coordinator_core (CLAUDE_KLABAUTER_ROOT) and retry."
+            f"{op_key}. Install/repair coordinator_core (the engine root) and retry."
         )
 
     try:
         result = cc_invoke.route(op_key, params, repo_root, _legacy_fn)
     except RuntimeError as exc:
         print(f"cutover-cli: {op_key}: engine could not compute a verdict ({exc})", file=sys.stderr)
-        print("  Verify CLAUDE_KLABAUTER_ROOT and coordinator_core installation (see diagnostics above)", file=sys.stderr)
+        print("  Verify the engine root and coordinator_core installation (see diagnostics above)", file=sys.stderr)
         return 1
 
     if not isinstance(result, dict):
@@ -243,12 +243,10 @@ def _cmd_confirm_consumer(rest: list[str]) -> int:
     )
 
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except RuntimeError as exc:
-        print(f"cutover-cli: confirm-consumer: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"cutover-cli: confirm-consumer: engine-root resolution failed: {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
     try:
         from coordinator_core.frontmatter import split_frontmatter, rebuild
     except ImportError as exc:
@@ -302,7 +300,7 @@ def _cmd_confirm_consumer(rest: list[str]) -> int:
     new_text = rebuild(split, new_fm_text)
 
     try:
-        with open(record_path, "w", encoding="utf-8") as fh:
+        with open(record_path, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(new_text)
     except OSError as exc:
         print(f"cutover-cli: confirm-consumer: cannot write {record_path}: {exc}", file=sys.stderr)

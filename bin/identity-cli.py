@@ -3,7 +3,7 @@
 # cs_build_canonical_agent_id, cs_canonical_agent_id_format_ok).
 # Port of: coordinator/lib/session/identity.sh (6fb5fb37, 2026-07-22)
 #
-# No CLAUDE_KLABAUTER_ROOT / coordinator_core dependency: identity.py is pure logic
+# No engine-root / coordinator_core dependency: identity.py is pure logic
 # (no filesystem I/O, no engine-side state), so this trampoline imports it
 # directly from the co-located coordinator/lib/session/ tree -- unlike
 # session-liveness-cli / session-claim-cli, there is no claude-klabauter seam here.

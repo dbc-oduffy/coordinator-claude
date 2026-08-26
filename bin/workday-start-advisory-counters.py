@@ -39,7 +39,7 @@ documented as "advisory hygiene, not a gate" / "never blocks"). Failures
 malformed queue YAML) degrade to a per-field `error`/`null` inside the JSON
 payload rather than a non-zero exit or a raised exception reaching main().
 
-Self-resolving: CLAUDE_KLABAUTER_ROOT is resolved via `cc_invoke.resolve_colocated_claude_klabauter_root`
+Self-resolving: the engine root is resolved via `cc_invoke.resolve_colocated_claude_klabauter_root`
 (this file's own coordinator/bin/ parent-of-parent IS the claude-klabauter checkout being
 resolved — no external registry lookup on the common path, no cwd dependence).
 `--repo-root` is a separate, explicit argument on every subcommand: it names the
@@ -81,7 +81,7 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 try:
     _CLAUDE_KLABAUTER_ROOT = Path(require_colocated_engine_on_path(__file__))
 except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
 
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402

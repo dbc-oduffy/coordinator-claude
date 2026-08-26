@@ -52,6 +52,16 @@ class PublishModeDescriptor:
     entry_point: str | None
     bind_kwargs: dict[str, object] = field(default_factory=dict)
     accepts_renamed_dir_names: bool = False
+    #: Whether this mode's entry point takes `sweep_top_level_orphans` — the
+    #: per-row opt-in that lets a destination top-level FILE absent from the
+    #: source be deleted (`publish_sync._sweep_mirror_top_level_orphans`).
+    #: `sync_mirror` only: `sync_flat_mirror` has always swept its top-level
+    #: files unconditionally and needs no flag to be told to, and the two
+    #: non-mirror-like modes have no sweep at all. Declared here for the same
+    #: reason `accepts_renamed_dir_names` is — the two mirror-like entry points
+    #: diverge on it, and `check_publish_sync_contract` binds each descriptor's
+    #: own `bind_kwargs` against its own entry point rather than one shared set.
+    accepts_sweep_top_level_orphans: bool = False
     is_bootstrap_bearing: bool = False
 
 
@@ -67,8 +77,14 @@ _MIRROR_DESCRIPTOR = PublishModeDescriptor(
     wire_name=MIRROR_WIRE_NAME,
     is_mirror_like=True,
     entry_point="sync_mirror",
-    bind_kwargs={"copy_file": None, "renamed_dir_names": None},
+    bind_kwargs={
+        "copy_file": None,
+        "renamed_dir_names": None,
+        "sweep_top_level_orphans": False,
+        "renamed_file_names": None,
+    },
     accepts_renamed_dir_names=True,
+    accepts_sweep_top_level_orphans=True,
     is_bootstrap_bearing=False,
 )
 

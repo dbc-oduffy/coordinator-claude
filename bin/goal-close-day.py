@@ -32,10 +32,14 @@ Exit codes:
         stdout as JSON.
     1 — client-side argument error (malformed `--decisions` JSON).
     2 — everything else: unresolvable git repo root for the cc_invoke
-        spawn, or any cc_invoke transport/op failure (op-level ValueError
+        spawn, any cc_invoke transport/op failure (op-level ValueError
         such as a goal_id with no open in-scope wire row,
         GoalCloseDayLostSupersession on a lost clock-skew collapse, or a
-        malformed envelope).
+        malformed envelope), or an in-envelope refusal (non-zero
+        'exit_code' / non-empty 'error') that cc_invoke's transport-only
+        ladder returns as an ordinary bare result rather than raising —
+        inspected here via cc_invoke.mutation_refusal_message() (DR-215
+        exit_code trap).
 
 Spec backlink: pln-day-scoped-goal-close-out-life-69a25c § C4
 """
@@ -50,7 +54,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke  # noqa: E402
+from cc_invoke import cc_invoke, mutation_refusal_message  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
@@ -113,6 +117,11 @@ def main(argv: list[str]) -> int:
         result = cc_invoke("goal.close_day_apply", parsed, cwd_repo_root)
     except RuntimeError as exc:
         print(f"goal-close-day: {exc}", file=sys.stderr)
+        return 2
+
+    message = mutation_refusal_message("goal.close_day_apply", result)
+    if message is not None:
+        print(f"goal-close-day: {message}", file=sys.stderr)
         return 2
 
     print(json.dumps(result, ensure_ascii=False))

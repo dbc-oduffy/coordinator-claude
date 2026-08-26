@@ -52,7 +52,7 @@ Exit codes:
   0 — ran (an empty result is itself a valid "nothing to commit" outcome).
   1 — business failure (session id could not be resolved unambiguously).
   2 — usage error.
-  3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / seam absent).
+  3 — transport failure (the engine root unresolvable / seam absent).
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 _EXIT_TRANSPORT_FAIL = 3
 
@@ -101,15 +101,13 @@ def _install_sigterm_handler() -> None:
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the op's main().
+    """Resolve the engine root, put it on sys.path, and import the op's main().
 
     Plain in-process import, not an RPC invoke — this module registers no
     op, it is a direct-import function-and-main() module, same shape as
     ``coordinator_core.ops.check_harvest_debt``.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.session.safe_commit_offer import main as _op_main
 
     return _op_main

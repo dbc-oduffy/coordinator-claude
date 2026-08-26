@@ -12,12 +12,17 @@ Spec backlink: docs/plans/2026-05-19-coordinator-installer-redesign-implementati
 
 Usage:
   bin/render-template.py <template-path> [-o <output-path>] [KEY=VALUE]...
+  bin/render-template.py --in-place <path> [<path>...] [KEY=VALUE]...
 
 Arguments:
   <template-path>   Path to the template file containing {{KEY}} tokens.
   -o <output-path>  Optional. Write rendered output to <output-path>
                     atomically (render to tempfile, then replace).
                     Without -o, rendered output goes to stdout.
+  --in-place        Batch form: renders every listed <path> in place (each
+                    path is both input and output), one process for the
+                    whole batch. Per-path failures are attributed by path on
+                    stderr; the rest of the batch still runs.
   KEY=VALUE         Zero or more substitution pairs. KEY must be a
                     bare identifier (no whitespace). VALUE may be any
                     string; it is treated as a literal replacement.
@@ -46,7 +51,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
@@ -58,9 +63,7 @@ def _import_runner():
     become a session scope-touch claim. Without that, everything this CLI
     writes is an orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

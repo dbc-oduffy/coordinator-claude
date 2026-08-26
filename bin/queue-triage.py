@@ -72,6 +72,11 @@ from cc_invoke import (  # noqa: E402
 # (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
 _ENGINE_ROOT = str(require_engine_on_path(__file__))
 
+from coordinator_core.argv_fidelity import (  # noqa: E402
+    ArgvFidelityError,
+    refuse_newline_argv,
+    resolve_body,
+)
 from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
 
 _OP_CLUSTER = "queue.cluster"
@@ -255,6 +260,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_scaffold.add_argument("--kind", default=None)
     p_scaffold.add_argument("--workstream", default=None)
     p_scaffold.add_argument("--body", default=None)
+    p_scaffold.add_argument("--body-file", default=None, dest="body_file")
     p_scaffold.add_argument("--origin-plan-id", default=None, dest="origin_plan_id")
     p_scaffold.add_argument("--origin-goal-id", default=None, dest="origin_goal_id")
     p_scaffold.add_argument("--match-text", default=None, dest="match_text")
@@ -343,7 +349,8 @@ def _build_scaffold_params(args: argparse.Namespace) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
     repo_root = _resolve_repo_root(args.repo_root)
     if not repo_root:
@@ -355,6 +362,12 @@ def main(argv: list[str] | None = None) -> int:
     elif args.leg == "age-ping":
         result, exit_code = _dispatch_read(_OP_AGE_PING, _build_age_ping_params(args), repo_root)
     else:
+        try:
+            refuse_newline_argv(args.body, flag_name="--body")
+            if args.body is not None or args.body_file is not None:
+                args.body = resolve_body(args.body, args.body_file)
+        except ArgvFidelityError as exc:
+            parser.error(str(exc))
         result, exit_code = _dispatch_mutation(
             _OP_SCAFFOLD, _build_scaffold_params(args), repo_root
         )

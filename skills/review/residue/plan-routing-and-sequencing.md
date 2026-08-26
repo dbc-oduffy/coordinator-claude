@@ -26,4 +26,4 @@ _See `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch — `/st
 **Sequencing (HARD RULE):**
 - Default → sequential. Integrate Reviewer 1's findings via `coordinator:review-integrator` BEFORE dispatching Reviewer 2.
 - The merge-gate parallel-review carve-out does NOT apply to plan reviews — plans are never parallelized.
-- _See `coordinator/snippets/em-operating-doctrine.md` § How to Review What Came Back._
+- _See `coordinator/skills/review/SKILL.md` § A.3 — Sequencing._

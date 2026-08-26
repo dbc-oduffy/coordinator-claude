@@ -50,8 +50,6 @@ around a genuine gate. Silent pass when any of these hold, checked against
 the same turn's sizing state and a SCOPED window of the final-message text
 (the sentence carrying the C5 trigger plus one sentence either side -- never
 the whole message; see EXEMPTION SCOPE below for why):
-  - the pending item is the pre-`/execute-plan` authorization gate (a NAMED
-    PM gate);
   - the session's routed sizing object carries an unresolved appetite/post-
     size fork (`fork: null` with the matching detent open) or an unresolved
     XL exit (`route: pm-decision`, `xl_exit: null`) -- predicate copied from
@@ -77,7 +75,7 @@ the whole message; see EXEMPTION SCOPE below for why):
     two halves with DELIBERATELY DIFFERENT scope (A13 finding 1's
     resolution): a standalone phrase ("wrong signature", "ratifying my own
     authorship", "two-decider"/"named deciders" construct) is checked
-    against the scoped window like the other two exemptions above, since
+    against the scoped window like the other exemption above, since
     the phrase is self-contained and its appearing far from the trigger is
     exactly the incidental-co-occurrence failure mode this guard must not
     reward. An authorship admission ("I wrote/authored it") co-occurring
@@ -89,10 +87,10 @@ the whole message; see EXEMPTION SCOPE below for why):
     is enough, so an ordinary "I wrote the plan, so the approach call is
     yours" still fires the ordinary handoff check.
 The exemption check applies identically to BOTH pattern groups below -- the
-discriminator is never the phrasing, it is whether one of these four actually
+discriminator is never the phrasing, it is whether one of these three actually
 holds.
 
-EXEMPTION SCOPE (A13 finding 1, live incident). The three lexical exemptions
+EXEMPTION SCOPE (A13 finding 1, live incident). The two lexical exemptions
 above were originally checked against the whole final message -- so an EM
 final message that both (a) genuinely hands an item to the PM and (b)
 separately mentions this guard's own exemption vocabulary while discussing
@@ -264,17 +262,6 @@ _DECIDABILITY_CORRECTION_TEXT = (
 # A13 exemptions.
 # ---------------------------------------------------------------------------
 
-# The pre-`/execute-plan` authorization gate -- a NAMED PM gate. A message
-# naming this gate as the pending item is a genuine PM call and must stay
-# silent, however possessive or handoff-shaped its phrasing.
-_EXECUTE_PLAN_GATE_RE = re.compile(
-    r"pre-execute(?:-plan)?\s+authorization\s+gate"
-    r"|execute-plan\s+(?:authorization\s+)?gate"
-    r"|authoriz\w+\s+(?:the\s+)?execution"
-    r"|authoriz\w+\s+(?:you\s+)?to\s+execute",
-    re.IGNORECASE,
-)
-
 # An irreversible/external act named without pre-authorization already
 # granted. No established predicate exists elsewhere in this corpus for this
 # exemption (unlike the sizing-fork one, which is copied verbatim) -- this is
@@ -294,8 +281,8 @@ _EXTERNAL_ACTION_PENDING_RE = re.compile(
 # The conflict-of-interest / wrong-signatory exemption: an item only the PM
 # can act on because the EM is structurally disqualified from acting on it
 # (a two-decider record naming the EM as one of the deciders), not because of
-# scope or direction. Lexical, module-level, same style as the other three
-# exemptions -- co-occurrence preferred over a single loose keyword so an
+# scope or direction. Lexical, module-level, same style as the other
+# exemption -- co-occurrence preferred over a single loose keyword so an
 # ordinary offload ("I wrote the plan, so the approach call is yours") cannot
 # trivially borrow the phrasing.
 _WRONG_SIGNATORY_PATTERNS = [
@@ -426,10 +413,6 @@ def _matches_manufactured_blocker(text: str) -> bool:
             if pattern.search(text):
                 return True
     return False
-
-
-def _execute_plan_gate_pending(text: str) -> bool:
-    return bool(_EXECUTE_PLAN_GATE_RE.search(text))
 
 
 def _external_action_pending(text: str) -> bool:
@@ -710,8 +693,7 @@ def _any_exemption_applies(payload: dict, text: str) -> bool:
         final_sentence_eligible and _sizing_topic_in_scope(_final_sentence(text))
     )
     return (
-        _execute_plan_gate_pending(scope)
-        or _external_action_pending(scope)
+        _external_action_pending(scope)
         or (sizing_in_scope and _sizing_exemption_applies(payload))
         or _wrong_signatory_pending(scope, text)
     )

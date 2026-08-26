@@ -83,7 +83,8 @@ import subprocess
 import sys
 from typing import List, Optional
 from coordinator_core.win_portability import is_executable, no_console_creationflags
-from coordinator_core.py_probe_sh import python_probe_lines
+from coordinator_core.session.core import SESSION_ENV_PRECEDENCE
+from coordinator_core.py_probe_sh import baked_python_lines
 from coordinator_core.launchable import resolve_launchable
 from coordinator_core.machine_resolver import merged_flat_registry as _merged_flat_registry
 
@@ -344,25 +345,113 @@ def _resolve_claude_klabauter_bin_sh(bin_dir: str, script_name: str) -> Optional
 #
 # Starts at 2, not 1: generation 1 is the implicit pre-stamp era above, never
 # itself stamped, so no `_HOOK_GEN_STAMP = 1` exists in history to find.
-_HOOK_GEN_STAMP = 2
+#
+# Bumped to 3 (2026-08-19, C7 of docs/plans/2026-08-16-one-engine-for-the-whole-box.md):
+# the shell fallback chain's rung ORDER changed (settings-home forwarder now
+# resolves before the baked absolute path, not after it — see `_shim_body`'s
+# docstring), so a body generated under the old order must be recognized as
+# stale and regenerated, not certified current by substring match alone.
+#
+# Bumped to 5 (2026-08-25): the interpreter rung changed shape. `_shim_body`
+# and `_append_block` now interpolate `py_probe_sh.baked_python_lines` (a
+# baked `sys.executable` plus an `[ -x ]` self-heal) instead of
+# `python_probe_lines` (a `$PATH`-walking `_py_resolve()` inside a command
+# substitution). That removes one SUBSHELL — one process — from every fire of
+# `prepare-commit-msg` and `post-commit`, on the non-engine commit path where
+# those hooks still run. A body generated under the walking probe must be
+# recognized as stale and regenerated; a substring match cannot tell the two
+# probe shapes apart, which is the gap this stamp exists to close.
+#
+# Bumped to 6 (2026-08-25, C1 of
+# docs/plans/2026-08-25-the-engine-commits-without-re-entering-itself.md):
+# `_shim_body` gained the optional `skip_env` sentinel-exit guard (post-commit
+# only, ahead of the interpreter probe) — an already-installed post-commit
+# hook from generation 5 has no sentinel line at all and must be recognized
+# as stale so the self-heal path picks up the guard, not certified current by
+# a stamp number that predates the guard's existence.
+#
+# Bumped to 7 (2026-08-25, C2 of the same plan): `ensure_prepare_commit_msg_
+# hook` now passes its OWN `skip_env` (`COORDINATOR_TRAILERS_ALREADY_
+# APPLIED`, distinct from post-commit's) -- an already-installed
+# prepare-commit-msg hook from generation 6 has no sentinel line at all and
+# must be recognized as stale for the same reason generation 5 was.
+_HOOK_GEN_STAMP = 8
 
 
 def _hook_gen_stamp_line() -> str:
     return f"# coordinator-hook-gen: {_HOOK_GEN_STAMP}"
 
 
-def _shim_body(coord_bin: str, script_name: str, invoke_line: str, bin_dir: str = "") -> str:
+def _shim_body(
+    coord_bin: str,
+    script_name: str,
+    invoke_line: str,
+    bin_dir: str = "",
+    skip_env: Optional[str] = None,
+    skip_if_all_unset: tuple = (),
+) -> str:
     """Canonical fresh-install / self-heal shim body for a hook that runs one target.
+
+    `skip_if_all_unset` is `skip_env`'s OPPOSITE POLARITY and exists for the
+    no-session backstop: presence of the named vars means there IS work to do,
+    so the shim exits 0 when EVERY one of them is unset or empty. Same position
+    as `skip_env` -- ahead of any interpreter resolution, `$PATH` walk, command
+    substitution or subshell -- so it honours the same ordering invariant.
+
+    GENERATED, NEVER HAND-COPIED, and that distinction is the whole reason this
+    parameter is allowed to exist. `coordinator-prepare-commit-msg.py ::
+    _resolve_session_id` is already a hand-mirrored copy of
+    `coordinator_core.session.core.resolve_session_id`, and its docstring cites
+    a prior break-class defect caused by two copies of that ladder disagreeing.
+    A THIRD copy, hand-written into shell -- the one language that cannot import
+    the source of truth -- was proposed and correctly REFUSED by
+    claude-klabauter-59 on 2026-08-25. This is not that: the caller passes
+    `SESSION_ENV_PRECEDENCE` itself, so the emitted line is a projection of the
+    constant regenerated at every install, never a second statement of it. Only
+    MEMBERSHIP is projected, never the ladder's precedence logic, because a
+    presence test has no precedence to get wrong.
+
+    The residual risk is staleness, not divergence: an installed body predating
+    a ladder that later gains a tier. `test_session_gate_is_generated_from_the_ladder`
+    converts that from silent runtime drift into a red suite, which is the
+    artifact that discharges it -- the gen stamp alone would not, since
+    forgetting the stamp bump is the same forgetting.
+
+    BEHAVIOUR CHANGE, named because it is real: on a no-session commit the
+    Python entrypoint used to run `_warn_hyphen_range_subject` (a pure-string
+    chunk-id-subject advisory) BEFORE its own session gate. Exiting in shell
+    drops that advisory there. Accepted: only a coordinator session writes a
+    chunk-id subject, and such a session sets one of these vars by definition.
 
     `invoke_line` is the final line that runs the resolved target via "$_PY" —
     both hooks now `exec` synchronously at the shell level; any async self-detach
     (post-commit's coordinator-auto-push) is owned by the invoked Python, not the shim.
 
-    The shell fallback chain (baked SCRIPT → .doe-root pointer →
-    settings-home forwarder → engine-repo-bin candidate → marketplace) means
+    `skip_env`, when supplied, names an environment variable whose presence
+    (set AND non-empty) means the caller is publishing this commit itself —
+    the shim exits 0 immediately, AHEAD of `baked_python_lines`' interpreter
+    probe, so a sole-publisher commit pays zero interpreter-resolution cost.
+    Per-hook, not global: `ensure_post_commit_hook` is the only caller passing
+    this in this chunk (`COORDINATOR_AUTO_PUSH_SUPPRESS_FOR_SYNC_PUSH`, already
+    set on every engine sync/never commit by `git_native._sole_publisher_env`
+    — no new mechanism). Fail-open (the whole safety story): absent or empty,
+    the guard line is not even emitted, and the full body runs unchanged.
+    Never generalize this into a "skip all hooks" flag — that is the
+    hooksPath redirect wearing a disguise.
+
+    The shell fallback chain (settings-home forwarder → baked SCRIPT →
+    .doe-root pointer → engine-repo-bin candidate → marketplace) means
     an already-installed hook can recover a dead baked path WITHOUT waiting
     for the next `_resolve_coord_bin` regeneration — self-healing at
-    hook-run time, not only at install time.
+    hook-run time, not only at install time. The settings-home rung is
+    checked FIRST, ahead of the baked absolute path: a baked literal
+    absolute path is only ever correct on the box it was generated on,
+    while the settings-home forwarder resolves via
+    `$COORDINATOR_SETTINGS_HOME` (or its `$HOME` default) on any machine —
+    strictly more correct wherever a checkout has moved, and no worse where
+    it hasn't. Reordered 2026-08-19 (gen 3): the baked-first order left
+    rungs 2+ dead code on any box where the bake-time path still happened to
+    exist, masking their own staleness.
 
     Carries `_hook_gen_stamp_line()` immediately after the header comment
     block — see that function's own comment for why currency is decided by
@@ -374,12 +463,14 @@ def _shim_body(coord_bin: str, script_name: str, invoke_line: str, bin_dir: str 
     # is a generated forwarder that calls `_resolve_claude_klabauter.exec_cli("<name>")`,
     # and `exec_cli` itself probes `<target>.py` when the bare name is absent —
     # so one rung here resolves correctly across a bin/ rename without a
-    # second `.py`-suffixed probe line. Placed after the .doe-root pointer
-    # (an explicit, durable, install-scoped signal) and before the
-    # machine-local-registry-dependent engine-repo-bin candidate: the
-    # forwarder is a plain generated file present on any machine with
-    # coordinator-claude installed, so it does not depend on `machine-local`
-    # being resolvable at hook-run time the way the next rung does.
+    # second `.py`-suffixed probe line. Placed FIRST, ahead of the baked
+    # absolute path: the forwarder is a plain generated file present on any
+    # machine with coordinator-claude installed and resolves via
+    # `$COORDINATOR_SETTINGS_HOME` (or its `$HOME` default), so it is
+    # correct on every machine a checkout might move to — unlike the baked
+    # SCRIPT literal below it, which is only ever correct on the box it was
+    # generated on. Reordered 2026-08-19 (gen 3) — see `_shim_body`'s own
+    # docstring for why the prior baked-first order left this rung dead.
     settings_home_script = (
         '${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/'
         f'{script_name}'
@@ -389,6 +480,19 @@ def _shim_body(coord_bin: str, script_name: str, invoke_line: str, bin_dir: str 
         f'[ -f "$SCRIPT" ] || SCRIPT="{claude_klabauter_cand}"\n'
         f'[ -f "$SCRIPT" ] || SCRIPT="{claude_klabauter_cand}.py"\n'
         if claude_klabauter_cand
+        else ""
+    )
+    skip_guard = (
+        f'[ -n "${skip_env}" ] && exit 0\n' if skip_env else ""
+    )
+    # Concatenation, not a chain of -z tests: `[ -z "$A$B$C" ]` is true exactly
+    # when every one is unset-or-empty, in one test, with no precedence implied
+    # between them -- which is correct here because presence is the whole
+    # question. Order follows the constant only so the emitted line is stable
+    # across installs and diffable.
+    session_guard = (
+        '[ -z "' + "".join(f"${v}" for v in skip_if_all_unset) + '" ] && exit 0\n'
+        if skip_if_all_unset
         else ""
     )
     return (
@@ -402,11 +506,14 @@ def _shim_body(coord_bin: str, script_name: str, invoke_line: str, bin_dir: str 
         "# Each SCRIPT rung probes the extensionless name, then <name>.py, so an\n"
         "# already-installed hook survives a bin/ rename without reinstalling.\n"
         f"{_hook_gen_stamp_line()}\n"
-        f"{python_probe_lines('_PY')}\n"
+        f"{skip_guard}"
+        f"{session_guard}"
+        f"{baked_python_lines('_PY')}\n"
         '[ -n "$_PY" ] || { echo "[coordinator] WARNING: hook installed but no '
         'python3/python/py interpreter found on PATH — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; exit 0; }\n'
-        f'SCRIPT="{coord_bin_sh}/{script_name}"\n'
+        f'SCRIPT="{settings_home_script}"\n'
+        f'[ -f "$SCRIPT" ] || SCRIPT="{coord_bin_sh}/{script_name}"\n'
         f'[ -f "$SCRIPT" ] || SCRIPT="{coord_bin_sh}/{script_name}.py"\n'
         '[ -f "$SCRIPT" ] || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
         'cat "' + _DOE_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
@@ -414,13 +521,12 @@ def _shim_body(coord_bin: str, script_name: str, invoke_line: str, bin_dir: str 
         f'SCRIPT="$_dr/coordinator/bin/{script_name}"; '
         f'[ -n "$_dr" ] && [ ! -f "$SCRIPT" ] && [ -f "$_dr/coordinator/bin/{script_name}.py" ] && '
         f'SCRIPT="$_dr/coordinator/bin/{script_name}.py"; }}\n'
-        f'[ -f "$SCRIPT" ] || SCRIPT="{settings_home_script}"\n'
         f"{claude_klabauter_probe}"
         f'[ -f "$SCRIPT" ] || SCRIPT="{fallback}"\n'
         f'[ -f "$SCRIPT" ] || SCRIPT="{fallback}.py"\n'
         '[ -f "$SCRIPT" ] || { echo "[coordinator] WARNING: hook installed but '
-        f'{script_name} not found (looked in baked path, .doe-root, settings-home '
-        'forwarder, machine-local repos.claude_klabauter, and marketplace) — commits '
+        f'{script_name} not found (looked in settings-home forwarder, baked path, '
+        '.doe-root, machine-local repos.claude_klabauter, and marketplace) — commits '
         'are NOT being auto-pushed / annotated by this hook" 1>&2; exit 0; }\n'
         f"{invoke_line}\n"
     )
@@ -453,10 +559,11 @@ def _append_block(
     """
     fallback = _sh_path(os.path.join("$HOME", _MARKETPLACE_SUFFIX, script_name))
     coord_bin_sh = _sh_path(coord_bin)
-    # Settings-home forwarder rung — matches _shim_body's chain (see that
-    # function's docstring for why this rung is placed here: after the
-    # .doe-root pointer, before the machine-local-registry-dependent
-    # engine-repo-bin candidate).
+    # Settings-home forwarder rung — matches `_shim_body`'s chain (see that
+    # function's docstring): placed FIRST, ahead of the baked absolute path,
+    # since it resolves via `$COORDINATOR_SETTINGS_HOME` and is therefore
+    # correct on any machine a checkout has moved to. Reordered 2026-08-19
+    # (gen 3).
     settings_home_script = (
         '${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/'
         f'{script_name}'
@@ -470,8 +577,9 @@ def _append_block(
     start_marker, _end_marker = _append_markers(header)
     return (
         f"\n{start_marker}\n"
-        "{ " + python_probe_lines("_PY") + "\n"
-        f'_T="{coord_bin_sh}/{script_name}"; '
+        "{ " + baked_python_lines("_PY") + "\n"
+        f'_T="{settings_home_script}"; '
+        f'[ -f "$_T" ] || _T="{coord_bin_sh}/{script_name}"; '
         f'[ -f "$_T" ] || _T="{coord_bin_sh}/{script_name}.py"; '
         '[ -f "$_T" ] || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
         'cat "' + _DOE_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
@@ -479,12 +587,11 @@ def _append_block(
         f'_T="$_dr/coordinator/bin/{script_name}"; '
         f'[ -n "$_dr" ] && [ ! -f "$_T" ] && [ -f "$_dr/coordinator/bin/{script_name}.py" ] && '
         f'_T="$_dr/coordinator/bin/{script_name}.py"; }}; '
-        f'[ -f "$_T" ] || _T="{settings_home_script}"; '
         f"{claude_klabauter_probe}"
         f'[ -f "$_T" ] || _T="{fallback}"; '
         f'[ -f "$_T" ] || _T="{fallback}.py"; '
         f'[ -f "$_T" ] || echo "[coordinator] WARNING: hook installed but {script_name} '
-        'not found (looked in baked path, .doe-root, settings-home forwarder, '
+        'not found (looked in settings-home forwarder, baked path, .doe-root, '
         'machine-local repos.claude_klabauter, and marketplace) — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; '
         '[ -n "$_PY" ] || echo "[coordinator] WARNING: hook installed but no '
@@ -745,7 +852,13 @@ def ensure_post_commit_hook(
     script = "coordinator-auto-push"
     header = "coordinator auto-push (crash insurance)"
     invoke = 'exec "$_PY" "$SCRIPT" "$@"'
-    fresh = _shim_body(coord_bin, script, invoke, bin_dir=bin_dir)
+    fresh = _shim_body(
+        coord_bin,
+        script,
+        invoke,
+        bin_dir=bin_dir,
+        skip_env="COORDINATOR_AUTO_PUSH_SUPPRESS_FOR_SYNC_PUSH",
+    )
     _start_marker, end_marker = _append_markers(header)
     append = _append_block(
         coord_bin,
@@ -786,7 +899,26 @@ def ensure_prepare_commit_msg_hook(
     script = "coordinator-prepare-commit-msg"
     header = "coordinator Session-Id trailer injection"
     invoke = 'exec "$_PY" "$SCRIPT" "$@"'
-    fresh = _shim_body(coord_bin, script, invoke, bin_dir=bin_dir)
+    # C2 (docs/dispatch-briefs/2026-08-25-the-engine-commits-without-re-
+    # entering-itself/C2.md): a DIFFERENT `skip_env` value from
+    # `ensure_post_commit_hook`'s `COORDINATOR_AUTO_PUSH_SUPPRESS_FOR_SYNC_
+    # PUSH` (AC11 pins the emitted body carries no reference to that other
+    # var) -- set ONLY by `git_native._trailer_sentinel_env()`, ONLY
+    # immediately after `_apply_trailers` returns with no error on
+    # `commit_scoped`'s agree branch. See that function's own docstring for
+    # why nowhere else may set it.
+    fresh = _shim_body(
+        coord_bin,
+        script,
+        invoke,
+        bin_dir=bin_dir,
+        skip_env="COORDINATOR_TRAILERS_ALREADY_APPLIED",
+        # The no-session backstop. NOT passed by `ensure_post_commit_hook`:
+        # auto-push is the SOLE PUBLISHER on a non-engine commit and must run
+        # precisely when no session exists, so the same gate there would
+        # silently stop pushing the commits most in need of it.
+        skip_if_all_unset=SESSION_ENV_PRECEDENCE,
+    )
     _start_marker, end_marker = _append_markers(header)
     append = _append_block(
         coord_bin,
@@ -818,6 +950,17 @@ def ensure_prepare_commit_msg_hook(
 #: hook chain we deliberately refuse to touch) and are reported separately.
 _HEALED_OUTCOMES = frozenset({"installed-absent", "rewritten-stale", "appended"})
 
+#: `repos.*` keys whose value is a CONTAINER of repos rather than a repo. They
+#: share the `repos.` prefix but not its semantics, so the heal sweep must not
+#: treat them as targets: `_classify_target` finds no `.git` at the container
+#: path and reports `missing`, i.e. a broken registry entry, on a daily
+#: ceremony -- for an entry that is correct and that no fix could ever satisfy.
+#: That is the exact failure the three-way classification exists to avoid
+#: (see `_classify_target`), reintroduced through the enumeration instead.
+#: Excluded here rather than in `_classify_target` because these are not
+#: unclassifiable repos; they are not repos at all, and never reach a verdict.
+_CONTAINER_REGISTRY_KEYS = frozenset({"repos.fleet_root"})
+
 
 def _registry_repo_roots(bin_dir: str) -> List[tuple]:
     """Enumerate `(key, path)` for every `repos.*` entry set on this machine.
@@ -834,15 +977,20 @@ def _registry_repo_roots(bin_dir: str) -> List[tuple]:
     *registered* through the TOML files this reads). `bin_dir` is unused —
     kept for call-site compatibility; the prior CLI-based implementation
     needed it to locate the `machine-local` binary, this one no longer
-    shells out to a binary at all. Best-effort: any failure (unreadable
-    registry) yields an empty list, because a hook installer must degrade to
-    "healed nothing" rather than raise on a session-boot path.
+    shells out to a binary at all. Container keys
+    (`_CONTAINER_REGISTRY_KEYS`) are skipped: they carry the `repos.` prefix
+    but name a directory repos live UNDER, not a repo. Best-effort: any
+    failure (unreadable registry) yields an empty list, because a hook
+    installer must degrade to "healed nothing" rather than raise on a
+    session-boot path.
     """
     del bin_dir
     flat = _merged_flat_registry()
     roots = []
     for key, val in flat.items():
         if not key.startswith("repos."):
+            continue
+        if key in _CONTAINER_REGISTRY_KEYS:
             continue
         s = ("" if val is None else str(val)).strip()
         if s:

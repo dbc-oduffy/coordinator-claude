@@ -9,13 +9,13 @@
 # has one) and is REJECTED. Loading the target module in-process and calling
 # its own `main(argv)` — no child process, no second interpreter — was
 # measured at -0.0963 (inside the 46% A/A noise floor, i.e. free). This
-# module is the in-process shape, applied to the 13 `-assemble` entry
+# module is the in-process shape, applied to the 14 `-assemble` entry
 # points; `coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py :: exec_cli`
 # already ships the same choice (`runpy.run_path` in-process on Windows,
 # `os.execv` process-replacement on POSIX) for the general forwarder case —
 # that module's docstring documents choosing this over "spawning a second
 # Python interpreter and subprocess.run-ing the target". This module does
-# NOT reinvent that ladder; it is narrower (fixed set of 13 known-shape
+# NOT reinvent that ladder; it is narrower (fixed set of 14 known-shape
 # targets under `coordinator/bin/`, no POSIX execv leg needed because the
 # caller — coordinator-assemble.py — is itself already the single process
 # multiple subcommands share, so there is nothing to replace this process
@@ -47,7 +47,7 @@
 # independent implementations — see § Name-to-callable mapping below.
 # Loading a shim BY PATH (the old `_load_module`/`_target_path` shape) would
 # recurse: the shim's own `main`/module-exec would call back into
-# `run_target` for the same name. So `run_target` now resolves 12 of the 13
+# `run_target` for the same name. So `run_target` now resolves 13 of the 14
 # names directly to an ENGINE module + entry callable (never back through
 # the shim .py file); only `workday-start-inbox-blitz-assemble` — real
 # 496-line logic, not a wrapper, deliberately left unconverted — is still
@@ -72,8 +72,9 @@ from typing import Callable, List
 
 BIN_DIR = Path(__file__).resolve().parent.parent
 
-# The 13 `-assemble` entry points this chunk's dispatcher fans in. Plan's
-# § Problem counting-rule correction: 13 distinct entry points, not 36 —
+# The 14 `-assemble` entry points this chunk's dispatcher fans in. Plan's
+# § Problem counting-rule correction: distinct entry points, not one per
+# launcher suffix —
 # the earlier count double-counted each stem's `.cmd`/`.ps1` launcher
 # siblings, which are not separate logic, only separate OS-launch rungs
 # over the same `.py`.
@@ -85,6 +86,7 @@ ASSEMBLE_TARGETS = (
     "orient-assemble",
     "pickup-assemble",
     "plan-assemble",
+    "quick-wrap-assemble",
     "review-assemble",
     "sizing-assemble",
     "staff-session-assemble",
@@ -106,6 +108,94 @@ BY_PATH_TARGETS = frozenset({"workday-start-inbox-blitz-assemble"})
 
 _TRANSPORT_FAIL = 3
 _USAGE_FAIL = 2
+
+# Targets whose argv can carry a JSON payload (`--decisions <json>`), and so
+# cannot survive a `.cmd` forwarder's `%*` intact on Windows: cmd.exe strips
+# the payload's double quotes during its OWN command-line parse, before the
+# launcher body or Python ever runs, and the CLI then rejects a payload that
+# was well-formed when sent. Shape W (the `.cmd` sibling through the call
+# operator) is the rung `resolve-coordinator-bin.md` mandates on a Windows
+# host, so without recovery the documented invocation shape and the
+# JSON-argument surface are mutually exclusive there
+# (cross-repo/inbox/2026-08-20-doe-claude-em-cmd-forwarder-eats-json-and-two-
+# smaller-seams.md, item 1).
+#
+# Narrow and named on purpose, mirroring `gen-launcher-shim.py`'s own
+# `_RAW_CMDLINE_ENTRYPOINTS` discipline: enrolment costs every invocation a
+# capture file, so a target earns a row only when a quote-bearing argument is
+# genuinely reachable in normal use. The three sets are kept in sync by
+# convention -- this one, `gen-launcher-shim.py::_RAW_CMDLINE_ENTRYPOINTS`,
+# and `coordinator_core/install/substrate.py::_RAW_CMDLINE_TARGETS` -- and
+# `test_raw_cmdline_json_payload_enrolment.py` fails if they drift.
+#: The JSON-valued flags recovered from the raw command line. Both spellings
+#: of the inline form are listed because `--decisions` is the flag every
+#: current parse site names; the `-file` sibling carries a PATH, which is
+#: quote-and-space-free by construction and never needed recovery.
+_JSON_PAYLOAD_FLAGS = ("--decisions",)
+
+_JSON_PAYLOAD_TARGETS = frozenset(
+    {
+        "backlog-grind-assemble",
+        "baton-assemble",
+        "consolidate-assemble",
+        "merge-assemble",
+        "pickup-assemble",
+        "workday-complete-assemble",
+        "workstream-complete-assemble",
+    }
+)
+
+
+def _recover_json_payload_argv(name: str, argv: List[str]) -> List[str]:
+    """Returns `argv` with a `.cmd`-mangled JSON payload restored from the
+    raw invoking command line, or `argv` unchanged when recovery does not
+    apply or cannot be vouched for.
+
+    Never raises and never refuses. `recover_windows_argv` raises
+    `UnsoundRawCmdlineTransport` for a transport whose capture it cannot
+    vouch for (git-bash/MSYS, `subprocess.run([...])` list-form) -- the
+    consumers that REFUSE on it are low-traffic, agent-typed CLIs where a
+    corrupt argument silently discharges nothing. These ceremony CLIs are
+    not that shape: they are called by tests and by in-repo `subprocess`
+    callers on the very transports that classify as unsound, and those
+    callers pass argv that was never mangled in the first place. Turning
+    that into a fleet-wide refusal would break working invocations to
+    protect a payload most of them do not carry.
+
+    So the posture here is recover-or-fall-through: PowerShell's
+    outer-quoted `cmd /c ""<exe>" <args>"` form -- the documented Shape W
+    rung, and the shape the reported break arrived on -- recovers and the
+    inline payload now parses. Every other transport keeps exactly today's
+    behaviour, and a payload that really did lose its quotes still fails at
+    the JSON parse, where `ceremony_common.json_payload_flag` names the
+    forwarder as the likely vehicle and points at `--decisions-file`.
+
+    Negative-spec:
+        - Does NOT apply to targets outside `_JSON_PAYLOAD_TARGETS`. An
+          unenrolled target's launcher emits no capture file at all, so the
+          call would be a no-op anyway; keeping the set test explicit means
+          the enrolment sets stay the single place the question is answered.
+        - Does NOT parse, validate, or inspect the payload. Whether the
+          recovered token is well-formed JSON stays entirely the parse
+          site's business.
+    """
+    if name not in _JSON_PAYLOAD_TARGETS:
+        return argv
+    try:
+        _lib = str(Path(__file__).resolve().parent)
+        if _lib not in sys.path:
+            sys.path.insert(0, _lib)
+        from raw_cmdline_recovery import (  # noqa: PLC0415 -- optional, Windows-only
+            recover_json_flag_argv,
+        )
+    except Exception:  # noqa: BLE001 -- module absent/unimportable: no recovery
+        return argv
+
+    try:
+        return list(recover_json_flag_argv(list(argv), f"{name}.cmd", _JSON_PAYLOAD_FLAGS))
+    except Exception:  # noqa: BLE001 -- recovery must never break an invocation
+        return argv
+
 
 
 class UnknownTargetError(LookupError):
@@ -138,7 +228,7 @@ def _record_invocation(name: str) -> None:
         # this hook). `coordinator_core.ops.<anything>` triggers that
         # package's `_eager_import_all` over ~206 op modules, and several of
         # them import the top-level `coordinator` package. If this hook runs
-        # BEFORE `_import_engine_module` puts the claude-klabauter root on `sys.path`,
+        # BEFORE `_import_engine_module` puts the engine root on `sys.path`,
         # `coordinator` is unresolvable, `app_session` (and any sibling like
         # it) fails to import, and `coordinator_core.ops` CACHES that failure
         # for the life of the process -- so the op stays unregistered and
@@ -191,9 +281,9 @@ def _import_engine_module(dotted: str):
 
 
 def _simple_entry(name: str, dotted: str) -> Callable[[List[str]], int]:
-    """Build the entry callable for one of the 10 single-module targets —
+    """Build the entry callable for one of the single-module targets —
     each original bin/*.py file's `_import_module` + `main(argv)` body was
-    exactly this shape (resolve CLAUDE_KLABAUTER_ROOT, import one `coordinator_core`
+    exactly this shape (resolve the engine root, import one `coordinator_core`
     module, call its own `main(argv)`), differing only in `name` and
     `dotted`. Reproduces both exception branches' message text and the `3`
     transport-failure exit code verbatim."""
@@ -307,7 +397,7 @@ def _workday_complete_assemble_entry(argv: List[str]) -> int:
 
 
 # Name -> engine entry callable, `argv -> int`, for every target NOT in
-# BY_PATH_TARGETS. Derived by reading each of the 13 bin/*.py files' actual
+# BY_PATH_TARGETS. Derived by reading each of the 14 bin/*.py files' actual
 # imports/calls (not guessed from the entry-point name) — see the module
 # docstring above and each target's own comment for the file it was derived
 # from.
@@ -319,6 +409,7 @@ _ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "orient-assemble": _simple_entry("orient-assemble", "coordinator_core.orient_assemble"),
     "pickup-assemble": _simple_entry("pickup-assemble", "coordinator_core.pickup_assemble"),
     "plan-assemble": _simple_entry("plan-assemble", "coordinator_core.plan_assemble"),
+    "quick-wrap-assemble": _simple_entry("quick-wrap-assemble", "coordinator_core.quick_wrap_assemble"),
     "review-assemble": _simple_entry("review-assemble", "coordinator_core.review_assemble"),
     "sizing-assemble": _simple_entry("sizing-assemble", "coordinator_core.sizing_assemble"),
     "staff-session-assemble": _simple_entry("staff-session-assemble", "coordinator_core.staff_session_assemble"),
@@ -362,7 +453,7 @@ _load_module._counter = 0  # type: ignore[attr-defined]
 #
 # 60 entry points, one dispatcher (coordinator-gate.py). Same shim mechanism
 # as ASSEMBLE_TARGETS above (in-process, no subprocess), but this family is
-# far less uniform than the 13 `-assemble` entries: at least four distinct
+# far less uniform than the 14 `-assemble` entries: at least four distinct
 # CLI-trampoline shapes coexist (a `cli_entry.run_op_main` wrapper with
 # fail-loud vs never-block exit-code conventions; a bare top-level
 # `run_op_main` call with no wrapper; fully standalone modules with no
@@ -447,12 +538,41 @@ GATE_TARGETS = (
 
 assert len(GATE_TARGETS) == 60, f"expected 60 gate targets, counted {len(GATE_TARGETS)}"
 
+# The corrected denominator for a shim-usage census (chunk C10 of
+# docs/plans/2026-08-21-the-cli-bootstrap-tax-dies-at-the-interpreter-floor.md).
+#
+# A naive cross-reference of "how many of the 434 shipping CLIs has
+# `record_invocation` ever seen fire" reads as 20 -- the count of bin/*.py
+# files that actually `import entry_point_shim` (the 13 converted
+# `-assemble` shims, the 5 converted GATE_ENGINE_ENTRIES shims, and the two
+# batch dispatchers `coordinator-assemble.py`/`coordinator-gate.py`). That
+# number answers "how many FILES route through this module", not "how many
+# NAMES this module's census can account for" -- `run_target` and
+# `run_gate_target` both call `_record_invocation(name)` unconditionally,
+# for every name in ASSEMBLE_TARGETS/GATE_TARGETS, regardless of whether
+# that name's own standalone bin/<name>.py has been converted to a shim.
+# A GATE_TARGETS member still resolved BY PATH (`GATE_BY_PATH_TARGETS`)
+# still gets recorded the moment it is reached through
+# `coordinator-gate.py`'s batched dispatch -- only a DIRECT invocation of
+# that name's own untouched .py file (bypassing both dispatchers) escapes
+# the census.
+#
+# So the true instrumented surface is this union: every name this module's
+# two dispatch tables know how to route AT ALL, whether by engine-callable
+# or by-path. Reading "417 of 434 never invoked" off the 20-file count
+# is FALSE -- it conflates 414 UNINSTRUMENTED names (no evidence either
+# way) with genuinely dead ones. `ALL_TARGETS` is the corrected 74-name
+# enumeration a census should read invocation evidence against; the
+# remaining 434-74 names are not covered by this module at all and stay
+# correctly "uninstrumented", not "unused".
+ALL_TARGETS = tuple(ASSEMBLE_TARGETS) + tuple(GATE_TARGETS)
+
 
 def _run_op_main_entry(name: str, dotted: str, fail_exit: int = 1) -> Callable[[List[str]], int]:
     """Reproduce the `cli_entry.run_op_main` CLI-trampoline shape shared by
     `assert-no-dangling-plan-backlinks.py`, `assert-plan-sizing-citation.py`,
     and `check-em-environment.py` (each read in full and confirmed identical
-    up to `name`/`dotted`/`fail_exit`): resolve CLAUDE_KLABAUTER_ROOT via cc_invoke's
+    up to `name`/`dotted`/`fail_exit`): resolve the engine root via cc_invoke's
     ladder, import `coordinator_core.cli_entry.run_op_main`, call it with the
     op's dotted module path. `fail_exit` reproduces each file's own
     transport-failure exit code — 1 for the fail-loud gates, 0 for
@@ -572,7 +692,7 @@ def run_gate_target(name: str, argv: List[str]) -> int:
     """Run one of the 60 GATE_TARGETS entry points in-process and return its
     exit code. `argv` excludes the subcommand name itself.
 
-    Unlike `run_target` above (whose 13 ASSEMBLE_TARGETS members' `main`
+    Unlike `run_target` above (whose 14 ASSEMBLE_TARGETS members' `main`
     always RETURNS an int), several GATE_TARGETS members' `main()` calls
     `sys.exit(code)` internally and returns None — reproducing that call
     in-process inside a batched `coordinator-gate` invocation would raise
@@ -641,6 +761,8 @@ def run_target(name: str, argv: List[str]) -> int:
         raise UnknownTargetError(name)
 
     _record_invocation(name)
+
+    argv = _recover_json_payload_argv(name, list(argv))
 
     if name in BY_PATH_TARGETS:
         path = _target_path(name)

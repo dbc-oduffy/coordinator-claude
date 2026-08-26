@@ -38,7 +38,7 @@ nothing when there are zero qualifying memos.
 #                          age/staleness computation. Used by tests only.
 #
 # Exit codes: ALWAYS 0. This is a best-effort orientation surfacer, never a gate —
-# a CLAUDE_KLABAUTER_ROOT resolution failure or import failure degrades to a loud stderr
+# an engine-root resolution failure or import failure degrades to a loud stderr
 # note + exit 0 (never blocks /workday-start Step 1.45), matching the never-block
 # posture of coordinator-auto-push (porter-brief-addendum § 3b: best-effort /
 # advisory / never-block scripts degrade transport failure to exit 0, not a
@@ -68,13 +68,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _resolve_run_op_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
+    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -88,9 +88,7 @@ def _resolve_run_op_main():
     this changes nothing behaviorally, but keeps every operator CLI on the one
     recording seam uniformly.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -100,10 +98,10 @@ def main() -> None:
     try:
         run_op_main = _resolve_run_op_main()
     except RuntimeError as exc:
-        # Never-block posture (like coordinator-auto-push): a CLAUDE_KLABAUTER_ROOT
+        # Never-block posture (like coordinator-auto-push): an engine-root
         # resolution failure must not block /workday-start Step 1.45.
         print(
-            f"workday-start-cross-repo-memo-surface.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"workday-start-cross-repo-memo-surface.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(0)

@@ -395,13 +395,23 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
-    from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
+    from _engine_root import (  # noqa: E402
+        resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+        arm_lazy_ops as _arm_lazy_ops,
+        warn_on_engine_import_divergence as _warn_engine_divergence,
+    )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
     # sibling _engine_root.py (e.g. an isolated test harness, or a
     # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
+
+    def _arm_lazy_ops() -> None:
+        return None
+
+    def _warn_engine_divergence(where: str) -> str:
+        return "unresolved"
 try:
     from _message_envelope import resolve_wiki_citation  # noqa: E402
 except Exception:
@@ -411,6 +421,20 @@ except Exception:
     # citation instead (C2, `_message_envelope.py` module docstring).
     def resolve_wiki_citation(text: str) -> str:
         return text
+
+# Armed once at module import, not just at the mint call site below --
+# `_arm_lazy_ops()` sets an in-process `sys` attribute read by
+# `coordinator_core.ops.__init__` at PACKAGE-INIT time, so whichever of this
+# file's engine-importing legs runs first (push-failure verdict, zero-tool-use
+# surface, subagent-arrival check, or the session-baton mint) decides the mode
+# for the rest of the process -- arming only inside `_mint_session_baton` left
+# the other three legs racing it eager. `arm_lazy_ops()` never raises (see its
+# own docstring) and costs nothing beyond the attribute set -- no engine
+# import, no env var, no leak to child processes. Do not delete this as
+# "redundant" with the call inside `_mint_session_baton`: that call stays as
+# the leg's own documentation of intent, but THIS is the one that actually
+# wins the race on every prompt.
+_arm_lazy_ops()
 
 
 def _resolve_git_common_dir(git_root: str) -> str:
@@ -528,7 +552,7 @@ def _git_root() -> str:
 
     Resolved by an in-process parent walk for a `.git` entry (directory in a normal
     clone, file in a linked worktree or submodule) rather than by spawning git. This
-    hook is registered on Stop, PostToolUse(Agent) and UserPromptSubmit, so a spawn
+    hook is registered on PostToolUse(Agent) and UserPromptSubmit, so a spawn
     here is paid several times per turn by every session on the box; the walk is
     ~0.15ms against ~25ms and one process for the subprocess form.
 
@@ -704,12 +728,14 @@ def _push_failure_verdict(git_root: str) -> dict | None:
 
     Dispatch shape mirrors `_check_zero_tool_use_surface`'s and
     `_check_subagent_arrival`'s own in-process pattern (resolve root,
-    `sys.path` insert, import the op module so it registers, `asyncio.run(
-    dispatch_message(msg))`) -- NOT the `python3 -m coordinator_core.invoke`
-    CLI form the origin memo documents, which is the human-facing shape, not
-    the right call site for a 5s-timeout hook. Do not "restore" the CLI form
-    here without first confirming the op is registered AND exercising this
-    script end-to-end on a real Stop/UserPromptSubmit/PostToolUse payload.
+    `sys.path` insert, import the op module so it registers,
+    `dispatch_from_hook(...)` -- DR-118's named hook-dispatch seam, above the
+    `dispatch_message` telemetry wrapper) -- NOT the `python3 -m
+    coordinator_core.invoke` CLI form the origin memo documents, which is the
+    human-facing shape, not the right call site for a 5s-timeout hook. Do not
+    "restore" the CLI form here without first confirming the op is
+    registered AND exercising this script end-to-end on a real
+    Stop/UserPromptSubmit/PostToolUse payload.
 
     Returns the raw `{"verdict": ..., "evidence": {...}, "remedy_hint": ...}`
     result dict on a well-formed response (verdict is one of the five known
@@ -727,19 +753,12 @@ def _push_failure_verdict(git_root: str) -> dict | None:
         if root not in sys.path:
             sys.path.insert(0, root)
         from coordinator_core.ops import push_failure_verdict as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
 
-        msg: dict = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "git.push_failure_verdict",
-            "params": {},
-        }
-        response = asyncio.run(dispatch_message(msg))
+        result = dispatch_from_hook("git.push_failure_verdict", {})
     except Exception:
         return None  # engine root unresolvable/unimportable/erroring -> caller falls back
 
-    result = response.get("result") if isinstance(response, dict) else None
     if not isinstance(result, dict):
         return None
     verdict = result.get("verdict")
@@ -809,11 +828,32 @@ def _render_push_failure_verdict(
     if verdict == "simple_lag":
         ahead = evidence.get("ahead")
         behind = evidence.get("behind")
+        # SCOPE OF THE CLAIM. `ahead`/`behind` are BRANCH facts, not session facts.
+        # On a shared day-branch every unpushed commit may belong to a peer, in which
+        # case this session's own work is fully pushed and its crash insurance is
+        # intact. Reported by claude-klabauter-em 2026-08-23: 3 unpushed commits, none
+        # theirs, all 8 of their own already ancestors of upstream -- and this line
+        # told them their insurance might not be insuring. It must not assert
+        # anything about whose work is at risk, because it does not know.
+        if behind:
+            return (
+                "AUTO-PUSH MID-SESSION FAILURE — " + header +
+                f"clean index, {ahead} ahead / {behind} behind upstream — the "
+                "branch has DIVERGED. Whether any of the unpushed commits are "
+                "YOURS is not something this check knows: on a shared day-branch "
+                "they are often entirely a peer's, in which case your own work is "
+                "already pushed. Confirm before acting — `git merge-base "
+                "--is-ancestor <your-sha> @{u}` per commit you care about. Do NOT "
+                "retry a bare `git push`; it is what just failed, and it will keep "
+                "failing while the branch is behind. A merge/rebase here rewrites "
+                "or overwrites commits that may be a live peer's.\n" + ref
+            )
         return (
             "AUTO-PUSH MID-SESSION FAILURE — " + header +
-            f"clean index, {ahead} ahead / {behind} behind upstream — "
-            "crash insurance may be silently NOT insuring right now — "
-            "consider `git push` (or pull-then-push).\n" + ref
+            f"clean index, {ahead} ahead / 0 behind upstream — the branch is "
+            "strictly ahead, so `git push` should fast-forward cleanly. Whether "
+            "the unpushed commits are yours or a peer's, pushing insures them "
+            "all.\n" + ref
         )
 
     if verdict == "half_applied_merge":
@@ -1544,14 +1584,405 @@ def _check_zero_tool_use_surface(
     return text, _advance
 
 
-# The three events this script is registered on (hooks.json: Stop,
-# UserPromptSubmit, PostToolUse:Agent). Claude Code validates that the
-# emitted hookSpecificOutput.hookEventName matches the event that fired the
-# hook and hard-errors the hook otherwise ("Hook returned incorrect event
-# name: expected 'Stop' but got 'PostToolUse'") -- so the envelope must echo
-# the incoming event, never a hardcoded one. Unknown/absent values fall back
-# to PostToolUse (the pre-2026-07-20 hardcoded value), which is also what the
-# bin/tests/ harnesses feed (they omit hook_event_name from stdin).
+# ---------------------------------------------------------------------------
+# SESSION-BATON-MINT (added 2026-08-19, folded onto this existing
+# UserPromptSubmit-gated seam per the same no-second-registration constraint
+# ZERO-TOOL-USE-DETECT-SURFACE above already follows -- AC5,
+# `_hook_spawn_budget.py` pins `UserPromptSubmit: 1`.
+#
+# Spec backlink: docs/plans/2026-08-19-promoted-baton-born-status-and-mint-hook.md § C4
+# Spike verdict: docs/research/spike-verdicts/2026-08-19-session-baton-mint-from-userpromptsubmit.md
+#
+# Captures a session's FIRST prompt into the engine's lazy session-baton
+# record via the `session_baton.mint` op, so a later `session_baton.promote`
+# ceremony has a record to promote. mint only needs the session's FIRST
+# prompt, so every prompt after it has nothing to do -- but UserPromptSubmit
+# has no matcher support, so this leg short-circuits itself rather than
+# being registered narrowly. Gate: one small JSON read of the session's own
+# `baton.json` (rooted at the git COMMON dir, the same `sessions_dir` main()
+# already resolves for the dispatch-tracking loop below), checked against the
+# FIELD the leg cares about, never mere file existence (Finding 0, mint leg
+# review 2026-08-19 -- an existence-only gate saw `baton.json` created by
+# `pickup_assemble`'s adoption writer, BEFORE this prompt, and silently never
+# captured anything for the life of every pickup session). Absent record, or
+# present with `first_prompt is None` and no `adopted_artifacts` -> pays the
+# mint cost. Present with `adopted_artifacts` set -> return immediately, no
+# matter what `first_prompt` says: a pickup session's identity is already
+# named by the handoff it adopted, and capturing the pickup invocation itself
+# would overwrite that with junk (PM ruling, same review). Present with
+# `first_prompt` already captured and no `adopted_artifacts` -> return
+# immediately: no op call, no `coordinator_core` import, no read-modify-write
+# (AC7, AC10 -- AC7's literal "one stat" wording is superseded by this fix;
+# the field it protects is unchanged). The op's own idempotence
+# (`session_baton_mint.py`'s `existing.get("first_prompt") is None` guard)
+# stays the correctness backstop for the race where two prompts land together
+# or the read lies (AC9) -- this gate is an optimization layered on top of
+# it, never a substitute for it. Cost ceiling cited from
+# `docs/wiki/hook-best-practices.md:279,287` rather than re-derived.
+#
+# Entry path is pinned by the spike verdict above, not a design choice
+# reopened here: `_engine_root.arm_lazy_ops()` sets the in-process
+# `sys._coordinator_core_lazy_ops` attribute -- NEVER the
+# `COORDINATOR_CORE_LAZY_OPS` env var, which leaks to every child spawned
+# without an explicit `env=` -- BEFORE importing
+# `coordinator_core.ops.session_baton_mint`, then its `_handler` is called
+# DIRECTLY. Measured (reproduced on this host over 20 repeat calls, see the
+# spike verdict): 19.9 ms rather than 337.7 ms, with `first_prompt`
+# preservation intact. Routing through `coordinator_core.ipc.dispatch_message`
+# instead hits its registry-miss fallback, which force-imports the whole op
+# surface and lands back at 337.7 ms -- do not "simplify" to that shape.
+# Lazy mode leaves `ipc._REGISTRY` unpopulated; harmless here since only
+# this one op module is ever imported in this leg.
+#
+# Calling `store.merge_baton(...)` directly is FORBIDDEN even though it
+# measures ~3 ms cheaper: it silently overwrites `first_prompt` on every
+# call (`_UNSET` sentinel semantics -- an explicitly-passed value always
+# wins), which is exactly the guarantee `_handler`'s own
+# `existing.get("first_prompt") is None` check exists to protect. See the
+# spike verdict's "the trap in the cheap path."
+#
+# Fails open on every path -- this hook's UserPromptSubmit registration
+# BLOCKS the user; a raise here rejects the prompt outright. Contributes at
+# most one line to the additionalContext envelope, and only where the baton
+# demonstrably exists on disk (a confirmed mint, or an observed adoption) --
+# never on a short-circuit that did neither. Every step is wrapped so a bug
+# here can never take down the pre-existing advisories in main().
+# ---------------------------------------------------------------------------
+
+# Finding 8, mint leg review 2026-08-19: the captured prompt is unbounded --
+# a large paste would otherwise land verbatim in baton.json and be
+# re-serialized in full on every later merge_baton (promotion, commit
+# appends) under a 2s lock. Capped at the hook boundary, not the op, so the
+# bound holds even if a future caller of the op skips this leg. The
+# truncation is stamped into the stored value itself rather than silent, so
+# a reader of baton.json can tell a short prompt from a truncated one.
+_PROMPT_CAPTURE_CAP = 8192
+_PROMPT_TRUNCATION_MARKER = "...[truncated]"
+
+# Adoption fires the mint leg's early return on EVERY UserPromptSubmit of a
+# picked-up session, not just the first (`adopted_artifacts` never clears) --
+# unlike the mint path, where the op's own `first_prompt` write makes the
+# next call's field-read gate the once-only signal for free. A sibling
+# marker file supplies the same once-only signal for adoption specifically;
+# it is deliberately NOT a `baton.json` field (no op exposes writing one,
+# and this hook does not call `store.merge_baton` outside the mint leg
+# above) and NOT the throttle sentinel's tempdir (a repo-scoped record next
+# to the baton it announces, not a host-tempdir one).
+_BATON_ADOPTED_ANNOUNCED_SUFFIX = ".adopted-announced"
+
+# Mint is the opposite event from adoption: `minted_artifacts` (dedup-extended
+# by the engine, same semantics as `adopted_artifacts`) names handoffs the
+# ENGINE created for this session unasked, never something the operator
+# chose. It can grow more than once in a session, so a bare once-per-session
+# flag (as `_BATON_ADOPTED_ANNOUNCED_SUFFIX` uses) would silently swallow a
+# second mint -- this marker instead holds the newline-delimited set of
+# artifact paths already announced, so each call can announce only the
+# paths not yet in that set.
+_BATON_MINTED_ANNOUNCED_SUFFIX = ".minted-announced"
+
+
+def _baton_advisory_text(baton_path: str, git_root: str) -> str:
+    """One-line, event-scoped advisory naming the session baton this EM now
+    owns. Callers emit this only where the baton demonstrably exists on
+    disk this call -- see `_mint_session_baton`'s two emit sites.
+
+    Wording is PM-specified verbatim (cross-repo/inbox/
+    2026-08-21-claude-klabauter-em-baton-advisory-names-the-journal.md), trimmed
+    from a longer draft by the PM themselves: the prior "SESSION BATON —
+    <path> — already recording this session" noun didn't say what the
+    artifact IS, and an EM read straight past it and spent twenty minutes
+    investigating the wrong artifact. `.git/coordinator-sessions/` is
+    dropped from the rendered path (it earns nothing) while the full
+    session id and `baton.json` tail are kept (that's the EM identity being
+    pointed at). No imperative, no reassurance wrapper -- there is no
+    action the EM should take here, and the register doctrine bans the
+    wrapper. Deliberately asserts nothing about ancestry/predecessor: that
+    is not true in the engine's tree yet, and this line must not
+    foreshadow it."""
+    try:
+        display_path = os.path.relpath(baton_path, git_root)
+    except Exception:
+        display_path = baton_path  # e.g. different drives on Windows
+    display_path = display_path.replace(os.sep, "/")
+    prefix = ".git/coordinator-sessions/"
+    if display_path.startswith(prefix):
+        display_path = "…/" + display_path[len(prefix):]
+    return f"WORK JOURNAL — {display_path} — your durable work journal, script-managed"
+
+
+def _minted_advisory_text(artifact_path: str, git_root: str) -> str:
+    """One-line advisory naming a handoff the engine minted for this session
+    without the operator asking for it. Deliberately worded as news, not as
+    something the operator picked up -- see `_handoff_mint_advisory`."""
+    try:
+        display_path = os.path.relpath(artifact_path, git_root)
+    except Exception:
+        display_path = artifact_path  # e.g. different drives on Windows
+    display_path = display_path.replace(os.sep, "/")
+    return (
+        f"HANDOFF MINTED — {display_path} — created for this session by "
+        "the engine, not picked up."
+    )
+
+
+def _handoff_mint_advisory(minted_artifacts, baton_path: str, git_root: str) -> str | None:
+    """Advisory text for every path in `minted_artifacts` not yet announced,
+    or `None` if there is nothing new. Reads/writes a sibling marker file
+    (`_BATON_MINTED_ANNOUNCED_SUFFIX`) holding the newline-delimited set of
+    paths already announced -- unlike the adopted marker, this one carries
+    content because a mint can recur mid-session and each path needs its own
+    once-only signal, not a session-wide one.
+
+    Never touches the marker at all when `minted_artifacts` is falsy --
+    the caller's truthiness gate is what keeps a settled session (no mints)
+    at the pre-existing zero-extra-IO cost profile. An unreadable/corrupt
+    marker fails open to "announce nothing" rather than "announce
+    everything" -- treating it as empty would re-announce every already-seen
+    path as a storm on the next call.
+    """
+    if not isinstance(minted_artifacts, list) or not minted_artifacts:
+        return None
+
+    marker_path = baton_path + _BATON_MINTED_ANNOUNCED_SUFFIX
+    try:
+        with open(marker_path, "r", encoding="utf-8") as fh:
+            announced = {line.strip() for line in fh if line.strip()}
+    except FileNotFoundError:
+        announced = set()
+    except Exception:
+        return None  # fail-open: corrupt/unreadable marker -- never guess
+
+    new_paths = []
+    seen = set()
+    for p in minted_artifacts:
+        if isinstance(p, str) and p not in announced and p not in seen:
+            new_paths.append(p)
+            seen.add(p)
+    if not new_paths:
+        return None
+
+    try:
+        if not _symlink_safe_marker(marker_path):
+            return None  # symlink at the marker name -- do not announce
+            # off an unverified write
+        with open(marker_path, "a", encoding="utf-8") as fh:
+            for p in new_paths:
+                fh.write(p + "\n")
+    except Exception:
+        return None
+
+    return "\n".join(_minted_advisory_text(p, git_root) for p in new_paths)
+
+
+def _combine_baton_advisories(baton_line, mint_block) -> str | None:
+    """Join whichever of the two per-call advisory strings are present --
+    session baton first (it names the session), mint block last (it is the
+    news). Either or both may be `None`."""
+    parts = [p for p in (baton_line, mint_block) if p]
+    if not parts:
+        return None
+    return "\n".join(parts)
+
+
+def _mint_session_baton(
+    git_root: str, session_id: str, sessions_dir: str, hook_event: str, prompt
+) -> str | None:
+    """Mint (once per session) or no-op the session's lazy baton record --
+    see the module comment block immediately above for the full design.
+    Disk side effect, plus a session-baton advisory line on the two events
+    where the baton newly demonstrable exists this call -- a confirmed
+    mint, or an observed adoption -- and separately, on ANY return path, a
+    handoff-mint advisory line for each not-yet-announced path in the
+    record's `minted_artifacts`. When both fire on the same call they are
+    newline-joined, mint last. `None` when neither has anything to say,
+    including the already-announced steady state. Never raises -- every
+    fallible step is caught locally.
+    """
+    if hook_event != "UserPromptSubmit":
+        return  # gated hard to the human's own prompt path (mirrors DEC-6's
+        # ZERO-TOOL-USE-DETECT-SURFACE gate immediately above)
+
+    if not sessions_dir:
+        return  # git-common-dir unresolvable this call -- fail open
+
+    if not session_id or not _ID_CHARSET_RE.match(session_id):
+        return  # unreachable in practice: main()'s own charset guard
+        # (:2028-2033) already neutralizes a non-conforming session_id to ""
+        # and returns before this leg is ever called. Kept as defense in
+        # depth only -- do not mistake this for the live guard.
+
+    baton_path = os.path.join(sessions_dir, session_id, "baton.json")
+
+    # Gate on the FIELD, not the FILE (Finding 0, mint leg review
+    # 2026-08-19): `baton.json` has a second writer --
+    # `pickup_assemble._adopt_into_baton` creates the record (via
+    # `merge_baton(..., adopted_artifacts=[...])`, no `first_prompt` kwarg)
+    # at UserPromptExpansion, BEFORE this UserPromptSubmit leg ever runs. An
+    # existence-only gate saw that file, returned immediately, and never
+    # captured a prompt for the rest of the session -- confirmed on-disk,
+    # 17/17 real pickup records. One small JSON read replaces the old single
+    # stat; still no op call, no `coordinator_core` import, no
+    # read-modify-write in the settled case.
+    try:
+        with open(baton_path, "r", encoding="utf-8") as fh:
+            record = json.load(fh)
+    except FileNotFoundError:
+        record = None  # never minted -- fall through to the mint below
+    except Exception:
+        return  # fail-open: unreadable, truncated, or non-JSON record is
+        # treated as "nothing to do", exactly as the pre-Finding-0 stat gate
+        # treated an unstattable path. This leg blocks the human's prompt --
+        # a malformed file on disk must never raise into it.
+
+    if record is not None and not isinstance(record, dict):
+        return  # malformed: valid JSON but not an object (e.g. a bare list
+        # or scalar) -- same "nothing to do" treatment as an unparseable
+        # file; a non-dict record carries no `first_prompt`/
+        # `adopted_artifacts` fields to gate on, so it is never a signal to
+        # mint.
+
+    # Computed once, from the record already on hand, and threaded through
+    # every return below -- a mint can land mid-session on ANY of this
+    # function's paths (adopted, steady-state, or the mint attempt itself),
+    # and none of them may swallow it just because they were about to
+    # return early for their own reason. `record.get` on a possibly-`None`
+    # record would raise; the ternary keeps this call as cheap as the
+    # existing truthiness gate inside it when there is nothing to report.
+    mint_advisory = (
+        _handoff_mint_advisory(record.get("minted_artifacts"), baton_path, git_root)
+        if isinstance(record, dict)
+        else None
+    )
+
+    if isinstance(record, dict):
+        # PM ruling, same review: check `adopted_artifacts` BEFORE
+        # `first_prompt`, not merely alongside it. A pickup session's
+        # operator already named this session's work via the handoff they
+        # adopted -- capturing the pickup slash-command invocation itself as
+        # `first_prompt` would overwrite that identity with junk. This
+        # ordering is the fix for Finding 0's gate WITHOUT reintroducing the
+        # regression the PM already rejected once; do not delete it as a
+        # redundant check merely because `first_prompt` is also `None` here.
+        if record.get("adopted_artifacts"):
+            # settled: identity already named by the adopted handoff -- no
+            # mint, but the baton is real and this session now owns it.
+            # Announce once, gated on the sibling marker (see
+            # `_BATON_ADOPTED_ANNOUNCED_SUFFIX` above), not on this branch
+            # being reached -- every later prompt of the same session hits
+            # this same branch and must stay silent.
+            announced_marker = baton_path + _BATON_ADOPTED_ANNOUNCED_SUFFIX
+            if os.path.isfile(announced_marker):
+                return mint_advisory
+            try:
+                if not _symlink_safe_marker(announced_marker):
+                    return mint_advisory  # symlink at the marker name --
+                    # do not announce off an unverified write
+            except Exception:
+                return mint_advisory
+            return _combine_baton_advisories(
+                _baton_advisory_text(baton_path, git_root), mint_advisory
+            )
+        if record.get("first_prompt") is not None:
+            return mint_advisory  # STEADY STATE (AC7, AC10): already
+            # captured -- no op call
+
+    # Absent, or present-but-never-captured -- this is, at most once per
+    # session, the mint cost.
+    try:
+        root = _resolve_claude_klabauter_root()
+        if not root:
+            return mint_advisory
+        if root not in sys.path:
+            sys.path.insert(0, root)
+
+        _arm_lazy_ops()  # sys attribute, in-process only -- see comment block above
+        from coordinator_core.ops.session_baton_mint import _handler
+
+        # The insert above states an intent; this checks whether it took. It is
+        # defeated whenever something earlier in THIS process did a bare
+        # `import coordinator_core` -- on a box carrying an editable install of
+        # the engine, that binds the module cache to the engine's WORKING TREE
+        # and every later insert is a no-op. Once per session, stderr only,
+        # never raises: see `_engine_root.warn_on_engine_import_divergence`.
+        _warn_engine_divergence("session-baton-mint")
+
+        params: dict = {"session_id": session_id, "cwd": git_root}
+        if isinstance(prompt, str):
+            if len(prompt) > _PROMPT_CAPTURE_CAP:
+                params["prompt"] = (
+                    prompt[:_PROMPT_CAPTURE_CAP] + _PROMPT_TRUNCATION_MARKER
+                )
+            else:
+                params["prompt"] = prompt
+        result = _handler(params)
+
+        # Divergence detector, not a new advisory channel: this is the one
+        # place the leg still has both paths in hand (the hook's own
+        # `baton_path` above, and the op's authoritative one) before the
+        # steady-state field-read gate above takes over on every later
+        # prompt and hides a failed mint forever. Costs one string compare,
+        # once per session; zero in steady state. stderr only -- mirrors
+        # `_symlink_safe_marker`'s own anomaly surfacing elsewhere in this
+        # file, and never touches the additionalContext envelope.
+        if isinstance(result, dict):
+            engine_baton_path = result.get("baton_path")
+            if isinstance(engine_baton_path, str) and os.path.normcase(
+                engine_baton_path
+            ) != os.path.normcase(baton_path):
+                print(
+                    "session-baton-mint: path divergence -- "
+                    f"hook={baton_path!r} engine={engine_baton_path!r}",
+                    file=sys.stderr,
+                )
+            exit_code = result.get("exit_code")
+            if exit_code not in (0, None):
+                print(
+                    f"session-baton-mint: op returned exit_code={exit_code!r} "
+                    f"error={result.get('error')!r}",
+                    file=sys.stderr,
+                )
+                return mint_advisory  # e.g. no session directory for this
+                # session_id -- nothing was minted, so nothing to announce
+                # (Finding, mint leg review 2026-08-20: an advisory naming a
+                # file that was never written is a lie about disk state).
+                # `mint_advisory` was already computed from the disk record
+                # read above and is independent of this op call's outcome.
+            if not os.path.isfile(baton_path):
+                return mint_advisory  # the op reported success and the file
+                # is not there: `exit_code` is absent from the reply shape,
+                # or `baton_path` came back `None` on an otherwise-ok reply,
+                # or the write lost a race. The advisory names a path the
+                # reader will open, so it is gated on the path existing
+                # rather than on the reply being well-formed -- one stat, on
+                # the mint call only, never in steady state. The adoption
+                # branch above needs no equivalent: it already read this
+                # file to get its record.
+            return _combine_baton_advisories(
+                _baton_advisory_text(baton_path, git_root), mint_advisory
+            )  # confirmed mint -- the only other session-baton emit site,
+            # see the adoption branch above
+        return mint_advisory  # `result` wasn't a dict -- no exit_code to
+        # confirm success against; stay silent on the session baton rather
+        # than assert a mint we cannot verify. The handoff-mint advisory is
+        # unaffected -- it comes from the disk record, not this op result.
+    except Exception:
+        return mint_advisory  # fail-open: import error, op error, malformed
+        # engine, anything -- the prompt must still submit. The handoff-mint
+        # advisory was already computed from disk before this try block and
+        # survives an op-side failure.
+
+
+# The two events this script is registered on (hooks.json: UserPromptSubmit,
+# PostToolUse:Agent -- the Stop registration went with the 2026-07-31
+# subagent-overrun stand-down). Claude Code validates that the emitted
+# hookSpecificOutput.hookEventName matches the event that fired the hook and
+# hard-errors the hook otherwise ("Hook returned incorrect event name:
+# expected 'Stop' but got 'PostToolUse'") -- so the envelope must echo the
+# incoming event, never a hardcoded one. "Stop" stays in the accepted set
+# below as defense in depth for a payload replayed from before the
+# stand-down; unknown/absent values fall back to PostToolUse (the
+# pre-2026-07-20 hardcoded value), which is also what the bin/tests/
+# harnesses feed (they omit hook_event_name from stdin).
 _VALID_HOOK_EVENTS = ("Stop", "UserPromptSubmit", "PostToolUse")
 
 
@@ -1929,6 +2360,21 @@ def main() -> int:
     except Exception:
         zero_tool_use_msg, _zero_tool_use_advance = None, None
 
+    # --- SESSION-BATON-MINT (see module comment block above
+    # _mint_session_baton). Independently wrapped, same as the checks above --
+    # a bug here must never take down any other advisory, and must never
+    # reject the prompt. Steady-state cost is exactly one os.path.isfile stat
+    # (AC7); only this session's first UserPromptSubmit pays the mint cost.
+    # Contributes at most one line to _emit_advisory, and only on the call
+    # where the baton newly demonstrably exists (confirmed mint, or observed
+    # adoption) -- see `_mint_session_baton`'s docstring. ---
+    try:
+        baton_msg = _mint_session_baton(
+            git_root, session_id, sessions_dir, hook_event, payload.get("prompt")
+        )
+    except Exception:
+        baton_msg = None
+
     # --- Subagent-overrun tripwire stand-down (PM ruling, 2026-07-31; see
     # _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED docstring above imports). When
     # disabled, skip the entire dispatch-tracking / overrun-nudge section
@@ -1937,7 +2383,7 @@ def main() -> int:
     # early-return already uses. ---
     if not _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED:
         return _emit_advisory(
-            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
+            [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
         )
@@ -1953,7 +2399,7 @@ def main() -> int:
             now_f = time.time()
             if (now_f - sentinel_mtime) < throttle_seconds:
                 return _emit_advisory(
-                    [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
+                    [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
                     hook_event,
                     on_success=_zero_tool_use_advance,
                 )
@@ -1971,7 +2417,7 @@ def main() -> int:
     )
     if not dispatch_file or not os.path.isfile(dispatch_file):
         return _emit_advisory(
-            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
+            [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
         )
@@ -2170,7 +2616,7 @@ def main() -> int:
     # push-failure advisory (if any) may still stand alone.
     if not first_fire_list and not restage_list:
         return _emit_advisory(
-            [push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
+            [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
             hook_event,
             on_success=_zero_tool_use_advance,
         )
@@ -2205,7 +2651,7 @@ def main() -> int:
     # substance is unchanged; only the dangling pointer is removed.
 
     return _emit_advisory(
-        [nudge, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
+        [baton_msg, nudge, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
         hook_event,
         on_success=_zero_tool_use_advance,
     )

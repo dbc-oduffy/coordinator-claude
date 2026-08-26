@@ -29,7 +29,11 @@ Transport routing (unconditional native — no legacy fallback): route()
 dispatches session.reap, with a _no_fallback() legacy_fn that always
 raises (no bash body to fall back to). On transport failure (import
 error, timeout, non-zero op exit) route() raises; log-and-continue to
-stderr; exit 0.
+stderr; exit 0. On transport SUCCESS, the returned bare result is
+inspected via cc_invoke.mutation_refusal_message() (DR-215 exit_code
+trap) — an in-envelope op-level refusal (non-zero 'exit_code' / non-empty
+'error') is logged to stderr rather than silently discarded, though the
+"never block session start" contract still holds: exit 0 either way.
 
 Exit codes:
     0 — normal completion (including transport warn). Reaper MUST NOT block
@@ -58,7 +62,7 @@ from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
 
 
 def _no_console_creationflags() -> dict:
-    """Resolve CLAUDE_KLABAUTER_ROOT onto `sys.path` before importing `coordinator_core`
+    """Resolve the engine root onto `sys.path` before importing `coordinator_core`
     (mirrors `safe-commit-offer.py` / `sweep-boot.py`'s resolve-then-insert
     shape, which every other in-process op import in this directory uses).
 
@@ -116,9 +120,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0  # best-effort: never block session start
 
     try:
-        cc_invoke.route("session.reap", {}, repo_root, _no_fallback)
+        result = cc_invoke.route("session.reap", {}, repo_root, _no_fallback)
     except RuntimeError as exc:
         print(f"reap-sessions.py: session.reap failed -- continuing (best-effort): {exc}", file=sys.stderr)
+        return 0
+
+    message = cc_invoke.mutation_refusal_message("session.reap", result)
+    if message is not None:
+        print(f"reap-sessions.py: {message} -- continuing (best-effort)", file=sys.stderr)
     return 0
 
 

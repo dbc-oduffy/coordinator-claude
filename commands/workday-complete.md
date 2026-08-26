@@ -22,11 +22,15 @@ including the test-suite step inside `workday-complete-assemble`, which is the s
 expensive thing this ceremony runs (source its magnitude from `python
 coordinator/tests/_spawn_budget.py`, never a hardcoded number here):
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-args-and-validate" parse-front-door "${ARGUMENTS:-}"
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-args-and-validate" check-cross-machine "${ARGUMENTS:-}"
-```
+POSIX hosts: Shape A, `coordinator/snippets/resolve-coordinator-bin.md` — resolve
+`tier-u-grant-cli`, then `workday-complete-args-and-validate parse-front-door`, then
+`workday-complete-args-and-validate check-cross-machine`, each with `"${ARGUMENTS:-}"`.
+
+PowerShell hosts (rung 0, Shape W, same snippet), one command per line:
+
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.cmd" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.cmd" parse-front-door "$ARGUMENTS"
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.cmd" check-cross-machine "$ARGUMENTS"
 
 Capture stdout+exit code of each; non-zero on either stops. `eval` the front-door's stdout to set
 `$FOR_DATE`/`$ONLY_MODE`/`$ONLY_FLAG`/`$SCOPE_SUMMARY`. The cross-machine check fails loud on a
@@ -34,9 +38,12 @@ cross-machine `--for-date` mismatch — stop and report.
 
 ## Step 2: Compute the Ceremony
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-assemble" brief ${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG ${SCOPE_SUMMARY:+--scope-summary="$SCOPE_SUMMARY"}
-```
+POSIX hosts: Shape A, resolving `workday-complete-assemble brief
+${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG ${SCOPE_SUMMARY:+--scope-summary="$SCOPE_SUMMARY"}`.
+
+PowerShell hosts (rung 0, Shape W):
+
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.cmd" brief $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $(if ($SCOPE_SUMMARY) { "--scope-summary=$SCOPE_SUMMARY" })
 
 Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown — do not hand-derive (wiki).
 
@@ -62,9 +69,12 @@ Read each `judgment_points[]` entry verbatim — question/evidence/dispositions 
 
 ## Step 6: Apply
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-assemble" apply --decisions '<json map of judgment_point_id -> {"disposition": "<value>"}>' ${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG
-```
+POSIX hosts: Shape A, resolving `workday-complete-assemble apply --decisions '<json map of
+judgment_point_id -> {"disposition": "<value>"}>' ${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG`.
+
+PowerShell hosts (rung 0, Shape W):
+
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.cmd" apply --decisions '<json map of judgment_point_id -> {"disposition": "<value>"}>' $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
 
 Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5. Exit-code tables: wiki.
 
@@ -77,16 +87,16 @@ strategic observer (skip under `$ONLY_MODE=1`) writing debt-backlog YAML + a
 `skip_no_new_work`. Each Step 6 backfill gap-row TSV entry (oldest-first) gets its own analyst
 dispatch, only after Step 6 completes (wiki).
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workday-complete-close" stitch-sidecar
-```
+POSIX hosts: Shape A, resolving `workday-complete-close stitch-sidecar`.
+
+PowerShell hosts (rung 0, Shape W):
+
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-close.cmd" stitch-sidecar
 
 Pass `--today` with the target day under `$ONLY_MODE=1`. Non-zero is a HARD FAIL. Verify the
-stitch landed (wiki):
-
-```bash
-grep -c '^## Strategic Review' "archive/daily-summaries/<target-day>-<machine>.md"
-```
+stitch landed via a single-line Grep/read check on
+`archive/daily-summaries/<target-day>-<machine>.md` for `^## Strategic Review` occurrence count
+(harness `Grep`/`Select-String`, not a shell pipeline — the check is read-only on both hosts).
 
 Zero: dispatch the observer and re-stitch. Two-plus: reconcile by hand, never re-dispatch.
 
@@ -105,17 +115,22 @@ verified, M added, K corrected."_
 
 ## Step 9b-9c: Coverage, Baton-Drift, Auto-Memory Drain
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/day-coverage-sweep" <resolved day, YYYY-MM-DD>
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/baton-drift-sweep"
-```
+POSIX hosts: Shape A, resolving `day-coverage-sweep <resolved day, YYYY-MM-DD>` then
+`baton-drift-sweep`.
+
+PowerShell hosts (rung 0, Shape W), one command per line:
+
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\day-coverage-sweep.cmd" <resolved day, YYYY-MM-DD>
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\baton-drift-sweep.cmd"
 
 Skip both under `$ONLY_MODE=1`. Read their counts straight off, never collapsed to one number
 (`foreign`/`sibling_homed` are not gaps; `stranded` must be zero, `held` need not be — wiki).
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-auto-memory-drained" --root .
-```
+POSIX hosts: Shape A, resolving `check-auto-memory-drained --root .`.
+
+PowerShell hosts (rung 0, Shape W):
+
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.cmd" --root .
 
 Blocking. Exit 1 names every residual path owned by this session — resolve PROMOTE (durable home,
 restated in its own voice) or DROP per path, delete, re-run to confirm exit 0 (disposition detail:

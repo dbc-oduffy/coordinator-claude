@@ -3,7 +3,7 @@
 
 Direct-import variant (template-variant #1, mirrors coordinator/bin/
 baton-assemble, pickup-assemble, and archive-stamp-cli): a plain
-in-process function call after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC
+in-process function call after resolving the engine root, no cc_invoke/IPC
 hop.
 
 Contract: coordinator/docs/wiki/computed-skills.md (sibling coordinator-claude repo)
@@ -26,7 +26,7 @@ contract's own § Exit-code contract):
   0 — OK.
   1 — business failure (e.g. no applicable route/residue).
   2 — usage error (malformed arguments).
-  3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core
+  3 — transport failure (the engine root unresolvable, coordinator_core
       import failure, or an unresolvable content root).
 """
 

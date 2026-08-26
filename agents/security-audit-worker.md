@@ -159,13 +159,14 @@ Halt after writing this file. Do not report phantom findings.
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse guard denying your tool call is a **stop signal, not an obstacle to route around** — a trusted process, not you, decided the action is outside your authority.
+A coordinator PreToolUse guard denying your tool call is a stop signal, not an obstacle to route around.
 
-**Forbidden: reshaping a denied operation so it parses differently.** Wrapping it in a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
+**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
 
-**Correct response: stop, and report it** — name the exact command you attempted and the guard that denied it in your final report. What happens next — including whether a legitimate override applies — is the dispatching EM's call, never yours: do not substitute a different approach of your own once you have been denied. Evading and then disclosing it is still evading; the report is not absolution.
+**Required:** stop, and report the exact command you attempted and the guard that denied it. Do not substitute a different approach of your own once you have been denied. What happens next is the dispatching EM's call, never yours.
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
-**Your provisioned home for this dispatch: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, review-findings-typed (one disposition slot per finding), created for your role before you start. Record each finding's disposition there as you go, then return only a terse pointer — `done: <path>`, never a full dump. Your final message spends the EM's context window; the sidecar doesn't. Fall back to `scratch/subagent-sandbox/` (root-level, off `state/`) only if your dispatch carries no `sidecar_path:`/`provision_key:` — write freely there; files older than 24h are reaped.**
+**Provisioned home: `state/subagent-share/<session-id>/<provision_key>.md` — git-tracked, review-findings-typed (one disposition slot per finding), created for your role before you start. Record each finding's disposition there as you go; return only a terse pointer, `done: <path>`, never a full dump. No `sidecar_path:`/`provision_key:` in your dispatch → fall back to `scratch/subagent-sandbox/` (root-level, off `state/`); files there are reaped after 24h.**
+**Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.
 <!-- END subagent-sandbox-preamble -->

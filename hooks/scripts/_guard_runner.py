@@ -363,6 +363,7 @@ _GUARD_CHECK_CLAUDE_MD_SIZE = "check-claude-md-size.py"
 _GUARD_TEST_TREE_GIT_FIXTURE_SPAWN = "guard-test-tree-git-fixture-spawn.py"
 _GUARD_PYTHON_SYNTAX_ON_WRITE = "guard-python-syntax-on-write.py"
 _GUARD_DOCTRINE_SURFACE_RATIO = "guard-doctrine-surface-ratio.py"
+_GUARD_POSIX_INVOCATION_DOCTRINE_WRITE = "guard-posix-invocation-doctrine-write.py"
 
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
     RegisteredGuard(
@@ -459,6 +460,25 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
         module_key="guard_doctrine_surface_ratio",
         module_path=str(Path(_HOOKS_DIR) / _GUARD_DOCTRINE_SURFACE_RATIO),
         descriptor=GUARD_DOCTRINE_SURFACE_RATIO_SCOPE_DESCRIPTOR,
+    ),
+    RegisteredGuard(
+        module_key="guard_posix_invocation_doctrine_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_POSIX_INVOCATION_DOCTRINE_WRITE),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_POSIX_INVOCATION_DOCTRINE_WRITE,
+            # Real scope (the guard's own `is_in_scope`) is a target path
+            # under one of the three AC5 trees (skills/, commands/,
+            # docs/wiki/), no suffix restriction beyond that. This
+            # descriptor is exactly that predicate -- no heavier import is
+            # needed to build it, unlike the doctrine-changelog-prose /
+            # doctrine-surface-ratio guards above, which pull their governed
+            # trees from a module this registry must not import eagerly.
+            directory_substrings=(
+                "coordinator/skills/",
+                "coordinator/commands/",
+                "coordinator/docs/wiki/",
+            ),
+        ),
     ),
 )
 

@@ -616,6 +616,39 @@ def main(argv: list[str]) -> int:
     # an older harness the line is inert rather than wrong.
     os.environ.setdefault("CLAUDE_CODE_HARBOR_KITE", "1")
 
+    # The clone-identity key the http hook transport routes on. DoE's
+    # `DR-http-hook-forwarder-fixed-port.md` (C1) selects an exported,
+    # whitelisted, non-`CLAUDE_`-prefixed env var carried to the listener as an
+    # HTTP header via `allowedEnvVars` + `httpHookAllowedEnvVars`, because the
+    # alternatives lost on measurement: header path placeholders
+    # (`${CLAUDE_PLUGIN_ROOT}` and siblings) expand to `''` on harness 2.1.245,
+    # and `body.cwd` answers "which directory", not "which clone" -- a session
+    # in clone A standing in clone B routes to B.
+    #
+    # `doe_clone`, NOT `doe_coordinator`: the value is the clone ROOT, while
+    # `--plugin-dir` consumes the `<clone>/coordinator` subdirectory. The two
+    # differ by one path segment and the wrong one routes to a directory that is
+    # not an engine root.
+    #
+    # Sourced from `_resolve_doe_clone` above -- the RESOLVED clone, already
+    # `isdir`-validated. Negative-spec, per DR-087: this must never be derived
+    # from the settings-home `.doe-root` pointer that `claude-doe-shim.sh.tmpl`
+    # reads. That pointer is a demoted mirror, and exporting from it promotes it
+    # to rung-1 `REPO_DOE_CLAUDE` authority -- which is why the POSIX export
+    # belongs HERE, at the resolution site, and not in the shim.
+    #
+    # `setdefault` for the same reason as the line above: an operator who
+    # exports it themselves is making a deliberate choice about which clone
+    # their session routes to, and a wrapper that overwrites it removes their
+    # only lever.
+    #
+    # This is one leg of an all-legs-or-none precondition: the Windows
+    # `.cmd`/`.ps1` launchers carry the mirrored export at their own exec sites.
+    # Until both land, a session whose launcher does not export this is
+    # unroutable and fails CLOSED -- loud, never a silent misroute. No
+    # `type: "http"` registration may flip before both legs ship.
+    os.environ.setdefault("COORDINATOR_CLONE_ROOT", doe_clone)
+
     if os.name == "nt" or len(exec_prefix) > 1:
         # Windows has no exec(2). CPython maps `os.execv` onto the CRT's
         # P_OVERLAY spawn, which does NOT replace this process: it starts
@@ -642,6 +675,23 @@ def main(argv: list[str]) -> int:
         # Negative-spec: do NOT "restore" os.execv on Windows as a
         # process-count optimisation — the extra frame is load-bearing.
         # Guard: coordinator/tests/test_claude_doe_launch_waits.py.
+        #
+        # Negative-spec: do NOT add `timeout=` to this call, and do not count it
+        # as an unbounded spawn during a timeout-dial sweep. `subprocess.run`'s
+        # timeout is a KILL instrument — on expiry it kills the child and raises
+        # — so any value here is "terminate the operator's interactive session
+        # after N seconds". An interactive session legitimately runs for hours,
+        # so every finite N either kills live work or bounds nothing. Worse, the
+        # kill path does not run claude's own terminal restore, leaving the
+        # console in the raw/alternate-screen mode the TUI set: the exact
+        # corruption class this branch exists to prevent.
+        #
+        # There is no unattended failure mode to bound. This frame is not a
+        # mechanism occupying the box (CLAUDE.md § Load norm) — it is the
+        # console-owning parent of the process a human is typing into, and it
+        # runs exactly as long as they do. The headless `claude -p` path, which
+        # DOES need a kill ceiling, does not come through here: it is
+        # `coordinator/bin/lib/cc_invoke.py`, which carries its own.
         #
         # len(exec_prefix) > 1 keeps the POSIX shebang case on subprocess.run
         # too: `os.execv` there builds its command line via a raw, unquoted

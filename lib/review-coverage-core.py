@@ -51,7 +51,7 @@ seam detection.
 #   1 - business failure: usage error, or a fail-mode record-parse /
 #       git-ref-resolution failure (see --on-record-error /
 #       --on-unresolvable-ref above).
-#   2 - transport failure: CLAUDE_KLABAUTER_ROOT / coordinator_core.ops.review_coverage_core
+#   2 - transport failure: engine root / coordinator_core.ops.review_coverage_core
 #       could not be resolved/imported. Kept distinct from exit 1, matching the
 #       sibling workweek-trail-scope.py trampoline (porter-brief-addendum rule
 #       3b). (review: code-reviewer — this trampoline previously shared exit 1
@@ -82,19 +82,17 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported CLI entry.
+    """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
 
     Plain in-process import, not an RPC invoke — this trampoline is a thin CLI
     veneer, called by test_review_coverage_core.py (bash) and (in-process,
     bypassing this file entirely) coordinator_core.ops.workweek_trail_scope.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.review_coverage_core import main as _op_main
     return _op_main
 

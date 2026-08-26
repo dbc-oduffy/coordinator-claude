@@ -465,10 +465,12 @@ roster-gated legs. The discriminator has to be an injection-only string: the res
 wording is present in both cases, so a naive presence check reads as healthy either way and will
 not catch this.
 
-**This is not fixable from either repo's hook surface today.** A `Workflow` tool call carries a
-whole script, not a per-agent `subagent_type`, so there is nothing for a PreToolUse hook on matcher
-`Workflow` to key on — the spawn-time seam would have to live inside whatever spawns each
-`agent()`. Treat this as a live defect being worked around, not a settled design.
+**No hook surface fixes this; the wave-emitter can.** A `Workflow` call carries a whole script, not
+a per-agent `subagent_type`, so a PreToolUse hook on `Workflow` has nothing to key on, and
+`SubagentStart` carries no documented injection channel. The emitter already composes each
+`agent()` prompt, so catering can ride that construction — engine-plane, unbuilt. What fails to
+arrive: `contract_blocks`, sidecar provisioning, role framing. What arrives: the declared
+`agentType` itself — measured in a contract-block delivery audit.
 
 **How to check whether a given agent is affected:** does its `subagent_type` carry a
 `contract_blocks` row in `coordinator/subagent-sandbox-policy.yaml`? 33 of 34 agents do — count via
@@ -872,7 +874,7 @@ For "compare our work to upstream X" / inspiration-audit tasks — auditing our 
 
 **The synthesizer.** A single synthesizer reads all three outputs **from disk** and writes the audit document, the relevant INDEX entry, and a recheck marker (`tasks/*-recheck-due-YYYY-MM-DD.md`) if the comparison should be revisited. Per § Synthesis Discipline it assesses/fills/frames — it does not re-author the three specialists' content.
 
-**Disk-first hand-off is load-bearing here.** Each of the three agents writes its output to a known path and the synthesizer reads from disk, not chat. In the source run this kept TEXT-ONLY hallucination at zero (see `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch, "Scouts are disk-first"). When any of the three is a read-only auditor (Explore), persist its inline output EM-side at dispatch-completion (§ Read-Only Auditor Outputs Need EM-Side Persistence).
+**Disk-first hand-off is load-bearing here.** Each of the three agents writes its output to a known path and the synthesizer reads from disk, not chat. In the source run this kept TEXT-ONLY hallucination at zero (see `coordinator/snippets/disk-first-done-preamble.md`). When any of the three is a read-only auditor (Explore), persist its inline output EM-side at dispatch-completion (§ Read-Only Auditor Outputs Need EM-Side Persistence).
 
 **Note on provenance.** The skill that originally embodied this recipe was retired; the *dispatch shape* is reusable and is documented here as a named fan-out recipe so future "compare to upstream" tasks reach for the three-agent-into-synthesizer shape rather than reinventing it.
 
@@ -985,7 +987,7 @@ Concurrent EMs on a shared branch can fold each other's plan work simply by read
 
 ## TEXT-ONLY Hallucination Rate Spikes at Fan-Out > 5
 
-The doctrine floor in `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch ("Scouts are disk-first") names ~10% Sonnet under load hallucinating TEXT ONLY. **At parallel write-capable fan-out > 5, that rate spikes hard — to 50–60% on small-many-subdir sweeps under concurrent load.** A 9-parallel-Sonnet wave with disjoint scope and identical brief shape produced one executor that wrote ZERO marks despite a `DONE: 39 marks across 8 files` report, plus two more whose reports overstated landed-file counts by 3–4×. Pattern correlates with chunk size (small + many subdirs → high hallucination rate) and parallel-load.
+The doctrine floor in `coordinator/snippets/disk-first-done-preamble.md` names ~10% Sonnet under load hallucinating TEXT ONLY. **At parallel write-capable fan-out > 5, that rate spikes hard — to 50–60% on small-many-subdir sweeps under concurrent load.** A 9-parallel-Sonnet wave with disjoint scope and identical brief shape produced one executor that wrote ZERO marks despite a `DONE: 39 marks across 8 files` report, plus two more whose reports overstated landed-file counts by 3–4×. Pattern correlates with chunk size (small + many subdirs → high hallucination rate) and parallel-load.
 
 **Measurement provenance:** this 50–60% figure is from a single incident — one 9-parallel wave — measured at or before 2026-07-04, against the harness and Sonnet build current at that time. One incident is enough to justify the cap, not enough to call the rate precise; treat 50–60% as an order-of-magnitude finding, not a calibrated constant.
 

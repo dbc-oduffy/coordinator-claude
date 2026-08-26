@@ -37,7 +37,7 @@ implement the skeleton-stamper engine itself — thin transport veneer only.
 # Usage:
 #   coordinator-workflow-scaffold.py --name <kebab> [--description "<line>"] \
 #       [--title "<line>"] [--phase "Title::Detail"]... [--pattern <p>] \
-#       --repo <repo-root> [--out PATH]
+#       [--out PATH]
 #
 #   --name         kebab-case workflow name (op `name`). Defaults to a slugified
 #                  --title when --name is omitted but --title is given.
@@ -51,20 +51,24 @@ implement the skeleton-stamper engine itself — thin transport veneer only.
 #                  given on the command line.
 #   --pattern      Op `pattern`. Defaults to pipeline-default (matches the harness's
 #                  "DEFAULT TO pipeline()" convention) when omitted.
-#   --repo         Repo root passed through to the transport as its <repo_root> arg.
+#   --repo         Refused: workflow.scaffold is a "none"-scoped op (see
+#                  docs/decisions/DR-279-repo-on-a-none-scoped-op-fails-loud.md) —
+#                  it accesses no repo-specific state, so --repo would be
+#                  meaningless. Passing it fails loud instead of silently
+#                  no-opping, matching DR-279's shape for the underlying op.
 #   --out          Write result.script here. Omitted -> stdout.
 #
 # Exit codes:
 #   0 — success; script text written to --out or stdout.
 #   1 — bad args (missing --name/--title, missing --description/--title, malformed
-#       --phase, missing --repo, repo root not a directory, --out write failure).
+#       --phase, --repo passed (DR-279 refusal), --out write failure).
 #   2 — op/dispatch error: coordinator_core.invoke started and exited nonzero with
 #       what looks like a JSON-RPC business/param error (e.g. missing name/description,
 #       unknown pattern) rather than a transport failure. Stderr is printed verbatim —
 #       this is NOT "claude-klabauter isn't ready," it's the op rejecting the given params.
 #       Also covers empty stdout / unparseable invoke output / missing "script" key.
 #   3 — genuine transport/engine failure: invoke timeout, ImportError/ModuleNotFoundError-
-#       shaped stderr (engine won't import/start), or CLAUDE_KLABAUTER_ROOT resolution failure.
+#       shaped stderr (engine won't import/start), or engine-root resolution failure.
 #       (workflow.scaffold IS registered on claude-klabauter HEAD — see ops/__init__.py and
 #       @register_op("workflow.scaffold") in workflow_scaffold.py; this exit code
 #       does NOT imply the op is unshipped.)
@@ -89,7 +93,12 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import StructuralPinError, cc_invoke_bare  # noqa: E402
+from cc_invoke import (  # noqa: E402
+    StructuralPinError,
+    cc_invoke_bare,
+    is_timeout_error,
+    none_scoped_repo_refusal,
+)
 
 GENERATES = []  # writes only to the caller-supplied --out path (or stdout when omitted) — no fixed tracked artifact
 
@@ -98,7 +107,7 @@ _PROG = "coordinator-workflow-scaffold.py"
 
 class _TransportError(Exception):
     """Raised on a genuine transport/engine failure — timeout, ImportError/
-    ModuleNotFoundError-shaped stderr, CLAUDE_KLABAUTER_ROOT resolution failure, empty
+    ModuleNotFoundError-shaped stderr, engine-root resolution failure, empty
     stdout, or unparseable invoke output. Maps to exit 3.
     """
 
@@ -132,10 +141,23 @@ def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
         # cc_invoke_bare() raises a single RuntimeError type for both transport and
         # op-level failures; its message text is the discriminator (mirrors the
         # ImportError-vs-generic-rc classification the removed private ladder did).
+        #
+        # The timeout arm goes through `is_timeout_error`, cc_invoke's own sanctioned
+        # discriminator, rather than a literal substring — that function anchors on
+        # `_TIMEOUT_MESSAGE_PREFIX`, so it cannot drift out from under this classifier
+        # the way `"engine timeout" in msg` could. The engine-root arm accepts BOTH
+        # spellings on purpose: an in-flight rename is moving this fleet's prose from
+        # `CLAUDE_KLABAUTER_ROOT` to engine-root wording, and matching only the old spelling
+        # would silently reclassify a resolution failure (transport, exit 3) as an
+        # op-level rejection (exit 2) the day that rename reaches cc_invoke's own
+        # message text. Both spellings mean the same failure; neither is load-bearing
+        # alone. (Review finding, s3-cli-callers, 618164b2e4ad.)
         if (
             "engine will not import/start" in msg
-            or "engine timeout" in msg
+            or is_timeout_error(exc)
             or "CLAUDE_KLABAUTER_ROOT" in msg
+            or "engine root" in msg
+            or "engine-root" in msg
             or "empty stdout" in msg
             or "not valid JSON" in msg
         ):
@@ -146,7 +168,7 @@ def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
 def _usage() -> str:
     return (
         f"  Usage: {_PROG} --name <kebab> [--description \"<line>\"] "
-        "[--phase \"Title::Detail\"]... [--pattern <p>] --repo <repo-root> [--out PATH]"
+        "[--phase \"Title::Detail\"]... [--pattern <p>] [--out PATH]"
     )
 
 
@@ -155,7 +177,6 @@ def main(argv: list[str]) -> int:
     title = ""
     description = ""
     pattern = "pipeline-default"
-    repo_root = ""
     out_path = ""
     phases_raw: list[str] = []
 
@@ -178,8 +199,14 @@ def main(argv: list[str]) -> int:
             pattern = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2
         elif arg == "--repo":
-            repo_root = argv[i + 1] if i + 1 < len(argv) else ""
-            i += 2
+            # workflow.scaffold is scoped "none" (op_scopes.py); --repo is
+            # meaningless for it and used to be required + isdir-validated,
+            # for a value that was never transmitted (D2,
+            # docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md § C16).
+            # Refuse loud instead, matching
+            # coordinator-compute-layer-scaffold.py's reference shape.
+            print(none_scoped_repo_refusal(_PROG, "workflow.scaffold"), file=sys.stderr)
+            return 1
         elif arg == "--out":
             out_path = argv[i + 1] if i + 1 < len(argv) else ""
             i += 2
@@ -187,13 +214,6 @@ def main(argv: list[str]) -> int:
             print(f"{_PROG}: unknown arg: {arg}", file=sys.stderr)
             print(_usage(), file=sys.stderr)
             return 1
-
-    if not repo_root:
-        print(f"{_PROG}: --repo is required", file=sys.stderr)
-        return 1
-    if not os.path.isdir(repo_root):
-        print(f"{_PROG}: repo root not a directory: {repo_root}", file=sys.stderr)
-        return 1
 
     if not name and not title:
         print(f"{_PROG}: --name or --title is required", file=sys.stderr)
@@ -234,12 +254,15 @@ def main(argv: list[str]) -> int:
     # real op/param rejection, not an unshipped-engine condition. Surface the
     # actual failure verbatim rather than a canned "not ready yet" message. ---
     try:
-        result = _cc_invoke("workflow.scaffold", params, repo_root)
+        # workflow.scaffold is scoped "none" — cc_invoke_bare's
+        # _should_pass_repo() gate suppresses forwarding --repo for it, so
+        # this empty string is never read; see the --repo refusal above.
+        result = _cc_invoke("workflow.scaffold", params, "")
     except _TransportError as exc:
         print(str(exc), file=sys.stderr)
         print(
             f"{_PROG}: transport/engine failure dispatching workflow.scaffold — "
-            "see stderr above (timeout, CLAUDE_KLABAUTER_ROOT resolution, or engine "
+            "see stderr above (timeout, engine-root resolution, or engine "
             "import failure).",
             file=sys.stderr,
         )
@@ -259,7 +282,7 @@ def main(argv: list[str]) -> int:
     # op's raw response — POSIX text-file hygiene, not a bug.
     if out_path:
         try:
-            with open(out_path, "w", encoding="utf-8") as f:
+            with open(out_path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(script_text + "\n")
         except OSError as exc:
             print(f"{_PROG}: failed to write to --out path: {out_path} ({exc})", file=sys.stderr)

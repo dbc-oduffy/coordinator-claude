@@ -10,11 +10,12 @@ argument-hint: "[optional context]"
 
 <!-- Purpose: names and discharges "commit-and-stop". -->
 <!-- Negative-spec: NOT a cheaper workstream-complete. Writes no completion entry, reconciles no
-     plan, opens no review trail, terminates no handoff chain. A lesson does NOT disqualify. -->
+     plan, opens no review trail, terminates no handoff chain with ancestors. A lesson does NOT
+     disqualify. -->
 
 The short checklist for a session whose work is finished, small, and unremarkable. The entry test
 is a positive gate: fail one of the four and this is not the room — route to the named remedy, no
-negotiating. Every computable condition names a single field read, sourced from an assembler brief
+negotiating. Every computable condition names a single field read
 — never a procedure the EM runs and interprets.
 
 ---
@@ -25,12 +26,18 @@ negotiating. Every computable condition names a single field read, sourced from 
 |---|---|---|---|
 | 1 | **No governing plan** drove this session's work † | `close_gate.governing_plan` — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.governing_plan producer=unknown memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md --> | `/workstream-complete` |
 | 2 | **Diff under the review brightline** — <500 novel LOC, <5 commits, <4 surfaces | `close_gate.diff` (session-scoped, carve-outs pre-applied) — `quick-wrap-assemble brief` <!-- engine-gap: field=close_gate.diff producer=unknown memo=2026-08-14-doe-claude-em-quick-wrap-has-no-assembler-at-all.md --> | **Scoped review, then wrap** (below), not `/workstream-complete` |
-| 3 | **No predecessor consumed** | `artifact.classification` — `pickup-assemble brief <path>` for the artifact this session claimed; nothing claimed means nothing to read, test passes | `/workstream-complete` — a consumed handoff owes a coverage gate |
+| 3 | **What this session claimed has no ancestors** ‡ | `artifact.chain.ancestor_count == 0` — `pickup-assemble brief <path>` for the artifact this session claimed; nothing claimed means nothing to read, test passes | `/workstream-complete` — a chain that accumulated history owes a coverage gate |
 | 4 | **Work is finished** — nothing in-flight for a successor | judgment | `/handoff`, only if context pressure genuinely forces the stop |
 
 **† `spec-dispatch`.** `close_gate.governing_plan.scope_mode == "spec-dispatch"` passes test 1 as a
 deferred obligation, conditional on step 2's reconciliation micro-step running and step 4 reporting
 it. `dispatch`-routed sessions carry `governing_plan.present: false` and pass as before.
+
+**‡ A pickup is not itself the disqualifier — ancestry is.** A chain-root baton (`predecessor:`
+`none`/null, no `additional_predecessors`, no `forked_from`) carries no prior session's scope to
+account for, so claiming one and finishing it leaves no coverage gate owed. Until
+`artifact.ancestry` lands, read those three frontmatter fields off the same brief. It closes here:
+step 2 stamps its terminal disposition.
 
 `close_gate.diff` already excludes relocated-without-modification lines and doc-only lines —
 engine-applied, not an EM procedure. Report gross and novel counts in step 4 when the carve-out is
@@ -60,16 +67,28 @@ session, one closing ceremony. Two genuinely different workstreams close separat
 Four steps. Longer than a few minutes means the entry test was wrong.
 
 **1. Commit.** Run the safe-commit mechanism — it computes this session's safe pathspec from its
-touch-list (minus anything a live peer also claims) and commits + pushes:
+touch-list (minus anything a live peer also claims) and commits — publishing is the separate
+cadence checkpoint below, not part of this call:
 
 <!-- VERBATIM -->
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/safe-commit-offer"
-```
+On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) instead of the
+`${...}` POSIX-shell form — ladder and shapes: `snippets/resolve-coordinator-bin.md`. POSIX-host
+form (Shape A) resolves `safe-commit-offer`.
 
 **Do not ask whether to commit** — being asked was itself the defect, by explicit PM ruling. Run
 it, report what landed. `--message "<subject>"` for one group, `--groups-json <file>` for several.
 A path outside the computed safe pathspec is silently dropped, never caller-widened.
+
+**Push checkpoint — `push.outstanding`.** Safe-commit does not publish; push runs on a cadence,
+and `/quick-wrap` is one of its named checkpoints. Once the commit has landed, call
+the primitive once and block on it (~150ms, synchronous — no detach or background wrapper):
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`
+
+Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
+`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
+branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
+never hand-roll a `git push` beside it.
 
 **2. Close loose ends.** The judgment step — sweep what this session actually touched:
 
@@ -81,9 +100,16 @@ A path outside the computed safe pathspec is silently dropped, never caller-wide
   `coordinator-queue-append --schema bug-backlog|debt-backlog|improvement-queue` — naming it in
   step 4 and filing nothing is dumping it.
 - A `scope_mode: spec-dispatch` plan authored/executed this session: tick ACs, set `plan-tasks`
-  dispositions, stamp `status: implemented`; read the sizing status back and hand-write if
-  `deliverable.cascade_terminal` didn't fire it.
+  dispositions; `status: implemented` is `d-stamp-plan-implemented`'s write, fired by the
+  full-plan-shipped close-out — read the sizing status back to confirm it landed, never edit the
+  field directly.
   `[[the-deliverable-cascade-has-never-written-a-terminal-status]]`
+- **The chain-root baton this session claimed and finished** (the only kind test 3 admits): stamp
+  `deployment_state: shipped` + `shipped_in: <this session's commit>`; `status` stays `claimed`
+  (the schema enum admits only `open`/`claimed`). Same first-hand-observer ground as the
+  `dispatch`-routed sizing below — the session that did the work observes its own completion.
+  Leaving it unstamped strands a claim no successor will ever release, and
+  `sweep-shipped-handoffs` never archives it.
 - **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
   directly — no plan means this is its only write path.
 - **Every terminal sizing-object THAT NO PLAN CITES** (`shipped`/`declined`/`superseded`):
@@ -115,7 +141,9 @@ that the plan-reconciliation micro-step ran. Then stop.
 
 - **Never deletes, force-pushes, or rewrites history.** No `reset --hard`, `checkout --` over
   another's hunk, branch deletion, rebase. Authorized: a scoped forward commit, a `git mv` of a
-  queue entry or terminal sizing-object into archive, this session's own terminal-`status:` write.
+  queue entry or terminal sizing-object into archive, this session's own terminal-status write —
+  on a sizing-object, or on the chain-root baton it claimed itself. **Never on a baton with
+  ancestors** — that chain's termination belongs to `/workstream-complete`.
 - **Writes no continuity artifact** — no handoff, spinoff, completion entry; the entry test
   already routed you elsewhere if one was owed.
 - **Captures no lesson itself** — via the `lesson` CLI, then wrap.

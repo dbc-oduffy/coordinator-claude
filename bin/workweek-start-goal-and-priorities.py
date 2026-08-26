@@ -227,7 +227,7 @@ def _fill_goal_placeholders(path: Path, iso_week: str, objective_prose: str) -> 
             out.append(f"objective: {json.dumps(objective_prose)}")
         else:
             out.append(line)
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
 
 
 def _read_objective(path: Path) -> str:
@@ -245,7 +245,7 @@ def _fill_goal_id(path: Path, goal_id: str) -> None:
             out.append(f'goal_id: "{goal_id}"')
         else:
             out.append(line)
-    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+    path.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
 
 
 def _compute_goal_id(iso_week: str, text: str) -> str:

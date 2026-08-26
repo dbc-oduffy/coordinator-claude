@@ -11,16 +11,18 @@
 #                              live sessions (`coordinator_core.session.
 #                              liveness`), classify each as affected/
 #                              unaffected by resolving whether that repo's
-#                              path is a registered `engine.working_repos.*`
-#                              working checkout (unaffected -- resolves its
-#                              own tree by construction) or falls through to
-#                              the published engine (affected), and emit a
+#                              path IS the engine's own resolved source tree
+#                              (`_resolve_claude_klabauter.py::_resolve_claude_klabauter_root` --
+#                              the same structural check the resolver's own
+#                              gate makes; unaffected -- resolves its own
+#                              tree by construction) or falls through to the
+#                              published engine (affected), and emit a
 #                              plain-text report plus the verdict line
 #                              "affects N of M live sessions."
 #
 # Exit codes: 0 on a successful report (REGARDLESS of the N/M verdict --
 # this is a report, never a gate; see NEGATIVE SPEC below). 3
-# (_TRANSPORT_FAIL) when CLAUDE_KLABAUTER_ROOT cannot be resolved or the wrapped
+# (_TRANSPORT_FAIL) when the engine root cannot be resolved or the wrapped
 # coordinator_core.session modules are not importable -- "the engine could
 # not be reached," same convention as session-liveness-cli /
 # session-reachability-cli. A usage error (unknown subcommand) exits 2.
@@ -40,10 +42,12 @@ WHAT IT DOES: for every repo the machine-local registry knows about
 `live_session_ids`), and classifies each live session as AFFECTED or
 UNAFFECTED by a claude-klabauter engine percolation/publish:
 
-  - UNAFFECTED: the session's repo is a registered `engine.working_repos.*`
-    entry (the plan's engine-resolution discriminant) -- an engine-working repo
-    resolves ITS OWN tree, not the published mirror, so a mirror publish
-    cannot touch what that session sees, by construction.
+  - UNAFFECTED: the session's repo IS the engine's own resolved source tree
+    (same structural check `_resolve_claude_klabauter.py::resolve_claude_klabauter_root_with_class`
+    makes, 2026-08-18 C4 -- not per-repo `engine.working_repos.*` membership,
+    retired as the discriminant) -- it resolves ITS OWN tree, not the
+    published mirror, so a mirror publish cannot touch what that session
+    sees, by construction.
   - AFFECTED: every other repo with a live session -- it falls through to
     the published engine, so a publish changes what that session's next
     engine-touching op resolves.
@@ -86,7 +90,24 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
+
+# Same seam `resolve_claude_klabauter_root_with_class()` uses to determine the ONE
+# engine source tree (C4, 2026-08-18) — imported directly rather than
+# re-deriving the discriminant against `engine.working_repos.*` a second
+# time (the exact duplication C4 exists to kill; see that module's
+# `_is_claude_klabauter_source_tree` docstring for why a structural comparison
+# replaced the retired per-repo exemption family).
+_RESOLVE_CLAUDE_KLABAUTER_LIB_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "lib", "resolve-claude-klabauter"
+)
+if _RESOLVE_CLAUDE_KLABAUTER_LIB_DIR not in sys.path:
+    sys.path.insert(0, _RESOLVE_CLAUDE_KLABAUTER_LIB_DIR)
+from _resolve_claude_klabauter import (  # noqa: E402
+    ClaudeKlabauterResolutionError,
+    _ml_dir as _claude_klabauter_ml_dir,
+    _resolve_claude_klabauter_root as _resolve_claude_klabauter_source_root,
+)
 
 _TRANSPORT_FAIL = 3
 
@@ -95,9 +116,7 @@ _SUBCOMMANDS = "subcommands: run (default when no args)"
 
 
 def _import_modules():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.liveness as liveness_mod
     import coordinator_core.session.peer_roster as peer_roster_mod
     import coordinator_core.machine_resolver as machine_resolver_mod
@@ -165,8 +184,21 @@ def _build_id_to_address(peer_roster_mod, repo_path: str) -> "dict[str, str]":
 
 def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
     repos = _load_registry_prefix(machine_resolver_mod, "repos.")
-    working_repos = _load_registry_prefix(machine_resolver_mod, "engine.working_repos.")
-    working_paths = {_normalize_path(p) for p in working_repos.values()}
+
+    # The ONE path that IS the engine's own live source tree — same
+    # structural comparison `_resolve_claude_klabauter.py::_is_claude_klabauter_source_tree`
+    # makes, not a scan over `engine.working_repos.*` (C4 retired that as
+    # the resolution-class discriminant; the key survives elsewhere as a
+    # pure locator, but is no longer this question's input). `None` means
+    # undeterminable (no live source tree resolves on this box at all) --
+    # every repo then classifies AFFECTED, since nothing resolves the live
+    # tree for anyone to be unaffected via.
+    try:
+        source_tree_path = _normalize_path(
+            _resolve_claude_klabauter_source_root(_claude_klabauter_ml_dir())
+        )
+    except ClaudeKlabauterResolutionError:
+        source_tree_path = None
 
     # Always consider the repo this preflight is invoked from, even if it
     # has no `repos.*` registry entry of its own (a fresh/unregistered
@@ -215,7 +247,7 @@ def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
             if sid in live_ids:
                 lines_by_id[sid] = line
 
-        is_working = _normalize_path(path) in working_paths
+        is_working = source_tree_path is not None and _normalize_path(path) == source_tree_path
         affected_here = not is_working
         id_to_address = _build_id_to_address(peer_roster_mod, path)
 

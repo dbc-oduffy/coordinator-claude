@@ -22,7 +22,7 @@ bin/regenerate-orientation-cache.
 #
 # Division of labor: this trampoline resolves REPO_ROOT / STATE_ROOT / CACHE_FILE
 # (reusing the native 5-rule resolver `coordinator_core.state_root`, imported
-# in-process once CLAUDE_KLABAUTER_ROOT is on sys.path — de-bash campaign,
+# in-process once the engine root is on sys.path — de-bash campaign,
 # docs/plans/2026-07-16-bash-clean-slate-residual-migration.md; the bash
 # sourced-lib oracle this used to shell out to is retired) and owns `--list` /
 # the no-cache-file no-op. The actual schema-check logic (frontmatter, heading
@@ -55,7 +55,7 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
@@ -79,15 +79,13 @@ def _resolve_repo_root() -> str:
 
 def _resolve_state_root() -> str:
     """Resolve STATE_ROOT via the native `coordinator_core.state_root` seam,
-    imported in-process once CLAUDE_KLABAUTER_ROOT is resolved (same CLAUDE_KLABAUTER_ROOT
+    imported in-process once the engine root is resolved (same engine root
     resolution `_import_op_main` below already performs for the op module —
     shared here rather than re-resolved). Raises RuntimeError on any
-    transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, module not importable, or
+    transport failure (engine root unresolvable, module not importable, or
     the seam's own StateRootError/CrossCuttingStateRoot).
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     try:
         from coordinator_core.state_root import coordinator_state_root as _native_state_root
     except ImportError as exc:
@@ -99,9 +97,7 @@ def _resolve_state_root() -> str:
 
 
 def _import_op_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.verify_orientation_cache_sync import main as _op_main
 
     return _op_main
@@ -126,21 +122,21 @@ def main() -> None:
         print(f"verify-orientation-cache-sync: no cache file at {cache_file} — nothing to verify")
         sys.exit(0)
 
-    # Review: code-reviewer P3 — _resolve_repo_root() re-resolves CLAUDE_KLABAUTER_ROOT
+    # Review: code-reviewer P3 — _resolve_repo_root() re-resolves the engine root
     # unguarded; safe today only because _resolve_state_root() above already
     # proved resolution succeeds, but the redundant call sat outside any
     # try/except, inconsistent with this file's own established pattern of
-    # catching RuntimeError at every other CLAUDE_KLABAUTER_ROOT-touching call site.
+    # catching RuntimeError at every other engine-root-touching call site.
     try:
         repo_root = _resolve_repo_root()
     except RuntimeError as exc:
-        print(f"verify-orientation-cache-sync: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"verify-orientation-cache-sync: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(2)
 
     try:
         op_main = _import_op_main()
     except RuntimeError as exc:
-        print(f"verify-orientation-cache-sync: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"verify-orientation-cache-sync: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(2)
     except ImportError as exc:
         print(

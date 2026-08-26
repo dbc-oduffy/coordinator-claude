@@ -21,9 +21,10 @@ Failure Modes).
 
 ## Step 1: Identify Surfaces
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --where "created=<YYYY-MM-DD>" --format json
-```
+Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W).
+Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.cmd" --where "created=<YYYY-MM-DD>" --format json`
 
 Extract file paths / subsystem names from `title`, `description`, `files`. No entries for today:
 read `state/health-ledger.md`'s `Last daily check:` date, fall back to
@@ -58,9 +59,7 @@ interacting files or new abstractions go to Step 5 instead. No findings: skip to
 
 ## Step 5: Debt Backlog
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-queue-append" --schema debt-backlog
-```
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-queue-append.cmd" --schema debt-backlog`
 
 One YAML file per finding under `state/debt-backlog/`. Required: `title`, `body` (block scalar:
 observation, structural gap, context), `source: daily-health/code-reviewer/{date}`, `risk`,
@@ -84,9 +83,7 @@ wiki page for this skill until one lands.
 
 ## Step 7: Health Summary
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type health-status --title "Health Summary"
-```
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type health-status --title "Health Summary"`
 
 Via Edit, fill `health:` (`HEALTHY|WATCH|ACTION|CRITICAL`), `summary:` (one-line), and body
 sections `## Systems Graded`, `## Findings Summary`, `## Action Items for Next Session`. Worked
@@ -94,10 +91,9 @@ example: wiki.
 
 ## Step 8: Commit
 
-```bash
-git add state/health-ledger.md "state/health/<YYYY-MM-DD>-health-summary.md"
-git commit -m "daily-code-health: review of surfaces from completion entries [date]"
-```
+Commit per `snippets/scoped-commit-route.md`, subject `daily-code-health: review of surfaces from
+completion entries [date]`, pathspec exactly `state/health-ledger.md` and
+`state/health/<YYYY-MM-DD>-health-summary.md`.
 
 Nothing else this run touched. Post-commit hook pushes automatically.
 

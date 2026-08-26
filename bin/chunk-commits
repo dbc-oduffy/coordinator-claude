@@ -32,7 +32,7 @@
 #   1 — business failure (op refusal: unresolvable plan path, no add-commit,
 #       underlying git failure).
 #   2 — usage error.
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / seam absent).
+#   3 — transport failure (the engine root is unresolvable / seam absent).
 #
 # Spec backlink: pln-chunk-commit-liveness-becomes-c77555 § C3
 from __future__ import annotations
@@ -103,7 +103,7 @@ def _parse_args(argv: list[str]) -> tuple[str, str, bool]:
 def _legacy_absent() -> None:
     """State-1 (claude-klabauter seam absent) has no bash predecessor to fall back to —
     this CLI is native-only from birth. Raising here lets `route()` wrap the
-    failure in its own four-rung CLAUDE_KLABAUTER_ROOT remediation message rather than
+    failure in its own four-rung engine-root remediation message rather than
     this file re-deriving one."""
     raise RuntimeError(
         "chunk-commits has no legacy fallback: it is a thin trampoline over "

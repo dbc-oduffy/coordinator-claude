@@ -72,11 +72,18 @@ Negative-spec (tc-2 D2): NO id field is generated or accepted. The filename
 <date>-<slug>.yaml is the canonical entry handle. Do NOT restore id generation,
 --id flag, or id_prefix_pattern validation — those are intentionally dropped.
 
+Body transport: `--body` carries a ONE-LINE value only. cmd.exe truncates its
+whole command line at the first LF during its own parse, so a multi-line
+`--body` reaching a `.cmd` launcher loses every line after the first -- and
+SILENTLY, when `--body` is the trailing flag (argparse still sees a well-formed
+value, the write succeeds, the entry lands one line long). Pass `--body-file
+<path>` for anything multi-line; a path is one token on every launcher leg.
+
 Invocation:
   coordinator-queue-append \\
       --schema debt-backlog \\
       --title "Title here" \\
-      --body "Multi-line body" \\
+      --body-file /path/to/body.md \\
       --source "daily-review/2026-06-15" \\
       --status open \\
       --risk "Risk text" \\
@@ -86,7 +93,7 @@ Invocation:
   coordinator-queue-append \\
       --schema bug-backlog \\
       --title "Bug title" \\
-      --body "Bug description" \\
+      --body-file /path/to/bug-description.md \\
       --surface "coordinator/auto-push" \\
       --severity P1 \\
       --status open
@@ -115,6 +122,7 @@ import argparse
 import datetime
 import json
 import os
+import pathlib
 import re
 import sys
 import tempfile
@@ -170,7 +178,7 @@ def _schema_cli_no_legacy(schema_name: str, op: str) -> Any:
 
     schema-cli.js (the former Node bridge) was deleted in 480ad8f8; there is no
     legacy implementation left to fall back to. route()'s State-1 path wraps this
-    RuntimeError in the four-rung CLAUDE_KLABAUTER_ROOT remediation message (cc_invoke.py
+    RuntimeError in the four-rung engine-root remediation message (cc_invoke.py
     _state1_remediation_message), so the operator sees exactly which rung to fix.
     """
     raise RuntimeError(
@@ -242,6 +250,13 @@ def _schema_cli_validate(schema_name: str, fields: dict) -> tuple[bool, list[str
     except RuntimeError as exc:
         print(
             f"error: schema validation failed for '{schema_name}': {exc}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not isinstance(result, dict):
+        print(
+            f"error: schema validation malformed result for '{schema_name}': not a dict ({result!r})",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -322,7 +337,7 @@ _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 
 
 class _ClaudeKlabauterUnresolvable(RuntimeError):
-    """Raised when CLAUDE_KLABAUTER_ROOT cannot be resolved via env var or machine-local registry.
+    """Raised when the engine root cannot be resolved via env var or machine-local registry.
 
     Callers in the per-project (meta-repo cwd) write loop catch this and degrade
     gracefully (WARN + skip, exit 0) per AC13. The low-level shell primitive
@@ -386,7 +401,7 @@ def _resolve_session_id() -> str:
     ``CLAUDE_CODE_SESSION_ID``-only read to match the canonical reference —
     see that constant's own docstring for the prior break-class defect two
     disagreeing copies of this ladder caused. Returns "" if unresolved,
-    including on an import/CLAUDE_KLABAUTER_ROOT resolution failure (fail-soft — an
+    including on an import/engine-root resolution failure (fail-soft — an
     unresolved id here correctly degrades provenance_completeness to
     "unknown" below, the pre-existing contract of this function's
     env-var-only predecessor).
@@ -549,7 +564,7 @@ def _output_path(
       1. QUEUE_APPEND_OUTPUT_ROOT env override wins (test isolation).
       2. Else if queue_scope == "central": central state routes to claude-klabauter
          unconditionally, via the same seam the meta-repo per-project branch below
-         uses. Raises _ClaudeKlabauterUnresolvable if CLAUDE_KLABAUTER_ROOT cannot be resolved — caller
+         uses. Raises _ClaudeKlabauterUnresolvable if the engine root cannot be resolved — caller
          must catch and degrade gracefully (WARN + skip, exit 0).
       3. Else (project scope): routes via the seam (L7 fix — git root, not bare cwd).
          Meta-repo cwd routes to claude-klabauter; sibling-repo cwd routes to its own state/.
@@ -609,7 +624,7 @@ def _output_path(
         # AC1/AC2 are `pending`, and its own C3 is HELD with recorded disk proof
         # the flip never took effect on the production path.)
         # _claude_klabauter_root() raises _ClaudeKlabauterUnresolvable when repos.claude_klabauter is
-        # unregistered and CLAUDE_KLABAUTER_ROOT env var is not set — legacy_fn() catches and
+        # unregistered and the engine-root env var is not set — legacy_fn() catches and
         # degrades gracefully (WARN + skip, exit 0) per the graceful-degradation
         # contract, mirroring the meta-repo per-project branch below.
         claude_klabauter_root = _claude_klabauter_root()
@@ -703,7 +718,7 @@ def _write_out_path_overwrite(out_path: str, content: str) -> str:
         dir=directory,
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(content)
         os.replace(tmp_path, out_path)
     except BaseException:
@@ -1243,7 +1258,19 @@ Spec backlink: docs/plans/2026-06-25-example-initiative-tc-2-queues-lessons-cons
             "Multi-line description. Required for the shared base schemas "
             "(debt-backlog, bug-backlog, improvement-queue, lessons). Not used by "
             "--schema workstream or workstream-event. Use literal newlines or \\n. "
-            "Requiredness is enforced in main(), not here (see _WORKSTREAM_STORE_SCHEMAS)."
+            "Requiredness is enforced in main(), not here (see _WORKSTREAM_STORE_SCHEMAS). "
+            "A body carrying real newlines cannot survive the .cmd launcher leg -- "
+            "pass --body-file for anything multi-line."
+        ),
+    )
+    parser.add_argument(
+        "--body-file",
+        default=None,
+        metavar="PATH",
+        help=(
+            "Read the body from a UTF-8 file instead of argv. Mutually exclusive "
+            "with --body. The only body transport that survives every launcher "
+            "leg intact -- see main()'s resolution block for why."
         ),
     )
     parser.add_argument(
@@ -1665,6 +1692,33 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    # --body-file: the argv-immune body transport.
+    #
+    # cmd.exe truncates its ENTIRE command line at the first LF during its own
+    # parse, before a .cmd launcher body ever runs -- `%*` and `%CMDCMDLINE%` are
+    # both already one line by then, so neither `%*` forwarding nor
+    # `raw_cmdline_recovery.recover_windows_argv` can restore what was dropped
+    # (measured 2026-08-19; the standing oracle is the known-bad
+    # `cmd-multiline-truncated` row in coordinator_core/test_bin_launcher_parity.py
+    # ::test_argv_fidelity_matrix). When --body is the trailing flag the loss is
+    # SILENT: argparse still sees a well-formed single-line value, the write
+    # succeeds, and the entry lands holding its first line and nothing else.
+    # A path is one token on every leg, so this flag closes the class outright
+    # instead of warning about it -- same shape as coordinator-safe-commit's and
+    # cross-repo-memo's --body-file.
+    #
+    # Escape expansion is deliberately NOT applied to file-borne text: a file
+    # already carries real newlines, so a literal backslash-n in prose is prose.
+    body_from_file = False
+    if args.body_file is not None:
+        if args.body is not None:
+            parser.error("--body and --body-file are mutually exclusive")
+        try:
+            args.body = pathlib.Path(args.body_file).read_text(encoding="utf-8")
+        except OSError as exc:
+            parser.error(f"--body-file unreadable: {exc}")
+        body_from_file = True
+
     schema_name = args.schema
     if schema_name not in _SCHEMA_OUTPUT_DIRS:
         known = ", ".join(sorted(_SCHEMA_OUTPUT_DIRS.keys()))
@@ -1888,7 +1942,7 @@ def main() -> None:
             # Universal base fields.
             "created": created,
             "title": args.title,
-            "body": args.body.replace("\\n", "\n"),
+            "body": args.body if body_from_file else args.body.replace("\\n", "\n"),
             "status": args.status,
             # Base optional fields (canonical unified names).
             "from_repo": from_repo,
@@ -1938,7 +1992,7 @@ def main() -> None:
     # ── Routing gate: queue.append via native cc_invoke when seam present ──────────────────
     # Spec backlink: docs/plans/2026-07-06-strang-08-arm-queue-facade-invoke-retarget.md § C2
     #
-    # State-1 (coordinator_core.invoke disk-absent via CLAUDE_KLABAUTER_ROOT) → legacy_fn() is called.
+    # State-1 (coordinator_core.invoke disk-absent via the engine root) → legacy_fn() is called.
     # State-2 (seam present) → cc_invoke → queue.append native op.
     # Transport failure on State-2 is a hard error; never falls back to legacy_fn.
     # Negative-spec: do NOT add a liveness probe, do NOT add try/except→legacy after native.
@@ -1978,7 +2032,7 @@ def main() -> None:
                 filename_override=filename_override,
             )
         except _ClaudeKlabauterUnresolvable as exc:
-            # AC2-analog (central): degrade gracefully on unresolvable CLAUDE_KLABAUTER_ROOT for
+            # AC2-analog (central): degrade gracefully on unresolvable engine root for
             # central-scope writes (queue_scope == "central"). A coordinator install
             # without repos.claude_klabauter registered WARNs and skips rather than
             # hard-erroring. Central-scope is guarded (main()) to only ever apply to
@@ -1987,18 +2041,18 @@ def main() -> None:
             # Spec backlink: docs/wiki/state-placement-law.md § Taxonomy "Central/global state"
             if queue_scope == "central":
                 print(
-                    f"warn: coordinator-queue-append: CLAUDE_KLABAUTER_ROOT unresolvable — "
+                    f"warn: coordinator-queue-append: the engine root unresolvable — "
                     f"skipping central write: {exc}",
                     file=sys.stderr,
                 )
                 print(
                     "  Remediation: run 'machine-local set repos.claude_klabauter /path/to/claude-klabauter'\n"
-                    "  or set CLAUDE_KLABAUTER_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
+                    "  or set COORDINATOR_ENGINE_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
                     "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
                     file=sys.stderr,
                 )
                 return  # exits 0 via normal return from legacy_fn()
-            # AC13: degrade gracefully on unresolvable CLAUDE_KLABAUTER_ROOT for meta-repo per-project
+            # AC13: degrade gracefully on unresolvable engine root for meta-repo per-project
             # cwd writes (else-branch of _output_path). Unchanged from pre-flip behaviour
             # for all pre-existing schemas.
             # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC13
@@ -2013,25 +2067,25 @@ def main() -> None:
             # Spec backlink: docs/plans/2026-07-08-project-tracker-render-from-queue.md § Substrate
             if schema_name in _WORKSTREAM_STORE_SCHEMAS:
                 print(
-                    f"error: coordinator-queue-append: CLAUDE_KLABAUTER_ROOT unresolvable — "
+                    f"error: coordinator-queue-append: the engine root unresolvable — "
                     f"cannot write workstream-store record (schema={schema_name}): {exc}",
                     file=sys.stderr,
                 )
                 print(
                     "  Remediation: run 'machine-local set repos.claude_klabauter /path/to/claude-klabauter'\n"
-                    "  or set CLAUDE_KLABAUTER_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
+                    "  or set COORDINATOR_ENGINE_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
                     "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
                     file=sys.stderr,
                 )
                 sys.exit(1)
             print(
-                f"warn: coordinator-queue-append: CLAUDE_KLABAUTER_ROOT unresolvable — "
+                f"warn: coordinator-queue-append: the engine root unresolvable — "
                 f"skipping meta-repo per-project write: {exc}",
                 file=sys.stderr,
             )
             print(
                 "  Remediation: run 'machine-local set repos.claude_klabauter /path/to/claude-klabauter'\n"
-                "  or set CLAUDE_KLABAUTER_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
+                "  or set COORDINATOR_ENGINE_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
                 "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
                 file=sys.stderr,
             )
@@ -2171,7 +2225,7 @@ def main() -> None:
     if _native_result.get("skipped"):
         # Contract pt 5 (AC12): map skipped:true → legacy WARN + exit 0 (no path printed).
         # Parity with the legacy path's _ClaudeKlabauterUnresolvable WARN messages — both routes
-        # degrade on unresolvable CLAUDE_KLABAUTER_ROOT, not DOE_ROOT (see docs/wiki/state-placement-law.md
+        # degrade on unresolvable engine root, not DOE_ROOT (see docs/wiki/state-placement-law.md
         # § Taxonomy "Central/global state"). The native op's _output_path (coordinator_core/ops/
         # queue_append.py) raises _ClaudeKlabauterUnresolvable on THREE branches — central-scope,
         # meta-repo-cwd, and the caller_worktree-is-None fallback — not central-scope alone, so
@@ -2179,13 +2233,13 @@ def main() -> None:
         # non-central skip (Review: code-reviewer — Finding 2).
         _skip_kind = "central" if queue_scope == "central" else "meta-repo per-project"
         print(
-            f"warn: coordinator-queue-append: CLAUDE_KLABAUTER_ROOT unresolvable — "
+            f"warn: coordinator-queue-append: the engine root unresolvable — "
             f"skipping {_skip_kind} write: {_native_result.get('reason', 'claude-klabauter root unresolvable')}",
             file=sys.stderr,
         )
         print(
             "  Remediation: run 'machine-local set repos.claude_klabauter /path/to/claude-klabauter'\n"
-            "  or set CLAUDE_KLABAUTER_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
+            "  or set COORDINATOR_ENGINE_ROOT=/path/to/claude-klabauter before invoking this CLI.\n"
             "  Reference: plugins/coordinator/docs/wiki/machine-local-registry.md §4c",
             file=sys.stderr,
         )

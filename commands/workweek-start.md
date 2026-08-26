@@ -40,12 +40,13 @@ Step 8 fills `Week starting:`, `Last /workweek-start:`, and priorities on the fi
 
 ## Step 1: Assemble the Week-Cadence Brief
 
-Run: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/orient-assemble" brief --cadence week`
+Run (shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown): `& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.cmd" brief --cadence week`
 
 Computes the cadence-invariant orient spine in one read-only pass (env/effort drift, addon/doctor
 health, inbound cross-repo memo surfacing, project-RAG staleness, handoff triage, agent-worktree
-sweep, health-probe drift, branch-span assertion) — the same spine `workstream-start` and
-`workday-start` consume for their own cadences — plus the week-marker freshness check: its
+sweep, health-probe drift, branch-span assertion, day-branch assertion) — the same spine
+`workstream-start` and `workday-start` consume for their own cadences — plus the week-marker
+freshness check: its
 `judgment_points[]` carries `j-week-marker-freshness` (dispositions `reset_week` /
 `update_in_place`) whenever HEADER.md reads stale. Step 8 acts on that.
 
@@ -56,7 +57,29 @@ sweep, health-probe drift, branch-span assertion) — the same spine `workstream
   before proceeding past it — never auto-pick a disposition.
 - **`narration`** / **`next_move`** — surface verbatim as the digest's lead when non-empty.
 
-Do not re-derive any check this op already computes. What follows is the week-specific residue it
+**The day-branch is asserted here, not just its span.** A branch-*span* assertion answers "does
+today fall inside this branch's name" and says nothing when the tree is sitting on `main` — so a
+Monday opened with `/workweek-start` and no `/workday-start` used to cut nothing and report
+nothing. The week cadence now asserts the same day-branch invariant the day cadence does: tree on
+`main` → the day branch is cut automatically (serialized, so concurrent sessions inherit rather
+than each cutting); a non-`main` branch that violates the auto-push rules → a warning, never a
+switch. Both outcomes render through the shared day-branch banner, not a look-alike printed here —
+`/workweek-start` is a mid-session slash command and never re-enters the SessionStart boot assert,
+so a second renderer would drift from the one every other entry path uses.
+
+**Expired plan gates.** The daily sweep reads `awaiting_gate` from *handoff* frontmatter only — a
+gate on a **plan chunk row** is read by nothing, so a chunk naming this ceremony as its expiry
+never surfaces itself. Check non-terminal plans only:
+`python coordinator/bin/expired-plan-gates.py`. An expiry naming an action is a directive — fire
+it or record why not; one that silently rolls to next week is the failure this catches.
+
+**Anchor-freshness flag.** `python coordinator/bin/check-anchor-freshness.py` — prints the digest
+line verbatim when no commit changed `.version` in `coordinator/.claude-plugin/plugin.json` in the
+prior week, and the matching commits when one did. Render the flag line as printed; silence is not
+a finding. Scoped to the coordinator plugin triple only — the engine anchor has no cadence to
+check against, pending its own converged contract.
+
+Do not recompute any check this op already covers. What follows is the week-specific residue it
 doesn't cover: the exec-summary refresh, the positioning nudge, priority-setting and goal
 authoring, and the HEADER.md reset-or-update mechanics.
 
@@ -67,7 +90,7 @@ authoring, and the HEADER.md reset-or-update mechanics.
 Regenerate `docs/exec-summary.md`'s MANAGED sections (identity + progress) from disk; the two HAND
 sections (what makes it special, near-term goals) are preserved verbatim:
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/generate-exec-summary"`
+Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\generate-exec-summary.cmd"`
 
 Silent if the generator or the file is absent (`repo-setup` Phase 3d.5 creates it on onboarded
 repos). Kill-switch for the staleness banner: `COORDINATOR_EXECSUMMARY_STATUS_OFF`.
@@ -110,11 +133,11 @@ re-nudges once data exists (that's `/workweek-complete` Step 4i's freshness-nudg
 Delegates scaffolding to `coordinator:strategic-self-description-refresh`; this step never authors
 the scaffold itself. Shared with `/workweek-complete` Step 4j via one extracted script.
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-competitor-positioning-nudge"`
+Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-competitor-positioning-nudge.cmd"`
 
 If the PM declines, record it so the nudge doesn't recur for the cooldown window:
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-competitor-positioning-nudge" --record-decline`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\check-competitor-positioning-nudge.cmd" --record-decline`
 
 ---
 
@@ -133,7 +156,7 @@ Resolve `<SID_SHORT>` as `workweek-trail-scope.py` does: `CLAUDE_SESSION_ID` /
 
 For **each** priority, author one `period=week` goal artifact:
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-start-goal-and-priorities" scaffold-goal --title "<priority title>" --sid-short "<SID_SHORT>"`
+Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" scaffold-goal --title "<priority title>" --sid-short "<SID_SHORT>"`
 
 Prints the goal artifact's path — capture as `_GOAL_OUT` for Step 8. Confine authored prose to
 `objective` and each key result's `text`; leave `parent_goal_id` null unless the PM names a parent
@@ -174,7 +197,7 @@ disposition to the PM before acting on it.
 4. Write this session's priorities fragment (Step 7 format).
 5. For each priority's goal artifact, emit the weekly goal event — sourced FROM the artifact's
    `period_value`/`objective` fields so the emitted event and the on-disk goal agree byte-for-byte:
-   `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-start-goal-and-priorities" emit-goal-event --goal "<goal artifact path>"`
+   Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" emit-goal-event --goal "<goal artifact path>"`
 
 **`update_in_place`** — no `/workweek-complete` since the last `/workweek-start` (a mid-week
 re-run):
@@ -187,11 +210,11 @@ re-run):
 **In both cases,** commit HEADER.md, this session's priorities fragment, and this session's goal
 artifacts:
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-start-goal-and-priorities" commit-priorities --sid-short "<SID_SHORT>"`
+Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" commit-priorities --sid-short "<SID_SHORT>"`
 
 A full reset also commits the archived daily files:
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-start-goal-and-priorities" commit-archive-reset --prior-week-start "<prior-week-start>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" commit-archive-reset --prior-week-start "<prior-week-start>"`
 
 ---
 
@@ -201,7 +224,7 @@ Run the opt-in per-repo hook (declared via `workweek_start_post_command:` in
 `coordinator.local.md`) here — before Step 10, so it settles at `/workweek-start`'s own close
 rather than after the chained `/workday-start`.
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-start-goal-and-priorities" ceremony-hook --ceremony workweek-start`
+Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" ceremony-hook --ceremony workweek-start`
 
 Empty `$_HOOK_OUT` when unconfigured — nothing renders. A configured command's summary line
 renders in the Output section below.

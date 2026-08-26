@@ -27,7 +27,7 @@ here).
 
 Exit convention: this is a fail-loud GATE script (asserts zero dangling
 backlinks; used at doc-hygiene/distill cadence), NOT a never-block hook like
-coordinator-auto-push — a claude-klabauter-link failure (CLAUDE_KLABAUTER_ROOT unresolved, module
+coordinator-auto-push — a claude-klabauter-link failure (the engine root unresolved, module
 not importable) exits 1 here, not 0, so the failure is visible rather than
 silently swallowed.
 

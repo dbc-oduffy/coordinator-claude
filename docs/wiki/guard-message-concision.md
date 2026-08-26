@@ -326,6 +326,25 @@ whose argument list is unbalanced (truncated or malformed) is treated as an unpa
 failure -- attributed toward neither the deny nor the advisory count, consistent with this guard's
 overall bias toward failing open rather than wedging a legitimate launch on a parse edge case.
 
+### Cost rationale, and the agentType resolution exemption
+
+An un-modeled `agent()` call is gated because its cost is invisible at the call site: nothing in
+the script or the tool output shows that a worker silently inherited the ~4x-more-expensive
+session model. The guard exists to make that inheritance visible, not to forbid an Opus worker
+outright.
+
+An `agentType:` call site is different in kind from a bare one. This guard resolves a captured
+`agentType:` to its own agent definition (`coordinator/agents/<name>.md`, stripping the
+`coordinator:` namespace) and rungs on THAT definition's own `model:` frontmatter, never on
+whether a key was merely present at the call site. A resolved `sonnet` tier is silent. A resolved
+`opus` tier is allowed too, provided every un-modeled call site in the script reached its tier the
+same way -- pinned by `agentType:`, never by a call-site `model:` override -- because asserting an
+`agentType` is self-enforcing: the definition's own charter model is what actually runs, so
+declaring it is not a workaround, it is the true cost made visible. A call site with no `model:`,
+no `agentType:`, or an `agentType:` naming no resolvable definition never earns this exemption --
+it falls back to the un-resolved DENY rung, since an un-declared call site is exactly the
+silent-inheritance risk this guard exists to catch.
+
 ## Autonomous-mode AskUserQuestion nudge {#autonomous-mode-askuserquestion-nudge}
 
 While an autonomous run is active, an `AskUserQuestion` call halts the run until

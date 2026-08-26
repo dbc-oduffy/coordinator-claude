@@ -52,7 +52,7 @@ Exit codes:
       file/keys are simply absent).
   1 — one or more keys are non-conformant.
   2 — CLI usage error.
-  3 — CLAUDE_KLABAUTER_ROOT resolution or coordinator_core import failure (transport
+  3 — engine-root resolution or coordinator_core import failure (transport
       failure, distinct from both business codes above).
 
 Spec backlink: pln-shell-spawn-regrowth-gate-cens-097e21 § C12
@@ -76,7 +76,7 @@ _EXEMPT_KEY = "argv_only_exempt"
 
 
 def _import_deps():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import the pinned ceremony_config + cli_entry
+    """Resolve the engine root and import the pinned ceremony_config + cli_entry
     API. Raises RuntimeError (root resolution) or ImportError (module
     missing) — both caught by `main()` and turned into exit code 3.
     """
@@ -211,7 +211,7 @@ def main(argv: list[str]) -> int:
     try:
         deps = _import_deps()
     except Exception as exc:  # noqa: BLE001 - transport failure, mapped to exit 3
-        print(f"coordinator-validate-local-config: CLAUDE_KLABAUTER_ROOT/import resolution failed: {exc}", file=sys.stderr)
+        print(f"coordinator-validate-local-config: engine-root/import resolution failed: {exc}", file=sys.stderr)
         return 3
 
     root = Path(args.repo).resolve()

@@ -4,10 +4,11 @@ same tree, every `coordinator_core` top-level name it imports.
 
 ## The defect this closes
 
-`test_publish_allowlist_top_level_coverage.py` (sibling gate, same row)
-verifies that every top-level `coordinator_core` entry is a recorded
-decision — allowlisted, `!`-excluded, or named in
-`_ACKNOWLEDGED_TOP_LEVEL_PRIVATE`. It does not verify that decision was the
+`coordinator/bin/publish-allowlist-generate.py`'s AC15 coverage assertion
+(sibling gate, same row; declaration source of truth is
+`setup/publish-allowlist-declarations.yaml`) verifies that every top-level
+`coordinator_core` entry is a recorded decision — allowlisted, `!`-excluded,
+or deny-declared. It does not verify that decision was the
 RIGHT one: `chain_attribution.py` and `atomic_append.py` were both recorded
 as acknowledged-private while `ops/review_trail_write.py` (published) does
 `from coordinator_core import chain_attribution`, and
@@ -46,8 +47,14 @@ not this gate's business; only what actually ships must resolve.
 
 Only UNGUARDED imports are graded (`_unguarded_import_nodes`). Guarded means
 shielded by a `try/except` clause whose handler would actually catch an
-`ImportError`, or is written inside an `if TYPE_CHECKING:` block that never
-executes at runtime. Guarded does NOT mean "function-local" — a prior
+`ImportError`; is written inside an `if TYPE_CHECKING:` block that never
+executes at runtime; or sits inside a `with pytest.raises(<ImportError-ish>):`
+block — a STRONGER guard than `try/except`, since `pytest.raises(X)` asserts
+the body MUST raise `X`, so an import inside one is a negative assertion that
+the target does NOT exist, not a dependency on it existing (`with
+pytest.raises(ValueError):` is not this guard — a `ValueError` context does
+not catch the `ImportError` an absent module actually raises). Guarded does
+NOT mean "function-local" — a prior
 version of this grader exempted every function-local import outright as "a
 deliberate soft dependency that degrades gracefully". That rationale was
 FALSE: `coordinator_core/ops/ceremony/commit_pipeline.py`'s reap helper does
@@ -78,7 +85,7 @@ Negative-spec: this module never edits `coordinator/lib/percolate/allowlist.py`
 beyond what an import requires, never adds a bare top-level `!name` to any
 row's CSV, and never widens its subject past `coordinator_core` top-level
 names — all three are this plan's Anti-scope, shared with
-`test_publish_allowlist_top_level_coverage.py`.
+`coordinator/bin/publish-allowlist-generate.py`'s AC15 coverage assertion.
 """
 
 from __future__ import annotations
@@ -151,6 +158,64 @@ def _handler_catches_import_error(handler: ast.ExceptHandler) -> bool:
     return not _is_bare_reraise(handler.body)
 
 
+def _pytest_raises_aliases(module: ast.Module) -> tuple[set[str], set[str]]:
+    """Return `(pytest_module_names, raises_func_names)` — every local name
+    that resolves to the `pytest` module (`import pytest`, `import pytest as
+    pt`) and every local name that resolves to `pytest.raises` imported
+    directly (`from pytest import raises`, `from pytest import raises as
+    raises_`), found anywhere in `module` via `ast.walk` (not just at
+    module-level, since a test module may import inside a fixture or a
+    conditional). Feeds `_is_pytest_raises_import_error_guard`, which needs
+    to recognise both `pytest.raises(...)` and bare `raises(...)` spellings
+    of the same guard."""
+    pytest_names: set[str] = set()
+    raises_names: set[str] = set()
+    for node in ast.walk(module):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "pytest":
+                    pytest_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module == "pytest":
+                for alias in node.names:
+                    if alias.name == "raises":
+                        raises_names.add(alias.asname or alias.name)
+    return pytest_names, raises_names
+
+
+def _is_pytest_raises_import_error_guard(
+    item: ast.withitem, pytest_names: set[str], raises_names: set[str]
+) -> bool:
+    """True when `item` (one item of a `with`/`async with`) is a call to
+    `pytest.raises(...)` (or a bare `raises(...)` resolved via
+    `_pytest_raises_aliases`) whose exception argument would actually catch
+    an `ImportError` — reusing `_exception_type_names`/
+    `_IMPORT_ERROR_CATCHING_NAMES`, the same name-resolution the
+    `try/except` guard uses, so a single `with pytest.raises(ModuleNotFoundError):`
+    block around an import is treated as guarded exactly like an equivalent
+    `try/except ModuleNotFoundError:` would be. This is a STRONGER guard than
+    `try/except`, not merely an equivalent one: `pytest.raises(X)` asserts
+    the body MUST raise `X`, so the imported name is asserted absent from the
+    tree — grading it as unguarded would invert the test's own meaning (see
+    this module's "Guarded vs unguarded" docstring section). `with
+    pytest.raises(ValueError):` is NOT a guard: a `ValueError` context does
+    not catch the `ImportError` an absent module actually raises, so it
+    still propagates and the import stays unguarded."""
+    call = item.context_expr
+    if not isinstance(call, ast.Call) or not call.args:
+        return False
+    func = call.func
+    is_raises_call = (
+        isinstance(func, ast.Attribute)
+        and func.attr == "raises"
+        and isinstance(func.value, ast.Name)
+        and func.value.id in pytest_names
+    ) or (isinstance(func, ast.Name) and func.id in raises_names)
+    if not is_raises_call:
+        return False
+    return bool(_exception_type_names(call.args[0]) & _IMPORT_ERROR_CATCHING_NAMES)
+
+
 def _is_type_checking_guard(test: ast.expr) -> bool:
     """True for `if TYPE_CHECKING:` in both its bare-name form (`from typing
     import TYPE_CHECKING`) and its attribute form (`if
@@ -190,7 +255,16 @@ def _unguarded_import_nodes(module: ast.Module) -> list[ast.stmt]:
     (bare `TYPE_CHECKING` name or `typing.TYPE_CHECKING` attribute form) is
     exempted entirely — it never executes at runtime and so can never make a
     module dead on import; its `else`/`elif` branch is still walked
-    normally since that DOES run.
+    normally since that DOES run. A `with`/`async with` body is guarded when
+    one of its items calls `pytest.raises(...)` (or a bare `raises(...)`
+    imported via `from pytest import raises`, resolved per-module by
+    `_pytest_raises_aliases`) with an exception argument that would catch
+    `ImportError` (`_is_pytest_raises_import_error_guard`, reusing
+    `_exception_type_names`/`_IMPORT_ERROR_CATCHING_NAMES`) — the import
+    inside is a negative assertion the target module does NOT exist, so
+    demanding the tree contain it would invert the test's own meaning; a
+    `with` whose items name no such call is walked exactly like `for`/
+    `while`, unguarded.
 
     Deliberately over-collects into "guarded" rather than under-collects
     into "unguarded" on any remaining ambiguity — this function feeds a
@@ -200,6 +274,7 @@ def _unguarded_import_nodes(module: ast.Module) -> list[ast.stmt]:
     handler that would actually catch the failure counts as a guard, and it
     is no longer unconditionally lenient about function-locality either."""
     collected: list[ast.stmt] = []
+    pytest_names, raises_names = _pytest_raises_aliases(module)
 
     def visit(nodes: list[ast.stmt], in_try_body: bool) -> None:
         for node in nodes:
@@ -222,7 +297,14 @@ def _unguarded_import_nodes(module: ast.Module) -> list[ast.stmt]:
                 else:
                     visit(node.body, in_try_body)
                     visit(getattr(node, "orelse", []), in_try_body)
-            elif isinstance(node, (ast.With, ast.AsyncWith, ast.For, ast.AsyncFor, ast.While)):
+            elif isinstance(node, (ast.With, ast.AsyncWith)):
+                guards_import_error = any(
+                    _is_pytest_raises_import_error_guard(item, pytest_names, raises_names)
+                    for item in node.items
+                )
+                visit(node.body, in_try_body or guards_import_error)
+                visit(getattr(node, "orelse", []), in_try_body)
+            elif isinstance(node, (ast.For, ast.AsyncFor, ast.While)):
                 visit(node.body, in_try_body)
                 visit(getattr(node, "orelse", []), in_try_body)
             elif isinstance(node, (ast.Import, ast.ImportFrom)):

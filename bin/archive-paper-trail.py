@@ -39,7 +39,7 @@ signal of its own — see module docstring's Raises note):
     0 — OK, dispatch succeeded (dry-run preview OR a completed/no-op archive).
     2 — usage error (missing --run-id/--topic-slug/--dry-run, malformed
         --dry-run value, or repo_root unresolvable).
-    3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core.invoke
+    3 — transport failure (the engine root unresolvable, coordinator_core.invoke
         seam absent, or the op itself raised — malformed run_id/topic_slug,
         wrong-typed dry_run reaching the op despite this CLI's own --dry-run
         validation, or repo_root/common_dir mismatch).

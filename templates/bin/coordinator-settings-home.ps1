@@ -1,10 +1,12 @@
-# coordinator-settings-home.ps1 — PowerShell twin of the bash `coordinator-settings-home`
-# resolver. Mirrors the resolution semantics of coordinator/bin/coordinator-settings-home
-# (and its installed twin coordinator/templates/bin/coordinator-settings-home) exactly, so
-# a .ps1-seeder consumer (project-rag, cockpit, ue-addon, example-game-repo) resolves the SAME
-# settings-home path a bash consumer on the same machine would.
+# coordinator-settings-home.ps1 — PowerShell twin of the Python
+# `coordinator-settings-home` resolver. Mirrors the resolution semantics of
+# coordinator/bin/coordinator-settings-home (a python3-shebang script, ported off bash by
+# the 2026-07-22 de-bash campaign; and its installed twin
+# coordinator/templates/bin/coordinator-settings-home) exactly, so a .ps1-seeder consumer
+# (project-rag, cockpit, ue-addon, example-game-repo) resolves the SAME settings-home path a
+# POSIX-shell consumer on the same machine would.
 #
-# Precedence (most-specific first) — matches the bash resolver's _resolve():
+# Precedence (most-specific first) — matches the Python resolver's _resolve():
 #   $env:COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)
 #   ($env:CLAUDE_HOME or $env:HOME or $env:USERPROFILE or $HOME) + '\.coordinator-claude-settings'
 #     — sibling to ~/.claude, PowerShell-native fallback (no bash `${VAR:-default}`
@@ -15,7 +17,7 @@
 #   coordinator-settings-home.ps1          — print settings-home root (with divergence check)
 #   coordinator-settings-home.ps1 check    — run divergence check only (exit 1 if divergent)
 #
-# Exit codes (parity with the bash resolver):
+# Exit codes (parity with the Python resolver):
 #   0   success
 #   1   divergent machine-local homes detected (with remediation on stderr)
 #   2   usage error (unknown subcommand)

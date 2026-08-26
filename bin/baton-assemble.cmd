@@ -36,6 +36,22 @@ REM `!` (commit messages, JSON payloads, ...). Each interpreter rung below is
 REM isolated behind its own `goto` label instead, so `%ERRORLEVEL%` is read
 REM outside any parenthesized block (fresh at that point, not frozen at
 REM block-parse-time) with no delayed expansion needed.
+:_coordinator_raw_cmdline_attempt1
+set "_LAUNCHER_RAW_CMDLINE_DIR=%TEMP%\_coordinator_launcher_%RANDOM%%RANDOM%%RANDOM%"
+2>nul mkdir "%_LAUNCHER_RAW_CMDLINE_DIR%"
+if not errorlevel 1 goto :_coordinator_raw_cmdline_captured
+:_coordinator_raw_cmdline_attempt2
+set "_LAUNCHER_RAW_CMDLINE_DIR=%TEMP%\_coordinator_launcher_%RANDOM%%RANDOM%%RANDOM%"
+2>nul mkdir "%_LAUNCHER_RAW_CMDLINE_DIR%"
+if not errorlevel 1 goto :_coordinator_raw_cmdline_captured
+:_coordinator_raw_cmdline_attempt3
+set "_LAUNCHER_RAW_CMDLINE_DIR=%TEMP%\_coordinator_launcher_%RANDOM%%RANDOM%%RANDOM%"
+2>nul mkdir "%_LAUNCHER_RAW_CMDLINE_DIR%"
+if errorlevel 1 goto :_coordinator_raw_cmdline_giveup
+:_coordinator_raw_cmdline_captured
+set "_LAUNCHER_RAW_CMDLINE_FILE=%_LAUNCHER_RAW_CMDLINE_DIR%\cmdline.tmp"
+echo %CMDCMDLINE%>"%_LAUNCHER_RAW_CMDLINE_FILE%"
+:_coordinator_raw_cmdline_giveup
 set "_py=__PYTHON_BIN__"
 if "%_py%"=="__PYTHON_BIN__" set "_py="
 if not "%_py%"=="" if exist "%_py%" goto :run_baked
@@ -73,6 +89,7 @@ if not errorlevel 1 goto :run_py3
 
 echo [baton-assemble] ERROR: no Python interpreter found (python.exe / py -3). 1>&2
 echo [baton-assemble] Install Python: https://www.python.org/downloads/windows/ 1>&2
+2>nul rd /s /q "%_LAUNCHER_RAW_CMDLINE_DIR%"
 exit /b 127
 
 :cache_and_run_baked
@@ -106,8 +123,10 @@ goto :run_baked
 
 :run_baked
 "%_py%" "%~dp0baton-assemble.py" %*
+2>nul rd /s /q "%_LAUNCHER_RAW_CMDLINE_DIR%"
 exit /b %ERRORLEVEL%
 
 :run_py3
 py -3 "%~dp0baton-assemble.py" %*
+2>nul rd /s /q "%_LAUNCHER_RAW_CMDLINE_DIR%"
 exit /b %ERRORLEVEL%

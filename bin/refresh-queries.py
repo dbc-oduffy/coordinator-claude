@@ -61,7 +61,7 @@ from __future__ import annotations
 #       the node bridge (query-records.js) was retired by the 2026-07-22
 #       de-node cutover, reads became an in-process call into
 #       coordinator_core.ops.ceremony.records_query, so this code no longer
-#       covers "node missing" — what remains is a CLAUDE_KLABAUTER_ROOT resolution or
+#       covers "node missing" — what remains is an engine-root resolution or
 #       import failure AT THIS trampoline layer (see below), still distinct
 #       from both CLI-usage (2) and business (1) failure.
 #
@@ -77,13 +77,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.text.refresh_queries import main as _op_main
     return _op_main
 

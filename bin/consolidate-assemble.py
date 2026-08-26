@@ -3,7 +3,7 @@
 # `/consolidate-git`'s branch/worktree sprawl inventory + absorb/delete
 # sequencing). Direct-import variant (template-variant #1, mirrors
 # coordinator/bin/merge-assemble): a plain in-process function call after
-# resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
 # Spec backlink: DoE-claude:pln-b4-baton-branch-lifecycle-comp-780d48, chunk C8
@@ -22,7 +22,7 @@
 #   0 — OK.
 #   1 — business failure (brief) / halted-at-judgment (apply).
 #   2 — usage error.
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, import failure, no
+#   3 — transport failure (the engine root unresolvable, import failure, no
 #       enclosing git worktree).
 
 # --- routing half: this file is now a thin shim over entry_point_shim.run_target ---

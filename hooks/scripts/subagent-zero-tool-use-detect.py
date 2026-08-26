@@ -12,6 +12,25 @@ zero -- AC1). This script never opens a transcript and never counts anything;
 grep of this file for transcript-open/count logic must return nothing (AC7,
 DR-047 boundary).
 
+REVIEW-MARK FOLD: this shim ALSO relays `hooks.subagent_review_mark`
+(engine module `coordinator_core.hooks.subagent_review_mark`), which derives
+a commit-ledger review mark from a finishing reviewer's own `reviewed_range`
+findings. Folded here rather than given its own `SubagentStop` registration
+in `hooks.json`, and the reason is a cost this file's own registration
+comment already prices: a second entry buys a second permanent `python3`
+cold start (~642ms on the reference Windows machine) on EVERY subagent stop,
+fleet-wide, including every install with no engine present for either op to
+resolve against. Folding adds one more op to a call that already pays that
+start -- not a second mechanism. Both ops are `common_dir` scoped, so the
+single shared `origin_worktree` stamped across the batch keys both correctly.
+
+The mark op is NOT gated shim-side on the finishing agent being a reviewer.
+It gates itself, against the closed reviewer vocabulary the engine already
+owns (`review_trail_write._DELEGATE_REVIEWERS`). Re-stating that vocabulary
+here would fork it across the DR-047 seam and drift silently the first time
+the engine edits its own list; the wasted call for a non-reviewer is one
+in-process op dispatch, no spawn.
+
 Emits NOTHING on any path (DEC-4): a SubagentStop emission is provably
 invisible to the EM -- plain stdout at exit 0 goes to the debug log only, and
 even `hookSpecificOutput.additionalContext` on SubagentStop feeds the
@@ -99,7 +118,6 @@ directories under a worktree, silently breaking correlation between them.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -363,30 +381,56 @@ def main() -> int:
         # time) -- one-time-per-invocation cost, in-process, zero subprocess
         # spawns.
         from coordinator_core.hooks import subagent_zero_tool_use as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import dispatch_ops_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open
 
-    params = {
-        "session_id": session_id,
-        "agent_id": agent_id,
-        "agent_type": agent_type,
-        "agent_transcript_path": agent_transcript_path,
-        "hook_event_name": hook_event_name,
-    }
+    ops: list[tuple[str, dict]] = [
+        (
+            "hooks.subagent_zero_tool_use",
+            {
+                "session_id": session_id,
+                "agent_id": agent_id,
+                "agent_type": agent_type,
+                "agent_transcript_path": agent_transcript_path,
+                "hook_event_name": hook_event_name,
+            },
+        ),
+        (
+            "hooks.subagent_review_mark",
+            {
+                "session_id": session_id,
+                "agent_id": agent_id,
+                "agent_type": agent_type,
+                "cwd": cwd,
+            },
+        ),
+    ]
 
-    msg: dict = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.subagent_zero_tool_use",
-        "params": params,
-    }
-    if isinstance(cwd, str) and cwd:
-        msg["_origin_worktree"] = cwd
-
+    # dispatch_ops_from_hook builds the envelope itself and omits
+    # _origin_worktree when origin_worktree is None/empty, matching this
+    # stub's prior isinstance(cwd, str) and cwd guard unchanged. ONE
+    # origin_worktree is stamped onto every op's envelope (a shared kwarg,
+    # not a per-op field) -- correct here because both ops are common_dir
+    # scoped (coordinator_core/op_scopes.py), so both key off the same
+    # resolved common dir.
     try:
-        asyncio.run(dispatch_message(msg))
+        # Per-op errors are RETURNED (HookDispatchError instances), never
+        # raised, so neither op can suppress the other: on any install whose
+        # published engine mirror lags `hooks.subagent_review_mark`, the mark
+        # op resolves to a returned METHOD_NOT_FOUND and the zero-tool-use
+        # detection it rides with keeps landing untouched. That isolation is
+        # the seam's own contract (`coordinator_core.ipc` ::
+        # `dispatch_ops_from_hook`, Returns clause plus negative spec), not a
+        # local try/except.
+        dispatch_ops_from_hook(
+            ops,
+            origin_worktree=cwd if isinstance(cwd, str) and cwd else None,
+        )
     except Exception:
+        # Widened from `except HookDispatchError` as part of this fold: any
+        # other exception from the dispatch call would have propagated
+        # uncaught and violated this file's own exit-0-always invariant.
         return 0  # any engine failure -> fail-open (never brick a tool call)
 
     # The op response IS the durable-record write (its disk-append

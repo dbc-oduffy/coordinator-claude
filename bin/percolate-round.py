@@ -6,11 +6,14 @@ gate -> real run -> commit -> CI smoke -> push (on a clean round; DR-301).
 Ports the nine hand-driven steps `coordinator/skills/percolate/SKILL.md`
 (DoE-claude) currently has the EM drive one CLI invocation at a time into a
 single sequenced driver. Every step already has its own CLI
-(`percolate-gate.py`, `percolate-parse-dryrun.py`, `publish.py`,
-`scoped-git-commit`) — this module SEQUENCES them via subprocess, it does
-not reimplement any of their logic. Single-target only: multi-target
-(no-argument) round orchestration is explicitly out of scope (see the
-originating plan's Out of scope section).
+(`percolate-gate.py`, `percolate-parse-dryrun.py`, `publish.py`) — this
+module SEQUENCES those via subprocess, it does not reimplement any of their
+logic. The commit step is the one exception: `scoped-git-commit` (the
+`ceremony.scoped_git_commit` CLI) was killed 2026-08-23 (PM ruling, DR-344),
+so the commit leg calls `commit_pipeline.run_commit_pipeline` in-process
+instead, mirroring `publish.py::_commit_published_dests` (2026-08-25).
+Single-target only: multi-target (no-argument) round orchestration is
+explicitly out of scope (see the originating plan's Out of scope section).
 
 THE LOAD-BEARING CONSTRAINT IS RELAXED BY DR-301, NOT BY A LATER READER'S
 INFERENCE (docs/decisions/DR-301-agent-initiated-publish-push-is-automatable.md):
@@ -40,22 +43,34 @@ different name, gating a different thing — it can only make
 absence never grants a push that gate would otherwise refuse. It never
 touches the `allow-xrepo-write` namespace.
 
-Commit-pathspec provenance (AC7): the pathspec passed to `scoped-git-commit`
-is derived from the REAL publish run's OWN reported `NEW:`/`UPDATE:`/
-`DELETE:`/`REMOVE:` lines (`_extract_change_lines`), never from a `git
-status` survey of the destination. A change-line path that is a percolate-
-engine rename SOURCE (reported on the same channel as a `RENAME:` line,
-also parsed by `_extract_change_lines`) is resolved to its rename TARGET
-before the pathspec entry is built (`_build_commit_pathspec`), so the
-pathspec names only paths that exist post-transform
-(docs/plans/2026-08-13-the-publish-round-commits-the-names-it-a.md § C2,
-AC2). Every entry is a specific file path — these report lines never name a
-directory — so the pathspec `scoped-git-commit` receives never contains a
-directory element, satisfying both of `ceremony.scoped_git_commit`'s
-by-design behaviours (directory pathspec refused; untracked files beneath a
-directory never swept) by construction, without needing to touch that
-module (see the originating plan's Substrate corrections § 1-2 for why
-touching it would be wrong).
+Commit-pathspec provenance (AC7, superseded 2026-08-23 by chunk C4 of
+docs/plans/2026-08-23-rebuild-the-percolate-round-as-six-steps.md AC4/AC5,
+and again 2026-08-26 by chunk C2 of docs/plans/2026-08-26-a-refused-round-
+strands-its-payload-forever.md AC2/AC2b): the pathspec passed to the commit
+leg (`commit_pipeline.run_commit_pipeline`, § C6, 2026-08-25) is derived from
+a `RoundManifest` (`coordinator_core.percolate.manifest`) publish.py's real
+run persists to disk (`_read_fresh_round_manifest`), never from a re-parse of
+that run's printed `NEW:`/`UPDATE:`/`DELETE:`/`REMOVE:` lines, and never from
+a `git status` survey of the destination either. `_pathspec_from_manifest`
+compares the manifest's `declared_payload` set against dest HEAD, not
+against dest's working tree -- the worktree baseline is what let a stranded,
+already-synced-but-uncommitted round compare byte-equal forever and hid a
+still-uncommitted deletion outright, since Step 4's real run had already
+removed the file from disk before the next round's comparison ever ran (see
+that plan's "The root cause, stated exactly"). A rename needs no
+source-to-target resolution under this shape: it naturally reports as a
+REMOVE (old name, tracked at HEAD, absent from the declared payload) plus a
+NEW (new name, in the declared payload, absent from or differing at HEAD) --
+a correct end state for the commit regardless of whether git's own
+similarity detector later recognises it as a rename (docs/plans/2026-08-13-
+the-publish-round-commits-the-names-it-a.md § C2, AC2, whose pathspec-names-
+only-post-transform-paths invariant this still satisfies, just via a
+different mechanism). Every entry is a specific file path — never a
+directory — so the pathspec the commit leg receives never contains a
+directory element, satisfying `commit_pipeline.explicit_stage`'s
+untracked-files-beneath-a-directory-never-swept behaviour by construction,
+without needing to touch that module (see the originating
+plan's Substrate corrections § 1-2 for why touching it would be wrong).
 
 CI-smoke ordering (the other subtlety the plan calls out): CI smoke
 (`_run_ci_smoke`) runs AFTER the commit, never before. A file the real run
@@ -103,35 +118,6 @@ Usage:
                        terminus: `_print_push_notice` prints the
                        `percolate-push <target>` command instead of running
                        it, even on an otherwise-clean round.
-  --dry-run-first      Opt-in preview (PM ruling, 2026-08-15): runs Step 2's
-                       dry-run pass before the real sync, the way every prior
-                       round always did. OFF by default now: a round used to
-                       pay the full ~1,800-file materialization twice (Step
-                       2's dry run, then Step 4's real run) before writing a
-                       single byte the operator actually keeps, even though
-                       the sync into `dest` is a LOCAL git clone a `git reset
-                       --hard HEAD && git clean -fd` fully reverts, and Step
-                       2c's own leak scan reads SOURCE files (never dry-run
-                       output). The Step 3 gate still fires on the same
-                       inputs -- touched-file count, MEDIUM leak hits,
-                       inverse-drift hits -- it is just sourced from the real
-                       run's own change lines instead of a second
-                       materialization, and now sits immediately before
-                       commit/push (the one genuinely irreversible step)
-                       rather than before the sync. Every verdict path
-                       (PASS / PASS-WITH-WARNINGS / FAIL), `--yes`,
-                       `--invocation-authorized`, `--no-publish`, and
-                       `--reconcile-dest` behave identically either way.
-                       Spec backlink: PM ruling 2026-08-15, in-session
-                       (percolate-round.py dry-run-optional dispatch).
-  --reconcile-dest      `refuse` (default, unchanged) or `discard`. A dirty
-                       dest (crash-recovery pre-flight, `_dest_dirty_status`)
-                       normally refuses the round outright; `discard` resets
-                       dest to HEAD and removes untracked residue first
-                       (`_reconcile_dest_discard`), refusing itself if dest
-                       carries commits ahead of its remote. Opt-in only —
-                       never implied by `--yes`, which answers the publish
-                       confirmation and nothing else.
 
 Exit codes:
     0 — PASS or PASS-WITH-WARNINGS on a clean round: pushed (unless
@@ -158,9 +144,10 @@ Exit codes:
 Negative-spec: does NOT create or touch `setup/percolate-state/<target>
 .lastsync` or any `allow-xrepo-write` marker (it DOES read/write/clear its
 own, differently-named round-failure marker — see module docstring above),
-does NOT edit `scoped_git_commit.py` or `percolate-gate.py` (both
-owned by a concurrent chunk of the same plan), does NOT drive Branch 0's
-interactive first-run setup walk (a target that fails the branch0-gate
+does NOT edit `commit_pipeline.py` or `percolate-gate.py` (both
+owned elsewhere — the commit leg below is a CALLER of
+`commit_pipeline.run_commit_pipeline`, not an editor of it), does NOT drive
+Branch 0's interactive first-run setup walk (a target that fails the branch0-gate
 check here is a usage error pointing back at `/percolate <target>` to walk
 setup, not something this CLI attempts itself), and does NOT support
 multi-target/no-argument rounds.
@@ -183,8 +170,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
@@ -198,15 +186,20 @@ if str(_COORDINATOR_LIB) not in sys.path:
 
 from coordinator_core.locked_write import (  # noqa: E402  type: ignore[import-not-found]
     LockTimeout as _RoundLockTimeout,
+    CONTENDED_LOCK_WAIT_ENV as _CONTENDED_LOCK_WAIT_ENV,
+    contended_lock_wait_secs as _round_lock_wait_secs,
     held_lock as _round_held_lock,
 )
 from percolate.wire_contract import (  # noqa: E402  type: ignore[import-not-found]
     INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV,
 )
-from coordinator_core.percolate.rewrite_basename import (  # noqa: E402  type: ignore[import-not-found]
-    RenameCycleError as _RenameCycleError,
-    RenameManifest as _RenameManifest,
-    RenameRecord as _RenameRecord,
+from coordinator_core import publish_lane  # noqa: E402  type: ignore[import-not-found]
+from coordinator_core.percolate.manifest import (  # noqa: E402  type: ignore[import-not-found]
+    RoundManifest as _RoundManifest,
+    read_manifest as _read_manifest,
+)
+from coordinator_core.percolate.round import (  # noqa: E402  type: ignore[import-not-found]
+    default_manifest_path as _default_manifest_path,
 )
 
 GENERATES = []  # writes only round-failure markers and pushes commits under the resolved percolate `dest` (a foreign publish-mirror repo), never a fixed claude-klabauter-tracked path
@@ -215,11 +208,40 @@ _EXIT_OK = 0
 _EXIT_FAIL = 1
 _EXIT_USAGE = 2
 _EXIT_CONFIRM_REQUIRED = 3
+#: Contended per-destination lock: a peer holds the dest, nothing is broken,
+#: and this round did not start. Distinct from `_EXIT_FAIL` because the two
+#: want opposite responses — a failure wants diagnosis, a queue wants either
+#: a wait or a shrug — and a caller that cannot tell them apart reads every
+#: refusal as breakage. Value 75 is `EX_TEMPFAIL` (sysexits.h): "temporary
+#: failure, the user is invited to retry".
+#: Spec backlink: docs/reference/percolate-lock-contention.md
+_EXIT_LOCK_BUSY = 75
+
+def _lock_busy_message(dest: str, exc: Exception) -> str:
+    """One refusal line for a contended per-destination lock.
+
+    Register (docs/wiki/guard-messaging.md): the fact is "a peer holds this
+    dest and nothing was written"; the alternative is the wait knob. The old
+    text read as a failure — it led with "could not acquire" and exited the
+    same code as a broken round — so a session that needed a specific commit
+    in a mirror would retry harder, spawning a fresh process per attempt
+    against a queue that was never going to clear faster for the pressure.
+
+    Negative-spec: does NOT advise retrying in a loop. Retrying is the
+    behaviour this message exists to stop; waiting inside one process is what
+    the knob buys.
+    """
+    return (
+        f"dest '{dest}' is held by another round — waited "
+        f"{_round_lock_wait_secs():.0f}s, nothing was written. Let it land and "
+        f"re-run, or wait inside one process instead of retrying: "
+        f"{_CONTENDED_LOCK_WAIT_ENV}=<seconds>. ({exc})"
+    )
+
 
 _PERCOLATE_GATE = _BIN_DIR / "percolate-gate.py"
 _PARSE_DRYRUN = _BIN_DIR / "percolate-parse-dryrun.py"
 _PUBLISH = _BIN_DIR / "publish.py"
-_SCOPED_GIT_COMMIT = _BIN_DIR / "scoped-git-commit"
 _STATE_ROOT_RESOLVER = _REPO_ROOT / "coordinator" / "lib" / "coordinator-state-root.py"
 
 #: D1 fix — inherited-holder handoff. `_cmd_round` opens `_round_held_lock`
@@ -250,32 +272,218 @@ _STATE_ROOT_RESOLVER = _REPO_ROOT / "coordinator" / "lib" / "coordinator-state-r
 # so this driver stays Windows-first-class (no shebang/exec-bit dependence).
 # ---------------------------------------------------------------------------
 
-#: Per-leg subprocess bound. Per docs/wiki/machine-load-norm.md, a timeout
-#: here means "slow", not "hung" — this box runs 50-70 concurrent LLM
-#: sessions as its average, so a generous, non-aggressive bound is chosen
-#: rather than one sized against an idle box. Overridable per call via
-#: `timeout=` for a leg that needs a different bound.
-# Review: review-integrator — bounds every one of `_run`'s 7+ call sites
-# (dry run, parse-dryrun x2, scan-secrets, inverse-drift, real run, commit,
-# CI smoke) so a hung child no longer blocks the round forever.
-_SUBPROCESS_TIMEOUT_SECS = 600.0
+#: ---------------------------------------------------------------------
+#: Per-leg subprocess bounds — one named family per cost model, and NO
+#: shared default. `_run` takes `timeout` as a REQUIRED keyword (below),
+#: so a leg's bound is a decision its author had to make, never something
+#: inherited by omission.
+#:
+#: This replaces a single `_SUBPROCESS_TIMEOUT_SECS = 600.0` that ~24 call
+#: sites inherited silently — one constant spanning a 24ms
+#: `git rev-parse --show-toplevel` and a full-tree publish — plus a
+#: `_PUBLISH_LEG_TIMEOUT_SECS = 3600.0` over six more. Both were defended
+#: by machine-load-norm.md read as a licence to widen; DR-344 § 7 retired
+#: that reading (load raises the bar, it never relaxes a number), and an
+#: hour-long bound cannot tell "slow" from "wedged" at all, so it detects
+#: nothing it was installed to detect.
+#: Spec backlink: docs/problems/2026-08-21-the-over-budget-timeout-hitlist.md § G1;
+#: DR-349 § "An implicit default spanning unrelated call sites".
+#:
+#: Measurement basis: process time (user+kernel across the spawned tree)
+#: via `coordinator_core.benchmarks.process_time :: batched_process_time_ms`,
+#: taken 2026-08-21 against the live `claude-klabauter` mirror (102,024
+#: non-`.git` files).
+#: ---------------------------------------------------------------------
 
-#: The two `publish.py` legs are an order of magnitude heavier than the rest:
-#: each walks the whole source tree, applies the rename transform into a fresh
-#: staging root, and runs the per-row guard set over it — ~2400 files and ~1300
-#: guard-scanned files for `claude-klabauter` — where the sibling legs shell out
-#: to one `git` command apiece. A 2026-08-14 round was killed mid-real-run at the
-#: shared bound with the publish already staged, so the shared value is not a
-#: "slow, not hung" bound for these two; it is a false negative.
-#: Spec backlink: state/audits/2026-08-14-the-real-blocker-is-the-mirrors-dirty-tree.md
+#: ---------------------------------------------------------------------
+#: THE UNIT MISMATCH THIS BLOCK EXISTS TO HANDLE, stated first because
+#: every constant below is built out of it and a later reader will
+#: otherwise "simplify" it back out.
+#:
+#: DR-344 gates on PROCESS TIME. `subprocess.run(timeout=)` can only ever
+#: enforce WALL CLOCK. On this box those differ by two orders of
+#: magnitude, and not because anything is slow — because 50-70 concurrent
+#: sessions is the design condition, so a spawn waits to be scheduled.
+#: Measured 2026-08-21, plain `subprocess.run`, 60 samples each:
+#:
+#:   leg                            process   wall p50   wall p95   wall max
+#:   `git --version`                 33.6ms    1,462ms    2,891ms    4,588ms
+#:   `git -C dest rev-parse`         33.6ms      847ms    2,907ms    4,065ms
+#:   `git -C dest status --porcelain` 190.6ms     791ms    2,524ms    2,841ms
+#:   `python -c pass`                36.7ms      411ms      905ms    1,644ms
+#:
+#: So a leg costing 34ms of CPU routinely takes 1.5 wall-seconds to
+#: complete, and took 4.6 at worst. A `timeout=2.0` on local git — the
+#: value `coordinator_core/git/repo_root.py :: _TIMEOUT_SECS` ships and
+#: the hitlist prescribes — is therefore a coin flip HERE, where the
+#: bound is a hard kill of a live publish round rather than a degrade to
+#: a parent-walk. It was tried: `test_percolate_round_dest_paths_exist ::
+#: test_mixed_batch_with_worktree_fast_path_and_git_probe_combined` went
+#: red under a concurrent suite and green in isolation, which is the
+#: definition of a bound firing on peer load instead of on cost.
+#:
+#: The resolution is ADDITIVE, never multiplicative: the scheduling delay
+#: is a roughly fixed per-spawn cost of sharing the box, not a factor
+#: that scales with the leg. So each bound below is
+#: `<what this leg may cost> + <what the box adds to any spawn>`, and the
+#: second term is ONE named constant. That keeps the load norm visible as
+#: its own term instead of dissolved into a house number, and it means
+#: raising it for one leg raises it for all of them (DR-349 § 2).
+#: ---------------------------------------------------------------------
+
+#: What the box adds to any spawn under its design load, over and above
+#: the leg's own cost. 2.2x the worst wall-clock spawn-to-exit observed
+#: across the 170 samples above (4,588ms, for a 33.6ms `git --version`).
+#: It is headroom over a measured maximum, not a budget: nothing is
+#: allowed to COST this, and a leg that consumes it is either wedged or
+#: the box has gone twice past its worst observed scheduling delay —
+#: both reportable, neither a reason to raise this.
+_SPAWN_SCHEDULING_HEADROOM_SECS = 10.0
+
+#: Local git: the nine sites that spawn `git` against `dest` and wait for
+#: one answer, plus the two batched whole-pathspec index reads.
+#: Measured process time per spawn at dest — `rev-parse --show-toplevel`
+#: 24.2ms, `rev-parse HEAD` 24.2ms, `status --porcelain` 190.6ms (the
+#: family's worst member), `status --porcelain=v2 --branch` 151.6ms,
+#: `ls-files --error-unmatch` over 400 paths 37.5ms, `check-ignore -z
+#: --stdin` over 400 paths 212.5ms, `clean -fdn` 40.6ms.
+#: The cost term is 2.0 — CLAUDE.md § Load norm's absolute per-process
+#: ceiling, and 10.5x the family's measured worst member, so it is the
+#: tree's existing local-git budget rather than a number typed here.
+#:
+#: Relationship to `coordinator_core.git.run :: run_git`, where hitlist
+#: § G7 wants these sites. That seam originally applied 2.0 as a
+#: narrow-only wall-clock CEILING, which the measurements above show
+#: false-fires; it has since adopted this same split
+#: (`LOCAL_PLUMBING_BUDGET_SECS = 2.0` + its own
+#: `_SPAWN_SCHEDULING_HEADROOM_SECS = 10.0`, converted in one place by
+#: `_wall_bound`), so the two now agree on both axes and this constant is
+#: numerically identical to what `run_git(args)` resolves to.
+#:
+#: The remaining gap is shape, not bounds: `run_git` returns a
+#: `GitResult` where every call site here consumes a `CompletedProcess`,
+#: and takes args WITHOUT a leading `"git"`. All nine legs can migrate —
+#: including `_dest_gitignored_paths`' `check-ignore -z --stdin`, once
+#: that seam grew a bytes-only `input=` whose binary mode keeps the text
+#: wrapper off the pipe (the `-z` scar below is written into its
+#: docstring as the reason). Deferred deliberately: a shape-only sweep
+#: across nine sites is its own reviewable unit, and folding it in here
+#: would cost a reviewer the ability to see either change clearly.
+#:
+#: Negative spec: this bounds a PATHSPEC-scale input, not a tree-scale
+#: one. `check-ignore -z --stdin` measured 4,553ms of process time when
+#: fed all 102,024 dest paths, so a round whose pathspec approached tree
+#: scale would breach — that is a defect report about
+#: `_dest_gitignored_paths`' unbounded input, never a licence to raise
+#: either term.
+_GIT_PLUMBING_TIMEOUT_SECS = 2.0 + _SPAWN_SCHEDULING_HEADROOM_SECS
+
+#: The one genuinely remote leg (`_push_dest`'s `git push`). Named
+#: separately because a network round trip has a cost model no local
+#: measurement bounds; DR-349 grants network legs no standing carve-out,
+#: so this is a runaway guard, not a budget — the scheduling term is
+#: immaterial against it and is deliberately not added. A read-only round
+#: trip to the same remote (`git ls-remote --exit-code origin HEAD`)
+#: measured 62.5ms of process time over 4 spawns and 1,347ms of wall, so
+#: 120 is ~89x the observed trip; the margin is for a push's upload, not
+#: for the handshake. Takes the tree's existing named push bound
+#: (`coordinator_core/hooks/auto_push.py :: GIT_PUSH_TIMEOUT_SECS`) so the
+#: two push sites agree instead of differing by 5x. A reduction from the
+#: inherited 600, never a raise.
+#:
+#: It does NOT yet take `coordinator_core.git.run`'s remote lane
+#: (`run_git(..., remote=True)` → `REMOTE_BUDGET_SECS` 30.0 + headroom =
+#: 40.0s wall), and the reason is that the difference is a real decision
+#: rather than a rename: 40 vs 120 is a 3x cut on the one leg here that
+#: uploads a whole publish round's objects over a network, and no
+#: measurement of a real push exists on either side. That seam documents
+#: migrations onto it as needing to surface as decisions; this is one.
+#: Measure a real push before adopting it.
+_GIT_PUSH_TIMEOUT_SECS = 120.0
+
+#: Registry/target resolution: `machine-local get`, `percolate-gate.py`'s
+#: `resolve-root` / `branch0-gate` / `list-targets`, and
+#: `coordinator-state-root.py --central`. Each is one interpreter start
+#: plus a small config read. Measured process time — `percolate-gate.py`
+#: 67.2ms, `coordinator-state-root.py --central` 50.0ms, against a
+#: `python -c pass` floor of 36.7ms. Same 2.0 cost term as the git
+#: family: these resolve identity, and identity resolution that COSTS
+#: seconds is the defect, not the bound.
+_REGISTRY_CLI_TIMEOUT_SECS = 2.0 + _SPAWN_SCHEDULING_HEADROOM_SECS
+
+#: The round's own scan legs: `percolate-parse-dryrun.py` (x2 per branch)
+#: over the publish leg's stdout, and `percolate-gate.py`'s `scan-secrets`
+#: and `inverse-drift` over the round's scan-file-list.
+#: Measured on the registered `claude-klabauter-bin` row (2,064-file scan
+#: list): `parse-dryrun` 96.9ms of process time over 1 spawn;
+#: `scan-secrets` 307.3ms over 1 spawn; `inverse-drift` 880.2ms over
+#: **25 spawns**, 4,569ms wall. 60.0 is 13x that worst member's wall.
+#:
+#: Sized above the additive shape the two families above use, and the
+#: reason is the spawn count: `inverse-drift` pays the scheduling delay 25
+#: times, not once, so a single headroom term does not cover it. That is
+#: the honest bound for the code as it stands, and it blesses nothing —
+#: both underlying numbers are defect reports owed upward. 880ms of
+#: process time is over DR-344's 500ms brightline, and 25 spawns for one
+#: gate leg is the amplification shape
+#: `coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py`
+#: exists to catch. This constant comes down when they are fixed.
+_ROUND_SCAN_LEG_TIMEOUT_SECS = 60.0
+
+#: The commit leg used to be a `scoped-git-commit` subprocess with its own
+#: timeout, split OUT of the publish bound below (staging/committing is a
+#: different cost model from re-walking the whole source tree). Re-pointed
+#: 2026-08-25 (§ C6) at `commit_pipeline.run_commit_pipeline` in-process —
+#: no subprocess, no timeout of its own; the constant that named it
+#: (`_COMMIT_LEG_TIMEOUT_SECS`, was 300.0) is retired along with it.
+
+#: The three `publish.py` call sites — `_cmd_round_default`'s real run,
+#: and `_cmd_round`'s dry run plus its real run — of which any one round
+#: fires at most two. Each walks the whole source tree, applies the rename
+#: transform into a fresh staging root, and runs the per-row guard set
+#: over it.
+#:
+#: HELD at 3600, on a measurement rather than on the "slow, not hung, the
+#: box is busy" sentence this docstring used to carry (DR-344 § 7 retired
+#: that sentence). One `publish.py --dry-run --no-delta` of the SINGLE
+#: `claude-klabauter-bin` row measured **88,750ms of process time across
+#: 211 spawns**, 139s wall. `percolate-mirror` publishes all nine of that
+#: mirror's rows through ONE `publish.py` invocation, so the measured
+#: single-row cost extrapolates past 1,200s — which is why the reduction
+#: to 900 this rebuild first attempted was withdrawn: it would have
+#: hard-killed every mirror publish. Lowering it is a scope call reserved
+#: to the PM (DR-349 § "What this record does not decide").
+#:
+#: So this number is not defended here, it is REPORTED. 88.75s of CPU and
+#: 211 process creations to dry-run one row is the defect the 3600 marks,
+#: exactly as the hitlist's framing predicts, and no value of this
+#: constant is a fix for it. The hitlist's own answer stands: the bound
+#: has nothing left to justify it once that spawn count comes down.
 _PUBLISH_LEG_TIMEOUT_SECS = 3600.0
 
+#: `<dest>/.github/scripts/run-all-checks.py` — consumer-owned code this
+#: repo does not control, whose members include a pytest run
+#: (`run-tests.py`). That is DR-349's *named* test-runner carve-out, so
+#: this is the one bound in this module that is a runaway guard by
+#: doctrine rather than by unpaid debt. Named rather than inherited so it
+#: cannot be copied onto a leg that is claude-klabauter's own compute — which is
+#: exactly what the deleted shared default did.
+_EXTERNAL_CI_TIMEOUT_SECS = 600.0
 
-def _run(cmd: List[str], **kwargs) -> subprocess.CompletedProcess:
+
+def _run(cmd: List[str], *, timeout: float, **kwargs) -> subprocess.CompletedProcess:
+    """Spawn one leg of the round under an EXPLICIT bound.
+
+    `timeout` is keyword-only and required by design: a shared default is
+    what let a 24ms `git rev-parse` and a full-tree publish sit under one
+    ten-minute grant, and a new call site must not be able to acquire a
+    bound by omitting an argument. Pick the family constant above whose
+    cost model matches the leg; if none does, the leg needs its own named
+    constant and a measurement, not the nearest existing number.
+    """
     # Suppresses the console-window flash a headless Windows Bash spawn would
     # otherwise pop for every sibling-CLI invocation this driver makes.
     kwargs.setdefault("creationflags", getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    timeout = kwargs.pop("timeout", _SUBPROCESS_TIMEOUT_SECS)
     try:
         return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kwargs)
     except subprocess.TimeoutExpired as exc:
@@ -310,7 +518,10 @@ def _resolve_python() -> str:
         if candidate.is_file():
             machine_local = str(candidate)
     if machine_local:
-        result = _run([machine_local, "get", "coordinator.python"])
+        result = _run(
+            [machine_local, "get", "coordinator.python"],
+            timeout=_REGISTRY_CLI_TIMEOUT_SECS,
+        )
         pin = result.stdout.strip()
         if result.returncode == 0 and pin:
             return pin
@@ -321,7 +532,10 @@ def _resolve_python() -> str:
 def _resolve_percolate_root(override: Optional[str]) -> Optional[str]:
     if override:
         return override
-    result = _run([sys.executable, str(_PERCOLATE_GATE), "resolve-root"])
+    result = _run(
+        [sys.executable, str(_PERCOLATE_GATE), "resolve-root"],
+        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
+    )
     if result.returncode != 0:
         print("percolate-round: could not resolve PERCOLATE_ROOT:", file=sys.stderr)
         print(result.stderr.strip(), file=sys.stderr)
@@ -338,7 +552,10 @@ def _resolve_central_state() -> Optional[Path]:
     if not _STATE_ROOT_RESOLVER.is_file():
         return None
     python = _resolve_python()
-    result = _run([python, str(_STATE_ROOT_RESOLVER), "--central"])
+    result = _run(
+        [python, str(_STATE_ROOT_RESOLVER), "--central"],
+        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
+    )
     if result.returncode != 0:
         return None
     central = result.stdout.strip()
@@ -357,12 +574,22 @@ def _branch0_gate(target: str, percolate_root: str) -> Optional[str]:
     (already printed to stderr). Never walks the interactive first-run setup
     procedure — see this module's own negative-spec."""
     result = _run(
-        [sys.executable, str(_PERCOLATE_GATE), "branch0-gate", target, "--percolate-root", percolate_root]
+        [sys.executable, str(_PERCOLATE_GATE), "branch0-gate", target, "--percolate-root", percolate_root],
+        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
     )
     if result.returncode != 0:
+        stdout = result.stdout.strip()
         print(f"percolate-round: target '{target}' is not ready for a round:", file=sys.stderr)
-        print(result.stdout.strip(), file=sys.stderr)
-        print(f"Run `/percolate {target}` once to walk first-run setup, then retry.", file=sys.stderr)
+        print(stdout, file=sys.stderr)
+        # A `route:` line means the gate already resolved the next move: the name
+        # matches several registered rows sharing one mirror, which is a
+        # coordinator-publish job, not a round. Offering the first-run setup walk
+        # on top of that would contradict it and send an operator to re-register
+        # rows that already exist (§ `percolate-gate.py::
+        # _missing_target_entry_guidance`). Setup is still the right offer for
+        # every other Branch-0 failure.
+        if not any(line.startswith("route:") for line in stdout.splitlines()):
+            print(f"Run `/percolate {target}` once to walk first-run setup, then retry.", file=sys.stderr)
         return None
     stdout = result.stdout.strip()
     if not stdout.startswith("CONFIGURED:"):
@@ -373,7 +600,8 @@ def _branch0_gate(target: str, percolate_root: str) -> Optional[str]:
 
 def _resolve_dest(target: str, percolate_root: str) -> Optional[str]:
     result = _run(
-        [sys.executable, str(_PERCOLATE_GATE), "list-targets", "--percolate-root", percolate_root, "--target", target]
+        [sys.executable, str(_PERCOLATE_GATE), "list-targets", "--percolate-root", percolate_root, "--target", target],
+        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
     )
     if result.returncode != 0 or not result.stdout.strip():
         print(f"percolate-round: could not resolve dest for target '{target}'.", file=sys.stderr)
@@ -390,139 +618,27 @@ def _resolve_repo_root(dest: str) -> Optional[str]:
     --show-toplevel` so every row's pathspec entry (`_build_commit_pathspec`'s
     `repo_root=`) and the commit's own `--repo` argument share the identical
     root — the two must never be allowed to diverge (§ Review below)."""
-    result = _run(["git", "-C", dest, "--no-optional-locks", "rev-parse", "--show-toplevel"])
+    result = _run(
+        ["git", "-C", dest, "--no-optional-locks", "rev-parse", "--show-toplevel"],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
     if result.returncode != 0 or not result.stdout.strip():
         return None
     return result.stdout.strip()
 
 
-# ---------------------------------------------------------------------------
-# Change-line parsing — shared by the dry-run gate prompt and the real-run
-# commit-pathspec derivation. `publish.py` prints `NEW:`/`UPDATE:`/`DELETE:`/
-# `REMOVE:` lines (two spellings of "removed" across its manifest-mode vs
-# mirror-mode sync paths) with a dest-relative path, sometimes trailed by a
-# parenthesised annotation (e.g. "(plugin.json — structural)") this parse
-# strips. It also prints one `RENAME:` line per percolate-engine rename
-# (old -> new, both dest-relative, § `publish.py::_report_rename_manifest`)
-# — a distinct tag, parsed separately from the (tag, path) change lines
-# rather than folded into them, since a rename pair names two paths, not one
-# change (docs/plans/2026-08-13-the-publish-round-commits-the-names-it-a.md
-# § Tasks C1/C2, AC1/AC2).
-#
-# `publish.py` also groups change lines into nested sub-blocks headed by a
-# `  --- <subdir> ---` line, printing each member relative to that block at
-# a deeper indent. A block stays open across lines by INDENT DEPTH alone —
-# any line (header or change/rename line) whose own indent is
-# shallower-or-equal to the current block-stack top's header indent pops
-# that block (and, transitively, any block nested inside it) before the
-# line is otherwise handled; a header is then pushed, a change line is
-# prefixed with whatever remains open. This also covers a block dedenting
-# straight back to a bare, already-fully-qualified change line with no
-# closing header in between (observed in the real-run "Phase 4 audit"
-# section, which reuses the same 2-space top-level indent but bakes any
-# subdir straight into the printed path rather than nesting under a
-# header) — the indent-based pop keeps that flat listing from inheriting a
-# stale prefix left open by an earlier grouped section. Nesting is
-# arbitrary depth, not just one level (docs/plans/2026-08-13-the-publish-
-# round-commits-the-names-it-a.md § C4, AC8). `RENAME:` lines are already
-# dest-relative and fully qualified (§ C1), so their own indent only
-# participates in popping — never gets a block prefix applied.
-# ---------------------------------------------------------------------------
-
-_CHANGE_LINE_RE = re.compile(r"^(\s*)(NEW|UPDATE|DELETE|REMOVE):\s+(.+?)\s*$")
-# The optional `[directory]` kind tag (§ publish.py `_report_rename_manifest`,
-# 2026-08-14 fix) is a PREFIX on the `RENAME` keyword, not a trailing suffix
-# on the path -- a suffix is a position a real `new_path` can occupy (a path
-# literally ending in ` [directory]` would misparse as directory-kind, and
-# an un-upgraded reader's old regex would silently fold a trailing tag into
-# its captured path). A prefix can never be forged by path content, and
-# this regex (anchored on `^\s*RENAME` with the tag consumed before the
-# `:`) simply fails to match a `RENAME[directory]:` line emitted by a
-# newer publish.py if this file predates the fix, rather than corrupting
-# the path it extracts -- publish.py and percolate-round.py are one wire
-# contract for this tag and upgrade together in the same commit. Captured
-# as group 2 -- absent (group 2 is `None`) for a file-kind rename, whose
-# line (`RENAME: old -> new`) is byte-identical to what this always printed.
-_RENAME_LINE_RE = re.compile(r"^(\s*)RENAME(?:\[(directory)\])?:\s+(.+?)\s*->\s*(.+?)\s*$")
-_TRAILING_ANNOTATION_RE = re.compile(r"\s+\([^()]*\)$")
-_BLOCK_HEADER_RE = re.compile(r"^(\s*)---\s+(.+?)\s+---\s*$")
+# `_TARGET_LINE_RE` is the one survivor of the retired stdout-scrape family
+# (chunk C4, docs/plans/2026-08-23-rebuild-the-percolate-round-as-six-
+# steps.md AC5, further retired 2026-08-23 with `--dry-run-first` itself):
+# `_extract_change_lines`/`_CHANGE_LINE_RE`/`_RENAME_LINE_RE`/
+# `_TRAILING_ANNOTATION_RE`/`_BLOCK_HEADER_RE` parsed publish.py's printed
+# `NEW:`/`UPDATE:`/`RENAME:`/`--- <subdir> ---` report to build a commit
+# pathspec; that whole family is gone (`_pathspec_from_manifest` reads a
+# `RoundManifest` instead). This one regex survives for
+# `_split_stdout_by_row_dest` below, whose only remaining caller
+# (`percolate-mirror.py`'s scan-secrets/inverse-drift row attribution) is
+# unrelated to the commit pathspec.
 _TARGET_LINE_RE = re.compile(r"^\s*Target:\s+(.+?)\s*$")
-
-
-def _extract_change_lines(
-    stdout_text: str,
-) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str, str]]]:
-    """Returns `(changes, renames)` — `changes` is the existing (tag, path)
-    list; `renames` is the separate list of (old, new, kind) triples parsed
-    from `RENAME:` lines, kept apart rather than folded into `changes` since
-    a rename pair is not itself a `(tag, path)` change line. `kind` is
-    `'directory'` when the line carries the `RENAME[directory]:` prefix tag
-    (§ `_RENAME_LINE_RE`, publish.py `_report_rename_manifest`), else
-    `'file'` — the same default `RenameRecord.kind` itself carries, so an
-    untagged (pre-existing, file-kind) line resolves identically to before
-    this fix.
-
-    A change line inside one or more open `  --- <subdir> ---` sub-blocks is
-    prefixed with the joined block-stack chain before it is returned (§ C4).
-    """
-    from pathlib import PurePosixPath
-
-    changes: List[Tuple[str, str]] = []
-    renames: List[Tuple[str, str, str]] = []
-    block_stack: List[Tuple[int, str]] = []  # (header indent depth, name)
-
-    def _pop_to(indent: int) -> None:
-        while block_stack and block_stack[-1][0] >= indent:
-            block_stack.pop()
-
-    for line in stdout_text.splitlines():
-        header_match = _BLOCK_HEADER_RE.match(line)
-        if header_match:
-            indent = len(header_match.group(1))
-            name = header_match.group(2).strip()
-            _pop_to(indent)
-            if name:
-                block_stack.append((indent, name))
-            continue
-        rename_match = _RENAME_LINE_RE.match(line)
-        if rename_match:
-            indent = len(rename_match.group(1))
-            _pop_to(indent)
-            old, new = rename_match.group(3).strip(), rename_match.group(4).strip()
-            kind = "directory" if rename_match.group(2) else "file"
-            if old and new:
-                renames.append((old, new, kind))
-            continue
-        match = _CHANGE_LINE_RE.match(line)
-        if not match:
-            continue
-        indent = len(match.group(1))
-        _pop_to(indent)
-        tag, path = match.group(2), match.group(3)
-        path = _TRAILING_ANNOTATION_RE.sub("", path).strip()
-        if not path:
-            continue
-        if block_stack:
-            prefix_parts = [name for _, name in block_stack]
-            path = str(PurePosixPath(*prefix_parts, path))
-        changes.append((tag, path))
-    return changes, renames
-
-
-# ---------------------------------------------------------------------------
-# Row-dest attribution (§ C5, AC9). One `percolate-round.py <target>`
-# invocation expands to MANY `publish.py` rows — a real round can process
-# several registered targets sharing the invoked target's rename/scan
-# machinery, each with its OWN dest. `publish.py` prints that dest once per
-# row, on a `  Target: <abs path>` line under that row's own
-# `=== <row-name> (mirror|flat-mirror) ===` header. Splitting the run's
-# stdout on that line, BEFORE handing each segment to the unchanged
-# `_extract_change_lines`, keeps AC7's provenance invariant intact (still
-# derived from publish.py's own reported output, never a dest-tree survey)
-# and resets C4's block stack at every row boundary for free — each segment
-# gets its own `_extract_change_lines` call, so no open sub-block can leak a
-# prefix across a row it was never printed under.
-# ---------------------------------------------------------------------------
 
 
 def _split_stdout_by_row_dest(
@@ -532,7 +648,16 @@ def _split_stdout_by_row_dest(
     by each row's own reported `  Target:` line. `fallback_dest` covers any
     line preceding the first `Target:` line — a single-row run has no such
     line at all, so its whole stdout stays one chunk under `fallback_dest`,
-    matching today's single-row behaviour byte-identically (§ C5 body)."""
+    matching today's single-row behaviour byte-identically (§ C5 body).
+
+    SURVIVES chunk C4 (docs/plans/2026-08-23-rebuild-the-percolate-round-as-
+    six-steps.md AC4/AC5) for exactly one remaining caller:
+    `percolate-mirror.py`'s scan-secrets/inverse-drift per-row file-list
+    attribution (that module's own `_run_gate_legs`) -- unrelated to the
+    commit pathspec AC5 targets, the same category as the two
+    `percolate-parse-dryrun.py` scrapes this plan's own scoping note leaves
+    alone. `percolate-round.py`'s OWN pathspec-building callers of this
+    function are gone; do not resurrect one."""
     rows: List[Tuple[str, List[str]]] = [(fallback_dest, [])]
     for line in stdout_text.splitlines():
         target_match = _TARGET_LINE_RE.match(line)
@@ -543,115 +668,203 @@ def _split_stdout_by_row_dest(
     return [(row_dest, "\n".join(lines)) for row_dest, lines in rows]
 
 
-def _build_commit_pathspec(
-    dest: str,
-    change_lines: List[Tuple[str, str]],
-    rename_pairs: Optional[List[Tuple[str, str, str]]] = None,
-    *,
-    repo_root: Optional[str] = None,
-) -> List[str]:
-    """File paths under `dest`, de-duplicated in first-seen order. Every
-    element names a specific file (never a directory) by construction — see
-    this module's docstring § AC7.
+# ---------------------------------------------------------------------------
+# The manifest (chunk C4, docs/plans/2026-08-23-rebuild-the-percolate-round-
+# as-six-steps.md AC4/AC5) -- replaces `_build_commit_pathspec`'s
+# stdout-derived pathspec for the REAL-run commit.
+# publish.py's own real run (C3.5) now persists a `RoundManifest` for every
+# repo root it touched, keyed to what `_report_published_diff` actually
+# compared (the fully-transformed staging tree against dest's CURRENT
+# on-disk state, right before the swap) -- never a re-parse of what publish.py
+# printed. A rename needs no resolution machinery under this shape: it is
+# built from real file PRESENCE (staging vs dest), so it naturally reports as
+# a REMOVE (old name, absent from staging) plus a NEW (new name, present in
+# staging) -- a correct end state for the commit either way, whether or not
+# git's own similarity detector later recognises it as a rename.
+# ---------------------------------------------------------------------------
 
-    `repo_root` (§ docs/plans/2026-08-14-the-publish-round-commits-the-
-    names-it-a.md follow-up, the 83-decline defect): when given, every
-    returned entry is `repo_root`-relative instead of absolute. `dest` here
-    is a single publish ROW's own reported `Target:` (§
-    `_split_stdout_by_row_dest`), which for most `claude-klabauter*` rows is
-    a `dest_subdir` BENEATH the actual commit target -- `repo_root` is that
-    outer commit target, the same path the caller hands `scoped-git-commit`
-    as `--repo`. `scoped_git_commit.commit_pipeline.explicit_stage`'s own
-    deletion probes (`git_native.ls_files_deleted`,
-    `diff_cached_name_status`) run with `cwd=worktree_root` (that same
-    `--repo` value) and git prints their matches CWD-relative -- an ABSOLUTE
-    pathspec entry can never equality-match a CWD-relative name, so every
-    unstaged/staged deletion this call names was silently undetectable by
-    those probes and fell through to `missing_caller_paths` (a benign,
-    false decline) regardless of whether `_filter_commit_pathspec` correctly
-    judged it still-live. Emitting `repo_root`-relative entries instead
-    makes this call's own pathspec form match what those probes already
-    compare against -- no `scoped-git-commit`/`commit_pipeline.py` change
-    needed. `None` (the default) preserves the prior absolute-path form
-    byte-for-byte, for any caller not naming an outer commit root.
 
-    `rename_pairs` (old, new, kind — dest-relative, § `_extract_change_lines`)
-    is reconstructed into a real `coordinator_core.percolate.rewrite_
-    basename.RenameManifest` and resolved via ITS OWN `.resolve()` (never a
-    hand-rolled prefix resolver here — § docs/plans/2026-08-14-publishing-
-    runs-itself.md § C1: `resolve()` already handles the composed
-    directory-rename-then-file-rename case a single-pass prefix match
-    cannot, by looping until a pass produces no further change). An
-    EXACT-key dict lookup (the pre-fix behaviour) can only ever match a
-    rename-SOURCE path named byte-for-byte in the manifest — never a path
-    living BENEATH a renamed directory, which is exactly why
-    `declined_paths` was permanently non-empty before this fix: a directory
-    rename is one manifest entry naming the directory, so no file beneath
-    it ever matched. The resolved path is what gets joined to `dest` and
-    containment-checked — the pathspec must name only paths that exist
-    post-transform (AC2). A rename target that also appears as its own
-    change line is not double-counted — de-duplication is on the resolved
-    absolute path, same as today."""
+def _read_fresh_round_manifest(
+    repo_root: Path, not_before: float
+) -> Optional[_RoundManifest]:
+    """Reads the manifest publish.py's real run just persisted at `repo_root`
+    (`round.default_manifest_path` -- one file per dest repo, overwritten
+    each round), or `None` if it is missing or STALE.
+
+    THE LOAD-BEARING FRESHNESS CHECK that makes deleting the destination-
+    dirtiness gate safe (AC5): `not_before` is a `time.time()` timestamp
+    captured by the caller immediately before spawning the real-run
+    subprocess. If the manifest file's mtime predates it, this is a LEFTOVER
+    from an earlier round -- either a crashed predecessor that wrote a
+    manifest but never got to commit it, or (the ordinary case) a prior
+    successful round whose manifest THIS round's real run had nothing to
+    overwrite because THIS round was a genuine no-op. Either way, treating a
+    stale file as this round's own bytes is exactly the "can't distinguish
+    this round's bytes from a crashed predecessor's" defect the dirtiness
+    gate used to guard against by inspecting `dest` BEFORE the real run ever
+    started; this check inspects the manifest's OWN provenance AFTER the
+    real run finishes, which is the more direct question to ask.
+
+    Absence at this point can ONLY mean a genuine no-op, never an
+    undetermined row: this function's caller only reaches it after
+    confirming the real run exited 0 with no per-row failure text, and
+    publish.py's own `main()` folds every succeeded row's changed/removed
+    sets (sourced from `_report_published_diff`, which is unconditionally
+    determined once reached, never `None`) into its end-of-run accumulators
+    before deciding whether to write a manifest at all -- it skips the write
+    ONLY when the accumulated added/updated and removed sets are BOTH empty
+    (§ publish.py `main()`, the manifest-write block). A row that failed, or
+    whose changed-set publish.py itself could not determine, would have made
+    THIS caller's own `real.returncode != 0` / row-failure-text check refuse
+    the round already, before this function is ever called.
+    """
+    manifest_path = _default_manifest_path(repo_root, "")  # round_id is not part of the path
+    try:
+        mtime = manifest_path.stat().st_mtime
+    except OSError:
+        return None
+    if mtime < not_before:
+        return None
+    return _read_manifest(manifest_path)
+
+
+_REMOVAL_SIDE_ENABLED = False
+"""The HEAD-minus-declared-payload removal side stays OFF until AC1b proves
+`declared_payload` equals the row's full payload (docs/plans/2026-08-26-a-
+refused-round-strands-its-payload-forever.md § HARD CONSTRAINT).
+
+Why this is a gate and not a flag anyone may flip: the removal rule is
+`head_tree - declared_payload`, and BOTH operands are wider/narrower than
+the rule assumes.
+
+`head_tree` is every path dest HEAD tracks across the WHOLE mirror -- 8643
+paths spanning all nine `claude-klabauter*` rows -- while `declared_payload`
+carries only the rows this run actually processed. A `--target`-filtered
+round, or any row `--delta` proved unchanged and skipped, therefore
+contributes nothing to `declared_payload` while its files stay in
+`head_tree`: the difference marks the entire rest of the mirror for
+deletion.
+
+`declared_payload` is itself narrower than the payload. C1 sources it from
+`end_of_run_visited_by_repo_root`, fed by the post_rsync/inject sweeps,
+which walk the percolation SURFACE (`surface.iter_surface_files`, which
+takes `include_extensions`/`narrow_to_include_extensions`) -- publish.py's
+own comment calls it "what was SCANNED, not what was PUBLISHED". A binary
+or any non-transform-eligible payload file is tracked at HEAD, absent from
+the declared set, and reads as "no row declares this".
+
+Either operand alone turns this side from a fix into data loss, which is
+strictly worse than the stranding the plan exists to fix. The add/modify
+side is unaffected and ships now -- `git add` on an unchanged path is a
+no-op, never data loss. Turning this on requires the AC1b measurement AND a
+repo-root/row scoping of `head_tree`, not a one-line flip."""
+
+
+def _dest_head_tree(repo_root: str) -> set:
+    """One `git ls-tree -r HEAD --name-only` spawn -- every dest-relative,
+    POSIX path dest HEAD tracks (AC4: one process, never one per path).
+
+    This is one of the two dest-HEAD reads `_pathspec_from_manifest` uses in
+    place of the worktree baseline (docs/plans/2026-08-26-a-refused-round-
+    strands-its-payload-forever.md § "The root cause, stated exactly"): the
+    prior code compared the declared payload against dest's WORKING TREE,
+    which is exactly what makes a stranded deletion invisible -- Step 4's
+    real run already removed the file from disk, so a worktree-baseline
+    comparison finds no difference and never re-reports it, even though the
+    file is still tracked at HEAD and was never committed as removed.
+
+    Fails toward doing nothing on a probe failure (empty set): the caller's
+    removal side is `head_tree - declared_payload`, so an empty `head_tree`
+    here means the removal side fires on nothing rather than risking a
+    misread HEAD driving a deletion; the add side still falls back to
+    treating every declared path as differing (safe -- `git add` on an
+    unchanged path is a no-op, never data loss)."""
+    result = _run(
+        ["git", "-C", repo_root, "--no-optional-locks", "ls-tree", "-r", "HEAD", "--name-only"],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
+    if result.returncode != 0:
+        return set()
+    return {line for line in result.stdout.splitlines() if line}
+
+
+def _dest_head_diff_names(repo_root: str) -> set:
+    """One `git diff --name-only HEAD` spawn -- tracked paths whose worktree
+    bytes differ from dest HEAD (the content leg of the add-side union; AC4).
+
+    MEASURED not sufficient alone (plan § "Two processes, not one, and `git
+    diff HEAD` is not sufficient alone"): `git diff` never reports untracked
+    files, so a declared-payload path with no HEAD entry at all (a genuine
+    new file, or the residue of an earlier round that synced-but-never-
+    committed it) never appears here -- the caller's add side also checks
+    membership in `_dest_head_tree`'s output for exactly that reason, never
+    relies on this set alone. Fails open (empty set) on a probe failure --
+    narrows the add side to only the untracked-in-HEAD paths rather than
+    fabricating a diverged HEAD read; a real problem still surfaces via the
+    commit leg's own report."""
+    result = _run(
+        ["git", "-C", repo_root, "--no-optional-locks", "diff", "--name-only", "HEAD"],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+    )
+    if result.returncode != 0:
+        return set()
+    return {line for line in result.stdout.splitlines() if line}
+
+
+def _pathspec_from_manifest(manifest: _RoundManifest, repo_root: str) -> List[str]:
+    """Builds the commit pathspec by comparing `manifest.declared_payload`
+    against DEST HEAD, in both directions, then reusing
+    `_filter_commit_pathspec` UNCHANGED rather than re-deriving its three
+    safety filters (gitignored-at-dest, an already-absent deletion-intent,
+    beneath a publish-staging directory). Those three matter just as much
+    here as they did over a stdout-derived pathspec -- neither dest-HEAD read
+    above applies any of them; each is an honest tree read, not a
+    commit-safety filter. Skipping them would silently reopen the exact
+    incident this plan's Problem section names: round `eebf1c67` committing
+    1,028 files of a stranded `.bin.publish-staging-*.prior` directory into
+    the public mirror.
+
+    AGAINST HEAD, NOT THE WORKTREE (docs/plans/2026-08-26-a-refused-round-
+    strands-its-payload-forever.md): a declared-payload path is named "NEW"
+    when it is absent from dest HEAD's tree (`_dest_head_tree`) OR its
+    worktree bytes differ from HEAD (`_dest_head_diff_names`) -- the union of
+    both legs, since `git diff` alone never reports an untracked path. A dest
+    HEAD path absent from the declared payload is named "REMOVE" -- the
+    declared-payload restriction (not a raw HEAD-vs-worktree survey) is what
+    keeps a stranded staging directory, which no row declares, out of this
+    set by construction (AC3).
+
+    `seen`'s value shape (`(tag, resolved_rel)`) matches what
+    `_filter_commit_pathspec` has always consumed; `tag` here is only ever
+    `"NEW"` or `"REMOVE"` (no `"UPDATE"`/`"DELETE"` spelling -- this
+    derivation does not distinguish new-from-updated within the added side,
+    and `_filter_commit_pathspec` only ever branches on `tag in ("DELETE",
+    "REMOVE")` for its absent-deletion check, so `"REMOVE"` alone is
+    sufficient)."""
     import os
 
-    dest_root = Path(dest)
-    dest_root_norm = os.path.normpath(str(dest_root))
-    manifest = _RenameManifest(
-        records=[
-            _RenameRecord(old_path=old, new_path=new, kind=kind)
-            for old, new, kind in (rename_pairs or [])
-        ]
-    )
+    repo_root_path = Path(repo_root)
+    repo_root_norm = os.path.normpath(str(repo_root_path))
+
+    head_tree = _dest_head_tree(repo_root)
+    diff_names = _dest_head_diff_names(repo_root)
+
     seen: dict = {}
-    for _tag, rel in change_lines:
-        # A cycle here (§ `RenameManifest.resolve`, `RenameCycleError`) is an
-        # upstream rename-generation bug, never a resolvable path -- surfaced
-        # loudly (a fatal error for this round) rather than silently falling
-        # into the containment-check's "dropped from commit pathspec" path
-        # below, which is reserved for a legitimately-resolved path that
-        # merely lands outside `dest`.
-        try:
-            resolved_rel = manifest.resolve(rel)
-        except _RenameCycleError as exc:
-            raise _RenameCycleError(
-                f'percolate-round: refusing to build a commit pathspec for '
-                f'dest={dest!r} -- {exc}'
-            ) from exc
-        abs_path = dest_root / resolved_rel
-        abs_path_norm = os.path.normpath(str(abs_path))
-        # Review: code-reviewer — `rel` comes from publish.py's own stdout,
-        # not directly agent/user-supplied, but nothing upstream guards
-        # against a `../`-bearing value producing a pathspec entry outside
-        # `dest`. Cheap containment check (no symlink resolution). This cuts
-        # both ways: it avoids a false mismatch when a tmp dir itself sits
-        # behind a symlink, but it also would NOT catch a real escape if
-        # `dest` itself were a symlink out of the intended tree, or if a
-        # change-line `rel` resolved through a symlinked intermediate
-        # directory inside `dest` — normpath alone can't see either. Accepted
-        # because `dest` comes from `percolate-gate.py list-targets`'s own
-        # resolution, not attacker-controlled input.
-        if abs_path_norm != dest_root_norm and not abs_path_norm.startswith(
-            dest_root_norm + os.sep
-        ):
-            # Review: review-integrator — a miss here silently narrowed the
-            # commit pathspec with no operator-visible signal; name the
-            # dropped path so a real change is never excluded without a
-            # trace (containment check itself is unchanged).
-            print(
-                f"percolate-round: dropped from commit pathspec (outside dest): "
-                f"{rel!r} -> {abs_path_norm} (dest={dest_root_norm})",
-                file=sys.stderr,
-            )
-            continue
-        seen.setdefault(str(abs_path), (_tag, resolved_rel))
-    return _filter_commit_pathspec(dest_root, dest_root_norm, seen, repo_root=repo_root)
+    for rel in sorted(manifest.declared_payload):
+        if rel not in head_tree or rel in diff_names:
+            seen.setdefault(str(repo_root_path / rel), ("NEW", rel))
+    if _REMOVAL_SIDE_ENABLED:
+        for rel in sorted(head_tree - manifest.declared_payload):
+            seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
+    return _filter_commit_pathspec(repo_root_path, repo_root_norm, seen, repo_root=repo_root)
 
 
 def _filter_commit_pathspec(
     dest_root: Path, dest_root_norm: str, seen: dict, *, repo_root: Optional[str] = None
 ) -> List[str]:
-    """Drops two benign-decline classes from the derived pathspec BEFORE it
-    reaches `scoped-git-commit`, so a real round no longer names 100+ paths
+    """Drops three benign-decline classes from the derived pathspec BEFORE it
+    reaches the commit leg (`commit_pipeline.run_commit_pipeline`), so a real
+    round no longer names 100+ paths
     it already knows cannot land (`_round_refusal_reason` gates the push on
     `declined_paths` being empty, so these otherwise-benign declines used to
     block the publish from ever pushing itself):
@@ -662,12 +875,26 @@ def _filter_commit_pathspec(
     - deletion-intents (`DELETE`/`REMOVE` tag) for a path that does not
       exist at dest in the worktree OR the index — the desired end state
       (absent) already holds, so there is nothing to commit.
+    - anything beneath a publish-STAGING directory (§
+      `surface.PUBLISH_STAGING_DIR_RE`, the same SSOT every walk prunes on).
+      A staging directory is scratch a crashed round left behind; it is not
+      payload any row declares. This filter is not hypothetical — 1,028 files
+      of `coordinator/.bin.publish-staging-dsnce3r6.prior` reached the public
+      mirror through this exact pathspec in round `eebf1c67`, because nothing
+      between the change-line report and the commit knew what a staging
+      directory was. They carried no identity findings (a `.prior` is a
+      post-swap backup of already-transformed bytes), so this closes a
+      cruft-in-the-payload hole, not a leak.
+
+      Matched on DIRECTORY segments only, never the basename: a file named
+      `x-publish-staging-y.py` is real payload, the same distinction
+      `store.py` and `engine.run_parse_sweep` draw.
 
     Deliberately narrow: does NOT filter anything else. A path that
     genuinely should land and does not is the real failure mode here — an
-    uncertain case is left in, so a real decline still surfaces via
-    `scoped-git-commit`'s own report rather than being silently swallowed
-    here.
+    uncertain case is left in, so a real decline still surfaces via the
+    commit leg's own report (`_declined_paths_from_stage`) rather than
+    being silently swallowed here.
 
     Preserves AC7 provenance: filtering happens on the pathspec already
     derived from the real run's own reported change lines, never adding or
@@ -707,14 +934,37 @@ def _filter_commit_pathspec(
             "is unreliable for this pathspec and must not proceed silently."
         )
 
+    from coordinator_core.percolate.surface import (  # noqa: PLC0415 - lazy, engine-only path
+        PUBLISH_STAGING_DIR_RE as _STAGING_RE,
+    )
+
+    def _under_staging_dir(rel_path: str) -> bool:
+        return any(_STAGING_RE.search(part) for part in rel_path.split("/")[:-1])
+
+    survivors = [
+        (abs_path, tag, resolved_rel)
+        for (abs_path, (tag, resolved_rel)), rel_path in zip(entries, rel_paths)
+        if rel_path not in ignored and not _under_staging_dir(rel_path)
+    ]
+    staging_dropped = sum(
+        1
+        for rel_path in rel_paths
+        if rel_path not in ignored and _under_staging_dir(rel_path)
+    )
+    gitignored_dropped = len(entries) - len(survivors) - staging_dropped
+
+    # One batched `git ls-files --error-unmatch` probe for every deletion-
+    # intent still in play, instead of one spawn per row (§
+    # `_dest_paths_exist`) -- same per-path verdict, one subprocess.
+    delete_candidates = [
+        resolved_rel for _, tag, resolved_rel in survivors if tag in ("DELETE", "REMOVE")
+    ]
+    exists_at_dest = _dest_paths_exist(str(dest_root), delete_candidates)
+
     kept: List[str] = []
-    gitignored_dropped = 0
     absent_deletion_dropped = 0
-    for (abs_path, (tag, resolved_rel)), rel_path in zip(entries, rel_paths):
-        if rel_path in ignored:
-            gitignored_dropped += 1
-            continue
-        if tag in ("DELETE", "REMOVE") and not _dest_path_exists(str(dest_root), resolved_rel):
+    for abs_path, tag, resolved_rel in survivors:
+        if tag in ("DELETE", "REMOVE") and not exists_at_dest[resolved_rel]:
             absent_deletion_dropped += 1
             continue
         if repo_root:
@@ -722,7 +972,7 @@ def _filter_commit_pathspec(
             if rel_to_repo_root == ".." or rel_to_repo_root.startswith("../"):
                 # `abs_path` fell outside `repo_root` -- `repo_root` was not
                 # actually this entry's git worktree root (§ `_resolve_repo_root`
-                # docstring). Emitting it would hand `scoped-git-commit` a
+                # docstring). Emitting it would hand the commit leg a
                 # pathspec entry it can only ever reject.
                 raise ValueError(
                     f"percolate-round: commit pathspec entry {abs_path!r} falls "
@@ -733,14 +983,14 @@ def _filter_commit_pathspec(
         else:
             kept.append(abs_path)
 
-    if gitignored_dropped or absent_deletion_dropped:
+    if gitignored_dropped or absent_deletion_dropped or staging_dropped:
         print(
             "percolate-round: filtered "
-            f"{gitignored_dropped + absent_deletion_dropped} path(s) from "
+            f"{gitignored_dropped + absent_deletion_dropped + staging_dropped} path(s) from "
             "commit pathspec before commit -- "
             f"{gitignored_dropped} gitignored at dest, "
             f"{absent_deletion_dropped} deletion-intent(s) already absent "
-            "at dest.",
+            f"at dest, {staging_dropped} beneath a publish-staging directory.",
             file=sys.stderr,
         )
     return kept
@@ -770,33 +1020,110 @@ def _gitignored_dest_paths(dest: str, rel_paths: List[str]) -> set:
     result = _run(
         ["git", "-C", dest, "check-ignore", "-z", "--stdin"],
         input="\0".join(rel_paths) + "\0",
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
     )
     if result.returncode not in (0, 1):
         return set()
     return {path for path in result.stdout.split("\0") if path}
 
 
-def _dest_path_exists(dest: str, rel: str) -> bool:
-    """Whether `rel` exists at `dest` in the worktree OR the index -- a
-    deletion-intent for a path absent from both has nothing left to
-    commit. A real, still-uncommitted deletion (the physical file already
-    removed by Step 4's real publish) stays TRACKED in the index until the
-    deletion itself is committed, so `git ls-files --error-unmatch` still
-    reports it as existing -- only a path absent from BOTH worktree and
-    index is treated as already gone.
+# The single-item form (`_dest_path_exists`) was removed -- its only
+# caller was its own one-line delegation to `_dest_paths_exist(dest,
+# [rel])[rel]` (Review: coordinator:code-reviewer amp-review-s6 F4).
+# `_dest_paths_exist` below is the sole entry point; a future single-item
+# caller should call it with a one-element list directly rather than
+# reintroduce the wrapper.
 
-    Fails OPEN, not closed: `git ls-files --error-unmatch` exits `1` only
-    for a confirmed not-tracked path; any other non-zero (not a git repo,
-    dest missing, etc.) is an undetermined probe, not a confirmed absence,
-    and this returns `True` so the caller does not drop a path it could not
-    actually verify is gone."""
-    abs_path = Path(dest) / rel
-    if abs_path.exists() or abs_path.is_symlink():
-        return True
-    tracked = _run(["git", "-C", dest, "ls-files", "--error-unmatch", "--", rel])
-    if tracked.returncode == 1:
-        return False
-    return True
+# Windows `CreateProcess` argv ceiling is ~32KB (measured live at
+# reap-stale-subagent-sidecars.py::_tracked_paths -- 621047 bytes of
+# pathspec argv, 19x over). `git ls-files` has no `--pathspec-from-file`
+# support (verified live there too -- `error: unknown option`), so
+# `_dest_paths_exist` chunks its own `-- <paths>` argv the same way rather
+# than scoping to a directory (unlike `_tracked_paths`, this call needs a
+# per-path verdict, not a subtree membership check, so directory-scoping
+# isn't available here). Kept comfortably under the measured ceiling to
+# leave room for the fixed `git -C <dest> ls-files --error-unmatch --`
+# prefix and per-arg quoting overhead.
+_LS_FILES_ARGV_BYTE_CAP = 28_000
+
+
+def _chunk_paths_by_argv_bytes(
+    paths: List[str], cap: int = _LS_FILES_ARGV_BYTE_CAP
+) -> List[List[str]]:
+    """Split `paths` into argv-sized chunks, each kept under `cap` bytes of
+    UTF-8-encoded path text (a conservative proxy for actual argv bytes,
+    which also carry OS-level quoting/separator overhead). Chunk boundaries
+    never split a single path, and every input path lands in exactly one
+    chunk, in order -- preserving per-path identity for the caller's
+    per-row attribution."""
+    chunks: List[List[str]] = []
+    current: List[str] = []
+    current_bytes = 0
+    for path in paths:
+        path_bytes = len(path.encode("utf-8")) + 1
+        if current and current_bytes + path_bytes > cap:
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append(path)
+        current_bytes += path_bytes
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _dest_paths_exist(dest: str, rels: List[str]) -> Dict[str, bool]:
+    """Whether each of `rels` exists at `dest` in the worktree OR the
+    index -- a deletion-intent for a path absent from both has nothing
+    left to commit. A real, still-uncommitted deletion (the physical file
+    already removed by Step 4's real publish) stays TRACKED in the index
+    until the deletion itself is committed, so `git ls-files
+    --error-unmatch` still reports it as existing -- only a path absent
+    from BOTH worktree and index is treated as already gone.
+
+    One `git ls-files --error-unmatch` spawn per argv-sized chunk
+    (§ `_chunk_paths_by_argv_bytes`) of every `rel` still needing a git
+    probe (absent from the worktree/symlink check), rather than one spawn
+    per deletion-intent row.
+    `git ls-files --error-unmatch` evaluates every named pathspec even when
+    some are unmatched (an unmatched entry only ever adds an extra stderr
+    line -- verified live, it never short-circuits the rest), so each
+    chunk's stdout is exactly the subset of that chunk still tracked in the
+    index; everything else asked about is confirmed gone from both
+    worktree and index. Chunk boundaries never affect the result -- each
+    `rel` is written into `result` exactly once, keyed by its own value,
+    so attribution is exact across chunk boundaries.
+
+    Fails OPEN exactly like the per-item form, per chunk: a returncode
+    outside `{0, 1}` for a given chunk (not a git repo, dest missing, etc.)
+    is an undetermined probe for THAT chunk only, and every `rel` in that
+    chunk resolves to `True` (kept) rather than being silently dropped;
+    other chunks are unaffected."""
+    result: Dict[str, bool] = {}
+    to_probe: List[str] = []
+    for rel in rels:
+        abs_path = Path(dest) / rel
+        if abs_path.exists() or abs_path.is_symlink():
+            result[rel] = True
+        else:
+            to_probe.append(rel)
+    if not to_probe:
+        return result
+    tracked: set = set()
+    for chunk in _chunk_paths_by_argv_bytes(to_probe, cap=_LS_FILES_ARGV_BYTE_CAP):
+        probe = _run(
+            ["git", "-C", dest, "ls-files", "--error-unmatch", "--"] + chunk,
+            timeout=_GIT_PLUMBING_TIMEOUT_SECS,
+        )
+        if probe.returncode not in (0, 1):
+            for rel in chunk:
+                result[rel] = True
+            continue
+        tracked |= set(probe.stdout.splitlines())
+    for rel in to_probe:
+        if rel not in result:
+            result[rel] = rel in tracked
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -881,15 +1208,21 @@ def _build_commit_subject(
     OWN comparison of the transformed staging dir against dest's *working
     tree* (`filecmp.cmp(shallow=False)` in `_report_published_diff`) —
     genuine signal (it says how far dest content diverged from what publish
-    just staged), but NOT what this round is about to commit. `pathspec` is
-    what `_build_commit_pathspec`/`_filter_commit_pathspec` already derived
-    from those same change lines, filtered for gitignored-at-dest and
-    already-absent-deletion paths (§ `_filter_commit_pathspec`) — the
-    honest count of paths this call is about to hand `scoped-git-commit`.
+    just staged), but NOT what this round is about to commit -- `real_changes`
+    is now built from the `RoundManifest` publish.py's real run persists
+    (§ `_read_fresh_round_manifest`), never a re-parse of its stdout, but the
+    two-numbers-never-blended shape below is unchanged. `pathspec` is what
+    `_pathspec_from_manifest`/`_filter_commit_pathspec` already derived from
+    that same manifest's `declared_payload` set compared against dest HEAD
+    (not against `real_changes`' own worktree baseline), filtered for
+    gitignored-at-dest, already-absent-deletion, and beneath-a-publish-
+    staging-directory paths (§ `_filter_commit_pathspec`) — the honest count
+    of paths this call is about to hand the commit leg
+    (`commit_pipeline.run_commit_pipeline`).
 
     A commit message is fixed at commit-invocation time (it IS the `-m`
     argument), so this cannot wait for a post-commit landed-diff count
-    scoped-git-commit's own JSON result does not report (see
+    the commit leg's own `PipelineResult` does not report (see
     `_report_commit_residual` for the closest available post-commit
     signal, printed separately on stderr rather than folded in here).
     Reporting `pathspec`'s size as if it were "modified" would just move
@@ -912,19 +1245,37 @@ def _report_commit_residual(
     """Surfaces, on stderr, the gap this module used to discard silently:
     `real_changes` is publish.py's own dest-working-tree comparison (see
     `_build_commit_subject`); `pathspec` is what actually gets named to
-    `scoped-git-commit`. A round that reports a subject sized off
-    `real_changes` while `pathspec` (or the eventual commit) is far
-    smaller is exactly the defect this function exists to make loud
-    rather than silent. No-op when the two already agree.
+    the commit leg (`commit_pipeline.run_commit_pipeline`), now derived from
+    `declared_payload` vs dest HEAD (§ `_pathspec_from_manifest`) rather than
+    from `real_changes`' own worktree baseline. A round that reports a
+    subject sized off `real_changes` while `pathspec` (or the eventual
+    commit) is far smaller is exactly the defect this function originally
+    existed to make loud rather than silent -- and the same divergence can
+    now run the OTHER way: `pathspec` legitimately exceeds `real_changes`
+    whenever it carries a prior round's stranded, synced-but-never-committed
+    residue that `real_changes` (this run's own worktree comparison) has
+    nothing left to report, because Step 4 already found the worktree
+    matching the payload. Both directions are reported here as the same
+    named gap, never blended into one count. No-op when the two already
+    agree.
     """
     if len(real_changes) == len(pathspec):
         return
+    delta = len(real_changes) - len(pathspec)
+    if delta >= 0:
+        detail = (
+            f"{delta} not carried into the pathspec by filtering/containment/dedup"
+        )
+    else:
+        detail = (
+            f"{-delta} carried into the pathspec beyond what this run's own "
+            "worktree comparison reported -- stranded residue from an earlier "
+            "round's declared-payload-vs-HEAD gap, not new filtering"
+        )
     print(
         f"percolate-round: {target} — intent vs commit pathspec diverge: "
         f"{len(real_changes)} change line(s) reported by the real publish run vs "
-        f"{len(pathspec)} path(s) in the derived commit pathspec "
-        f"({len(real_changes) - len(pathspec)} not carried into the pathspec by "
-        "filtering/containment/dedup).",
+        f"{len(pathspec)} path(s) in the derived commit pathspec ({detail}).",
         file=sys.stderr,
     )
 
@@ -959,147 +1310,60 @@ def _print_step_failure(step: str, cmd: List[str], stderr: str) -> None:
             print(f"    {line}", file=sys.stderr)
 
 
-def _dest_dirty_status(dest: str) -> Optional[str]:
-    """Returns `dest`'s `git status --porcelain` output if non-empty (dest's
-    working tree already carries uncommitted changes), or `None` if the
-    tree is clean or its status could not be determined.
+def _declined_paths_from_stage(stage: object) -> "List[Dict[str, str]]":
+    """Every path this round named that `explicit_stage()` declined to
+    include in the commit set, paired with a human-readable reason — the
+    never-silent-drop report the killed `scoped-git-commit` CLI used to
+    render via its own `_declined_paths` (deleted with that CLI 2026-08-23,
+    DR-344; ported here rather than imported, since the module that defined
+    it no longer exists). Local, not shared: this is the one caller in this
+    repo that still needs the decline-labelling shape post-kill.
 
-    This is a crash-recovery PRE-FLIGHT, NOT the concurrency guard against a
-    peer round racing this one (debt entry f8e70de2991c,
-    `state/debt-backlog/2026-08-13-percolate-round-has-no-guard-against-con-f8e70de2991c.yaml`).
-    It runs once, before Step 4, on every round — it cannot detect a peer
-    round landing mid-sequence, between this round's own Step 4 write and
-    its commit. The concurrency guard is the `held_lock(dest)` `percolate-
-    round`'s own `_cmd_round` now holds across that whole Step 4 -> commit
-    span (state/audits/2026-08-13-percolate-round-race-repro.md); a reader
-    should not mistake this function for that guard.
+    Scoped by construction: both `StageOutcome.missing_caller_paths` and
+    `StageOutcome.ignored_caller_paths` are already filtered to paths THIS
+    call's own `caller_paths` named (the commit leg above always passes
+    `caller_paths=set(pathspec)`) — this function does not re-filter, it
+    only labels the two buckets `explicit_stage()` already computed.
 
-    Review: review-integrator — pre-flight for the crash-recovery gap: Step
-    4's real publish write and the following scoped-commit are two
-    unguarded subprocess calls, so a process death between them leaves
-    `dest` mutated-but-uncommitted. The NEXT round's real run then diffs
-    source against dest content, sees nothing new, takes the "nothing to
-    commit" branch, and exits 0 PASS — silently stranding the earlier
-    mutation. This check runs before Step 4 on every round, not just after a
-    detected crash, so it also catches a dest dirtied by something other
-    than this tool.
-
-    Chosen behaviour: REFUSE, not reconcile. A prior mutation could be
-    partial, unreviewed, or unrelated to this run's own real-run output —
-    auto-committing it under this round's subject line would land
-    unattributed changes under a misleading commit message. The considered
-    alternative (auto-commit the orphaned dest state under its own
-    "recovered from interrupted round" commit before proceeding) is a
-    legitimate design and may be worth adding later, but folding it in here
-    silently would decide a real tradeoff without the EM's sign-off; refuse
-    and name the exact recovery step (`git -C <dest> status`, review, commit
-    or discard by hand) instead.
+    Deliberately NOT exhaustive over every `StageOutcome.skipped` tag: a
+    diverged path, an already-staged deletion, or a swept-rename source are
+    NOT declines — each is still included in the commit set, just not via a
+    fresh `git add` this call issued. `stage` may be `None` (a pipeline
+    result built without ever reaching `explicit_stage()`) — degrades to
+    `[]` rather than raising.
     """
-    result = _run(["git", "-C", dest, "--no-optional-locks", "status", "--porcelain"])
-    if result.returncode != 0:
-        # Can't determine dest's status — don't block the round over a
-        # status-check failure the operator didn't cause; let the round
-        # proceed and surface any real problem at the steps that follow.
-        # Said out loud rather than returned bare: this check exists to stop a
-        # round reporting PASS over an uncommitted mutation, so an
-        # undetermined answer must not itself become a silent pass.
-        print(
-            f"  dest dirty-check: undetermined (git status exited "
-            f"{result.returncode}) — proceeding unchecked",
-            file=sys.stderr,
-        )
-        return None
-    return result.stdout if result.stdout.strip() else None
-
-
-def _reconcile_dest_discard(dest: str, dirty_status: str) -> Tuple[bool, str]:
-    """Carries out the `refuse`-path's own named remedy (`--reconcile-dest=
-    discard`): resets `dest` to its checked-out HEAD and removes untracked
-    residue, but ONLY when that residue is safely reconstructible by the
-    publish round that is about to run. `dest`'s generated publish output,
-    wholesale-rewritten by every real run, is the safe case; anything a
-    publish would NOT regenerate is not, and this function refuses rather
-    than guess.
-
-    `dest` carrying local commits its remote does not have
-    (`_dest_ahead_count`) is NOT a refusal condition: a reset to HEAD never
-    destroys commits, it only discards uncommitted working-tree and index
-    state, so an unpushed commit survives this function's reset intact. The
-    ahead count is reported in the returned message (not silently), so the
-    operator sees it rather than being surprised; a probe failure (ahead
-    count undeterminable) still refuses, since that failure could equally
-    mean the discard itself cannot be evaluated safely.
-
-    A dest with NO upstream tracking ref is a third, definite state (PM
-    ruling, 2026-08-14) — distinct from a probe failure and, unlike it, NOT
-    a refusal condition: `dest` simply has no remote counterpart yet (a
-    fresh mirror, never pushed), and this function's reset/clean only ever
-    discards uncommitted working-tree state regardless of upstream
-    presence. That distinction is only resolvable via `_dest_ahead_probe`
-    directly — `_dest_ahead_count` collapses no-upstream and probe-failure
-    into the same `None`.
-
-    NEVER touches the source repo — every git invocation here is `-C dest`.
-    Returns `(ok, message)`: `message` is either the refusal reason (`ok`
-    False) or an audit report naming the reset HEAD, any ahead-of-remote
-    commit count (or the no-upstream state), and every discarded path,
-    capped, with a total count (`ok` True) — printed by the caller, never
-    silent either way."""
-    ahead, has_upstream, probe_ok = _dest_ahead_probe(dest)
-    if not probe_ok:
-        return False, (
-            "could not determine whether dest has commits ahead of its "
-            "remote (git status probe failed) — refusing to discard under "
-            "an unknown state."
-        )
-
-    head_result = _run(["git", "-C", dest, "--no-optional-locks", "rev-parse", "HEAD"])
-    head_sha = head_result.stdout.strip() if head_result.returncode == 0 else "?"
-
-    lines = [line for line in dirty_status.splitlines() if line.strip()]
-    by_status: dict = {}
-    paths: List[str] = []
-    for line in lines:
-        code = line[:2].strip() or line[:2]
-        by_status[code] = by_status.get(code, 0) + 1
-        paths.append(line[3:].strip())
-
-    reset = _run(["git", "-C", dest, "reset", "--hard", "HEAD"])
-    if reset.returncode != 0:
-        return False, f"git reset --hard HEAD failed:\n{reset.stderr.strip()}"
-    clean = _run(["git", "-C", dest, "clean", "-fd"])
-    if clean.returncode != 0:
-        return False, f"git clean -fd failed:\n{clean.stderr.strip()}"
-
-    cap = 20
-    shown = paths[:cap]
-    path_report = "\n".join(f"    {p}" for p in shown)
-    if len(paths) > cap:
-        path_report += f"\n    ... ({len(paths) - cap} more)"
-    counts_report = ", ".join(f"{code}: {n}" for code, n in sorted(by_status.items()))
-    if not has_upstream:
-        ahead_report = (
-            "dest has no upstream tracking ref (no remote counterpart yet); "
-            "discard proceeds.\n"
-        )
-    elif ahead:
-        ahead_report = (
-            f"dest is ahead of remote by {ahead} commit(s); reset to HEAD "
-            "preserves them.\n"
-        )
-    else:
-        ahead_report = ""
-    message = (
-        f"discarded {len(paths)} path(s), reset to HEAD {head_sha}:\n"
-        f"{ahead_report}"
-        f"  by status: {counts_report}\n"
-        f"{path_report}"
-    )
-    return True, message
+    if stage is None:
+        return []
+    unverifiable = set(getattr(stage, "unverifiable_missing_caller_paths", ()) or ())
+    declined: "List[Dict[str, str]]" = []
+    for p in getattr(stage, "missing_caller_paths", ()) or ():
+        if p in unverifiable:
+            declined.append({
+                "path": p,
+                "reason": (
+                    "could not be classified -- the rename/deletion probe(s) "
+                    "this decision depends on did not answer, so absence was "
+                    "assumed, not confirmed; re-run once git can be queried "
+                    "reliably"
+                ),
+            })
+        else:
+            declined.append({
+                "path": p,
+                "reason": (
+                    "not found in the worktree or index, and not attributable "
+                    "to a deletion (never existed, or already removed by "
+                    "something other than a tracked deletion)"
+                ),
+            })
+    for p in getattr(stage, "ignored_caller_paths", ()) or ():
+        declined.append({"path": p, "reason": "excluded by .gitignore"})
+    return declined
 
 
 def _partition_gitignored_declines(declined: list) -> "tuple[list, list]":
-    """Splits `scoped-git-commit`'s `declined_paths` into (material, gitignored).
+    """Splits the commit leg's own `declined_paths` (§
+    `_declined_paths_from_stage`) into (material, gitignored).
 
     `_filter_commit_pathspec` already drops gitignored paths from the derived
     pathspec, but that filter reads dest state BEFORE the commit and cannot
@@ -1210,7 +1474,7 @@ def _write_round_failure_marker(target: str, percolate_root: str, reason: str, s
         "sha": sha,
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    path.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
 
 
 def _clear_round_failure_marker(target: str, percolate_root: str) -> None:
@@ -1225,8 +1489,7 @@ def _clear_round_failure_marker(target: str, percolate_root: str) -> None:
 
 
 def _dest_ahead_probe(dest: str) -> Tuple[Optional[int], bool, bool]:
-    """Source of truth behind `_dest_ahead_count` and
-    `_reconcile_dest_discard`'s permissive no-upstream path (PM ruling,
+    """Source of truth behind `_dest_ahead_count` (PM ruling,
     2026-08-14): distinguishes THREE states the collapsed `Optional[int]`
     return of `_dest_ahead_count` cannot — ahead-by-N, no-upstream
     (definite, not an error), and probe-failed (genuinely undetermined) —
@@ -1248,7 +1511,8 @@ def _dest_ahead_probe(dest: str) -> Tuple[Optional[int], bool, bool]:
         [
             "git", "-C", dest, "--no-optional-locks", "status",
             "--porcelain=v2", "--branch", "--untracked-files=normal",
-        ]
+        ],
+        timeout=_GIT_PLUMBING_TIMEOUT_SECS,
     )
     if result.returncode != 0:
         return None, False, False
@@ -1278,10 +1542,8 @@ def _dest_ahead_count(dest: str) -> Optional[int]:
     push to), never "0 ahead" (§ Review below), so it must return `None`
     here too, the same as an outright probe failure — never silently fall
     through to the `ahead = 0` initializer. Callers needing to distinguish
-    no-upstream from a genuine probe failure (e.g.
-    `_reconcile_dest_discard`, which may proceed permissively on
-    no-upstream but must still refuse on a real probe failure) should call
-    `_dest_ahead_probe` directly instead of this collapsed wrapper.
+    no-upstream from a genuine probe failure should call `_dest_ahead_probe`
+    directly instead of this collapsed wrapper.
     """
     # Review: coordinatorcode-reviewer-c58be590 -- a missing `branch.ab`
     # line (no upstream tracking ref) previously fell through to the
@@ -1293,7 +1555,7 @@ def _dest_ahead_count(dest: str) -> Optional[int]:
 
 
 def _push_dest(dest: str) -> subprocess.CompletedProcess:
-    return _run(["git", "-C", dest, "push"])
+    return _run(["git", "-C", dest, "push"], timeout=_GIT_PUSH_TIMEOUT_SECS)
 
 
 def _publish_unpushed_dest_commits(
@@ -1310,7 +1572,11 @@ def _publish_unpushed_dest_commits(
 
     Returns `(pushed, refused, message)`."""
     try:
-        with _round_held_lock(Path(dest), holder_label=f"percolate-round:{target}"):
+        with _round_held_lock(
+            Path(dest),
+            holder_label=f"percolate-round:{target}",
+            timeout=_round_lock_wait_secs(),
+        ):
             ahead = _dest_ahead_count(dest)
             # Review: review-integrator — distinguish "the ahead-count probe
             # failed" from "genuinely zero commits ahead" (same defect class
@@ -1341,8 +1607,7 @@ def _publish_unpushed_dest_commits(
         return (
             False,
             True,
-            f"could not acquire the per-destination round lock for '{dest}' "
-            f"(another round is running against this dest) — {exc}",
+            _lock_busy_message(dest, exc),
         )
 
 
@@ -1358,65 +1623,69 @@ def _cmd_round_default(
     dest: str,
     tmp: Path,
 ) -> int:
-    """The default (no `--dry-run-first`) round, PM ruling 2026-08-15: one
-    sync, not two. Step 2's dry run is dropped entirely -- Step 1 IS the
-    real `publish.py` run, and it materializes bytes into `dest` directly.
-    Step 2 (leak scan) and Step 2b (inverse-drift) run against THAT run's
-    own output, same as before (the leak scan reads SOURCE files either
-    way, never dry-run output, so it never depended on a preceding dry run
-    at all). The Step 3 gate -- same predicate, same inputs
-    (touched-file count / MEDIUM leak hits / inverse-drift hits), same
-    verdict paths -- now sits immediately before commit/push instead of
-    before the sync: the sync into `dest` (a local git clone) is fully
-    `git reset --hard HEAD && git clean -fd`-revertible, so a decline here
-    leaves a synced-but-uncommitted `dest`, never a lost push. See this
-    module's own `--dry-run-first` help text for the full rationale.
+    """The round, PM ruling 2026-08-15: one sync, not two. Step 2's dry run
+    is dropped entirely -- Step 1 IS the real `publish.py` run, and it
+    materializes bytes into `dest` directly. Step 2 (leak scan) and Step 2b
+    (inverse-drift) run against THAT run's own output (the leak scan reads
+    SOURCE files either way, never dry-run output, so it never depended on a
+    preceding dry run at all). The Step 3 gate -- same predicate, same
+    inputs (touched-file count / MEDIUM leak hits / inverse-drift hits) --
+    sits immediately before commit/push instead of before the sync: the
+    sync into `dest` (a local git clone) is fully `git reset --hard HEAD &&
+    git clean -fd`-revertible, so a decline here leaves a synced-but-
+    uncommitted `dest`, never a lost push.
+
+    The old `--dry-run-first` opt-in (a second, pre-sync materialization
+    pass) was retired outright by a later PM ruling (2026-08-23, in-session
+    -- "I don't want a dry run, I never asked for a dry run") rather than
+    kept as an opt-in this driver still carries; `_cmd_round` now calls this
+    function unconditionally, with no branch left to opt back into.
 
     Spec backlink: PM ruling 2026-08-15, in-session (percolate-round.py
     dry-run-optional dispatch).
     """
-    dirty_status = _dest_dirty_status(dest)
-    if dirty_status is not None:
-        if args.reconcile_dest == "discard":
-            ok, message = _reconcile_dest_discard(dest, dirty_status)
-            if not ok:
-                print(
-                    f"percolate-round: refusing to discard dest '{dest}' "
-                    f"residue — {message}",
-                    file=sys.stderr,
-                )
-                return _EXIT_FAIL
-            print(f"percolate-round: {message}")
-        else:
-            print(
-                f"percolate-round: dest '{dest}' already has uncommitted changes — "
-                "a prior round may have crashed between its real run and commit. "
-                "Retry with --reconcile-dest=discard to reset dest to HEAD and "
-                "remove residue, or reconcile by hand (review, commit) first:",
-                file=sys.stderr,
-            )
-            print(dirty_status, file=sys.stderr)
-            return _EXIT_FAIL
-
     real_stdout_path = tmp / "real-stdout.txt"
     scan_files_path = tmp / "scan-files.txt"
 
     try:
-        with _round_held_lock(Path(dest), holder_label=f"percolate-round:{target}"):
+        with _round_held_lock(
+            Path(dest),
+            holder_label=f"percolate-round:{target}",
+            timeout=_round_lock_wait_secs(),
+        ):
             # --- Step 1: real run (sync) -- no dry run by default ----------
             print(f"=== percolate-round {target} — Step 1: real run (sync) ===")
-            real_cmd = [sys.executable, str(_PUBLISH), target]
-            if args.delta:
-                real_cmd.append("--delta")
+            # `--no-commit`: this round owns the commit itself, as Step 5
+            # below, so that DR-301's commit -> CI smoke -> push order holds
+            # (§ this module's header). `publish.py` commits its own
+            # successful percolation by default — correct for a bare
+            # `coordinator-publish`, which otherwise exits 0 with green gates
+            # and leaves the mirror dirty, but here it would move the commit
+            # ahead of `_run_ci_smoke` and make this round's own commit leg a
+            # no-op.
+            real_cmd = [sys.executable, str(_PUBLISH), target, "--no-commit"]
+            if not args.delta:
+                real_cmd.append("--no-delta")
             import os as _os
 
             real_env = dict(_os.environ)
             real_env[_INHERITED_LOCK_ROOTS_ENV] = f"{_os.getpid()}={_os.path.realpath(dest)}"
+            # Captured immediately before the spawn -- § `_read_fresh_round_
+            # manifest`'s own docstring for why this is the freshness check
+            # that makes deleting the destination-dirtiness gate safe.
+            real_run_started_at = time.time()
             real = _run(real_cmd, timeout=_PUBLISH_LEG_TIMEOUT_SECS, env=real_env)
             print(real.stdout)
             _real_row_failure_text = (
                 "Rows FAILED:" in real.stderr or "STATUS: PARTIAL" in real.stderr
             )
+            if real.returncode == _EXIT_LOCK_BUSY and not _real_row_failure_text:
+                # The child locks every root its rows resolve to; this round
+                # only hands down the one for `dest`. A second root held by a
+                # peer is that peer's queue, not this round's defect — carry
+                # the distinction up rather than flattening it into FAIL.
+                print(real.stderr, file=sys.stderr)
+                return _EXIT_LOCK_BUSY
             if real.returncode != 0 or _real_row_failure_text:
                 tally = _extract_row_tally(real.stdout, real.stderr)
                 print("")
@@ -1441,7 +1710,7 @@ def _cmd_round_default(
                     if "REVIEW WARNING" in line:
                         print(f"  {line.strip()}")
 
-            real_stdout_path.write_text(real.stdout, encoding="utf-8")
+            real_stdout_path.write_text(real.stdout, encoding="utf-8", newline="\n")
 
             # --- scan-file-list build, off the real run's own output -------
             parse1 = _run(
@@ -1453,7 +1722,8 @@ def _cmd_round_default(
                     str(real_stdout_path),
                     "--source-dir",
                     source_dir,
-                ]
+                ],
+                timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS,
             )
             if parse1.returncode != 0:
                 _print_step_failure("percolate-parse-dryrun (pass 1)", [], parse1.stderr)
@@ -1469,7 +1739,7 @@ def _cmd_round_default(
                 )
                 return _EXIT_FAIL
             scan_files_path.write_text(
-                "\n".join(scan_file_list) + ("\n" if scan_file_list else ""), encoding="utf-8"
+                "\n".join(scan_file_list) + ("\n" if scan_file_list else ""), encoding="utf-8", newline="\n"
             )
 
             # --- Step 2: content-leakage scan (reads SOURCE files) ---------
@@ -1491,7 +1761,7 @@ def _cmd_round_default(
             ]
             if peer_repos_file is not None:
                 scan_cmd += ["--peer-repos-file", str(peer_repos_file)]
-            scan = _run(scan_cmd)
+            scan = _run(scan_cmd, timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS)
             print(scan.stdout)
             if scan.returncode == 2:
                 print(
@@ -1522,7 +1792,7 @@ def _cmd_round_default(
                 "--source-dir",
                 source_dir,
             ]
-            drift = _run(drift_cmd)
+            drift = _run(drift_cmd, timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS)
             print(drift.stdout)
             if drift.returncode != 0:
                 _print_step_failure("Step 2b (inverse-drift)", drift_cmd, drift.stderr)
@@ -1544,7 +1814,8 @@ def _cmd_round_default(
                     str(medium_count),
                     "--inverse-drift-count",
                     str(drift_count),
-                ]
+                ],
+                timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS,
             )
             if parse2.returncode != 0:
                 _print_step_failure("percolate-parse-dryrun (pass 2)", [], parse2.stderr)
@@ -1560,8 +1831,30 @@ def _cmd_round_default(
                 )
                 return _EXIT_FAIL
 
-            real_changes, real_renames = _extract_change_lines(real.stdout)
-            added, modified, removed = _summarize_change_lines(real_changes)
+            # --- resolve repo root + read the manifest publish.py's real run
+            # just persisted (§ AC4/AC5) -- never a re-parse of its stdout ---
+            repo_root = _resolve_repo_root(dest)
+            if repo_root is None:
+                print(
+                    f"percolate-round: could not resolve git worktree root for "
+                    f"dest '{dest}'.",
+                    file=sys.stderr,
+                )
+                return _EXIT_FAIL
+
+            manifest = _read_fresh_round_manifest(Path(repo_root), real_run_started_at)
+            manifest_added = sorted(manifest.added_or_updated) if manifest is not None else []
+            manifest_removed = sorted(manifest.removed) if manifest is not None else []
+            # Drop-in replacement for the old stdout-derived `real_changes`:
+            # same `List[Tuple[str, str]]` shape `_summarize_change_lines`/
+            # `_report_commit_residual`/`_build_commit_subject` already
+            # consume, so none of those three need to change. Only "NEW"/
+            # "REMOVE" tags appear -- the manifest does not distinguish
+            # new-from-updated within `added_or_updated` (a chosen precision
+            # loss in the human-facing summary below, not a gate).
+            real_changes = [("NEW", p) for p in manifest_added] + [
+                ("REMOVE", p) for p in manifest_removed
+            ]
 
             if gate_fires:
                 evidence = ""
@@ -1571,9 +1864,8 @@ def _cmd_round_default(
                 print("")
                 print(f"Step 3 gate fired: {evidence}")
                 print(f"Change summary for target '{target}' (already synced to dest):")
-                print(f"  added:    {added}")
-                print(f"  modified: {modified}")
-                print(f"  removed:  {removed}")
+                print(f"  added/updated: {len(manifest_added)}")
+                print(f"  removed:       {len(manifest_removed)}")
                 print("")
                 print("First 10 paths:")
                 for _tag, path in real_changes[:10]:
@@ -1601,24 +1893,10 @@ def _cmd_round_default(
                     print("Re-run in a terminal, or pass --yes / --invocation-authorized from an authorized caller.")
                     return _EXIT_CONFIRM_REQUIRED
 
-            # --- pathspec build --------------------------------------------
-            repo_root = _resolve_repo_root(dest)
-            if repo_root is None:
-                print(
-                    f"percolate-round: could not resolve git worktree root for "
-                    f"dest '{dest}'.",
-                    file=sys.stderr,
-                )
-                return _EXIT_FAIL
-
-            pathspec_seen: dict = {}
-            for row_dest, row_stdout in _split_stdout_by_row_dest(real.stdout, dest):
-                row_changes, row_renames = _extract_change_lines(row_stdout)
-                for entry in _build_commit_pathspec(
-                    row_dest, row_changes, row_renames, repo_root=repo_root
-                ):
-                    pathspec_seen.setdefault(entry, None)
-            pathspec = list(pathspec_seen.keys())
+            # --- pathspec build ----------------------------------------------
+            pathspec = (
+                _pathspec_from_manifest(manifest, repo_root) if manifest is not None else []
+            )
 
             # --- Commit step -------------------------------------------------
             if not pathspec:
@@ -1661,35 +1939,45 @@ def _cmd_round_default(
             print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
             pathspec_file_path = tmp / "commit-pathspec.txt"
             pathspec_file_path.write_text(
-                "\n".join(pathspec) + "\n", encoding="utf-8"
+                "\n".join(pathspec) + "\n", encoding="utf-8", newline="\n"
             )
-            commit_cmd = [
-                sys.executable,
-                str(_SCOPED_GIT_COMMIT),
-                "-m",
-                subject,
-                "--repo",
+            # `scoped-git-commit` (the `ceremony.scoped_git_commit` CLI) was
+            # killed 2026-08-23 (PM ruling, DR-344) — deleted, not suspended.
+            # Re-pointed at `commit_pipeline.run_commit_pipeline` in-process
+            # (2026-08-25), mirroring `publish.py::_commit_published_dests`
+            # — same mechanism (the killed CLI was a trampoline over this
+            # exact function), one fewer interpreter start, and no per-item
+            # process amplification. `push_mode=PUSH_MODE_NEVER`: this round
+            # owns its own commit -> CI-smoke -> push sequence (DR-301) and
+            # ends this step at a local commit; `_push_dest` below drives the
+            # push once CI smoke is green.
+            import uuid  # noqa: PLC0415 - lazy, keeps this driver's import cost off every non-commit run
+
+            from coordinator_core.ops.ceremony import commit_pipeline  # noqa: PLC0415
+            from coordinator_core.ops.session_context import (  # noqa: PLC0415
+                resolve_current_session_id,
+            )
+            from coordinator_core.session import scope as session_scope  # noqa: PLC0415
+
+            pipeline_result = commit_pipeline.run_commit_pipeline(
                 repo_root,
-                "--json",
-                "--pathspec-from-file",
-                str(pathspec_file_path),
-            ]
-            commit = _run(commit_cmd)
-            print(commit.stdout.strip())
-            try:
-                commit_result = json.loads(commit.stdout)
-            except (json.JSONDecodeError, TypeError):
-                commit_result = {}
+                session_id=f"percolate-round-{uuid.uuid4().hex}",
+                subject=subject,
+                stage_paths=pathspec,
+                caller_paths=set(pathspec),
+                push_mode=commit_pipeline.PUSH_MODE_NEVER,
+            )
+            sha = pipeline_result.committed_sha or ("(sha unverified)" if pipeline_result.sha_unverified else "?")
             declined_paths, gitignored_declines = _partition_gitignored_declines(
-                commit_result.get("declined_paths") or []
+                _declined_paths_from_stage(pipeline_result.stage)
             )
             if gitignored_declines:
                 print(
                     f"percolate-round: {len(gitignored_declines)} path(s) declined as "
                     "gitignored at dest — not a round failure.",
                 )
-            if commit_result.get("committed") and declined_paths:
-                sha = commit_result.get("sha") or "?"
+            committed = pipeline_result.committed_sha is not None or pipeline_result.sha_unverified
+            if committed and declined_paths:
                 print(
                     f"percolate-round: commit {sha[:12]} LANDED, but "
                     f"{len(declined_paths)} named path(s) were DECLINED and did "
@@ -1705,15 +1993,40 @@ def _cmd_round_default(
                         print(f"  {entry}", file=sys.stderr)
                 _write_round_failure_marker(target, percolate_root, "declined_paths", sha)
                 return _EXIT_FAIL
-            if commit.returncode != 0:
-                _print_step_failure("commit (scoped-git-commit)", commit_cmd, commit.stderr)
+            if pipeline_result.commit_failed:
+                _print_step_failure(
+                    "commit (run_commit_pipeline)",
+                    [],
+                    "; ".join(pipeline_result.diagnostics) or pipeline_result.reason or "commit_failed",
+                )
                 return _EXIT_FAIL
+
+            # AC11 (docs/plans/2026-08-11-claim-release-and-the-gate-that-
+            # cannot-clear.md) — this is a new production commit route and
+            # claim release is wired per-route, never centrally in the
+            # pipeline (`release_committed_claims` is called nowhere inside
+            # `commit_pipeline.py`). Mirrors `post_commit_tail.py`'s own
+            # post-commit release call: same fail-safe RETAIN direction (a
+            # release failure must never fail a commit that already landed),
+            # same "no sid to attribute to, skip explicitly" guard.
+            release_sid = resolve_current_session_id(Path(repo_root))
+            try:
+                if release_sid:
+                    session_scope.release_committed_claims(
+                        release_sid, pathspec, cwd=str(repo_root)
+                    )
+            except Exception:
+                print(
+                    "percolate-round: release_committed_claims failed post-commit; "
+                    "claim(s) retained.",
+                    file=sys.stderr,
+                )
 
             _write_round_failure_marker(
                 target,
                 percolate_root,
                 "uncommitted-verdict",
-                commit_result.get("sha") or "?",
+                sha,
             )
 
             # --- Step 4: CI smoke (after the commit) ------------------------
@@ -1722,7 +2035,11 @@ def _cmd_round_default(
             ci_exit: Optional[int] = None
             if ci_script.is_file():
                 python = _resolve_python()
-                ci = _run([python, str(ci_script)], cwd=dest)
+                ci = _run(
+                    [python, str(ci_script)],
+                    cwd=dest,
+                    timeout=_EXTERNAL_CI_TIMEOUT_SECS,
+                )
                 print(ci.stdout)
                 if ci.stderr.strip():
                     print(ci.stderr, file=sys.stderr)
@@ -1754,7 +2071,6 @@ def _cmd_round_default(
                 print("CI smoke is red after the commit — the commit already landed locally;")
                 print("fix the failure, then push by hand once CI is green. No push command")
                 print("is printed for a red CI run.")
-                sha = commit_result.get("sha") or "?"
                 _write_round_failure_marker(target, percolate_root, "ci_red", sha)
                 return _EXIT_FAIL
 
@@ -1778,13 +2094,8 @@ def _cmd_round_default(
             print(f"Published: pushed to {dest}.")
             return _EXIT_OK
     except _RoundLockTimeout as exc:
-        print(
-            f"percolate-round: could not acquire the per-destination round "
-            f"lock for '{dest}' (another round is running against this "
-            f"dest) — {exc}",
-            file=sys.stderr,
-        )
-        return _EXIT_FAIL
+        print(f"percolate-round: {_lock_busy_message(dest, exc)}", file=sys.stderr)
+        return _EXIT_LOCK_BUSY
 
 
 def _cmd_round(args: argparse.Namespace) -> int:
@@ -1804,573 +2115,13 @@ def _cmd_round(args: argparse.Namespace) -> int:
 
     with tempfile.TemporaryDirectory(prefix="percolate-round-") as tmpdir:
         tmp = Path(tmpdir)
-        if not args.dry_run_first:
-            return _cmd_round_default(args, target, percolate_root, source_dir, dest, tmp)
-
-        dryrun_stdout_path = tmp / "dryrun-stdout.txt"
-        scan_files_path = tmp / "scan-files.txt"
-
-        # --- Step 2: dry run ---------------------------------------------
-        print(f"=== percolate-round {target} — Step 2: dry run ===")
-        dryrun_cmd = [sys.executable, str(_PUBLISH), "--dry-run", target]
-        if args.delta:
-            dryrun_cmd.append("--delta")
-        dryrun = _run(
-            dryrun_cmd,
-            timeout=_PUBLISH_LEG_TIMEOUT_SECS,
-        )
-        dryrun_stdout_path.write_text(dryrun.stdout, encoding="utf-8")
-        print(dryrun.stdout)
-        if dryrun.returncode != 0:
-            _print_step_failure("Step 2 (dry run)", dryrun_cmd, dryrun.stderr)
-            return _EXIT_FAIL
-
-        # --- percolate-parse-dryrun pass 1 (scan-file-list build) --------
-        parse1 = _run(
-            [
-                sys.executable,
-                str(_PARSE_DRYRUN),
-                "parse-dryrun",
-                "--stdout-file",
-                str(dryrun_stdout_path),
-                "--source-dir",
-                source_dir,
-            ]
-        )
-        if parse1.returncode != 0:
-            _print_step_failure("percolate-parse-dryrun (pass 1)", [], parse1.stderr)
-            return _EXIT_FAIL
-        try:
-            envelope1 = json.loads(parse1.stdout)
-            preflight = envelope1["preflight"]
-            scan_file_list = preflight["step2c_scan_file_list"]
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            # Review: review-integrator — route a malformed/schema-mismatched
-            # envelope through this module's own failure register instead of
-            # an uncaught traceback (exit code still lands on 1 by accident
-            # today; this makes the step name and cause explicit too).
-            _print_step_failure(
-                "percolate-parse-dryrun (pass 1) — malformed envelope",
-                [],
-                f"{type(exc).__name__}: {exc}\nstdout:\n{parse1.stdout}",
-            )
-            return _EXIT_FAIL
-        scan_files_path.write_text("\n".join(scan_file_list) + ("\n" if scan_file_list else ""), encoding="utf-8")
-
-        # --- Step 2c: content-leakage scan --------------------------------
-        print(f"=== percolate-round {target} — Step 2c: content-leakage scan ===")
-        identity_file = Path(percolate_root) / "setup" / ".percolate-identity"
-        peer_repos_file = _resolve_central_state()
-        scan_cmd = [
-            sys.executable,
-            str(_PERCOLATE_GATE),
-            "scan-secrets",
-            "--files",
-            str(scan_files_path),
-            "--identity-file",
-            str(identity_file),
-            "--target",
-            target,
-            # Without this, scan-secrets' MEDIUM split (transform-covered
-            # vs. not) silently doesn't happen -- it degrades to the old
-            # unsplit panel rather than failing, so a caller that forgets
-            # this flag gets no error, just a worse panel. See C1
-            # (coordinator/bin/percolate-gate.py, same plan).
-            "--percolate-root",
-            percolate_root,
-        ]
-        if peer_repos_file is not None:
-            scan_cmd += ["--peer-repos-file", str(peer_repos_file)]
-        scan = _run(scan_cmd)
-        print(scan.stdout)
-        if scan.returncode == 2:
-            print("percolate-round: HIGH-tier content leak detected — aborting before Step 3.", file=sys.stderr)
-            return _EXIT_FAIL
-        if scan.returncode != 0:
-            _print_step_failure("Step 2c (scan-secrets)", scan_cmd, scan.stderr)
-            return _EXIT_FAIL
-        medium_count = _count_medium_hits(scan.stdout)
-
-        # --- Step 2d: inverse-drift detection -----------------------------
-        print(f"=== percolate-round {target} — Step 2d: inverse-drift detection ===")
-        drift_cmd = [
-            sys.executable,
-            str(_PERCOLATE_GATE),
-            "inverse-drift",
-            target,
-            "--percolate-root",
-            percolate_root,
-            "--dest",
-            dest,
-            "--files",
-            str(scan_files_path),
-            "--source-dir",
-            source_dir,
-        ]
-        drift = _run(drift_cmd)
-        print(drift.stdout)
-        if drift.returncode != 0:
-            _print_step_failure("Step 2d (inverse-drift)", drift_cmd, drift.stderr)
-            return _EXIT_FAIL
-        drift_count = _count_drift_hits(drift.stdout)
-
-        # --- Step 3: gate-fire predicate + confirmation -------------------
-        parse2 = _run(
-            [
-                sys.executable,
-                str(_PARSE_DRYRUN),
-                "parse-dryrun",
-                "--stdout-file",
-                str(dryrun_stdout_path),
-                "--source-dir",
-                source_dir,
-                "--medium-leak-count",
-                str(medium_count),
-                "--inverse-drift-count",
-                str(drift_count),
-            ]
-        )
-        if parse2.returncode != 0:
-            _print_step_failure("percolate-parse-dryrun (pass 2)", [], parse2.stderr)
-            return _EXIT_FAIL
-        try:
-            envelope2 = json.loads(parse2.stdout)
-            gate_fires = bool(envelope2["gates"]["step3_gate_fires"])
-        except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            # Review: review-integrator — same rationale as pass 1's envelope
-            # read above.
-            _print_step_failure(
-                "percolate-parse-dryrun (pass 2) — malformed envelope",
-                [],
-                f"{type(exc).__name__}: {exc}\nstdout:\n{parse2.stdout}",
-            )
-            return _EXIT_FAIL
-
-        dryrun_changes, _dryrun_renames = _extract_change_lines(dryrun.stdout)
-        added, modified, removed = _summarize_change_lines(dryrun_changes)
-
-        if added == 0 and modified == 0 and removed == 0:
-            print(f"percolate-round {target} — PASS (no-op): nothing to publish.")
-            print("")
-            print("Summary:")
-            print(f"  dry-run:   exit 0  (0 files)")
-            print("  real-run:  skipped (no-op)")
-            print("  ci-smoke:  n/a (no changes to verify)")
-            if args.no_publish:
-                return _EXIT_OK
-            pushed, refused, message = _publish_unpushed_dest_commits(target, dest, percolate_root)
-            print("")
-            print(f"percolate-round: {message}")
-            return _EXIT_FAIL if refused else _EXIT_OK
-
-        if gate_fires:
-            evidence = ""
-            for jp in envelope2.get("judgment_points", []):
-                if jp.get("id") == "jp_step3_percolate_confirmation_gate":
-                    evidence = jp.get("evidence", "")
-            print("")
-            print(f"Step 3 gate fired: {evidence}")
-            print(f"Dry-run summary for target '{target}':")
-            print(f"  added:    {added}")
-            print(f"  modified: {modified}")
-            print(f"  removed:  {removed}")
-            print("")
-            print("First 10 paths:")
-            for _tag, path in dryrun_changes[:10]:
-                print(f"  {path}")
-            if len(dryrun_changes) > 10:
-                print(f"  ... ({len(dryrun_changes) - 10} more)")
-            print("")
-            if args.yes:
-                print("Proceed with real publish? [y/N] y (--yes)")
-            elif args.invocation_authorized:
-                print("Proceed with real publish? [y/N] y (--invocation-authorized)")
-            elif sys.stdin.isatty():
-                answer = input("Proceed with real publish? [y/N] ").strip().lower()
-                if answer not in ("y", "yes"):
-                    print("Publish cancelled.")
-                    return _EXIT_OK
-            else:
-                print("Step 3 confirm required, no tty and no --invocation-authorized.")
-                print("Re-run in a terminal, or pass --yes / --invocation-authorized from an authorized caller.")
-                return _EXIT_CONFIRM_REQUIRED
-
-        # --- Pre-flight: dest crash-recovery check --------------------------
-        dirty_status = _dest_dirty_status(dest)
-        if dirty_status is not None:
-            if args.reconcile_dest == "discard":
-                ok, message = _reconcile_dest_discard(dest, dirty_status)
-                if not ok:
-                    print(
-                        f"percolate-round: refusing to discard dest '{dest}' "
-                        f"residue — {message}",
-                        file=sys.stderr,
-                    )
-                    return _EXIT_FAIL
-                print(f"percolate-round: {message}")
-            else:
-                print(
-                    f"percolate-round: dest '{dest}' already has uncommitted changes — "
-                    "a prior round may have crashed between its real run and commit. "
-                    "Retry with --reconcile-dest=discard to reset dest to HEAD and "
-                    "remove residue, or reconcile by hand (review, commit) first:",
-                    file=sys.stderr,
-                )
-                print(dirty_status, file=sys.stderr)
-                return _EXIT_FAIL
-
-        # --- Step 4 -> commit -> CI smoke -> gate -> push: held under one
-        # lock ------------------------------------------------------------
-        # Widens `held_lock(dest)` to span the Step 4 real-run subprocess,
-        # the scoped-git-commit subprocess, CI smoke, the C2 gate, AND the
-        # push (C3) — closing the gap `publish.py`'s own `held_lock`
-        # (released in its `finally` when that subprocess exits) leaves
-        # open between Step 4 and commit, and extending it so a push is
-        # never issued outside the same span its own commit landed under.
-        # If round A released the lock after committing and pushed later,
-        # round B could acquire the lock and commit against the same dest
-        # in between, and A's `git push` would then publish B's
-        # uncertified commit — CI smoke sitting outside the lock is not
-        # precedent for the push to sit outside it too; CI smoke is
-        # read-only, a push is not. Same primitive, same key derivation
-        # (`held_lock`'s own `sha1(realpath(target))`) as
-        # `publish.py::main`'s Part B lock — a second concurrent round
-        # against the same dest contends on the identical key. The parent
-        # re-acquiring this key after `publish.py`'s own internal
-        # acquire/release for the same dest already completed is
-        # sequential, not re-entrant contention.
-        # Spec backlink: state/audits/2026-08-13-percolate-round-race-repro.md
-        try:
-            with _round_held_lock(Path(dest), holder_label=f"percolate-round:{target}"):
-                # --- Step 4: real run --------------------------------------
-                print(f"=== percolate-round {target} — Step 4: real run ===")
-                real_cmd = [sys.executable, str(_PUBLISH), target]
-                if args.delta:
-                    real_cmd.append("--delta")
-                # Inherited-holder handoff (§ `_INHERITED_LOCK_ROOTS_ENV`
-                # above) — scoped to THIS child's own env only (a fresh dict
-                # derived from a copy of the parent's environment, never a
-                # mutation of `os.environ`), so the token cannot leak into
-                # any other subprocess this driver spawns and never persists
-                # past this one call.
-                import os as _os
-
-                real_env = dict(_os.environ)
-                # Review: code-reviewer P2 — bind the token to this process's
-                # own PID (`os.getpid()`, the direct parent of the `publish.py`
-                # child spawned just below) so the receiving side can verify
-                # the entry actually came from its true parent via
-                # `os.getppid()`, rather than trusting a bare realpath string
-                # match on presence alone (a stray exported value in a
-                # debugging shell, or a nested/second-order invocation, could
-                # otherwise forge the skip). `=` is the pid/path delimiter —
-                # split on the FIRST `=` only, since a Windows path never
-                # starts with one but can contain `:` (drive letter).
-                real_env[_INHERITED_LOCK_ROOTS_ENV] = f"{_os.getpid()}={_os.path.realpath(dest)}"
-                real = _run(
-                    real_cmd,
-                    timeout=_PUBLISH_LEG_TIMEOUT_SECS,
-                    env=real_env,
-                )
-                print(real.stdout)
-                # publish.py prints its own per-row tally ("Rows succeeded:
-                # N/M", "Rows FAILED: ...", "STATUS: PARTIAL — ...") to
-                # STDERR, not stdout — `print(real.stdout)` above never
-                # surfaces it. Treat that tally text as the trustworthy
-                # signal alongside the exit code rather than the exit code
-                # alone: a partial-rows-failed run must never read as a
-                # clean pass just because `returncode` happened to come
-                # back 0 on some future publish.py revision — the caller
-                # only ever sees THIS process's own exit code and verdict.
-                # Spec backlink: doe-claude-em corroborated-run report,
-                # 2026-08-14 ("Rows succeeded: 3/5", exit 0, no verdict).
-                # Review: code-reviewer P3 — this substring check is
-                # deliberately defence-in-depth, not a live trigger against
-                # today's `publish.py::main`: both literals print only
-                # inside `if failed_row_names:`, which unconditionally
-                # `return 1`s before that function can reach `return 0`, so
-                # `real.returncode == 0` and either literal being present in
-                # `real.stderr` cannot co-occur under the current
-                # `publish.py` source (confirmed by reading, not just an
-                # unreproducible incident). Keep this branch — it exists to
-                # catch a FUTURE regression in that return contract, not a
-                # currently-reachable path; don't prune it as dead code.
-                _real_row_failure_text = (
-                    "Rows FAILED:" in real.stderr or "STATUS: PARTIAL" in real.stderr
-                )
-                if real.returncode != 0 or _real_row_failure_text:
-                    tally = _extract_row_tally(real.stdout, real.stderr)
-                    print("")
-                    print(f"percolate-round {target} — FAIL")
-                    print("  dry-run:   exit 0")
-                    if real.returncode != 0:
-                        print(f"  real-run:  exit {real.returncode}")
-                    else:
-                        print(
-                            "  real-run:  exit 0, but reported failed row(s) "
-                            "(exit-code/summary mismatch — treated as FAIL)"
-                        )
-                    if tally is not None:
-                        print(f"  rows:      {tally}")
-                    print("  ci-smoke:  skipped (Step 4 did not complete cleanly)")
-                    print("  push:      skipped")
-                    _print_step_failure("Step 4 (real run)", real_cmd, real.stderr)
-                    return _EXIT_FAIL
-                has_review_warnings = "REVIEW WARNING" in real.stdout
-                if has_review_warnings:
-                    print("Phase 4 audit found REVIEW items — acknowledge before next publish round:")
-                    for line in real.stdout.splitlines():
-                        if "REVIEW WARNING" in line:
-                            print(f"  {line.strip()}")
-
-                real_changes, real_renames = _extract_change_lines(real.stdout)
-
-                # Review: coordinatorcode-reviewer-c58be590 (live-round
-                # follow-up) -- `dest` can itself be a subdirectory of the
-                # mirror's git worktree (a `dest_subdir` row), while other
-                # rows in the SAME real run report against sibling
-                # subtrees of that same worktree. Using `dest` as
-                # `repo_root` walked `os.path.relpath` upward
-                # (`../coordinator/bin/...`) for those sibling rows,
-                # which `scoped-git-commit --repo` then rejected outright
-                # -- resolve the actual worktree root once and use it for
-                # both the pathspec and `--repo` below, so they can never
-                # diverge.
-                repo_root = _resolve_repo_root(dest)
-                if repo_root is None:
-                    print(
-                        f"percolate-round: could not resolve git worktree root for "
-                        f"dest '{dest}'.",
-                        file=sys.stderr,
-                    )
-                    return _EXIT_FAIL
-
-                pathspec_seen: dict = {}
-                for row_dest, row_stdout in _split_stdout_by_row_dest(real.stdout, dest):
-                    row_changes, row_renames = _extract_change_lines(row_stdout)
-                    for entry in _build_commit_pathspec(
-                        row_dest, row_changes, row_renames, repo_root=repo_root
-                    ):
-                        pathspec_seen.setdefault(entry, None)
-                pathspec = list(pathspec_seen.keys())
-
-                # --- Commit step ---------------------------------------------
-                if not pathspec:
-                    print(f"percolate-round {target} — real run reported no changed files; nothing to commit.")
-                    print("")
-                    print("Summary:")
-                    print("  dry-run:   exit 0")
-                    print("  real-run:  exit 0  (no-op)")
-                    print("  ci-smoke:  n/a (no changes to verify)")
-                    if args.no_publish:
-                        return _EXIT_OK
-                    # AC2b: this round produced no bytes of its own, but the
-                    # dest may already hold unpushed commits from an earlier
-                    # round that stopped at the old print-and-stop terminus
-                    # — still under THIS lock instance (already held; do not
-                    # call `_publish_unpushed_dest_commits`, which acquires
-                    # its own — `held_lock` is non-reentrant).
-                    ahead = _dest_ahead_count(dest)
-                    # Review: review-integrator — same probe-failure-vs-zero
-                    # distinction as `_publish_unpushed_dest_commits` above;
-                    # a failed probe must not print "already in sync".
-                    if ahead is None:
-                        print("")
-                        print(
-                            f"percolate-round: could not determine whether dest "
-                            f"'{dest}' has unpushed commits (git status probe "
-                            "failed) — refusing to push under an unknown state.",
-                            file=sys.stderr,
-                        )
-                        return _EXIT_FAIL
-                    if not ahead:
-                        print("")
-                        print(f"percolate-round: dest '{dest}' is already in sync with its upstream.")
-                        return _EXIT_OK
-                    _clear_round_failure_marker(target, percolate_root)
-                    push = _push_dest(dest)
-                    print("")
-                    if push.returncode != 0:
-                        print("percolate-round: push failed:", file=sys.stderr)
-                        print(push.stderr.strip(), file=sys.stderr)
-                        return _EXIT_FAIL
-                    print(
-                        f"percolate-round: pushed {ahead} unpushed commit(s) from "
-                        f"an earlier round to {dest}."
-                    )
-                    return _EXIT_OK
-
-                _report_commit_residual(target, real_changes, pathspec)
-                subject = _build_commit_subject(target, real_changes, pathspec)
-                print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
-                # Always via --pathspec-from-file, never argv, even for a
-                # small pathspec: a length-threshold split makes the
-                # large-payload branch the one that only ever runs on a
-                # full publish round, which is exactly the branch that just
-                # broke unnoticed (WinError 206, this file's own history --
-                # a Windows CreateProcess command line caps at 32767 chars,
-                # and an ~2000-path full-publish pathspec exceeds it well
-                # before any threshold worth picking would trip). One code
-                # path for every round size means the common (small) case
-                # exercises the same route the rare (huge) case depends on.
-                pathspec_file_path = tmp / "commit-pathspec.txt"
-                pathspec_file_path.write_text(
-                    "\n".join(pathspec) + "\n", encoding="utf-8"
-                )
-                commit_cmd = [
-                    sys.executable,
-                    str(_SCOPED_GIT_COMMIT),
-                    "-m",
-                    subject,
-                    "--repo",
-                    repo_root,
-                    "--json",
-                    "--pathspec-from-file",
-                    str(pathspec_file_path),
-                ]
-                commit = _run(commit_cmd)
-                print(commit.stdout.strip())
-                try:
-                    commit_result = json.loads(commit.stdout)
-                except (json.JSONDecodeError, TypeError):
-                    commit_result = {}
-                declined_paths = commit_result.get("declined_paths") or []
-                if commit_result.get("committed") and declined_paths:
-                    # `scoped-git-commit` already exits non-zero here (its own
-                    # `_exit_code_for_result`), so `commit.returncode != 0` below
-                    # would already fail this round loud — but the generic
-                    # step-failure rendering reads as "nothing landed", when in
-                    # fact a commit DID land with only some paths declined. Name
-                    # both halves explicitly (AC5) rather than leaving the operator
-                    # to infer which happened from a raw JSON dump.
-                    sha = commit_result.get("sha") or "?"
-                    print(
-                        f"percolate-round: commit {sha[:12]} LANDED, but "
-                        f"{len(declined_paths)} named path(s) were DECLINED and did "
-                        "NOT land:",
-                        file=sys.stderr,
-                    )
-                    for entry in declined_paths:
-                        if isinstance(entry, dict):
-                            path = entry.get("path", "?")
-                            reason = str(entry.get("reason", "")).strip()
-                            print(f"  {path} ({reason})" if reason else f"  {path}", file=sys.stderr)
-                        else:
-                            print(f"  {entry}", file=sys.stderr)
-                    # PM ruling 1 (2026-08-14): the commit LANDED at dest even
-                    # though this round fails — write the round-failure marker
-                    # so `percolate-push.py`'s destination-state gate (C4)
-                    # refuses this uncertified commit rather than publishing
-                    # it on tree-hygiene alone.
-                    _write_round_failure_marker(target, percolate_root, "declined_paths", sha)
-                    return _EXIT_FAIL
-                if commit.returncode != 0:
-                    _print_step_failure("commit (scoped-git-commit)", commit_cmd, commit.stderr)
-                    return _EXIT_FAIL
-
-                # Marker inversion (P2, review-integrator): the commit has
-                # now landed at dest — mark it unverified BEFORE CI smoke
-                # and the C2 gate run, so a crash anywhere past this point
-                # leaves the marker standing (fail-safe) instead of leaving
-                # a landed-but-uncertified commit unmarked. Cleared only on
-                # the clean-verdict path below.
-                _write_round_failure_marker(
-                    target,
-                    percolate_root,
-                    "uncommitted-verdict",
-                    commit_result.get("sha") or "?",
-                )
-
-                # --- Step 5: CI smoke (AFTER the commit — see module docstring)
-                print(f"=== percolate-round {target} — Step 5: CI smoke ===")
-                ci_script = Path(dest) / ".github" / "scripts" / "run-all-checks.py"
-                ci_exit: Optional[int] = None
-                if ci_script.is_file():
-                    python = _resolve_python()
-                    ci = _run([python, str(ci_script)], cwd=dest)
-                    print(ci.stdout)
-                    if ci.stderr.strip():
-                        print(ci.stderr, file=sys.stderr)
-                    ci_exit = ci.returncode
-                else:
-                    print("  (no .github/scripts/run-all-checks.py at dest — skipped)")
-
-                # --- Step 6/7: gate predicate + summary + push -------------
-                refusal_reason = _round_refusal_reason(
-                    real_returncode=real.returncode,
-                    declined_paths=declined_paths,
-                    has_review_warnings=has_review_warnings,
-                    ci_exit=ci_exit,
-                )
-
-                verdict = "PASS"
-                if ci_exit not in (None, 0):
-                    verdict = "FAIL"
-                elif has_review_warnings:
-                    verdict = "PASS-WITH-WARNINGS"
-
-                print("")
-                print(f"percolate-round {target} — {verdict}")
-                print("  dry-run:   exit 0")
-                print("  real-run:  exit 0")
-                print(f"  ci-smoke:  {'exit ' + str(ci_exit) if ci_exit is not None else 'n/a (no run-all-checks.py)'}")
-
-                if verdict == "FAIL":
-                    print("")
-                    print(f"percolate-round: publish refused — {refusal_reason}")
-                    print("CI smoke is red after the commit — the commit already landed locally;")
-                    print("fix the failure, then push by hand once CI is green. No push command")
-                    print("is printed for a red CI run.")
-                    # Same PM-ruling-1 rationale as the declined-paths branch
-                    # above: the commit already landed locally at dest, and
-                    # C4's destination-state gate would otherwise read this
-                    # dest as clean-with-commits-to-push.
-                    sha = commit_result.get("sha") or "?"
-                    _write_round_failure_marker(target, percolate_root, "ci_red", sha)
-                    return _EXIT_FAIL
-
-                # PASS or PASS-WITH-WARNINGS from here.
-                #
-                # Marker inversion (P2, review-integrator): clear the marker
-                # written right after the commit landed ONLY when this round
-                # is genuinely clean (`refusal_reason is None`) — independent
-                # of `--no-publish`, which merely defers the push, not
-                # certification. A `refusal_reason`-refused round (e.g.
-                # unacknowledged review warnings) leaves the marker standing
-                # even under `--no-publish`: that commit is still uncertified.
-                if refusal_reason is None:
-                    _clear_round_failure_marker(target, percolate_root)
-
-                if args.no_publish or refusal_reason is not None:
-                    _print_push_notice(
-                        target,
-                        refusal_reason=None if args.no_publish else refusal_reason,
-                    )
-                    return _EXIT_OK
-
-                push = _push_dest(dest)
-                if push.returncode != 0:
-                    print("")
-                    print("percolate-round: push failed:", file=sys.stderr)
-                    print(push.stderr.strip(), file=sys.stderr)
-                    return _EXIT_FAIL
-                print("")
-                print(f"Published: pushed to {dest}.")
-                return _EXIT_OK
-        except _RoundLockTimeout as exc:
-            print(
-                f"percolate-round: could not acquire the per-destination round "
-                f"lock for '{dest}' (another round is running against this "
-                f"dest) — {exc}",
-                file=sys.stderr,
-            )
-            return _EXIT_FAIL
+        return _cmd_round_default(args, target, percolate_root, source_dir, dest, tmp)
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="percolate-round",
-        description="Sequence a single-target percolate publish round: dry-run through commit, CI smoke, and (on a clean round) push. --no-publish stops before the push instead.",
+        description="Sequence a single-target percolate publish round: real sync through commit, CI smoke, and (on a clean round) push. --no-publish stops before the push instead.",
     )
     parser.add_argument("target", help="Single registered percolate target name.")
     parser.add_argument(
@@ -2397,32 +2148,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Opt out of the default publish-on-clean-round behaviour (DR-301); print the push command instead of running it.",
     )
     parser.add_argument(
-        "--dry-run-first",
-        dest="dry_run_first",
-        action="store_true",
-        default=False,
-        help=(
-            "Opt-in preview (PM ruling, 2026-08-15): run Step 2's dry-run + "
-            "leak-scan pass before the real sync, same as this tool's "
-            "pre-2026-08-15 default. Off by default -- the round now syncs "
-            "once and sources the Step 3 gate's touched-file count from that "
-            "same real run, since the sync target is a revertible local git "
-            "clone and the leak scan itself always read source files, never "
-            "dry-run output."
-        ),
-    )
-    parser.add_argument(
-        "--reconcile-dest",
-        choices=("refuse", "discard"),
-        default="refuse",
-        help=(
-            "How to handle a dirty dest left by a prior crashed round. "
-            "'refuse' (default) stops the round. 'discard' resets dest to "
-            "HEAD and removes untracked residue -- refused itself if dest "
-            "carries commits ahead of its remote. Never implied by --yes."
-        ),
-    )
-    parser.add_argument(
         "--no-delta",
         dest="delta",
         action="store_false",
@@ -2443,6 +2168,22 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Declare the publish lane before any argv-driven work. Historically this
+    # covered every process this round spawned that could reach
+    # `ceremony.scoped_git_commit` — the 2026-08-21 suspension roster turned
+    # that op off and the ceremony budget caps it at 2s, neither number
+    # written for a publish round (PM ruling 2026-08-21, DR-350). The commit
+    # leg itself no longer reaches that op at all (§ C6, 2026-08-25:
+    # re-pointed at `commit_pipeline.run_commit_pipeline` in-process, the
+    # same bypass `publish.py::_commit_published_dests` already used) — this
+    # declaration is retained for any OTHER process this round still spawns
+    # that could reach a lane op (e.g. an engine subprocess resolving one via
+    # `ipc.get_op_handler`), not for the commit leg. See
+    # `coordinator_core.publish_lane` for why this is a closed list and a
+    # boolean rather than a knob, and for the spawn count this bound
+    # accommodates and does not fix.
+    publish_lane.declare_lane()
+
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

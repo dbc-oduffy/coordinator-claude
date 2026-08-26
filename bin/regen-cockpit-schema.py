@@ -69,15 +69,15 @@ origin — and only when the regen actually changed the schema output. The origi
 push is DoE's surface, not claude-klabauter's, and this script deliberately does not own
 it and never will (see the module-level Negative-spec above for why staying
 push-free is a governance requirement, not a gap). The release ref's publish
-mechanism is AGREED but NOT YET BUILT, as of 2026-07-25: DoE's PM ratified a
-push-triggered GitHub Action, to live in DoE-claude's own repo, triggered by
-a commit touching `coordinator/cockpit-contract/schema/`, pushing the tag
-from DoE's clone to DoE's origin. As of this writing that workflow does not
-exist — DoE-claude's tree has no `.github/` directory at all — so do not read
-the paragraph above as describing a running mechanism; it describes what has
-been agreed to ship, not what is shipping. Verify before relying on this: the
-presence of a workflow file under DoE-claude's `.github/` is the ground
-truth, not this docstring's age. Until that Action ships, the origin tag can
+mechanism is DoE's `.github/scripts/publish_cockpit_contract.py`, which
+publishes BOTH the moving `cockpit-contract-release` ref and the immutable
+per-version alias (`cockpit-contract-<CONTRACT_VERSION>`) from DoE's clone to
+DoE's origin. As of 2026-08-23 that script exists and has been exercised (4.0.0
+published both refs), but the GitHub Action that was meant to trigger it does
+not — DoE-claude has `.github/scripts/` and no `.github/workflows/` — so the
+publish is an operator-run script, not an automatic one. Verify before relying
+on this: the presence of a workflow file under DoE-claude's `.github/workflows/`
+is the ground truth, not this docstring's age. Until it is automated, the origin tag can
 sit stale relative to the local `git tag -f` advance below, and any reader
 pinned to the origin ref — claude-klabauter's own freshness probe
 (`coordinator_core/ops/emit/doe_drift.py`) and the default re-vendor path
@@ -180,8 +180,12 @@ def _build_trampoline_env(mak_root: str) -> dict[str, str]:
     the same sanctioned source-trampoline pattern, not a fresh convention.
     This reaches the engine repo's SOURCE tree only; it never resolves or spawns
     an engine-resident interpreter (see module docstring).
+
+    C11: also sets `COORDINATOR_ENGINE_ROOT` alongside `CLAUDE_KLABAUTER_ROOT` (same
+    dual-write rename-window shape `_build_subprocess_env()` now uses), so a
+    child reading either name resolves correctly during the rename window.
     """
-    env: dict[str, str] = {**os.environ, "CLAUDE_KLABAUTER_ROOT": mak_root}
+    env: dict[str, str] = {**os.environ, "CLAUDE_KLABAUTER_ROOT": mak_root, "COORDINATOR_ENGINE_ROOT": mak_root}
     existing_pp = env.get("PYTHONPATH", "")
     _sep = os.pathsep
     if f"{_sep}{mak_root}{_sep}" not in f"{_sep}{existing_pp}{_sep}":
@@ -312,12 +316,14 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
     Local only. Does NOT push, and must NEVER push — see the module-level
     Negative-spec: under DR-060, publishing this tag to origin is DoE's
     initiative, not claude-klabauter's, and this function adding a push would silently
-    transfer the publish button to claude-klabauter's tree. Today the origin push is a
-    manual step performed in the DoE-claude clone
-    (`git push origin refs/tags/cockpit-contract-release`); DoE is separately
-    wiring an automated `/workday-complete` publish step on their side, but it
-    is not shipped yet, so the push is manual for now and will remain so on
-    the claude-klabauter side regardless. Never an automatic side-effect of a schema
+    transfer the publish button to claude-klabauter's tree. Today the origin push is an
+    operator-run step performed in the DoE-claude clone, via
+    `.github/scripts/publish_cockpit_contract.py` — NOT a bare
+    `git push origin refs/tags/cockpit-contract-release`, which advances the
+    moving ref alone and skips the immutable `cockpit-contract-<version>` alias
+    that consumers pin to. DoE is separately wiring a workflow to trigger that
+    script; it is not shipped yet, so the push stays operator-run for now and
+    will remain DoE's regardless. Never an automatic side-effect of a schema
     regen and never wired to `/merge-to-main` (that command cuts and pushes
     `v*` release tags only; this ref is a separate seam DoE owns). Fails loud
     on any git error; never swallowed.

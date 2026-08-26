@@ -93,11 +93,12 @@ the coverage auditor's sidecar exists (team-protocol.md § Coverage-Auditor Life
 an advisory file if present. Emit the durable claims pair (you write it, not the sweep — take
 `--ran-at` and the pipeline token from the sweep's completion message, never derive them):
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/claims-emit" \
-  --producer notebooklm-research --out {output-path-base} \
-  --ran-at {ran_at from sweep's completion message} --pipeline notebooklm \
-  < {scratch-dir}/merged-claims.json
+Shape W (`coordinator/snippets/resolve-coordinator-bin.md`). PowerShell has no native stdin
+redirect operator, so the `.cmd` forwarder is invoked through `cmd /c` for the `<` redirect only —
+the forwarder still runs directly by absolute path, no bareword resolution involved:
+
+```powershell
+cmd /c "\"$env:COORDINATOR_SETTINGS_HOME\bin\claims-emit.cmd\" --producer notebooklm-research --out {output-path-base} --ran-at {ran_at from sweep's completion message} --pipeline notebooklm < \"{scratch-dir}/merged-claims.json\""
 ```
 
 **6b — Coverage auditor.** Dispatch it as a plain (non-teammate) `Agent(...)` — never a named

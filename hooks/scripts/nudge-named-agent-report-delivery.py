@@ -4,7 +4,8 @@ The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carv
 the engine plane, hand it the raw payload, relay its stdout. The engine plane owns
 the ADVISORY LOGIC (coordinator_core.hooks.nudge_named_agent_report_delivery,
 registered under the JSON-RPC method hooks.nudge_named_agent_report_delivery).
-The engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_message
+The engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook
+(DR-175 -- the named hook-dispatch seam, above the dispatch_message telemetry wrapper)
 -- no bash, no python3 -m subprocess re-spawn -- so a whole PreToolUse fire pays
 exactly one Python interpreter start.
 
@@ -55,7 +56,6 @@ Spec backlink: the cross-repo ask requesting this wiring, dated 2026-07-30,
 
 from __future__ import annotations
 
-import asyncio
 import json
 import sys
 from pathlib import Path
@@ -97,7 +97,7 @@ def main() -> int:
 
     try:
         from coordinator_core.hooks import nudge_named_agent_report_delivery as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open silent pass
 
@@ -108,20 +108,14 @@ def main() -> int:
         "tool_input": tool_input,
     }
 
-    msg = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.nudge_named_agent_report_delivery",
-        "params": params,
-    }
-
+    # Not scoped (see module docstring): no _origin_worktree forwarded, matching
+    # the op's own repo_root=None default.
     try:
-        response = asyncio.run(dispatch_message(msg))
-    except Exception:
+        result = dispatch_from_hook("hooks.nudge_named_agent_report_delivery", params)
+    except HookDispatchError:
         return 0  # any engine failure -> fail-open silent pass
 
-    result = response.get("result") if isinstance(response, dict) else None
-    if result:
+    if result:  # {} (no_advisory) and None both fall through to no-output
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")
     return 0

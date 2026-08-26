@@ -17,7 +17,7 @@ registry hive (`Software\\Microsoft\\Command Processor\\AutoRun`) — this is
 a deliberate, explicit act; this trampoline does not run either verb on its
 own on import or at install time.
 
-No CLAUDE_KLABAUTER_ROOT resolution is needed here beyond `cc_invoke`'s own helper —
+No engine-root resolution is needed here beyond `cc_invoke`'s own helper —
 mirrors this directory's other `install-*-wrapper.py` trampoline shape.
 
 DR-276: the op runs through `coordinator_core.cli_entry.run_op_main` rather
@@ -34,18 +34,16 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def main() -> None:
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except RuntimeError as exc:
         print(f"cmd-autorun-guard.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
 
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
 
     try:
         from coordinator_core.cli_entry import run_op_main

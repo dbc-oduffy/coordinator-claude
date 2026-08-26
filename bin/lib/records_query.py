@@ -166,7 +166,7 @@ def _no_legacy() -> None:
         "records_query: legacy bash path retired (Windows de-bash campaign, "
         "big-bang cutover 2026-07-19) — native coordinator_core.invoke "
         "records.query is required; there is no fallback to fall back to. "
-        "Verify CLAUDE_KLABAUTER_ROOT and the claude-klabauter coordinator_core install."
+        "Verify COORDINATOR_ENGINE_ROOT and the claude-klabauter coordinator_core install."
     )
 
 

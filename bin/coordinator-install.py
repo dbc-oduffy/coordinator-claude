@@ -10,11 +10,11 @@ module docstring in coordinator_core.install.coordinator_install_entry for
 the full why, what it dispatches, and why it reads the manifest instead of
 naming a path.
 
-This file is a thin trampoline: resolve CLAUDE_KLABAUTER_ROOT, import, forward argv,
+This file is a thin trampoline: resolve the engine root, import, forward argv,
 forward exit code — matching coordinator-uninstall.py's shape, its closest
 sibling in both naming and lifecycle.
 
-Fail-loud-on-ambiguity: if CLAUDE_KLABAUTER_ROOT cannot be resolved or the claude-klabauter
+Fail-loud-on-ambiguity: if the engine root cannot be resolved or the claude-klabauter
 module is not importable, exit 1 rather than 0 — a silent no-op here would
 leave an operator believing the chain was installed when nothing ran, which
 is the same wrong-answer failure the entry exists to prevent.
@@ -43,13 +43,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.install.coordinator_install_entry import main as _op_main
     return _op_main
 
@@ -58,7 +56,7 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        print(f"coordinator-install.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"coordinator-install.py: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
     except ImportError as exc:
         print(

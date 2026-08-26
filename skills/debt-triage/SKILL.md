@@ -15,9 +15,13 @@ An **EM-PM conversation**, not a dispatched agent — the EM reads the backlog, 
 and presents recommendations. Trigger on demand, at >20 open items, or after a refactor that may
 have resolved several. Rationale, clustering detail, structural-probe calibration: wiki.
 
+**On a PowerShell host, every CLI below takes its `.cmd` sibling through the call operator**
+(Shape W), never the `${...}` POSIX-shell form shown. Ladder and shapes:
+`snippets/resolve-coordinator-bin.md`.
+
 Run
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/backlog-grind-assemble" brief debt-triage`
-before Step 1 — it returns a decision object over `state/debt-backlog/`, `state/bug-backlog/`,
+`backlog-grind-assemble brief debt-triage` (per `snippets/resolve-coordinator-bin.md`)
+before Step 1 — it returns, over `state/debt-backlog/`, `state/bug-backlog/`,
 and `state/improvement-queue/`: open items with severity breakdown, `bug-backlog`
 cross-reference (exact `surface`-field match), improvement-queue entries with clustering
 evidence, and a batched PM-gate. Steps 2, 3, 6, and 6b below stay EM-performed until the
@@ -59,8 +63,9 @@ Blocking other work → P0. In a D/F-graded system → P1. In a recently A/B-gra
 deprioritize to P2. >30 days with no activity → flag for PM attention.
 
 Query historical `nature: tech-debt` completions
-(`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/query-completions" --where
-"nature=tech-debt" --since "90d" --sort "-loe.tshirt" --format markdown-list`) before grouping:
+(`query-completions --where "nature=tech-debt" --since "90d" --sort "-loe.tshirt" --format markdown-list`,
+per `snippets/resolve-coordinator-bin.md`)
+before grouping:
 high-LoE areas in the last 90d indicate festering complexity — escalate open items there.
 Zero-activity areas may reflect avoidance — flag: *"We have carried this debt for N days without
 touching it — is that intentional?"* Present a one-paragraph summary before Step 4; zero-row
@@ -138,7 +143,7 @@ split/merge/discard by judgment before Step 5. Degrade-order detail: wiki.
 4. **Close, or explicit park** — won't-do closes as Step 6. A deliberate park to
    `state/debt-backlog/` is a distinct disposition (never a default sink for triage-didn't-reach
    entries): `status: deferred` with a mandatory `why_blocked` field (never `open`), via
-   `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-queue-append" --schema debt-backlog`.
+   `coordinator-queue-append --schema debt-backlog` (per `snippets/resolve-coordinator-bin.md`).
 
 Universal entries (Step 1) are not part of this disposition — they stay in
 `state/improvement-queue/` until routed via `/learn-lessons`.

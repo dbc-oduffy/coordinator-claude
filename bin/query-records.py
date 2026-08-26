@@ -7,13 +7,20 @@ regression this plan's C1/D1 gate exists to prevent — see
 `docs/plans/2026-07-24-python-ize-claude-klabauter-bin-oracles-doe-forwards-to.md` § A2).
 This trampoline services the DoE-used flag subset only — `--type --where
 --since --older-than --format --status --root --list-schemas
---include-archived` — over the
+--include-archived --include-body --limit` — over the
 already-working `coordinator/bin/lib/records_query.py` transport
 (`route_mutation` -> `coordinator_core.invoke records.query`, per that
 module's own docstring). It deliberately does NOT reimplement the query
 grammar, liveness table, or record collection locally — those stay
 engine-owned (`coordinator_core/ops/records_query.py`); this file only
 translates a CLI flag surface into the op's params dict.
+
+`--include-body` (opt-in, default off): projects `frontmatter['body']` onto
+each record — post-frontmatter text for `.md` records, `null` for `.yaml`
+whole-file records. The op rejects it (non-zero exit) for the synthetic
+types (`handoff-ledger`, `research-claim`), which have no body to project;
+this trampoline does not pre-validate that itself, it relies on the op's own
+loud rejection (cockpit ask 11).
 
 Two capabilities this trampoline adds that lib/records_query.py's own CLI
 does not expose:
@@ -42,10 +49,20 @@ an explicit "not ported — claude-klabauter BIG_PORT" message — NEVER a silen
 (`--all-repos` is `render-handoff-tracker`'s flag, not this oracle's — not
 serviced or fail-louded here; confirmed via grep it never appears on a
 query-records fence.) Any OTHER flag not in this file's supported set (e.g.
-`--unattached`, `--limit`, `--sort` — real query-records.js flags, but not in
-this chunk's DoE-used flag list) is left to argparse's own "unrecognized
+`--unattached`, `--sort` — real query-records.js flags, but not in this
+chunk's DoE-used flag list) is left to argparse's own "unrecognized
 arguments" rejection, which is already fail-loud by construction — no bespoke
 handling needed for flags outside both named lists.
+
+`--limit` was named in that unsupported list until 2026-08-20 while the parser
+below has accepted and forwarded it since 2026-08-14 (`632ce6533`). A reader
+who trusted this docstring over the code got the wrong answer, and one did:
+Claude-klabauter-em told example-cockpit-repo-em on 2026-08-19 that the flag "is not exposed
+on our trampoline" and "caps at the op's default 50", filed it, and offered to
+build it. Measured through this CLI, `--limit 0` returns 258 lesson rows,
+`--limit 7` returns 7, and omitting it returns 50 — the flag was never broken.
+A docstring that contradicts the parser twelve lines below it is worse than no
+docstring, because it reads as the authority.
 
 Spec backlink: pln-python-ize-claude-klabauter-bin-oracles--218413 § A2
 Prior node implementation: coordinator/bin/query-records.js (kept on disk
@@ -101,15 +118,13 @@ def _reject_unported_flags(argv: list[str]) -> None:
 
 def _list_schemas() -> int:
     """Print the engine's queryable record types, one per line, sorted."""
-    from cc_invoke import _resolve_claude_klabauter_root
+    from cc_invoke import require_dispatch_engine_on_path
 
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except RuntimeError as exc:
         print(f"query-records: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 3
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
     try:
         from coordinator_core.ops.records_query import _TYPE_TO_GLOB
     except ImportError as exc:
@@ -147,6 +162,17 @@ def _build_parser() -> argparse.ArgumentParser:
             "OPT-IN: also collect the archived counterpart of --type "
             "(handoff/plan/cross-repo-memo). Default off; every existing "
             "invocation without this flag is unaffected."
+        ),
+    )
+    parser.add_argument(
+        "--include-body",
+        dest="include_body",
+        action="store_true",
+        help=(
+            "OPT-IN: project frontmatter['body'] (post-frontmatter text, "
+            "null for .yaml whole-file types) onto each record. Default "
+            "off. Rejected by the op for synthetic types (handoff-ledger, "
+            "research-claim)."
         ),
     )
     return parser
@@ -213,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
         params["older_than"] = args.older_than
     if args.include_archived:
         params["include_archived"] = True
+    if args.include_body:
+        params["include_body"] = True
     # `is not None`, NOT truthiness: --limit 0 is the documented way to ask
     # for unlimited results (op default is 50). A bare `if args.limit:`
     # guard would silently drop 0 back to the default. Mirrors

@@ -543,9 +543,28 @@ def _cmd_push(args: argparse.Namespace) -> int:
         return _EXIT_OK
 
     if has_commits_to_push:
-        result = _run(["git", "-C", dest, "push"], capture_output=False)
+        # Captured, never inherited: `_run` forces CREATE_NO_WINDOW, and on
+        # Windows an inherited-stdio child under that flag writes into a
+        # suppressed console, so a `capture_output=False` push discards git's
+        # own failure text and surfaces a bare exit 128 with nothing to act
+        # on. Measured 2026-08-19 against claude-klabauter: exit 128, zero
+        # bytes on both streams, through both a shell and an explicitly
+        # redirected `Start-Process`. The push is the one leg whose stderr a
+        # caller cannot reconstruct from anywhere else.
+        result = _run(["git", "-C", dest, "push"])
+        if result.stdout:
+            print(result.stdout, end="")
         if result.returncode != 0:
+            print(
+                f"percolate-push: `git -C {dest} push` failed (exit {result.returncode}):",
+                file=sys.stderr,
+            )
+            print((result.stderr or "").strip() or "(git wrote nothing to stderr)", file=sys.stderr)
             return result.returncode
+        if result.stderr:
+            # git reports normal push progress on stderr; echo it so a
+            # successful push is as legible as a failed one.
+            print(result.stderr, end="", file=sys.stderr)
 
     if branch_head == default_branch or branch_head in _RELEASE_CHANNELS:
         return _EXIT_OK

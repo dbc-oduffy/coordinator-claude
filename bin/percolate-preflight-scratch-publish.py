@@ -51,7 +51,7 @@ Exit codes:
     0 — GREEN (all gates passed)
     1 — RED (a gate failed)
     2 — usage/setup error (bad args, missing dependency file, unresolvable row)
-    3 — engine-link/transport failure (CLAUDE_KLABAUTER_ROOT unresolvable or
+    3 — engine-link/transport failure (the engine root unresolvable or
         coordinator_core.ops.percolate_preflight_scratch_publish not importable)
 
 Spec backlink: DoE-claude:pln-doe-source-of-truth-percolatio-4722b4 § C6/AC8
@@ -137,9 +137,9 @@ def _resolve_coordinator_root() -> str:
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
+    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     self-location walk-up from this file -> settings-home pointer file ->
     machine-local registry) via `require_engine_on_path()` (which wraps
     `resolve_engine_root()`'s same ladder), rather than

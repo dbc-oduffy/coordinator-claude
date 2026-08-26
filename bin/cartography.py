@@ -25,17 +25,19 @@ to five entries while the real family grew to eight, and a ninth
 Every `cartography.*` op is scope `"none"` (COMPUTE_ONLY, no implicit
 repo-specific state — see e.g. cartography_file_index.py's classification
 block) and is entirely targeted via its own `target_root` wire param, NOT via
-`--repo`. `--repo` here is transport-only: it tells `cc_invoke_bare` which
-checkout to spawn `python3 -m coordinator_core.invoke` from (defaults to the
-git repo root of $PWD, same resolution every other native facade in this
-directory uses). `--target-root` is the actual per-op targeting knob and is
-wired straight into the op's `target_root` param — the prior state of the
-world (no verb at all) meant `--repo`-shaped confusion was the only trap
-available; this verb does not reproduce it by giving `--repo` any targeting
-meaning.
+`--repo`. `--repo` is refused loud (DR-279's shape,
+docs/decisions/DR-279-repo-on-a-none-scoped-op-fails-loud.md): for a
+scope="none" op, `cc_invoke_bare`'s own `_should_pass_repo` gate never
+forwards `--repo` to the spawned `coordinator_core.invoke` argv, and the
+spawn itself always runs `cwd=claude_klabauter_root` — a caller-computed root is
+discarded before transmission regardless of how it was obtained, so this
+file used to spend a git spawn (and `sys.exit(2)` outside a git tree)
+resolving a value nothing downstream ever reads. `--target-root` is the
+actual per-op targeting knob and is wired straight into the op's
+`target_root` param.
 
 Usage:
-    cartography.py <op> --target-root <path> [--params '<json>'] [--repo <path>]
+    cartography.py <op> --target-root <path> [--params '<json>']
     cartography.py --list
 
     <op> accepts either the bare op suffix (e.g. "file_index") or the fully
@@ -58,36 +60,40 @@ Exit codes:
         `cc_invoke_bare`'s own --bare/--params-file parse of
         `coordinator_core.invoke`'s bare success-path serialization).
     1 — client-side usage error (unknown op, missing --target-root, malformed
-        --params JSON, no <op> and no --list).
-    2 — cc_invoke_bare transport/op failure (unresolvable repo root, engine
-        timeout, nonzero engine exit, malformed envelope) — see
-        coordinator/bin/lib/cc_invoke.py's `cc_invoke_bare` docstring for the
-        full fail-closed ladder this reuses verbatim.
+        --params JSON, no <op> and no --list, --repo passed (DR-279
+        refusal)).
+    2 — cc_invoke_bare transport/op failure (engine timeout, nonzero engine
+        exit, malformed envelope) — see coordinator/bin/lib/cc_invoke.py's
+        `cc_invoke_bare` docstring for the full fail-closed ladder this
+        reuses verbatim.
 
 Spec backlink: A8 (cartography operator-seam spinoff, 2026-08-06 wave)
 DR-215 ref: docs/wiki/dr-215.md, docs/decisions/DR-215-coordinator-core-command-type-execution-model.md
 
 Negative-spec: does NOT hand-maintain a list of cartography op names anywhere
-in this file (see `_cartography_ops()`); does NOT change `--repo`'s
-resolve-and-ignore behavior inside `coordinator_core/invoke` itself (an open
-question with the PM per the dispatching brief, out of this file's scope) —
-this verb instead gives `--target-root` the targeting meaning `--repo` does
-not have for this scope="none" op family, entirely at the CLI-trampoline
-layer.
+in this file (see `_cartography_ops()`); does NOT spend a git spawn (or any
+other resolution) on a transport repo root for this scope="none" op family —
+`--repo` is refused loud instead (D3,
+docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md § C16) — this verb
+instead gives `--target-root` the targeting meaning `--repo` does not have,
+entirely at the CLI-trampoline layer.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
 _LIB_DIR = str(Path(__file__).resolve().parent / "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke_bare, require_colocated_engine_on_path  # noqa: E402
+from cc_invoke import (  # noqa: E402
+    cc_invoke_bare,
+    none_scoped_repo_refusal,
+    require_colocated_engine_on_path,
+)
 
 
 def _cartography_ops() -> list[str]:
@@ -118,28 +124,6 @@ def _resolve_op_name(raw: str, known_ops: list[str]) -> str:
         file=sys.stderr,
     )
     sys.exit(1)
-
-
-def _resolve_repo_root(explicit: str | None) -> str:
-    """Resolve the transport repo root: --repo verbatim, else the git repo
-    root of $PWD (mirrors coordinator/bin/append-goal-event.py's own
-    `_resolve_repo_root`). This is NOT the cartography target — see the
-    module docstring's `--target-root` vs `--repo` note.
-    """
-    if explicit:
-        return explicit
-    require_colocated_engine_on_path(__file__)
-    from coordinator_core.git.repo_root import show_toplevel
-
-    root = show_toplevel(os.getcwd())
-    if not root:
-        print(
-            f"cartography: cannot resolve git repo root from {os.getcwd()} "
-            "(pass --repo explicitly)",
-            file=sys.stderr,
-        )
-        sys.exit(2)
-    return root
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -178,10 +162,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo",
         help=(
-            "Repo root to spawn `python3 -m coordinator_core.invoke` from "
-            "(transport only — every cartography.* op is scope \"none\" and "
-            "ignores --repo for targeting; use --target-root for that). "
-            "Defaults to the git repo root of the current directory."
+            "Refused: every cartography.* op is scope \"none\" (see "
+            "docs/decisions/DR-279-repo-on-a-none-scoped-op-fails-loud.md) "
+            "— it accesses no repo-specific state, so --repo would be "
+            "meaningless. Passing it fails loud instead of silently "
+            "no-opping. Use --target-root for per-op targeting."
         ),
     )
     parser.add_argument(
@@ -208,6 +193,17 @@ def main(argv: list[str]) -> int:
         print("cartography: an <op> is required (or pass --list)", file=sys.stderr)
         return 1
 
+    if args.repo:
+        # Every cartography.* op is scope "none" (D3,
+        # docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md § C16):
+        # cc_invoke_bare's _should_pass_repo() gate suppresses forwarding
+        # --repo on argv for it, and the spawn itself always runs
+        # cwd=claude_klabauter_root, so a caller-computed root is discarded before
+        # transmission regardless of how it was obtained. Refuse loud
+        # instead of resolving/validating a value nothing downstream reads.
+        print(none_scoped_repo_refusal("cartography", "cartography.*"), file=sys.stderr)
+        return 1
+
     op = _resolve_op_name(args.op, known_ops)
 
     try:
@@ -230,10 +226,11 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    repo_root = _resolve_repo_root(args.repo)
-
     try:
-        result = cc_invoke_bare(op, params, repo_root)
+        # Every cartography.* op is scope "none" — cc_invoke_bare's
+        # _should_pass_repo() gate suppresses forwarding --repo for it, so
+        # this empty string is never read; see the --repo refusal above.
+        result = cc_invoke_bare(op, params, "")
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2

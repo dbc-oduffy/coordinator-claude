@@ -37,18 +37,19 @@ A workflow moves orchestration *out* of the compaction-prone context. The wave m
 
 ---
 
-## The antipattern: hand-orchestration, and the four false rationalizations
+## The antipattern: hand-orchestration, and the five false rationalizations
 
-The failure this doctrine exists to stop: **the EM hand-orchestrates executor dispatches — serial `Agent` calls, or `parallel` waves it drives itself — instead of authoring a background Workflow**, burning its own context window holding the wave-map, wave results, and per-chunk commit bookkeeping across compaction boundaries. Four rationalizations talk the EM out of the Workflow in the moment. **All four are false:**
+The failure this doctrine exists to stop: **the EM hand-orchestrates executor dispatches — serial `Agent` calls, or `parallel` waves it drives itself — instead of authoring a background Workflow**, burning its own context window holding the wave-map, wave results, and per-chunk commit bookkeeping across compaction boundaries. Five rationalizations talk the EM out of the Workflow in the moment. **All five are false:**
 
 1. *"I need EM eyes on each wave — a Workflow takes me out of the loop."* A Workflow returns each phase's structured results; the EM reads them between phases and decides what happens next. You see everything, you just don't hold the transcripts.
 2. *"I control the commits — a Workflow would commit for me."* Workflow executors author but return their work **without committing** (§ Commit discipline inside workflows). The EM commits each phase serially from the returned manifest. Commit control never leaves the EM.
 3. *"A downstream step is EM-inline regardless, so the whole thing might as well stay hand-orchestrated."* An EM-inline step downstream does not preclude a Workflow for the *dispatched* chunks — scope the Workflow to those, run the inline step after it returns.
 4. *"It's small — a few dispatches, one uncompacted pass, not worth scripting."* For plan execution, the vehicle is a Workflow regardless of chunk count; the smallest Workflow is a one-`agent()` script. The gate is whether the work is bounded, enumerated plan execution — not whether it "feels big enough."
+5. *"The plan's Anti-scope forbids it."* A plan owns what changes and what must not; it does not own the mechanism that lands it, and ratifying a plan ratified its scope and ACs, never a vehicle its author fixed in prose. Override the sentence, say so in one line, fire the workflow. A real constraint behind it re-expresses as an input the vehicle consumes — a shared write target is a `depends_on` edge, not "no fan-out". Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
 What a Workflow removes is the context-window burn of the EM holding the wave-map and bookkeeping across compaction. Nothing else is surrendered.
 
-**What qualifies as a carve-out.** A legitimate carve-out names a *shape a Workflow cannot express* — a mid-run pause for genuine interactive PM input gating the very next dispatch, or a tool only the main loop can call. None of the four above name such a shape; each is answered by scoping or restructuring the Workflow. Nor does a content-dependent wave graph qualify: a Workflow script is plain JS and computes the next fan-out from the prior phase's returned results, or the EM re-plans from the returned manifest and fires a fresh phase. **The carve-out test is self-graded by the same agent that wants to skip the Workflow** — the hazard the `When to EM-Inline` checklist guards against (`docs/wiki/agent-dispatch-economics.md`); the non-qualifying enumeration above is this doctrine's equivalent guard.
+**What qualifies as a carve-out.** A legitimate carve-out names a *shape a Workflow cannot express* — a mid-run pause for genuine interactive PM input gating the very next dispatch, or a tool only the main loop can call. None of the five above name such a shape; each is answered by scoping or restructuring the Workflow. Nor does a content-dependent wave graph qualify: a Workflow script is plain JS and computes the next fan-out from the prior phase's returned results, or the EM re-plans from the returned manifest and fires a fresh phase. **The carve-out test is self-graded by the same agent that wants to skip the Workflow** — the hazard the `When to EM-Inline` checklist guards against (`docs/wiki/agent-dispatch-economics.md`); the non-qualifying enumeration above is this doctrine's equivalent guard.
 
 Workflow doctrine concentrates at `/execute-plan` rather than blanket-covering every dispatch shape (§ The base Workflow tool's opt-in gate). The multi-wave nudge hook is a bounded, offer-shaped burst nudge, not an enforcement backstop.
 
@@ -96,7 +97,7 @@ under plain `Agent` each received their own declaration minus platform variance 
 holds there, and Bash arrives unconfined. So the rewrite is a property of this vehicle, and a
 chunk that needs its declared surface intact is a reason to prefer plain dispatch. Carried over
 from plain `Agent` and therefore not vehicle-specific: `ToolSearch` and declared MCP tools are not
-received on either path (DR-168, rule 3).
+received on either path (rule 3 of the dispatch-delivery decision).
 
 ---
 
@@ -291,8 +292,11 @@ On the `/execute-plan` chunk-executor path the harness auto-provisions each per-
 
 **A hand-written Workflow must pre-provision.** Sidecars are provisioned by a hook matched on the `Agent` tool, and a Workflow script's `agent()` call is not an `Agent` tool call, so the hook never fires. Any `report_sidecar:`-eligible type dispatched from a hand-written Workflow arrives with no `sidecar_path:`, and an agent whose contract says the path is spawn-provided is entitled to refuse rather than invent one — a whole wave of refusals at full token cost. Pre-provision each path and inject it into the brief as `sidecar_path:`:
 
+Invoked per the precedence ladder in `coordinator/snippets/resolve-coordinator-bin.md` — rung 0 /
+Shape W on a PowerShell host, the POSIX form below on a POSIX host:
+
 ```
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/provision-sidecar" \
+provision-sidecar \
     --agent-type <subagent_type> --provision-key <slice-id>
 ```
 

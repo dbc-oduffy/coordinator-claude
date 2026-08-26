@@ -103,6 +103,19 @@ PLATFORM_LOCALIZE_FILES: "tuple[BinTemplateEntry, ...]" = (
     BinTemplateEntry("platform-localize.cmd", "code", False, True),
 )
 
+# --- git_bash_fast_profile: the login-shell-tax fix (see docs/wiki/
+# coordinator-tripwires/tripwire-registry/a-git-update-silently-restores-the-
+# login-shell-tax.md). `install-git-bash-fast-profile.py` carries a shebang
+# and is run directly from an elevated shell (exec_bit=True, like
+# platform-localize.py above); `git-bash-fast-profile.sh` is sourced by the
+# installer into Git-for-Windows' /etc/profile rather than executed on its
+# own, so exec_bit=False — same convention as claude-machine-local.sh above
+# (every plain `.sh` entry in this manifest is exec_bit=False).
+GIT_BASH_FAST_PROFILE_FILES: "tuple[BinTemplateEntry, ...]" = (
+    BinTemplateEntry("install-git-bash-fast-profile.py", "code", True, True),
+    BinTemplateEntry("git-bash-fast-profile.sh", "code", False, True),
+)
+
 # --- launcher templates: NOT consumed by `_install_bin_resolvers` at all.
 # Rendered (not copied verbatim) by `coordinator_core.ops.gen_claude_doe_launcher`,
 # which already has its own correct check-mode freshness pattern (tempfile +
@@ -127,5 +140,9 @@ LAUNCHER_TEMPLATE_FILES: "tuple[BinTemplateEntry, ...]" = (
 # collection is EXACTLY the on-disk listing (minus __pycache__), in both
 # directions.
 ALL_BIN_TEMPLATE_FILES: "tuple[BinTemplateEntry, ...]" = (
-    ML_FAMILY_FILES + ML_EXPLICIT_FILES + PLATFORM_LOCALIZE_FILES + LAUNCHER_TEMPLATE_FILES
+    ML_FAMILY_FILES
+    + ML_EXPLICIT_FILES
+    + PLATFORM_LOCALIZE_FILES
+    + GIT_BASH_FAST_PROFILE_FILES
+    + LAUNCHER_TEMPLATE_FILES
 )

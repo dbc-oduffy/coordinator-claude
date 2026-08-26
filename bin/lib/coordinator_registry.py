@@ -64,6 +64,7 @@ from machine_local_impl_resolve import (  # noqa: E402
     claude_home as _mlir_claude_home,
     machine_local_bin_candidates as _mlir_machine_local_bin_candidates,
     machine_local_impl_path as _mlir_machine_local_impl_path,
+    registry_get as _mlir_registry_get,
 )
 
 # ---------------------------------------------------------------------------
@@ -121,11 +122,38 @@ def _registry_machine_local_impl() -> str:
 def _registry_machine_local_get(key: str) -> str | None:
     """Call machine-local get <key> and return the value, or None on failure.
 
+    In-process FIRST via machine_local_impl_resolve.registry_get(key) —
+    returned when truthy. Only on None does this fall through to the
+    existing subprocess spawn below, which stays the fallback rung.
+
     Uses sys.executable (the interpreter running this module) — no subprocess
     probing needed; safe on macOS, Linux, and Windows. CREATE_NO_WINDOW guard
     suppresses the Windows console popup (portable: getattr resolves to 0 on
     non-Windows).
+
+    Documented hazard (review F1, 2026-08-20): for `repos.*` keys, this
+    in-process rung's source-file ladder is `registry.local.toml` then
+    `registry.toml` (machine_local_impl_resolve.registry_get()) — but the
+    real `machine-local get repos.<slug>` CLI routes `repos.*` through a
+    4-rung ladder (REPO_<SLUG> env → marker autodiscovery →
+    path-exceptions.toml → registry.local.toml) that NEVER consults
+    registry.toml for this key class. registry.toml is install-mutable
+    (seeded from a template, then mutated in place by
+    _register_hardware_concern and cockpit-key notices), so a stale non-empty
+    `repos.*` row there can short-circuit this rung and return a value the
+    CLI's ladder would never have produced — not merely a reordering that is
+    "precedence-preserving at the value level," since the CLI's ladder does
+    not have a registry.toml rung to be equivalent to. Inherited from the
+    shared oracle reader and already ratified at 5 other repos.* call sites
+    (gen_claude_doe_shim.py, gen_doe_root_pointer.py, new_project_scaffold.py,
+    render_template_tree.py, repo_bootstrap.py) — not invented here. Do NOT
+    fix by skipping registry.toml for repos.* keys in this function; that is
+    a separate, deliberately deferred cross-site change (all 6 sites
+    together), not a local patch.
     """
+    _in_process = _mlir_registry_get(key)
+    if _in_process:
+        return _in_process
     impl = _registry_machine_local_impl()
     cmd = [sys.executable, impl, "get", key]
     try:
@@ -394,6 +422,8 @@ if not os.path.exists(_MANIFEST_PATH):
     # last. Spec backlink: machine_local_impl_resolve.py module docstring.
     _doe = os.environ.get("DOE_ROOT", "").strip() or os.environ.get("REPO_DOE_CLAUDE", "").strip()
     if not _doe:
+        _doe = _mlir_registry_get("repos.doe_claude") or ""
+    if not _doe:
         for _ml_cand in _mlir_machine_local_bin_candidates():
             if not os.path.exists(_ml_cand):
                 continue
@@ -443,9 +473,18 @@ try:
     with open(_MANIFEST_PATH, encoding="utf-8") as _f:
         _manifest = json.load(_f)
 except FileNotFoundError as _e:
+    # Split-repo layout (schemas/ live in DoE-claude, not co-located here):
+    # every rung above that could have found the manifest elsewhere derives
+    # from the same DOE_ROOT/REPO_DOE_CLAUDE resolution doe_root() performs
+    # below -- if none of them found it, that resolution is what actually
+    # failed. Name it explicitly so this reads as a dependency-resolution
+    # failure the operator can act on (set DOE_ROOT / REPO_DOE_CLAUDE), not
+    # a generic "plugin isn't installed" report when it demonstrably is.
     raise FileNotFoundError(
-        f"coordinator_registry: manifest not found at {_MANIFEST_PATH!r}. "
-        "This is an install-integrity failure — ensure the coordinator plugin is fully installed."
+        f"coordinator_registry: manifest not found at {_MANIFEST_PATH!r}, and no "
+        "DOE_ROOT/REPO_DOE_CLAUDE-resolvable candidate located one either. "
+        "This is an install-integrity failure — ensure the coordinator plugin is "
+        "fully installed, or set DOE_ROOT to the schemas-hosting repo's root."
     ) from _e
 except json.JSONDecodeError as _e:
     raise ValueError(
@@ -647,7 +686,7 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
 # Shared state-root resolver — DoE doctrine central-state writes
 #
 # doe_root() is the canonical resolver for the DoE repo root, importable by all
-# doctrine-writing CLIs. The resolution chain mirrors the _claude_klabauter_root() shape
+# doctrine-writing CLIs. The resolution chain mirrors the engine root resolver's shape
 # in the CLIs but raises on failure rather than returning None — callers catch
 # _DoeUnresolvable and degrade gracefully (WARN + skip, exit 0).
 #
@@ -659,7 +698,7 @@ def em_id_for_root(root: str | None, repo_key_paths: dict[str, str]) -> str:
 # Spec backlink: DoE-claude:pln-gate-2-w2-3-live-caller-switch-3e51cf § C1
 # ---------------------------------------------------------------------------
 
-# Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate form.
+# Env var for DOE_ROOT override — mirrors the engine root's §4b idempotency gate form.
 # Guard form: os.environ.get(_DOE_ROOT_ENV, "").strip() — non-empty string wins.
 _DOE_ROOT_ENV = "DOE_ROOT"
 
@@ -738,7 +777,7 @@ def doe_root() -> str:
     this exact ordering gap).
 
       1a. DOE_ROOT env var — if non-empty, trusted as-is (§4b idempotency parity
-          with CLAUDE_KLABAUTER_ROOT; guard form os.environ.get(..., "").strip()). Wins
+          with the engine root; guard form os.environ.get(..., "").strip()). Wins
           first when both DOE_ROOT and REPO_DOE_CLAUDE are set — a permanent
           legacy alias, preserved byte-for-byte for every existing test/consumer.
       1b. REPO_DOE_CLAUDE env var — the documented, ambient override name every
@@ -823,8 +862,14 @@ def doe_root() -> str:
     # codename-free rung ALSO resolves (e.g. a stale or genuinely published
     # marketplace install), the ladder below used to win, silently returning
     # a byte-copy install instead of the registry-anchored source tree — see
+    # state/review-findings/2026-08-08-codename-free-partitioned/slice-B-doe-root.md
+    # § B2 (the primary precedence evidence; the separate
     # cross-repo/inbox/2026-08-10-doe-claude-em-reconcile-close-terminal-and-scrub-key.md
-    # § 3.
+    # § 3 incident is a scrubbed registry key masking a cross-repo-memo
+    # send-path defect, not this precedence issue).
+    #
+    # This registry read is now in-process (machine_local_impl_resolve.
+    # registry_get()), CLI spawn retained as the fallback rung.
     val = _registry_machine_local_get("repos.doe_claude")
     if val:
         return val

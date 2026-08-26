@@ -1,7 +1,9 @@
 Three mechanisms live downstream. They are named here so the author knows the ground is covered,
 not so this run performs them:
 
-- **Readiness view.** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/roadmap-number-stubs" --state <run-id>` prints every stub's `deployment_state` and its gate text, sorted by `(sprint, wave, stub_id)`. It is a *view* for whoever is choosing what to pick up — never a loop this skill runs. `/workday-start` already carries roadmap-stub-aware sections (e.g. Step 1.473's shipped-stub promotion, Step 1.55's recent-roadmap orientation) and is the obvious future home for surfacing this view; neither it nor `/workstream-start` wires the resolver in yet.
+- **Readiness view** (POSIX-host form, Shape A; PowerShell hosts: Shape W,
+  `snippets/resolve-coordinator-bin.md`). Resolving `roadmap-number-stubs --state <run-id>` prints
+  every stub's `deployment_state` and its gate text, sorted by `(sprint, wave, stub_id)`. It is a *view* for whoever is choosing what to pick up — never a loop this skill runs. `/workday-start` already carries roadmap-stub-aware sections (e.g. Step 1.473's shipped-stub promotion, Step 1.55's recent-roadmap orientation) and is the obvious future home for surfacing this view; neither it nor `/workstream-start` wires the resolver in yet.
 - **Gate transitions are not this skill's to make.** A stub moves `awaiting_gate → ready_to_fire` when the `/handoff` or `/workstream-complete` of some *other* session clears its gate. Never auto-transition a sibling's stub, and never pre-emptively mark one ready because its gate looks satisfied from here.
 - **End-of-roadmap review** belongs to whoever closes the roadmap out — a cross-cutting pass over the shipped output, dispatched from `/workstream-complete` once every stub has shipped. Specified below for that session, not queued for this one.
 

@@ -12,9 +12,10 @@ resolve the claude-klabauter engine, hand it the mapped params, relay its stdout
 Claude-klabauter owns the write LOGIC (coordinator_core.hooks.agent_completion_log,
 registered under the JSON-RPC method "hooks.agent_completion_log") -- the
 actual jsonl append to .git/coordinator-sessions/logs/agent-audit.jsonl. The
-engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_message
--- no bash, no `python3 -m` subprocess re-spawn -- so a whole Agent-tool
-completion pays exactly one Python interpreter start.
+engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook
+(DR-175 -- the named hook-dispatch seam, above the dispatch_message telemetry
+wrapper) -- no bash, no `python3 -m` subprocess re-spawn -- so a whole
+Agent-tool completion pays exactly one Python interpreter start.
 
 Contract (mirrors the claude-klabauter-advisory half of the bash hook it replaces --
 agent-completion-log.sh's `advisory_call "hooks.agent_completion_log"` block;
@@ -59,7 +60,8 @@ root by this stub; coordinator_core.lifecycle.git_common_dir(repo_root)
 already does that resolution itself via a `git rev-parse --path-format=absolute
 --git-common-dir` subprocess with cwd=repo_root -- any path inside the repo
 tree is sufficient input). Absent cwd -> "_origin_worktree" omitted from the
-envelope -> dispatch_message raises ValueError (INVALID_PARAMS) -> caught by
+envelope -> resolve_op_repo_key() raises ValueError (INVALID_PARAMS) inside
+the engine -> surfaced as HookDispatchError -> caught by
 the fail-open seam below -> silent no-op (a functional regression vs the
 legacy bash's unconditional jq append, but the LOCAL bash write path stays
 live during the transition window, see "Open risks").
@@ -98,7 +100,6 @@ inherits verbatim for the shared parts):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -135,7 +136,7 @@ def main() -> int:
         # hooks package has no lazy-skip guard, unlike coordinator_core.ops).
         # One-time cost, in-process, still zero subprocess spawns.
         from coordinator_core.hooks import agent_completion_log as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open
 
@@ -168,24 +169,21 @@ def main() -> int:
 
     cwd = payload.get("cwd")
 
-    msg: dict = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.agent_completion_log",
-        "params": params,
-    }
     # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRES
     # _origin_worktree; the handler resolves git_common_dir(repo_root) from it
     # (any path inside the repo tree is sufficient, git does the walk-up).
-    if isinstance(cwd, str) and cwd:
-        msg["_origin_worktree"] = cwd
-
+    # dispatch_from_hook builds the envelope itself and omits
+    # _origin_worktree when origin_worktree is None/empty, matching this
+    # stub's prior isinstance(cwd, str) and cwd guard unchanged.
     try:
-        response = asyncio.run(dispatch_message(msg))
-    except Exception:
+        result = dispatch_from_hook(
+            "hooks.agent_completion_log",
+            params,
+            origin_worktree=cwd if isinstance(cwd, str) else None,
+        )
+    except HookDispatchError:
         return 0  # any engine failure -> fail-open (never brick a tool call)
 
-    result = response.get("result") if isinstance(response, dict) else None
     if result:  # {} (no_advisory) and None both fall through to no-output;
         # this op always returns no_advisory() -- the product is the disk-append
         # side-effect, not stdout -- so this branch is dead in normal operation

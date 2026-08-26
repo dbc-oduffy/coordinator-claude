@@ -6,7 +6,7 @@ YAML entries into claude-klabauter/DoE-routed state directories and resolve thei
 from_repo identity from cwd git context). Extracts exactly four primitives:
 
   - machine_local_get / machine_local_repos_keys — `machine-local` CLI bridge
-  - claude_klabauter_root — CLAUDE_KLABAUTER_ROOT env-or-registry resolution (AC1/AC13)
+  - claude_klabauter_root — engine-root env-or-registry resolution (AC1/AC13)
   - resolve_from_repo — the cwd git-root -> machine-local reverse-lookup ->
     doe_claude -> unregistered-repo -> "unknown-sender-em" ladder (same
     convention as cross-repo-memo._sender_em_id)
@@ -30,6 +30,7 @@ Spec backlink: docs/plans/2026-07-15-bash-to-naked-python-engine-migration.md
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -51,6 +52,47 @@ from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 MACHINE_LOCAL_IMPL_ENV = "MACHINE_LOCAL_IMPL"
 CLAUDE_HOME_ENV = "CLAUDE_HOME"
+
+# C23 AC13-style bootstrap carve-out (named exception, mirrors
+# coordinator/bin/lib/cc_invoke.py's own AC13 note) -- this constant and
+# claude_klabauter_root() below are NOT routed through
+# coordinator_core.engine_root.coordinator_engine_root_env. This module is
+# DoE-resident CLI plumbing (see module docstring) consumed by the legacy
+# State-1 CLIs (coordinator-queue-append, coordinator-lesson-promote,
+# coordinator-harvest-deferrals, regen-cockpit-schema, klabauter-channel) --
+# scripts that must keep working in an environment where `coordinator_core`
+# is not yet pip-installed and is not necessarily on `sys.path` (the
+# published-mirror/State-1-fallback case DR-210 requires stays live
+# indefinitely). `claude_klabauter_root()` IS the primitive those callers use to find
+# where `coordinator_core` even lives; importing the accessor here would be
+# the same chicken-and-egg `cc_invoke.py`'s own AC13 rung exists to avoid.
+# PRECEDENCE HERE DELIBERATELY DIVERGES FROM THE ACCESSOR, AND SAYING SO IS
+# THE POINT. `coordinator_engine_root_env` reads the retired name only to
+# report it as retired and NEVER returns it (C14). This site still ANSWERS
+# from it when the new name is unset. That is not the same rule, and a
+# hand-duplicate that claims parity it does not have is worse than no
+# duplicate -- the two would disagree only in the skew case nobody exercises
+# until it breaks on the commit hot path.
+#
+# Why the divergence is kept: this is the primitive the State-1 fallback CLIs
+# use to locate `coordinator_core` at all. Dropping the retired rung here
+# cannot degrade to a slower path, only to a dead one, and DR-210 keeps that
+# fallback live indefinitely. Every in-tree exporter now sets BOTH names
+# (scripts/setup.py x2, append-goal-event, regen-cockpit-schema, cc_invoke
+# exports the new name only), so this rung should already be unreachable in
+# practice.
+#
+# CONDITION FOR REMOVING IT -- already met, not a future measurement:
+# C14 item 4 (this rung) was discharged at `02ef8ae9de77` on C23's
+# three-leg ratchet -- zero unexcluded executable read sites, proved as a
+# property of the code by falsification against planted tuple/list/dict
+# shapes. `coordinator_core.engine_root_census.census()` no longer reports
+# a verdict field at all (that field, `evidences_absence`, was removed as
+# part of the same cleanup) -- it reports fallback-read observations only,
+# and no future census reading can discharge this or anything else. Do not
+# wait on a census result before deleting this rung; the discharge already
+# happened.
+COORDINATOR_ENGINE_ROOT_ENV = "COORDINATOR_ENGINE_ROOT"
 CLAUDE_KLABAUTER_ROOT_ENV = "CLAUDE_KLABAUTER_ROOT"
 
 # Bounded retry attempts before write_path_excl fails loud.
@@ -109,6 +151,36 @@ def machine_local_get(key: str) -> str | None:
     return result.stdout.strip()
 
 
+def machine_local_dump_repos() -> dict[str, str]:
+    """Resolve every repos.* key in one machine-local process (the batch
+    counterpart to enumerate-then-get). `dump --prefix repos` shares
+    resolve_one with `get`, so a batched value is byte-identical to what a
+    per-key `get` would print — see _machine_local.py::cmd_dump docstring.
+    Returns {} on any spawn/parse failure OR a non-zero returncode (matches
+    machine_local_get's fail-closed contract — a non-zero exit with
+    parseable stdout is a partial/crashed dump, not a value to trust);
+    callers already tolerate an empty/partial paths table.
+    """
+    impl = machine_local_impl()
+    python = resolve_python()
+    try:
+        result = subprocess.run(
+            [python, impl, "dump", "--prefix", "repos", "--format", "json"],
+            capture_output=True,
+            text=True,
+            creationflags=_NO_WINDOW,
+        )
+    except OSError:
+        return {}
+    if result.returncode != 0 or not result.stdout.strip():
+        return {}
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str) and v}
+
+
 def machine_local_repos_keys() -> list[str]:
     """Return all repos.* keys from the machine-local registry."""
     impl = machine_local_impl()
@@ -135,7 +207,17 @@ def claude_klabauter_root() -> str | None:
     """Resolve the claude-klabauter repo root, mirroring coordinator-claude-klabauter-root.sh (AC1).
 
     Resolution chain:
-      1. CLAUDE_KLABAUTER_ROOT env var — if non-empty, trusted as-is (§4b idempotency gate).
+      1. COORDINATOR_ENGINE_ROOT env var — if non-empty, trusted as-is (§4b
+         idempotency gate). CLAUDE_KLABAUTER_ROOT is read too, but ONLY as a fallback
+         when the new name is unset — C14 closed coordinator_engine_root_env's
+         dual-read window, and this bootstrap-carve-out site (see the
+         CLAUDE_KLABAUTER_ROOT_ENV declaration above) duplicates that same precedence by
+         hand rather than importing the accessor.
+
+         C23: fixed a dark bug here -- this rung previously read ONLY
+         CLAUDE_KLABAUTER_ROOT_ENV, so a caller that had migrated to
+         COORDINATOR_ENGINE_ROOT (and never set the retired name) got NO
+         override rung at all and silently fell through to rung 2.
       2. machine-local get repos.claude_klabauter — delegates to the §4c discovery ladder.
       3. Returns None when unresolvable — callers degrade gracefully (AC13).
 
@@ -145,7 +227,9 @@ def claude_klabauter_root() -> str | None:
 
     Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
     """
-    override = os.environ.get(CLAUDE_KLABAUTER_ROOT_ENV, "").strip()
+    override = os.environ.get(COORDINATOR_ENGINE_ROOT_ENV, "").strip()
+    if not override:
+        override = os.environ.get(CLAUDE_KLABAUTER_ROOT_ENV, "").strip()
     if override:
         return override
     val = machine_local_get("repos.claude_klabauter")
@@ -185,8 +269,7 @@ def resolve_from_repo(root: str | None = None) -> str:
                 verdict.get("message", "cli_shared: repo-identity MISMATCH"),
                 file=sys.stderr,
             )
-    keys = machine_local_repos_keys()
-    paths = {k: machine_local_get(k) for k in keys}
+    paths = machine_local_dump_repos()
     paths.setdefault("repos.doe_claude", machine_local_get("repos.doe_claude"))
     return em_id_for_root(root, {k: v for k, v in paths.items() if v})
 
@@ -239,6 +322,17 @@ def write_path_excl(out_path: str, content: str, *, caller_name: str) -> str:
                 ) from None
             candidate = f"{root}-{attempt}{ext}"
             continue
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(content)
         return candidate
+
+# Dual-read window for the engine-root rename (docs/plans/2026-08-20-an-engine-
+# root-is-not-named-for-the-repo.md), same class as cc_invoke's alias and found
+# by the same mechanism. The PUBLISHED engine and its CLIs are transformed on the
+# way out -- every `claude-klabauter` identifier becomes `claude_klabauter` -- but a
+# published CLI still imports THIS module from the live tree, which is not
+# transformed. So it asks for `claude_klabauter_root` and finds only `claude_klabauter_root`, and dies on
+# ImportError in whatever ceremony happens to call it rather than in any test.
+# In the mirror this line transforms into a self-assignment: a harmless no-op.
+# Remove it only once no published CLI references the old spelling.
+claude_klabauter_root = claude_klabauter_root

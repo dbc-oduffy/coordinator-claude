@@ -4,7 +4,14 @@
 #
 # Purpose: authoring-side CLI for the initiative governing discipline.
 #   create          Mint state/initiatives/<id>.yaml. Fail-loud on existing id; atomic write.
-#   attach          Write initiative: <id> FK to an artifact's YAML frontmatter.
+#   attach          Write initiative: <id> FK to an artifact's YAML frontmatter. Also
+#                   accepts `attach --pairs-file <path>`: N (artifact-path,
+#                   initiative-id) pairs in ONE process invocation instead of N —
+#                   the batch form callers like coordinator_core.ops.backfill_initiative_fk
+#                   use to collapse a per-pair subprocess spawn loop into one spawn.
+#                   Pairs-file is TSV (`artifact_path<TAB>initiative_id` per line,
+#                   blank/`#`-comment lines skipped); output is one JSON line per
+#                   pair on stdout for per-pair attribution, in pairs-file line order.
 #   list-unattached Narrow CLI (--format/--limit only) over the native
 #                   records_query.query_records(unattached=True) union lens
 #                   (in-process call, no node/query-records.js spawn).
@@ -29,6 +36,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -153,6 +161,7 @@ def _usage() -> None:
         file=sys.stderr,
     )
     print("  coordinator-initiative attach <artifact-path> <initiative-id>", file=sys.stderr)
+    print("  coordinator-initiative attach --pairs-file <path>", file=sys.stderr)
     print(
         "  coordinator-initiative list-unattached [--format paths|json|markdown-list] "
         "[--limit N]",
@@ -280,7 +289,7 @@ def _cmd_create(args: list[str]) -> int:
     else:
         lines.append("target_date: null\n")
 
-    with open(tmp, "w", encoding="utf-8") as f:
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(lines)
     os.replace(tmp, target)
     print(target)
@@ -293,38 +302,26 @@ def _cmd_create(args: list[str]) -> int:
 # before the closing --- of the frontmatter block.
 # Verifies the initiative YAML exists before writing (fail-loud if not).
 # Write is atomic via temp-file + rename.
-def _cmd_attach(args: list[str]) -> int:
-    if len(args) < 2:
-        print(
-            "coordinator-initiative attach: requires <artifact-path> <initiative-id>",
-            file=sys.stderr,
-        )
-        print("  Usage: coordinator-initiative attach <artifact-path> <initiative-id>", file=sys.stderr)
-        return 1
-    artifact_path = args[0]
-    initiative_id = args[1]
-
-    if not os.path.isfile(artifact_path):
-        print(f"coordinator-initiative attach: artifact not found: {artifact_path}", file=sys.stderr)
-        return 1
-
-    # Verify the target initiative exists (fail-loud).
-    initiatives_dir = _resolve_initiatives_dir()
-    if initiatives_dir is None:
-        return 1
+#
+# `_attach_one` holds the rewrite core (initiative-yaml existence check + frontmatter
+# rewrite), shared by the single-pair CLI path (`_cmd_attach`) and the
+# `--pairs-file` batch path (`_cmd_attach_batch`) below — both call it once
+# `initiatives_dir` is resolved and `artifact_path` is known to exist, so N pairs in
+# one invocation run the identical rewrite logic as N separate invocations.
+def _attach_one(artifact_path: str, initiative_id: str, initiatives_dir: str) -> tuple[bool, list[str], list[str]]:
+    """Attach a single pair given an already-resolved `initiatives_dir` and a
+    caller-verified-to-exist `artifact_path`. Returns `(ok, stdout_lines,
+    stderr_lines)` — the exact message lines the single-pair CLI path prints
+    verbatim on success/failure, and the batch path folds into its own per-pair
+    JSON attribution."""
     initiative_yaml = os.path.join(initiatives_dir, f"{initiative_id}.yaml")
     if not os.path.isfile(initiative_yaml):
-        print(
+        return False, [], [
             f"coordinator-initiative attach: initiative '{initiative_id}' not found at "
             f"{initiatives_dir}/{initiative_id}.yaml",
-            file=sys.stderr,
-        )
-        print(
             f"  Create it first: coordinator-initiative create --id {initiative_id} "
             f"--label '<label>'",
-            file=sys.stderr,
-        )
-        return 1
+        ]
 
     with open(artifact_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -335,16 +332,11 @@ def _cmd_attach(args: list[str]) -> int:
     # producing a false-success signal. Guard at the boundary before the rewrite runs.
     first_line = original_lines[0].rstrip("\r\n") if original_lines else ""
     if first_line != "---":
-        print(
+        return False, [], [
             f"coordinator-initiative attach: artifact has no YAML frontmatter block: {artifact_path}",
-            file=sys.stderr,
-        )
-        print("  The file must begin with a --- frontmatter opening line.", file=sys.stderr)
-        print(
+            "  The file must begin with a --- frontmatter opening line.",
             "  Ensure the artifact has a valid YAML frontmatter block before attaching.",
-            file=sys.stderr,
-        )
-        return 1
+        ]
 
     # Rewrite the frontmatter — scan inside the frontmatter block (between opening
     # and closing ---).
@@ -376,19 +368,137 @@ def _cmd_attach(args: list[str]) -> int:
     # Review: code-reviewer — F3 (P1): detect unterminated-frontmatter / not-found case to
     # prevent false success. Verify the FK line was actually written to the new content.
     if not re.search(rf"^initiative: {re.escape(initiative_id)}", new_content, re.MULTILINE):
-        print(
+        return False, [], [
             f"coordinator-initiative attach: failed to inject initiative FK into {artifact_path}",
-            file=sys.stderr,
-        )
-        print("  The artifact frontmatter may be unterminated (no closing ---).", file=sys.stderr)
-        return 1
+            "  The artifact frontmatter may be unterminated (no closing ---).",
+        ]
 
     tmp = f"{artifact_path}.tmp.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8") as f:
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
         f.write(new_content)
     os.replace(tmp, artifact_path)
-    print(f"attached: {artifact_path} -> initiative: {initiative_id}")
-    return 0
+    return True, [f"attached: {artifact_path} -> initiative: {initiative_id}"], []
+
+
+def _cmd_attach(args: list[str]) -> int:
+    if args and args[0] == "--pairs-file":
+        if len(args) < 2:
+            print(
+                "coordinator-initiative attach --pairs-file: requires a path argument",
+                file=sys.stderr,
+            )
+            return 1
+        return _cmd_attach_batch(args[1])
+
+    if len(args) < 2:
+        print(
+            "coordinator-initiative attach: requires <artifact-path> <initiative-id>",
+            file=sys.stderr,
+        )
+        print("  Usage: coordinator-initiative attach <artifact-path> <initiative-id>", file=sys.stderr)
+        return 1
+    artifact_path = args[0]
+    initiative_id = args[1]
+
+    if not os.path.isfile(artifact_path):
+        print(f"coordinator-initiative attach: artifact not found: {artifact_path}", file=sys.stderr)
+        return 1
+
+    # Verify the target initiative exists (fail-loud).
+    initiatives_dir = _resolve_initiatives_dir()
+    if initiatives_dir is None:
+        return 1
+
+    ok, out_lines, err_lines = _attach_one(artifact_path, initiative_id, initiatives_dir)
+    for line in out_lines:
+        print(line)
+    for line in err_lines:
+        print(line, file=sys.stderr)
+    return 0 if ok else 1
+
+
+# ── attach --pairs-file ──────────────────────────────────────────────────────────
+# Batch form of attach: N (artifact-path, initiative-id) pairs processed in ONE
+# process invocation instead of N. Exists to let a caller looping over a mapping
+# (coordinator_core.ops.backfill_initiative_fk) collapse a per-pair subprocess
+# spawn into a single spawn — the amplification-gate fix this flag was added for.
+#
+# Pairs-file format mirrors backfill_initiative_fk's own TSV mapping file:
+# `artifact_path<TAB>initiative_id` per line; blank lines and `#`-prefixed comment
+# lines are skipped (never counted, never emitted as a result line) — the caller is
+# expected to have already applied its own comment/blank/malformed-row filtering,
+# same as it would for the single-pair path.
+#
+# initiatives_dir is resolved ONCE for the whole batch (collapsing the single-pair
+# path's per-call coordinator_state_root subprocess spawn too), then each pair is
+# attached via the shared `_attach_one` core, in pairs-file line order.
+#
+# Emits exactly one JSON line per non-blank/non-comment pairs-file line, in that
+# same order, to stdout — {"artifact_path", "initiative_id", "ok": true, "message"}
+# on success, {"artifact_path", "initiative_id", "ok": false, "error"} on failure.
+# A caller needing per-pair attribution matches its own pair list against these
+# JSON lines POSITIONALLY (one result per input line, same order) rather than by
+# re-parsing message text.
+#
+# Exit code: 0 only if every pair succeeded (matches the single-pair path's
+# fail-loud contract); 1 if any pair failed. The exit code alone does not say WHICH
+# pair failed — that is what the JSON lines are for.
+def _cmd_attach_batch(pairs_file: str) -> int:
+    if not os.path.isfile(pairs_file):
+        print(
+            f"coordinator-initiative attach --pairs-file: file not found: {pairs_file}",
+            file=sys.stderr,
+        )
+        return 1
+
+    initiatives_dir = _resolve_initiatives_dir()
+    if initiatives_dir is None:
+        return 1
+
+    any_failed = False
+    with open(pairs_file, "r", encoding="utf-8", errors="replace") as fh:
+        for raw_line in fh:
+            line = raw_line.rstrip("\n").rstrip("\r")
+            if not line or line.startswith("#"):
+                continue
+
+            if "\t" in line:
+                artifact_path, initiative_id = line.split("\t", 1)
+            else:
+                artifact_path, initiative_id = line, ""
+            artifact_path = artifact_path.strip()
+            initiative_id = initiative_id.strip()
+
+            if not artifact_path or not initiative_id:
+                any_failed = True
+                print(json.dumps({
+                    "artifact_path": artifact_path,
+                    "initiative_id": initiative_id,
+                    "ok": False,
+                    "error": "malformed pairs-file line (missing artifact_path or initiative_id)",
+                }))
+                continue
+
+            if not os.path.isfile(artifact_path):
+                any_failed = True
+                print(json.dumps({
+                    "artifact_path": artifact_path,
+                    "initiative_id": initiative_id,
+                    "ok": False,
+                    "error": f"artifact not found: {artifact_path}",
+                }))
+                continue
+
+            ok, out_lines, err_lines = _attach_one(artifact_path, initiative_id, initiatives_dir)
+            record = {"artifact_path": artifact_path, "initiative_id": initiative_id, "ok": ok}
+            if ok:
+                record["message"] = " ".join(out_lines)
+            else:
+                any_failed = True
+                record["error"] = " ".join(err_lines)
+            print(json.dumps(record))
+
+    return 1 if any_failed else 0
 
 
 # ── list-unattached ────────────────────────────────────────────────────────────

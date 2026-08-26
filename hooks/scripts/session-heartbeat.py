@@ -19,8 +19,9 @@ The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carv
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 bookkeeping LOGIC (coordinator_core.hooks.session_heartbeat, registered under
 the JSON-RPC method "hooks.session_heartbeat"). The engine is imported and run
-IN-PROCESS via coordinator_core.ipc.dispatch_message -- no bash, no
-`python3 -m` subprocess re-spawn -- so a whole Bash call pays exactly one
+IN-PROCESS via coordinator_core.ipc.dispatch_from_hook (DR-175 -- the named
+hook-dispatch seam, above the dispatch_message telemetry wrapper) -- no bash,
+no `python3 -m` subprocess re-spawn -- so a whole Bash call pays exactly one
 Python interpreter start per hook leg.
 
 Contract (mirrors the former bash hook it replaces):
@@ -39,12 +40,13 @@ string" convention; _payload.field() already treats "" as ABSENT, so an
 absent key here is indistinguishable from one mcp_tool would have dropped.
 
 _origin_worktree injection (REQUIRED -- this op is "common_dir"-scoped, unlike
-the "none"-scoped postuse_advisory_dispatch reference stub): dispatch_message
+the "none"-scoped postuse_advisory_dispatch reference stub): dispatch_from_hook
 resolves repo_root for the handler via git_common_dir(_origin_worktree), which
 the handler needs to locate .git/coordinator-sessions/<sid>/meta.json. Without
 this field, resolve_op_repo_key() raises ValueError (INVALID_PARAMS) inside
-dispatch_message -- caught by this stub's own fail-open try/except, so it
-degrades to a SILENT no-op (no heartbeat written), not a crash. Mirrors the
+the engine -- surfaced as HookDispatchError, caught by this stub's own
+fail-open try/except, so it degrades to a SILENT no-op (no heartbeat
+written), not a crash. Mirrors the
 former bash hook's own `git rev-parse --show-toplevel` resolution: stdin's
 `cwd` field (present on every PreToolUse/PostToolUse hook fire) is passed
 through as _origin_worktree; resolve_request_repo() / git_common_dir() do the
@@ -64,7 +66,6 @@ registration on both PreToolUse:Bash and PostToolUse:Bash.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -130,7 +131,7 @@ def main() -> int:
         # spawns -- but each hook fire is a fresh process, so this import
         # cost recurs every fire, not just once per session.
         from coordinator_core.hooks import session_heartbeat as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open
 
@@ -145,27 +146,24 @@ def main() -> int:
         "session_id": payload.get("session_id", ""),
     }
 
-    msg = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.session_heartbeat",
-        "params": params,
-        # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- this op
-        # writes .git/coordinator-sessions/<sid>/meta.json, so it needs
-        # _origin_worktree to resolve the correct common .git directory.
-        # stdin's "cwd" mirrors what the former bash hook derives via
-        # `git rev-parse --show-toplevel`; absent/empty degrades to fail-open
-        # (resolve_op_repo_key raises ValueError -> caught below -> exit 0,
-        # no heartbeat written -- silent no-op, not a crash).
-        "_origin_worktree": payload.get("cwd", ""),
-    }
-
+    # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- this op
+    # writes .git/coordinator-sessions/<sid>/meta.json, so it needs
+    # _origin_worktree to resolve the correct common .git directory.
+    # stdin's "cwd" mirrors what the former bash hook derives via
+    # `git rev-parse --show-toplevel`; absent/empty degrades to fail-open
+    # (resolve_op_repo_key raises ValueError -> surfaced as HookDispatchError
+    # -> caught below -> exit 0, no heartbeat written -- silent no-op, not a
+    # crash). dispatch_from_hook builds the envelope itself and stamps
+    # _origin_worktree only when non-empty.
     try:
-        response = asyncio.run(dispatch_message(msg))
-    except Exception:
+        result = dispatch_from_hook(
+            "hooks.session_heartbeat",
+            params,
+            origin_worktree=payload.get("cwd", ""),
+        )
+    except HookDispatchError:
         return 0  # any engine failure -> fail-open (never brick a tool call)
 
-    result = response.get("result") if isinstance(response, dict) else None
     if result:  # {} (no_advisory) and None both fall through to no-output
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")

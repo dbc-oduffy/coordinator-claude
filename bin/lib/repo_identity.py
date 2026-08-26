@@ -143,7 +143,6 @@ from cc_invoke import require_engine_on_path  # noqa: E402
 _ENGINE_ROOT = require_engine_on_path(__file__)
 
 from coordinator_core.git.repo_root import show_toplevel as _show_toplevel  # noqa: E402
-from coordinator_core.pickup_assemble import compute_repo_identity_gate  # noqa: E402
 
 _VERDICT_MATCH = "MATCH"
 _VERDICT_MISMATCH = "MISMATCH"
@@ -210,6 +209,14 @@ def resolve_checked_repo_root(
     cached = _verdict_memo.get(memo_key)
     if cached is not None:
         return resolved_root, cached
+
+    # Imported at call time, not module scope: `coordinator_core.pickup_assemble`
+    # costs ~360ms to import and this module is plumbing for ~25 CLIs, most of
+    # which never reach the gate (no $CLAUDE_CODE_SESSION_ID, or a memo hit
+    # above returns first). Module-scope it was also an import-chain the fake
+    # engine trees in facade tests cannot satisfy, failing them on a symbol
+    # unrelated to what they assert.
+    from coordinator_core.pickup_assemble import compute_repo_identity_gate
 
     verdict = compute_repo_identity_gate(Path(resolved_root), sid)
 

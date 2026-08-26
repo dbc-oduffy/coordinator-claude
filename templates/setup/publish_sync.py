@@ -98,10 +98,19 @@ def _locate_machine_local_cli() -> Path | None:
 def _locate_percolate_lib() -> Path:
     """Return the `coordinator/lib` directory containing `percolate/ignore.py`.
 
-    Rung 0: `$REPO_CLAUDE_KLABAUTER` env, then `$CLAUDE_KLABAUTER_ROOT` env (dir must
-    exist) — the same canonical-override precedence every other resolver in
-    this arc honors (`_engine_root.py`, `_claude_klabauter-root.js`,
-    `setup/publish_sync.py` via its `_engine_root` import; DR-087). Without
+    Rung 0: `$REPO_CLAUDE_KLABAUTER` env, then `$COORDINATOR_ENGINE_ROOT`
+    env (dir must exist) — repo-identity override
+    first, then the live-tree engine root under its current spelling, then
+    its legacy spelling, which stays readable indefinitely per DR-087.
+
+    This copy duplicates that precedence rather than delegating: it holds no
+    `_engine_root` import, and cannot, because it is seeded into repos that
+    have no engine checkout in reach. It is therefore a THIRD independent
+    ladder copy and must be kept in step with `_engine_root.py`'s
+    `LIVE_TREE_ENV_VARS` by hand — the repo-root `setup/publish_sync.py`,
+    which does delegate via `_engine_root`, is the one that tracks it
+    automatically. Peer copies honoring the same order: `_engine_root.py`,
+    `_claude_klabauter-root.js`, repo-root `setup/publish_sync.py`. Without
     this rung an operator setting `REPO_CLAUDE_KLABAUTER` to override a
     stale/misconfigured machine-local registry entry gets no effect here,
     unlike everywhere else in the codebase that resolves an
@@ -140,7 +149,7 @@ def _locate_percolate_lib() -> Path:
     Cross-cutting standards; formerly coordinator/CLAUDE.md § Implementation
     Standards, retired 2026-07-27).
     """
-    for env in ("REPO_CLAUDE_KLABAUTER", "CLAUDE_KLABAUTER_ROOT"):
+    for env in ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT"):
         env_claude_klabauter_root = os.environ.get(env)
         if env_claude_klabauter_root and Path(env_claude_klabauter_root).is_dir():
             candidate = Path(env_claude_klabauter_root) / "coordinator" / "lib" / "percolate" / "ignore.py"
@@ -212,7 +221,7 @@ def _locate_percolate_lib() -> Path:
 
     raise ImportError(
         "publish_sync.py: could not locate coordinator/lib/percolate/ignore.py via "
-        "$REPO_CLAUDE_KLABAUTER env, $CLAUDE_KLABAUTER_ROOT env, "
+        "$REPO_CLAUDE_KLABAUTER env, $COORDINATOR_ENGINE_ROOT env, "
         "$CLAUDE_PLUGIN_ROOT/lib/percolate, "
         "<install-root>/plugins/coordinator/lib/percolate, "
         "the machine-local registry's repos.claude_klabauter, or a claude-klabauter "
@@ -236,6 +245,12 @@ from percolate.ignore import (  # noqa: E402  (path setup must precede this impo
 from percolate.publish_modes import (  # noqa: E402  (path setup must precede this import)
     argparse_mode_choices,
 )
+
+# A console-subsystem child with no console of its own allocates a fresh
+# conhost on Windows -- with a visible window. Every git spawn below is
+# short-lived and output-captured, so without this each one flashes.
+# 0 on POSIX, where the flag does not exist.
+_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
 
 
 def load_ignore(path: Path | None) -> IgnoreMatcher:
@@ -1131,6 +1146,7 @@ def _run_git(dest_dir: Path, *args: str) -> None:
         capture_output=True,
         text=True,
         check=False,
+        **_NO_CONSOLE,
     )
     if result.returncode != 0:
         # Bounded — an unbounded git stderr blob (a looping hook, a credential
@@ -1162,6 +1178,7 @@ def _repo_cut_is_bootstrapped(dest_dir: Path) -> bool:
         capture_output=True,
         text=True,
         check=False,
+        **_NO_CONSOLE,
     )
     return result.returncode == 0
 

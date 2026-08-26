@@ -19,7 +19,7 @@ Exit codes (parity with the ported module — coordinator_core/ops/append_integr
   0 — success (block appended, or already present — idempotent no-op)
   1 — validation error (wrong target, unfilled scaffold, no ids supplied, ...)
   2 — usage/transport error (bad args, unreadable --rationale-file, unresolvable repo root)
-  3 — CLAUDE_KLABAUTER_ROOT resolution / import failure
+  3 — engine-root resolution / import failure
 
 Spec backlink: coordinator_core/ops/append_integrator_dispositions.py module docstring.
 """
@@ -30,7 +30,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 EXIT_TRANSPORT_FAILURE = 3
 
@@ -44,9 +44,7 @@ def _import_runner():
     a session scope-touch claim. Without that, everything this CLI writes is an
     orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

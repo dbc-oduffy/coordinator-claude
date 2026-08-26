@@ -5,7 +5,7 @@ Scans (and, with --reap, cleans up) the per-dispatch git worktrees Claude Code
 2.1.x auto-creates under <repo>/.claude/worktrees/agent-<hash>/ for
 backgrounded Agent dispatches. These persist locked until session deletion
 and accumulate across days; /workday-start and /workstream-start invoke this
-trampoline to surface and salvage them. Resolves CLAUDE_KLABAUTER_ROOT and delegates to
+trampoline to surface and salvage them. Resolves the engine root and delegates to
 coordinator_core.ops.agent_worktree_sweep for the actual scan/reap logic.
 """
 # agent-worktree-sweep.py — CLI trampoline over claude-klabauter
@@ -30,7 +30,7 @@ coordinator_core.ops.agent_worktree_sweep for the actual scan/reap logic.
 #   2 — not a git repo / no `git` on PATH / CLI usage error (op ran, business fail)
 #   3 — --reap requested but a cherry-pick conflict left a worktree mid-state,
 #       or a `git worktree remove` invocation was rejected (op ran, business fail)
-#   4 — claude-klabauter transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, or
+#   4 — claude-klabauter transport failure (the engine root unresolvable, or
 #       coordinator_core.ops.agent_worktree_sweep not importable) — the op
 #       never ran at all. Deliberately its OWN code, not reusing 2 (which
 #       already means a business-level "not a git repo / usage error" from
@@ -49,14 +49,14 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the DR-276 in-process
+    """Resolve the engine root, put it on sys.path, and import the DR-276 in-process
     runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -67,9 +67,7 @@ def _import_runner():
     declares becomes a session scope-touch claim instead of an orphan at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

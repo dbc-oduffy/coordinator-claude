@@ -100,20 +100,20 @@ def _engine_root() -> str | None:
     session-heartbeat.py's _resolve_claude_klabauter_root() and its two sibling hook
     copies — see that function's docstring):
 
-      1. $CLAUDE_KLABAUTER_ROOT env var
-      2. $REPO_CLAUDE_KLABAUTER env var
-      3. <settings-home>/machine-local/.claude-klabauter-root pointer file (plain read,
+      1. $REPO_CLAUDE_KLABAUTER env var
+      2. $COORDINATOR_ENGINE_ROOT env var
+      4. <settings-home>/machine-local/.claude-klabauter-root pointer file (plain read,
          deliberately subprocess-free)
-      4. <settings-home>/machine-local/registry.local.toml (checked first),
+      5. <settings-home>/machine-local/registry.local.toml (checked first),
          falling back to registry.toml — key "repos.claude_klabauter", accepting
          both the flat dotted form ("repos.claude_klabauter" = "...") and a
          nested [repos] table (values are flattened to dotted keys before the
          lookup, mirroring `_machine_local.py::_flatten_nested`); an
          empty-string value is a sentinel placeholder, not a resolution
-      5. marker auto-discovery: a sibling "claude-klabauter" dir next to the
+      6. marker auto-discovery: a sibling "claude-klabauter" dir next to the
          resolved DoE-claude root
     """
-    for env_var in ("CLAUDE_KLABAUTER_ROOT", "REPO_CLAUDE_KLABAUTER"):
+    for env_var in ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT"):
         root = os.environ.get(env_var)
         if root and Path(root).is_dir():
             return root
@@ -258,11 +258,11 @@ def main(argv: list[str]) -> int:
         sys.stderr.write(
             f"resolve-coordinator-clone: cannot locate {_LIB_REL} under any known coordinator install location.\n"
             f"  Searched: $CLAUDE_PLUGIN_ROOT, $COORDINATOR_ROOT, $COORDINATOR_CLONE, "
-            f"{home}/.doe-root pointer, claude-klabauter (via $CLAUDE_KLABAUTER_ROOT, "
+            f"{home}/.doe-root pointer, claude-klabauter (via $COORDINATOR_ENGINE_ROOT, "
             "$REPO_CLAUDE_KLABAUTER, the .claude-klabauter-root pointer, or registry.local.toml), "
             f"{home}/plugins/coordinator/, and the versioned plugin cache.\n"
             f"  Remediation: install/repair the coordinator plugin (writes {home}/.doe-root), "
-            "set CLAUDE_PLUGIN_ROOT to its checkout, or set CLAUDE_KLABAUTER_ROOT to the claude-klabauter checkout.\n"
+            "set CLAUDE_PLUGIN_ROOT to its checkout, or set COORDINATOR_ENGINE_ROOT to the claude-klabauter checkout.\n"
         )
         return 1
 

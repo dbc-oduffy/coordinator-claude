@@ -8,12 +8,9 @@ bareword (`coordinator-doc-new --type plan`) — bareword resolution goes throug
 coordinator doctrine on cross-platform invocation parity already rules the target shape for this
 class of invocation: **`python3`-shebang + `.cmd`, never bareword-through-a-shell.**
 
-**Why not bareword.** A bareword resolves through `$PATH`, and no coordinator CLI is reliably on
-it. This repo's `coordinator/bin/` is empty — the executable surface is provisioned by a
-separate engine layer, not this repo's tree — so a `$PATH` carrying a stale entry for it resolves
-to nothing and the invocation exits 127; a fresh machine, which never had the entry, fails the
-same way. Neither state is recoverable by the caller. A bareword is never the answer for a
-coordinator CLI, on any machine, in any state.
+**Why not bareword.** No coordinator CLI is reliably on `$PATH` — the executable surface is
+provisioned by a separate engine layer, not this repo's tree — so a bareword exits 127 on both a
+stale machine and a fresh one, unrecoverably. Never a bareword, on any machine, in any state.
 
 **The resolution.**
 
@@ -21,9 +18,15 @@ coordinator CLI, on any machine, in any state.
 
 Each forwarder at that path is a `#!/usr/bin/env python3` script with a `.cmd` sibling for
 Windows shells; it resolves the engine-provisioned `coordinator/bin/` itself and execs the real
-CLI. Invoking the forwarder by absolute path is therefore **one hop, path arithmetic only** —
-no wrapper invocation, no bareword `$PATH` dependency — and works identically on macOS and
-Windows.
+CLI. The forwarder itself is one hop, path arithmetic only — no wrapper invocation, no bareword
+`$PATH` dependency.
+
+**The `${...}` expansion above is POSIX shell syntax, and it is not portable.** PowerShell does
+not implement `${VAR:-default}` defaulting at all, so on a PowerShell-only host Shape A/B are
+unrunnable except by spawning a bash to expand them — which adds the processes the forwarder was
+built to avoid, and subjects every `/`-leading argument to MSYS path conversion, which silently
+rewrites it to a Git-install path. Windows takes **rung 0** below; the `${...}` shapes are the
+POSIX-host form, not the universal one.
 
 **Relationship to no-forwarder CLIs.** One CLI (see the gap list below) has no settings-home
 forwarder yet, so this snippet's resolution doesn't apply to it. There is no snippet-level
@@ -35,6 +38,10 @@ below.
 A fence needing a coordinator CLI picks the FIRST rung that applies, not "settings-home
 always":
 
+0. **The host shell is PowerShell** (Windows) — use Shape W below, whatever the CLI. This rung
+   outranks every rung under it: rungs 1-3 are all POSIX-shell fences, and none of them is
+   runnable on a PowerShell-only host without spawning a bash first. Reaching for a lower rung
+   on Windows is the defect this ladder exists to prevent, not a fallback.
 1. **`_mkb_bin` (or a file-local alias, e.g. `LL_BIN` in `skills/learn-lessons/SKILL.md`) is
    already resolved in this same fence** — reuse it: `"${_mkb_bin}/<cli>"`. Do not introduce a
    second resolution mechanism into a fence that already has a working one; this form resolves
@@ -55,16 +62,34 @@ together. That per-fence scoping is exactly why rung 2 exists at all: a standalo
 needs only to invoke a CLI, with no resolver already in scope, gets a one-line settings-home
 invocation instead of hand-deriving that resolution itself.
 
-### Shape A — inside a multi-line ```bash fence
+### Shape W — PowerShell host (rung 0)
 
-Invoke the forwarder by its fully-expanded absolute path directly, on one line — do not declare
-an intermediate `CC_BIN` variable first. A two-line declare-then-invoke pair is itself a
-multi-statement shell fence, which the fence-shape gate flags as a violation. **The fix is to
-collapse to the single-line form shown below — never to retag the block as ```` ```text ````
-instead.** A `text` tag is for a block that is genuinely prose nobody should execute; retagging a
-live multi-line command to `text` to dodge the fence-shape gate is the exact evasion
-`NO-MULTI-LINE-SHELL-FENCE` exists to extirpate, not a sanctioned escape hatch — see that
-tripwire's "known blind spot" note before reading any `text` tag as license:
+Invoke the forwarder's `.cmd` sibling by absolute path through the call operator, on one line
+(pwsh 7 is the supported floor; there is no 5.1 rung):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type plan --title "<title>"`
+
+When `$env:COORDINATOR_SETTINGS_HOME` is unset, resolve it first with the named entrypoint —
+`templates/bin/coordinator-settings-home` (pure-stdlib Python, `.ps1`/`.cmd` siblings) — and use
+its output. Never hand-derive the path, and never inline a `??` fallback: the resolver is the
+one sanctioned source, and an inline default is a second resolution mechanism.
+
+No bash is spawned, so no MSYS path conversion touches the arguments — a `/`-leading operand
+arrives at the CLI as written. The `.cmd` sibling resolves the interpreter and execs the
+co-located Python forwarder directly, and is hardened for the Windows traps (no delayed-expansion
+dependency, WindowsApps alias filtering, backslash requoting).
+
+**Never pass a newline-bearing value as an argument through this shape.** `cmd.exe` truncates the
+command line at the first newline, so a multi-line `--body`/`--note` arrives as line 1 only —
+silently, exit 0, with a valid-looking record written. Use `--body-file` where the CLI has it
+(`cross-repo-memo`); where it does not, scaffold the record and fill the body with Edit. Tripwire:
+`A-CMD-SHIM-EATS-EVERY-LINE-BUT-THE-FIRST`.
+
+### Shape A — inside a multi-line ```bash fence (POSIX hosts; see rung 0 first)
+
+Invoke the forwarder by its fully-expanded absolute path, on one line — never an intermediate
+`CC_BIN` variable, which makes the fence multi-statement. Collapse to the single-line form; never
+retag the block as ```` ```text ```` to dodge the fence-shape gate (`NO-MULTI-LINE-SHELL-FENCE`):
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/coordinator-doc-new" --type plan --title "<title>" --out docs/plans/...
@@ -74,7 +99,7 @@ If the same fence needs the forwarder more than once, repeat the full expansion 
 invocation line rather than declaring a variable — the single-line constraint applies per line,
 not per fence.
 
-### Shape B — a single inline invocation in prose
+### Shape B — a single inline invocation in prose (POSIX hosts; see rung 0 first)
 
 Use the fully-expanded one-liner, quoted:
 
@@ -87,10 +112,8 @@ Use the fully-expanded one-liner, quoted:
 `code-reviewer`'s Bash is allowlist-confined by an engine-side guard which
 **hard-denies any command containing `;` `&&` `||` `|` `` ` `` `$(` `>` `<` `&` or a newline**
 and requires the first token to be exactly `coordinator-doc-new` or to end with a
-path-separator-anchored `/coordinator-doc-new`. Neither Shape A nor Shape B survives that guard
-— `${...}` expansion is shell syntax the guard rejects outright, and the quoting required to
-make an expansion "safe" puts a trailing quote on the first token, which defeats the guard's
-`endswith` check regardless.
+path-separator-anchored `/coordinator-doc-new`. Neither Shape A nor Shape B survives it —
+`${...}` expansion is shell syntax the guard rejects outright.
 
 The confined reviewer therefore cannot resolve its own CLI path. The **dispatching EM** resolves
 `${COORDINATOR_SETTINGS_HOME:-~/.coordinator-claude-settings}` itself and injects the **literal,
@@ -111,14 +134,10 @@ extensionless forwarder in the settings home today:
 
     platform-localize
 
-This is a launcher-template CLI installed through a separate path from the generic
-forwarder derivation, which is why it lags. Per the precedence ladder above, a fence needing
-this CLI never points at the settings home (rung 2 doesn't apply — there's no extensionless
-forwarder to invoke) — it reuses an already-in-scope `_mkb_bin`/`LL_BIN` (rung 1) if one exists
-in the same fence, or escalates to the dispatching EM (rung 3) if not. Do not invent a different
-resolution mechanism for it, and do not point it at the settings-home forwarder path — that path
-404s until it gets an extensionless form, converting a diagnosable failure into a needlessly
-opaque one for no benefit over rung 1, which works today.
+A fence needing this CLI never points at the settings home (rung 2 doesn't apply — there is no
+extensionless forwarder to invoke): reuse an in-scope `_mkb_bin`/`LL_BIN` (rung 1), else escalate
+to the dispatching EM (rung 3). Never invent a different resolution mechanism, and never point it
+at the forwarder path — that path 404s until it gets an extensionless form.
 
 > Portability: no GNU-isms (`sed -i`, `grep -P`, `realpath`, `mapfile`, `declare -A`).
 > No wrapper CLI is invoked anywhere in this bootstrap — the forwarder is execed directly by

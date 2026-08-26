@@ -24,15 +24,29 @@ out and knows nothing about.
 
 **The rule.** Cutting or switching a branch mid-execution is out-of-bounds. An executing session
 commits to the tree's active branch with scoped pathspecs — the shared-bus discipline above.
-Branch transitions belong to the ceremonies that own them (`/workday-start` Step 0,
-`/merging-to-main`), which consult the engine's `branch_mutation_verdict` liveness oracle before
-mutating: `/workday-start` Step 0 via `session_ensure_branch`, `/merging-to-main`'s on-main
-auto-recover arm via `merge-recovery-and-tag-cut`. Both are engine-resident and both fail closed —
-an `unknown` verdict counts as refused, and under live peers they decline to cut and say so rather
-than moving the ref. **That buys safety, not discipline:** a refused cut leaves the session on
-`main` with branch discipline not in force, which is a visible refusal rather than a silent
-hazard. A branch genuinely needed outside a ceremony is a **PM-gated ask: warn the PM before
-cutting.**
+Branch transitions consult the engine's `branch_mutation_verdict` liveness oracle before mutating,
+and it fails closed: an `unknown` verdict counts as refused.
+
+**One case is exempt, and only one: the tree sitting on `main` at session boot.** There, the day
+branch is cut automatically — no ask, no PM gate, no EM judgment — because a fresh cut at current
+HEAD while on `main` is content-neutral (no file touched, no index entry changed, HEAD unmoved)
+and because a tree left on `main` accumulates unpushed commits with no crash insurance. The cut is
+serialized on a tree-keyed lock so exactly one session performs it and the rest inherit. It fires
+at session `startup` only, never on `compact`/`resume`/`fork`. Authorising ruling: PM, 2026-08-18 —
+*"we cut automatically if we're on main. we warn if we are on a branch that is not compliant with
+our auto-push rules."* See
+`coordinator-tripwires/day-branch-auto-cut-supersedes-pm-gate.md` before "fixing" this back.
+
+A non-`main` branch that violates the auto-push rules (not `work/*` shape, or a pending-push
+record on disk) **warns and is never switched**. Everything else — mid-execution switches while a
+session is actively working, checkout of a different commit, rename-with-remote-delete — remains a
+**PM-gated ask: warn the PM before cutting**, and still declines under live peers and says so
+rather than moving the ref.
+
+The residual hazard is named, not dissolved: the content-neutrality proof covers working-tree
+state, not identity surprise (a peer's *next* commit landing on a branch it never checked out).
+The PM ruling is what accepts that residual for the on-`main` case — not a reclassification of the
+hazard as harmless.
 
 **Why the gate rather than a repair procedure.** There is no safe unilateral recovery once the
 ref has moved, in either direction. Switching the tree back, or resetting the offending branch,
@@ -113,8 +127,8 @@ Portable timestamp parsing matters. The 5-min quiet-gate before merge uses `gh p
 
 Two contact-points (see CLAUDE.md tripwire):
 
-1. **`/workday-start` Step 0** (`workday-start-day-branch-resolve`) — the precedence switch + rename procedure that cuts/reconciles `work/{machine}/{today}`. A former SessionStart hook did this at boot; it was retired once `/workday-start` absorbed the check, and an earlier PreToolUse predecessor was retired before that. Branch-ensure is now a ceremony step, not a SessionStart hook.
-2. **Doctrine** — global `CLAUDE.md` § Concurrent-EM Git Operations, first bullet. Authoritative reference for the rule.
+1. **`/workday-start` Step 0** (`workday-start-day-branch-resolve`) — the precedence switch + rename procedure that cuts/reconciles `work/{machine}/{today}`, and the caller that keeps the wider main/detached/zero-ahead admission set plus the synchronous push. Branch-ensure runs at **both** session boot and as this ceremony step: the boot leg is `day-branch-assert.py` (`startup` only), which handles the on-`main` case. Boot cost is bounded to one `git branch --show-current` plus, on the rare lock-winner path, a local `checkout -b`; the push is queued async.
+2. **Doctrine** — this page, § "Concurrent sessions share the branch, not only the tree", is the authoritative statement of the rule. (An earlier pointer here cited a global `CLAUDE.md` § Concurrent-EM Git Operations; no such section exists.)
 
 **Where the override is actually consumed today.** No PreToolUse hook exists to bypass, so
 `COORDINATOR_OVERRIDE_BRANCH`'s live consumers are all engine-resident, not skill-body. This is
@@ -339,7 +353,7 @@ ends. No such step, prompt, or logic exists anywhere in this repo — see § Enf
 above. The only rename that happens is the next-morning `/workday-start` auto-rename described
 just above.
 
-**Retired hook's role (historical):** the original PreToolUse hook enforced *shape* — `work/{machine}/{anything-that-parses}` was allowed; `feature/X` or bare topic branches were denied. Its SessionStart successor briefly cut the correct branch at session open; that hook is also gone, and the same check now runs as `/workday-start` Step 0, not at session boot.
+**Retired hook's role (historical):** the original PreToolUse hook enforced *shape* — `work/{machine}/{anything-that-parses}` was allowed; `feature/X` or bare topic branches were denied. The branch-cut check itself is not historical: it runs at session boot (`day-branch-assert.py`, `startup` only, on-`main` case) **and** as `/workday-start` Step 0, which owns the wider admission set.
 
 ## Edge cases — historical hook coverage map
 

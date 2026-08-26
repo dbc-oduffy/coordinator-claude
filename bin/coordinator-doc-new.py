@@ -155,18 +155,16 @@ def _ensure_engine_on_path() -> str | None:
     """Put the claude-klabauter checkout on ``sys.path`` so ``coordinator_core`` imports.
 
     Memoizing wrapper over ``cc_invoke.ensure_engine_on_path`` — that function
-    owns the ladder (``CLAUDE_KLABAUTER_ROOT`` env → self-location walk-up → settings-home
+    owns the ladder (env var → self-location walk-up → settings-home
     pointer file → machine-local ``repos.claude_klabauter``), so a hand-set
     ``PYTHONPATH`` is never a prerequisite of this CLI and the ordering cannot
     drift away from the ~26 sibling entrypoints resolving through the same seam.
 
     Called once at import time and again from each engine-touching seam below,
     so a published/vendored copy that only resolves through a later rung still
-    gets the path in place on the arm that needs it. The import-time call also
-    arms lazy ops-package loading (cc_invoke sets
-    ``sys._coordinator_core_lazy_ops`` as a module-level side effect) before any
-    ``coordinator_core.ops`` touch, which the handoff arm depends on for its
-    import budget.
+    gets the path in place on the arm that needs it. ``coordinator_core.ops``
+    registers ops lazily, unconditionally, so the handoff arm's import budget
+    needs no priming for that.
 
     Best-effort: returns None when every rung misses, matching this file's
     graceful-skip convention for un-migrated installs (see
@@ -184,7 +182,7 @@ def _ensure_engine_on_path() -> str | None:
     through ``cc_invoke._resolve_claude_klabauter_root`` (registry-only, no
     self-location rung) or not at all.
 
-    Negative-spec: does NOT export ``CLAUDE_KLABAUTER_ROOT`` into ``os.environ`` — child
+    Negative-spec: does NOT export the engine root into ``os.environ`` — child
     processes run their own resolution through the same ladder.
     """
     global _CLAUDE_KLABAUTER_ROOT_RESOLVED
@@ -237,6 +235,24 @@ try:
     from coordinator_core.frontmatter.baton_class import canonical_kind as _canonical_kind  # noqa: E402
 except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
     _canonical_kind = None
+
+# `derive_readiness` — the ONE readiness-deriving predicate set (C1,
+# docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md).
+# --gated-open (C3 below) feeds it a scaffold-time `blocked_by` guess — the
+# flag DECLARES THE BLOCKER, it does not hardcode the readiness trio itself;
+# C1 derives deployment_state/pickup_ready from that declared blocker. The
+# no-flag (`blocked_by: []`) path also routes through this same function so
+# there is exactly one place that decides readiness — not a hardcoded literal
+# duplicating C1's empty-blocked_by rule. Same best-effort degrade-to-None
+# posture as the two imports above: an unresolvable engine costs --gated-open
+# specifically (it fails loud at the point of use, see _scaffold_handoff) and
+# falls back to the pre-C1 hardcoded ready_to_fire default for the no-flag
+# path (no engine dependency for the byte-identical majority case), not every
+# other doc type.
+try:
+    from coordinator_core.reconcile.gate_eval import derive_readiness as _derive_readiness  # noqa: E402
+except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
+    _derive_readiness = None
 
 
 def _no_console_creationflags() -> dict:
@@ -395,6 +411,61 @@ def _sanitize_session_segment(seg: str) -> str:
         return "em-unknown"
     return sanitized
 
+
+# Precedence chain _resolve_session_id() reads, named here so the missing---out
+# refusal below can quote the exact variables a caller with no session identity
+# would have to look at. Kept adjacent to the resolver rather than inlined into
+# the message so the two can never drift apart.
+_SESSION_ID_ENV_VARS = ("COORDINATOR_SESSION_ID", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID")
+
+
+def _missing_out_message(type_label: str) -> str:
+    """Compose the ``--out``-is-required refusal shared by the two session-scoped
+    sidecar types (--type run-report and --type subagent-sidecar).
+
+    Neither type gains a derived default here, and this function does not add
+    one: the live path is computed by ``coordinator_core.dispatch.provision`` at
+    spawn time, and a scaffold that guessed a session-scoped path would write a
+    sidecar into a directory nothing reaps (the DEC-3 rationale pinned at both
+    call sites and in ``_default_path``). What differs is the *remediation named
+    to the reader*, per docs/wiki/guard-messaging.md § Key Patterns — "only offer
+    remediation the current reader can actually run":
+
+      - a dispatched agent carrying a harness session id can construct the path
+        itself, so the message resolves the session-scoped root for it rather
+        than restating the formula;
+      - a caller with no session identity resolvable at all has no path to
+        construct and no flag value to invent, so the message names the missing
+        identity instead of the missing flag.
+
+    Session id comes from ``_resolve_session_id()``/``_sanitize_session_segment()``
+    -- the same resolver and precedence chain --type review-findings's fallback
+    path uses; that resolver's 'em-unknown' unset sentinel selects the second arm.
+
+    Spec backlink: state/improvement-queue/2026-08-21-a-dispatched-executor-
+    cannot-scaffold-it-7c2ccafdf81a.yaml
+    Negative-spec: returns message text only -- never exits, never writes, and
+    never derives an --out value for the caller.
+    """
+    session_id = _sanitize_session_segment(_resolve_session_id())
+    head = (
+        f"error: --out <path> is required for --type {type_label}. "
+        "There is no default output path -- the live sidecar path is computed by "
+        "coordinator_core.dispatch.provision at spawn time and travels in the dispatch brief."
+    )
+    if session_id == "em-unknown":
+        return (
+            f"{head} No session id is set here ("
+            + ", ".join(_SESSION_ID_ENV_VARS)
+            + "), so no session-scoped path is derivable from this process. "
+            "Take the sidecar path from the dispatch brief."
+        )
+    return (
+        f"{head} Absent one, write under state/subagent-share/{session_id}/ "
+        "and pass that path as --out."
+    )
+
+
 # ---------------------------------------------------------------------------
 # from_repo resolution — mirrors coordinator-queue-append._resolve_from_repo
 #
@@ -471,6 +542,33 @@ def _machine_local_get(key: str) -> str | None:
     return result.stdout.strip()
 
 
+def _machine_local_dump_repos() -> dict[str, str]:
+    """Resolve every repos.* key in one machine-local process (the batch
+    counterpart to enumerate-then-get). `dump --prefix repos` shares
+    resolve_one with `get`, so a batched value is byte-identical to what a
+    per-key `get` would print — see _machine_local.py::cmd_dump docstring.
+    Returns {} on any spawn/parse failure OR a non-zero returncode (matches
+    _machine_local_get's fail-closed contract — a non-zero exit with
+    parseable stdout is a partial/crashed dump, not a value to trust);
+    callers already tolerate an empty/partial paths table.
+    """
+    impl = _machine_local_impl()
+    try:
+        result = subprocess.run(
+            [sys.executable, impl, "dump", "--prefix", "repos", "--format", "json"],
+            capture_output=True, text=True,
+        )
+    except OSError:
+        return {}
+    if result.returncode != 0 or not result.stdout.strip():
+        return {}
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str) and v}
+
+
 def _machine_local_repos_keys() -> list[str]:
     """Return all repos.* keys from the machine-local registry."""
     impl = _machine_local_impl()
@@ -510,7 +608,7 @@ def _stamp_completion_scaffold_liveness(repo_root: str | None) -> None:
     other `--type`). Mirrors `sweep-terminal-plans.py::_import_housekeeping_seam` /
     `_stamp_archive_sweeps_liveness` verbatim: this trampoline's own `__file__` lives
     inside the claude-klabauter checkout, but `repo_root` here is the CALLER's repo (may be a
-    sibling repo), so the seam is imported via the resolved CLAUDE_KLABAUTER_ROOT rather than a
+    sibling repo), so the seam is imported via the resolved engine root rather than a
     relative import. Never raises -- a liveness-stamp failure must not surface as a
     scaffold failure.
 
@@ -544,7 +642,7 @@ def _assert_no_archived_handoff_twin(out_path: str, handoff_id: str | None, repo
     invariant is about the DESTINATION directory, not the type label.
 
     Degrades gracefully (skips the check, no exit) when ``repo_root`` cannot
-    be resolved (no git repo, CLAUDE_KLABAUTER_ROOT unconfigured) or when
+    be resolved (no git repo, the engine root unconfigured) or when
     ``coordinator_core`` cannot be imported — matches this file's existing
     graceful-skip convention for un-migrated installs (see
     ``_resolve_state_root``'s docstring) rather than hard-failing every
@@ -633,6 +731,7 @@ def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str |
         from coordinator_core.session_ledger import SESSION_LEDGER_HEADING_RE
         from coordinator_core.frontmatter.schema_validate import (
             _SCHEMAS_DIR,
+            _lint_is_sidecar_file,
             load_schemas,
             match_schema,
             parse_frontmatter,
@@ -645,6 +744,16 @@ def _assert_scaffold_content_valid(content: str, out_path: str, repo_root: str |
         repo_rel = os.path.relpath(
             os.path.realpath(out_path), os.path.realpath(repo_root)
         ).replace(os.sep, "/")
+        # match_schema has no sidecar concept: a sidecar written under
+        # docs/plans/ (prior-art-check, plan-coverage-check, docs-check,
+        # review) falls through its glob fallback to docs/plans/*.md and
+        # resolves to the `plan` schema, so it would always fail plan-shape
+        # validation. The lint layer's own sidecar exemption
+        # (_lint_is_sidecar_file) is the canonical recognizer for this same
+        # gap; reuse it here rather than re-deriving a second sidecar-suffix
+        # predicate that could drift from it.
+        if _lint_is_sidecar_file(repo_rel):
+            return
         parsed = parse_frontmatter(content)
         frontmatter = parsed.get("frontmatter")
         body = parsed.get("body") or ""
@@ -696,7 +805,7 @@ def _resolve_state_root(central: bool = False) -> str | None:
     docs/plans/2026-07-16-bash-clean-slate-residual-migration.md) from the
     sibling lib/ directory (relative to this script's bin/ location) as a
     subprocess and captures its stdout. Returns None on any failure
-    (CLAUDE_KLABAUTER_ROOT not configured, git unavailable, lib absent).
+    (the engine root not configured, git unavailable, lib absent).
 
     Placement law spec backlink:
         docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md § C10 / AC7
@@ -959,13 +1068,68 @@ def _mint_plan_id(slug: str) -> str:
 def _resolve_from_repo() -> str:
     """Identify the from_repo for the scaffolded document from cwd context."""
     root = _current_repo_root()
-    keys = _machine_local_repos_keys()
-    paths = {k: _machine_local_get(k) for k in keys}
-    paths_dict = {k: v for k, v in paths.items() if v}
+    paths_dict = _machine_local_dump_repos()
     # Ensure repos.doe_claude is present so the central-identity path-match in
     # em_id_for_root fires even when the machine-local keys enumeration omits it.
     paths_dict.setdefault("repos.doe_claude", _machine_local_get("repos.doe_claude"))
     return _em_id_for_root(root, paths_dict)
+
+
+def _resolve_session_display_name() -> str | None:
+    """Resolve THIS session's human-readable harness name (e.g.
+    `claude-klabauter-76`), or `None` when it can't be resolved.
+
+    Reads `coordinator_core.session.harness_registry.self_record()` — the O(1)
+    single-file read of this process's own registry record, keyed off
+    `CLAUDE_PID` — and takes its `name` field directly. That name is the
+    harness's own per-session identity (`slug(basename(cwd)) + "-" +
+    one-random-byte-hex`, see `coordinator_core.session.reachability`'s module
+    docstring), generated independently of whether cross-session messaging is
+    bound, so it is present far more often than a `SendMessage`-ready
+    `name [ref]` address would be (that bracketed form additionally requires
+    `messaging_socket_path`, which is off by default — see
+    `harness_registry.self_record`'s own docstring, "44/44 records on this box
+    omit the field"). The bracketed ref exists to disambiguate CONCURRENT live
+    peers for messaging, not to identify one session for a durable-file stamp;
+    the bare name is already session-specific and traces back through
+    `ListAgents`/registry history.
+
+    Shared by two callers with two different degrade conventions, so this
+    function itself never fabricates a fallback — that decision belongs to
+    the caller: `_resolve_plan_author` (a required field — falls back to the
+    repo-level `_resolve_from_repo()` identity) and the `authoring_session:`
+    UUID's inline-comment annotation on handoff/spinoff (optional — simply
+    omits the comment when this returns `None`).
+    """
+    try:
+        _ensure_engine_on_path()
+        from coordinator_core.session import harness_registry as _harness_registry
+    except Exception:  # noqa: BLE001 -- engine seam absent; degrade to no display name
+        return None
+    try:
+        self_info = _harness_registry.self_record()
+    except Exception:  # noqa: BLE001 -- registry read failed; degrade to no display name
+        return None
+    if self_info is None:
+        return None
+    _sid, record = self_info
+    return record.name or None
+
+
+def _resolve_plan_author() -> str:
+    """Stamp a plan's `author:` with the MINTING SESSION's own resolvable
+    name (e.g. `claude-klabauter-76`), not the repo-wide EM role string
+    `_resolve_from_repo()` returns.
+
+    Thin wrapper over `_resolve_session_display_name()` with a required-field
+    fallback: when that resolver returns `None` (registry seam unavailable,
+    `CLAUDE_PID` doesn't resolve, or the record carries no `name`), falls back
+    to `_resolve_from_repo()` — today's repo-level EM identity. Honest
+    degrade: it never fabricates a session number, it reuses the same
+    deterministic-but-coarser identity the field already carried before this
+    change.
+    """
+    return _resolve_session_display_name() or _resolve_from_repo()
 
 
 # ---------------------------------------------------------------------------
@@ -1048,8 +1212,150 @@ def _warn_placeholder_id_skipped(field: str, doc_type: str) -> None:
     )
 
 
-def _mint_deliverable_id_from_title(title: str, doc_type: str) -> str | None:
-    """Title-derived deliverable_id mint, refusing on a placeholder title.
+# Set once from `--new-chain` in main(); read by _resolve_session_chain_deliverable_id.
+# A module-level switch rather than a parameter because the mint-from-title fallback is
+# reached from five call sites across three arms, none of which otherwise carry an
+# authoring-intent flag — threading one through all of them would widen five signatures
+# to express a single process-wide fact the CLI resolves once, at parse time.
+_NEW_CHAIN_REQUESTED = False
+
+
+def _resolve_session_held_handoff_path(repo_root: str | None) -> str | None:
+    """Absolute path of the handoff THIS session holds a claim on, or None.
+
+    Reuses `baton_assemble._resolve_held_handoff_for_session` — the ONE
+    resolver from the durable claim ledger to a baton path (see its own
+    docstring's "this is the ONE place" contract) — rather than re-deriving
+    the claim-store lookup here. That resolver returns the LIVE-directory
+    string even for a handoff since swept to `archive/handoffs/`, so the
+    swept case is handed to `resolve_swept_baton._find_first_match`, the
+    same shared archive walk `_resolve_qualified_path_or_raise` and
+    `/pickup` use — never a second hand-rolled archive-dir list here.
+
+    Returns None — never raises — on every ambiguity or absence: no claim,
+    a `degraded` set (the resolver could not distinguish two held claims, so
+    no single chain is named and guessing one would be the very silent
+    mis-join this tier exists to prevent), the resolver's own loud
+    `ValueError`, or a repo root that will not resolve.
+    """
+    if not repo_root:
+        return None
+    try:
+        _ensure_engine_on_path()
+        from pathlib import Path as _Path  # noqa: PLC0415
+
+        # Cheap pre-gate before the expensive import: `coordinator_core.
+        # baton_assemble` costs ~95ms to import, `coordinator_core.session`
+        # ~47ms, and the overwhelmingly common case is a session holding no
+        # handoff claim at all. Ask the ledger the yes/no question with the
+        # cheaper module first and pay for the resolver only on a hit —
+        # the resolver imports this same module anyway, so the hit path
+        # pays nothing extra for the gate.
+        from coordinator_core.session import claims as _claims  # noqa: PLC0415
+        from coordinator_core.session import core as _session_core  # noqa: PLC0415
+
+        _sid = _session_core.resolve_session_id(repo_root)
+        if not _sid:
+            return None
+        if not any(
+            _class == "handoff-claims"
+            for _class, _basename in _claims.list_claims_by_session(_sid, repo_root)
+        ):
+            return None
+
+        from coordinator_core.baton_assemble import (  # noqa: PLC0415
+            _resolve_held_handoff_for_session,
+        )
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            _primary, _additional, _degraded = _resolve_held_handoff_for_session(
+                _Path(repo_root), allow_standalone=True
+            )
+    except Exception:  # noqa: BLE001 -- discovery is best-effort; never blocks scaffolding
+        return None
+    if not _primary or _degraded:
+        return None
+    _live = os.path.join(repo_root, _primary.replace("/", os.sep))
+    if os.path.isfile(_live):
+        return _live
+    try:
+        from coordinator_core.ops.resolve_swept_baton import (  # noqa: PLC0415
+            _find_first_match,
+        )
+
+        _swept = _find_first_match(_Path(repo_root), os.path.basename(_primary))
+    except Exception:  # noqa: BLE001 -- discovery is best-effort; never blocks scaffolding
+        return None
+    return str(_swept) if _swept else None
+
+
+def _resolve_session_chain_deliverable_id(
+    doc_type: str, repo_root: str | None
+) -> str | None:
+    """Session-chain discovery — the id of the chain this session is already
+    authoring into, or None.
+
+    The gap this closes: every other rung answers "was an id HANDED to me"
+    (flag, env, cited sizing, explicit predecessor edge). None asks whether
+    the chain already HAS one, so two artifacts of one deliverable authored
+    under two titles with no id passed mint two different ids off two title
+    slugs — silently, each scaffolder doing the locally-normal thing — and
+    the split only surfaces at a deliverable-level rollup, by which time it
+    is in shared history and unrepairable in place (2026-08-25 bug record
+    `deliverable-id-minted-from-title-not-discovered`, two independent
+    chains).
+
+    Three doc types are exempt by ruling, not by convenience:
+      spinoff — a `kind: spinoff` baton mints its own id (PM, 2026-08-05;
+                `baton_assemble.resolve_lineage` owns that branch).
+      roadmap-baton — its identity is its `stub_id`, not a discovered chain
+                (D1); the stub path above already mints from it.
+      plan — plan authoring ALREADY asks this question, one tier earlier and
+                with a stricter answer. `deliverable_carry.resolve_session_
+                state_parent_deliverable_id` reads the very same session-held
+                artifact and REJECTS it unless its `kind` is a roadmap stub,
+                because holding a claim is not evidence a plan descends from
+                it (pln-deliverable-id-fork-remediatio-894e26 § C2 AC4b: a
+                false merge joins two unrelated works under one id and, unlike
+                a fork, nothing can ever detect it — nothing diverges). Left
+                unexempt, this tier reads that same rejected file and carries
+                its id anyway, silently reversing the decision the tier before
+                it just logged as "falling through to mint-from-slug". Two
+                tiers must not answer the same question about the same file
+                two ways; for `plan` the kind-gated one is authoritative.
+    `--new-chain` is the author's own exemption for the remaining types:
+    deliberately rooting a NEW deliverable while a claim on another chain is
+    still held.
+
+    Never raises: every failure mode degrades to None and mint-from-title,
+    exactly the behaviour that stood before this tier existed.
+    """
+    if _NEW_CHAIN_REQUESTED or doc_type in {"spinoff", "roadmap-baton", "plan"}:
+        return None
+    _chain_path = _resolve_session_held_handoff_path(repo_root)
+    if not _chain_path:
+        return None
+    try:
+        _ensure_engine_on_path()
+        from coordinator_core.ops.deliverable_carry import (  # noqa: PLC0415
+            resolve_session_chain_deliverable_id,
+        )
+        from coordinator_core.ops.read_frontmatter_field import (  # noqa: PLC0415
+            read_frontmatter_field as _read_frontmatter_field,
+        )
+
+        return resolve_session_chain_deliverable_id(
+            _read_frontmatter_field, _chain_path
+        )
+    except Exception:  # noqa: BLE001 -- discovery is best-effort; never blocks scaffolding
+        return None
+
+
+def _mint_deliverable_id_from_title(
+    title: str, doc_type: str, repo_root: str | None = None
+) -> str | None:
+    """Discover the session's chain id, else mint from the title, refusing on
+    a placeholder title.
 
     Wraps the slug-basis _mint_deliverable_id call so the placeholder guard lives in
     ONE place rather than being re-inlined at each of its four call sites. Carry-path
@@ -1057,8 +1363,22 @@ def _mint_deliverable_id_from_title(title: str, doc_type: str) -> str | None:
     from a caller-supplied id or a real stub_id, never from the title, so the
     placeholder failure mode cannot reach them.
 
+    Discovery runs AHEAD of the placeholder refusal on purpose: a discovered id is
+    not title-derived, so a placeholder title is no reason to withhold it — the
+    refusal exists to stop a placeholder becoming durable, and carrying the chain's
+    real id does the opposite.
+
+    ``repo_root`` is the discovery scope; omitting it (the default, kept for the
+    unit call sites that pass a title alone) disables discovery and preserves the
+    pre-2026-08-25 mint-from-title behaviour exactly.
+
     See _is_placeholder_title for why refusal beats minting a placeholder-derived id.
     """
+    _chain_dlv = _resolve_session_chain_deliverable_id(doc_type, repo_root)
+    if _chain_dlv:
+        return _mint_deliverable_id(
+            deliverable_id=_chain_dlv, carry_source="session-chain discovery"
+        )
     if _is_placeholder_title(title):
         _warn_placeholder_id_skipped("deliverable_id", doc_type)
         return None
@@ -1156,7 +1476,7 @@ def _resolve_explicit_predecessor_edge_tier(
     Spec backlink: docs/plans/2026-08-14-baton-closes-when-its-plan-ships.md § C1/C2, AC1/AC3/AC4/AC5/AC9
     """
     if not predecessor_relpath:
-        return _mint_deliverable_id_from_title(title, doc_type)
+        return _mint_deliverable_id_from_title(title, doc_type, repo_root)
 
     _ensure_engine_on_path()
     from coordinator_core.ops.deliverable_carry import (  # noqa: PLC0415
@@ -1175,7 +1495,7 @@ def _resolve_explicit_predecessor_edge_tier(
                     _read_frontmatter_field, predecessor_relpath
                 )
         except (DroppedDeliverableJoinError, DivergentDeliverableIdError) as _nr_carry_exc:
-            _fallback = _mint_deliverable_id_from_title(title, doc_type)
+            _fallback = _mint_deliverable_id_from_title(title, doc_type, repo_root)
             _write_deliverable_carry_degradation(
                 repo_root, doc_type, _nr_carry_exc, _fallback, title,
                 predecessor_path=predecessor_relpath,
@@ -1195,7 +1515,7 @@ def _resolve_explicit_predecessor_edge_tier(
             deliverable_id=_edge_dlv, carry_source="explicit predecessor edge"
         )
     _warn_predecessor_spine_not_inherited(predecessor_relpath)
-    return _mint_deliverable_id_from_title(title, doc_type)
+    return _mint_deliverable_id_from_title(title, doc_type, repo_root)
 
 
 def _warn_predecessor_spine_not_inherited(predecessor_relpath: str) -> None:
@@ -1251,7 +1571,7 @@ def _write_deliverable_carry_degradation(
             f"{datetime.date.today().isoformat()}"
             f"-{doc_type}-deliverable-carry-degradation.jsonl",
         )
-        with open(audit_path, "a", encoding="utf-8") as audit_fh:
+        with open(audit_path, "a", encoding="utf-8", newline="\n") as audit_fh:
             audit_fh.write(
                 json.dumps(
                     {
@@ -1466,10 +1786,12 @@ def _delegate_to_workflow_scaffold() -> None:
     sys.argv args (minus --type)
     are forwarded verbatim to the veneer.
 
-    --repo is injected here (from _current_repo_root()) UNLESS the caller already
-    passed --repo explicitly — the veneer requires --repo but coordinator-doc-new's
-    other scaffolders resolve the repo root implicitly, so this delegate preserves
-    that ergonomic default rather than requiring every caller to pass --repo.
+    --repo is NEVER injected here. workflow.scaffold is a "none"-scoped op, so
+    DR-279 makes the veneer refuse --repo rather than silently no-op it; injecting
+    a resolved repo root (which this delegate did until 2026-08-21) refused every
+    invocation of --type workflow, not just the ones that passed --repo. An
+    explicit --repo from the caller is forwarded unchanged so it meets that
+    refusal, which is DR-279's point.
 
     Spec backlink: pln-workflow-skeleton-stamper-maki-adab0d
     Negative-spec: does NOT parse or validate --name/--phase/--pattern here — the
@@ -1486,16 +1808,6 @@ def _delegate_to_workflow_scaffold() -> None:
         if _idx + 1 < len(passthrough) and passthrough[_idx + 1] == "":
             del passthrough[_idx : _idx + 2]
     passthrough = [a for a in passthrough if a != "--repo="]
-    if "--repo" not in passthrough and not any(a.startswith("--repo=") for a in passthrough):
-        repo_root = _current_repo_root()
-        if repo_root is None:
-            print(
-                "error: --type workflow requires --repo (not inside a git repo; "
-                "could not auto-resolve).",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        passthrough = passthrough + ["--repo", repo_root]
     cmd = [sys.executable, delegate] + passthrough
     # Explicit capture-then-forward, not bare stdio inheritance: a parent
     # whose OWN stdout is already a redirected pipe (the common shape for
@@ -1609,6 +1921,12 @@ def _scaffold_handoff(
     predecessor_id: str | None = None,
     category: str | None = None,
     additional_predecessors: list[str] | None = None,
+    summary: str | None = None,
+    gated_open: str | None = None,
+    gate_note: str | None = None,
+    gated_predicate: str | None = None,
+    deliverable_ids: list[str] | None = None,
+    plan_ids: list[str] | None = None,
 ) -> str:
     """Generate validator-clean handoff frontmatter + canonical section skeleton.
 
@@ -1665,6 +1983,42 @@ def _scaffold_handoff(
     Spec backlink: roadmap stub sedge-02 (state/roadmap/sedge-2026-08-06/),
     § Successor-side back-edge on a fan-in.
 
+    summary (--summary) replaces the hardcoded placeholder summary when
+    supplied; the placeholder is emitted unchanged when omitted (byte-identical
+    to before this parameter existed). Refused fail-loud when blank or over the
+    handoff schema's 140-char cap (_cf_summary_length_cap) — the caller fixes it
+    here rather than the scaffolder authoring frontmatter the validator will
+    then reject.
+
+    gated_open (--gated-open) DECLARES THE BLOCKER, it does not author the
+    readiness trio directly (C3, docs/plans/2026-08-19-gate-notes-are-
+    advisory-blocked-by-derives-readiness.md). Supplying it writes
+    `blocked_by: [<gated_open>]` and readiness (deployment_state/
+    pickup_ready) is DERIVED from that via `reconcile.gate_eval
+    .derive_readiness` (C1) — the same one-evaluator seam every other reader
+    of `blocked_by` goes through, rather than this scaffolder hardcoding
+    awaiting_gate/pickup_ready:false itself. Against an empty resolution
+    index (scaffold time has no corpus to check) an unresolved id derives
+    awaiting_gate/pickup_ready:false, matching the pre-C3 DR-173-trio output
+    for the common case. Omitted → `blocked_by: []` derives ready_to_fire/
+    pickup_ready:true, byte-identical to today (AC2). Refused fail-loud when
+    blank. Refused fail-loud (not silently degraded) when the engine is
+    unresolvable, since a caller supplying --gated-open needs the derivation
+    to actually run — the no-flag path degrades gracefully instead (see
+    body), because it must not gain an engine dependency it never had.
+
+    gate_note (--gate-note) sets `blocking_notes` ONLY — it is advisory
+    prose and, per the 2026-08-19 ruling, must NEVER flip readiness; only
+    `blocked_by` may. Two flags because they are two concepts: --gated-open
+    declares the mechanical blocker, --gate-note carries the human-readable
+    reason. Legal alone (leaves the baton pickup_ready — this is the CLI-
+    surface assertion of the ruling, AC4) and legal together with
+    --gated-open (a blocked baton that also carries a note). Refused
+    fail-loud when blank.
+
+    Spec backlink: docs/plans/2026-08-19-promote-fills-its-own-placeholders.md
+    Spec backlink: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C3
+
     Supplying predecessor_id WITHOUT predecessor is refused (fail-loud). The two
     are the ID and path representations of one edge, and the referential-integrity
     checker cannot catch the inconsistent pairing — it explicitly skips the
@@ -1698,6 +2052,16 @@ def _scaffold_handoff(
     frontmatter is written (fail-loud, naming all legal values on mismatch) —
     defaults to 'infra' unchanged when not supplied (behavior-preserving default).
     Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
+
+    deliverable_ids/plan_ids (--deliverable-ids/--plan-ids, repeatable, C1 plural
+    carriers) are pure carry-through on the same terms as additional_predecessors:
+    never resolved or minted here. Emitted as a YAML block sequence ONLY when the
+    corresponding flag was supplied at all (list is not None) — omitted entirely
+    (not `[]`, not `null`) when the flag was never passed. The 2+-distinct-id
+    threshold that decides WHEN a caller passes these flags is not decided here
+    (C2 owns it); this scaffolder emits exactly what it is handed.
+    The singular --deliverable-id emission above is untouched by this addition —
+    it does not route the singular value through these new flags.
 
     Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, D2, C3b
     Spec backlink (handoff_id): docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C1
@@ -1762,6 +2126,121 @@ def _scaffold_handoff(
             file=sys.stderr,
         )
         sys.exit(1)
+    # --summary is refused fail-loud (not silently truncated/emitted) when it
+    # would author frontmatter the handoff schema's own cross-field rules
+    # reject outright — blank (_cf_summary_required_post_cutoff) or over 140
+    # chars (_cf_summary_length_cap). The caller fixes it here rather than
+    # discovering the rejection downstream.
+    if summary is not None and not summary.strip():
+        print(
+            "coordinator-doc-new: --summary was supplied an empty or whitespace-only "
+            "value. Omit --summary entirely to keep the placeholder summary, or pass "
+            "real summary text.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if summary is not None and len(summary) > 140:
+        print(
+            f"coordinator-doc-new: --summary exceeds 140 characters (got {len(summary)}). "
+            "The handoff schema's _cf_summary_length_cap rejects it outright; shorten "
+            "it before scaffolding.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # --gated-open declares the blocker (blocked_by), not the readiness (see
+    # docstring) — blank is refused for the same reason as --summary above:
+    # blocked_by must be a non-empty id naming what this baton is blocked by.
+    if gated_open is not None and not gated_open.strip():
+        print(
+            "coordinator-doc-new: --gated-open was supplied an empty or whitespace-only "
+            "value. blocked_by must be a non-empty id naming the blocker; omit "
+            "--gated-open entirely to scaffold ready_to_fire instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # --gate-note is advisory prose only (blocking_notes) — it must NEVER
+    # flip readiness (2026-08-19 ruling); see docstring.
+    if gate_note is not None and not gate_note.strip():
+        print(
+            "coordinator-doc-new: --gate-note was supplied an empty or whitespace-only "
+            "value. blocking_notes must be a non-empty string naming the reason; omit "
+            "--gate-note entirely, or pass real note text.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # --gated-predicate is DR-173's arm: a MECHANICAL gate with no graph node.
+    # The condition (a required field sitting empty) is checked by the caller
+    # and is as derivable as an unresolved blocked_by -- it simply has no
+    # deliverable id to name, so it must NOT be forced into blocked_by. Doing
+    # that mints an entry nothing can ever resolve, which parks the baton
+    # permanently even after the fields are filled: the plan's § Anti-scope
+    # "do not force a fake stub id into blocked_by", and the exact break-class
+    # outcome this whole surface exists to prevent. The reason text rides in
+    # blocking_notes, where it is advisory and does no gating -- deleting it
+    # would not unpark the baton, because the predicate is what parks it.
+    if gated_predicate is not None and not gated_predicate.strip():
+        print(
+            "coordinator-doc-new: --gated-predicate was supplied an empty or "
+            "whitespace-only value. It must name the mechanical condition that "
+            "parks this baton; omit it entirely to scaffold ready_to_fire instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    _summary_value = summary if summary else placeholder_summary
+    _blocked_by = [gated_open] if gated_open else []
+    if gated_predicate:
+        # Parked by the predicate, with or without an accompanying blocked_by.
+        _deployment_state = "awaiting_gate"
+        _pickup_ready = "false"
+    elif gated_open:
+        if _derive_readiness is None:
+            print(
+                "coordinator-doc-new: --gated-open needs the readiness derivation "
+                "engine (coordinator_core.reconcile.gate_eval.derive_readiness, C1) "
+                "and it could not be resolved. Omit --gated-open to scaffold "
+                "ready_to_fire instead, or fix engine resolution "
+                "(_ensure_engine_on_path).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        _readiness = _derive_readiness({"blocked_by": _blocked_by}, [])
+        _deployment_state = _readiness["deployment_state"] or "awaiting_gate"
+        _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
+    elif _derive_readiness is not None:
+        _readiness = _derive_readiness({"blocked_by": _blocked_by}, [])
+        _deployment_state = _readiness["deployment_state"] or "ready_to_fire"
+        _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
+    else:
+        # Engine unresolvable and no --gated-open: the no-flag path must not
+        # gain an engine dependency it never had, so it keeps the pre-C1
+        # hardcoded default rather than failing loud like --gated-open does.
+        _deployment_state = "ready_to_fire"
+        _pickup_ready = "true"
+    # An unnamed scaffold advertises nothing, so it is not pickup-ready --
+    # the same judgment `_is_placeholder_title` already enforces at the
+    # durable-id mint sites, applied to the field that decides whether the
+    # pickup index offers this baton as available work. A placeholder-titled
+    # record with `pickup_ready: true` is well-formed and meaningless in
+    # exactly that helper's sense: a future `/pickup` or `/workday-start`
+    # surfaces it as actionable and whoever takes it finds a comment-only
+    # skeleton. Reported live from DoE-claude 2026-08-20 (`cross-repo/inbox/
+    # 2026-08-20-doe-claude-em-pickup-mints-a-phantom-successor.md`), where
+    # one held the genuine successor's `deliverable_id` for three and a half
+    # hours.
+    #
+    # Negative-spec: this narrows ONLY the untitled case, and only ever
+    # toward `false`. A `--title`-bearing scaffold -- every roadmap and
+    # spinoff stub, and every `/handoff` that names its own continuation --
+    # keeps whatever `derive_readiness` decided, byte-identical to before,
+    # so nothing that reads `ready_to_fire`/`pickup_ready: true` off a named
+    # stub changes behaviour (`ops/handoff_close_origin_stub`, whose own
+    # docstring names that pairing, operates on stubs carrying real titles).
+    # It is also NOT a second gating mechanism: `deployment_state` is left
+    # exactly as derived, because the baton is not blocked on anything -- it
+    # is unwritten, which is a different fact and DR-173's ratified
+    # awaiting_gate trio must not be counterfeited to express it.
+    if _is_placeholder_title(title):
+        _pickup_ready = "false"
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
@@ -1771,10 +2250,28 @@ def _scaffold_handoff(
         f"predecessor: {_predecessor if _predecessor == 'none' else _yaml_quote(_predecessor)}",
         "kind: session-handoff",
         "handoff_phase: continuation",
-        "deployment_state: ready_to_fire",
+        "baton_role: work",
+        f"deployment_state: {_deployment_state}",
         f"category: {_category}",
-        f"summary: {_yaml_quote(placeholder_summary)}",
-        "pickup_ready: true",
+        f"summary: {_yaml_quote(_summary_value)}",
+        f"pickup_ready: {_pickup_ready}",
+    ]
+    if _blocked_by:
+        lines.append("blocked_by:")
+        lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in _blocked_by)
+    # DR-173's ratified trio ships unchanged: awaiting_gate + pickup_ready:
+    # false + the blocking_notes reason text. The reason is OUTPUT the gating
+    # decision writes, never an input anything reads.
+    # Both may be supplied: --gated-predicate names the mechanical condition
+    # that parked the baton, --gate-note is an unrelated advisory constraint.
+    # JOIN them rather than letting one win (review: code-reviewer slice C) --
+    # `gate_note or gated_predicate` silently dropped DR-173's ratified reason
+    # text whenever a caller passed both, leaving the baton parked with no
+    # record of what parked it.
+    _notes = [n for n in (gated_predicate, gate_note) if n]
+    if _notes:
+        lines.append(f"blocking_notes: {_yaml_quote('; '.join(_notes))}")
+    lines += [
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
     ]
@@ -1787,8 +2284,29 @@ def _scaffold_handoff(
     if _extra_preds:
         lines.append("additional_predecessors:")
         lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in _extra_preds)
+    # deliverable_ids/plan_ids (C1, plural carriers) are pure carry-through, same
+    # posture as additional_predecessors: never resolved or minted here. Emitted
+    # ONLY when the flag was supplied at all — not on `[]`, not on `None` — because
+    # the schema reserves `[]` for a future "explicitly zero" distinction and
+    # treats absent/null alike as "no plural set authored". The 2+ threshold is
+    # NOT decided here (C2 owns it); this scaffolder emits exactly what it is
+    # handed, unconditionally.
+    if deliverable_ids is not None:
+        lines.append("deliverable_ids:")
+        lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in deliverable_ids)
+    if plan_ids is not None:
+        lines.append("plan_ids:")
+        lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in plan_ids)
     _authoring_session = _resolve_session_id()
     if _authoring_session != "em-unknown":
+        # Readable-name annotation (2026-08-20 extension): the id above is a
+        # machine-joinable UUID, opaque to a human skimming the file. The
+        # display name is a YAML trailing COMMENT, not a new field -- it
+        # changes no schema shape, so it degrades to nothing (not a stray
+        # placeholder) when unresolvable rather than blocking the id itself.
+        _display_name = _resolve_session_display_name()
+        if _display_name:
+            lines.append(f"# minted by {_display_name}")
         lines.append(f"authoring_session: {_yaml_quote(_authoring_session)}")
     lines.extend([
         "---",
@@ -1804,6 +2322,10 @@ def _scaffold_handoff(
         "## Next Steps",
         "",
         "<!-- Replace with what the next session should do first. -->",
+        "",
+        "## What I Learned",
+        "",
+        "<!-- What did you learn that you'd resent re-deriving? -->",
         "",
         *_require_session_ledger_block(),
     ])
@@ -1912,6 +2434,75 @@ def _scaffold_recovery(
     return "\n".join(lines)
 
 
+def _resolve_spinoff_workstream() -> str | None:
+    """READ-ONLY resolve of a spinoff's `workstream` off the baton this
+    session currently holds.
+
+    Locates the held baton via `coordinator_core.ops.handoff_author_fork.
+    _resolve_origin_handoff` -- the same ledger-first claim-holder scan that
+    op uses to populate `origin_handoff` on a fork -- then reads that
+    baton's own `workstream:` frontmatter scalar via
+    `coordinator_core.ops._fm_util.extract_frontmatter_scalar`. Read-only:
+    calls neither module's mutating surface, and does not import or touch
+    anything else in `handoff_author_fork` beyond this one resolver.
+
+    Degrades to None (never a hardcoded default) when: the engine is
+    unresolvable, no repo root resolves, no session id resolves
+    (`_resolve_session_id() == "em-unknown"`), no baton is currently held by
+    this session, or the held baton has no `workstream:` field -- matching
+    this file's graceful-skip convention for engine-touching seams
+    (`_ensure_engine_on_path`). The caller (`_scaffold_spinoff`) omits the
+    `workstream:` key entirely on None rather than emitting a placeholder --
+    per state/handoffs/2026-08-21-scaffold-knows-the-session.md ("either
+    derive it or stop pretending it is required").
+    """
+    _ensure_engine_on_path()
+    try:
+        from coordinator_core.ops.handoff_author_fork import (  # noqa: PLC0415
+            _resolve_origin_handoff,
+        )
+        from coordinator_core.ops._fm_util import extract_frontmatter_scalar  # noqa: PLC0415
+    except Exception:  # noqa: BLE001 -- best-effort; unresolvable engine degrades to None
+        return None
+    session_id = _resolve_session_id()
+    if session_id == "em-unknown":
+        return None
+    repo_root_str = _current_repo_root()
+    if not repo_root_str:
+        return None
+    from pathlib import Path as _Path  # noqa: PLC0415
+
+    worktree_root = _Path(repo_root_str)
+    handoffs_dir = worktree_root / "state" / "handoffs"
+    try:
+        origin_handoff, _origin_handoff_id = _resolve_origin_handoff(
+            handoffs_dir, session_id, repo_root=worktree_root
+        )
+    except OSError:
+        return None
+    except RuntimeError:
+        # `_resolve_origin_handoff` refuses fail-loud (AmbiguousOriginHandoffError,
+        # a RuntimeError) when this session holds several live claims that claim
+        # recency cannot rank. That refusal is provenance-critical for
+        # `handoff.author_fork`, which STAMPS origin_handoff -- it is not critical
+        # here, where the only consequence is one derived, optional field.
+        #
+        # Negative-spec: does NOT re-raise and does NOT pick a candidate. The
+        # ambiguity is surfaced by the op that writes provenance; degrading to
+        # omit-the-key matches this helper's every other unresolvable arm rather
+        # than turning a scaffold into a traceback. Caught as RuntimeError, not by
+        # importing the concrete class -- this CLI reaches coordinator_core through
+        # a best-effort seam that is allowed to be absent.
+        return None
+    if not origin_handoff:
+        return None
+    try:
+        text = (worktree_root / origin_handoff).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return extract_frontmatter_scalar(text, "workstream") or None
+
+
 def _scaffold_spinoff(
     title: str,
     branch: str,
@@ -1926,7 +2517,19 @@ def _scaffold_spinoff(
 
     Produces a conformant spinoff (kind: spinoff) against the handoff schema.
     Spinoffs use the same schema as session-handoffs; kind discriminates the body dialect.
-    Authoring-session and workstream are included as conventional spinoff fields.
+
+    authoring_session (2026-08-21) is stamped from `_resolve_session_id()` --
+    same resolver + precedence chain `_scaffold_handoff` uses for the same
+    field. Unresolvable (the resolver's own 'em-unknown' fallback sentinel)
+    is refused fail-loud (sys.exit 1) rather than degrading to a hand-typed
+    'PLACEHOLDER' the EM had to Edit in afterward -- a prior silent degrade
+    that let a since-fixed resolver regression go unnoticed for a full day
+    (state/handoffs/2026-08-21-scaffold-knows-the-session.md).
+
+    workstream (2026-08-21) is resolved read-only off the baton this session
+    currently holds via `_resolve_spinoff_workstream` (see its docstring).
+    Omitted entirely (not a placeholder) when nothing resolves -- matching
+    `_scaffold_handoff`'s own omit-the-key convention for `authoring_session`.
 
     deliverable_id and initiative are D9 present-as-null: emitted as 'null' when
     not supplied. deliverable_id is auto-inherited from DELIVERABLE_ID env var or
@@ -1956,6 +2559,45 @@ def _scaffold_spinoff(
     _ini = _yaml_quote(initiative) if initiative else "null"
     _category = category if category else "infra"
     _validate_category(_category)
+    # 2026-08-21 extension: the 'em-unknown' arm used to degrade to a
+    # hand-typed literal 'PLACEHOLDER' the EM had to Edit in after every
+    # spinoff scaffold -- a silent degrade that let a since-fixed resolver
+    # regression go unnoticed for a full day (state/handoffs/2026-08-21-
+    # scaffold-knows-the-session.md). This field is a machine-trustworthy
+    # fact or nothing: `coordinator_core.baton_assemble
+    # ._adopt_prior_attempt_scaffold_path` gates cross-authorship adoption on
+    # it (see `_scaffold_handoff`'s docstring), so an unresolvable session id
+    # now fails the scaffold loudly instead of authoring a fact-shaped field
+    # that isn't one.
+    _authoring_session_value = _resolve_session_id()
+    if _authoring_session_value == "em-unknown":
+        print(
+            "coordinator-doc-new: --type spinoff could not resolve the authoring "
+            "session id (COORDINATOR_SESSION_ID / CLAUDE_SESSION_ID / "
+            "CLAUDE_CODE_SESSION_ID all unset). authoring_session must be a "
+            "machine-trustworthy fact, not a hand-typed placeholder -- set one "
+            "of those env vars and retry.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    _display_name = _resolve_session_display_name()
+    _authoring_session_line = (
+        f"# minted by {_display_name}\n" if _display_name else ""
+    ) + f"authoring_session: {_yaml_quote(_authoring_session_value)}"
+    # Spinoff takes no blocker input at all, so this is always the empty-
+    # blocked_by leg of C1's derive_readiness (docs/plans/2026-08-19-gate-
+    # notes-are-advisory-blocked-by-derives-readiness.md § C3) -- one
+    # evaluator deciding readiness rather than a second hardcoded literal
+    # duplicating its own empty-blocked_by rule. Same degrade-to-hardcoded
+    # posture as _scaffold_handoff's no-flag path: an unresolvable engine
+    # must not break spinoff scaffolding, which never depended on it before.
+    if _derive_readiness is not None:
+        _readiness = _derive_readiness({"blocked_by": []}, [])
+        _deployment_state = _readiness["deployment_state"] or "ready_to_fire"
+        _pickup_ready = "true" if _readiness["pickup_ready"] else "false"
+    else:
+        _deployment_state = "ready_to_fire"
+        _pickup_ready = "true"
     lines = [
         "---",
         f"title: {_yaml_quote(title)}",
@@ -1964,15 +2606,29 @@ def _scaffold_spinoff(
         "status: open",
         "predecessor: none",
         "kind: spinoff",
-        "deployment_state: ready_to_fire",
+        "baton_role: work",
+        f"deployment_state: {_deployment_state}",
         f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
-        "pickup_ready: true",
-        "authoring_session: PLACEHOLDER",
-        "workstream: PLACEHOLDER",
+        f"pickup_ready: {_pickup_ready}",
+        _authoring_session_line,
+    ]
+    # 2026-08-21 extension (same baton as authoring_session above): 'workstream'
+    # used to hand-type a literal 'PLACEHOLDER' unconditionally. It is now
+    # resolved off the baton this session currently holds
+    # (_resolve_spinoff_workstream, read-only) when possible; when nothing
+    # resolves, the key is OMITTED entirely rather than re-emitting a
+    # placeholder -- "either derive it or stop pretending it is required"
+    # (state/handoffs/2026-08-21-scaffold-knows-the-session.md § 2), the same
+    # omit-the-key convention `_scaffold_handoff` already uses for its own
+    # `authoring_session` arm.
+    _resolved_workstream = _resolve_spinoff_workstream()
+    if _resolved_workstream:
+        lines.append(f"workstream: {_yaml_quote(_resolved_workstream)}")
+    lines.extend([
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
-    ]
+    ])
     if handoff_id:
         lines.append(f"handoff_id: {_yaml_quote(handoff_id)}")
     if origin_handoff_id:
@@ -2012,9 +2668,50 @@ def _scaffold_spinoff(
         "",
         "<!-- Failure modes a context-less EM might hit. Negative scope. -->",
         "",
+        "## What travels with this spinoff",
+        "",
+        "<!-- Sizings, plans, or components leaving this EM's hands with the -->",
+        "<!-- spinoff. Ask, don't search or guess -- nothing to log? Leave this -->",
+        "<!-- section empty; that absence stays truthful. -->",
+        "",
         *_require_session_ledger_block(),
+        "",
+        _spinoff_marker(today, _authoring_session_value, _display_name),
     ])
     return "\n".join(lines)
+
+
+def _spinoff_marker(
+    created: str, authoring_session: str, display_name: str | None
+) -> str:
+    """Render the trailing ``<!-- spinoff: ... -->`` greppability marker.
+
+    Every fact in this line is already resolved at scaffold time — ``created``
+    is the same value emitted as the ``created:`` frontmatter field,
+    ``authoring_session`` the same value emitted as ``authoring_session:``, and
+    ``display_name`` the same value the ``# minted by`` comment carries. The
+    marker is therefore machine-knowable in full, and stamping it here is R6
+    (`docs/research/spike-verdicts/2026-08-21-ceremony-assemblers-cost-
+    attribution.md` § PM rulings) applied to the authoring surface: facts the
+    machine knows at write time get stamped, only facts the EM alone knows get
+    asked.
+
+    Before 2026-08-21 the hand path retyped this line from
+    `skills/spinoff/SKILL.md` Step 2 while the machine path
+    (`coordinator_core/backlog_grind_assemble/readers_blitz.py`, bug-blitz's
+    `build_spinoff_handoff`) already emitted it programmatically — one chore,
+    two producers, and a measured ZERO consumers across `coordinator_core/`,
+    `coordinator/`, `schemas/`, and the skills tree. Greppability is preserved
+    by keeping the `<!-- spinoff: ` prefix byte-identical to the bug-blitz
+    producer's, so the two paths remain one grep.
+
+    Negative-spec: the `by <who>` slot is the session DISPLAY NAME, never a
+    reconstructed identity — an unresolvable display name degrades to the
+    literal `current EM` (the same words the hand-typed form used) rather than
+    scanning for one. R1: absence is information, never a corpus search.
+    """
+    who = display_name if display_name else "current EM"
+    return f"<!-- spinoff: {created} by {who} during {authoring_session} -->"
 
 
 def _scaffold_roadmap_baton(
@@ -2027,6 +2724,7 @@ def _scaffold_roadmap_baton(
     category: str | None = None,
     handoff_id: str | None = None,
     gate_dependency: str | None = None,
+    sizing_object: str | None = None,
 ) -> str:
     """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
@@ -2051,6 +2749,15 @@ def _scaffold_roadmap_baton(
 
     deliverable_id is auto-minted from stub_id when not supplied (D1: roadmap stubs
     reuse stub identity → dlv-<stub_id>). initiative is D9 present-as-null.
+
+    sizing_object is emitted as a real frontmatter key, mirroring the `plan` arm.
+    A roadmap arrives THROUGH the sizing lobby and every stub is assigned its own
+    `loe:` at mint, so a roadmap baton IS sized work — the FK simply went
+    unwritten, which left PM-ratified stubs reading `unsized` to
+    `coordinator_core.sizing_disposition` and would have bounced them back to the
+    lobby to re-make a size that already existed. The literal string "null" (from
+    --no-sizing-object) emits an explicit `sizing_object: null` — the checkable
+    declaration of absence, never a silent omission.
 
     handoff_id (lvv-01/C1) is the new durable-link stable ID (hnd-<slug>-<6hex>) —
     roadmap-baton was excluded from the handoff-id-minting doc_type tuple at C1
@@ -2101,6 +2808,11 @@ def _scaffold_roadmap_baton(
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
     ]
+    if sizing_object:
+        if sizing_object == "null":
+            lines.append("sizing_object: null")
+        else:
+            lines.append(f"sizing_object: {_yaml_quote(sizing_object)}")
     # awaiting_gate requires at least one of gate_dependency (deprecated),
     # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
     # --gate-dependency writes the deprecated field as before; otherwise the
@@ -2223,6 +2935,14 @@ def _scaffold_goal_seed(
     sequencing gate. A deferred vision-slice under awaiting_gate must not also
     advertise pickup-readiness — that pairing is now a CROSS_FIELD_RULES error.
     Spec backlink: cross-repo/inbox/2026-08-06-example-market-data-repo-em-pickup-ready-true-under-unmet-gate.md
+
+    authoring_session (2026-08-21) is resolved off `_resolve_session_id()` when
+    the engine can supply it, same resolver `_scaffold_handoff`/`_scaffold_spinoff`
+    use for the same field. Unlike `_scaffold_spinoff`, an unresolvable session id
+    degrades to the prior hand-typed 'PLACEHOLDER' rather than exiting fail-loud --
+    this scaffolder fires from coordinator:goal-setting's Step 5b entry point, an
+    invocation context not audited by this fix, so resolve-or-degrade is applied
+    as a strict improvement without a new failure mode.
     """
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line vision-slice summary (≤140 chars)"
@@ -2239,9 +2959,24 @@ def _scaffold_goal_seed(
         "deployment_state: awaiting_gate",
         f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
-        "authoring_session: PLACEHOLDER",
-        "workstream: PLACEHOLDER",
     ]
+    # 2026-08-21 extension (same baton as _scaffold_spinoff's authoring_session
+    # fix): resolved off `_resolve_session_id()` when the engine can supply it,
+    # same as every other resolvable-fact seam in this file. Deliberately NOT
+    # given the spinoff's fail-loud arm -- goal-seed is minted by
+    # coordinator:goal-setting's Step 5b entry point, an invocation context
+    # this fix has not audited, so an unresolvable session id keeps the prior
+    # degrade (hand-typed PLACEHOLDER) rather than risking a hard exit inside
+    # an unverified ceremony.
+    _authoring_session_value = _resolve_session_id()
+    if _authoring_session_value != "em-unknown":
+        _display_name = _resolve_session_display_name()
+        if _display_name:
+            lines.append(f"# minted by {_display_name}")
+        lines.append(f"authoring_session: {_yaml_quote(_authoring_session_value)}")
+    else:
+        lines.append("authoring_session: PLACEHOLDER")
+    lines.append("workstream: PLACEHOLDER")
     # awaiting_gate requires at least one of gate_dependency (deprecated),
     # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
     # --gate-dependency writes the deprecated field as before; otherwise the
@@ -2358,6 +3093,15 @@ def _scaffold_roadmap_seed(
     sequencing gate. A roadmap-seed under awaiting_gate must not also advertise
     pickup-readiness — that pairing is now a CROSS_FIELD_RULES error.
     Spec backlink: cross-repo/inbox/2026-08-06-example-market-data-repo-em-pickup-ready-true-under-unmet-gate.md
+
+    authoring_session (2026-08-21) is resolved off `_resolve_session_id()` when
+    the engine can supply it, same resolver `_scaffold_handoff`/`_scaffold_spinoff`
+    use for the same field. Unlike `_scaffold_spinoff`, an unresolvable session id
+    degrades to the prior hand-typed 'PLACEHOLDER' rather than exiting fail-loud --
+    this scaffolder fires from coordinator:goal-setting's Step 5a entry point, an
+    invocation context not audited by this fix, so resolve-or-degrade is applied
+    as a strict improvement without a new failure mode. `workstream` stays a
+    hand-typed placeholder (operator-chosen roadmap slug), unaffected by this fix.
     """
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line capability-arc summary (≤140 chars)"
@@ -2376,11 +3120,30 @@ def _scaffold_roadmap_seed(
         "deployment_state: awaiting_gate",
         f"category: {_category}",
         f"summary: {_yaml_quote(placeholder_summary)}",
-        "authoring_session: PLACEHOLDER",
+    ]
+    # 2026-08-21 extension (same baton as _scaffold_spinoff's authoring_session
+    # fix): resolved off `_resolve_session_id()` when the engine can supply it.
+    # Deliberately NOT given the spinoff's fail-loud arm -- roadmap-seed is
+    # minted by coordinator:goal-setting's Step 5a entry point, an invocation
+    # context this fix has not audited, so an unresolvable session id keeps
+    # the prior degrade (hand-typed PLACEHOLDER) rather than risking a hard
+    # exit inside an unverified ceremony. `workstream` here is left as an
+    # operator-typed placeholder on purpose -- "replace with roadmap short
+    # prefix slug" is an operator choice, not an engine-resolvable fact
+    # (matching _scaffold_roadmap_baton's identical field).
+    _authoring_session_value = _resolve_session_id()
+    if _authoring_session_value != "em-unknown":
+        _display_name = _resolve_session_display_name()
+        if _display_name:
+            lines.append(f"# minted by {_display_name}")
+        lines.append(f"authoring_session: {_yaml_quote(_authoring_session_value)}")
+    else:
+        lines.append("authoring_session: PLACEHOLDER")
+    lines.extend([
         "workstream: PLACEHOLDER  # replace with roadmap short prefix slug",
         f"deliverable_id: {_dlv}",
         f"initiative: {_ini}  # FK to state/initiatives/<id>.yaml; null when no named initiative",
-    ]
+    ])
     # awaiting_gate requires at least one of gate_dependency (deprecated),
     # blocked_by, or blocking_notes (CROSS_FIELD_RULES). An explicit
     # --gate-dependency writes the deprecated field as before; otherwise the
@@ -2451,7 +3214,7 @@ def _scaffold_memo(title: str, to: str, topic: str, from_id: str) -> str:
     """
     placeholder_body = (
         "<!-- Replace with the memo body. -->\n"
-        "<!-- Send when ready: cross-repo-memo --to {to} --topic {topic} --body-file <this-file> -->\n".format(
+        "<!-- Send when ready: cross-repo-memo send {topic}   (drafted to {to}) -->\n".format(
             to=to, topic=topic
         )
     )
@@ -2480,6 +3243,7 @@ def _scaffold_plan(
     deliverable_id: str | None = None,
     initiative: str | None = None,
     sizing_object: str | None = None,
+    problem_set: str | None = None,
 ) -> str:
     """Generate validator-clean plan frontmatter + canonical section skeleton.
 
@@ -2497,9 +3261,19 @@ def _scaffold_plan(
     see main()'s --sizing-object validation block). When omitted, the existing
     commented-optional-key skeleton is left unchanged (no behavior change).
 
+    problem_set, when supplied, is emitted as a real frontmatter key (a ratified
+    problem-set slug, or the literal 'inline') instead of the commented
+    `# problem_set: inline` template line — the DoE census's requested bind to
+    the generic insert_fm_field-plus-a-key shape; no new named op required.
+    When omitted, the existing commented-optional-key skeleton is left
+    unchanged (no behavior change). Unlike sizing_object this is never
+    required — a plan with no ratified problem set simply leaves the
+    placeholder commented.
+
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-1-records-consolidation.md § C5
     Spec backlink: pln-fleet-deliverable-spine-identity-and-facets-2b331c § D1, D3, C3b
     Spec backlink: pln-plan-sizing-citation-gate-scaf-45eaed § AC2
+    Spec backlink: docs/plans/2026-08-21-engine-half-of-the-roadmap-sprint-spine-split.md § C7
     """
     today = _today()
     _pid = _yaml_quote(plan_id) if plan_id else "null"
@@ -2537,10 +3311,22 @@ def _scaffold_plan(
     lines += [
         "# Optional keys — uncomment and fill as needed (promoted de-facto keys, D1):",
         "# scope_mode: additive-only         # planning posture",
-        "# problem_set: inline               # ratified problem-set slug or 'inline'",
+    ]
+    if problem_set:
+        # Real key, only when supplied — mirrors the sizing_object arm above.
+        # No absence-declaration sentinel exists for this field (unlike
+        # sizing_object's "null" convention): problem_set is genuinely
+        # optional, so an unsupplied value simply leaves the commented
+        # template line in place rather than emitting a stamped null.
+        lines.append(f"problem_set: {_yaml_quote(problem_set)}  # ratified problem-set slug or 'inline'")
+    else:
+        lines.append("# problem_set: inline               # ratified problem-set slug or 'inline'")
+    lines += [
         "# predecessor_handoff: state/handoffs/YYYY-MM-DD-<slug>.md",
         "# prerequisite_of: docs/plans/YYYY-MM-DD-<slug>.md",
         "# source_memo: YYYY-MM-DD-<topic>.md",
+        "# review_signals:                   # reviewer routing; ids from coordinator/contract/review-signals.json",
+        "#   - architecture                  # absent = positive claim: no specialist surface in play",
         "# scope:",
         "#   - path/or/item/one",
         "#   - path/or/item/two",
@@ -2572,7 +3358,11 @@ def _scaffold_plan(
         "     `yaml plan-tasks` block belongs directly under this heading (parser-locate",
         "     rule — zero or >1 blocks is a defined error). Each list item validates against",
         "     schemas/plan-tasks.schema.json. Delete the two sample rows below and replace with",
-        "     real chunks; keep at least the shape (id/title/change_kind/surface required).",
+        "     real chunks; keep at least the shape (id/title/change_kind/surface/writes required",
+        "     on every non-deferred row — dispatch.emit cannot fire without writes:. The two",
+        "     empty forms are NOT interchangeable: `writes: []` claims this row writes NOTHING,",
+        "     while an ABSENT writes: key means 'unknown', which forces wave separation. Omit the",
+        "     key ONLY on a row gated epistemic-premise, whose surface a predecessor names).",
         "     KEEP THE CLOSING ``` FENCE when you replace the rows: `locate_fenced_block` matches",
         "     an OPEN-and-CLOSED pair, so a dropped closing fence reads as ABSENT — the spine is",
         "     visibly there and every plan-tasks CLI refuses it with 'task spine is absent'.",
@@ -2584,6 +3374,16 @@ def _scaffold_plan(
         "  title: PLACEHOLDER — one-line brief for the first shipped chunk",
         "  change_kind: script-edit  # replace with the actual change kind for this row",
         "  surface: path/to/primary/target  # single path or subsystem, not the full write-files set",
+        "  writes: [path/to/file/this/chunk/writes.py]  # REQUIRED on a non-deferred row —",
+        "              # dispatch.emit cannot fire without it. Replace with the real repo-relative",
+        "              # paths this chunk writes. An empty `writes: []` is a POSITIVE claim that",
+        "              # it writes nothing — NOT 'not known yet'. If the surface is not knowable,",
+        "              # omit this key entirely (UNDECLARED), which is legal only on a row gated",
+        "              # epistemic-premise; see spine_read's AC2 for why they differ.",
+        "  # depends_on:",
+        "  #   - chunk: C0  # predecessor row's id — SCHEMA-CORRECT object form only, never a bare id",
+        "  #     gate_kind: output-consumption-runtime  # or epistemic-premise — the only two writable kinds",
+        "  #     note: one-line rationale for the edge",
         "  queue_scope: project  # project (default) | central",
         "  disposition: open  # open (default) | coded | spun_off | backlogged | wont_do",
         "  # case_against: >",
@@ -2597,6 +3397,7 @@ def _scaffold_plan(
         "  title: PLACEHOLDER — one-line brief for the second shipped chunk",
         "  change_kind: doc-edit  # replace with the actual change kind for this row",
         "  surface: path/to/secondary/target",
+        "  writes: [path/to/another/file/this/chunk/writes.py]  # REQUIRED — see C1's writes: comment",
         "  queue_scope: project",
         "  disposition: open",
         "  body: |",
@@ -4321,6 +5122,22 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         ),
     )
     parser.add_argument(
+        "--new-chain",
+        dest="new_chain",
+        action="store_true",
+        help=(
+            "Root a NEW deliverable, suppressing session-chain discovery. With no "
+            "--deliverable-id and no other carry rung, the scaffolder joins the chain "
+            "of the handoff this session holds a claim on, so two artifacts of one "
+            "deliverable stop minting two ids off two title slugs. Pass this when the "
+            "artifact genuinely starts its own chain while a claim on another is still "
+            "held. Inert for spinoff and roadmap-baton, which mint their own identity "
+            "either way. "
+            "Spec: state/bug-backlog/2026-08-25-deliverable-id-minted-from-title-not-"
+            "discovered-d2b445e3e44a.yaml"
+        ),
+    )
+    parser.add_argument(
         "--initiative",
         dest="initiative",
         default=None,
@@ -4338,7 +5155,8 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         default=None,
         metavar="PATH",
         help=(
-            "(plan) Path to the state/sizings/<id>.yaml this plan was sized against. "
+            "(plan, roadmap-baton) Path to the state/sizings/<id>.yaml this record was "
+            "sized against. "
             "When supplied, must resolve on disk (relative to the repo root) — the "
             "scaffolder fails loud and writes no file otherwise. When omitted, the "
             "commented-optional-key skeleton is unchanged. Route a missing sizing "
@@ -4347,14 +5165,30 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
         ),
     )
     parser.add_argument(
+        "--problem-set",
+        dest="problem_set",
+        default=None,
+        metavar="SLUG_OR_INLINE",
+        help=(
+            "(plan) Ratified problem-set slug, or the literal 'inline'. "
+            "When supplied, emitted as a real problem_set frontmatter key in place of "
+            "the commented template line. Optional — omitted leaves the existing "
+            "commented-optional-key skeleton unchanged (no --no-problem-set pairing; "
+            "unlike --sizing-object this key is never required). "
+            "Spec: docs/plans/2026-08-21-engine-half-of-the-roadmap-sprint-spine-split.md § C7"
+        ),
+    )
+    parser.add_argument(
         "--no-sizing-object",
         dest="no_sizing_object",
         action="store_true",
         help=(
-            "(plan) The sanctioned declaration that this plan has no sizing object — "
+            "(plan, roadmap-baton) The sanctioned declaration that this record has no "
+            "sizing object — "
             "not a bypass. Emits an explicit sizing_object: null frontmatter key. "
             "Exactly one of --sizing-object / --no-sizing-object is required for "
-            "--type plan; a missing sizing object is produced via coordinator:sizing, "
+            "--type plan and --type roadmap-baton; a missing sizing object is "
+            "produced via coordinator:sizing, "
             "never invented. "
             "Spec: docs/plans/2026-08-06-sizing-citation-absence-is-checkable.md, chunk C1"
         ),
@@ -4376,6 +5210,74 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "the same field as --nature (completion's work-category; a different "
             "field on a different record family). "
             "Spec: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md"
+        ),
+    )
+    parser.add_argument(
+        "--summary",
+        dest="summary",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "(handoff) One-line session summary: frontmatter field. Replaces the "
+            "hardcoded placeholder summary when supplied; the placeholder is "
+            "emitted unchanged when omitted. Refused fail-loud (not silently "
+            "truncated) when blank or over the handoff schema's 140-char cap — "
+            "the caller fixes it here rather than authoring frontmatter the "
+            "validator will then reject. Handoff-scoped: refused fail-loud for "
+            "every other --type. "
+            "Spec: docs/plans/2026-08-19-promote-fills-its-own-placeholders.md"
+        ),
+    )
+    parser.add_argument(
+        "--gated-open",
+        dest="gated_open",
+        default=None,
+        metavar="BLOCKED_BY_ID",
+        help=(
+            "(handoff) Declare the blocker, not the readiness: writes "
+            "blocked_by: [BLOCKED_BY_ID] and DERIVES deployment_state/"
+            "pickup_ready from it via reconcile.gate_eval.derive_readiness "
+            "(C1) -- an unresolved id derives awaiting_gate/pickup_ready:false. "
+            "Omitted -> blocked_by: [] derives ready_to_fire/pickup_ready:true, "
+            "byte-identical to today. Prose reasons belong in --gate-note "
+            "instead (advisory only, never flips readiness -- 2026-08-19 "
+            "ruling); the two are independent and may be combined. Refused "
+            "fail-loud when blank. Handoff-scoped: refused fail-loud for every "
+            "other --type. "
+            "Spec: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C3"
+        ),
+    )
+    parser.add_argument(
+        "--gate-note",
+        dest="gate_note",
+        default=None,
+        metavar="TEXT",
+        help=(
+            "(handoff) Advisory gate note: writes blocking_notes: <TEXT> ONLY -- "
+            "it is prose and per the 2026-08-19 ruling must NEVER flip readiness; "
+            "only --gated-open may. Legal alone (baton stays pickup_ready) and "
+            "legal combined with --gated-open (a blocked baton that also carries "
+            "a note). Refused fail-loud when blank. Handoff-scoped: refused "
+            "fail-loud for every other --type. "
+            "Spec: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C3"
+        ),
+    )
+    parser.add_argument(
+        "--gated-predicate",
+        dest="gated_predicate",
+        default=None,
+        metavar="REASON",
+        help=(
+            "(handoff) Park this baton on a MECHANICAL condition that has no "
+            "graph node to name -- DR-173's unfilled category/summary is the "
+            "one caller. Emits awaiting_gate + pickup_ready: false + "
+            "blocking_notes: <REASON>, and deliberately NO blocked_by: forcing "
+            "a prose reason into blocked_by mints an entry nothing can ever "
+            "resolve, parking the baton permanently even once the condition "
+            "clears. The predicate parks it; the note only explains why, and "
+            "deleting the note would not unpark it. Refused fail-loud when "
+            "blank, and handoff-scoped like the other two. "
+            "Spec: docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md § C9"
         ),
     )
     parser.add_argument(
@@ -4443,6 +5345,38 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "entry, or duplicating --predecessor, is refused (schema cross-field rule "
             "_cf_additional_predecessors_integrity is exact-string, so callers must "
             "normalize before passing)."
+        ),
+    )
+    parser.add_argument(
+        "--deliverable-ids",
+        dest="deliverable_ids",
+        action="append",
+        default=None,
+        metavar="ID",
+        help=(
+            "(handoff ONLY) Repeatable, one deliverable_id per occurrence — NOT "
+            "comma-joined (a comma-split would re-introduce the quoting seam the "
+            ".cmd launcher already mangles). Carried as-is verbatim: never resolved "
+            "or minted here. Emitted as a YAML block sequence (deliverable_ids:) "
+            "ONLY when this flag is supplied at all; omitted entirely (not [], not "
+            "null) when not supplied, matching additional_predecessors' optional-omit "
+            "convention. Distinct from the singular --deliverable-id, which this flag "
+            "does not route through."
+        ),
+    )
+    parser.add_argument(
+        "--plan-ids",
+        dest="plan_ids",
+        action="append",
+        default=None,
+        metavar="ID",
+        help=(
+            "(handoff ONLY) Repeatable, one plan_id per occurrence — NOT "
+            "comma-joined, same rationale as --deliverable-ids. Carried as-is "
+            "verbatim: never resolved or minted here. Emitted as a YAML block "
+            "sequence (plan_ids:) ONLY when this flag is supplied at all; omitted "
+            "entirely (not [], not null) when not supplied, matching "
+            "additional_predecessors' optional-omit convention."
         ),
     )
     parser.add_argument(
@@ -4717,11 +5651,7 @@ def main() -> None:
         # path. Fail loud instead of writing to a wrong/stale default.
         if not args.out:
             print(
-                "error: --out <path> is required for --type run-report "
-                "(and its --type flight-recorder alias). There is no default output path — "
-                "the universal subagent run-report sidecar lives under state/subagent-share/, "
-                "whose path is computed by the engine's provision_report at spawn time. "
-                "Pass --out explicitly.",
+                _missing_out_message("run-report (and its --type flight-recorder alias)"),
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -4749,13 +5679,7 @@ def main() -> None:
         # coordinator_core.dispatch.provision at spawn time, exactly the same
         # rationale as --type run-report's --out requirement above.
         if not args.out:
-            print(
-                "error: --out <path> is required for --type subagent-sidecar. "
-                "There is no default output path — the live subagent-sidecar lives under "
-                "state/subagent-share/, whose path is computed by "
-                "coordinator_core.dispatch.provision at spawn time. Pass --out explicitly.",
-                file=sys.stderr,
-            )
+            print(_missing_out_message("subagent-sidecar"), file=sys.stderr)
             sys.exit(1)
 
     # Validate audit-record-specific required fields.
@@ -4803,7 +5727,13 @@ def main() -> None:
     # here, at write time, rather than left for the sweep to catch after the fact.
     # Spec: docs/plans/2026-08-06-plan-sizing-citation-gate.md § AC3
     # Spec: docs/plans/2026-08-06-sizing-citation-absence-is-checkable.md, chunk C1
-    if doc_type == "plan":
+    # roadmap-baton is held to the SAME bar as plan, and for the same reason:
+    # a roadmap arrives through the sizing lobby with a per-stub `loe:`, so the
+    # sizing answer always exists at mint — depending on a skill step to
+    # remember the flag is exactly the "the operator remembers" discharge this
+    # repo does not accept. Cross-repo ask: cross-repo/inbox/2026-08-20-doe-
+    # claude-em-pickup-brief-should-emit-the-sizing-disposition.md (follow-on).
+    if doc_type in ("plan", "roadmap-baton"):
         if args.sizing_object and args.no_sizing_object:
             print(
                 "error: --sizing-object and --no-sizing-object are mutually "
@@ -4814,11 +5744,11 @@ def main() -> None:
             sys.exit(1)
         if not args.sizing_object and not args.no_sizing_object:
             print(
-                "error: --type plan requires an explicit sizing answer — neither "
-                "--sizing-object nor --no-sizing-object was supplied. Produce the "
-                "sizing object first via coordinator:sizing, then re-run with the "
-                "resolved path, or pass --no-sizing-object if this plan genuinely "
-                "has none.",
+                f"error: --type {doc_type} requires an explicit sizing answer — "
+                "neither --sizing-object nor --no-sizing-object was supplied. "
+                "Produce the sizing object first via coordinator:sizing, then "
+                "re-run with the resolved path, or pass --no-sizing-object if "
+                "this record genuinely has none.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -4886,10 +5816,17 @@ def main() -> None:
     if doc_type == "memo":
         from_id = args.from_repo if args.from_repo else _resolve_from_repo()
 
-    # Resolve author (for plan) — repo identity, not a hardcoded central-EM literal (D1 authorship).
+    # Resolve author (for plan) — the MINTING SESSION's own name (e.g.
+    # claude-klabauter-76), not a repo-wide EM role string, and never the
+    # hardcoded central-EM literal this replaced (D1 authorship).
     plan_author: str = ""
     if doc_type == "plan":
-        plan_author = _resolve_from_repo()
+        plan_author = _resolve_plan_author()
+
+    # `--new-chain` is an authoring INTENT, resolved once here rather than threaded
+    # through the five mint-from-title call sites below (see _NEW_CHAIN_REQUESTED).
+    global _NEW_CHAIN_REQUESTED
+    _NEW_CHAIN_REQUESTED = bool(getattr(args, "new_chain", False))
 
     # Resolve deliverable-spine fields (handoff, spinoff, roadmap-baton, plan) — C3b.
     # Session context inheritance: DELIVERABLE_ID env var is the mechanism by which the
@@ -4937,8 +5874,13 @@ def main() -> None:
             if _sr_stub:
                 _resolved_deliverable_id = _mint_deliverable_id(stub_id=_sr_stub)
             else:
-                # no stub_id yet (PLACEHOLDER) — mint from slug
-                _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+                # no stub_id yet (PLACEHOLDER) — mint from slug. Session-chain
+                # discovery is inert here by doc_type (see
+                # _resolve_session_chain_deliverable_id): a roadmap baton's
+                # identity is its stub_id, never a chain it was authored beside.
+                _resolved_deliverable_id = _mint_deliverable_id_from_title(
+                    title, doc_type, _current_repo_root()
+                )
         elif doc_type == "plan":
             # Session-state parent tier (2026-08-01 deliverable-id-fork-remediation
             # C1/AC1) — reachable for `plan` only, ordered after explicit/env carry
@@ -5019,13 +5961,10 @@ def main() -> None:
             # initiative`) rather than re-deriving the plan/predecessor
             # precedence here.
             #
-            # Lazy mode is already armed: `_ensure_engine_on_path`'s cc_invoke
-            # import runs at module import time, so `sys._coordinator_core_
-            # lazy_ops` is set well before any coordinator_core.ops touch on
-            # this arm — which runs on EVERY direct handoff scaffold with no
-            # explicit/env id, and would otherwise pay the ops package's full
-            # eager-compile tax on every such invocation. See
-            # coordinator_core/ops/__init__.py's lazy-mode docstring.
+            # `coordinator_core.ops` registers ops lazily, unconditionally, so
+            # this arm -- which runs on EVERY direct handoff scaffold with no
+            # explicit/env id -- never pays the ops package's eager-compile
+            # tax. See coordinator_core/ops/__init__.py's lazy-mode docstring.
             _ensure_engine_on_path()
             from coordinator_core.session.claimed_plan import (
                 resolve_claimed_plan_path as _resolve_claimed_plan_path,
@@ -5064,6 +6003,18 @@ def main() -> None:
                     )
                 return _mint_deliverable_id(slug=slug), "mint-from-slug"
 
+            # Chain-root legibility: when no rung carries an id, the cascade
+            # mints from a slug, and its own fallback basis is the DATE
+            # (`<YYYYMMDD>-handoff`) — an id naming the day, not the work, so
+            # two unrelated chain roots scaffolded in one session both read as
+            # `dlv-<today>-handoff-<hex>`. Hand it this handoff's own title
+            # slug instead, matching the shape the degradation fallback below
+            # already mints (`_mint_deliverable_id_from_title`). A placeholder
+            # title yields nothing, so the date fallback still stands rather
+            # than baking a placeholder into a durable id — same refusal
+            # `_mint_deliverable_id_from_title` makes, same reason.
+            _hnd_work_slug = None if _is_placeholder_title(title) else _slug_from_title(title)
+
             try:
                 _resolved_deliverable_id, _hnd_carried_initiative = (
                     resolve_deliverable_and_initiative(
@@ -5072,6 +6023,7 @@ def main() -> None:
                         _claimed_plan_path,
                         _predecessor_path,
                         slug_suffix="handoff",
+                        work_slug=_hnd_work_slug,
                     )
                 )
             except (DroppedDeliverableJoinError, DivergentDeliverableIdError) as _hnd_carry_exc:
@@ -5082,7 +6034,9 @@ def main() -> None:
                 # no-carry — the exact defect this arm exists to prevent,
                 # reintroduced by masking it. Do not widen this to
                 # `except Exception` in a future tidying pass.
-                _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+                _resolved_deliverable_id = _mint_deliverable_id_from_title(
+                    title, doc_type, _hnd_repo_root
+                )
                 _hnd_carried_initiative = None
                 _write_deliverable_carry_degradation(
                     _hnd_repo_root, doc_type, _hnd_carry_exc,
@@ -5094,9 +6048,23 @@ def main() -> None:
             # AC9 — sizing-object is the earliest artifact in the
             # deliverable chain (sizing-object.schema.json's own
             # `deliverable_id` description; DR-207 DD#1) and never takes a
-            # carry via any rung — mint, or explicit/env id (already
-            # resolved above this elif chain), only.
-            _resolved_deliverable_id = _mint_deliverable_id_from_title(title, doc_type)
+            # DESCENT carry — no parent rung (session-state stub, cited
+            # sizing, predecessor edge) is admissible here; mint, or
+            # explicit/env id (already resolved above this elif chain).
+            #
+            # Session-chain discovery inside `_mint_deliverable_id_from_title`
+            # is NOT such a rung and is deliberately live here (2026-08-25 bug
+            # record `deliverable-id-minted-from-title-not-discovered`): it
+            # asks co-membership, not descent — "is this session already
+            # authoring a chain" — and it was precisely a sizing scaffolded
+            # beside a live chain that minted the second id that record was
+            # filed for. AC9's "earliest artifact" premise holds only when the
+            # sizing IS the chain root; when it demonstrably is not, minting a
+            # fresh id manufactures a fork rather than defending a root.
+            # `--new-chain` is how an author asserts the root case explicitly.
+            _resolved_deliverable_id = _mint_deliverable_id_from_title(
+                title, doc_type, _current_repo_root()
+            )
         else:
             # AC2/AC9 fallthrough — the carry cascade is the DEFAULT for
             # every OTHER spine-bearing doc_type. Today that is `spinoff`,
@@ -5180,6 +6148,48 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # --summary/--gated-open are handoff-scoped, same posture as
+    # --additional-predecessor above: refused fail-loud for every other
+    # --type rather than silently dropped (cross-repo/inbox/
+    # 2026-08-18-project-rag-em-doc-new-silently-drops-type-inapplicable-flags.md
+    # offered warn-or-refuse; refuse matches the existing
+    # --additional-predecessor precedent, so no third posture is invented).
+    if (
+        args.summary or args.gated_open or args.gate_note or args.gated_predicate
+    ) and doc_type != "handoff":
+        if args.summary:
+            _bad_flag = "--summary"
+        elif args.gated_open:
+            _bad_flag = "--gated-open"
+        elif args.gate_note:
+            _bad_flag = "--gate-note"
+        else:
+            _bad_flag = "--gated-predicate"
+        print(
+            f"coordinator-doc-new: {_bad_flag} is not accepted for --type {doc_type}. "
+            "--summary, --gated-open, --gate-note, and --gated-predicate are "
+            "handoff-only fields.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # --deliverable-ids/--plan-ids are handoff-scoped plural carriers (C1),
+    # same posture as --additional-predecessor/--summary above: refused
+    # fail-loud for every other --type rather than silently dropped (same
+    # cross-repo/inbox/2026-08-18-project-rag-em-doc-new-silently-drops-
+    # type-inapplicable-flags.md precedent).
+    if (args.deliverable_ids or args.plan_ids) and doc_type != "handoff":
+        if args.deliverable_ids:
+            _bad_flag = "--deliverable-ids"
+        else:
+            _bad_flag = "--plan-ids"
+        print(
+            f"coordinator-doc-new: {_bad_flag} is not accepted for --type {doc_type}. "
+            "--deliverable-ids and --plan-ids are handoff-only fields.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # Generate scaffold content.
     if doc_type == "handoff":
         content = _scaffold_handoff(
@@ -5193,6 +6203,12 @@ def main() -> None:
             predecessor_id=args.predecessor_id,
             category=args.category,
             additional_predecessors=args.additional_predecessors,
+            summary=args.summary,
+            gated_open=args.gated_open,
+            gate_note=args.gate_note,
+            gated_predicate=args.gated_predicate,
+            deliverable_ids=args.deliverable_ids,
+            plan_ids=args.plan_ids,
         )
     elif doc_type == "recovery":
         content = _scaffold_recovery(
@@ -5230,6 +6246,7 @@ def main() -> None:
             category=args.category,
             handoff_id=_resolved_handoff_id,
             gate_dependency=args.gate_dependency,
+            sizing_object=("null" if args.no_sizing_object else args.sizing_object),
         )
     elif doc_type == "goal-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -5273,6 +6290,7 @@ def main() -> None:
             deliverable_id=_resolved_deliverable_id,
             initiative=_resolved_initiative,
             sizing_object="null" if args.no_sizing_object else args.sizing_object,
+            problem_set=args.problem_set,
         )
     elif doc_type == "decision":
         content = _scaffold_decision(title=title, dr_id=_resolved_dr_id)
@@ -5424,7 +6442,7 @@ def main() -> None:
                         if _op.startswith(_rr + os.sep) or _op == _rr:
                             _anchored_repo_root = _repo_root_for_relpath
                 else:
-                    # Seam unresolvable (e.g. CLAUDE_KLABAUTER_ROOT not configured on this machine).
+                    # Seam unresolvable (e.g. the engine root not configured on this machine).
                     # Degrade gracefully: fall back to repo-root anchoring so the CLI keeps
                     # working on un-migrated installs. This matches AC13's graceful-skip pattern.
                     _repo_root = _current_repo_root()
@@ -5523,13 +6541,29 @@ def main() -> None:
     try:
         if recording_declared_writes is not None:
             with recording_declared_writes(cwd=_write_repo_root):
-                with open(out_path, "w", encoding="utf-8") as fh:
+                with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(content)
                     if not content.endswith("\n"):
                         fh.write("\n")
                 declare_write(out_path)
+                # The reverse edge is a SECOND file this invocation wrote, on
+                # the calling session's behalf, outside the Edit/Write hot path
+                # that fires `hooks.track_touched_files`. Undeclared, it carries
+                # no `touched.txt` claim at all: `session.scope.compute_scope`
+                # then sees it only through the Step-2 mtime fallback, routes it
+                # to `mtime_only`, and Step 4(c) withholds it from `my_scope` —
+                # so `safe-commit-offer` reports "nothing to commit" over a file
+                # this CLI just dirtied, and the next peer's commit sweeps it.
+                # Declared HERE, not at the write above, for two reasons: the
+                # edge write precedes the collection opening, and it is reverted
+                # when the plan write raises — a declaration inside the `except`
+                # path's blast radius would claim a path that no longer differs
+                # from HEAD. `is not None` (never truthiness): a sizing whose
+                # pre-mutation text was empty is still a landed write.
+                if _sizing_reverse_old_text is not None:
+                    declare_write(_sizing_abs_path)
         else:
-            with open(out_path, "w", encoding="utf-8") as fh:
+            with open(out_path, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(content)
                 if not content.endswith("\n"):
                     fh.write("\n")

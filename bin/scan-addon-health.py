@@ -32,18 +32,16 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported CLI entry.
+    """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
 
     Plain in-process import, not an RPC invoke — cc_invoke's subprocess-spawn
     transport (cc_invoke()/route()) is deliberately NOT used here.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.plugin_health.scan import main as _op_main
 
     return _op_main
@@ -53,7 +51,7 @@ def main() -> None:
     # This script's own docstring contract (line 32)
     # says "Exit 0 always (advisory, never gating)". A sys.exit(1) here would
     # abort a caller (/workday-start, /workstream-start --check-sentinel-
-    # presence at fresh-install bootstrap — exactly when CLAUDE_KLABAUTER_ROOT is most
+    # presence at fresh-install bootstrap — exactly when the engine root is most
     # likely unresolvable) that trusts the "never gating" promise and has no
     # defensive `|| true`. Degrade to a stderr notice and exit 0 instead.
     try:

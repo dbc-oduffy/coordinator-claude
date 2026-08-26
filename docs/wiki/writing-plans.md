@@ -342,6 +342,8 @@ When mid-execution drift blocks an executor (the substrate on disk differs from 
 
 The `Status:` field is **EM-owned** and is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. This is unchanged.
 
+**A plan is authored `draft` and never hand-advanced past it.** The author writes `status: draft` once, at scaffold, and stops — every later rung (`reviewed`, `approved`, `executing`, `landed`, `implemented`) is produced by a ceremony-fired op, never a plan-writing step. See `docs/wiki/coordinator-tripwires/plan-status-ladder.md` for the full rung table and producers; do not add a status-advancing step to a plan or skill on the strength of this section.
+
 **Per-chunk executor in-flight state** lives in a dedicated sidecar at `tasks/<plan-slug>/flight/<chunk-id>.md`, not in the plan body. The EM creates the sidecar at dispatch time; the executor updates it. The plan body is mechanically immutable to executors — a PreToolUse tripwire fires closed on any subagent Edit/Write to `docs/plans/**/*.md`. Do NOT stamp `**Status:**` into a plan section; write to the sidecar instead.
 
 **Disambiguation:** "Plan-body `**Status:**` is EM-owned phase state. Sidecar frontmatter `status:` is executor-owned lifecycle state. These are distinct fields; do not cross-reference."
@@ -392,9 +394,19 @@ Each list item is a task object with the following fields:
 | `case_against` | string | **required for `backlogged`/`wont_do`** | The strongest HONEST case for doing the work now, plus the EM's recommendation, confidence, and what would change it. Written at `plan_tasks.mutate set` — no new verb; see § Both-Sides Deferral Argument below. |
 | `pm_approved` | bool | **LEGACY — read-tolerance only, no live authoring path on a governed plan** | On a plan with no `grouping_approvals` frontmatter block (a legacy plan), this per-row bool is still the gate: `false` or absent on a closed-disposition row (or a legacy `deferred: true` row) is a `plan-coverage-checker` flag. On a **governed** plan (frontmatter carries `grouping_approvals` — see § Grouping Approvals below), this field is not read as authorization at all; ratification lives in the plan-document-level `grouping_approvals` block, one per grouping, and a bare `pm_approved: true` on a row in that plan records nothing the gate consults. `coded` never needed PM sign-off either way — it is evidence of work done, not a scope decision. |
 | `body` | string block | optional | Multi-line detail. Maps to the queue entry's `body` field. |
-| `writes` | array of strings | optional | Repo-relative paths this task writes (plain strings; no glob syntax in this version). Absence means "undeclared," not "writes nothing." This is the surface-vs-write-files-set distinction `surface` points at above: `surface` is the single harvest/coverage primary target, `writes` is the net-new full write set, and write-overlap/wave-map derivation is a pure function of `writes` across the spine's rows. |
+| `writes` | array of strings | **required on every non-deferred row** (`deferred: true` rows are exempt — harvest candidates, never dispatch candidates) | Repo-relative paths this task writes (plain strings; no glob syntax in this version). This is the surface-vs-write-files-set distinction `surface` points at above: `surface` is the single harvest/coverage primary target, `writes` is the net-new full write set, and write-overlap/wave-map derivation is a pure function of `writes` across the spine's rows. **Three spellings; name the one you wrote and never call any of them "empty".** Key **absent**, or **present with no value** (YAML null — colon, then nothing): equivalent, both *not-yet-knowable*. Such a row is not provably disjoint from any other, so it lands in a solo wave, which then refuses at commit time until the row is filled in. `writes: []` is the opposite — a **positive claim that this row writes nothing**: it may share a wave with declared-writes rows, and is excluded from that wave's commit pathspec. |
 | `reads` | array of strings | optional | Repo-relative paths this task reads without writing. Same string-array shape as `writes`. |
-| `external_gate` | array of objects | optional | Declared blockers on work owned by ANOTHER repo — one entry per blocking party. Each entry: `owner_repo` (required, `machine-local repos.*` key form), `condition` (required, prose — what must become true before this row executes), `closure_evidence` (optional — memo path, commit SHA, or probe), `blocks` (optional, enum `execution`\|`ac-closure`, default `execution` — whether the gate blocks the row's execution or only a named acceptance criterion's closure). A sibling field to `depends_on`, not nested in it: an external blocker has no local predecessor row, so it cannot fill `depends_on[].chunk`. NOT for intra-plan edges (use `depends_on`) and NOT a substitute for the write-overlap gate the wave-builder computes from `writes`/`reads`. |
+| `depends_on` | array of objects | optional; **absence is a positive claim of no non-computable gate on this row** | One entry per predecessor row this task's execution is gated on — object shape `{chunk, gate_kind, note?}`, never a bare chunk-id list. Required wherever the author imposes a gate the write-overlap graph cannot derive on its own (never for write-overlap itself — the wave-builder computes that from `writes`/`reads`). Full field shape, valid `gate_kind` values, and a worked example: § Substrate-Migration Sequencing below. |
+| `external_gate` | array of objects | optional | Declared blockers on work owned by ANOTHER repo — one entry per blocking party. Each entry: `owner_repo` (required, bare hyphenated repo shortname; confirm the spelling with `machine-local keys | grep '^repos\.'`; never this repo's own shortname — that's an intra-plan blocker, belongs on `depends_on` — and never a session id), `condition` (required, prose — what must become true before this row executes), `closure_evidence` (optional — memo path, commit SHA, or probe naming HOW closure is or will be verified; clears nothing on its own), `cleared` (optional bool — asserts the gate IS discharged; `cleared: true` clears it outright, `cleared: false` is an explicit negative that overrides a truthy `closure_evidence`), `closure_key` (optional object, `{kind, id}` — the machine-matchable IDENTITY of what discharges the gate, `kind` one of `deliverable`\|`memo-thread`; a reader matches it against a `discharges.closure_key` block on a cross-repo memo from `owner_repo` and may propose the `cleared: true` flip, never perform it), `blocks` (optional, enum `execution`\|`ac-closure`, default `execution` — whether the gate blocks the row's execution or only a named acceptance criterion's closure). A sibling field to `depends_on`, not nested in it: an external blocker has no local predecessor row, so it cannot fill `depends_on[].chunk`. NOT for intra-plan edges (use `depends_on`) and NOT a substitute for the write-overlap gate the wave-builder computes from `writes`/`reads`. |
+
+**Which closure field to write.** Three fields on an `external_gate` entry look related and
+answer different questions: `condition` is reader-facing prose, never machine-evaluated —
+what a human reads to judge the gate. `closure_evidence` names HOW closure is or will be
+verified — a probe, a path, a SHA — and clears nothing by itself. `closure_key` names WHAT
+identity discharges the gate, machine-matchable and writable before the discharge happens.
+`cleared: true` is the one and only clearing path, on both readers. Reaching for
+`closure_evidence` to declare a gate discharged is the common mistake — set `closure_key` for
+identity and flip `cleared: true` to actually clear it.
 
 **Closure needs PM ratification — this is not a self-service escape hatch.** A row resolved to
 `spun_off`, `backlogged`, or `wont_do` is a plan author cutting scope, and that cut needs the
@@ -967,18 +979,21 @@ After saving the plan, it MUST go through one review cycle before execution. Thi
      surfaces. Trimmed to a cite; the two-option decision list is kept because it's pedagogically
      useful in-context. -->
 
-**Default: a fresh/parallel session executes the plan, not this one.** After the plan is reviewed (or
-review is explicitly skipped) and the PM approves execution, the EM stamps the plan frontmatter with
-the authorization-of-record, writes an execution handoff via `/handoff`, and stops — a fresh session
-picks it up and runs `/execute-plan`. See `coordinator/docs/wiki/plan-execute-session-split.md` for
+**Default: a fresh/parallel session executes the plan, not this one.** After the plan is reviewed
+(or review is explicitly skipped), the EM writes an execution handoff via `/handoff` and stops —
+writing (or a successor picking up) the baton is itself the authorization, so no separate PM
+"approve execution" exchange gates it. A fresh session picks it up and runs `/execute-plan`, which
+mints the authorization-of-record from its own invocation. See
+`coordinator/docs/wiki/plan-execute-session-split.md` for
 the full rule, the authorization-stamp fields, the canonical hashing recipe (content-binding via
 `execution_authorized_sha`), the write-bar, and the two sanctioned exceptions (`/autonomous`,
 token-economics carve-out) — this file does not re-derive that mechanism detail.
 
 **"Plan reviewed and saved to `docs/plans/<filename>.md`. Execution options:**
 
-**1. Parallel Session (default)** - Stamp `execution_authorized_*` on the plan, then `/handoff` for a
-fresh session to run `/execute-plan` — batch execution with checkpoints, full context budget
+**1. Parallel Session (default)** - `/handoff` for a fresh session to run `/execute-plan`, which
+mints `execution_authorized_*` on the plan from its own invocation — batch execution with
+checkpoints, full context budget
 
 **2. Executor-Driven (this session, carve-out)** - I dispatch Executor agents per task following
 `docs/wiki/delegate-execution.md`, code review via `/review-code` between tasks, fast iteration — the
@@ -993,9 +1008,9 @@ step 3. See `coordinator/docs/wiki/plan-execute-session-split.md` for the full r
 **Which approach?"**
 
 **If Parallel Session chosen (default):**
-- Stamp the plan frontmatter `execution_authorized_by`/`execution_authorized_at`
 - Write an execution handoff via `/handoff`; stop
-- New session picks it up via `/pickup` and uses `/execute-plan`
+- New session picks it up via `/pickup` and uses `/execute-plan`, which mints the plan frontmatter
+  `execution_authorized_by`/`execution_authorized_at` from that invocation
 
 **If Executor-Driven chosen (carve-out):**
 - Follow `docs/wiki/delegate-execution.md` to dispatch Executor agents

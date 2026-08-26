@@ -14,7 +14,7 @@ an ARBITRARY command, so any repo/runner can opt in with the same one-liner
 regardless of whether it speaks pytest, pnpm, or a bespoke script.
 
 USAGE
-    with-suite-mutex [--owner-label LABEL] -- <command> [args...]
+    with-suite-mutex [--owner-label LABEL] [--max-runtime SECS] -- <command> [args...]
 
     with-suite-mutex -- pnpm run tier:fast
     with-suite-mutex -- python3 -m pytest -m 'not cadence'
@@ -40,7 +40,9 @@ therefore acquired with ``pid=child.pid``, taken from the ``subprocess.Popen``
 handle after spawn.
 
 EXIT CODE is the child's, verbatim — this wrapper never coerces a suite
-failure into a wrapper success or vice versa.
+failure into a wrapper success or vice versa. The ONE exception is the
+``--max-runtime`` ceiling, which kills the child and returns 124: there is no
+child exit code to report in that case, because the child never produced one.
 
 RELEASE ON EVERY EXIT PATH: normal completion, non-zero child exit, an
 exception before/after spawn, and Ctrl-C/SIGINT. Achieved by running the
@@ -85,6 +87,11 @@ Negative-spec — what this wrapper is NOT:
       Do not add runner-specific flag parsing here.
     - NOT a retry loop, a log capturer, or an output filter — stdout/stderr
       are inherited straight from the child, unmodified.
+    - NOT a substitute for the runner's own per-test timeout. ``--max-runtime``
+      is a ceiling on the WHOLE command and fires only when a run has stopped
+      making progress entirely; a slow or hanging individual test is the
+      runner's job (``--timeout`` for pytest) and should be bounded there,
+      where the failure can still name the test.
     - NOT an authorization check — it takes the same mutex the
       ``bash_guards`` deny-side already reads; it does not replace or
       duplicate tier/grant enforcement.
@@ -93,9 +100,11 @@ Negative-spec — what this wrapper is NOT:
 from __future__ import annotations
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
+import time
 from typing import List, Optional, Tuple
 
 import psutil
@@ -118,6 +127,29 @@ require_engine_on_path(__file__)
 from coordinator_core.testing import suite_mutex  # noqa: E402
 
 _DEFAULT_OWNER_PREFIX = "with-suite-mutex"
+
+#: Wall-clock ceiling on a single wrapped command, in seconds. 0 disables it.
+#:
+#: Anchored to ``suite_mutex.STALE_TTL_SECS`` rather than to a number invented
+#: here: that constant is already the module's own answer to "past this age a
+#: holder is not live", so a child outliving it is, by the mutex's own
+#: definition, no longer a holder worth waiting for. Raising one without the
+#: other would let this wrapper defend a lock the lock itself has given up on.
+#:
+#: WHY THIS EXISTS AT ALL, and why no pytest flag replaces it (measured
+#: 2026-08-25 on the fast tier): `--timeout` and `--session-timeout` are both
+#: enforced from inside `pytest_runtest_protocol`, i.e. only while a test is
+#: RUNNING. When an xdist worker dies uninterruptibly (`node down: Not properly
+#: terminated`), the controller blocks in `dsession.loop_once` -> `queue.get()`
+#: and every surviving worker sits idle in `execnet ... serve()`. No test is
+#: running anywhere, so neither timeout can ever fire and the run hangs forever
+#: -- while holding this fleet-wide mutex, which blocks every peer's suite.
+#: Only a bound OUTSIDE pytest closes that, which is what this is.
+_DEFAULT_MAX_RUNTIME_SECS = suite_mutex.STALE_TTL_SECS
+
+#: Exit code for a run killed by the ceiling. 124 is GNU ``timeout``'s, chosen
+#: so an existing caller that already special-cases a timeout keeps working.
+_MAX_RUNTIME_EXIT_CODE = 124
 
 
 def _install_signal_handlers() -> None:
@@ -143,21 +175,26 @@ def _install_signal_handlers() -> None:
             pass
 
 
-def _parse_args(argv: List[str]) -> Tuple[Optional[str], List[str]]:
-    """Parse ``argv`` into ``(owner_label, command)``.
+def _parse_args(argv: List[str]) -> Tuple[Optional[str], float, List[str]]:
+    """Parse ``argv`` into ``(owner_label, max_runtime_secs, command)``.
 
-    Returns ``(None, [])`` (with an error already printed) on a malformed
+    Returns ``(None, 0.0, [])`` (with an error already printed) on a malformed
     invocation — no ``--``, or a ``--`` with nothing after it. Every flag
     MUST appear before the ``--`` separator; nothing after it is
     interpreted, matching ``scoped-git-commit``'s own hard split.
+
+    ``--max-runtime SECS`` overrides ``_DEFAULT_MAX_RUNTIME_SECS``; ``0``
+    disables the ceiling for a caller that genuinely needs an unbounded run.
+    This is NOT runner-specific flag parsing (see the negative-spec above) —
+    it is a bound on the wrapped child whatever that child is.
     """
     if "--" not in argv:
         print(
             "with-suite-mutex: missing required `--` separator before the command.\n"
-            "Usage: with-suite-mutex [--owner-label LABEL] -- <command> [args...]",
+            "Usage: with-suite-mutex [--owner-label LABEL] [--max-runtime SECS] -- <command> [args...]",
             file=sys.stderr,
         )
-        return None, []
+        return None, 0.0, []
 
     sep_index = argv.index("--")
     flags = argv[:sep_index]
@@ -166,19 +203,35 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], List[str]]:
     if not command:
         print(
             "with-suite-mutex: `--` must be followed by at least one command token.\n"
-            "Usage: with-suite-mutex [--owner-label LABEL] -- <command> [args...]",
+            "Usage: with-suite-mutex [--owner-label LABEL] [--max-runtime SECS] -- <command> [args...]",
             file=sys.stderr,
         )
-        return None, []
+        return None, 0.0, []
 
     owner_label: Optional[str] = None
+    max_runtime: float = _DEFAULT_MAX_RUNTIME_SECS
+
+    def _parse_max_runtime(raw: str) -> Optional[float]:
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            print(
+                f"with-suite-mutex: --max-runtime needs a number of seconds, got {raw!r}.",
+                file=sys.stderr,
+            )
+            return None
+        if value < 0:
+            print("with-suite-mutex: --max-runtime cannot be negative.", file=sys.stderr)
+            return None
+        return value
+
     i = 0
     while i < len(flags):
         flag = flags[i]
         if flag == "--owner-label":
             if i + 1 >= len(flags):
                 print("with-suite-mutex: --owner-label requires a value.", file=sys.stderr)
-                return None, []
+                return None, 0.0, []
             owner_label = flags[i + 1]
             i += 2
             continue
@@ -186,13 +239,76 @@ def _parse_args(argv: List[str]) -> Tuple[Optional[str], List[str]]:
             owner_label = flag.split("=", 1)[1]
             i += 1
             continue
+        if flag == "--max-runtime":
+            if i + 1 >= len(flags):
+                print("with-suite-mutex: --max-runtime requires a value.", file=sys.stderr)
+                return None, 0.0, []
+            parsed = _parse_max_runtime(flags[i + 1])
+            if parsed is None:
+                return None, 0.0, []
+            max_runtime = parsed
+            i += 2
+            continue
+        if flag.startswith("--max-runtime="):
+            parsed = _parse_max_runtime(flag.split("=", 1)[1])
+            if parsed is None:
+                return None, 0.0, []
+            max_runtime = parsed
+            i += 1
+            continue
         print(f"with-suite-mutex: unrecognized flag {flag!r}.", file=sys.stderr)
-        return None, []
+        return None, 0.0, []
 
-    return owner_label, command
+    return owner_label, max_runtime, command
 
 
-def _wait_interruptible(process: "subprocess.Popen[bytes]") -> int:
+def _kill_process_tree(process: "subprocess.Popen[bytes]") -> int:
+    """Terminate ``process`` AND its descendants; return how many were killed.
+
+    Killing only the direct child is not enough for any runner that spawns
+    its own workers. pytest-xdist is the case this was written against: the
+    controller is the direct child, but the worker processes are ITS
+    children, and they do not exit when it dies -- they sit in
+    ``execnet ... serve()`` waiting for a controller that is gone, holding
+    real memory on a box with dozens of concurrent sessions. Observed
+    2026-08-25: killing the controller by hand left six orphaned workers
+    that each had to be killed individually.
+
+    Best-effort by construction: a process that exits between enumeration
+    and signalling raises ``NoSuchProcess``, which is the outcome we wanted
+    anyway, and one we cannot signal raises ``AccessDenied``. Neither is
+    worth failing the kill path over, so both are swallowed per-process.
+    """
+    try:
+        parent = psutil.Process(process.pid)
+        victims = parent.children(recursive=True) + [parent]
+    except psutil.Error:
+        victims = []
+
+    for victim in victims:
+        try:
+            victim.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    _gone, alive = psutil.wait_procs(victims, timeout=10)
+    for victim in alive:
+        try:
+            victim.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    psutil.wait_procs(alive, timeout=5)
+
+    if process.poll() is None:
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+    return len(victims)
+
+
+def _wait_interruptible(
+    process: "subprocess.Popen[bytes]", max_runtime: float = 0.0
+) -> int:
     """Wait for ``process`` to exit while staying responsive to signals.
 
     ``Popen.wait()`` with no timeout blocks inside a single uninterruptible
@@ -202,17 +318,40 @@ def _wait_interruptible(process: "subprocess.Popen[bytes]") -> int:
     defeats this wrapper's release-on-interrupt contract. Polling with a
     short timeout instead gives the interpreter a periodic chance to notice
     a pending signal and raise, on every platform.
+
+    ``max_runtime`` (seconds; ``0`` disables) is a wall-clock ceiling on the
+    child. On expiry the child's whole process tree is killed and
+    ``_MAX_RUNTIME_EXIT_CODE`` is returned, so the surrounding
+    ``suite_mutex.held(...)`` unwinds normally and RELEASES the lock. That
+    release is the point: the failure this bounds is a child that stops
+    making progress while still holding a machine-wide mutex, which converts
+    one session's wedge into every peer's.
     """
+    deadline = (time.monotonic() + max_runtime) if max_runtime > 0 else None
     while True:
         try:
             return process.wait(timeout=0.25)
         except subprocess.TimeoutExpired:
+            if deadline is not None and time.monotonic() >= deadline:
+                killed = _kill_process_tree(process)
+                print(
+                    "with-suite-mutex: killed the command after "
+                    f"{int(max_runtime)}s ({killed} process(es)) and released the "
+                    "suite mutex. A run this long is not slow, it is stuck. "
+                    "pytest's --timeout and --session-timeout only fire while a test "
+                    "is RUNNING, so an xdist worker dying uninterruptibly hangs the "
+                    "run with no test in flight and no timeout able to fire. "
+                    "Diagnose with: py-spy dump --pid <controller-pid>. "
+                    "Raise or disable this ceiling with --max-runtime SECS (0 = unbounded).",
+                    file=sys.stderr,
+                )
+                return _MAX_RUNTIME_EXIT_CODE
             continue
 
 
 def main(argv: List[str]) -> int:
     _install_signal_handlers()
-    owner_label, command = _parse_args(argv)
+    owner_label, max_runtime, command = _parse_args(argv)
     if not command:
         return 2
 
@@ -230,6 +369,19 @@ def main(argv: List[str]) -> int:
     # right call for a fire-and-forget background spawn (CLAUDE.md's Windows
     # console-subprocess-discipline default) but wrong here, where visible,
     # live output IS the requirement -- see the module docstring.
+    # CreateProcess does no PATHEXT resolution, so a bare `pnpm`/`npm`/`yarn`/
+    # `npx` -- all of which ship on Windows as `.cmd` shims -- raises
+    # WinError 2 here while resolving fine from a shell. shutil.which honours
+    # PATHEXT and returns the shim's real path. Resolution is deliberately
+    # fail-open: which() returning None leaves `command` untouched so a
+    # genuinely-absent binary still surfaces Popen's own FileNotFoundError
+    # naming it, rather than a substituted error from this lookup. shell=True
+    # is NOT the fix -- it would re-parse the already-split argv and mangle any
+    # argument containing a space or quote.
+    resolved = shutil.which(command[0])
+    if resolved is not None:
+        command = [resolved, *command[1:]]
+
     process = subprocess.Popen(command)
     try:
         ps_process = psutil.Process(process.pid)
@@ -298,7 +450,7 @@ def main(argv: List[str]) -> int:
                 ps_process.resume()
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 pass
-            return _wait_interruptible(process)
+            return _wait_interruptible(process, max_runtime)
     except BaseException:
         # Review: coordinator:code-reviewer -- covers KeyboardInterrupt AND
         # every other exception (lock-file I/O error, corrupt meta.json,

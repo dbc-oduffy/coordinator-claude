@@ -97,15 +97,18 @@ import argparse
 import glob
 import os
 import subprocess
+from pathlib import Path as _Path
 import sys
+import tempfile
 import time
+import uuid
 from typing import Optional
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
@@ -125,14 +128,12 @@ _NON_SESSION_DIR_NAMES = {".git", "__pycache__"}
 
 
 def _resolve_session_live():
-    """Import coordinator_core.session.liveness.session_live via CLAUDE_KLABAUTER_ROOT.
+    """Import coordinator_core.session.liveness.session_live via the engine root.
 
     In-process import (no subprocess, no bash) — same trampoline shape as
     reap-orphaned-in-flight-handoffs.py's _resolve_session_live.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.session.liveness import session_live
     return session_live
 
@@ -174,12 +175,61 @@ def _age_days(path: str, now: float) -> float:
     return max(0.0, (now - mtime) / 86400.0)
 
 
-def _is_tracked(repo_root: str, rel_path: str) -> bool:
+def _write_pathspec_file(paths: list) -> str:
+    """Write ``paths`` to a uniquely-named temp file, one per line, and
+    return its path — the newline-delimited input ``git ...
+    --pathspec-from-file=<f>`` expects by default. Mirrors
+    ``coordinator_core.ops.ceremony.git_native._write_pathspec_file``'s own
+    convention (PID+uuid uniqueness, newline-delimited: no path this op
+    ever reaps — a session-id dir plus a sidecar key — contains a literal
+    newline byte).
+
+    Sidesteps the ~32KB Windows ``CreateProcess`` command-line ceiling
+    (WinError 206) that an argv-list ``git rm``/``git commit -- <paths>``
+    hits once the tracked-reap population is large (measured live: 6617
+    tracked sidecars under ``state/subagent-share/``, 621047 bytes of
+    pathspec argv — 19x the limit). ``--pathspec-from-file`` is supported
+    by both ``git rm`` and ``git commit`` since git 2.25, and — unlike
+    chunking — keeps the tracked-reap commit atomic: one commit for the
+    whole population, not one per chunk. Caller owns cleanup
+    (``finally: os.remove(path)``).
+    """
+    pathspec_path = os.path.join(
+        tempfile.gettempdir(), f"reap-stale-sidecars-pathspec-{os.getpid()}-{uuid.uuid4().hex}.txt"
+    )
+    with open(pathspec_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(paths) + "\n")
+    return pathspec_path
+
+
+def _tracked_paths(repo_root: str, rel_paths: list, under: str = "state/subagent-share") -> set:
+    """Batched tracked-check: one `git ls-files` spawn scoped to `under`
+    (the whole reap subtree) instead of one `--error-unmatch` probe per
+    file. `git ls-files` has no `--pathspec-from-file` support (verified
+    live — `error: unknown option`, unlike `git rm`/`git commit`), so an
+    argv-list `-- <paths>` would still hit the ~32KB Windows `CreateProcess`
+    ceiling at reap-population scale (§ `_write_pathspec_file`). Naming the
+    single directory instead keeps this to one fixed-size spawn regardless
+    of candidate count — every path this script ever reaps lives under
+    `under` by construction (it is `share_dir`, relative to `repo_root`).
+
+    `git ls-files` always echoes matches in POSIX (forward-slash) form even
+    when fed a backslash-separated pathspec on Windows — a raw string
+    comparison against a Windows `os.path.relpath` value silently matches
+    nothing. Both legs go through `.as_posix()` before comparing; the
+    returned set keeps the caller's original (possibly backslash) strings
+    so callers need no format awareness."""
+    if not rel_paths:
+        return set()
     result = subprocess.run(
-        ["git", "ls-files", "--error-unmatch", "--", rel_path],
+        ["git", "ls-files", "--", _Path(under).as_posix()],
         cwd=repo_root, capture_output=True, text=True, check=False, **no_console_creationflags(),
     )
-    return result.returncode == 0
+    if result.returncode != 0:
+        return set()
+    tracked_posix = {line for line in result.stdout.splitlines() if line}
+    posix_by_orig = {rel: _Path(rel).as_posix() for rel in rel_paths}
+    return {rel for rel, posix in posix_by_orig.items() if posix in tracked_posix}
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -270,11 +320,14 @@ def main(argv: Optional[list] = None) -> int:
             print(f"{preserved_too_young} sidecar(s) retained (younger than {age_floor_days}-day age floor)")
         return 0
 
+    rel_by_file = {f: os.path.relpath(f, repo_root) for f in to_reap}
+    tracked_rels = _tracked_paths(
+        repo_root, list(rel_by_file.values()), under=os.path.relpath(share_dir, repo_root)
+    )
     tracked_to_reap = []
     untracked_to_reap = []
     for f in to_reap:
-        rel = os.path.relpath(f, repo_root)
-        if _is_tracked(repo_root, rel):
+        if rel_by_file[f] in tracked_rels:
             tracked_to_reap.append(f)
         else:
             untracked_to_reap.append(f)
@@ -302,27 +355,40 @@ def main(argv: Optional[list] = None) -> int:
 
     if tracked_to_reap:
         tracked_rel = [os.path.relpath(f, repo_root) for f in tracked_to_reap]
-        rm_res = subprocess.run(
-            ["git", "rm", "-q", "--", *tracked_rel], cwd=repo_root,
-            capture_output=True, text=True, check=False, **no_console_creationflags(),
-        )
-        if rm_res.returncode != 0:
-            sys.stderr.write(rm_res.stderr)
-            return rm_res.returncode
-
-        commit_msg = f"reap {len(tracked_to_reap)} stale subagent-share sidecar(s)"
-        commit_res = subprocess.run(
-            ["git", "commit", "-q", "-m", commit_msg, "--", *tracked_rel], cwd=repo_root,
-            capture_output=True, text=True, check=False, **no_console_creationflags(),
-        )
-        if commit_res.returncode != 0:
-            sys.stderr.write(
-                f"reap-stale-subagent-sidecars.py: git commit failed after git rm — "
-                f"{len(tracked_to_reap)} sidecar(s) staged for deletion, not committed:\n"
+        # --pathspec-from-file=<f> instead of a full argv pathspec list --
+        # see _write_pathspec_file's docstring: at scale (thousands of
+        # tracked sidecars) the argv form blows Windows's ~32KB
+        # CreateProcess command-line ceiling (WinError 206). One pathspec
+        # file feeds both calls, preserving single-commit atomicity.
+        pathspec_file = _write_pathspec_file(tracked_rel)
+        try:
+            rm_res = subprocess.run(
+                ["git", "rm", "-q", f"--pathspec-from-file={pathspec_file}"], cwd=repo_root,
+                capture_output=True, text=True, check=False, **no_console_creationflags(),
             )
-            for f in tracked_to_reap:
-                sys.stderr.write(f"  {f}\n")
-            return commit_res.returncode
+            if rm_res.returncode != 0:
+                sys.stderr.write(rm_res.stderr)
+                return rm_res.returncode
+
+            commit_msg = f"reap {len(tracked_to_reap)} stale subagent-share sidecar(s)"
+            commit_res = subprocess.run(
+                ["git", "commit", "-q", "-m", commit_msg, f"--pathspec-from-file={pathspec_file}"],
+                cwd=repo_root,
+                capture_output=True, text=True, check=False, **no_console_creationflags(),
+            )
+            if commit_res.returncode != 0:
+                sys.stderr.write(
+                    f"reap-stale-subagent-sidecars.py: git commit failed after git rm — "
+                    f"{len(tracked_to_reap)} sidecar(s) staged for deletion, not committed:\n"
+                )
+                for f in tracked_to_reap:
+                    sys.stderr.write(f"  {f}\n")
+                return commit_res.returncode
+        finally:
+            try:
+                os.remove(pathspec_file)
+            except OSError:
+                pass
         for f in tracked_to_reap:
             print(f"reaped {f}")
 

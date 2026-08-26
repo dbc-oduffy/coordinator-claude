@@ -41,16 +41,17 @@ Every cluster gets exactly one verdict — no "we'll see". Inverse coverage (ver
 Step 2.6's job (below).
 
 1. Inventory every input file (title + summary) → `state/roadmap/<run-id>/inventory.md`.
-2. Cluster into what-one-stub-could-cover units (typically 20–60/roadmap); a sub-floor cluster
-   folds into a sibling here, pre-verdict (wiki: grain-fold vs. MERGE) →
-   `state/roadmap/<run-id>/clusters.md`.
+2. Cluster into coverage units (typically 20–60/roadmap); a sub-floor cluster folds into a
+   sibling here, pre-verdict (wiki: grain-fold vs. MERGE) → `state/roadmap/<run-id>/clusters.md`.
+   **A cluster is a unit of coverage accounting, never a unit of dispatch** — how many batons
+   these become is Step 2.1.6's call, not this step's.
 3. Verdict each cluster — MERGE / DEFER / KEEP / DROP / MOVE — into
    `state/roadmap/<run-id>/reconciliation.md`. Verdict count must equal cluster count.
 4. Conflicts → `state/roadmap/<run-id>/COORDINATOR-RESOLUTIONS.md` (template:
    `residue/coordinator-resolutions-format.md`), authoritative over any stub.
 
-**Exit:** inventory + verdicts complete and balanced; resolutions doc present if conflicts;
-sub-floor KEEP clusters explain why they didn't fold.
+**Exit:** inventory + verdicts complete and balanced; resolutions doc present if conflicts; every
+sub-floor cluster folded or dispatched — a rationale is not a disposition.
 
 ---
 
@@ -90,28 +91,50 @@ final-approved`.
 
 **Entry:** OVERVIEW `status: final-approved`, Phase 1.5 exit checked — else STOP, return to Phase 1.5.
 
-2.1. Scaffold each stub:
-   `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
+2.1. Scaffold each stub (Shape W, `snippets/resolve-coordinator-bin.md`):
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
    mint the id (`bin/mint-deliverable-id --stub-id "<slug>-<N>"` → `deliverable_id:`), fill the rest
    from Step 2.1.5's numbering output. **Read `residue/stub-frontmatter-schema-and-field-notes.md`
    first.**
-2.1.5. Number stubs in dependency order before writing any — run
-   `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/roadmap-number-stubs" <edges-file>`
+2.1a. **Carry the size forward — pass `--sizing-object <the object that routed this roadmap>`.** A
+   stub minted without it reads as unsized downstream and `plan` trampolines it back to the lobby,
+   re-litigating a size this roadmap already made: 2.1.6 assigns every stub its own `loe:`, and the
+   roadmap itself arrived through the lobby. Sizing is not re-run on a stub. After scaffolding,
+   confirm `sizing_object:` is actually present in the stub's frontmatter — if it is not, stamp it
+   by hand rather than trusting the flag silently took effect. Tripwire:
+   `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
+2.1.5. Number stubs in dependency order before writing any — run (Shape W,
+   `snippets/resolve-coordinator-bin.md`)
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\roadmap-number-stubs.cmd" <edges-file>`
    and transcribe its `N`/`sprint`/`wave` output verbatim (multi-sprint boundary assignment is hand
    judgment it doesn't resolve). Covers only DECLARED edges. Format + the dependency-order
    invariant it enforces: wiki.
+2.1.6. **Fold to size — the baton is the parallel wave, not the idea.** Runs on 2.1.5's `wave`
+   output; sets how many stubs 2.1 scaffolds. `loe:` is the whole-baton t-shirt read.
+   - **Band: mostly M and L.** XS/S never ship alone — group them into one baton. XL only where a
+     group cannot cut smaller. An XXL stub means the roadmap is mis-made; go back to Phase 1.
+   - **Collapse the wave.** Same wave + pairwise-disjoint `scope:` + no `blocked_by` between
+     members → one baton, several specs. Same-file units never split, in any wave.
+   - **Split only on a real barrier** — a gate that cannot clear until the first half lands, or a
+     decision the first half's output determines.
+   - **Re-price on scope change**, or a stale size routes a go-do-it through a full lifecycle.
+
+   Distinct ideas are sections, never batons; each keeps its cluster id in `covers:`.
 2.2. Body, per stub, in order: title; why-its-own-session paragraph; `## What this covers`; `##
    Reference materials (read first)` (cite `OVERVIEW.md § <name>` + research-corpus, by name never
    number); `## Specification`; `## Acceptance criteria`; `## Recommended next steps for the
    picking-up EM` (3–7); `## Anti-scope`; `## Soft seams` (may be `- None identified`, must be
    present); trailing `<!-- roadmap-baton: <run-id> <stub_id> by roadmap-planning -->`.
 2.3. `STUB-INDEX.md` — a query callout, never a hand table (template + rationale: wiki).
-2.4. Before any fan-out: run `audit-roadmap <run-id>`; then **judgment residue it cannot check** —
-   confirm every wave-N stub set is file-disjoint per `scope:`, the one unconditional serial gate.
+2.4. Before any fan-out: run `audit-roadmap <run-id>`; then **what it cannot check** —
+   confirm every wave-N stub set is file-disjoint per `scope:`. Disjointness is now a *merge*
+   predicate spent at 2.1.6, so any disjoint pair surviving here is an un-run fold, not a
+   licensed parallelism: fold it and re-number.
 2.5. `pm-gates.md` — one row per stub whose `blocking_notes`/`gate_dependency` carries a
    product-coupled signal (`PM `-prefix, named stakeholder, decision/approval/policy/scope/
    user-facing language). Template + detection rule: wiki.
-2.6–2.7. Phase 2 close: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/audit-roadmap" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
+2.6–2.7. Phase 2 close (Shape W, `snippets/resolve-coordinator-bin.md`):
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.cmd" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
    offender. `kind: roadmap-baton` frontmatter is also `bin/lint-frontmatter`-clean.
 2.8. Sequential reviews — same altitude rule and sidecar contract as Step 1.5.5. Domain reviewer
@@ -119,10 +142,10 @@ final-approved`.
    stub becomes a downstream `coordinator:plan` that re-applies the lens at PLAN altitude — record
    the skip rationale in the roadmap dir.
 
-**Exit:** every KEEP cluster stubbed and cited; frontmatter validator-clean, `## Soft seams`
-present; STUB-INDEX regenerates; resolutions doc covers every conflict; `audit-roadmap <run-id>`
-exits 0; primary review integrated, domain integrated or its skip recorded; Step 2.4's
-disjointness check done.
+**Exit:** every KEEP cluster named in exactly one stub's `covers:`; every stub `loe:` M–XL;
+frontmatter validator-clean, `## Soft seams` present; STUB-INDEX regenerates; resolutions doc
+covers every conflict; `audit-roadmap <run-id>` exits 0; primary review integrated, domain
+integrated or its skip recorded; Step 2.4's disjointness check done.
 
 ---
 

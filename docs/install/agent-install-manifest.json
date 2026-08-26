@@ -69,6 +69,25 @@
       "reference": "coordinator/docs/wiki/notebooklm-for-your-research.md"
     }
   ],
+  "required_local_surfaces": [
+    {
+      "id": "statusline-registration",
+      "description": "The `statusLine` key in `~/.claude/settings.json`, registering coordinator/bin/statusline.py as the Claude Code harness's status-line command. This is a MACHINE-LOCAL registration written INTO the operator's ~/.claude, not a repo artifact -- a `git pull` cannot carry it, so it must be re-performed on every machine and goes missing silently when work is authored on one host and pulled on another (distinct from required_mcp_surfaces, which probes marketplace-plugin/external-server enablement, and required_env_vars, which probes shell environment).",
+      "why": "coordinator/bin/statusline.py is the sole producer of the per-session context-window sidecar under $COORDINATOR_SETTINGS_HOME/state/context-window/, and the harness statusline stdin is the ONLY surface exposing live context usage (see coordinator/docs/wiki/anthropic-harness-capability-map.md, the /usage row). Claude-klabauter's context-pressure advisory is a declared consumer of that sidecar's shape -- without this registration it silently loses its only source of live context usage and the operator loses the context gauge.",
+      "tier": "semi-hard",
+      "probe": {
+        "kind": "json_key_present",
+        "location": "install_root",
+        "relative_path": "settings.json",
+        "json_path": "statusLine"
+      },
+      "install": {
+        "mode": "manual",
+        "remediation": "set statusLine in ~/.claude/settings.json to a `type: command` entry invoking <repo>/coordinator/bin/statusline.py by absolute path through a real python (e.g. {\"type\": \"command\", \"command\": \"python /absolute/path/to/coordinator/bin/statusline.py\"}). If statusLine already carries a different value, relocate it -- do not clobber an existing registration."
+      },
+      "reference": "coordinator/docs/wiki/anthropic-harness-capability-map.md"
+    }
+  ],
   "required_env_vars": [],
   "override_flags": {
     "skip_dep_check": "--skip-dep-check",

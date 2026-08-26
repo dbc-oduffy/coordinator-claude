@@ -34,7 +34,7 @@ and is never emitted by the claude-klabauter module itself):
         unwriteable, a `git add`/`git rm --cached`/`git commit` failed).
     2 — clear-wins handled; source-tree or ambiguous paths remain (needs
         PM attention — printed as `NEEDS-PM` on stdout).
-    3 — transport failure (CLAUDE_KLABAUTER_ROOT resolution failed, or
+    3 — transport failure (engine-root resolution failed, or
         coordinator_core.ops.workday_complete_step2_5_dirty_tree not
         importable) — a dedicated code, per code-review Finding 2
         (A3b), so a caller can distinguish "this machine's install/
@@ -53,13 +53,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the run-op runner.
+    """Resolve the engine root, put it on sys.path, and import the run-op runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -71,9 +71,7 @@ def _import_runner():
     writes (the `.gitignore` append) is an orphan at the `scoped_git_commit`
     sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -86,7 +84,7 @@ def main() -> None:
         # Review: code-reviewer (F2) — rc=3 is a dedicated transport-failure code,
         # distinct from the module's own business codes (0/1/2), per A3b.
         print(
-            f"workday-complete-step2_5-dirty-tree.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"workday-complete-step2_5-dirty-tree.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(3)

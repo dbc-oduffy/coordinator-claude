@@ -29,6 +29,11 @@ import os
 import re
 import subprocess
 import sys
+
+_LIB_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1229,7 +1234,7 @@ def save_cache(cache_path: Path, cache: dict):
     os.makedirs(cache_path.parent, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=cache_path.parent, suffix=".tmp")
     try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8", newline="\n") as f:
             json.dump(cache, f, indent=2)
         os.replace(tmp_path, cache_path)
     except BaseException:
@@ -1564,7 +1569,7 @@ def generate_task_scoped_map(
     os.makedirs(output_path.parent, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=output_path.parent, suffix=".tmp")
     try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(output_text)
         os.replace(tmp_path, output_path)
     except BaseException:
@@ -1781,7 +1786,7 @@ def generate_repomap(
     os.makedirs(output_path.parent, exist_ok=True)
     tmp_fd, tmp_path = tempfile.mkstemp(dir=output_path.parent, suffix=".tmp")
     try:
-        with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+        with os.fdopen(tmp_fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(output_text)
         os.replace(tmp_path, output_path)
     except BaseException:
@@ -1824,12 +1829,18 @@ def find_git_root(start: Path) -> Path | None:
     raises.
     """
     try:
+        # Without this the import cannot succeed on the published mirror,
+        # where coordinator_core is not pip-installed. RuntimeError joins the
+        # except tuple so an unresolvable root still DEGRADES rather than
+        # raises — this script ships standalone-runnable, per the docstring
+        # above.
+        require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 
         top = show_toplevel(str(start))
         if top:
             return Path(top)
-    except (ImportError, OSError, subprocess.TimeoutExpired):
+    except (ImportError, OSError, RuntimeError, subprocess.TimeoutExpired):
         pass
     return None
 

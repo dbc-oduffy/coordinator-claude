@@ -89,7 +89,7 @@ from pathlib import Path
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
     import workday_ceremony_lib as wc  # noqa: E402
-    from cc_invoke import _resolve_claude_klabauter_root, child_env  # noqa: E402
+    from cc_invoke import child_env, require_dispatch_engine_on_path  # noqa: E402
 except Exception:
     import traceback
     print("CRASH")
@@ -123,9 +123,7 @@ def _err(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _ensure_claude_klabauter_on_path() -> None:
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
 
 
 # ---------------------------------------------------------------------------
@@ -428,11 +426,11 @@ def main(argv: list[str]) -> int:
         return 0
 
     # Native-module availability guard (daily_branch, machine_resolver, daily_day all
-    # resolve via the same CLAUDE_KLABAUTER_ROOT ladder).
+    # resolve via the same engine-root ladder).
     try:
         _ensure_claude_klabauter_on_path()
     except RuntimeError as exc:
-        _err(f"ERROR: daily-branch native module unreachable — CLAUDE_KLABAUTER_ROOT resolution failed: {exc}")
+        _err(f"ERROR: daily-branch native module unreachable — engine-root resolution failed: {exc}")
         return 1
     from coordinator_core.daily_branch import parse_branch_span, rename_target, should_prompt_rename
     from coordinator_core.daily_day import local_day
@@ -500,7 +498,13 @@ def main(argv: list[str]) -> int:
     except SuffixCollisionError as exc:
         _err(f"ERROR: {exc}")
         return 1
-    if ensure.result == "FRESH-CUT":
+    if ensure.result in ("FRESH-CUT", "ADOPTED-EXISTING", "INHERITED"):
+        # ADOPTED-EXISTING (today's branch already existed and HEAD was at its
+        # tip) and INHERITED (another session won the cut lock) are the same
+        # settled-on-a-day-branch terminal as FRESH-CUT: the invariant HOLDS.
+        # They are deliberately NOT folded into REFUSED-LIVE-PEERS, which
+        # reports the opposite state -- see session_ensure_branch's negative
+        # spec on the result vocabulary.
         return _exec_reconcile()
     if ensure.result == "REFUSED-LIVE-PEERS":
         # Settled-on-this-branch terminal, same shape as FRESH-CUT and

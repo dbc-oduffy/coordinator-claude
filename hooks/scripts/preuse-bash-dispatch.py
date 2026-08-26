@@ -328,6 +328,18 @@ def _pre_repo_setup(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
     return "repo-setup-args-and-register" in cmd or "scaffold_structure" in cmd
 
 
+def _pre_host_bash_ban(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
+    """Bash only, and only when the payload carries a subagent `agent_id`.
+
+    Deliberately NOT keyed on `cmd` — this guard's predicate is *who is calling which tool*, not
+    what the command says, so a command-text precondition would be the wrong filter entirely. The
+    `agent_id` read happens inside the guard rather than here because this signature only receives
+    the tool name and command; the tool-name test alone already skips every PowerShell call, which
+    is the bulk of shell traffic on the host that opts in.
+    """
+    return tool_name == "Bash"
+
+
 @dataclass(frozen=True)
 class _BashGuard:
     module_key: str
@@ -342,6 +354,12 @@ _BASH_GUARD_REGISTRY: "Tuple[_BashGuard, ...]" = (
                _pre_doctrine_surface),
     _BashGuard("guard_repo_setup_claude_home_refusal", "guard-repo-setup-claude-home-refusal.py",
                _pre_repo_setup),
+    # Host-opt-in only (`subagent_bash_policy: deny` in coordinator.local.md) and inert everywhere
+    # else, so ordering against the two above is not policy-significant: their predicates key on
+    # command text, this one on caller identity. Last because it is the newest, not because it is
+    # the weakest.
+    _BashGuard("guard_host_subagent_bash_ban", "guard-host-subagent-bash-ban.py",
+               _pre_host_bash_ban),
 )
 
 
@@ -476,7 +494,7 @@ def _run_folded_bash_guards(raw: str) -> "Optional[int]":
 
 
 def main() -> int:
-    # SECURITY BOUNDARY, not only a cold-start optimization: this function
+    # SAFETY BARRIER, not only a cold-start optimization: this function
     # runs as a FRESH subprocess per PreToolUse(Bash) event, reads the
     # candidate command from stdin as inert text, and never shell-execs it
     # -- so no COORDINATOR_OVERRIDE_*/COORDINATOR_ALLOW_* env var a subagent

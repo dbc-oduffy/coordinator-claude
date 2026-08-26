@@ -57,7 +57,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 # SCRIPT_DIR-relative repo root — this file lives at <repo>/coordinator/bin/,
 # so its grandparent is <repo>. Matches the retired bash body's
@@ -69,9 +69,9 @@ _DOE_REPO_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_DIR))
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported CLI entry.
+    """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -87,9 +87,7 @@ def _import_main():
     `coordinator_core.cli_entry.recording_declared_writes`, the sanctioned
     seam for exactly this case (see that context manager's own docstring).
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.ops.promote_shipped_in_flight_stubs import main as _op_main
 

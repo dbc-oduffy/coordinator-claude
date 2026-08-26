@@ -11,13 +11,19 @@ hand-run the old snapshot-rollback runbook** for anything this command covers.
 
 ## Backing script
 
-No settings-home forwarder for this script — resolve the engine root yourself: `CLAUDE_KLABAUTER_ROOT` env
-override, then `REPO_CLAUDE_KLABAUTER` env override, then
-`"${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}/bin/machine-local" get repos.claude_klabauter`.
+No settings-home forwarder for this script — resolve the engine root yourself: `REPO_CLAUDE_KLABAUTER`
+env override (repo-identity, stays first), then the engine-root rung — `COORDINATOR_ENGINE_ROOT`
+(the name is not
+permanent; the dual-read window closes onto a single rung)
+— then (rung 0 / Shape W, PowerShell hosts)
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter`.
 None resolving to an existing directory: stop, report "engine root unresolved — set
 REPO_CLAUDE_KLABAUTER, or run: `machine-local set repos.claude_klabauter <path>`".
 
-Invoke: `"${COORDINATOR_PYTHON:-python3}" "<resolved-engine-root>/coordinator/bin/coordinator-uninstall.py" [OPTIONS]`.
+Python interpreter: `COORDINATOR_PYTHON` env override, else `python3`.
+
+Invoke (PowerShell): `& $env:COORDINATOR_PYTHON "<resolved-engine-root>\coordinator\bin\coordinator-uninstall.py" [OPTIONS]`
+(`python3` when unset).
 
 Every leg is idempotent and fail-loud on ambiguity.
 
@@ -62,10 +68,6 @@ current behaviour. Until each leg ships, treat it as a manual-cleanup checklist 
 set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale for each: wiki
 (`uninstall-reversal-rationale`).
 
-<!-- Review: code-reviewer bad07211 — items 11-24 dropped disposition/manual-command detail is a
-disposition deletion, not a legitimate wiki relocation; restored from pre-cut history
-(a0d82baf5^:coordinator/commands/uninstall.md). Only surrounding rationale stays in wiki. -->
-
 11. **Windows Defender process exclusions** — CANNOT-REVERSE-SAFELY. Roll back manually, elevated,
     per resolved toolchain path: `Remove-MpPreference -ExclusionProcess "<path>"` for each of
     `bash.exe`, `git.exe`, `sh.exe`, `python.exe`, `pythonw.exe` that was excluded (no-op if never
@@ -92,7 +94,8 @@ disposition deletion, not a legitimate wiki relocation; restored from pre-cut hi
     certain nothing else needs it: delete the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` entry from
     `~/.claude/settings.json`'s `env` block.
 19. **`settings.local.json` sibling-plugin seeds** — DELIBERATELY-NOT-REVERSED. Manual per key: set
-    the specific `<plugin>@<marketplace>` entry to `false` in `~/.claude/settings.local.json`.
+    the specific `<plugin>@<marketplace>` entry to `false` under `~/.claude/settings.local.json`'s
+    `enabledPlugins` block.
 20. **`~/.claude/CLAUDE.md` personal-layer seed** — DELIBERATELY-NOT-REVERSED. No manual command
     offered.
 21. **`scaffold_structure` doc-structure output** — DELIBERATELY-NOT-REVERSED. No manual command
@@ -100,11 +103,31 @@ disposition deletion, not a legitimate wiki relocation; restored from pre-cut hi
 22. **`coordinator-setup-state.yaml` receipt** — REVERSE via
     `coordinator-setup-state clear setup_concluded`, or delete the file if it holds no other
     milestones.
-23. **Discovered-repo `repos.*` entries** — DELIBERATELY-NOT-REVERSED. Not swept by any flag.
+23. **Discovered-repo `repos.*` entries** — DELIBERATELY-NOT-REVERSED. Not swept by any flag:
+    `repos.*` is general-purpose sibling-repo addressing infra, useful independent of
+    coordinator, and other tooling may already depend on entries seeded here.
 24. **Four project-repo writes** — REVERSE, driven by a new install-time record
     (`coordinator.installed_repos`). Interactive: offers removal of `.claude/em-context.md`, the
     `.gitignore` append (only if byte-identical), `coordinator.local.md`, the currency stamp.
     `--non-interactive`: reports, does not touch.
+25. **Git Bash fast-profile block** (Windows) — CANNOT-REVERSE-SAFELY from here: the block lives in
+    Git-for-Windows' own `/etc/profile`, inside the install root, so removing it needs elevation.
+    Roll back manually from an elevated terminal:
+    `python "<plugin-root>\templates\bin\install-git-bash-fast-profile.py" --uninstall` — it strips
+    the block and round-trips the file to byte-identical stock (no-op if never installed).
+26. **`~/.local/bin` PATH block** — REVERSE. `install-substrate.py` Step 3e appends a
+    sentinel-guarded block putting `~/.local/bin` on PATH for the standalone `claude` CLI. Strip
+    the sentinel-guarded region from the interactive rc; fail loud on a hand-modified block, and
+    leave `~/.local/bin` itself and anything in it alone — the directory is the operator's, not
+    coordinator's.
+27. **Machine and contributor slugs** — REVERSE. Clear `coordinator.machine_slug` and
+    `coordinator.contributor_slug` from the machine-local registry, each only if unchanged
+    since install.
+28. **Step Zero environment normalization** — CANNOT-REVERSE-SAFELY. `normalize-env.py` installs
+    toolchains (uv, Python) and sets global `git config core.longpaths` that the operator's other
+    work may now depend on; nothing here removes them. The one file leg it backs up is reversed
+    manually with `normalize-env.py --restore <backup-file>` — the backup path is printed at
+    install time.
 
 ## Uninstall boundary
 
@@ -113,8 +136,10 @@ never the root via a blanket sweep. Full detail: wiki.
 
 ## Verification after running
 
-Resolve the engine root per § Backing script, then invoke:
-`"${COORDINATOR_PYTHON:-python3}" "<resolved-engine-root>/coordinator/lib/check-install-singularity.py"`.
+Resolve the engine root per § Backing script, then invoke (PowerShell):
+`& $env:COORDINATOR_PYTHON "<resolved-engine-root>\coordinator\lib\check-install-singularity.py"`
+(`python3` in place of `$env:COORDINATOR_PYTHON` when unset; POSIX hosts:
+`"${COORDINATOR_PYTHON:-python3}" "<resolved-engine-root>/coordinator/lib/check-install-singularity.py"`).
 
 - **Full-remove:** exits 0, "no coordinator tree resolved".
 - **Revert-to-marketplace:** exits 0, single canonical tree at `~/.claude/plugins/coordinator-claude`.
@@ -130,5 +155,5 @@ pre-restart `✘` is expected — only a post-restart failure is real. Restart o
 
 ## See also
 
-- `coordinator/commands/install.md` — the forward install this reverses. A new surface added
-  there gets a matching removal step here in the same change.
+- `coordinator/commands/install.md` — the forward install this reverses, kept in lockstep with it.
+  A new surface added there gets a matching removal step here in the same change.

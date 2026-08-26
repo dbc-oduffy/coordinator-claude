@@ -33,12 +33,12 @@ import sys
 # oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
 # removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
 # exact audience this campaign exists for). Replaced with the improved oracle's
-# own call shape: `python3 -m coordinator_core.state_root`, CLAUDE_KLABAUTER_ROOT resolved
+# own call shape: `python3 -m coordinator_core.state_root`, the engine root resolved
 # natively via the shared cc_invoke ladder (zero bash anywhere in the chain).
 
 
 def _resolve_claude_klabauter_root_silent() -> "str | None":
-    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver (self-location-first);
+    """Resolve the engine root via the shared cc_invoke resolver (self-location-first);
     None on any failure."""
     try:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
@@ -53,9 +53,9 @@ def _resolve_claude_klabauter_root_silent() -> "str | None":
 
 def _no_console_window() -> dict:
     """`**no_console_creationflags()` when coordinator_core is resolvable;
-    falls back to the inline literal (0 elsewhere) if CLAUDE_KLABAUTER_ROOT cannot be
+    falls back to the inline literal (0 elsewhere) if the engine root cannot be
     resolved yet — this CLI's own repo-root discovery (`main`'s call into
-    `repo_identity.resolve_checked_repo_root`) may run before CLAUDE_KLABAUTER_ROOT is
+    `repo_identity.resolve_checked_repo_root`) may run before the engine root is
     known.
 
     Review: coordinator:code-reviewer — consolidated onto the single
@@ -66,7 +66,7 @@ def _no_console_window() -> dict:
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root_silent()
         if claude_klabauter_root is None:
-            raise RuntimeError("CLAUDE_KLABAUTER_ROOT unresolved")
+            raise RuntimeError("engine root unresolved")
         import cc_invoke  # noqa: E402  (path injected by _resolve_claude_klabauter_root_silent)
 
         return cc_invoke._no_console_kw(claude_klabauter_root)

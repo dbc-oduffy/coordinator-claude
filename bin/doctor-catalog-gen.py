@@ -192,7 +192,7 @@ def mode_write(probes: list[dict], wiki: Path) -> None:
     wiki_text = read_wiki(wiki)
     new_block = generate_block(probes)
     updated = replace_block_in_wiki(wiki_text, new_block)
-    wiki.write_text(updated, encoding="utf-8")
+    wiki.write_text(updated, encoding="utf-8", newline="\n")
     print(f"[doctor-catalog-gen] block written to {wiki}", file=sys.stderr)
 
 

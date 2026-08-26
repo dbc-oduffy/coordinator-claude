@@ -62,3 +62,17 @@ exceptions:
       EM and PM in
       cross-repo/inbox/2026-08-05-doe-claude-em-three-publish-gates-block-the-4-0-0-percolate.md
       -- this entry records that ratification.
+  - path: "coordinator_core/warm/door/door.exe"
+    reason: >-
+      A compiled native binary (the warm-door client, landed 2026-08-21 in
+      33abaf951 with door.c and build.py beside it). The end-of-run check flags
+      it as published-but-never-visited because the content-transform sweep
+      rewrites repo-token identifiers in TEXT; a binary has no text surface for
+      it to visit, so "unvisited" is the only possible outcome here and is not
+      evidence of a routing gap. Deliberately published rather than built
+      downstream: the mirror is consumed by sessions with no toolchain, and the
+      file's identity is carried by the sibling door.exe.provenance.json rather
+      than by in-band tokens, so nothing in it needs substituting. Reviewed and
+      admitted by claude-klabauter-em during the 2026-08-21 scaffold-resolution
+      close, when this check fail-closed every publish round fleet-wide; the
+      decision to ship a binary at all is its author's, unchanged by this entry.

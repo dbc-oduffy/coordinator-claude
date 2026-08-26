@@ -88,6 +88,59 @@ the DESTINATION tree and deletes whatever the source no longer has. An
 exclusion therefore becomes a DESTINATION DELETION on the following publish,
 not a one-time narrowing of what gets copied this run.
 
+**...with ONE exception, which is not a bug and must not be "fixed" here
+(2026-08-21).** A withdrawn TOP-LEVEL FILE is never deleted at the
+destination — not by `!`, not by `^`, not by dropping the name from the
+inclusion CSV. `publish_sync._sync_mirror_top_level_files` copies source
+files and deliberately runs no reverse sweep, because top-level files at a
+mirror destination are not target-owned by construction (the mirror repo's
+own `README.md`, `LICENSE`, and dotfiles live exactly there) — see that
+function's own negative spec. `sync_mirror`'s delete pass runs only INSIDE
+each subdirectory, and the orphan sweep only ever `rmtree`s top-level
+DIRECTORIES. So the three cases diverge:
+
+    nested path (`!ops/percolate_run.py`)   -> deleted next round
+    top-level directory (`^percolate`)      -> deleted next round
+    top-level file (`^publish.py`)          -> STRANDED, frozen forever
+
+The stranded copy keeps serving whatever it said the day it was withdrawn,
+and no round will ever refresh or remove it. Withdrawing a top-level file
+from a mirror row therefore owes a one-time reconciliation commit in the
+destination repo; the publish round cannot do it for you. Observed the
+expensive way: the 2026-08-20 bin-row deny left eight base CLIs frozen in
+`claude-klabauter/coordinator/bin/` for a day, one of them a publish driver
+that answered with superseded remediation text.
+
+
+## Whole-entry deny (leading `^`)
+
+A `^`-prefixed allowlist entry (e.g. `^percolate`) declares that a
+top-level name must NEVER be published — a whole-entry deny, distinct
+from `!`'s narrows-an-already-admitted-subpath exclusion vocabulary and
+not expressible through it: `_apply_exclusions` check (a) requires every
+`!` target to be a STRICT DESCENDANT of some plain inclusion entry
+already in the CSV, and a top-level name is by definition not nested
+under any other top-level entry, so `!percolate` against a CSV with no
+plain `percolate` inclusion always raises `AllowlistError` the next time
+that row is actually published. Check (a) is not relaxed by this
+feature — it stays exactly as strict as before for descendant targets.
+
+`^` is evaluated at INCLUSION-SET CONSTRUCTION (`_split_inclusion_
+exclusion`), not as a post-copy removal: a denied name is simply never
+added to the inclusion list `build_allowlisted_source` copies from, so
+there is no "removal" step, no disk state to reconcile, and no way for
+a denied name to have been copied and then un-copied. A name that never
+enters the tree needs no removal from it.
+
+This is a declaration, not by itself an enforcement mechanism: nothing
+in this module cross-checks a `^`-denied name against the inclusion set
+for disjointness (that is a generator-time / row-authoring invariant,
+not a `build_allowlisted_source`-time one) — see
+`setup/publish-allowlist-declarations.yaml`, the deny declaration's
+source of truth, and the plan this feature ships under
+(`docs/plans/2026-08-20-the-publish-allowlist-stops-being-hand-m.md`)
+for where that disjointness is actually asserted.
+
 
 ## Multi-source publish (source_map)
 
@@ -228,16 +281,56 @@ def _parse_allowlist_csv(allowlist_csv: str) -> list[str]:
 
 def _split_inclusion_exclusion(entries: list[str]) -> tuple[list[str], list[str]]:
     """Split `_parse_allowlist_csv`'s output into (inclusion entries,
-    exclusion targets), recognizing a leading `!` as the exclusion sigil (see
-    module docstring § Exclusion entries). The `!` is stripped and the
-    remainder whitespace-trimmed; no other entry shape is affected — an
-    entries list with no `!`-prefixed member returns `(entries, [])`
-    unchanged, which is what keeps the no-exclusion path additive."""
+    exclusion targets).
+
+    Two distinct negative-sigil vocabularies, never conflated:
+
+      - Leading `!` is the EXCLUSION sigil (see module docstring §
+        Exclusion entries): a post-copy narrowing of a subpath already
+        admitted by some plain entry, applied by `_apply_exclusions`
+        strictly AFTER `build_allowlisted_source` has copied every
+        inclusion entry in. `!` is stripped and the remainder
+        whitespace-trimmed, and the target is returned in `exclusions`.
+      - Leading `^` is the DENY sigil (§ Whole-entry deny in the module
+        docstring): a top-level name that must never be admitted at
+        all, evaluated at INCLUSION-SET CONSTRUCTION — i.e. simply
+        never added to `inclusions` — rather than as a post-copy
+        removal. A `^`-prefixed entry is recognized and consumed here
+        but deliberately NOT surfaced in either returned list: it is
+        not an inclusion (the whole point is that it never admits
+        anything) and it is not an `!`-exclusion (it never reaches
+        `_apply_exclusions`'s strict-descendant check (a) at all, which
+        is exactly why a whole-entry deny needs a sigil distinct from
+        `!` in the first place — check (a) rejects any target that is
+        not a strict descendant of a plain inclusion entry, and a
+        top-level name can never satisfy that by construction). Kept
+        out of this function's return shape on purpose — `entries` is a
+        cross-module contract this module shares with `publish.py`'s
+        `_publish_relevant_allowlist_leg`/`_publish_relevant_allowlist_
+        leg_dirspec` (see `split_inclusion_exclusion`'s public alias
+        below), and those two out-of-repo-file call sites unpack a
+        2-tuple; recognizing `^` here without widening the return shape
+        is what keeps a denied name from landing in `entries` (where
+        the unresolved-entry branch would otherwise turn it into a
+        phantom `git status` pathspec) while leaving every existing
+        2-tuple unpacker — in this module and its cross-repo consumers
+        alike — untouched. The deny declaration's actual source of
+        truth is `setup/publish-allowlist-declarations.yaml`, not a
+        `^`-entry surviving into a CSV field; this recognition exists
+        as a safety net so a `^`-entry can never be silently
+        misclassified as a literal inclusion/exclusion path, not as the
+        deny mechanism's primary carrier.
+
+    No other entry shape is affected — an entries list with no `!`- or
+    `^`-prefixed member returns `(entries, [])` unchanged, which is what
+    keeps the no-exclusion, no-deny path additive."""
     inclusions: list[str] = []
     exclusions: list[str] = []
     for entry in entries:
         if entry.startswith("!"):
             exclusions.append(entry[1:].strip())
+        elif entry.startswith("^"):
+            continue
         else:
             inclusions.append(entry)
     return inclusions, exclusions
@@ -731,6 +824,11 @@ def build_allowlisted_source(
         exclusion can only narrow what inclusion already admitted, never
         grant new content; a CSV with no `!`-entries is unaffected by this
         branch entirely (the additive guarantee).
+      - Leading-`^` deny ("^percolate"): a top-level name declared as never
+        published — see module docstring § Whole-entry deny. Recognized and
+        discarded by `_split_inclusion_exclusion` before this function ever
+        sees an `entries`/`exclusion_targets` list, so a deny target is
+        simply never copied — there is no removal step for it, unlike `!`.
 
     Raises `AllowlistError` if any entry is `/`-absolute or contains `..`
     — both are unconditionally unsafe: an absolute path or a `..`
@@ -853,7 +951,7 @@ def build_allowlisted_source(
         composed = _compose_percolate_ignore(entry_roots, stderr=stderr)
         if composed:
             (tmp_src / ".percolate-ignore").write_text(
-                "\n".join(composed) + "\n", encoding="utf-8"
+                "\n".join(composed) + "\n", encoding="utf-8", newline="\n"
             )
     else:
         # Single-source: preserve today's tolerant behaviour exactly.

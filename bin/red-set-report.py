@@ -230,7 +230,7 @@ def run_pytest_collect(
         tmp_path = Path(tmp)
         report_path = tmp_path / "collect.json"
         plugin_path = tmp_path / f"{_COLLECT_PLUGIN_MODULE_NAME}.py"
-        plugin_path.write_text(_COLLECT_PLUGIN_SOURCE, encoding="utf-8")
+        plugin_path.write_text(_COLLECT_PLUGIN_SOURCE, encoding="utf-8", newline="\n")
 
         cmd = [
             sys.executable,
@@ -330,7 +330,7 @@ def run_pytest_json(
         tmp_path = Path(tmp)
         report_path = tmp_path / "report.json"
         plugin_path = tmp_path / f"{_PLUGIN_MODULE_NAME}.py"
-        plugin_path.write_text(_PLUGIN_SOURCE, encoding="utf-8")
+        plugin_path.write_text(_PLUGIN_SOURCE, encoding="utf-8", newline="\n")
 
         cmd = [
             sys.executable,

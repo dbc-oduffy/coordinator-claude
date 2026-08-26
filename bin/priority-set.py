@@ -26,8 +26,13 @@ Options:
     --set-by <who>         Identifier of the session/agent/person setting this
                            priority. Optional.
     --note <text>          Optional free-form note.
-    --timeout <secs>       Max seconds to wait for the cross-process lock
-                           (default: 10.0, matching the op's own default).
+    --timeout <secs>       Max seconds to wait for the cross-process lock.
+                           Capped at 2.0 (MAX_TIMEOUT_SECS): a larger value is
+                           clamped, with a stderr notice, never honoured. Ask
+                           for less, never for more. Omitting the flag leaves
+                           the op on its own 10.0 default, which the op's
+                           MAX_LOCK_TIMEOUT_SECS clamps to the same 2.0 — so
+                           2.0s is the effective wait either way.
 
 Exit codes:
     0 — success; the op's bare result
@@ -36,9 +41,13 @@ Exit codes:
     1 — client-side argument error (missing --target-id / --target-kind /
         --priority).
     2 — everything else: unresolvable git repo root for the cc_invoke spawn,
-        or any cc_invoke transport/op failure (op-level ValueError such as an
+        any cc_invoke transport/op failure (op-level ValueError such as an
         out-of-enum target_kind/priority, schema-validation MutateAbort, lock
-        timeout, or malformed envelope).
+        timeout, or malformed envelope), or an in-envelope refusal (non-zero
+        'exit_code' / non-empty 'error') that cc_invoke's transport-only
+        ladder returns as an ordinary bare result rather than raising —
+        inspected here via cc_invoke.mutation_refusal_message() (DR-215
+        exit_code trap).
 
 """
 
@@ -52,11 +61,42 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke  # noqa: E402
+from cc_invoke import cc_invoke, mutation_refusal_message  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
+MAX_TIMEOUT_SECS: float = 2.0
+"""Ceiling on --timeout, mirroring coordinator_core.ops.priority_set's
+MAX_LOCK_TIMEOUT_SECS (itself matching ipc.CEREMONY_BUDGET_SECS). Restated
+rather than imported: this door reaches the op
+only across the cc_invoke process boundary and cannot import coordinator_core.
+The op-side clamp is the authority and holds regardless of this one; this exists
+so an over-ask is answered at the door the caller typed at, not silently
+downstream."""
 
-def _parse_args(argv: list[str]) -> dict[str, str]:
+
+def _clamp_timeout(raw: str) -> float:
+    """Parse a --timeout argument and clamp it to MAX_TIMEOUT_SECS.
+
+    Exits 1 on an unparseable value. A request above the ceiling is clamped, not
+    refused, with a one-line stderr notice — the caller asked for a lock wait,
+    and a shorter wait still does the work they asked for.
+    """
+    try:
+        requested = float(raw)
+    except ValueError:
+        print(f"ERROR: --timeout must be a number, got {raw!r}", file=sys.stderr)
+        sys.exit(1)
+    if requested > MAX_TIMEOUT_SECS:
+        print(
+            f"priority-set: --timeout {requested}s exceeds the {MAX_TIMEOUT_SECS}s "
+            f"ceiling; using {MAX_TIMEOUT_SECS}s",
+            file=sys.stderr,
+        )
+        return MAX_TIMEOUT_SECS
+    return requested
+
+
+def _parse_args(argv: list[str]) -> dict[str, object]:
     target_id = ""
     target_kind = ""
     priority = ""
@@ -121,7 +161,7 @@ def _parse_args(argv: list[str]) -> dict[str, str]:
         print("ERROR: --priority is required", file=sys.stderr)
         sys.exit(1)
 
-    params: dict[str, str] = {
+    params: dict[str, object] = {
         "target_id": target_id,
         "target_kind": target_kind,
         "priority": priority,
@@ -131,7 +171,7 @@ def _parse_args(argv: list[str]) -> dict[str, str]:
     if note:
         params["note"] = note
     if timeout:
-        params["timeout"] = timeout
+        params["timeout"] = _clamp_timeout(timeout)
 
     return params
 
@@ -139,27 +179,42 @@ def _parse_args(argv: list[str]) -> dict[str, str]:
 def main(argv: list[str]) -> int:
     params = _parse_args(argv)
 
-    cwd_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    # DR-277 (accepted): the cwd identity gate that used to sit here refused
+    # on MISMATCH against a stale rationale -- `priority.set` is
+    # scope="none" (coordinator_core/ops/priority_set.py), so cwd_repo_root
+    # never leaves this CLI and the op writes to a CENTRAL ledger root
+    # (coordinator_state_root(central=True)), never derived from cwd_repo_root.
+    # There was nothing to advise on: the fact checked (does cwd's repo
+    # identity match?) has no bearing on where this op writes, so the gate
+    # is removed outright rather than demoted to a warning (a warning would
+    # be pure nag against DR-277's own "reserve deny() for cases where no
+    # correct rewrite exists"). `cwd_repo_root` is still resolved below --
+    # it is the spawn cwd for the cc_invoke child, not a write-location check.
+    # The verdict is deliberately UNUSED. C18 (state/dispatch-briefs/
+    # 2026-08-20-a-refusal-cannot-exit-zero/C18.md, DR-277 EM decision D5)
+    # removed this door's cwd identity gate outright rather than demoting it to a
+    # warning: `priority.set` is scope="none" (coordinator_core/ops/priority_set.py)
+    # and resolves its ledger write centrally via `coordinator_state_root(central=True)`,
+    # never from `cwd_repo_root` -- so a MISMATCH here has nothing to advise on and
+    # refusing would block a write that was never going to the wrong tree. Do not
+    # reintroduce a MISMATCH branch: `tests/test_priority_set_no_cwd_gate.py` pins
+    # its absence. The `cwd_repo_root is None` refusal below is unrelated to
+    # identity ("nowhere to spawn from") and stays.
+    cwd_repo_root, _verdict = resolve_checked_repo_root(explicit_root=None)
     if cwd_repo_root is None:
-        # No git root resolved from cwd at all -- distinct from the
-        # MISMATCH identity gate below (positive evidence of a DIFFERENT
-        # real repo). This is "nowhere to write"; refusing here is not the
-        # AC4 "UNRESOLVED never refuses" carve-out being violated.
+        # No git root resolved from cwd at all -- "nowhere to spawn from".
         print(f"priority-set: cannot resolve git repo root from {os.getcwd()}", file=sys.stderr)
-        return 2
-    if verdict["verdict"] == "MISMATCH":
-        # DR-277 named carve-out: this door dispatches priority.set, which
-        # writes a priority-ledger entry into cwd_repo_root's state tree
-        # (coordinator_core/ops/priority_set.py) -- a genuine WRITER, not a
-        # diagnostic read. Refuse rather than write into a foreign tree.
-        # UNRESOLVED never refuses (AC4).
-        print(verdict["message"], file=sys.stderr)
         return 2
 
     try:
         result = cc_invoke("priority.set", params, cwd_repo_root)
     except RuntimeError as exc:
         print(f"priority-set: {exc}", file=sys.stderr)
+        return 2
+
+    message = mutation_refusal_message("priority.set", result)
+    if message is not None:
+        print(f"priority-set: {message}", file=sys.stderr)
         return 2
 
     print(json.dumps(result, ensure_ascii=False))

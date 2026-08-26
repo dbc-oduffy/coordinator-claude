@@ -86,7 +86,7 @@ _DEFAULT_EDGE_KINDS = "predecessor,additional_predecessors,forked_from"
 def _no_fallback():
     raise RuntimeError(
         f"{PROG}: native seam required (no bash fallback -- big-bang cutover); "
-        "re-run coordinator:install or verify CLAUDE_KLABAUTER_ROOT"
+        "re-run coordinator:install or verify COORDINATOR_ENGINE_ROOT"
     )
 
 

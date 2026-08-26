@@ -23,10 +23,20 @@ Behavior:
     attribution, not a whole-script model: substring count -- see Known
     limitations below), in the effective script (inline tool_input.script,
     or the file at tool_input.scriptPath when script is empty).
-  - AGENT_N >= 1 AND MODELED_N == 0 (unambiguous -- no call site modeled):
-    DENY (Form A permissionDecision:"deny"), message leads with the fix
-    (add model: 'sonnet' to each agent() call) before naming the violation,
-    and names the override + PM-gate escape hatches.
+  - AGENT_N >= 1 AND MODELED_N == 0 (no call site carries a model: key):
+    each such call site's OWN agentType: (if any) is resolved against its
+    agent definition (coordinator/agents/<name>.md, coordinator: namespace
+    stripped) and rung on THAT definition's frontmatter model:, never on
+    whether a key was merely present at the call site -- see
+    `_resolve_call_site_tier()`. If every call site resolves this way
+    (whether to sonnet or opus -- an asserted agentType is self-enforcing,
+    so a resolved-opus call site is a declared cost, not a silent one):
+    silent allow, and no agent-definition file is read for any OTHER path
+    through this hook. If any call site's agentType is absent, non-literal,
+    or names no resolvable definition: DENY (Form A
+    permissionDecision:"deny"), message leads with the fix (add model:
+    'sonnet', or a defined agentType:, to each call) before naming the
+    violation, and names the override + PM-gate escape hatches.
   - AGENT_N >= 1 AND 0 < MODELED_N < AGENT_N (partial/mixed coverage -- some
     call sites modeled, some not, could be intentional per-agent tiering):
     WARN via additionalContext advisory only, never a deny.
@@ -340,16 +350,29 @@ def _strip_comments(script: str) -> str:
     return "".join(out)
 
 
-def _count_agent_modeled(buf: str) -> "tuple[int, int]":
-    """Per-call-site agent(/model: attribution -- string-aware paren/brace
-    depth walk (see module docstring "Known limitations" for the
-    documented residual edges).
+def _walk_agent_calls(buf: str, mask: "bytearray") -> "list[tuple[bool, str | None]]":
+    """Per-call-site agent(/model:/agentType: attribution -- string-aware
+    paren/brace depth walk (see module docstring "Known limitations" for
+    the documented residual edges). Shared by `_count_agent_modeled()`
+    (the pre-existing agent_n/modeled_n contract every caller and test
+    already relies on) and `_count_agent_modeled_with_types()` (the
+    agentType-resolution entry point `main()` uses), so both read the
+    identical string-mask and identifier-boundary discipline off one walk
+    rather than two independently-maintained copies.
+
+    Returns one `(has_direct_model, agent_type)` tuple per real,
+    successfully-balanced `agent(` call site, in source order.
+    `agent_type` is the call's own captured `agentType:` value (already
+    unwrapped from its quoting -- see `_extract_string_literal()`), or
+    `None` when the call carries no `agentType:` key, a masked/decoy one,
+    or a value that is not a plain string literal. An unbalanced call
+    site (truncated/malformed script) contributes no tuple at all --
+    matching `_count_agent_modeled()`'s pre-existing treatment of that
+    case as a detection failure, not a call site.
     """
-    mask = _string_mask(buf)
     n = len(buf)
     i = 0
-    agent_n = 0
-    modeled_n = 0
+    calls: "list[tuple[bool, str | None]]" = []
 
     while i < n:
         pos = buf.find("agent(", i)
@@ -366,6 +389,7 @@ def _count_agent_modeled(buf: str) -> "tuple[int, int]":
         j = paren_open
         close_idx = -1
         has_direct_model = False
+        agent_type: "str | None" = None
         while j < n:
             if mask[j]:
                 j += 1
@@ -407,6 +431,21 @@ def _count_agent_modeled(buf: str) -> "tuple[int, int]":
                     )
                     if not _UNDEFINED_NULL_RE.search(masked_value):
                         has_direct_model = True
+            elif ch == "a" and depth == 1 and brace_depth == 1:
+                # Same string-mask + identifier-boundary discipline as the
+                # `model:` capture above -- a key merely ENDING in the
+                # literal substring "agentType:" (baseAgentType:,
+                # subAgentType:) must not be miscredited, and a masked
+                # (string-literal) occurrence must not match either.
+                if (
+                    buf[j:j + 10] == "agentType:"
+                    and not any(mask[j:j + 10])
+                    and not (j > 0 and not mask[j - 1] and buf[j - 1] in _IDENTIFIER_CHARS)
+                ):
+                    raw_value = _extract_model_value(buf, mask, j + 10, n)
+                    literal = _extract_string_literal(raw_value)
+                    if literal is not None:
+                        agent_type = literal
             j += 1
 
         if close_idx == -1:
@@ -426,13 +465,39 @@ def _count_agent_modeled(buf: str) -> "tuple[int, int]":
             i = n
             continue
 
-        agent_n += 1
-        if has_direct_model:
-            modeled_n += 1
-
+        calls.append((has_direct_model, agent_type))
         i = close_idx + 1
 
+    return calls
+
+
+def _count_agent_modeled(buf: str) -> "tuple[int, int]":
+    """Per-call-site agent(/model: attribution -- the pre-existing,
+    agentType-blind contract every caller and test outside `main()` uses.
+    Thin wrapper over `_walk_agent_calls()`; unchanged in effect from
+    before that walk was extracted."""
+    mask = _string_mask(buf)
+    calls = _walk_agent_calls(buf, mask)
+    agent_n = len(calls)
+    modeled_n = sum(1 for has_model, _ in calls if has_model)
     return agent_n, modeled_n
+
+
+def _count_agent_modeled_with_types(buf: str) -> "tuple[int, int, list[str | None]]":
+    """`main()`'s own entry point: identical agent_n/modeled_n as
+    `_count_agent_modeled()`, plus each call site's captured `agentType:`
+    literal (or `None`) in source order. Capturing the literal costs no
+    filesystem access -- it is a pure string extraction off the same walk
+    -- so it is safe to always compute; only *resolving* a captured value
+    against its agent definition (`_resolve_call_site_tier()`) is deferred
+    to the branch in `main()` that would otherwise DENY.
+    """
+    mask = _string_mask(buf)
+    calls = _walk_agent_calls(buf, mask)
+    agent_n = len(calls)
+    modeled_n = sum(1 for has_model, _ in calls if has_model)
+    agent_types = [agent_type for _, agent_type in calls]
+    return agent_n, modeled_n, agent_types
 
 
 _UNDEFINED_NULL_RE = re.compile(r"\b(?:undefined|null)\b")
@@ -472,6 +537,145 @@ def _extract_model_value(buf: str, mask: "bytearray", start: int, n: int) -> str
             break
         k += 1
     return buf[start:k]
+
+
+def _extract_string_literal(value: str) -> "str | None":
+    """Unwrap a plain single/double/backtick-quoted string literal
+    captured as an `agentType:` value (e.g. `'coordinator:staff-eng'` ->
+    `coordinator:staff-eng`). Returns `None` for anything that is not
+    exactly a quoted literal -- a computed expression, a bare identifier,
+    a ternary, an interpolated template -- since none of those can be
+    resolved without executing the script. A `None` here is treated
+    identically to "no agentType captured at all" by every caller: this
+    hook never guesses at a value it cannot read statically.
+    """
+    trimmed = value.strip()
+    if len(trimmed) < 2:
+        return None
+    quote = trimmed[0]
+    if quote not in ("'", '"', "`") or trimmed[-1] != quote:
+        return None
+    inner = trimmed[1:-1]
+    if "${" in inner:
+        return None
+    return inner
+
+
+_COORDINATOR_AGENT_TYPE_PREFIX = "coordinator:"
+_AGENTS_DIR = _SCRIPTS_DIR.parent.parent / "agents"
+_FRONTMATTER_MODEL_RE = re.compile(r"^model:\s*(\S+)\s*$", re.MULTILINE)
+_ROSTER_FRAGMENT = _SCRIPTS_DIR.parent.parent / "contract" / "review-roster-fragment.json"
+_REVIEW_SIGNALS = _SCRIPTS_DIR.parent.parent / "contract" / "review-signals.json"
+
+
+def _tier_walked_agent_types() -> "frozenset[str]":
+    """Every `agentType` the published review roster dispatches via the
+    tier walk (`fragment['tiers'] -> tier['stages'] -> stage['agents']`).
+    Fails CLOSED to the empty set on a missing or malformed fragment: an
+    unreadable/malformed contract exempts nobody, denying a legitimate
+    review workflow rather than admitting an arbitrary Opus fleet -- see
+    `_signal_selected_agent_types()`, which shares this posture."""
+    try:
+        with open(_ROSTER_FRAGMENT, "r", encoding="utf-8") as fh:
+            fragment = json.load(fh)
+        tiers = fragment.get("tiers")
+        if not isinstance(tiers, dict):
+            return frozenset()
+        names = set()
+        for tier in tiers.values():
+            if not isinstance(tier, dict):
+                continue
+            for stage in tier.get("stages") or []:
+                if isinstance(stage, dict):
+                    names.update(a for a in stage.get("agents") or [] if isinstance(a, str))
+        return frozenset(names)
+    except Exception:
+        return frozenset()
+
+
+def _signal_selected_agent_types() -> "frozenset[str]":
+    """Every `selects` value in `contract/review-signals.json`'s `signals`
+    map -- a signal-selectable agent has no tier membership of its own but
+    is still dispatched by the review workflow when its signal fires, so it
+    belongs in the same roster this guard exempts.
+
+    Same fail-CLOSED-to-empty-set posture as `_tier_walked_agent_types()`,
+    for the same reason: an unreadable/malformed contract exempts nobody,
+    denying a legitimate review workflow rather than admitting an arbitrary
+    Opus fleet."""
+    try:
+        with open(_REVIEW_SIGNALS, "r", encoding="utf-8") as fh:
+            contract = json.load(fh)
+        signals = contract.get("signals")
+        if not isinstance(signals, dict):
+            return frozenset()
+        names = set()
+        for signal in signals.values():
+            if not isinstance(signal, dict):
+                continue
+            selects = signal.get("selects")
+            if isinstance(selects, str):
+                names.add(selects)
+        return frozenset(names)
+    except Exception:
+        return frozenset()
+
+
+def _rostered_agent_types() -> "frozenset[str]":
+    """Every `agentType` the published review roster dispatches -- the
+    union of the tier walk (`_tier_walked_agent_types()`) and every
+    signal-selectable agent (`_signal_selected_agent_types()`).
+
+    This is the review-workflow discriminator. It is not self-asserted: an
+    agent is rostered by appearing in a version-controlled contract file
+    that a reviewed commit had to change (either the tier fragment or
+    `review-signals.json`), so a hand-written workflow cannot add itself by
+    typing. `review-signals.json` is equally such a contract -- widening
+    this union does not weaken that property.
+
+    Each half fails CLOSED to the empty set independently on its own
+    missing or malformed contract file -- a broken tier fragment does not
+    also blank out a healthy signals contract, and vice versa.
+    """
+    return _tier_walked_agent_types() | _signal_selected_agent_types()
+
+
+def _resolve_call_site_tier(agent_type: "str | None") -> "str | None":
+    """Resolve one call site's captured `agentType:` literal to the model
+    tier its OWN agent definition declares -- `coordinator/agents/
+    <name>.md`'s frontmatter `model:` key, after stripping the
+    `coordinator:` namespace. This is the sole filesystem read this
+    hook's agentType path performs, and `main()` reaches it only from the
+    branch that would otherwise DENY (a fully- or partially-modeled
+    script never calls this).
+
+    Returns the resolved tier, lowercased, or `None` on ANY resolution
+    failure: no agentType captured, a name resolving to no file, or a
+    definition with no frontmatter `model:` key. Every failure collapses
+    to the same `None` the caller treats identically to "no tier
+    declared at all" -- never a crash, never a silent pass.
+    """
+    if not agent_type:
+        return None
+    name = agent_type
+    if name.startswith(_COORDINATOR_AGENT_TYPE_PREFIX):
+        name = name[len(_COORDINATOR_AGENT_TYPE_PREFIX):]
+    if not name:
+        return None
+    path = _AGENTS_DIR / f"{name}.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except Exception:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    if end == -1:
+        return None
+    m = _FRONTMATTER_MODEL_RE.search(text[:end])
+    if not m:
+        return None
+    return m.group(1).strip().lower()
 
 
 _MODEL_LINE_RE = re.compile(r'"model"\s*:\s*"(claude-[^"]*)"')
@@ -572,9 +776,30 @@ def _compose_zero_modeled_deny_reason(agent_n: int) -> str:
     (see this hook's relocation fragment)."""
     message = compose(
         f"{agent_n} agent() call(s) have no model: -- inherits Opus this "
-        "session (~4x cost). Add model: 'sonnet' to each, or override "
-        "with PM approval.",
+        "session (~4x cost). Add model: 'sonnet', or a defined agentType:, "
+        "to each.",
         alternative=f"touch {_OVERRIDE_SENTINEL_NAME}",
+        anchor=_WIKI_ANCHOR,
+    )
+    return render(message)
+
+
+def _compose_unrostered_opus_deny_reason(agent_types: "list[str | None]") -> str:
+    """Pure composer for the "Opus persona fleet outside the review roster"
+    deny branch. Same separation rationale as
+    `_compose_zero_modeled_deny_reason`.
+
+    Names the boundary -- Opus is dispatchable in a workflow for review,
+    and the published roster is what review dispatches -- and routes to the
+    wiki for why. Deliberately says nothing about an override: this hook's
+    escape hatch is withheld from the message by design and addressed to
+    the operator at a terminal (`guard-unlock-channel.md`), because a
+    message that advertises its own unlock teaches routing around it."""
+    named = ", ".join(sorted({a for a in agent_types if a})[:3]) or "an agentType"
+    message = compose(
+        f"{named} resolves to Opus and is not on the review roster -- Opus in "
+        "a workflow is for review (~4x cost). Use a rostered reviewer, or "
+        "model: 'sonnet'.",
         anchor=_WIKI_ANCHOR,
     )
     return render(message)
@@ -659,12 +884,59 @@ def main() -> int:
         return 0
 
     stripped = _strip_comments(script)
-    agent_n, modeled_n = _count_agent_modeled(stripped)
+    agent_n, modeled_n, agent_types = _count_agent_modeled_with_types(stripped)
 
     if agent_n < 1:
         return 0
 
     if modeled_n == 0:
+        # Resolution runs ONLY here -- the one path that would otherwise
+        # DENY on the pre-existing agent_n/modeled_n rung alone. A fully-
+        # or partially-modeled script (either branch below this one) never
+        # reaches `_resolve_call_site_tier()` and performs zero
+        # agent-definition reads.
+        tiers = [_resolve_call_site_tier(agent_type) for agent_type in agent_types]
+        if all(tier is not None for tier in tiers):
+            # Every call site resolved via its own agentType, and since
+            # modeled_n == 0 none of those tiers came from a call-site
+            # `model:` override -- each is pinned to its definition's own
+            # charter model. An asserted agentType is self-enforcing:
+            # asserting it makes it true, so there is no forgery to
+            # defend against here.
+            #
+            # That alone is not the exemption. Opus in a workflow is
+            # gated because Opus is expensive; a declared persona fleet
+            # spends that money just as surely as an undeclared one, so
+            # "every call site is a persona" would exempt every Opus
+            # fleet and gate nothing. The exemption is for REVIEW, and
+            # the published roster is what a review workflow dispatches.
+            # A sonnet-tier fleet costs nothing to gate and is never
+            # reached by this branch's opus check.
+            if all(
+                tier != "opus" or agent_type in _rostered_agent_types()
+                for tier, agent_type in zip(tiers, agent_types)
+            ):
+                return 0
+            reason = _compose_unrostered_opus_deny_reason(
+                [
+                    agent_type
+                    for tier, agent_type in zip(tiers, agent_types)
+                    if tier == "opus" and agent_type not in _rostered_agent_types()
+                ]
+            )
+            out = {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+            sys.stdout.write(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
+            sys.stdout.write("\n")
+            return 0
+        # At least one call site's agentType is absent, non-literal, or
+        # names no resolvable definition -- falls back to the
+        # un-resolved deny rung. Never crash, never silently pass.
         reason = _compose_zero_modeled_deny_reason(agent_n)
         out = {
             "hookSpecificOutput": {

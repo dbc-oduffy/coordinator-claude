@@ -3,7 +3,7 @@
 # release_artifact / clear_claim_if_dead / claim_plan). Direct-import variant,
 # mirroring coordinator/bin/archive-stamp-cli.py's resolve/import/dispatch/exit
 # shape (template-variant #1: a plain in-process function call after
-# resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop — these functions are plain
+# resolving the engine root, no cc_invoke/IPC hop — these functions are plain
 # module functions in claims.py, NOT registered coordinator_core.invoke ops).
 #
 # is-session-live / list-stale-claim-handoffs (2026-07-23) are a SEPARATE
@@ -45,7 +45,12 @@
 #     0, same as before) — the note is additive output only, distinct in
 #     BOTH output and exit code from a live-holder refusal (which prints
 #     "refusing to clear claim ... holder is live" and exits 1).
-#   claim-plan <slug> -> claims.claim_plan(slug)
+#   claim-plan <slug> [--for-execution] -> claims.claim_plan(slug, for_execution=...)
+#     --for-execution is passed ONLY by /execute-plan Step 0 (DoE SKILL.md) —
+#     it gates claims.claim_plan's stamp-executing status flip (C4,
+#     docs/plans/2026-08-20-the-rungs-get-writers.md); the other two
+#     production callers (coordinator-doc-new.py, wsc-coverage-gate-
+#     runner.py cmd_claim_plan) never pass it and never flip status.
 #   list-claims-by-session <sid> [cwd] -> claims.list_claims_by_session(sid, cwd)
 #     stdout: one line per match, TAB-delimited "<class>-claims\t<basename>"
 #       (e.g. "handoff-claims\thb-1.md") — reads the claim-record store
@@ -54,7 +59,7 @@
 #     exit 0   -> enumeration completed (0 or more matches printed) — an
 #                 empty result is success, not failure, same contract as
 #                 list-stale-claim-handoffs.
-#     exit 3   -> transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / ImportError).
+#     exit 3   -> transport failure (the engine root unresolvable / ImportError).
 #   is-session-live <SID> [cwd] -> liveness.session_live(SID, cwd)
 #     stdout line 1: exactly one word — "live" | "live-elsewhere" | "dead" |
 #       "indeterminate". "live" | "dead" | "indeterminate" are UNCHANGED
@@ -79,7 +84,7 @@
 #     exit 1   -> NOT live in THIS repo (dead, or live-elsewhere) — see line
 #                 1 to distinguish; exit code is UNCHANGED for compat.
 #     exit 2   -> usage error (missing SID arg).
-#     exit 3   -> transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / ImportError),
+#     exit 3   -> transport failure (the engine root unresolvable / ImportError),
 #                 OR liveness.session_live itself raised unexpectedly (e.g.
 #                 MissingPsutilError propagating past a Layer-1 arm) — reused
 #                 rather than a new code (Review: staff-eng-review A): 3
@@ -123,7 +128,7 @@
 #                 -- additive only; the refusal sentence above and this exit
 #                 code are unchanged (C1/C2, docs/plans/2026-08-11-claim-
 #                 index-abort-cause-and-cli-blindness.md).
-#     exit 3   -> transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / ImportError),
+#     exit 3   -> transport failure (the engine root unresolvable / ImportError),
 #                 OR liveness.session_live raised unexpectedly for one of the
 #                 claimants (same reused code as is-session-live above).
 #   list-stale-claim-handoffs [repo_root] -> stale_claims.list_stale_claim_handoffs(repo_root)
@@ -132,12 +137,12 @@
 #       because neither a filesystem path nor a session id can contain one.
 #       Zero lines + exit 0 means "no stale claims found", not "could not tell".
 #     exit 0   -> enumeration completed (0 or more stale entries printed).
-#     exit 3   -> transport failure (CLAUDE_KLABAUTER_ROOT unresolvable / ImportError).
+#     exit 3   -> transport failure (the engine root unresolvable / ImportError).
 #
 # Exit codes: the claim-* subcommands' mapped functions return bool, not an
 # int exit code (unlike archive-stamp-cli's archive_stamp functions, which
 # return ints passed through verbatim) — this CLI maps bool->exit: True->0,
-# False->1. A missing/unresolvable CLAUDE_KLABAUTER_ROOT or an ImportError (this
+# False->1. A missing/unresolvable engine root or an ImportError (this
 # trampoline's own transport failure) exits 3 (_TRANSPORT_FAIL, same
 # dedicated code archive-stamp-cli uses — "the claude-klabauter engine could not be
 # reached," never silently degraded to 0). A usage error (missing/unknown
@@ -162,7 +167,7 @@ from pathlib import Path
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 _TRANSPORT_FAIL = 3
 _NOT_LIVE = 1
@@ -170,9 +175,7 @@ _MALFORMED_SID = 4
 
 
 def _import_module():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.claims as _mod
 
     return _mod
@@ -181,9 +184,7 @@ def _import_module():
 def _import_liveness_module():
     """Separate seam from ``_import_module`` (claims) so ``is-session-live``
     tests can stub liveness in isolation without touching the claims stub."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.liveness as _mod
 
     return _mod
@@ -192,9 +193,7 @@ def _import_liveness_module():
 def _import_stale_claims_module():
     """Separate seam from ``_import_module`` (claims) so
     ``list-stale-claim-handoffs`` tests can stub the enumerator in isolation."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.stale_claims as _mod
 
     return _mod
@@ -207,9 +206,7 @@ def _import_core_module():
     above. Only reads ``core.sessions_dir`` — the SAME public path-arithmetic
     ``claims.clear_claim_if_dead`` itself calls, never a second liveness
     parser."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.core as _mod
 
     return _mod
@@ -221,9 +218,7 @@ def _import_claim_index_module():
     PATH-TOUCH plane independently of the artifact-claim store and the
     liveness verdict, mirroring the existing per-functional-area seam
     split above."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.claim_index as _mod
 
     return _mod
@@ -233,10 +228,8 @@ def _import_holder_evidence_module():
     """Separate seam from ``_import_liveness_module`` so ``is-session-live``'s
     AC7 basis line can be stubbed independently of the live/dead verdict in
     tests, mirroring the claims/liveness/stale_claims seam split above."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
-    import coordinator_core.pickup_assemble.holder_evidence as _mod
+    claude_klabauter_root = require_dispatch_engine_on_path()
+    import coordinator_core.session.holder_evidence as _mod
 
     return _mod
 
@@ -293,10 +286,22 @@ def _sid_looks_valid(sid: str) -> bool:
     return all(ch in _SID_ALLOWED_CHARS for ch in s)
 
 
+#: Advertised verb list. The ``<class>`` enumeration on the first three is
+#: load-bearing, not decoration: ``artifact`` is the PATH-TOUCH plane
+#: (``who-claims-path``'s own answer space), so ``release-artifact artifact
+#: <repo-relative-path>`` IS the release-path verb for a path claim. Naming
+#: only the verbs made that unreachable by reading — a peer EM enumerated
+#: this exact string, concluded "there is no ``release-path``", and reported
+#: a ledger-derived path claim as having no exit at all while holding one
+#: (cross-repo/inbox/2026-08-20-project-rag-em-ledger-derived-path-claim-
+#: {has-no-release,narrowed}.md). Keep the classes here when editing.
 _SUBCOMMANDS = (
-    "subcommands: claim-artifact | release-artifact | clear-claim-if-dead | "
-    "claim-plan | is-session-live | list-stale-claim-handoffs | "
-    "list-claims-by-session | who-claims-path"
+    "subcommands: claim-artifact <class> | release-artifact <class> | "
+    "clear-claim-if-dead <class> | claim-plan | is-session-live | "
+    "list-stale-claim-handoffs | list-claims-by-session | who-claims-path\n"
+    "  <class>: handoff | memo | plan (basename-keyed claim records), or "
+    "'artifact' (path-touch plane — basename is a repo-relative PATH; this "
+    "is how a path claim who-claims-path reports is released)"
 )
 
 _HELP_FLAGS = ("--help", "-h", "help")
@@ -316,11 +321,12 @@ def _bool_to_exit(result: bool) -> int:
 _CLASSED_CLAIM_CLASSES = ("handoff", "memo", "plan")
 
 
-def _clear_claim_lookup_dir(class_: str, basename: str, baton_repo_root: str):
+def _claim_lookup_dir(class_: str, basename: str, baton_repo_root: str):
     """Best-effort resolution of the SAME claim directory
-    ``claims.clear_claim_if_dead`` will inspect, so the CLI can tell a caller
-    what was looked up and under which key BEFORE the call, when that
-    directory turns out not to exist (AC5). Mirrors ``clear_claim_if_dead``'s
+    ``claims.clear_claim_if_dead`` / ``claims.release_artifact`` will inspect,
+    so the CLI can tell a caller what was looked up and under which key BEFORE
+    the call, when that directory turns out not to exist (AC5). Mirrors
+    ``clear_claim_if_dead``'s
     own base resolution byte for byte — ``core.sessions_dir`` is the SAME
     public path-arithmetic function that module already calls, so this is
     not a second parser of anything liveness-shaped, just the identical
@@ -346,7 +352,9 @@ def _clear_claim_lookup_dir(class_: str, basename: str, baton_repo_root: str):
         return None
 
 
-def _emit_clear_claim_not_found_note(class_: str, basename: str, claim_dir) -> None:
+def _emit_claim_not_found_note(
+    subcmd: str, class_: str, basename: str, claim_dir
+) -> None:
     """AC5: the basename convention is part of the trap — the claim key
     carries no ``.md`` while a caller naturally holds a path that does. Name
     what was looked up and under which key, so a wrong basename is
@@ -354,9 +362,14 @@ def _emit_clear_claim_not_found_note(class_: str, basename: str, claim_dir) -> N
     already carried by exit 0 vs exit 1 and by the refusal's own distinct
     message; asserting it in prose is a message-register violation (Review:
     staff-eng-review, docs/wiki/guard-messaging.md B1/B2) and is not
-    repeated here."""
+    repeated here.
+
+    Serves ``release-artifact`` on the same terms: ``release_artifact``'s
+    not-the-holder / claim-absent legs are documented NO-OP SUCCESS, so a
+    wrong key there is exit 0 with nothing written and nothing said — the
+    same silence this note exists to remove, reached by a different door."""
     note = (
-        f"session-claim-cli: clear-claim-if-dead: no claim at {claim_dir} "
+        f"session-claim-cli: {subcmd}: no claim at {claim_dir} "
         f"(class {class_!r} basename {basename!r})"
     )
     if basename.endswith(".md"):
@@ -459,6 +472,10 @@ def _dispatch(argv: list[str]) -> int:
             return _usage("session-claim-cli release-artifact <class> <basename> [baton_repo_root]")
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
+        if class_ in _CLASSED_CLAIM_CLASSES:
+            claim_dir = _claim_lookup_dir(class_, basename, baton_repo_root)
+            if claim_dir is not None and not claim_dir.is_dir():
+                _emit_claim_not_found_note("release-artifact", class_, basename, claim_dir)
         return _call_claim_bool("release-artifact", mod.release_artifact, class_, basename, baton_repo_root)
 
     if subcmd == "clear-claim-if-dead":
@@ -467,15 +484,19 @@ def _dispatch(argv: list[str]) -> int:
         class_, basename = rest[0], rest[1]
         baton_repo_root = rest[2] if len(rest) > 2 else ""
         if class_ in _CLASSED_CLAIM_CLASSES:
-            claim_dir = _clear_claim_lookup_dir(class_, basename, baton_repo_root)
+            claim_dir = _claim_lookup_dir(class_, basename, baton_repo_root)
             if claim_dir is not None and not claim_dir.is_dir():
-                _emit_clear_claim_not_found_note(class_, basename, claim_dir)
+                _emit_claim_not_found_note("clear-claim-if-dead", class_, basename, claim_dir)
         return _call_claim_bool("clear-claim-if-dead", mod.clear_claim_if_dead, class_, basename, baton_repo_root)
 
     if subcmd == "claim-plan":
         if not rest:
-            return _usage("session-claim-cli claim-plan <slug>")
-        return _bool_to_exit(mod.claim_plan(rest[0]))
+            return _usage("session-claim-cli claim-plan <slug> [--for-execution]")
+        for_execution = "--for-execution" in rest
+        positional = [a for a in rest if a != "--for-execution"]
+        if not positional:
+            return _usage("session-claim-cli claim-plan <slug> [--for-execution]")
+        return _bool_to_exit(mod.claim_plan(positional[0], for_execution=for_execution))
 
     if subcmd == "list-claims-by-session":
         if not rest:

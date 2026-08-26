@@ -2,7 +2,7 @@
 # coordinator_core.archive_stamp (handoff/memo/plan lifecycle frontmatter
 # writes). Direct-import variant (template-variant #1, per
 # tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1): a plain
-# in-process function call after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# in-process function call after resolving the engine root, no cc_invoke/IPC hop.
 #
 # Direct Python engine boundary (R1 template's variant discriminator) for
 # callers in skills/{handoff,pickup,workstream-complete}/SKILL.md.
@@ -79,7 +79,7 @@
 # exit-code contract — cs_stamp_plan_implemented is now a plain 0/1 contract,
 # having moved to an in-process plan_status_transition.main() call with no
 # node/DoE-root resolution step of its own).
-# A missing/unresolvable CLAUDE_KLABAUTER_ROOT (this trampoline's own transport failure,
+# A missing/unresolvable the engine root (this trampoline's own transport failure,
 # distinct from any mapped function's business exit code) exits 3 — the
 # dedicated code below, since that failure means "the claude-klabauter engine could not
 # be reached," never silently degraded to 0.
@@ -95,15 +95,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 _TRANSPORT_FAIL = 3
 
 
 def _import_module():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.archive_stamp as _mod
 
     return _mod
@@ -286,7 +284,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     # Before path validation, and before the engine import — a help request
-    # must be answerable even where CLAUDE_KLABAUTER_ROOT does not resolve.
+    # must be answerable even where the engine root does not resolve.
     if subcmd in _SUBCOMMAND_USAGE and any(t in _SUBCOMMAND_HELP_FLAGS for t in rest):
         print(f"usage: {_SUBCOMMAND_USAGE[subcmd]}")
         return 0
@@ -538,6 +536,26 @@ def main(argv: list[str]) -> int:
                     f"archive-stamp-cli {subcmd} <handoff_path> [note] [--reaped-from <sid>]"
                     " — --reaped-from may only be given once"
                 )
+        # The same silent-corruption class the --reaped-from repeat fix above
+        # closed, generalized: ANY unrecognized `--flag` left in the tail
+        # became the note verbatim, and any further positional was dropped
+        # without a word. `unclaim-handoff <path> --note "<text>"` — a
+        # plausible mistyping of a positional-note CLI — therefore exited 0
+        # having written `park_note: '--note'` into the baton's frontmatter
+        # and thrown the real text away. A note is load-bearing substrate;
+        # writing a flag name into it is worse than refusing.
+        flagged = [token for token in tail if token.startswith("--")]
+        if flagged:
+            return _usage(
+                f"archive-stamp-cli {subcmd} <handoff_path> [note] [--reaped-from <sid>]"
+                f" — unrecognized flag(s) {flagged!r}; the note is POSITIONAL"
+                " (a note whose own text begins with '--' cannot be passed here)"
+            )
+        if len(tail) > 1:
+            return _usage(
+                f"archive-stamp-cli {subcmd} <handoff_path> [note] [--reaped-from <sid>]"
+                f" — {len(tail)} positional notes given; quote the note as ONE argument"
+            )
         note = tail[0] if tail else None
         return mod.cs_unclaim_handoff(handoff_path, note, reaped_from)
 

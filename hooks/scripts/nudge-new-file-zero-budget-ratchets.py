@@ -116,7 +116,10 @@ if _HOOKS_DIR not in sys.path:
 import _message_envelope as _envelope  # noqa: E402
 import _oss_payload  # noqa: E402
 import _prompt_surface_locality as _locality  # noqa: E402
-from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
+from _engine_root import (  # noqa: E402
+    resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+    place_engine_root_on_path as _place_engine_root_on_path,
+)
 
 #: Wiki section carrying the full remedy explanations and the escape hatch
 #: (COORDINATOR_NEW_FILE_RATCHET_NUDGE_OFF=1) this hook's message used to
@@ -253,8 +256,11 @@ def _posix_exec_findings(repo_root: Path, relpath_str: str, candidate: Path) -> 
     # index 0 -- the hooks dir (inserted at the top of this module, before
     # this point) must stay AHEAD of the sibling engine root on sys.path,
     # so a module-name collision resolves toward the doctrine-plane-local helper.
-    if engine_root_str not in sys.path:
-        sys.path.append(engine_root_str)
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
+    _place_engine_root_on_path(engine_root_str)
     try:
         import coordinator_core.ops.check_posix_exec_assumptions as posix_check
     except Exception:

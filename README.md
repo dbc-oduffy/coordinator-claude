@@ -370,7 +370,6 @@ coordinator-claude/                 # flat Claude Code marketplace — single pl
 ├── skills/                         # 36 workflow skills — planning, sizing, goals/OKR, review,
 │                                    #   debugging — plus the OSS-only coordinator-update skill
 ├── snippets/                       # shared prompt fragments consumed by skills/agents/commands
-├── whoami/                         # plugin identity + health-sentinel package
 ├── cockpit-contract/schema/        # published slice of the artifact-shape contract
 ├── schemas/                        # goal/spike/registry JSON Schemas for the tracked artifact types
 ├── templates/                      # scaffolds: CLAUDE.md, .gitignore, machine-local registry, CI snippet

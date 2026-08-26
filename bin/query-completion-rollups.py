@@ -130,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         return claude_klabauter_root
 
     try:
-        from coordinator_core.ops.emit.envelope import resolve_context
+        from coordinator_core.ops.emit.resolvers import resolve_context
         from coordinator_core.ops.emit.sections import rollups
     except ImportError as exc:
         print(f"query-completion-rollups: coordinator_core not importable: {exc}", file=sys.stderr)

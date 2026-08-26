@@ -3,7 +3,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "_comment": "SESSIONSTART-DISPATCH FAN-IN (state/audits/2026-08-16-doe-spawn-totality-kill-list.md; state/handoffs/2026-08-16-untitled-6c1eb4ae.md § Next Steps 1) -- the single SYNC SessionStart entrypoint, replacing six of the nine standalone registrations that used to live in this array: the orientation RAM-cache injector (project-orientation.py, PM directive 2026-07-15), the settings.json integrity guard (guard-settings-integrity.py), the foreign-platform-path guard (guard-foreign-platform-paths.py), the C8 write-confinement anchor (session-start-write-bump-anchor.py), C1b EM-role assertion (assert-em-role.py), and the hook-generation self-probe (guard-hook-generation-self-probe.py). Hosting change only, never a policy change: sessionstart-dispatch.py runs all six in one interpreter, registered on the UNION of their two prior matchers (startup|clear|compact for four of them; startup|resume|clear|compact|fork for the other two -- the other two of the nine prior registrations' four distinct matcher sets, startup|compact for sweep-boot and startup alone for the commit-msg-repair hook, are not folded into this dispatcher; see below), each guard internally gated to its OWN original source set via the SessionStart payload's own `source` field (confirmed present, state/reference/anthropic-docs/claude-code/hooks.md § SessionStart) -- never a widened firing set. guard-hook-generation-self-probe.py runs LAST and every guard's captured output is flushed to real stdout/stderr IMMEDIATELY after it runs (never accumulated for one final write) because that guard's own documented fail-open path calls os._exit(0), which would otherwise silently discard an earlier guard's already-collected output — see sessionstart-dispatch.py's own module docstring for the full reasoning. NOT folded here: sweep-boot.py (own 30s-timeout registration, unchanged, immediately below — an explicit handoff instruction that its timeout must not hide behind a short one) and the two hooks that were already async:true (session-start-register-doe-claude-root.py, session-start-repair-prepare-commit-msg-hook.py — folding an async hook into this SYNC dispatcher would force it to block session start, a real behaviour change; they fold into sessionstart-async-dispatch.py instead, two entries below). Timeout 10s: the max individual folded-guard timeout was 8s (guard-hook-generation-self-probe.py); 10s gives brief sequential headroom while every folded guard is documented cheap-by-construction / near-zero-subprocess on its fast path.",
+        "_comment": "SESSIONSTART-DISPATCH FAN-IN (state/audits/2026-08-16-doe-spawn-totality-kill-list.md; state/handoffs/2026-08-16-untitled-6c1eb4ae.md § Next Steps 1) -- the single SYNC SessionStart entrypoint, replacing six of the nine standalone registrations that used to live in this array: the orientation RAM-cache injector (project-orientation.py, PM directive 2026-07-15), the settings.json integrity guard (guard-settings-integrity.py), the foreign-platform-path guard (guard-foreign-platform-paths.py), the C8 write-confinement anchor (session-start-write-bump-anchor.py), C1b EM-role assertion (assert-em-role.py), and the hook-generation self-probe (guard-hook-generation-self-probe.py). Hosting change only, never a policy change: sessionstart-dispatch.py runs all six in one interpreter, registered on the UNION of their two prior matchers (startup|clear|compact for four of them; startup|resume|clear|compact|fork for the other two -- the other two of the nine prior registrations' four distinct matcher sets, startup|compact for sweep-boot and startup alone for the commit-msg-repair hook, are not folded into this dispatcher; see below), each guard internally gated to its OWN original source set via the SessionStart payload's own `source` field (confirmed present, state/reference/anthropic-docs/claude-code/hooks.md § SessionStart) -- never a widened firing set. guard-hook-generation-self-probe.py runs LAST and every guard's captured output is flushed to real stdout/stderr IMMEDIATELY after it runs (never accumulated for one final write) because that guard's own documented fail-open path calls os._exit(0), which would otherwise silently discard an earlier guard's already-collected output — see sessionstart-dispatch.py's own module docstring for the full reasoning. NOT folded here: sweep-boot.py (own 30s-timeout registration, unchanged, immediately below — an explicit handoff instruction that its timeout must not hide behind a short one) and the two hooks that were already async:true (session-start-register-doe-claude-root.py, session-start-repair-prepare-commit-msg-hook.py — folding an async hook into this SYNC dispatcher would force it to block session start, a real behaviour change; they fold into sessionstart-async-dispatch.py instead, two entries below). Timeout 10s: the max individual folded-guard timeout was 8s (guard-hook-generation-self-probe.py); 10s gives brief sequential headroom while every folded guard is documented cheap-by-construction / near-zero-subprocess on its fast path. AMENDED 2026-08-18 -- THE 'HOSTING CHANGE ONLY, NEVER A POLICY CHANGE' CLAIM ABOVE NO LONGER DESCRIBES THE WHOLE ARRAY: day-branch-assert.py (chunk C4a of docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md) is the first genuinely git-MUTATING leg folded into this fan-in -- it cuts the day branch when the tree sits on `main`, which is a policy act, not a banner. Authorised by the PM ruling of 2026-08-18 ('we cut automatically if we're on main. we warn if we are on a branch that is not compliant with our auto-push rules'); recorded so this does not read as an undocumented contract break. It is registered `startup` ONLY and MUST STAY THAT WAY -- compact/resume/fork fire mid-execution and a cut there is the mid-execution mutation doctrine keeps out of bounds. MEASURED boot cost, correcting an earlier estimate that read `one `git branch --show-current` on the early-return path`: that estimate was wrong by an order of magnitude. On the COMPLIANT (non-`main`) path -- the overwhelmingly common one -- this guard costs 4149ms cold / ~1100ms warm and emits ZERO output, because the shim resolves the engine root, imports `coordinator_core.{hooks.day_branch_assert,machine_resolver,daily_day}`, and runs the full `assert_day_branch()` BEFORE anything establishes that the branch is already compliant. Warm split: engine import 193ms, `compute_machine()` 317ms, `assert_day_branch()` 580ms. It is 96% of this whole SYNC fan-in's cost (4149ms of 4302ms across all eight startup guards) and therefore 96% of what this array contributes to interactive boot latency. A cheap pre-gate reclaims nearly all of it without changing semantics on any non-compliant path: read `.git/HEAD` directly and return early only for a `work/*` branch with no pending-push record -- `case_b_verdict`'s own compliance definition. It does NOT consult the machine id or `local_day()`; those feed only the on-`main` cut arm (`_case_a`), which the pre-gate never reaches. Do not restore the old one-git-call claim; it was never true. The local `checkout -b` still applies on the rare lock-winner path, and the network push is still queued to the async fan-in below, deliberately kept out of this array's shared 10s budget.",
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
@@ -15,7 +15,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -34,7 +33,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sweep-boot.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -53,7 +51,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-async-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -74,7 +71,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/stop-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -95,7 +91,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-archive-session.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -114,7 +109,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-auto-commit.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -123,7 +117,7 @@
     ],
     "SubagentStart": [
       {
-        "_comment": "C3 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- moves the dispatched-agent bookkeeping WRITE onto SubagentStart, the first event carrying a real agent_id/agent_type identity pair, replacing the regex-scrape last resort the PostToolUse(Agent) leg used when both tool_response.agentId/.agent_id were absent. This call is IDENTITY-ONLY by design (track-dispatched-agents.py branches on hook_event_name): it sends agent_id and the literal subagent_type placeholder \"unknown\", never the real SubagentStart agent_type, so the row lands on claude-klabauter's enrich-in-place branch (coordinator_core/hooks/track_dispatched_agents.py::_resolve_row_collision) rather than the idempotent-dedup branch when PostToolUse(Agent) enriches it with the real type and model -- writing the real type here would strand model at \"unknown\" permanently. The PostToolUse(Agent) registration below is unchanged in shape; it still writes, now purely as the enrichment call. Column 4 (timestamp) is deliberately set here, nearer the true dispatch moment, and preserved by the enrich branch rather than overwritten. Failure mode (Review: coordinator:code-reviewer, Finding 5): if the PostToolUse(Agent) enrich fire never lands for a given agent (state/bug-backlog/2026-08-10-posttooluse-agent-does-not-fire-for-some-8c1d40be9f2a.yaml documents this happens), this create call's placeholder row -- subagent_type=\"unknown\", dispatched_model=\"unknown\" -- now persists PERMANENTLY instead of the dispatch going unrecorded as it did pre-C3. Accepted tradeoff: a permanently-unknown row beats a dispatch recorded nowhere, but it means a future reader diagnosing stale \"unknown\" rows in dispatched-agents.txt cannot distinguish 'genuinely unresolved' from 'enrich never fired' without checking the linked bug.",
+        "_comment": "C3 (docs/plans/2026-08-10-adopt-harness-native-hook-capabilities.md) -- moves the dispatched-agent bookkeeping WRITE onto SubagentStart, the first event carrying a real agent_id/agent_type identity pair, replacing the regex-scrape last resort the PostToolUse(Agent) leg used when both tool_response.agentId/.agent_id were absent. This call sends agent_id AND the real agent_type (track-dispatched-agents.py branches on hook_event_name), falling back to the literal \"unknown\" only when the payload carries no usable type. It formerly sent that placeholder unconditionally, so the row would land on the engine's enrich-in-place branch (coordinator_core/hooks/track_dispatched_agents.py::_resolve_row_collision) when PostToolUse(Agent) supplied type and model together. That is now inverted deliberately: PostToolUse(Agent) never fires for a Workflow agent() spawn, so the placeholder persisted permanently on exactly those rows, and the two guards keyed on column 3 failed in opposite directions off it -- the plan-body deny could not key (fail-open) while the sanctioned commit agent was refused as an unrostered type (fail-closed). Verified live: a workflow-spawned row read agent_id/unknown/unknown before this change and agent_id/unknown/coordinator:test-runner after. Cost, accepted knowingly and measured on live rows: on the RAW-AGENT-ID path the enrich call now matches on type, takes the resolver's dedup arm, and its model is dropped -- a built-in-type dispatch reading \"<id> claude-sonnet-5 Explore\" before this change reads \"<id> unknown Explore\" after; rows keyed by a named agent id are unaffected and still carry a real model. No consumer branches on that string (runtime-tripwire watchers fall through to their opus-default threshold; session-LoE undercounts opus dispatches), so it costs estimate quality, never correctness, and it closes when the engine adopts a real model onto a type-matching row. The resolver's AMBIGUOUS arm did not fire in a post-change sweep spanning coordinator:* and built-in types; on a future spelling mismatch, normalize both sides at the comparison rather than restoring the placeholder. The PostToolUse(Agent) registration below is unchanged in shape; it still writes, now purely as the enrichment call. Column 4 (timestamp) is deliberately set here, nearer the true dispatch moment, and preserved by the enrich branch rather than overwritten. Failure mode (Review: coordinator:code-reviewer, Finding 5): if the PostToolUse(Agent) enrich fire never lands for a given agent (state/bug-backlog/2026-08-10-posttooluse-agent-does-not-fire-for-some-8c1d40be9f2a.yaml documents this happens), this create call's placeholder row -- subagent_type=\"unknown\", dispatched_model=\"unknown\" -- now persists PERMANENTLY instead of the dispatch going unrecorded as it did pre-C3. Accepted tradeoff: a permanently-unknown row beats a dispatch recorded nowhere, but it means a future reader diagnosing stale \"unknown\" rows in dispatched-agents.txt cannot distinguish 'genuinely unresolved' from 'enrich never fired' without checking the linked bug. THE SHIM NOW CARRIES TWO OPS via dispatch_ops_from_hook: the bookkeeping op above runs FIRST, then the catering op, because the catering op reads back through dispatched-agents.txt and needs the bookkeeping write already landed. Catering moved here from PreToolUse(Agent) because that event has no agent_id and never fires for a Workflow agent() spawn. This is deliberately NOT a second SubagentStart entry: a second entry would price a second permanent python3 cold start (~642ms fleet-wide) against DR-344's 500ms brightline -- riding the existing shim avoids that.",
         "matcher": "",
         "hooks": [
           {
@@ -134,7 +128,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -143,7 +136,7 @@
     ],
     "SubagentStop": [
       {
-        "_comment": "Stage 1 of the mechanical zero-tool-use subagent detector (docs/plans/2026-07-25-zero-tool-use-detection.md, C1/C2) -- fires on every subagent completion, reads the payload's agent_transcript_path (never the decoy transcript_path -- see the plan's AC10/Pinned contract), and relays to the coordinator_core.hooks.subagent_zero_tool_use claude-klabauter op, which counts tool_use blocks and writes the durable detection record. Emits nothing (DEC-4: a SubagentStop hookSpecificOutput.additionalContext reaches only the subagent's own context, never the EM's -- Stage 2, folded into the existing UserPromptSubmit runtime-tripwire-em-check.py entry below, is what surfaces it). Registered LAST, only after the claude-klabauter op landed (claude-klabauter commit 82224422) -- an unregistered script is inert; a registered one that silently no-ops on every SubagentStop until the op exists is the exact fail-open-reads-as-healthy shape this workstream exists to kill. This registration percolates to every OSS install of the coordinator plugin, most of which have no claude-klabauter and therefore no engine op to resolve -- for those installs this is a permanent per-SubagentStop python3 cold start (~642ms on the reference Windows machine) that can only ever no-op, same as the other _engine_root-gated entries in this file; precedented, not a blocker, but named here rather than shipped silently.",
+        "_comment": "Stage 1 of the mechanical zero-tool-use subagent detector (docs/plans/2026-07-25-zero-tool-use-detection.md, C1/C2) -- fires on every subagent completion, reads the payload's agent_transcript_path (never the decoy transcript_path -- see the plan's AC10/Pinned contract), and relays to the coordinator_core.hooks.subagent_zero_tool_use claude-klabauter op, which counts tool_use blocks and writes the durable detection record. It relays a SECOND op in the same in-process dispatch_ops_from_hook call -- coordinator_core.hooks.subagent_review_mark, which derives a commit-ledger review mark from a finishing reviewer's own reviewed_range findings. That op is deliberately NOT a second SubagentStop entry in this file: a second entry would buy a second permanent python3 cold start (the ~642ms priced below) on every subagent stop fleet-wide, where folding it into this entry's existing call adds no process at all. Per-op errors are returned by that seam rather than raised, so neither op can suppress the other -- which is what makes it safe for the review-mark op to be registered here while a published engine mirror predating it still resolves the method to a returned error. Emits nothing (DEC-4: a SubagentStop hookSpecificOutput.additionalContext reaches only the subagent's own context, never the EM's -- Stage 2, folded into the existing UserPromptSubmit runtime-tripwire-em-check.py entry below, is what surfaces it). Registered LAST, only after the claude-klabauter op landed (claude-klabauter commit 82224422) -- an unregistered script is inert; a registered one that silently no-ops on every SubagentStop until the op exists is the exact fail-open-reads-as-healthy shape this workstream exists to kill. This registration percolates to every OSS install of the coordinator plugin, most of which have no claude-klabauter and therefore no engine op to resolve -- for those installs this is a permanent per-SubagentStop python3 cold start (~642ms on the reference Windows machine) that can only ever no-op, same as the other _engine_root-gated entries in this file; precedented, not a blocker, but named here rather than shipped silently.",
         "matcher": "",
         "hooks": [
           {
@@ -155,7 +148,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-zero-tool-use-detect.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -176,7 +168,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/pickup-autofire.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -195,7 +186,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/mise-autofire.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -214,7 +204,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/handoff-segment-inject.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -235,7 +224,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -244,7 +232,7 @@
     ],
     "PreToolUse": [
       {
-        "_comment": "PRETOOLUSE-BASH FAN-IN (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md, this dispatch) -- the single PreToolUse(Bash|PowerShell) entrypoint, replacing the three standalone registrations that used to live in this array: GUARD-DOCTRINE-SURFACE-BASH-WRITE (closes the Bash escape from the C7 admission gate -- denies redirect/tee/sed-in-place/interpreter writes to a GOVERNED_AUTHORING_SURFACES entry), GUARD-REPO-SETUP-CLAUDE-HOME-REFUSAL (makes repo-setup's 'never target ~/.claude' precondition an executable refusal), and this dispatcher's own pre-existing engine-backed guard set (rm -rf / destructive-git / commit-scoping, plus validate-commit, folded Phase 2 2026-06-30). Hosting change only, never a policy change for the two newly-folded guards: preuse-bash-dispatch.py runs them FIRST, first-deny-wins (see this file's own module docstring 'FOLD SHAPE'), each behind an import-free lazy-scope precondition and its own try/except BaseException isolation (fail-open for that guard alone, stderr skipped-list breadcrumb) -- only once neither denies does the engine-backed evaluation below run, unchanged from before this fold. Timeout stays 15s: both folded guards are cheap string/regex work (no filesystem stat, no subprocess) that adds low-single-digit ms to the all-miss path, well inside the existing 15s ceiling sized for the engine leg's own worst case. Fold semantics preserved exactly, including each guard's own fail-open/fail-closed asymmetry -- guard-doctrine-surface-bash-write.py fails OPEN only when there is no command to classify at all, and fails CLOSED on an ambiguous/indirected command naming a governed surface; that asymmetry is unchanged by this fold. Same dispatch ALSO narrowed guard-doctrine-surface-bash-write.py's own detection (a MEASURED false positive: a read-only python3 -c payload was denied purely because a governed filename appeared inside a quoted string literal) -- see that script's own module docstring point 11.",
+        "_comment": "PRETOOLUSE-BASH FAN-IN (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md, this dispatch) -- the single PreToolUse(Bash|PowerShell) entrypoint, replacing the three standalone registrations that used to live in this array: GUARD-DOCTRINE-SURFACE-BASH-WRITE (closes the Bash escape from the C7 admission gate -- denies redirect/tee/sed-in-place/interpreter writes to a GOVERNED_AUTHORING_SURFACES entry), GUARD-REPO-SETUP-CLAUDE-HOME-REFUSAL (makes repo-setup's 'never target ~/.claude' precondition an executable refusal), and this dispatcher's own pre-existing engine-backed guard set (rm -rf / destructive-git / commit-scoping, plus validate-commit, folded Phase 2 2026-06-30). Hosting change only, never a policy change for the two newly-folded guards: preuse-bash-dispatch.py runs them FIRST, first-deny-wins (see this file's own module docstring 'FOLD SHAPE'), each behind an import-free lazy-scope precondition and its own try/except BaseException isolation (fail-open for that guard alone, stderr skipped-list breadcrumb) -- only once neither denies does the engine-backed evaluation below run, unchanged from before this fold. Timeout stays 15s: both folded guards are cheap string/regex work (no filesystem stat, no subprocess) that adds low-single-digit ms to the all-miss path, well inside the existing 15s ceiling sized for the engine leg's own worst case. Fold semantics preserved exactly, including each guard's own fail-open/fail-closed asymmetry -- guard-doctrine-surface-bash-write.py fails OPEN only when there is no command to classify at all, and fails CLOSED on an ambiguous/indirected command naming a governed surface; that asymmetry is unchanged by this fold. Same dispatch ALSO narrowed guard-doctrine-surface-bash-write.py's own detection (a MEASURED false positive: a read-only python3 -c payload was denied purely because a governed filename appeared inside a quoted string literal) -- see that script's own module docstring point 11. DEFERRED (C4, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md), type STAYS \"command\": docs/decisions/DR-http-hook-forwarder-fixed-port.md authors a type:\"http\" flip for this exact entry but names multi-OS launcher-export parity on its routing key (COORDINATOR_CLONE_ROOT) as a HARD PRECONDITION, not a nice-to-have -- that export exists on no leg today (the two Windows launchers carry only the CLAUDE_CODE_HARBOR_KITE precedent; claude-doe-shim.sh.tmpl, POSIX, has no export at all), and no fixed forwarder port is committed anywhere either (coordinator/hooks/http_hook_forwarder.py's own module docstring). Landing the flip now would fail-closed-deny every Bash call on a POSIX dev clone -- claude-klabauter's fleet floor -- because a dev checkout resolves this hooks.json live via --plugin-dir and key-absent is a DENY under the DR's own routing rule. Same disposition shape as C0b's deferred SessionStart registration (commit c67d641f3): the decision is recorded, the enabling edit is held. Flip this entry's type to \"http\" once the launcher-export legs land and a fixed port is committed, not before; tracked as blocked debt, must not outlive the export landing.",
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
@@ -256,7 +244,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -275,7 +262,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-agent-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -293,7 +279,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-dispatch-suite-invocation.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -310,7 +295,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-workflow-unmodeled-agent.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -328,7 +312,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/strip-worktree-isolation.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -346,7 +329,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-write-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -364,7 +346,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-worktree-tool.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -384,7 +365,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-stop-family-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -401,7 +381,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/plan-persistence-check.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -418,7 +397,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/agent-completion-log.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           },
@@ -430,7 +408,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/track-dispatched-agents.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           },
@@ -443,7 +420,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/runtime-tripwire-em-check.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -461,7 +437,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -480,7 +455,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/watchdog-undischarged-next-move.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -499,7 +473,6 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/context-pressure-precompact.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -509,8 +482,8 @@
   },
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "a7d5c088c7a55eb12a7e63b151a5bc1260ed35e8",
-    "generated_at": "2026-08-16T14:37:07Z",
+    "generated_from_sha": "ac3990af7287a096d75731bc497179797edbe1ec",
+    "generated_at": "2026-08-19T12:45:27Z",
     "generated_from_dirty_tree": true,
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
@@ -568,7 +541,7 @@
             ]
           },
           {
-            "id": "check_claude_md_size",
+            "id": "claude_md_admission_gate",
             "script": "scripts/check-claude-md-size.py",
             "tool_names": [
               "Write",
@@ -598,8 +571,28 @@
             ]
           },
           {
+            "id": "guard_posix_invocation_doctrine_write",
+            "script": "scripts/guard-posix-invocation-doctrine-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
             "id": "block_completion_monolith_write",
             "script": "write_guards/block_completion_monolith_write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_confined_agent_write",
+            "script": "write_guards/block_confined_agent_write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -1395,14 +1388,16 @@
             "id": "multiprobe-banner",
             "script": "bash_guards/guard_multiprobe_banner.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "plumbing-and-loops",
             "script": "bash_guards/guard_plumbing_and_loops.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           }
         ]
@@ -1414,6 +1409,99 @@
         "ops": [
           "hooks.postuse_advisory_dispatch",
           "hooks.track_touched_files"
+        ]
+      },
+      "scripts/sessionstart-dispatch.py": {
+        "script": "scripts/sessionstart-dispatch.py",
+        "matcher": "startup|resume|clear|compact|fork",
+        "guards": [
+          {
+            "id": "project_orientation",
+            "script": "scripts/project-orientation.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_settings_integrity",
+            "script": "scripts/guard-settings-integrity.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_foreign_platform_paths",
+            "script": "scripts/guard-foreign-platform-paths.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_write_bump_anchor",
+            "script": "scripts/session-start-write-bump-anchor.py",
+            "tool_names": []
+          },
+          {
+            "id": "assert_em_role",
+            "script": "scripts/assert-em-role.py",
+            "tool_names": []
+          },
+          {
+            "id": "bin_drift_refresh",
+            "script": "scripts/sessionstart-bin-drift-refresh.py",
+            "tool_names": []
+          },
+          {
+            "id": "day_branch_assert",
+            "script": "scripts/day-branch-assert.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_hook_generation_self_probe",
+            "script": "scripts/guard-hook-generation-self-probe.py",
+            "tool_names": []
+          }
+        ]
+      },
+      "scripts/sessionstart-async-dispatch.py": {
+        "script": "scripts/sessionstart-async-dispatch.py",
+        "matcher": "startup|resume|clear|compact|fork",
+        "guards": [
+          {
+            "id": "session_start_register_doe_claude_root",
+            "script": "scripts/session-start-register-doe-claude-root.py",
+            "tool_names": []
+          },
+          {
+            "id": "session_start_repair_prepare_commit_msg_hook",
+            "script": "scripts/session-start-repair-prepare-commit-msg-hook.py",
+            "tool_names": []
+          }
+        ]
+      },
+      "scripts/stop-dispatch.py": {
+        "script": "scripts/stop-dispatch.py",
+        "matcher": "",
+        "guards": [
+          {
+            "id": "runtime_tripwire_em_check",
+            "script": "scripts/runtime-tripwire-em-check.py",
+            "tool_names": []
+          },
+          {
+            "id": "nudge_harness_directive_dispatch",
+            "script": "scripts/nudge-harness-directive-dispatch.py",
+            "tool_names": []
+          },
+          {
+            "id": "nudge_unrouted_sizing",
+            "script": "scripts/nudge-unrouted-sizing.py",
+            "tool_names": []
+          },
+          {
+            "id": "watchdog_undischarged_next_move",
+            "script": "scripts/watchdog-undischarged-next-move.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_manufactured_blocker",
+            "script": "scripts/guard-manufactured-blocker.py",
+            "tool_names": []
+          }
         ]
       }
     },
@@ -1496,33 +1584,6 @@
       {
         "id": "sessionend-auto-commit.py",
         "script": "scripts/sessionend-auto-commit.py",
-        "tool_names": []
-      },
-      {
-        "id": "sessionstart-async-dispatch.py",
-        "script": "scripts/sessionstart-async-dispatch.py",
-        "tool_names": [
-          "clear",
-          "compact",
-          "fork",
-          "resume",
-          "startup"
-        ]
-      },
-      {
-        "id": "sessionstart-dispatch.py",
-        "script": "scripts/sessionstart-dispatch.py",
-        "tool_names": [
-          "clear",
-          "compact",
-          "fork",
-          "resume",
-          "startup"
-        ]
-      },
-      {
-        "id": "stop-dispatch.py",
-        "script": "scripts/stop-dispatch.py",
         "tool_names": []
       },
       {

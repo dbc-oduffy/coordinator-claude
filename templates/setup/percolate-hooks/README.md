@@ -33,12 +33,9 @@ executable content; the engine reads only `percolate-store.yaml`.
    header comment for the schema this validates against
    (`coordinator_core/frontmatter/schemas/percolate-store.schema.json` in
    the engine repo).
-3. Dry-run first:
-   ```bash
-   python "$CLAUDE_KLABAUTER_ROOT/coordinator/bin/publish.py" <your-target> --dry-run
-   ```
-   (`--dry-run` skips engine-phase dispatch entirely — the engine has no
-   non-mutating preview mode.)
+3. Publish the target via `/percolate <your-target>` and read the round's own
+   change output. Do not reach for `--dry-run` to check the hooks — it skips
+   engine-phase dispatch entirely, so it exercises none of them.
 
 ## What's shipped today
 

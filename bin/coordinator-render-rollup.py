@@ -25,7 +25,7 @@ Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
 here).
 
 Exit convention — never-block (auto-push shape), NOT fail-loud: this is a
-render helper feeding a completion-entry sentence, not a gate. A CLAUDE_KLABAUTER_ROOT
+render helper feeding a completion-entry sentence, not a gate. An engine-root
 resolution failure or import failure degrades to a loud stderr note and exit 0
 (omit the sentence), exactly like the pre-port bash's "coordinator-core-
 invoke.sh not found" / cc_invoke transport-fail-closed paths, both of which
@@ -47,13 +47,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _resolve_run_op_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
+    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -65,15 +65,13 @@ def _resolve_run_op_main():
     scope-touch claim instead of an unclaimed orphan at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core
 
     # Guard against an ambient (e.g. editable-install) `coordinator_core`
     # already sitting in `sys.modules` from an EARLIER sys.path entry
-    # shadowing the one this CLAUDE_KLABAUTER_ROOT resolution is meant to select — a
-    # bogus/stale CLAUDE_KLABAUTER_ROOT (no real coordinator_core inside it) would
+    # shadowing the one this engine-root resolution is meant to select — a
+    # bogus/stale engine root (no real coordinator_core inside it) would
     # otherwise silently succeed by falling through to that ambient module
     # instead of surfacing as the "not importable" never-block skip this
     # trampoline's own docstring documents. Compare the resolved module's
@@ -83,7 +81,7 @@ def _resolve_run_op_main():
     if not os.path.abspath(resolved_file).startswith(os.path.abspath(claude_klabauter_root) + os.sep):
         raise ImportError(
             f"coordinator_core resolved from {resolved_file!r}, not under "
-            f"CLAUDE_KLABAUTER_ROOT {claude_klabauter_root!r}"
+            f"the engine root {claude_klabauter_root!r}"
         )
 
     from coordinator_core.cli_entry import run_op_main
@@ -95,11 +93,11 @@ def main() -> None:
     try:
         run_op_main = _resolve_run_op_main()
     except RuntimeError as exc:
-        # CLAUDE_KLABAUTER_ROOT resolution failed. Never-block render helper: loud
+        # engine-root resolution failed. Never-block render helper: loud
         # stderr note, exit 0 (matches the pre-port "coordinator-core-invoke.sh
         # not found" fail-open path).
         print(
-            f"coordinator-render-rollup.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"coordinator-render-rollup.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(0)

@@ -160,8 +160,8 @@ def _strip_html_comment_header(template: str) -> str:
 
 
 def _resolve_claude_klabauter_root_silent() -> Optional[str]:
-    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver (self-location-first —
-    CLAUDE_KLABAUTER_ROOT env -> walk-up to this script's own enclosing checkout -> the
+    """Resolve the engine root via the shared cc_invoke resolver (self-location-first —
+    engine-root env -> walk-up to this script's own enclosing checkout -> the
     pointer-file/registry ladder) and put it on sys.path; None on any failure
     (fail-open).
 

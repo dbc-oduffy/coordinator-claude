@@ -27,7 +27,7 @@ this file is a thin direct-import trampoline over it.
 # Exit codes (parity-critical — matches Usage/oracle contract byte-for-byte):
 #   0 — success
 #   1 — malformed input (business outcome; message on stderr)
-#   2 — CLAUDE_KLABAUTER_ROOT resolution / coordinator_core import failure (transport
+#   2 — engine-root resolution / coordinator_core import failure (transport
 #       failure — dedicated code, does NOT collide with the business codes
 #       0/1 above; this is a fail-loud gate/validator shape per the porting
 #       addendum § 3b, not a best-effort/never-block shape like auto-push).
@@ -53,15 +53,15 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 _TRANSPORT_FAILURE_EXIT = 2
 
 
 def _import_run_op_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
+    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -73,9 +73,7 @@ def _import_run_op_main():
     `declare_write` becomes a session scope-touch claim instead of an
     unclaimed orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

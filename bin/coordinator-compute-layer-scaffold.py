@@ -51,7 +51,7 @@ Exit codes:
       invoke output / missing result key for the selected mode.
   3 — genuine transport/engine failure: invoke timeout, ImportError/
       ModuleNotFoundError-shaped stderr (engine won't import/start), or
-      CLAUDE_KLABAUTER_ROOT resolution failure.
+      engine-root resolution failure.
 
 Spec backlink: pln-the-compute-layer-scaffolder-e-90d036 § C4
 
@@ -83,7 +83,7 @@ _PROG = "coordinator-compute-layer-scaffold.py"
 
 class _TransportError(Exception):
     """Raised on a genuine transport/engine failure — timeout, ImportError/
-    ModuleNotFoundError-shaped stderr, CLAUDE_KLABAUTER_ROOT resolution failure, empty
+    ModuleNotFoundError-shaped stderr, engine-root resolution failure, empty
     stdout, or unparseable invoke output. Maps to exit 3.
     """
 
@@ -208,7 +208,7 @@ def main(argv: list[str]) -> int:
         print(str(exc), file=sys.stderr)
         print(
             f"{_PROG}: transport/engine failure dispatching compute_layer.scaffold — "
-            "see stderr above (timeout, CLAUDE_KLABAUTER_ROOT resolution, or engine "
+            "see stderr above (timeout, engine-root resolution, or engine "
             "import failure).",
             file=sys.stderr,
         )
@@ -224,7 +224,7 @@ def main(argv: list[str]) -> int:
 
     if out_path:
         try:
-            with open(out_path, "w", encoding="utf-8") as f:
+            with open(out_path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(text + "\n")
         except OSError as exc:
             print(f"{_PROG}: failed to write to --out path: {out_path} ({exc})", file=sys.stderr)

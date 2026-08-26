@@ -39,7 +39,7 @@ one of the subcommands below with an already-resolved path argument):
         `Path.rglob`, a strict superset of the oracle's `find -maxdepth 1`.)
 
 Negative-spec:
-    - Does NOT resolve CLAUDE_KLABAUTER_ROOT via the machine-local registry / .doe-root
+    - Does NOT resolve the engine root via the machine-local registry / .doe-root
       ladder, and does NOT probe `repos.claude_klabauter` — the DoE ceremony
       fence still owns that resolution (resolve-claude-klabauter-bin) and hands this
       CLI already-resolved path arguments. `resolve_colocated_claude_klabauter_root` is
@@ -215,7 +215,7 @@ def _cmd_ubt_unresolved(args: argparse.Namespace) -> int:
     try:
         require_colocated_engine_on_path(__file__)
     except RuntimeError as exc:
-        print(f"workweek-complete-advisories.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"workweek-complete-advisories.py: engine-root resolution failed: {exc}", file=sys.stderr)
         return 1
 
     from coordinator_core.ops.scan_unresolved_ubt_records import scan_unresolved_ubt_records

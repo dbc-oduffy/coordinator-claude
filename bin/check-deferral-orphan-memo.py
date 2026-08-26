@@ -19,7 +19,7 @@ repo_root)): Returns the bare `result` dict on success:
   {"state": "clean"} -- no orphaned-aging memo found.
   {"state": "orphans_found", "findings": [...], "offer": "<str>"} -- one or
     more inbox memos are actionable, aging, and unowned.
-Raises RuntimeError on ANY transport failure (unresolved CLAUDE_KLABAUTER_ROOT,
+Raises RuntimeError on ANY transport failure (an unresolved engine root,
 timeout, ImportError, op-error envelope, malformed stdout) -- treated as a
 silent skip here, matching check-engine-drift.py's fail-silent/never-nag
 posture.
@@ -44,7 +44,7 @@ non-empty, its value is parsed AS the bare `result` dict payload directly
 an `error` key renders silent, and malformed JSON renders silent) -- the
 real cc_invoke() call below is skipped entirely. This lets
 check-deferral-orphan-memo.test.sh drive the rendering logic without a live
-Claude-klabauter checkout. The seam is checked BEFORE CLAUDE_KLABAUTER_ROOT resolution so tests
+Claude-klabauter checkout. The seam is checked BEFORE engine-root resolution so tests
 do not need a real claude-klabauter checkout to exercise it.
 
 Spec backlink: cross-repo/inbox/2026-07-21-claude-klabauter-em-deferral-detectors-workday-start.md
@@ -52,7 +52,7 @@ Spec backlink: cross-repo/inbox/2026-07-21-claude-klabauter-em-deferral-detector
 Negative-spec:
   - Does NOT write anything -- claude-klabauter's deferral.detect_orphan_memo op owns
     its own state (this repo's cross-repo/inbox/ is read, never mutated).
-  - Does NOT hardcode CLAUDE_KLABAUTER_ROOT -- resolves via cc_invoke's
+  - Does NOT hardcode the engine root -- resolves via cc_invoke's
     _resolve_claude_klabauter_root() (env var -> settings-home pointer -> bash resolver).
   - Does NOT hard-error or nag when the op is unregistered/claude-klabauter absent --
     degrades to a fully silent skip (exit 0, no output). DoE is a consumer;

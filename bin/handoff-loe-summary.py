@@ -74,16 +74,14 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
 
 
 def _no_console_kw() -> dict:
     """Lazily resolve claude_klabauter_root onto sys.path, then splat the canonical
     no-console-window kwarg. ``{}`` on any resolution failure (fail-open)."""
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()
@@ -248,7 +246,7 @@ Options:
   --row-only              Print ONLY the ready-to-paste one-line row (no
                            JSON wrapper) — for direct `>> handoff.md`
                            redirection. Exits 1 if the row can't be
-                           computed (CLAUDE_KLABAUTER_ROOT unresolved or the
+                           computed (the engine root unresolved or the
                            formatter module isn't importable).
   -h, --help               Show this help
 
@@ -341,7 +339,7 @@ def main(argv: list[str]) -> int:
             print(
                 "handoff-loe-summary: --row-only requires "
                 "coordinator_core.session_ledger.aggregate_chain_loe.format_oneline_row "
-                "to be importable, and it isn't (CLAUDE_KLABAUTER_ROOT unresolved or the module "
+                "to be importable, and it isn't (the engine root unresolved or the module "
                 "failed to import)",
                 file=sys.stderr,
             )

@@ -218,22 +218,22 @@ base:
       value: "the UX Reviewer"
     - key: "the Data Science Reviewer"
       value: "the Data Science Reviewer"
-    - key: "the Staff Engineer"
+    - key: "patrik"
       value: "the Staff Engineer"
       functional_hold: true
-    - key: "the UX Reviewer"
+    - key: "fru"
       value: "the UX Reviewer"
       functional_hold: true
-    - key: "the Front-End Reviewer"
+    - key: "pali"
       value: "the Front-End Reviewer"
       functional_hold: true
-    - key: "the Director of Engineering"
+    - key: "zoli"
       value: "the Director of Engineering"
       functional_hold: true
-    - key: "the Data Science Reviewer"
+    - key: "camelia"
       value: "the Data Science Reviewer"
       functional_hold: true
-    - key: "the VP-Product Reviewer"
+    - key: "yk"
       value: "the VP-Product Reviewer"
       functional_hold: true
 
@@ -421,9 +421,6 @@ base:
       case_variant_placeholders: true
     - key: "MACHINE_LOCAL_REPOS_CLAUDE_KLABAUTER_REPO"
       placeholder: "MACHINE_LOCAL_REPOS_CLAUDE_KLABAUTER_REPO"
-      token_class: "vocabulary"
-    - key: "CLAUDE_KLABAUTER_ROOT"
-      placeholder: "CLAUDE_KLABAUTER_ROOT"
       token_class: "vocabulary"
     - key: "coordinator_claude_klabauter_root"
       placeholder: "coordinator_claude_klabauter_root"
@@ -937,7 +934,6 @@ targets:
         - "skills"
         - "snippets"
         - "templates"
-        - "whoami"
         - "cockpit-contract"
     guards:
       # Registry codename-leak guard -- same rationale as the coordinator-claude
@@ -1033,7 +1029,6 @@ targets:
         - "hooks"
         - "lib"
         - "skills"
-        - "whoami"
     # The mirror's own CI harness (33 files: run-all-checks.py and the checkers it
     # drives, allowlists, issue/PR templates, workflows). Homed at
     # dist/mirror-native/coordinator-claude/.github/ after a clean-slate mirror

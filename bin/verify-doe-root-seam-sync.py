@@ -283,7 +283,7 @@ def apply_fix(fpath: str) -> str:
     text = Path(fpath).read_text(encoding="utf-8")
     new_text, changed = transform_text(text)
     if changed:
-        Path(fpath).write_text(new_text, encoding="utf-8")
+        Path(fpath).write_text(new_text, encoding="utf-8", newline="\n")
         return "CHANGED"
     return "UNCHANGED"
 

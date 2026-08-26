@@ -89,7 +89,7 @@ _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
-from cc_invoke import RouteMutationError, _no_console_kw, _resolve_claude_klabauter_root, route_mutation  # noqa: E402
+from cc_invoke import RouteMutationError, _no_console_kw, _resolve_claude_klabauter_root, require_dispatch_engine_on_path, route_mutation  # noqa: E402
 from sweep_argv import parse_repo_root_argv  # noqa: E402
 
 _OP = "session.boot_sweep"
@@ -98,22 +98,20 @@ _USAGE = "usage: python sweep-boot.py [-h] [<repo_root>] [<state_common_dir>]"
 
 
 def _import_housekeeping_seam():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import the shared C17a/C17b housekeeping-failures +
+    """Resolve the engine root and import the shared C17a/C17b housekeeping-failures +
     liveness seam (`coordinator_core.ops.ceremony.detached_spawn.record_child_failure`,
     `coordinator_core.ops.ceremony.housekeeping_liveness.{stamp_liveness,ARCHIVE_SWEEPS}`).
 
     Mirrors `agent-worktree-sweep.py::_import_main`'s resolve-then-sys.path-insert shape —
     this trampoline's own `__file__` lives inside the claude-klabauter checkout, but the seam must be
-    imported via the resolved CLAUDE_KLABAUTER_ROOT (not a relative import) for the same reason every
+    imported via the resolved engine root (not a relative import) for the same reason every
     other in-process op import in this directory does: `repo_root` here is the CALLER's repo
     (may be a consumer repo), not necessarily where this file's coordinator_core sibling
     lives. Returns None on any resolution/import failure -- this seam is best-effort
     forensics, never a reason to fail the sweep itself louder than it already fails.
     """
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.ops.ceremony.detached_spawn import record_child_failure
         from coordinator_core.ops.ceremony.housekeeping_liveness import (
             ARCHIVE_SWEEPS,
@@ -203,9 +201,7 @@ def _resolve_repo_root(explicit: str | None) -> str | None:
     if explicit:
         return explicit
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 
         return show_toplevel()
@@ -241,6 +237,15 @@ def main(argv: list[str] | None = None) -> int:
         return early_exit
     explicit_repo_root = positional[0] if len(positional) >= 1 and positional[0] else None
     state_common_dir = positional[1] if len(positional) >= 2 and positional[1] else None
+
+    # `coordinator_core` lives at the engine root, NOT under `<bin>/lib` -- the
+    # module-level bootstrap above puts only `_LIB_DIR` on sys.path, so this import
+    # raises ModuleNotFoundError unless the engine root is resolved onto sys.path
+    # first. Every other engine import in this file sits behind a
+    # `require_dispatch_engine_on_path()` call inside its own helper
+    # (`_import_housekeeping_seam`, `_resolve_repo_root`); this one is the only site
+    # reached directly from `main()`, so it must make the call itself.
+    require_dispatch_engine_on_path()
 
     from coordinator_core.install.forwarder_self_heal import self_heal_forwarders
 

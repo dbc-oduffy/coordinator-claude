@@ -34,7 +34,7 @@ Contract preserved verbatim from the bash oracle's own header:
 
 Always exits 0 — this is a never-block enumeration helper (rule 5 above), matching
 the `coordinator-auto-push` exit convention, NOT the fail-loud `handoff-gate-aging`
-convention. Even a total CLAUDE_KLABAUTER_ROOT-resolution failure degrades to emitting the
+convention. Even a total engine-root-resolution failure degrades to emitting the
 best-effort local $CLAUDE_HOME line rather than emitting nothing/erroring — a
 learn-lessons discovery run that finds only the meta-repo is a lesser degradation
 than a hard failure that blocks the whole triage.
@@ -58,21 +58,19 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_run_op_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
+    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is deliberately
     NOT used here.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main

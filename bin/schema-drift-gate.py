@@ -50,23 +50,11 @@ import cc_invoke  # noqa: E402  (sys.path mutated above)
 _OP = "schema.drift_gate"
 
 
-def _resolve_repo_root() -> str | None:
-    """Repo toplevel from cwd; None on any failure."""
-    try:
-        if cc_invoke.ensure_engine_on_path(__file__) is None:
-            return None
-        from coordinator_core.git.repo_root import show_toplevel
-
-        return show_toplevel()
-    except Exception:
-        return None
-
-
 def _legacy_fn() -> "NoReturn":  # type: ignore[name-defined]
     raise RuntimeError(
         "schema-drift-gate: coordinator_core seam absent — no bash fallback "
         "under the debash big-bang cutover. Install/repair coordinator_core "
-        "(CLAUDE_KLABAUTER_ROOT) and retry."
+        "(the engine root) and retry."
     )
 
 
@@ -79,13 +67,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"schema-drift-gate: unexpected argument(s): {' '.join(argv)}", file=sys.stderr)
         return 2
 
-    repo_root = _resolve_repo_root()
-    if not repo_root:
-        print("schema-drift-gate: cannot resolve git repo root", file=sys.stderr)
-        return 2
-
     try:
-        result = cc_invoke.route(_OP, {}, repo_root, _legacy_fn)
+        # schema.drift_gate is scoped "none" (D4,
+        # docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md § C16):
+        # cc_invoke's own _should_pass_repo() gate suppresses forwarding a
+        # repo root on argv for it, and the underlying spawn always runs
+        # cwd=claude_klabauter_root — a caller-resolved root is discarded before
+        # transmission regardless of how it was obtained. This used to
+        # spawn git to resolve one anyway (and exit 2 outside a git tree)
+        # for a value nothing downstream ever read; "" is never read either.
+        result = cc_invoke.route(_OP, {}, "", _legacy_fn)
     except RuntimeError as exc:
         print(f"schema-drift-gate: engine could not compute a verdict ({exc})", file=sys.stderr)
         return 2

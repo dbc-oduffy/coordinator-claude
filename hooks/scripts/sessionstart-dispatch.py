@@ -80,7 +80,7 @@ fix -- ordering alone would not protect a future re-ordering.
 
 NO SHARED-ROOT INJECTION (unlike `stop-dispatch.py`'s `_git_root_walk`
 share). None of these six guards resolve a plain git repo root; each
-resolves `CLAUDE_CONFIG_DIR` / the claude-klabauter engine root independently via its
+resolves `CLAUDE_CONFIG_DIR` / the engine root independently via its
 own `_resolve_claude_klabauter_root()` -- a different, guard-specific resolution this
 dispatcher does not attempt to unify (out of scope; see the settings.json
 triple-read note below).
@@ -176,6 +176,15 @@ REGISTRY: Tuple[StartGuard, ...] = (
     # Placed after the guards and before the self-probe: it emits at most one
     # informational line and gates nothing, so nothing here should wait on it.
     StartGuard("bin_drift_refresh", "sessionstart-bin-drift-refresh.py",
+               frozenset({"startup"})),
+    # `startup` ONLY, and this one is load-bearing rather than merely narrow:
+    # this is the fan-in's one genuinely git-MUTATING leg (it cuts the day
+    # branch when the tree sits on `main`, per the PM ruling of 2026-08-18).
+    # `compact`, `resume` and `fork` all fire mid-execution, and a cut on
+    # `compact` is the mid-execution mutation doctrine keeps out of bounds.
+    # See the negative-spec in `day-branch-assert.py`; widening this set turns
+    # `test_sessionstart_day_branch_assert_registered.py` red.
+    StartGuard("day_branch_assert", "day-branch-assert.py",
                frozenset({"startup"})),
     # LAST, deliberately -- see module docstring "INCREMENTAL FLUSH".
     StartGuard("guard_hook_generation_self_probe", "guard-hook-generation-self-probe.py",
@@ -314,7 +323,17 @@ def main() -> int:
         if err:
             sys.__stderr__.buffer.write(err)
             sys.__stderr__.buffer.flush()
-        del rc  # every folded guard here is banner-only; exit code carries no signal
+        # Exit code carries no signal for any guard here. Every guard is
+        # banner-only EXCEPT `day_branch_assert`, which genuinely mutates git
+        # (it cuts the day branch on `main`) — PM-authorised 2026-08-18, see
+        # that guard's docstring. It still reports through the banner channel
+        # like the rest, so this loop's contract is unchanged; what changed is
+        # that "banner-only" is no longer true of the whole set.
+        # Review: coordinator:code-reviewer -- day_branch_assert's exit code
+        # is deliberately still ignored here too: the guard is fail-open by
+        # design (see its own module docstring, "Fails open, always"), so a
+        # nonzero exit from it never signals a real failure to surface.
+        del rc
 
     if skipped:
         sys.__stderr__.write(

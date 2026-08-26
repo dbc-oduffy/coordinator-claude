@@ -38,6 +38,12 @@ The fields above are ones you ADD within the scaffold you were handed — see th
 Scaffold On Disk Always Wins** block in this prompt for why your scaffold's frontmatter will not
 match this list.
 
+**Run-nonce stamp.** When your brief carries `run_nonce:`, write the sidecar THIS run and stamp
+`run_nonce: <value>` verbatim into its frontmatter. Never copy a nonce off disk, never emit one you
+were not given, and do not substitute your own timestamp — a consumer refuses any verdict whose
+sidecar lacks this run's nonce, and `state/plan-sidecars/` files are durable and reused across runs
+by design. No `run_nonce:` in your brief → omit the field.
+
 **Verdict floor.** Your verdict enum MUST include `DEGRADED` (incomplete coverage — a corpus was
 unreadable, you hit a scan cap, or you could not complete your check as scoped; treat as no
 signal downstream) and, where your lens can detect load-bearing-doctrine contradiction,

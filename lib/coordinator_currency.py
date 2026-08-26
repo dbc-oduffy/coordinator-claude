@@ -141,7 +141,7 @@ def coordinator_currency_write(repo_root: str, plugin_root: str) -> None:
 
     fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(stamp_path) + ".", dir=stamp_dir)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(body)
         os.replace(tmp_path, stamp_path)
     except OSError as exc:

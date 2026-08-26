@@ -151,6 +151,7 @@ import cc_invoke  # noqa: E402
 
 cc_invoke.ensure_engine_on_path(__file__)
 
+from coordinator_core.engine_root import coordinator_engine_root_env  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
@@ -382,8 +383,36 @@ def _reap_integrated_legacy(
 
 
 def _reap_seam_present() -> Tuple[bool, str]:
-    """Returns (seam_present, claude_klabauter_root). claude_klabauter_root is '' if unresolvable."""
+    """Returns (seam_present, claude_klabauter_root). claude_klabauter_root is '' if unresolvable.
+
+    Two resolvers answer "which engine" on this path and they do NOT agree on
+    one input: an engine-root env var that is SET but names no valid checkout.
+    ``resolve_engine_root``'s rung 1 is isdir-gated, so it steps over the bad
+    value and returns self-location's answer; the transport's own resolution
+    inside ``cc_invoke.cc_invoke`` treats an explicit override as binding and
+    fails loud on it. Judging seam presence by the first and then dispatching
+    through the second turns a misconfigured override into a transport error
+    on a best-effort path — which this script reports as a WARN and a skip, so
+    nothing gets reaped at all and the legacy body never runs.
+
+    Screen for that disagreement here: an override the transport will refuse
+    means the native seam is not usable, whichever tree happens to sit around
+    this script. Legacy reaps the same sidecars, so routing there is strictly
+    better than skipping. This is the check the reserved ``_claude_klabauter_root=``
+    kwarg used to make unnecessary by pinning the transport to THIS resolver's
+    answer (dropped by C16/C28 --
+    docs/plans/2026-08-20-a-refusal-cannot-exit-zero.md).
+
+    C23: the override check reads through the C10/C14 accessor instead of the
+    two engine-root env var names directly -- the retired ``CLAUDE_KLABAUTER_ROOT`` no
+    longer answers there (C14 closed the dual-read window), so a second,
+    separate check of it here would only ever screen a value the transport's
+    own resolution (``cc_invoke``'s rung 1) already ignores.
+    """
     if os.environ.get("COORDINATOR_FORCE_LEGACY", "") == "1":
+        return False, ""
+    _override = coordinator_engine_root_env(__name__) or ""
+    if _override and not cc_invoke._seam_present(_override):
         return False, ""
     try:
         claude_klabauter_root = cc_invoke.resolve_engine_root(__file__)
@@ -438,11 +467,15 @@ def _print_native_summary_sample(result: dict, dry_run: bool, summary_limit: int
 def _reap_native(
     dry_run: bool,
     commit_prefix: str,
-    claude_klabauter_root: str,
     *,
     summary: bool = False,
     summary_limit: int = _DEFAULT_SUMMARY_LIMIT,
 ) -> int:
+    # No `claude_klabauter_root` parameter: C28 dropped the reserved `_claude_klabauter_root=` kwarg from
+    # the cc_invoke call below, which was its only reader, and a parameter nothing
+    # reads is a standing invitation to re-wire the transport through it. The engine
+    # this dispatches to is resolved by cc_invoke itself; `_reap_seam_present` still
+    # resolves a root of its own, for the seam-presence question only.
     params: dict = {"dry_run": dry_run}
     if commit_prefix:
         params["subject_prefix"] = commit_prefix
@@ -463,12 +496,18 @@ def _reap_native(
         print(verdict["message"], file=sys.stderr)
 
     try:
-        result = cc_invoke.cc_invoke(
-            "fleet.reap_integrated_findings", params, repo_root, _claude_klabauter_root=claude_klabauter_root
-        )
+        result = cc_invoke.cc_invoke("fleet.reap_integrated_findings", params, repo_root)
     except RuntimeError as exc:
         print(
             f"{_PROG}: WARN: fleet.reap_integrated_findings transport error ({exc}) — "
+            "skipping (non-blocking)",
+            file=sys.stderr,
+        )
+        return 0
+
+    if not isinstance(result, dict):
+        print(
+            f"{_PROG}: WARN: fleet.reap_integrated_findings malformed result: not a dict ({result!r}) — "
             "skipping (non-blocking)",
             file=sys.stderr,
         )
@@ -575,7 +614,7 @@ def main(argv: List[str]) -> int:
         )
 
     return _reap_native(
-        dry_run, commit_prefix, claude_klabauter_root, summary=summary, summary_limit=summary_limit
+        dry_run, commit_prefix, summary=summary, summary_limit=summary_limit
     )
 
 

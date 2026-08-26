@@ -17,7 +17,7 @@ macOS/Linux; the co-located `.cmd` twin is the Windows entrypoint.
 
 Exit convention: this is a fail-loud GATE script (asserts zero dangling
 sizing_object citations), NOT a never-block hook like coordinator-auto-push —
-an engine-link failure (CLAUDE_KLABAUTER_ROOT unresolved, module not importable) exits 1
+an engine-link failure (the engine root unresolved, module not importable) exits 1
 here, not 0, so the failure is visible rather than silently swallowed.
 
 Spec backlink: pln-plan-sizing-citation-gate-scaf-45eaed § C3 / AC4 / AC6

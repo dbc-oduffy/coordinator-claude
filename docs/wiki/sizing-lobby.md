@@ -228,10 +228,6 @@ working unmodified.
 **The S lane NEVER skips** scoped-commit discipline or ask-before-external-action. A lighter lane
 means less ceremony, never fewer safeguards.
 
-**It carries no pre-execute authorization gate, and listing one here was the defect.** That gate's
-referent is a *reviewed plan body* — what the S lane skips. With nothing to inspect, a compliant EM
-discharges it the only way left: by asking. That is the ask Step 5 removes.
-
 ## `pm-decision` — the XL exits, and why there are three offered plus one legacy
 
 XL does not resolve into a room the way every other t-shirt does. The engine resolves

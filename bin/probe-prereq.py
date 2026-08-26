@@ -130,6 +130,15 @@ def _cmd_python3(args: argparse.Namespace) -> int:
 
 
 def _cmd_git_lfs_enable(args: argparse.Namespace) -> int:
+    """Check, and idempotently enable, git-lfs; emit `probe_git_lfs()` either way.
+
+    Both spawns go through `_run`, so both are bounded and both are captured.
+    `git lfs install` previously ran bare: no timeout (a hung git on a cold
+    install path blocks the installer with nothing to report) and no capture
+    (its "Git LFS initialized." line landed on the same stdout as the JSON
+    result line below, which callers parse). The install's own return is
+    discarded on purpose — `probe_git_lfs()` is the oracle for whether it took.
+    """
     from coordinator_core.install import prereq_probe
 
     if args.check_only:
@@ -138,7 +147,7 @@ def _cmd_git_lfs_enable(args: argparse.Namespace) -> int:
 
     lfs_ver = _run(["git", "lfs", "version"])
     if lfs_ver is not None and lfs_ver.returncode == 0:
-        subprocess.run(["git", "lfs", "install"], stdin=subprocess.DEVNULL, **no_console_creationflags())
+        _run(["git", "lfs", "install"])
 
     sys.stdout.write(prereq_probe.probe_git_lfs())
     return 0

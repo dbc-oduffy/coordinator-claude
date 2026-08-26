@@ -44,10 +44,13 @@ Behaviour:
      defect this closes (2026-08-04 cross-repo memo, example-market-data-repo-em
      -> claude-klabauter-em, defect 2) and why it wins over every tier below.
      Fails SOFT on the hot path: staged-set derivation errors (not a repo,
-     git unavailable, timeout, empty stage) and a genuinely divergent
-     multi-artifact commit (``DivergentDeliverableIdError``) both degrade to
-     "tier 0 has nothing to say" — noted on stderr for the divergent case —
-     rather than blocking or erroring the commit. Gated (2026-08-07, DR-207)
+     git unavailable, timeout, empty stage) and a multi-artifact commit
+     whose artifacts name different deliverables both degrade to "tier 0 has
+     nothing to say", silently, rather than blocking or erroring the commit.
+     DR-328 retired ``DivergentDeliverableIdError`` as a commit gate — two
+     deliverables in one commit is ordinary, not ambiguous — so the second
+     case is an omit here and in the engine twin alike, with no stderr note
+     in either. Gated (2026-08-07, DR-207)
      on ``coordinator_core.claim_state.resolve_claim_state``: a staged
      artifact claimed by a DIFFERENT live session is excluded from tier 0's
      consideration (falls through to the session-keyed tiers below) rather
@@ -56,10 +59,11 @@ Behaviour:
      memo-write-through defect this closes. This mirrors
      ``coordinator_core.git.commit_trailers.compute_missing_trailer_args``'s
      own tier 0 for a caller (``git commit-tree`` et al.) that hooks never
-     fire for; that sibling is CLI-facing and propagates the same divergence
-     uncaught by design — this hook may not, since a failed hook still lets
-     the underlying ``git commit`` land with a wrong/no trailer rather than
-     blocking, and blocking would be strictly worse than that.
+     fire for; post-DR-328 that sibling omits on divergence exactly as this
+     copy does, and neither raises. This hook could not have kept a raising
+     posture in any case: a failed hook still lets the underlying ``git
+     commit`` land with a wrong/no trailer rather than blocking, and
+     blocking would be strictly worse than that.
   4. Deliverable-Id (session-keyed fallback, reached only when tier 0 above
      yields nothing): read
      ``<git-dir>/coordinator-sessions/<sid>/session-shape.json``
@@ -104,21 +108,12 @@ Behaviour:
      re-mirrored, from ``coordinator_core.git.commit_trailers`` — C2's
      REQUIRED INTERFACE, its sole two new exports. Verified live at C4 time:
      importing them triggers ZERO ``coordinator_core.ops`` module imports
-     (that package's own eager ~161-module sweep never fires), so this
-     import is as cheap on the hot commit-hook path as the pre-existing
-     claimed-plan import in step 4b below. Lazily imported the same way, via
-     ``_ensure_claude_klabauter_on_syspath()`` / ``cc_invoke.require_colocated_engine_on_path``
-     (self-location-first, wrapping ``resolve_colocated_claude_klabauter_root``).
-     ORDERING DEPENDENCY (reviewer finding, 2026-08-10): the "zero
-     ``coordinator_core.ops`` imports" property holds only because
-     ``_ensure_claude_klabauter_on_syspath()`` imports ``cc_invoke`` first, and
-     ``cc_invoke``'s own module-import sets ``sys._coordinator_core_lazy_ops``
-     as a side effect before this tier's lazy ``commit_trailers`` import ever
-     runs. Reordering this ladder to reach step 3b before
-     ``_ensure_claude_klabauter_on_syspath()`` has run, or a future caller of
-     ``resolve_deliverable_id_from_scope_match`` that skips that bootstrap,
-     silently reintroduces the eager ~161-module sweep on the commit hot
-     path — nothing here catches that regression, so preserve the ordering.
+     (op registration is lazy, unconditionally, so the eager ~161-module
+     sweep never fires), so this import is as cheap on the hot commit-hook
+     path as the pre-existing claimed-plan import in step 4b below. Lazily
+     imported the same way, via ``_ensure_claude_klabauter_on_syspath()`` /
+     ``cc_invoke.require_colocated_engine_on_path`` (self-location-first,
+     wrapping ``resolve_colocated_claude_klabauter_root``).
      Mirrored-pair maintenance note (module docstring, above): this tier is
      the ONE exception to "hand-mirrored, changed in both by hand" — C2's
      scope-match tier and ambiguity predicate are IMPORTED here verbatim, so
@@ -154,6 +149,13 @@ Behaviour:
      call, carrying whichever trailer(s) are missing).
 
 NEVER blocks a commit — always exits 0. `git interpret-trailers` is core git ≥ 1.8.
+
+Sole implementation (C14, 2026-08-21): the extensionless sibling in this same
+directory, `coordinator-prepare-commit-msg` (no `.py` suffix), is a thin
+in-process delegate onto THIS file's `main()` — it carries no independent
+logic. Both names must keep resolving to the SAME behaviour by construction
+now (see that file's own module docstring for the divergence defect this
+replaced), not by hand-mirroring two copies in sync.
 
 Also emits ONE write-time advisory, unrelated to trailers and equally
 non-blocking: a subject shaped as a chunk-id RANGE (`C1-C5: ...`) is named on
@@ -193,20 +195,116 @@ _HYPHEN_RANGE_SUBJECT_RE = re.compile(
 )
 
 
+def _no_console_creationflags() -> dict:
+    """Console-suppression kwargs for every spawn in this hook.
+
+    Deliberately does NOT import
+    ``coordinator_core.win_portability.no_console_creationflags``, which is the
+    engine primitive the rest of the fleet splats. This file is a
+    ``prepare-commit-msg`` hook: it runs on EVERY commit, on the interactive hot
+    path the brightline polices, and it currently imports no engine module at
+    all. Pulling ``coordinator_core`` in to fetch a two-line mapping would put
+    an engine import on the commit path to buy nothing the stdlib does not
+    already give, and would add an ImportError failure mode to a hook whose one
+    hard rule is never to block a commit. The returned mapping is byte-identical
+    to the primitive's, and is the same fallback shape
+    ``coordinator/bin/append-plan-session.py`` already ships for the
+    engine-unresolvable case.
+
+    THE CATCH this file already satisfies, carried so a new call site does not
+    lose it: a spawn passing these flags and NO ``stdin=``/``stdout=``/
+    ``stderr=``/``capture_output=`` silently loses the child's output on
+    Windows -- CPython sets ``STARTF_USESTDHANDLES`` only when at least one is
+    given, so without it the child binds its handles to the fresh window-less
+    console instead of the parent's. Every spawn in this file wires
+    ``capture_output=True``. A new one must too, or use passthrough kwargs.
+    """
+    if os.name != "nt":
+        return {}
+    return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
+
 def _resolve_git_dir() -> str:
-    """Resolve the current repo's git-dir via ONE ``git rev-parse --git-dir``
-    subprocess call. Returns ``""`` on any failure (git missing, not a repo,
-    spawn error, timeout) — callers treat that as "no git-dir available" and
-    degrade gracefully (Deliverable-Id lookup becomes a no-op, never
-    errors)."""
+    """Resolve the current repo's git-dir with ZERO subprocess spawns —
+    replaces the former ``git rev-parse --git-dir`` call on this hot path
+    (§ C1(b)). Returns ``""`` on any failure (not a repo, unreadable
+    ``.git``, permission error) — callers treat that as "no git-dir
+    available" and degrade gracefully, exactly as the spawn-based version
+    did.
+
+    DELIBERATE TWIN OF ``coordinator_core.git.git_dir.resolve_git_dir``, kept
+    rather than collapsed (2026-08-21, EM, on the peer reuse finding relayed
+    by claude-klabauter-3a). That function resolves the same per-worktree
+    git-dir in-process and handles the same ``.git``-is-a-FILE case, and
+    "default to reusing" would ordinarily settle it. It does not here, for a
+    structural reason, not a stylistic one: **this call is the FIRST thing
+    ``main()`` does, and on a non-coordinator commit the hook returns 0 two
+    lines later having imported no engine at all.** ``_ensure_claude_klabauter_on_
+    syspath`` (and with it any ``coordinator_core`` import) is reached only
+    on the deliverable-id path, far below. Importing the engine here to save
+    ~40 lines would put an engine import on EVERY commit in EVERY repo
+    carrying this hook -- the exact cost
+    ``docs/plans/2026-08-21-a-commit-stops-paying-for-thirty-processes.md``
+    exists to cut, on a path already measured over budget (that plan's
+    § Corrections 8).
+
+    The two also differ where it matters, so a mechanical collapse would be
+    a behaviour change: this one honours ``$GIT_DIR`` (rung 1 below) and
+    returns ``""`` on failure, where the engine twin has no ``$GIT_DIR``
+    rung and fails open to a ``<repo_root>/.git`` join. Whoever revisits
+    this must keep both contracts, not just the parse.
+
+    NOT via ``GIT_INDEX_FILE``: it names ``$GIT_DIR/index`` only by
+    default, is relocated by ordinary git operations (and by porcelain
+    staging through a temporary index) with no signal that it moved, and a
+    build on it fails silently with a plausible-looking wrong path — do not
+    resurrect that shortcut here.
+
+    Derivation, cheapest-safe-check first:
+      1. ``$GIT_DIR``, if the environment sets it — ``git --git-dir=...
+         commit`` exports it into the hook environment even though a plain
+         ``git commit`` does not, so honouring it is free correctness, not
+         dead code.
+      2. Otherwise resolve ``.git`` relative to cwd — git invokes
+         ``prepare-commit-msg`` with cwd already AT the worktree root
+         (this file's module docstring and ``_resolve_staged_paths``'s own
+         docstring both already rely on that same invariant for their own
+         relative-path git calls), so no upward directory walk is needed
+         or attempted.
+         - a DIRECTORY there is an ordinary repo's git-dir: return ``".git"``.
+         - a FILE there is a linked worktree or submodule gitlink: parse its
+           ``gitdir: <path>`` first line and resolve that path relative to
+           the FILE's own directory (not cwd) if it is not already
+           absolute — the same trap commit ``87b2f3f43`` already paid for
+           once in this codebase.
+
+    This reproduces ``git rev-parse --git-dir``'s PER-WORKTREE answer
+    (``.git/worktrees/<name>``), never the common dir —
+    ``_resolve_deliverable_id_at``'s ``<git-dir>/coordinator-sessions/<id>/
+    session-shape.json`` lookup and the ``common_dir=`` argument threaded
+    into ``resolve_claim_state`` both depend on which one this returns; a
+    "helpfully" common-dir-returning derivation would change behaviour
+    silently.
+    """
     try:
-        out = subprocess.run(
-            ["git", "rev-parse", "--git-dir"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-        return (out.stdout or "").strip()
+        env_git_dir = os.environ.get("GIT_DIR", "").strip()
+        if env_git_dir:
+            return env_git_dir
+
+        cwd = os.getcwd()
+        dotgit = os.path.join(cwd, ".git")
+        if os.path.isdir(dotgit):
+            return ".git"
+        if os.path.isfile(dotgit):
+            with open(dotgit, encoding="utf-8") as fh:
+                first_line = fh.readline().strip()
+            if first_line.startswith("gitdir:"):
+                target = first_line[len("gitdir:"):].strip()
+                if target and not os.path.isabs(target):
+                    target = os.path.normpath(os.path.join(cwd, target))
+                if target:
+                    return target
+        return ""
     except Exception:
         return ""
 
@@ -330,17 +428,22 @@ def _resolve_staged_paths(timeout: float = 10.0) -> list:
     nothing to say" at the call site, which is exactly the fallback-to-
     session-tiers behaviour this hook must degrade to.
 
-    ``coordinator_core.win_portability`` is not importable off a bare
-    ``sys.path`` in a real hook invocation (git spawns this script with no
-    ``PYTHONPATH``), so the bootstrap here MUST be
-    ``_ensure_claude_klabauter_on_syspath()`` — the same self-location bootstrap every
-    other ``coordinator_core`` import in this file already uses — before
-    that import is attempted. A resolution failure still degrades to ``[]``
-    (never blocks the commit), matching the module's fail-soft contract, but
-    is noted on stderr, matching the visible-not-silent convention this file
-    already uses for tier-0 ambiguity (``_resolve_deliverable_id``) — a
-    silently empty tier-0 lookup here previously masqueraded as "nothing
-    staged" indefinitely.
+    This function does not itself import ``coordinator_core`` — see
+    ``_no_console_creationflags()``'s docstring for why the console-
+    suppression path in this file stays engine-free. The bootstrap call here
+    instead pre-flights ``_ensure_claude_klabauter_on_syspath()`` — the same self-
+    location bootstrap every ``coordinator_core`` import in this file already
+    uses — on behalf of the downstream ``_resolve_deliverable_id()`` engine
+    imports the caller is about to attempt with these paths: git spawns this
+    script with no ``PYTHONPATH``, so ``coordinator_core`` is not importable
+    off a bare ``sys.path`` in a real hook invocation, and a resolution
+    failure here is reported once rather than surfacing separately at each
+    downstream tier that would otherwise re-attempt the same bootstrap. A
+    resolution failure still degrades to ``[]`` (never blocks the commit),
+    matching the module's fail-soft contract, but is noted on stderr,
+    matching the visible-not-silent convention this file already uses for
+    tier-0 ambiguity (``_resolve_deliverable_id``) — a silently empty tier-0
+    lookup here previously masqueraded as "nothing staged" indefinitely.
     """
     claude_klabauter_root = _ensure_claude_klabauter_on_syspath()
     if not claude_klabauter_root:
@@ -352,15 +455,13 @@ def _resolve_staged_paths(timeout: float = 10.0) -> list:
         )
         return []
     try:
-        from coordinator_core.win_portability import no_console_creationflags
-
         out = subprocess.run(
             ["git", "diff", "--cached", "--name-only"],
             capture_output=True,
             text=True,
             timeout=timeout,
             stdin=subprocess.DEVNULL,
-            **no_console_creationflags(),
+            **_no_console_creationflags(),
         )
     except Exception as exc:
         sys.stderr.write(
@@ -407,12 +508,18 @@ def _resolve_deliverable_id_from_paths(
 
     Omit-rather-than-guess: ``paths`` empty, or none of ``paths`` resolve to
     a file carrying a ``deliverable_id``, returns ``""``. Two or more staged
-    paths carrying DIFFERENT non-empty ``deliverable_id`` values raises
-    ``coordinator_core.ops.deliverable_carry.DivergentDeliverableIdError`` —
-    reused rather than forked, per that class's own negative-spec — which
-    ``_resolve_deliverable_id`` (below) downgrades to a non-aborting
-    fallback rather than letting it propagate, unlike the CLI-facing
-    sibling this mirrors.
+    paths carrying DIFFERENT non-empty ``deliverable_id`` values ALSO return
+    ``""`` (DR-328, 2026-08-19) — a divergent pathspec is the same
+    "cannot resolve" case as an empty one, not a separate fail-loud posture,
+    and producer-contract § 3 governs all three producers uniformly.
+
+    This tier used to raise ``DivergentDeliverableIdError`` and depend on
+    ``_resolve_deliverable_id``'s broad ``except Exception`` to swallow it.
+    The observable outcome was already right, but only accidentally: the
+    engine twin returned while this copy raised, so the hand-mirrored pair
+    had genuinely diverged in control flow behind identical behaviour. That
+    is the drift this file's module docstring warns the pair is kept in sync
+    to prevent, and it is why the omit is now explicit here.
 
     Contention gate (2026-08-07, DR-207): a staged artifact claimed by a
     DIFFERENT live session (per
@@ -434,7 +541,6 @@ def _resolve_deliverable_id_from_paths(
     if not claude_klabauter_root:
         return ""
     try:
-        from coordinator_core.ops.deliverable_carry import DivergentDeliverableIdError
         from coordinator_core.frontmatter.primitives import (
             read_fm_field_unquoted,
             split_frontmatter,
@@ -446,19 +552,6 @@ def _resolve_deliverable_id_from_paths(
         from coordinator_core.claim_state import resolve_claim_state
     except Exception:
         resolve_claim_state = None
-
-    try:
-        from coordinator_core.ops.deliverable_equivalence import canonicalize, load_equivalence_map
-
-        # The equivalence artifact lives in the COMMITTING repo (`paths` are
-        # relative to it), not claude-klabauter's own worktree -- os.getcwd() is that
-        # repo's root, mirroring how `paths`/`rel_path` are opened below.
-        equivalence_map = load_equivalence_map(Path(os.getcwd()))
-    except Exception:
-        equivalence_map = {}
-
-        def canonicalize(raw_id, _map):  # noqa: ANN001 -- local fallback, see except above
-            return raw_id
 
     common_dir = Path(git_dir) if git_dir else None
 
@@ -490,28 +583,23 @@ def _resolve_deliverable_id_from_paths(
                         continue
                 found[rel_path] = cleaned
 
-    # Canonicalization is confined to the equality check, and the value
-    # returned on the collapse-to-one path is always a RAW value some staged
-    # artifact actually carries -- never the synthesized canonical winner.
-    # This return value becomes a stamped `Deliverable-Id:` trailer, so
-    # returning the canonical id would write a value no staged artifact's own
-    # frontmatter carries verbatim: the mutation the WRITE-PATH-SITE
-    # negative-spec forbids. Kept byte-identical in shape to
+    # The value returned on the collapse-to-one path is always a RAW value
+    # some staged artifact actually carries. Kept byte-identical in shape to
     # `commit_trailers._resolve_deliverable_id_from_paths`, which this
     # mirrors (review-integrator P1, coordinatorcode-reviewer-0f04f47d.md).
-    canonical_by_path = {p: canonicalize(v, equivalence_map) for p, v in found.items()}
-    distinct_canonical = sorted(set(canonical_by_path.values()))
-    if not distinct_canonical:
+    distinct_values = sorted(set(found.values()))
+    if not distinct_values:
         return ""
-    if len(distinct_canonical) == 1:
+    if len(distinct_values) == 1:
         return found[min(found)]
 
-    conflict_desc = ", ".join(f"{p!r} -> {v!r}" for p, v in sorted(found.items()))
-    raise DivergentDeliverableIdError(
-        "coordinator-prepare-commit-msg: this commit's staged pathspec names "
-        f"artifacts with DIFFERING deliverable_id values ({conflict_desc}) -- "
-        "refusing to guess which trailer applies."
-    )
+    # Producer-contract § 3 / DR-328: omit, don't guess -- and don't raise
+    # either. The engine twin returns "" here, and this copy relying on
+    # `_resolve_deliverable_id`'s broad `except Exception` to convert a raise
+    # into the same outcome made the two LOOK equivalent while their control
+    # flow diverged; the fail-soft arm stays (it guards more than this one
+    # exception) but is no longer what makes this tier correct.
+    return ""
 
 
 def _list_held_plan_claims(cwd: str) -> list:
@@ -592,7 +680,7 @@ def _resolve_deliverable_id_from_claimed_plan() -> str:
 
     Lazily reaches into ``coordinator_core`` — deliberately NOT imported at
     module scope, so a hit on step 4/4a (the common case) never pays this
-    import's cost on the commit hot path. Resolves CLAUDE_KLABAUTER_ROOT via the
+    import's cost on the commit hot path. Resolves the engine root via the
     self-location-first ``require_colocated_engine_on_path()`` (which wraps
     ``resolve_colocated_claude_klabauter_root()``; this script
     lives inside the claude-klabauter checkout at ``coordinator/bin/``, so
@@ -608,7 +696,7 @@ def _resolve_deliverable_id_from_claimed_plan() -> str:
     rather than re-deriving either — see that module's own negative-spec on
     the ``plan_claim_dir`` import-cycle trap before touching this function.
 
-    Omit-rather-than-guess throughout: an unresolvable CLAUDE_KLABAUTER_ROOT, an
+    Omit-rather-than-guess throughout: an unresolvable engine root, an
     unresolvable plan, a missing/unreadable file, or a missing/blank field
     all return ``""`` — never fabricates a value, never raises (any
     exception anywhere in this chain is swallowed and treated as "no
@@ -674,13 +762,18 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     ``_resolve_deliverable_id_from_claimed_plan``). Never fabricates a
     value; every lookup in the cascade is omit-rather-than-guess.
 
-    Tier 0's ``DivergentDeliverableIdError`` (and any other failure raised
-    resolving it) is caught HERE, not left to propagate to ``main()`` — this
-    hook's hot-path fail-soft contract (module docstring, step 3a) means a
-    genuinely ambiguous or errored artifact lookup degrades to "tier 0 has
-    nothing to say" and falls through to the session-keyed tiers below,
-    never blocks or errors the commit. The ambiguous case is noted on
-    stderr so the divergence is visible without aborting anything.
+    Any failure raised resolving tier 0 is caught HERE, not left to
+    propagate to ``main()`` — this hook's hot-path fail-soft contract
+    (module docstring, step 3a) means an errored artifact lookup degrades to
+    "tier 0 has nothing to say" and falls through to the session-keyed tiers
+    below, never blocks or errors the commit.
+
+    A DIVERGENT pathspec no longer reaches that arm and is not noted on
+    stderr: DR-328 retired ``DivergentDeliverableIdError`` as a commit gate
+    on the ruling that two deliverables in one commit "is not a divergence
+    at all — it is ordinary", so tier 0 returns "" for it exactly as it does
+    for an empty stage. Guarded by
+    ``test_tier0_divergent_staged_artifacts_falls_back_soft_and_silent``.
     """
     if paths:
         try:
@@ -690,7 +783,7 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
         except Exception as exc:
             sys.stderr.write(
                 "coordinator-prepare-commit-msg: tier-0 artifact deliverable-id "
-                f"resolution ambiguous or failed ({exc}); falling back to "
+                f"resolution failed ({exc}); falling back to "
                 "session-keyed resolution.\n"
             )
             deliverable_id = ""
@@ -867,6 +960,7 @@ def main(argv: list) -> int:
             ["git", "interpret-trailers", "--no-divider", "--in-place", *trailer_args, commit_msg_file],
             capture_output=True,
             timeout=15,
+            **_no_console_creationflags(),
         )
     except Exception:
         pass

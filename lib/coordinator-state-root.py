@@ -7,7 +7,7 @@ every call and degrades Windows. Its
 5-rule routing logic is NOT reimplemented here — the claude-klabauter side already
 carries a native peer, `coordinator_core.state_root` (COMPOSED over the
 already-native `coordinator_core.ops.coordinator_doe_root`,
-`coordinator_core.claude_klabauter_root`, `coordinator_core.artifact_subject`, and
+`coordinator_core.engine_root`, `coordinator_core.artifact_subject`, and
 `coordinator_core.meta_repo_identity`), so this file is a thin argv/exit-code
 + importable bridge over that seam — mirroring `coordinator-is-meta-repo.py`'s
 bridge shape (DR-047: DoE owns contract, claude-klabauter owns engine).
@@ -36,7 +36,7 @@ Usage (byte-for-byte CLI parity with the retired bash oracle):
 Exit codes:
   0 — success (state-root path printed), or --print-map (always 0)
   1 — usage error or resolution failure (bad flags, unresolvable root),
-      OR CLAUDE_KLABAUTER_ROOT transport failure (cannot reach the native seam) —
+      OR engine-root transport failure (cannot reach the native seam) —
       the transport failure is folded into the same rc=1 shape the bash
       oracle used for "coordinator_state_root failed", so callers checking
       only exit-code parity see no behavior change.
@@ -47,14 +47,14 @@ Public API (importable, mirrors the retired bash function's call shape):
     coordinator_state_root(central=False, subject=None, artifact=None,
                             git_root=None) -> str
         Returns the resolved <root>/state path. Raises RuntimeError on any
-        failure (CLAUDE_KLABAUTER_ROOT transport, or the native module's own
+        failure (engine-root transport, or the native module's own
         StateRootError/CrossCuttingStateRoot — both subclass RuntimeError).
         A caller that wants to discriminate cross-cutting (rc=2) from a
         plain failure (rc=1) should import CrossCuttingStateRoot from this
         module and catch it specifically (re-exported below).
     print_map() -> str
         Single-line JSON central map; delegates directly to the native
-        module's print_map(). Raises RuntimeError on CLAUDE_KLABAUTER_ROOT transport
+        module's print_map(). Raises RuntimeError on engine-root transport
         failure only (the native print_map() itself never raises — it
         folds each subject's own failure to JSON null + stderr WARN).
 
@@ -82,9 +82,9 @@ from typing import List, Optional
 
 
 def _resolve_claude_klabauter_root() -> str:
-    """Delegate to cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder
+    """Delegate to cc_invoke's battle-tested engine-root resolution ladder
     (env var -> settings-home pointer file -> machine-local registry ->
-    coordinator_core.claude_klabauter_root) rather than re-deriving it — mirrors
+    coordinator_core.engine_root) rather than re-deriving it — mirrors
     coordinator-is-meta-repo.py's _resolve_claude_klabauter_root().
     """
     _this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -93,22 +93,20 @@ def _resolve_claude_klabauter_root() -> str:
     _bin_lib_dir = os.path.join(_coordinator_root, "bin", "lib")
     if _bin_lib_dir not in sys.path:
         sys.path.insert(0, _bin_lib_dir)
-    from cc_invoke import _resolve_claude_klabauter_root as _resolve  # noqa: E402
+    from cc_invoke import _resolve_claude_klabauter_root as _resolve, require_dispatch_engine_on_path  # noqa: E402
 
     return _resolve()
 
 
 def _import_state_root():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the native seam.
+    """Resolve the engine root, put it on sys.path, and import the native seam.
 
-    Raises RuntimeError (CLAUDE_KLABAUTER_ROOT unresolvable) or ImportError
+    Raises RuntimeError (engine root unresolvable) or ImportError
     (coordinator_core.state_root not importable) — both are transport
     failures the CLI maps to exit code 1, distinct from the module's own
     StateRootError/CrossCuttingStateRoot business-logic failures.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.state_root import (  # noqa: E402
         CrossCuttingStateRoot as _CrossCuttingStateRoot,
         StateRootError as _StateRootError,
@@ -134,7 +132,7 @@ def coordinator_state_root(
     git_root: Optional[str] = None,
 ) -> str:
     """Importable public API mirroring the retired bash function's call
-    shape. Raises RuntimeError on any resolution failure: CLAUDE_KLABAUTER_ROOT
+    shape. Raises RuntimeError on any resolution failure: engine-root
     transport, or the native module's own StateRootError /
     CrossCuttingStateRoot (both already subclass RuntimeError).
     """
@@ -147,7 +145,7 @@ def coordinator_state_root(
 
 def print_map() -> str:
     """Importable public API mirroring `--print-map`. Raises RuntimeError
-    only on CLAUDE_KLABAUTER_ROOT transport failure — the native print_map() itself
+    only on engine-root transport failure — the native print_map() itself
     never raises (each subject's own failure folds to JSON null + stderr
     WARN)."""
     global StateRootError, CrossCuttingStateRoot
@@ -161,7 +159,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     """CLI-shaped wrapper preserving the bash oracle's exit codes for
     parity: prints the resolved path to stdout (no trailing newline) and
     returns 0; or writes remediation to stderr and returns 1 (usage error /
-    StateRootError / CLAUDE_KLABAUTER_ROOT transport failure) / 2
+    StateRootError / engine-root transport failure) / 2
     (CrossCuttingStateRoot). ``--print-map`` prints the JSON map and
     returns 0."""
     args = list(sys.argv[1:] if argv is None else argv)

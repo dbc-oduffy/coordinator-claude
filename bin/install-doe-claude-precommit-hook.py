@@ -18,11 +18,11 @@ leak, and a generic paraphrase would conceal nothing while this file's own
 name, module path, and identifiers all carry the slug regardless.
 
 Exit convention: this is a config-writer/gate-installer, not a never-block
-hook. A claude-klabauter-link failure (CLAUDE_KLABAUTER_ROOT unresolvable, module not
+hook. A claude-klabauter-link failure (the engine root unresolvable, module not
 importable) means the installer literally could not run — silently exiting
 0 would read as "hook installed" to a caller (`scripts/setup.py`,
 `/coordinator:setup`) when it was not, so this trampoline exits 1 on
-CLAUDE_KLABAUTER_ROOT resolution or import failure. The op's own internal skip paths
+engine-root resolution or import failure. The op's own internal skip paths
 (not a git repo, not DoE-claude, unresolved root, already
 installed) all still exit 0.
 
@@ -40,20 +40,18 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import the in-process runner.
+    """Resolve the engine root and import the in-process runner.
 
     DR-276: routes through `coordinator_core.cli_entry.run_op_main` rather
     than calling the op's `main` directly, so the pre-commit hook file this
     op writes becomes a session scope-touch claim instead of an orphan at
     the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 

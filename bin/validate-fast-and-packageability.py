@@ -129,7 +129,7 @@ from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
 try:
     _REPO_ROOT = require_colocated_engine_on_path(__file__)
 except RuntimeError as _exc:
-    print(f"{os.path.basename(__file__)}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+    print(f"{os.path.basename(__file__)}: engine-root resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
 
 from coordinator_core.diff_scoped_tests import (  # noqa: E402
@@ -451,12 +451,15 @@ def _run_resolved_command(cmd: str) -> int:
     gateways.md, chunk C1).
     """
     argv = shlex.split(cmd)
-    # env=child_env(): strip COORDINATOR_CORE_LAZY_OPS before spawning -- this repo's
-    # own pytest suite asserts the op-registry at collection time, and a leaked
-    # COORDINATOR_CORE_LAZY_OPS=1 (from importing cc_invoke above) makes
-    # coordinator_core.ops skip eager registration, breaking collection on a green
-    # tree (see commit 5943ec01, which patched the sibling workday-complete-step1-
-    # validate.py copy of this exact leak by hand before child_env() existed).
+    # env=child_env(): kept for its settings-home propagation (COORDINATOR_
+    # SETTINGS_HOME), not for stripping anything. Until the `import-path-
+    # costs-nothing` sprint (C8) this comment described child_env() stripping
+    # COORDINATOR_CORE_LAZY_OPS -- cc_invoke's own child_env() no longer
+    # writes or strips that var (see coordinator/bin/lib/cc_invoke.py), and
+    # lazy op registration is unconditional now, so an inherited value would
+    # have zero effect on this repo's own pytest suite's collection (see
+    # commit 5943ec01 / coordinator_core/ops/__init__.py for the retired
+    # history of that leak).
     spawn_kwargs = dict(
         env=child_env(),
         **no_console_passthrough_kwargs(),

@@ -148,7 +148,14 @@ def cmd_recovery_branch(args: argparse.Namespace) -> int:
     branch = args.branch_name or _default_branch_name()
 
     branch_mutation_verdict = _branch_mutation_verdict()
-    verdict = branch_mutation_verdict(cwd=str(repo_root))
+    # UNQUALIFIED_BRANCH_CUT, not FRESH_CUT_AT_HEAD: this cut is bundled
+    # with a hard reset of main, so it is not content-neutral and takes the
+    # unchanged refuse-under-peers path.
+    from coordinator_core.session.worktree_safety import UNQUALIFIED_BRANCH_CUT
+
+    verdict = branch_mutation_verdict(
+        cwd=str(repo_root), operation=UNQUALIFIED_BRANCH_CUT
+    )
     if verdict.outcome != "ok":
         _die(
             "REFUSED-LIVE-PEERS: declining to cut a recovery branch and "

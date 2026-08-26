@@ -10,15 +10,17 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 ## Overview
 
-Merge a work or feature branch to main via PR with CI gating, computed by the `merge-assemble`
-assembler into one decision object (node ceremony hard-gate, tag-prefix resolution, release-tag
-cut, coverage gate, PR body, portability sweep, illegal-path scan, completion-log flip,
-orphan-branch sweep). What follows is judgment residue plus the steps depending on live PR/merge
-state the assembler can't precompute (branch recovery, PR creation, the merge, local cleanup).
+Merge a work or feature branch to main via PR with CI gating. `merge-assemble` computes the node
+ceremony hard-gate, tag-prefix resolution, release-tag cut, coverage gate, PR body, portability
+sweep, illegal-path scan, completion-log flip, and orphan-branch sweep. What follows is what it
+cannot precompute: your judgment calls, plus the steps depending on live PR/merge state (branch
+recovery, PR creation, the merge, local cleanup).
 
 **Announce at start:** "I'm using the coordinator:merging-to-main skill to merge this branch to main."
 
-Compute: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/merge-assemble" brief [--tag-prefix <prefix>]`. Resolve every `judgment_points[]` entry before its gated directive(s) proceed. Apply: same CLI's `apply [--session-id <id>] [--force] [--decisions <json>]` — `apply`'s own `--force` bypasses only the node ceremony hard-gate (`d0`).
+On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) — ladder and
+shapes: `snippets/resolve-coordinator-bin.md`.
+Compute: `merge-assemble brief [--tag-prefix <prefix>]`, resolved per that ladder. Resolve every `judgment_points[]` entry before its gated directive(s) proceed. Apply: same CLI's `apply [--session-id <id>] [--force] [--decisions <json>]` — `apply`'s own `--force` bypasses only the node ceremony hard-gate (`d0`).
 
 **First Officer Doctrine:** EM may refuse to merge and alert the PM on a branch with known issues.
 
@@ -58,7 +60,7 @@ origin/<branch>..HEAD`), push with `--set-upstream` if unpushed commits exist.
 
 ---
 
-## Step 3: Release Surface (judgment residue)
+## Step 3: Release Surface (your call)
 
 `d6`/`d3`/`d5`/`d1`/`d2` are directives (illegal-path scan, coverage gate, portability sweep,
 tag-prefix resolution, release-tag cut). Judgment:
@@ -161,10 +163,11 @@ found here is debris to clear (`git worktree remove <path>`), not state to keep.
 
 ## Step 10: Completion-Log Status Flip
 
-Runs when the assembler cut a release tag (`d2` landed); skip otherwise. `mkdir -p
-archive/release-notes/`, run `merge-release-notes-derive reconcile-sweep` (resolve any
-unaccounted-commit warnings), then `d7` (`merge-release-notes-derive flip-tags <tag> <sha> <date>
-$ENTRY_PATHS`) flips every matching entry to the earliest release tag whose history contains it.
+Runs when a release tag was cut (`d2` landed); skip otherwise. `mkdir -p
+archive/release-notes/`, then `d7` (`merge-release-notes-derive flip-tags <tag> <sha> <date>
+$ENTRY_PATHS`) flips every matching entry to the earliest release tag whose history contains it. The
+`reconcile-sweep` verb that once preceded the flip is retired with the rest of the completion-
+reconcile family; the CLI carries `flip-tags` alone, so there is no unaccounted-commit pass here.
 Best-effort `git mv` the pending-release accumulator to `archive/release-notes/`, scoped-commit
 `$ENTRY_PATHS` + accumulator + release notes file, push to main.
 

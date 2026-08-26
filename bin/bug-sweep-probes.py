@@ -12,7 +12,7 @@ prose to these invocation shapes):
                    changed-files comm-based verification, ALERT branch for
                    fix-now files claimed-but-not-diffed).
 
-Deliberately self-contained — no coordinator_core / CLAUDE_KLABAUTER_ROOT resolution.
+Deliberately self-contained — no coordinator_core / engine-root resolution.
 Both ported concerns are pure stdlib logic (filesystem probes, `git diff`,
 set difference) with no dependency on the claude-klabauter engine.
 

@@ -37,12 +37,18 @@ Spec backlink: docs/plans/2026-06-22-portable-registry-resolved-publish-targets.
                § C1 (resolve-publish-target lib)
 Port: docs/plans/2026-07-21-percolate-python-port.md (chunk C-W0).
 
-Negative-spec: this module performs no top-level side effects and mutates no
-global state — every call to `resolve_publish_row` is independent.
+Negative-spec: this module performs no top-level side effects, and no call's
+RESOLVED OUTPUT depends on any other call having run first or on call order —
+every call to `resolve_publish_row` still resolves independently. It does
+memoize raw machine-local registry reads for the remainder of the current
+process (see `_dump_cache`): a performance-only cache, keyed by the resolved
+`machine_local_bin` path, that never changes what any call resolves to and is
+never persisted to disk or shared across process invocations.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -197,23 +203,52 @@ def resolve_machine_local_bin(root: Path) -> Optional[str]:
     return None
 
 
-def _machine_local_get(machine_local_bin: str, key: str) -> Optional[str]:
-    """Invoke `<machine_local_bin> get <key>` directly (shebang-honoring exec).
-    The bash original wrapped this in `${BASH:-bash} "$machine_local_bin"`
-    because machine-local WAS a bash script; it is now a `#!/usr/bin/env
-    python3` forwarder, and bash-wrapping it makes bash parse Python source —
-    every key silently reads as unset. Returns stdout (stripped of the
-    trailing newline) on success, None on any non-zero exit (key unset).
+# Process-lifetime memo of `machine-local dump`'s output, keyed by the
+# resolved `machine_local_bin` path. `load_targets` (coordinator/lib/percolate/
+# targets.py) resolves every registered publish-target row in a loop, and each
+# row can call `_machine_local_get` several times (dest, primary source, each
+# source_map root) — before this cache, a 9-row registry cost 9-30 separate
+# `machine-local get` subprocess spawns, ~1.4s of process-creation overhead
+# EACH on Windows, to answer what one `machine-local dump` resolves in a
+# single process. Keyed by the binary path (not by meta_root) so two distinct
+# registries reached via two distinct `machine_local_bin` values in the same
+# process — as `test_real_publish_targets_portable_source_map_rows` exercises
+# — never share a cache entry. Never persisted to disk or shared across
+# process invocations: a stale publish-target mapping is worse than a slow
+# one, and this cache exists purely to answer many rows within one already-
+# running process, not to skip re-reading the registry on the next process.
+_dump_cache: dict[str, dict[str, str]] = {}
+
+
+def _dump_registry(machine_local_bin: str) -> dict[str, str]:
+    """Resolve EVERY key `machine-local` knows about, in one process, and
+    memoize the result in `_dump_cache` for the remainder of this process's
+    lifetime. Backed by `machine-local dump` — the same resolution kernel
+    `machine-local get` uses (`resolve_one`, shared by both CLI verbs) — so a
+    value read from here is byte-identical to what a per-key `get` call would
+    have returned for that key.
 
     Raises ResolveError(code=4) if the CLI could not be EXECUTED at all
     (`OSError` — e.g. Windows WinError 193 from CreateProcess-ing an
-    extensionless shebang script). This is a distinct failure class from "key
-    unset": conflating the two used to report a correctly-set registry key as
-    unset, with remediation instructing the operator to re-set a key that was
-    never the problem. See module docstring rc-4 for the full contract."""
+    extensionless shebang script) — the same TRANSPORT failure class
+    `_machine_local_get` used to raise per key, now raised once for the
+    shared dump instead. This is deliberately distinct from "key unset":
+    conflating the two used to report a correctly-set registry key as unset,
+    pointing the operator at remediation for a key that was never the
+    problem. See module docstring rc-4 for the full contract.
+
+    A non-zero exit or unparseable stdout — the `dump` analogue of the
+    version-guard/malformed-TOML operational failure that would have made
+    EVERY per-key `get` call fail identically — degrades to an empty
+    registry rather than raising: every subsequent key lookup then reports
+    "not found", the same net result the old per-key loop would have
+    produced for every one of those calls individually."""
+    if machine_local_bin in _dump_cache:
+        return _dump_cache[machine_local_bin]
+
     try:
         result = subprocess.run(
-            [machine_local_bin, "get", key],
+            [machine_local_bin, "dump"],
             capture_output=True,
             text=True,
             check=False,
@@ -221,26 +256,44 @@ def _machine_local_get(machine_local_bin: str, key: str) -> Optional[str]:
     except OSError as exc:
         raise ResolveError(
             f"resolve-publish-target: machine-local invocation failed — "
-            f"could not execute '{machine_local_bin} get {key}': {exc}. "
+            f"could not execute '{machine_local_bin} dump': {exc}. "
             "This is a TRANSPORT failure (the CLI itself could not be run), "
-            f"NOT an unset registry key — '{key}' may already be set "
-            "correctly. On Windows this is typically WinError 193 from "
-            "attempting to exec an extensionless shebang script directly; "
-            "verify the resolved machine-local path is a `.cmd`/`.exe` "
-            "sibling, not the bare shebang file.",
+            "NOT an unset registry key — the keys it would have read may "
+            "already be set correctly. On Windows this is typically "
+            "WinError 193 from attempting to exec an extensionless shebang "
+            "script directly; verify the resolved machine-local path is a "
+            "`.cmd`/`.exe` sibling, not the bare shebang file.",
             4,
         ) from exc
-    if result.returncode != 0:
-        return None
-    value = result.stdout.rstrip("\n")
-    # An ABSENT key is reported as rc=0 with EMPTY stdout, not a non-zero exit.
-    # Returning "" here would defeat every `is None` unset-check downstream: the
-    # `repos.*` and `<root>/plugins/...` fallbacks would never fire, and an empty
-    # base would be silently concatenated with the sigil's subpath — producing a
-    # bare "\coordinator" that fails much later as "source path does not exist",
-    # far from the missing key that caused it. Normalize empty to None so "unset"
-    # has exactly one representation.
-    return value or None
+
+    values: dict[str, str] = {}
+    if result.stdout:
+        try:
+            parsed = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            values = {k: v for k, v in parsed.items() if isinstance(v, str)}
+
+    _dump_cache[machine_local_bin] = values
+    return values
+
+
+def _machine_local_get(machine_local_bin: str, key: str) -> Optional[str]:
+    """Resolve `key` from `<machine_local_bin> dump`'s memoized output (see
+    `_dump_registry`) rather than spawning a dedicated `<machine_local_bin>
+    get <key>` process per call — the per-row loop in `load_targets` used to
+    cost one subprocess per key; this costs one subprocess per DISTINCT
+    `machine_local_bin` for the whole process's lifetime. Returns the
+    resolved value on success, None if the key is absent (or resolved to
+    empty string — `dump`'s JSON omits a cleanly-absent key, but a key
+    explicitly declared empty in the registry — e.g. a `repos.x = ""`
+    sentinel — round-trips as `""`, which is normalized to None here exactly
+    as the old per-key path did: an empty base would otherwise be silently
+    concatenated with the sigil's subpath, producing a bare "\\coordinator"
+    that fails much later as "source path does not exist", far from the
+    missing key that caused it)."""
+    return _dump_registry(machine_local_bin).get(key) or None
 
 
 def _resolve_machine_local_or_raise(meta_root: Path) -> str:

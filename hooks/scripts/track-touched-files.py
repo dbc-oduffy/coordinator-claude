@@ -11,8 +11,10 @@ The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carv
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 bookkeeping LOGIC (coordinator_core.hooks.track_touched_files, registered under
 the JSON-RPC method "hooks.track_touched_files"). The engine is imported and run
-IN-PROCESS via coordinator_core.ipc.dispatch_message -- no bash, no `python3 -m`
-subprocess re-spawn -- so a whole edit pays exactly one Python interpreter start.
+IN-PROCESS via coordinator_core.ipc.dispatch_from_hook (DR-175 -- the named
+hook-dispatch seam, above the dispatch_message telemetry wrapper) -- no bash,
+no `python3 -m` subprocess re-spawn -- so a whole edit pays exactly one Python
+interpreter start.
 
 Contract (mirrors the retired bash hook it replaces):
   stdin   -- PostToolUse JSON (session_id, tool_name, tool_input.file_path,
@@ -84,7 +86,6 @@ at most a redundant no-op append, never a duplicate line in touched.txt.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -147,7 +148,7 @@ def main() -> int:
         # spawns from this stub -- but each hook fire is a fresh process, so
         # this import cost recurs every fire, not just once per session.
         from coordinator_core.hooks import track_touched_files as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open
 
@@ -170,20 +171,19 @@ def main() -> int:
         "agent_id": payload.get("agent_id", ""),
     }
 
-    msg = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.track_touched_files",
-        "params": params,
-        # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRED.
-        # Handed through raw; the engine resolves git-common-dir itself from
-        # whatever cwd the harness reports (no subprocess spawn in this stub).
-        "_origin_worktree": payload.get("cwd", ""),
-    }
-
+    # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- REQUIRED.
+    # Handed through raw; the engine resolves git-common-dir itself from
+    # whatever cwd the harness reports (no subprocess spawn in this stub).
+    # dispatch_from_hook builds the {"jsonrpc", "id", "method", "params"}
+    # envelope itself and stamps _origin_worktree only when non-empty --
+    # matches this stub's own payload.get("cwd", "") semantics unchanged.
     try:
-        asyncio.run(dispatch_message(msg))
-    except Exception:
+        dispatch_from_hook(
+            "hooks.track_touched_files",
+            params,
+            origin_worktree=payload.get("cwd", ""),
+        )
+    except HookDispatchError:
         return 0  # any engine failure -> fail-open (never brick an edit)
 
     # No stdout relay: this op is MUTATING bookkeeping (dedup-append into

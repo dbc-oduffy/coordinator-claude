@@ -43,14 +43,14 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the DR-276 in-process
+    """Resolve the engine root, put it on sys.path, and import the DR-276 in-process
     runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -62,9 +62,7 @@ def _import_runner():
     module docstring), so it declares nothing and this conversion changes no
     observable behavior.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -75,7 +73,7 @@ def main() -> None:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         # Advisory-only scan -- never block repo-setup on a claude-klabauter-link failure.
-        print(f"detect-project-runtime.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"detect-project-runtime.py: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(0)
     except ImportError as exc:
         print(

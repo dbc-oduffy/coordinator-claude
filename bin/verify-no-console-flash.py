@@ -54,7 +54,7 @@ tree.
 # Exit codes:
 #   0 — clean: no unsuppressed spawn sites found (op's own verdict, passed through).
 #   1 — violations found (report printed to stdout; op's own verdict, passed through).
-#   2 — TRANSPORT failure: CLAUDE_KLABAUTER_ROOT resolution failed or the ported op module
+#   2 — TRANSPORT failure: engine-root resolution failed or the ported op module
 #       was not importable. Dedicated code, collides with neither business
 #       verdict above — this guard is a fail-loud merge-gate check
 #       (/workweek-complete), so a claude-klabauter-link outage must not be misread as
@@ -70,13 +70,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _prepare_claude_klabauter_root() -> None:
-    """Resolve CLAUDE_KLABAUTER_ROOT and put it on sys.path.
+    """Resolve the engine root and put it on sys.path.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it.
 
@@ -85,16 +85,14 @@ def _prepare_claude_klabauter_root() -> None:
     declares via `declare_write()` become a session scope-touch claim instead
     of landing unclaimed as an orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
 
 
 def main() -> None:
     try:
         _prepare_claude_klabauter_root()
     except RuntimeError as exc:
-        print(f"verify-no-console-flash.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"verify-no-console-flash.py: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(2)
 
     from coordinator_core.cli_entry import run_op_main

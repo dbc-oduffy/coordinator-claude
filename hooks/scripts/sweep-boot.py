@@ -180,6 +180,20 @@ _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # start_new_session=True + killpg path in _invoke_regenerator below.
 _CAN_KILL_PROCESS_GROUP = hasattr(os, "setsid") and hasattr(os, "killpg")
 
+# Bounds the POST-KILL reap in _invoke_regenerator. On Windows, process.kill()
+# (there is no process-group kill, see _CAN_KILL_PROCESS_GROUP above) only
+# terminates the direct regenerator child, never grandchild git subprocesses
+# it spawned (module docstring: ~10 per full regen). If one of those
+# grandchildren is still alive and holds the inherited stdout/stderr pipe
+# open, an UNTIMED communicate() call here blocks on that pipe's read
+# regardless of any timeout already passed to the FIRST communicate() call --
+# defeating the 60s bound this whole seam exists to enforce (see the
+# `_selfheal_orientation_cache` 60s TimeoutExpired handler). A short bound
+# here is enough: it only needs to stop THIS hook from hanging, not to
+# guarantee the grandchild is gone -- Popen's own reader threads are daemons
+# and will not block this hook's own process exit even if they never finish.
+_REAP_TIMEOUT_SECONDS = 5.0
+
 # Fleet-scale numbers this bound is sized against (state/audits/2026-07-29-
 # orientation-cache-boot-facts.md): ~14 concurrent sessions can boot near-
 # simultaneously; the regenerator's own cross-process lock
@@ -192,6 +206,17 @@ _CAN_KILL_PROCESS_GROUP = hasattr(os, "setsid") and hasattr(os, "killpg")
 # same window. This hook is async with discarded stdout (module docstring),
 # so the delay costs nothing user-visible.
 _SELFHEAL_JITTER_MAX_SECONDS = 6.0
+
+# Bounds the session.reap child (fourth leg, `_reap_sessions`). Sized to the
+# 60s the orientation-selfheal leg above already takes as this async hook's
+# per-leg ceiling; a kill at the bound is safe because each sub-reap is
+# per-record idempotent and simply resumes at the next due boot.
+_SESSION_REAP_TIMEOUT_SECONDS = 60.0
+
+# Pre-gate window for `_session_reap_due`. Deliberately SHORTER than the op's
+# own 12h `_CADENCE_SECONDS` so the op, never this trampoline, stays the
+# authority on whether a reap runs -- see `_session_reap_due`'s docstring.
+_SESSION_REAP_PREGATE_SECONDS = 11 * 3600
 
 # Reused by both the stderr diagnostic and the failure-log record on a
 # nonzero regenerator exit so the two stay in sync (finding: a bare "exited
@@ -493,8 +518,19 @@ def _invoke_regenerator(cmd: list, repo_root: str, timeout: float) -> subprocess
         else:
             process.kill()
         # Reap the now-killed process so it doesn't linger as a zombie; the
-        # original TimeoutExpired is what callers below actually handle.
-        process.communicate()
+        # original TimeoutExpired is what callers below actually handle. This
+        # second communicate() gets its own bound (_REAP_TIMEOUT_SECONDS) --
+        # an untimed call here can block indefinitely on Windows, where
+        # process.kill() above only terminated the direct child and a still-
+        # live grandchild git subprocess can keep the inherited stdout/stderr
+        # pipe open (see _REAP_TIMEOUT_SECONDS's docstring). A reap that
+        # itself times out is not escalated further: it is already
+        # best-effort, and the original TimeoutExpired below is what matters
+        # to callers.
+        try:
+            process.communicate(timeout=_REAP_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            pass
         raise
     return subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
 
@@ -659,6 +695,172 @@ def _run_boot_sweep(root: Optional[str]) -> None:
         )
 
 
+def _session_reap_due(repo_root: Optional[str]) -> bool:
+    """Cheap, zero-subprocess pre-gate over the session.reap op's own 12h cadence marker.
+
+    The op self-gates (claude-klabauter
+    `coordinator_core/ops/session/reap.py`: `_CADENCE_SECONDS`, `.last-reap`
+    mtime persistence) and remains the sole authority on whether a reap
+    actually runs. This function exists ONLY to avoid paying a cc_invoke
+    process spawn on the overwhelmingly common boot where the answer is
+    already "no" -- the same shape as the `.git/HEAD` pre-gate reasoning
+    recorded against the day-branch guard in `hooks.json`.
+
+    Deliberately set SHORTER than the op's own 12h gate
+    (`_SESSION_REAP_PREGATE_SECONDS`): a pre-gate that is shorter can only
+    ever spawn a child that then declines to run, which is harmless. A
+    pre-gate that drifted LONGER than the op's gate would silently become the
+    binding constraint and suppress reaps the op wanted to perform -- so the
+    two constants are deliberately NOT required to stay in lockstep, and this
+    one must never be raised to meet the other.
+
+    Fails OPEN (returns True) on any resolution/stat failure: a reap that runs
+    and self-declines costs one spawn; a reap wrongly suppressed reopens the
+    unbounded-growth defect this leg exists to close.
+    """
+    if not repo_root:
+        return True
+    try:
+        marker = Path(repo_root, ".git", "coordinator-sessions", ".last-reap")
+        if not marker.exists():
+            return True
+        return (time.time() - marker.stat().st_mtime) >= _SESSION_REAP_PREGATE_SECONDS
+    except Exception:
+        return True
+
+
+def _reap_sessions(root: Optional[str]) -> None:
+    """Fourth leg: invoke claude-klabauter's `session.reap` cadence reaper.
+
+    Closes the gap recorded in
+    `cross-repo/inbox/2026-08-14-claude-klabauter-em-session-reaper-lost-its-caller.md`:
+    the op, its trampoline (`coordinator/bin/reap-sessions.py`) and its
+    sub-reaps are live and tested in claude-klabauter, but the registration that used to
+    reach them went with `session-init.py` in the 2026-07-15 full-kill and was
+    never re-homed. `sessionend-archive-session.py` still names this reaper as
+    the backstop for the sessions its own fail-open legs miss (crash, kill,
+    unparsable stdin, unresolvable claude-klabauter root), so with no caller that
+    documented backstop was not running at all.
+
+    Cost of the absence, measured rather than argued: `compute_scope`'s Step 3b
+    enumerates every per-agent dir under `.git/coordinator-sessions/.agents/`
+    inline on the commit hot path, so unreaped residue is paid by every commit
+    of every session on the box -- 203-266 ms process time against a corpus of
+    1893 dirs (45 of them live), versus 94-109 ms once reaped. That is a
+    standing breach of claude-klabauter's own "one process over 200 ms needs a fix"
+    brightline, and it rebuilds from zero within days without a cadence caller.
+
+    NOT registered as its own `hooks.json` SessionStart entry, for the reasons
+    this module's own docstring already records for the global-doctrine leg:
+    the 2026-07-15 PM directive on boot-latency hooks, the lockdown test that
+    pins the SessionStart entry count and sibling script order, and the
+    per-entry process spawn every session pays on every machine. This module is
+    ALREADY the registered async SessionStart trampoline, so an in-module leg
+    costs no additional registration.
+
+    NOT folded into the `session.boot_sweep` op either -- that composition
+    (shape (b)) is explicitly REJECTED on the engine side (`reap.py` module
+    docstring): boot_sweep is DR-211 tracked-archival and session.reap is
+    Class-B untracked substrate, and folding them would merge two op
+    identities' safety contracts. This is a separate *caller*, on the doctrine
+    plane, which is the seam that was missing -- not a change to either op.
+
+    SessionStart rather than SessionEnd is deliberate: SessionEnd covers only
+    clean exits and is fail-open at four points, so a crashed or killed
+    session's substrate is never dropped there -- which is precisely the
+    residue that accumulates. Boot-time invocation behind the op's own 12h
+    cadence gate gives periodic behaviour with no scheduler, and reaches
+    crashed sessions at the next boot rather than never.
+
+    Failure handling matches every other leg in this module exactly: one stderr
+    diagnostic, a best-effort `_record_failure()` call to the shared
+    housekeeping log, silence on stdout (the boot-sweep leg's byte-parity "0"
+    contract is not this leg's to touch), and never a nonzero exit -- a reaper
+    must never wedge session start. A timeout kill is safe to leave truncated:
+    each sub-reap is per-record idempotent (existing archive destination ->
+    skip), so a partial run resumes at the next due boot.
+
+    Opt-out: `COORDINATOR_SESSION_REAP_OFF` (any non-empty value).
+
+    Spec backlink: cross-repo/inbox/2026-08-14-claude-klabauter-em-session-reaper-lost-its-caller.md
+    Spec backlink: claude-klabauter `coordinator_core/ops/session/reap.py` (op + cadence gate)
+    Spec backlink: claude-klabauter `state/bug-backlog/2026-08-25-compute-scope-costs-219-391ms-on-the-comm-7b3e91d4c2a6.yaml`
+    """
+    if os.environ.get("COORDINATOR_SESSION_REAP_OFF"):
+        return
+
+    repo_root = _resolve_this_repo_root()
+    if not _session_reap_due(repo_root):
+        return
+
+    if not root:
+        print(
+            "sweep-boot.py: WARN: claude-klabauter root unresolved -- skipping session reap",
+            file=sys.stderr,
+        )
+        _record_failure(None, "claude-klabauter root unresolved -- skipping session reap")
+        return
+
+    target = os.path.join(root, "coordinator", "bin", "reap-sessions.py")
+    if not os.path.isfile(target):
+        print(
+            f"sweep-boot.py: WARN: '{target}' missing -- stale/incomplete "
+            "claude-klabauter clone, skipping session reap",
+            file=sys.stderr,
+        )
+        _record_failure(
+            root,
+            f"'{target}' does not exist -- stale or incomplete claude-klabauter clone",
+        )
+        return
+
+    cmd = [sys.executable, target]
+    if repo_root:
+        cmd.append(repo_root)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_SESSION_REAP_TIMEOUT_SECONDS,
+            creationflags=_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"sweep-boot.py: WARN: session reap exceeded "
+            f"{_SESSION_REAP_TIMEOUT_SECONDS:.0f}s -- killed, resumes next boot "
+            "(sub-reaps are per-record idempotent)",
+            file=sys.stderr,
+        )
+        _record_failure(
+            root,
+            f"reap-sessions.py exceeded {_SESSION_REAP_TIMEOUT_SECONDS:.0f}s and was killed",
+        )
+        return
+    except OSError as exc:
+        print(
+            f"sweep-boot.py: WARN: failed to exec claude-klabauter reap-sessions.py -- {exc}",
+            file=sys.stderr,
+        )
+        _record_failure(root, f"failed to exec claude-klabauter reap-sessions.py -- {exc}")
+        return
+
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+
+    if result.returncode != 0:
+        print(
+            f"sweep-boot.py: WARN: claude-klabauter reap-sessions.py exited "
+            f"{result.returncode} -- boot proceeds anyway (fail-open)",
+            file=sys.stderr,
+        )
+        _record_failure(
+            root,
+            f"claude-klabauter reap-sessions.py exited {result.returncode}",
+            exit_code=result.returncode,
+        )
+
+
 def _load_global_doctrine_mirror_module():
     """Best-effort in-process import of `derive-global-doctrine-live-copy.py`
     (sibling script, same directory). Its filename is hyphenated, so it is
@@ -739,6 +941,7 @@ def _derive_global_doctrine_mirror() -> None:
 def main() -> int:
     root = resolve_claude_klabauter_root()
     _run_boot_sweep(root)
+    _reap_sessions(root)
     _selfheal_orientation_cache(root)
     _derive_global_doctrine_mirror()
     return 0

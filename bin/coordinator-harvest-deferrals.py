@@ -223,11 +223,9 @@ from _queue_append_locator import find_cli_cmd  # noqa: E402
 # sys.path by the time module-level imports run. Importing it directly
 # without this breaks EVERY invocation of the CLI, not just the governed
 # path — which is exactly how the test suite caught it.
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
 
-_CLAUDE_KLABAUTER_ROOT = _resolve_claude_klabauter_root()
-if _CLAUDE_KLABAUTER_ROOT not in sys.path:
-    sys.path.insert(0, _CLAUDE_KLABAUTER_ROOT)
+_CLAUDE_KLABAUTER_ROOT = require_dispatch_engine_on_path()
 
 from coordinator_core.frontmatter.schema_validate import (  # noqa: E402
     compute_grouping_digest,

@@ -56,7 +56,7 @@ from __future__ import annotations
 #       code for an unresolvable plugin root.
 #   2 — CLI-usage / environment error (unknown mode, `node` not on PATH, or
 #       the canonical snippet file is missing) — raised by the claude-klabauter module.
-#   3 — claude-klabauter-link failure: CLAUDE_KLABAUTER_ROOT resolution failed, or
+#   3 — claude-klabauter-link failure: engine-root resolution failed, or
 #       coordinator_core.ops.verify_subagent_sandbox_preamble_sync was not
 #       importable. Distinct from every code above so a caller can never
 #       mistake "claude-klabauter engine unreachable" for "sentinel drift found" (1)
@@ -87,7 +87,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 
 
@@ -145,9 +145,7 @@ def _import_runner():
     writes (the --fix sentinel-block insert/rewrite) is an orphan at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -158,7 +156,7 @@ def main() -> None:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         print(
-            f"verify-subagent-sandbox-preamble-sync.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"verify-subagent-sandbox-preamble-sync.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(3)

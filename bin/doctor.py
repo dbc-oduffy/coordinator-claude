@@ -19,7 +19,7 @@ Layers checked, what's auto-repairable vs. detect-only, and the reasoning
 behind the split all live in the actual implementation's module docstring:
 coordinator_core.ops.doctor. This file is a thin CLI wrapper (per the R1
 DOE-PORT template every coordinator/bin/ trampoline follows) — it resolves
-CLAUDE_KLABAUTER_ROOT via cc_invoke's resolve_colocated_claude_klabauter_root ladder (this
+the engine root via cc_invoke's resolve_colocated_claude_klabauter_root ladder (this
 file's own coordinator/bin/ parent-of-parent location, tried first, zero
 external dependency, cannot be unset) and calls straight into the op.
 
@@ -42,7 +42,7 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 try:
     require_colocated_engine_on_path(__file__)
 except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
 
 # DR-276: routed through coordinator_core.cli_entry.run_op_main rather than a

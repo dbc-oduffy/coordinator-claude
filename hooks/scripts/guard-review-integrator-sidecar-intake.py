@@ -166,8 +166,9 @@ def _compose_no_candidates_message():
     contract, or use the right agent); the three-branch "why" explanation
     relocated to `_WIKI_ANCHOR` -- see this hook's relocation fragment."""
     return compose(
-        "no sidecar named -- name or provision one, or dispatch "
-        "coordinator:enricher instead for plan-body work.",
+        "no sidecar named -- name the provisioned "
+        "state/subagent-share/<session>/ path, or dispatch "
+        "coordinator:enricher for plan-body work.",
         anchor=_WIKI_ANCHOR,
     )
 
@@ -179,8 +180,9 @@ def _compose_stale_candidates_message(candidates: "list[str]"):
     the char cap, per `_message_envelope`) rather than the counted prose."""
     alternative = "\n".join(candidates[:ALTERNATIVE_MAX_LINES])
     return compose(
-        "named sidecar not on disk -- provision it, or dispatch "
-        "coordinator:enricher instead for plan-body work.",
+        "named sidecar not on disk -- provision it under "
+        "state/subagent-share/<session>/, or dispatch "
+        "coordinator:enricher for plan-body work.",
         alternative=alternative,
         anchor=_WIKI_ANCHOR,
     )

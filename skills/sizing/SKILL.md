@@ -8,13 +8,16 @@ argument-hint: "[PM ask text | nothing — describe the ask inline]"
 
 # Sizing — the Fleet Routing Lobby
 
+Novel work enters via this sizing lobby, not directly into plan/shape/dispatch.
+
 The EM's first move on any PM ask that isn't a mid-workstream continuation — before
 `coordinator:plan`, `coordinator:shape`, or direct dispatch. Full framing and every worked
 incident: `coordinator/docs/wiki/sizing-lobby.md`.
 
-**Invoking this skill IS the dispatch/spend authorization it requests** — no separate clearance —
-but every gate it names for itself still binds. Reuses `loe.tshirt` (XS–XXL) one altitude earlier
-than chunk-sizing, to pick a ROOM, not a plan-body cost. No appetite question ahead of the size.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+
+Reuses `loe.tshirt` (XS–XXL) one altitude earlier than chunk-sizing, to pick a ROOM, not a
+plan-body cost. No appetite question ahead of the size.
 
 ---
 
@@ -39,10 +42,11 @@ a finding about the *area's* condition, or a uniform touchpoint count, is not a 
 (discriminator detail: wiki). Chain `coordinator:spike` first if the probe surfaces an unproven
 mechanism.
 
-**3. Call the assembler — it resolves the route; never hand-derive the table.**
-```
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/sizing-assemble" --tshirt <XS|S|M|L|XL|XXL>
-```
+**3. Compute the route — never hand-derive the table.**
+Invoke `sizing-assemble` per the ladder in `snippets/resolve-coordinator-bin.md` — rung 0 (Shape W,
+the `.cmd` sibling through the call operator) on a PowerShell host:
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\sizing-assemble.cmd" --tshirt <XS|S|M|L|XL|XXL>`
 `--tshirt` is the only required flag; never pass/invent `--appetite` unless the PM volunteered one
 verbatim. Always pass `--intent "<PM's words>"` (`--intent-source em-elaborated` if it's your own
 restatement), `--precedent shipped-before|novel`, `--boundary-in-notch yes|no` (§ Appetite guards
@@ -52,10 +56,18 @@ returned `route`/`detents`/`next_move` verbatim — it already carries the disch
 
 **4. Scaffold the sizing-object** (`coordinator-doc-new --type sizing-object`) for any
 non-express-lane sizing, populating `intent`/`estimate`/`route`/`detents`/`scout_evidence` and the
-property-attests verbatim from the decision object. Undecided direction-class items go in
-`surfaced_to_pm`, never folded into `fork`/`xl_exit`. `status` reaches terminal only via its own
-ceremony, never hand-edited. Optionally populate `name` — a few words, whiteboard length; never a
-slice of `intent`.
+property-attests verbatim from the returned fields. Undecided direction-class items go in
+`surfaced_to_pm`, never folded into `fork`/`xl_exit`. Optionally populate `name` — a few words,
+whiteboard length; never a slice of `intent`.
+
+**`status`.** An XS routes to dispatch and has no plan: stamp it `shipped` yourself the moment the
+work lands, citing the commit. S and above route into a plan, where `deliverable.cascade_terminal`
+owns the terminal stamp: never pre-empt it, and never hand-stamp instead of triggering it. **Then
+read the field back.** The cascade has never acted — `acted` is empty in every ceremony record in
+both repos — so a sizing left at `routed` under a landed plan is the expected outcome, not a sign
+the work is unfinished. Still non-terminal after the trigger: hand-write it, citing the landing
+commits and this rule inline. Trigger, read back, hand-write — all three, every time, until the
+cascade writes. Tripwire: `THE-DELIVERABLE-CASCADE-HAS-NEVER-WRITTEN-A-TERMINAL-STATUS`.
 
 **5. `post_size_prompt_pending` (M+) — ask once, in the PM's register, and stop:** *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in

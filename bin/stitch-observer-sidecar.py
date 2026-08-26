@@ -209,7 +209,7 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
             return 1
         residue_note = ""
         if cleaned != main_content:
-            with open(daily_summary_path, "w", encoding="utf-8") as f:
+            with open(daily_summary_path, "w", encoding="utf-8", newline="\n") as f:
                 f.write(cleaned)
             residue_note = " Stripped residual placeholder text left in the file."
         os.remove(observer_sidecar_path)
@@ -224,7 +224,7 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
     main_content = cleaned
 
     separator = "" if main_content.endswith("\n\n") else ("\n" if main_content.endswith("\n") else "\n\n")
-    with open(daily_summary_path, "w", encoding="utf-8") as f:
+    with open(daily_summary_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(main_content)
         f.write(separator)
         f.write(sidecar_content)
@@ -233,7 +233,7 @@ def stitch(daily_summary_path: str, observer_sidecar_path: str) -> int:
         verify_content = f.read()
     count = _heading_count(verify_content)
     if count != 1:
-        with open(daily_summary_path, "w", encoding="utf-8") as f:
+        with open(daily_summary_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(original_content)
         _err(f"[stitch-observer-sidecar] LEAK: post-append verification failed — "
              f"'{daily_summary_path}' had {count} '{_HEADING}' headings after the write "

@@ -372,7 +372,7 @@ def _legacy_branch(targets_file: Path, out: IO[str], err: IO[str]) -> int:
 
     fd, tmp_path = tempfile.mkstemp(dir=str(targets_file.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(new_text)
         os.replace(tmp_path, targets_file)
     except BaseException:

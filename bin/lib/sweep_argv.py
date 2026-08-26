@@ -1,8 +1,8 @@
 """sweep_argv.py — shared leading-dash-argument guard for the sweep-*.py CLI trampolines.
 
 Purpose: several sibling coordinator/bin/sweep-*.py trampolines
-(sweep-actioned-memos.py, sweep-terminal-plans.py, sweep-boot.py,
-sweep-consumed-handoffs.py) each grew their own ad hoc argv scan that either
+(sweep-actioned-memos.py, sweep-terminal-plans.py, sweep-boot.py)
+each grew their own ad hoc argv scan that either
 (a) took `argv[0]` unconditionally as the repo-root positional -- so
 `--help` or a mistyped flag was silently forwarded downstream as a bogus
 "repo root" -- or (b) recognized its own flag vocabulary but fell through to

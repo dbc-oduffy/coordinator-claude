@@ -571,7 +571,7 @@ def main(argv: list[str]) -> int:
     }
     text = _emit(records, args.format, meta)
     if args.out:
-        args.out.write_text(text, encoding="utf-8")
+        args.out.write_text(text, encoding="utf-8", newline="\n")
         print(f"wrote {len(records)} records to {args.out}")
     else:
         sys.stdout.write(text)

@@ -864,6 +864,297 @@ def harness_version_drift_banner(repo_root: Optional[str]) -> None:
         )
 
 
+def _local_surface_probe_value(parsed: dict, json_path: str):
+    """Resolve a single top-level `json_path` key in an already-parsed JSON object.
+
+    Hand-rolled rather than a JSON-pointer library (plan C2 body) -- every declared probe today
+    is a single top-level key, and a missing/non-dict intermediate must resolve to "absent"
+    (None) rather than raise, matching A4's silent-skip contract. `parsed` is assumed already a
+    dict; callers that got something else from `json.loads` (a bare list/string/number at the
+    document root) skip before calling this.
+    """
+    if not isinstance(parsed, dict):
+        return None
+    return parsed.get(json_path)
+
+
+def local_install_surface_banner(repo_root: Optional[str]) -> None:
+    """One line per declared `required_local_surfaces` entry whose probe fails on THIS machine.
+
+    Covers the class every other boot banner in this file misses: a registration written INTO
+    the operator's install root (e.g. `~/.claude/settings.json`'s `statusLine` key) rather than
+    into the repo. A `git pull` cannot carry that kind of state, so work authored on one machine
+    installs itself there and nowhere else -- see the plan Problem statement
+    (docs/plans/2026-08-18-boot-banner-for-absent-machine-local-ins.md) for the incident this
+    closes (coordinator/bin/statusline.py registered on machine-b, silently absent on machine-a).
+
+    Zero-subprocess (this hook's standing boot-path mandate, module docstring): reads the
+    manifest and each distinct probe target file at most once, with `json.loads` -- no `git`, no
+    `shutil.which`, no shell of any kind. `command_succeeds`-kind entries are therefore out of
+    reach by design (Anti-scope) and fall into the same "unknown kind -> skip" branch as any
+    other kind this banner does not implement.
+
+    Unknown/unevaluable -> skip, SILENTLY, never rendered as missing: an unknown probe kind, an
+    unresolvable `location`, a manifest or probe-target file that is absent/unreadable/malformed
+    JSON, or a `location` other than `install_root` (the only location this banner resolves,
+    via `_claude_home()`) all take this branch. A false "you are missing X" claim on a machine
+    that actually has X teaches the operator to ignore the line on sight, which is worse than
+    never having the line at all (Anti-scope) -- so ignorance about how to evaluate an entry
+    must never be rendered as evidence the entry is missing.
+    """
+    if os.environ.get("COORDINATOR_INSTALL_SURFACE_STATUS_OFF"):
+        print(
+            "[coordinator] install-surface banner: disabled via "
+            "COORDINATOR_INSTALL_SURFACE_STATUS_OFF",
+            file=sys.stderr,
+        )
+        return
+
+    manifest_path = (
+        Path(repo_root or ".")
+        / "coordinator"
+        / "docs"
+        / "install"
+        / "agent-install-manifest.json"
+    )
+    try:
+        manifest_text = manifest_path.read_text(encoding="utf-8")
+    except Exception:
+        return
+
+    try:
+        manifest = json.loads(manifest_text)
+    except Exception:
+        return
+
+    if not isinstance(manifest, dict):
+        return
+
+    surfaces = manifest.get("required_local_surfaces")
+    if not isinstance(surfaces, list):
+        return
+
+    # Read each distinct probe target file ONCE per invocation, keyed by its resolved absolute
+    # path, and reuse the parsed object across every entry that shares it (C2 body) -- with one
+    # seeded entry this is a single read, but the cache keeps the loop from re-reading
+    # settings.json per surface as the section grows.
+    file_cache: dict = {}
+
+    for entry in surfaces:
+        if not isinstance(entry, dict):
+            continue
+        surface_id = entry.get("id")
+        probe = entry.get("probe")
+        install = entry.get("install") if isinstance(entry.get("install"), dict) else {}
+        remediation = install.get("remediation")
+        if not isinstance(surface_id, str) or not isinstance(probe, dict):
+            continue
+        if not isinstance(remediation, str) or not remediation:
+            continue
+
+        kind = probe.get("kind")
+        if kind not in ("json_key_present", "json_object_key_true"):
+            continue
+
+        location = probe.get("location")
+        relative_path = probe.get("relative_path")
+        json_path = probe.get("json_path")
+        if location != "install_root" or not isinstance(relative_path, str) or not isinstance(
+            json_path, str
+        ):
+            continue
+
+        try:
+            target_path = _claude_home() / relative_path
+            cache_key = str(target_path)
+        except Exception:
+            continue
+
+        if cache_key not in file_cache:
+            try:
+                target_text = target_path.read_text(encoding="utf-8")
+                file_cache[cache_key] = json.loads(target_text)
+            except Exception:
+                file_cache[cache_key] = None
+
+        target_parsed = file_cache[cache_key]
+        if not isinstance(target_parsed, dict):
+            continue
+
+        if kind == "json_key_present":
+            present = _local_surface_probe_value(target_parsed, json_path) is not None
+        else:  # json_object_key_true
+            key = probe.get("key")
+            if not isinstance(key, str):
+                continue
+            obj = _local_surface_probe_value(target_parsed, json_path)
+            present = isinstance(obj, dict) and bool(obj.get(key))
+
+        if present:
+            continue
+
+        _w(
+            f"── ⚠ Install surface missing on THIS machine: {surface_id} — "
+            f"{remediation} ──\n"
+        )
+
+
+# Refresh window for the P-19 verdict cache (`doctor-last-run.json`'s `ran_at`), hours.
+# Matches the existing staleness convention for this exact sentinel-JSON shape
+# (`docs/wiki/addon-health-sentinel.md`: "stale sentinels (>24h since ran_at)") rather than
+# inventing a second threshold for the same artifact family. P-19 refreshes daily under
+# `/workday-start` Step 1.10, so a cache within this window reflects that day's run.
+_INSTALL_CURRENCY_STALE_HOURS = 24
+
+
+def install_currency_banner(repo_root: Optional[str]) -> None:
+    """Print the plugin install-currency verdict, read from the cached P-19 sentinel only.
+
+    Reads `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json` (`_claude_home()`-
+    relative, so this resolves the same install root `local_install_surface_banner` and
+    `harness_version_drift_banner` already read) at most ONCE per invocation and reuses the
+    parsed object for every branch below — no second open, no second `json.loads`, matching this
+    hook's file-read-count-must-not-grow contract (plan C2 body). Zero subprocess: a single
+    `Path.read_text()` plus `json.loads`, nothing else — this hook's standing boot-path mandate
+    (module docstring) binds here exactly as it does every other banner in this file.
+
+    **Interim consumer-side contract (plan C2; not the final shape — see below):**
+    `doctor-last-run.json` has no machine-readable per-probe verdict field
+    (`P19-SILENT-TRIBRANCH`, `docs/wiki/coordinator-tripwires/tripwire-registry/
+    boot-currency-notification-throttle-invariant-boot-currency-throttle.md`). P-19's verdict
+    survives only as one rendered English sentence inside `advisory_notes`, addressable by its
+    `P-19: ` prefix and nothing more structured than that:
+
+      - `advisory_notes` carries a `P-19: `-prefixed entry -> echoed VERBATIM as the rendered
+        line. Not re-parsed, not reformatted -- echoing satisfies A1 without parsing prose out of
+        a summary string, which the plan (C2 body) forbids outright.
+      - the verdict cache is older than `_INSTALL_CURRENCY_STALE_HOURS`, or `ran_at`/the file
+        itself fails to parse -> rendered as `stale-unknown`, in those words, naming how old the
+        cache is (or that it is unparseable) and that `/workday-start` refreshes it. NEVER
+        rendered as `current` and NEVER rendered as `behind` -- a stale or missing verdict
+        pretending to be either reproduces the exact defect this plan exists to close, or trains
+        the operator to ignore the line (plan Anti-scope).
+      - no cache file at all -> rendered as absent, in those words, naming what populates it.
+      - `advisory_notes` has no `P-19: ` line (the fresh-cache, no-entry case) -> this is NOT
+        distinguishable from `current`, `offline`, or `source_is_live` from this artifact alone,
+        all three leave `advisory_notes` empty for P-19. Render NOTHING for the plugin surface in
+        this branch.
+
+    **A3 and A6 are NOT met by this interim shape**, and that is a deliberate, named gap rather
+    than an oversight. A3 (a stale-unknown verdict must never render as `current`) is honoured for
+    the *cache-freshness* axis -- an old or unparseable cache always renders `stale-unknown` -- but
+    a *fresh* cache with no `P-19: ` line is rendered as silence, and that silence is genuinely
+    ambiguous across `current`, `offline`, and `source_is_live`: it is not a verified `current`,
+    only an unverifiable one. A6 (an honest verdict per topology, specifically the `offline` case)
+    is not met either -- `offline` renders identically to `current`/`source_is_live` here, so a
+    consumer-install machine that has lost network access to the publish repo gets the same
+    silence as one that is fully current. Closing both requires the engine plane to emit a
+    structured per-probe verdict token into `doctor-last-run.json` (or a sibling artifact) and to
+    emit something non-empty on `offline` -- a producer-side schema change on the probe's own
+    surface, not buildable from this consumer artifact (plan AC table note on A3/A6). C7 is the
+    follow-through once that emission change lands; this function's `advisory_notes`-echo path is
+    the thing C7 replaces, not a permanent design.
+
+    **Why unknown IS rendered here, when `local_install_surface_banner` skips unknowns
+    SILENTLY.** The two banners look alike (env-gated, read-only, three-way outcome) but differ in
+    what an unevaluable read *means*. There, an unresolvable probe (unknown `kind`, malformed
+    manifest, missing target file) is most often a DECLARATION bug in the manifest or a probe
+    shape this banner doesn't implement yet -- the surface it is asking about may genuinely be
+    present on this machine, and a false "you are missing X" trains the operator to ignore the
+    line (that banner's own docstring). Here, a missing or stale verdict means the daily
+    `/workday-start` refresh that is supposed to keep this cache honest is NOT RUNNING -- that
+    absence IS the failure this banner exists to report, not a side effect of an unrelated
+    declaration bug. Silencing it would hide the exact condition (a broken daily refresh) that
+    makes every other read of this cache untrustworthy. A later reader must not "harmonize" these
+    two banners into one shared unknown-handling rule -- the plan (C2 body, and the boot-banner
+    plan's Related-plan note) requires this divergence to stay visible and explained, not collapsed.
+
+    `source_is_live` silences only the PLUGIN surface covered by this function -- it must never be
+    read as silencing the engine-currency surface (§ Engine anchor — open contract,
+    `docs/wiki/release-cadence-and-currency-notification.md`), which is a distinct, not-yet-built
+    axis this function does not touch.
+    """
+    if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
+        print(
+            "[coordinator] install-currency banner: disabled via "
+            "COORDINATOR_CURRENCY_STATUS_OFF",
+            file=sys.stderr,
+        )
+        return
+
+    try:
+        cache_path = (
+            _claude_home() / "plugins" / "coordinator-claude" / "data" / "doctor-last-run.json"
+        )
+    except Exception:
+        return
+
+    try:
+        cache_text = cache_path.read_text(encoding="utf-8")
+    except Exception:
+        _w(
+            "── Install currency: absent — no doctor-last-run.json cache found; "
+            "/workday-start populates it ──\n"
+        )
+        return
+
+    parsed = None
+    try:
+        parsed = json.loads(cache_text)
+    except Exception:
+        parsed = None
+
+    ran_at_raw = parsed.get("ran_at") if isinstance(parsed, dict) else None
+    age_hours: Optional[float] = None
+    if isinstance(ran_at_raw, str) and ran_at_raw:
+        try:
+            ran_at_dt = datetime.strptime(ran_at_raw, _GENERATED_AT_FORMAT).replace(
+                tzinfo=timezone.utc
+            )
+            age_hours = (datetime.now(timezone.utc) - ran_at_dt).total_seconds() / 3600.0
+        except Exception:
+            age_hours = None
+
+    if not isinstance(parsed, dict) or age_hours is None:
+        _w(
+            "── Install currency: stale-unknown (verdict cache unparseable) — "
+            "/workday-start refreshes it ──\n"
+        )
+        return
+
+    if age_hours >= _INSTALL_CURRENCY_STALE_HOURS:
+        _w(
+            f"── Install currency: stale-unknown ({age_hours:.0f}h old, refresh window is "
+            f"{_INSTALL_CURRENCY_STALE_HOURS}h) — /workday-start refreshes it ──\n"
+        )
+        return
+
+    advisory_notes = parsed.get("advisory_notes")
+    if advisory_notes is not None and not isinstance(advisory_notes, list):
+        # Present but the wrong TYPE is corruption, not "no P-19 entry" — and the two must not
+        # share the silent branch. Age and top-level parseability can both pass while this field
+        # is a string or a dict, and rendering that as silence would say "nothing to report" about
+        # a cache we cannot actually read. Absent is different and stays silent below: a cache
+        # with no advisories at all is a legitimate clean state.
+        _w(
+            "── Install currency: stale-unknown (verdict cache malformed — advisory_notes is "
+            "not a list) — /workday-start refreshes it ──\n"
+        )
+        return
+
+    p19_line: Optional[str] = None
+    if isinstance(advisory_notes, list):
+        for note in advisory_notes:
+            if isinstance(note, str) and note.startswith("P-19: "):
+                p19_line = note
+                break
+
+    if p19_line:
+        _w(f"── {p19_line} ──\n")
+    # else: a fresh cache with no P-19 line is current/offline/source_is_live -- all three are
+    # one indistinguishable silence at this artifact (P19-SILENT-TRIBRANCH). Render nothing.
+
+
 def engine_resolution_banner() -> None:
     """One line naming WHICH engine this session's hooks will execute.
 
@@ -931,6 +1222,7 @@ def engine_resolution_banner() -> None:
         if _hooks_dir not in sys.path:
             sys.path.insert(0, _hooks_dir)
         from _engine_root import (
+            LIVE_TREE_ENV_VARS,
             RESOLUTION_LIVE_WORKING_TREE,
             RESOLUTION_RESOLVED_ENGINE,
             resolve_claude_klabauter_root_with_provenance,
@@ -982,7 +1274,7 @@ def engine_resolution_banner() -> None:
     provenance_suffix = ""
     if klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "env-override":
         env_var = ""
-        for _var in ("REPO_CLAUDE_KLABAUTER", "CLAUDE_KLABAUTER_ROOT"):
+        for _var in LIVE_TREE_ENV_VARS:
             if os.environ.get(_var):
                 env_var = _var
                 break
@@ -1011,11 +1303,125 @@ def engine_resolution_banner() -> None:
     except Exception:
         roster = []
 
+    if roster:
+        _w_live_plugin_root_line()
+
     for mirror_path, owner in roster:
         _w(
             f"── Publish mirror (not a peer repo): {mirror_path} — owned by "
             f"{owner} ──\n"
         )
+
+
+def _w_live_plugin_root_line() -> None:
+    """Name the plugin root THIS hook is executing from, immediately above the
+    publish-mirror roster.
+
+    Why this line exists, and why here. The roster line names a mirror path and
+    says `not a peer repo` — which answers "may I memo it?" but never answers
+    "is it what's loaded?". Two readers on one day took a roster line as a
+    report of the live plugin root and escalated it as a resolution defect; a
+    third had to walk the process table to disprove it. The absence being read
+    into is structural, not a lapse in care: nothing else in the boot envelope
+    states the loaded root, so the nearest path-shaped line gets pressed into
+    the role. Stating it removes the vacuum rather than asking the reader to
+    know better.
+
+    Resolved from `__file__`, never `CLAUDE_PLUGIN_ROOT` and never cwd. This
+    file is loaded by the harness from inside the tree it resolved, so its own
+    location IS the answer, observed rather than declared — an env var only
+    reports what something intended to set. Per CLAUDE.md § Runtime
+    conventions, scripts self-resolve their own root.
+
+    The env var is still read, for the single purpose of reporting a
+    DISAGREEMENT with the observed root. That divergence is the one genuinely
+    alarming state in this area — a hook body executing from one tree while the
+    harness advertises another — and it is invisible today. Agreement, and an
+    unset var (the ordinary case for a non-plugin-scoped hook invocation),
+    render nothing extra.
+
+    Gated on a non-empty roster by its caller: with no mirror registered there
+    is no adjacent path to be confused with, so the line would be pure boot
+    weight. Fail-open like every other leg of this banner — but structured as
+    DECISION then EMISSION, each in its own guarded block, rather than one
+    try/except wrapping a branch that also writes: computing `diverged` and
+    calling `_w` are two separate guarded steps below, so exactly one `_w`
+    call is reachable per invocation and a write failure degrades to silence
+    for this one line instead of either truncating the roster that follows or
+    emitting the plain line a second time after a partial DISAGREES write.
+
+    Path comparison is IDENTITY, not string equality, and that is a
+    multi-OS-P0 requirement rather than fastidiousness. Two spellings of one
+    directory must never render as a divergence, and each host family spells
+    them differently: Windows brings drive-letter case, `/` vs `\\`, UNC vs
+    mapped-drive, and 8.3 short names; macOS brings a case-INSENSITIVE default
+    filesystem (APFS/HFS+) that `PurePosixPath.__eq__` compares
+    case-SENSITIVELY, so `.../Coordinator` and `.../coordinator` are one
+    directory the comparison would call two; both bring symlinks. `Path.__eq__`
+    alone is correct on Windows (`PureWindowsPath` casefolds) and WRONG on
+    macOS for exactly the case-only spelling, which is why it is not the last
+    word here. `os.path.samefile` answers from `st_dev`/`st_ino`, so every one
+    of those spellings collapses to the same identity on every host.
+    """
+    try:
+        root = Path(__file__).resolve().parents[2]
+        # Self-validating, because `parents[2]` is a LAYOUT assumption
+        # (`<root>/hooks/scripts/<this file>`) and this line's whole purpose is
+        # to be the envelope's trustworthy answer about the loaded root. If
+        # this file is ever relocated, an unchecked index would name some
+        # ancestor with total confidence — the confidently-wrong root is the
+        # precise failure this leg exists to prevent, so it would arrive
+        # wearing the uniform of the fix. `hooks/` and `skills/` are the two
+        # directories every plugin root has, dev tree and OSS install alike.
+        # Staying silent beats asserting a root we cannot stand behind.
+        if not (root / "hooks").is_dir() or not (root / "skills").is_dir():
+            return
+        observed = str(root)
+    except Exception:
+        return
+
+    try:
+        declared = (os.environ.get("CLAUDE_PLUGIN_ROOT") or "").strip()
+        diverged = bool(declared) and _paths_differ(declared, observed)
+    except Exception:
+        declared, diverged = "", False
+
+    try:
+        if diverged:
+            _w(
+                f"── Live plugin root: {observed} (hooks resolve from here) — "
+                f"DISAGREES with CLAUDE_PLUGIN_ROOT={declared} ──\n"
+            )
+        else:
+            _w(f"── Live plugin root: {observed} — hooks and skills resolve from here ──\n")
+    except Exception:
+        return
+
+
+def _paths_differ(declared: str, observed: str) -> bool:
+    """True only when two paths name genuinely different directories.
+
+    Cheap textual check first (`Path.__eq__` after `.resolve()`, no I/O), and
+    only when that says "different" is the stat-based `os.path.samefile`
+    consulted — so the ordinary agreeing case costs no filesystem call at all,
+    and the two-stat cost is paid only on the rare disagreement.
+
+    A `declared` path that cannot be stat'd (missing, unreadable, malformed for
+    the host) makes `samefile` raise, and that is reported as a real divergence
+    rather than swallowed: an advertised plugin root that does not resolve to a
+    live directory is precisely the state worth surfacing, not a reason to fall
+    silent.
+    """
+    try:
+        if Path(declared).resolve() == Path(observed).resolve():
+            return False
+    except Exception:
+        return True
+
+    try:
+        return not os.path.samefile(declared, observed)
+    except Exception:
+        return True
 
 
 def _read_current_full_sha_boot(repo_root: Optional[str]) -> str:
@@ -1854,6 +2260,14 @@ def main(argv: list) -> int:
             engine_resolution_banner()
         except Exception:
             pass
+        try:
+            local_install_surface_banner(repo_root)
+        except Exception:
+            pass
+        try:
+            install_currency_banner(repo_root)
+        except Exception:
+            pass
 
         try:
             if handle_cache_present_boot(cache, cache_text=cache_text):
@@ -1895,6 +2309,14 @@ def main(argv: list) -> int:
         pass
     try:
         engine_resolution_banner()
+    except Exception:
+        pass
+    try:
+        local_install_surface_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        install_currency_banner(repo_root)
     except Exception:
         pass
 

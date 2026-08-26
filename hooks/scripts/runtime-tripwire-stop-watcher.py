@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Runtime Tripwire -- asyncRewake Stop Watcher (L2 backstop) -- naked-Python port.
 
+STOOD DOWN -- THIS MODULE IS NOT REGISTERED AND DOES NOT RUN. It sits in
+hooks.json's `retired` roster ("Stood down 2026-07-31 per PM ruling;
+reversible, comment-only mention remains in hooks.json"), and the Stop array
+carries only a comment naming it. The file and its tests are kept because the
+stand-down is reversible, not because anything invokes them: a bug found here
+is latent, not live, and fixing one changes no session's behaviour until the
+registration is restored. Restore procedure: stop-dispatch.py. Re-registering
+is a PM call, not an engineering one.
+
 Ported from the former bash Stop-hook watcher. Self-contained
 (no claude-klabauter op exists for this hook as of this port -- grepped
 Claude-klabauter/coordinator_core/hooks + ops, no stop-watcher/asyncRewake match).
@@ -46,12 +55,29 @@ Detached-launch mechanics (the concurrency-sensitive part of this port):
   reproduced as faithfully as a real OS process boundary allows:
     - POSIX: start_new_session=True (setsid-equivalent -- new session, no
       controlling terminal, survives the parent's exit).
-    - Windows: creationflags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+    - Windows: creationflags = CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
       with a best-effort CREATE_BREAKAWAY_FROM_JOB attempt (falls back to
       without it if the current job object forbids breakaway -- CreateProcess
-      raises WinError 5 in that case). DETACHED_PROCESS is the closest
-      Windows analogue to setsid: no console, not tied to the parent's
-      console session.
+      raises WinError 5 in that case).
+
+      NOT `DETACHED_PROCESS`, which is what this used to pass. Detachment
+      there is from the CONSOLE, never from the parent's lifetime -- Windows
+      does not reap children when a parent exits, and survival past parent
+      exit measures identically under both flags. What DETACHED_PROCESS does
+      buy is a child with NO console at all, so a console-subsystem child
+      (this script, and every git.exe and hook interpreter beneath it)
+      allocates its own conhost -- WITH A VISIBLE WINDOW -- the moment it
+      writes anything. That is a console-window storm fired once per session
+      Stop. CREATE_NO_WINDOW gives the child its own WINDOWLESS console
+      instead: still untied to the parent's console session, minus the
+      windows. Job-object teardown is unaffected either way -- breakaway is
+      CREATE_BREAKAWAY_FROM_JOB's job, below, and DETACHED_PROCESS never
+      mitigated it.
+
+      Never spell it `DETACHED_PROCESS | CREATE_NO_WINDOW`: Win32 documents
+      CREATE_NO_WINDOW as IGNORED alongside DETACHED_PROCESS, and that
+      combination measures identically to the bare DETACHED_PROCESS form --
+      it reads as fixed while behaving as broken.
 
   KNOWN, NOT-FULLY-CLOSABLE RISK (flagged per the "STOP and report" clause):
   if the harness spawns hook processes inside a Windows Job Object configured
@@ -125,7 +151,6 @@ except Exception:
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # Windows CreateProcess flags (no-op values on POSIX; only used when os.name == "nt").
-_DETACHED_PROCESS = 0x00000008
 _CREATE_NEW_PROCESS_GROUP = 0x00000200
 _CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 
@@ -490,7 +515,7 @@ def _spawn_detached(argv: list) -> Optional[int]:
     )
     try:
         if os.name == "nt":
-            flags = _DETACHED_PROCESS | _CREATE_NEW_PROCESS_GROUP
+            flags = _NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
             try:
                 proc = subprocess.Popen(
                     argv,

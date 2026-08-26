@@ -49,18 +49,6 @@ Subcommands:
       (install-drift), not against the hook's own business logic ever failing.
       Always returns 0 -- the post-ceremony hook must never block the ceremony.
 
-  emit-cadence
-      Step 10.6. Invokes emit-cadence.py and classifies its exit code: `0` is a
-      clean success-or-gate-off no-op (silent); `1`/`3` are genuinely best-effort
-      (no claude-klabauter control plane on this machine, or a transport hiccup) and print an
-      informational note only; `4` is a STRUCTURAL contract-pin failure that will
-      NOT self-heal on the next run (claude-klabauter's CONTRACT_VERSION has drifted from the
-      vendored cockpit-contract bundle) and prints the escalated ERROR line telling
-      the operator to read and apply emit-cadence.py's own stderr remediation.
-      Always returns 0 -- emission cadence is best-effort and must never wedge the
-      ceremony, matching the bash oracle (which never `exit`s after capturing
-      `_cc_emit_rc`).
-
   backfill-dispatch-rows [--for-date DATE] [--only-mode] [--scope-summary TEXT]
                          [--no-push] [--dry-run]
       Step 3.5 Phase B. Reads the full gap-rows blob on stdin (one
@@ -105,7 +93,7 @@ from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
 try:
     _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
 except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
 
 from coordinator_core.daily_day import local_day  # noqa: E402
@@ -115,7 +103,6 @@ from coordinator_core.win_portability import no_console_creationflags, no_consol
 _STITCH_SIDECAR_CLI = _BIN_DIR / "stitch-observer-sidecar.py"
 _STEP9_CLI = _BIN_DIR / "workday-complete-step9-append-changelog.py"
 _CEREMONY_HOOK_CLI = _BIN_DIR / "coordinator-ceremony-hook.py"
-_EMIT_CADENCE_CLI = _BIN_DIR / "emit-cadence.py"
 
 # Per-gap-date backfill dispatch (_dispatch_step9_row) invokes the entire
 # composed step9 ceremony once per row with NO bound at all — on this repo's
@@ -222,30 +209,6 @@ def cmd_ceremony_hook(args: argparse.Namespace) -> int:
     hook_out = (result.stdout or "").strip()
     if hook_out:
         print(hook_out)
-    return 0
-
-
-def cmd_emit_cadence(args: argparse.Namespace) -> int:
-    """Step 10.6: fire the emission-cadence trigger and classify its exit code.
-    Exit 4 is a structural contract-pin failure (escalated, will not self-heal);
-    0 is silent success/gate-off; anything else is a best-effort informational
-    skip. Always returns 0 -- emission cadence must never wedge the ceremony."""
-    result = _run(_EMIT_CADENCE_CLI, [])
-    rc = result.returncode
-    if rc == 4:
-        print(
-            "ERROR: emission cadence structural contract-pin failure "
-            "(emit-cadence.py exit 4) — this is NOT a benign skip and will NOT "
-            "self-heal on the next run; see the remediation emit-cadence.py "
-            "printed to stderr above and apply it",
-            file=sys.stderr,
-        )
-    elif rc != 0:
-        print(
-            f"note: emission cadence skipped (emit-cadence.py exit {rc}; "
-            "claude-klabauter control plane absent or gate off)",
-            file=sys.stderr,
-        )
     return 0
 
 
@@ -390,8 +353,6 @@ def main(argv: list[str] | None = None) -> int:
     p_hook.add_argument("--only-mode", action="store_true")
     p_hook.set_defaults(func=cmd_ceremony_hook)
 
-    p_emit = sub.add_parser("emit-cadence", help="Step 10.6: emission-cadence rc dispatch.")
-    p_emit.set_defaults(func=cmd_emit_cadence)
 
     p_backfill = sub.add_parser(
         "backfill-dispatch-rows",

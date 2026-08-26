@@ -217,6 +217,13 @@ Why bad: Behaviour-level summary, not purpose. Will diverge from the implementat
 **Where:** One line near the top of the function, class, or module that implements a specific
 spec requirement — particularly anything non-obvious or the result of a decision.
 
+**A code comment, never frontmatter.** A `spec_backlink:` key on a SKILL.md, agent, or command
+is provenance on a prompt surface, forbidden by `test_prompt_surfaces_carry_no_provenance.py`:
+those files percolate to readers who cannot open `docs/plans/`, so the citation resolves to
+nothing for exactly the audience that receives it. The plan-side declaration lives in the plan's
+own chunk block (`coordinator/templates/plans/plan.md.tmpl`, **Spec backlink:**), which is where
+the executor is handed the citation to write into the code.
+
 **Format:**
 ```python
 # Implements pln-drain-the-cross-repo-memo-inbo-aec26b § 3.2 — decompose_query semantics
@@ -228,11 +235,9 @@ its handoff, and its completion entry, so a `dlv-` citation can resolve to more 
 `plan_id` is plan-scoped and never collides. For a citation into a sibling repo's plan, use
 the foreign form in `cross-repo-citation-conventions.md` rather than restating it here.
 
-**Why this survives refactors:** The comment is purpose-shaped ("implements X"), not
-behaviour-shaped ("calls Y then Z"). When the implementation changes, the spec reference
-remains accurate unless the *purpose* of the code changes. The id form also survives the
-plan's own file moving or being archived — the id doesn't change, so there is nothing to
-rewrite.
+**Why this survives refactors:** the comment is purpose-shaped ("implements X"), not
+behaviour-shaped, so it stays accurate until the code's *purpose* changes; and the id survives
+the plan being moved or archived, so there is nothing to rewrite.
 
 **Python example:**
 ```python
@@ -399,9 +404,8 @@ N≥3 modules. This converts the convention from aspirational to validated — s
 
 When /distill runs on a repo, RAG-bait and the distillation log interact as follows:
 
-**Spec backlinks** cite the plan's minted `plan_id` (`pln-<slug>-<6hex>`), not a file path.
-The id does not change when the plan moves to `archive/specs/`, so there is nothing for
-/distill's link-heal pass to rewrite; see § 3 above for the citation form.
+**Spec backlinks** need no link-heal pass — the minted id (§ 3) does not change when the plan
+moves to `archive/specs/`.
 
 **Provenance frontmatter** on wiki entries carries `last_verbose_sha` — the git SHA of the
 original verbose plan/spec before trimming. When a future EM needs the review history or

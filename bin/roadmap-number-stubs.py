@@ -25,7 +25,7 @@ from __future__ import annotations
 #   roadmap-number-stubs --state <run-id>  # print per-stub readiness state
 #
 # Exits 0 on success; 1 on a dependency cycle (default mode) or dependency-order
-# violations (--check mode); 2 on a CLI usage error; 3 on a CLAUDE_KLABAUTER_ROOT
+# violations (--check mode); 2 on a CLI usage error; 3 on an engine-root
 # resolution/import failure (transport failure — distinct from both business
 # codes above so a caller cannot misclassify a claude-klabauter-link outage as "no
 # violations found" (0) or "usage error" (2)).
@@ -41,21 +41,19 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported CLI entry.
+    """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.roadmap.number_stubs import main as _op_main
 
     return _op_main

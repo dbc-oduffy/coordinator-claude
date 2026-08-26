@@ -57,7 +57,7 @@ to DoE-claude in the 2026-07-22 executable-surface migration.
 # contract, see that module's docstring):
 #   0 — success (insert/swap performed, or --check-only report printed)
 #   1 — usage error / validation failure / collision
-#   2 — CLAUDE_KLABAUTER_ROOT resolution failure OR coordinator_core.ops.
+#   2 — engine-root resolution failure OR coordinator_core.ops.
 #       render_posture_overlay not importable (transport/claude-klabauter-link
 #       failure) — a DEDICATED code, distinct from both business codes
 #       above, per the porter-brief addendum §3b rule that a transport
@@ -76,14 +76,14 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_data_root import data_root  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
+    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -100,18 +100,14 @@ def _import_main():
     that context manager's docstring for the `workday-complete-step9-append-
     changelog.py` precedent this follows.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.render_posture_overlay import main as _op_main
 
     return _op_main
 
 
 def _import_recorder():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import recording_declared_writes
 
     return recording_declared_writes

@@ -46,7 +46,7 @@ health probe is out of scope and not this repo's call to make).
 
 Dual silent-skip rule (mirrors check-engine-drift.py's error-silent rule,
 doubled for this op's provisional-registration window):
-  (a) CLAUDE_KLABAUTER_ROOT cannot resolve (no engine checkout on this machine) --
+  (a) the engine root cannot resolve (no engine checkout on this machine) --
       a fleet-topology fact, not a health regression.
   (b) .error present in the envelope, or the engine-side module/op is not
       importable (provisional-op rollout window) -- DoE is a consumer and
@@ -76,7 +76,7 @@ Test seam (test-only): when COORDINATOR_AUTO_RECONCILE_JSON is set and
 non-empty, its value is used AS the invoke output -- the actual engine-repo call
 below is skipped entirely -- and parsed normally. This lets
 check-auto-reconcile.test.sh drive the rendering logic without a live op
-or a real engine checkout. The seam is checked BEFORE the CLAUDE_KLABAUTER_ROOT gate
+or a real engine checkout. The seam is checked BEFORE the engine-root gate
 below, same ordering rationale as check-engine-drift.py.
 
 Spec backlink: DoE-claude:pln-doe-side-adoption-of-claude-klabauter-au-284ced (C1) +
@@ -96,14 +96,14 @@ Negative-spec:
     guarantee that invoking it is side-effect-free end to end. Any dry_run
     flag it does not pass belongs to policy_loader.py's own fail-closed
     default (true on any absent/malformed policy), not to this script.
-  - Does NOT hardcode CLAUDE_KLABAUTER_ROOT -- resolves via cc_invoke.ensure_engine_on_path()
-    (bin/lib/cc_invoke.py): CLAUDE_KLABAUTER_ROOT env -> self-location walk-up to the
+  - Does NOT hardcode the engine root -- resolves via cc_invoke.ensure_engine_on_path()
+    (bin/lib/cc_invoke.py): the engine root (env var -> self-location walk-up to the
     enclosing engine checkout -> the pointer-file/registry ladder.
   - Does NOT hard-error or nag when the op is unregistered/engine absent --
     degrades to a fully silent skip (exit 0, no output). DoE is a consumer;
     it must never nag about the engine repo's activation state. This
     silent-skip contract is scoped to INFRASTRUCTURE conditions (unresolved
-    CLAUDE_KLABAUTER_ROOT, unregistered op, dispatch failure) only -- it does NOT cover
+    the engine root, unregistered op, dispatch failure) only -- it does NOT cover
     argv handling: `--help`/`-h` prints usage and exits 0 WITHOUT running the
     sweep, and any other unrecognized argument prints usage and exits 2 --
     same class of defect the sender's own de-bash verify pass caught in
@@ -178,7 +178,7 @@ def _render(response: Any) -> List[str]:
 
 def _get_raw_response() -> Optional[Dict[str, Any]]:
     """Return the parsed JSON-RPC response dict, or None on any silent-skip
-    condition (test-seam malformed JSON, CLAUDE_KLABAUTER_ROOT unresolved, engine
+    condition (test-seam malformed JSON, the engine root unresolved, engine
     module/op not importable, dispatch failure)."""
     raw_env = os.environ.get("COORDINATOR_AUTO_RECONCILE_JSON", "")
     if raw_env:

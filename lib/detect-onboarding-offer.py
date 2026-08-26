@@ -3,7 +3,7 @@
 Session-preflight onboarding currency detector for /workday-start Step 1.10: checks
 whether the cwd repo needs /repo-setup (unonboarded, or onboarded-but-stale against the
 current coordinator-schema-version) and emits a single offer line on stdout, or nothing
-when silent. This file resolves CLAUDE_KLABAUTER_ROOT, tells the claude-klabauter engine module where this
+when silent. This file resolves the engine root, tells the claude-klabauter engine module where this
 file lives on disk (the plugin_root default the engine cannot derive itself), and
 forwards argv/exit code — the detection logic itself lives entirely in
 coordinator_core/ops/detect_onboarding_offer.py.
@@ -21,7 +21,7 @@ from __future__ import annotations
 # dismissal-sentinel check, unonboarded/stale/current classification via the
 # currency probe) is fully ported to
 # coordinator_core/ops/detect_onboarding_offer.py — this file's only remaining
-# job is: resolve CLAUDE_KLABAUTER_ROOT, tell the engine module where THIS file lives on
+# job is: resolve the engine root, tell the engine module where THIS file lives on
 # disk (a DoE-side/contract-only fact the engine cannot derive itself — used to
 # default plugin_root when neither a CLI flag nor an env var supplies one), and
 # forward argv/exit code.
@@ -39,7 +39,7 @@ from __future__ import annotations
 #
 # Exit codes: 0 — always. This is a best-effort/advisory probe (never blocks a
 # caller) — mirrors coordinator-auto-push's posture. A claude-klabauter-link failure
-# (CLAUDE_KLABAUTER_ROOT unresolvable / module not importable) is a loud stderr note, not
+# (engine root unresolvable / module not importable) is a loud stderr note, not
 # a nonzero exit or a swallowed failure — same transport-failure-degrades-to-0
 # posture as coordinator-auto-push / handoff-gate-aging (best-effort class per
 # docs/wiki § Exit-code contract).
@@ -63,13 +63,11 @@ _PLUGIN_ROOT = os.path.dirname(_SCRIPT_DIR)  # this file lives at <plugin_root>/
 _LIB_DIR = os.path.join(_PLUGIN_ROOT, "bin", "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.detect_onboarding_offer import main as _op_main
     return _op_main
 

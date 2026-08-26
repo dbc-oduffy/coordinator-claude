@@ -37,6 +37,21 @@ in path] into wiki documents."
 | Enriched stubs, reviewer outputs, integrator triage, docs-checker reports | Delete — recoverable via git |
 | Wiki entries | Write/update, provenance frontmatter |
 | Archived handoffs | Extract → delete once eligibility guards pass |
+| Batons | Exhaust, never harvest — see § Baton fate below |
+
+---
+
+## Baton fate
+
+Batons are a plan's exhaust, never a harvest source — plans are what get wikified. A birth baton
+(unpromoted `.git/coordinator-sessions/<sid>/baton.json`) is deleted on a distillation run. A
+written baton (continuation, execution, spinoff) survives as cross-reference, keyed on
+`deliverable_id`, for an agent working its joined plan — read for how hard delivery actually was
+and which items resisted re-derivation — and is deleted with that plan's handoff archive once
+the plan is wiki-ified or pruned. No baton carries a fate field and no EM decides one. Deletion
+mechanism: engine-plane, requested at
+`state/memo-outbox/2026-08-21-baton-fate-and-lineage-ruling.md` (C7); rationale and worked detail:
+`distill-residue` wiki page.
 
 ---
 

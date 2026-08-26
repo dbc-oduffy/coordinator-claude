@@ -199,7 +199,7 @@ def main(argv: "list[str] | None" = None) -> int:
 
         try:
             with recording_declared_writes():
-                Path(args.out_file).write_text(brief, encoding="utf-8")
+                Path(args.out_file).write_text(brief, encoding="utf-8", newline="\n")
                 declare_write(args.out_file)
         except OSError as exc:
             _err(f"plan-task-brief.py: ERROR — cannot write --out file {args.out_file!r}: {exc}")

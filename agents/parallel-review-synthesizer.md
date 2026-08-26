@@ -228,20 +228,12 @@ Write `$FINDINGS_DIR/synthesis.json` with this exact structure:
 
 ## Workflow
 
-1. Compare `HEAD_SHA_PATH` against `git rev-parse HEAD`; set `head_drift`.
-2. `find $FINDINGS_DIR -name 'chunk-*.md'`; zero → apply the skip-sentinel logic.
-3. Pre-flight validate every discovered chunk file and the 3 specialists.
-4. Normalize each valid file (trim trailing whitespace, CRLF→LF, strip ANSI).
-5. Parse each source file for its § Output Schema fields (verbatim excerpts throughout): `chunk-<k>`
-   → severity/file/line/`escalate_to_architecture`; `security`/`deps` → severity/file-or-package/
-   line-or-CVE; `tests` → name/classification/its own `suggested_action` — never author your own.
-6. Aggregate `escalate_to_architecture: true` findings into `arch_tier_candidates`.
-7. Run convergence detection.
-8. Evaluate verdict rules in strict order (BLOCKED → WARN → OK); `arch_tier_candidates` never gates.
-9. Compose `synthesis.json`. `verdict_rationale` is the only original sentence you write.
-10. Write `synthesis.json` to `$FINDINGS_DIR/synthesis.json`.
-11. Verify the file exists and is non-empty.
-12. Reply `DONE: $FINDINGS_DIR/synthesis.json` — nothing else.
+Order: set `head_drift` (§ Inputs) → discover chunks, apply skip-sentinel logic if zero (§ Inputs)
+→ pre-flight validate all files (§ Pre-flight Validation) → normalize valid files → parse each for
+its § Output Schema fields, verbatim excerpts throughout, never authoring your own except
+`verdict_rationale` → aggregate `arch_tier_candidates` → run convergence detection → evaluate
+verdict rules strictly BLOCKED → WARN → OK (`arch_tier_candidates` never gates) → compose and
+write `synthesis.json` → verify it exists and is non-empty → reply `DONE: $FINDINGS_DIR/synthesis.json`, nothing else.
 
 ## Failure Modes
 
@@ -257,19 +249,19 @@ fires.
 
 ## DONE-After-Write Protocol
 
-Reply `DONE: <path>` ONLY after confirming the file exists. If you find yourself about to
-summarize the synthesis inline, STOP — the coordinator reads from disk, not chat. Inline summary
-without a written file counts as task failure.
+Reply `DONE: <path>` only after confirming the file exists. About to summarize the synthesis
+inline instead? STOP — the coordinator reads from disk, not chat; an inline summary with no
+written file is task failure.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse guard denying your tool call is a **stop signal, not an obstacle to route around** — a trusted process, not you, decided the action is outside your authority.
+A coordinator PreToolUse guard denying your tool call is a stop signal, not an obstacle to route around.
 
-**Forbidden: reshaping a denied operation so it parses differently.** Wrapping it in a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
+**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
 
-**Correct response: stop, and report it** — name the exact command you attempted and the guard that denied it in your final report. What happens next — including whether a legitimate override applies — is the dispatching EM's call, never yours: do not substitute a different approach of your own once you have been denied. Evading and then disclosing it is still evading; the report is not absolution.
+**Required:** stop, and report the exact command you attempted and the guard that denied it. Do not substitute a different approach of your own once you have been denied. What happens next is the dispatching EM's call, never yours.
 <!-- END guard-encounter-preamble -->
 
 **Report-sidecar disposition:** your provisioned home in practice is the dispatcher-passed
@@ -279,6 +271,7 @@ sole write target.
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->
 **You have a provisioned home for this dispatch: `state/subagent-share/<session-id>/<provision_key>.md` (git-tracked, a review-findings-typed doc — one disposition slot per finding) — the dispatcher creates it for your specific role before you start. Record each finding's disposition there as you go, not in your final message. When you finish, return a terse pointer to it — `done: <path>`, not a full dump: your final message lands in the EM's context window, so a pointer keeps your detail on disk (there when it's wanted) instead of flooding the EM's scarcest resource. Only if your dispatch carries no provisioned path (no `sidecar_path:`/`provision_key:`) fall back to `scratch/subagent-sandbox/` (root-level, off `state/`) — write as many `.md` files there as you like; stale files (>24h) are reaped automatically and the directory persists.**
+**Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.
 <!-- END subagent-sandbox-preamble -->
 
 ## Worker Dispatch Recommendations

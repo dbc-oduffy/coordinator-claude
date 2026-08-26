@@ -28,14 +28,14 @@ Single-shot; race window and lifecycle: wiki.
 
 ## Orient
 
-The assembler computes the session-cadence orient spine (health, staleness, handoff triage, branch
-checks, ...) into one decision object:
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/orient-assemble" brief
---cadence session`. Read the JSON. Every `directives[]` entry names a CLI to run when not
+The session-cadence orient spine (health, staleness, handoff triage, branch checks, ...) is
+computed for you. PowerShell hosts (Shape W,
+`snippets/resolve-coordinator-bin.md`):
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.cmd" brief --cadence session`. Read the JSON. Every `directives[]` entry names a CLI to run when not
 `already_satisfied`; every `judgment_points[]` entry is an open branch to resolve yourself —
 present each with its `dispositions[]`, pick, don't drop any. Don't hand-run what these compute.
 
-**Do NOT load, summarize, or act on any handoff the assembler surfaces** — a `ready-to-fire`
+**Do NOT load, summarize, or act on any handoff the orient output surfaces** — a `ready-to-fire`
 directive naming one is not implicit selection. When the PM indicates they want a handoff picked
 up (link, name, or "pick up that handoff"), read the full file; sets `HANDOFF_LOADED=true` for
 Engage below — or the PM uses `/pickup` directly. A markdown in `state/handoffs/`, `tasks/`, or
@@ -52,9 +52,10 @@ unanswered. Every other fork is `/pickup`'s.
 
 **`tasks/`/`archive/` gitignored?** Warn — must track.
 
-### Session residue the assembler doesn't cover
+### Session residue not covered above
 
-Bin paths below relative to `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/`.
+Bin paths below relative to the coordinator settings-home `bin/` directory — resolve per rung 0 /
+Shape W in `snippets/resolve-coordinator-bin.md` (PowerShell hosts) or rung 2 (POSIX hosts).
 
 **One shell call** for the three independent, non-gating probes below (order doesn't matter among
 them — none reads another's output):
@@ -63,17 +64,13 @@ them — none reads another's output):
   `CLAUDE_INVOKING_COMMAND=workstream-start coordinator-safe-commit --blanket "chore:
   workstream-start sweep — pre-orientation capture"`.
 - **Setup-state self-heal**, silent: `coordinator-setup-state auto-record-if-source-is-live`.
-- **Whoami spot-check:** `"${COORDINATOR_PYTHON:-python3}" -m coordinator_whoami.session`. Report
-  `binding.kind` or `degraded (CLI failed)`. Do NOT surface bound-but-cwd-mismatch — that's
-  `/repo-setup`'s job, and would false-positive for an operator deliberately working outside the
-  bound project root.
-- **Outbox drafts** (inbound staleness is already in the assembler's output):
+- **Outbox drafts** (inbound staleness is already in the orient output):
   `workday-start-cross-repo-memo-outbox-surface` — non-empty → surface verbatim; empty → skip.
 
 **Branch detection** stays its own call — its outcome (which branch you end up on) gates
 everything that follows: main is read-only. Stay on a non-main branch if on one; on main, run
 `sync-main --quiet` (report divergence first), then create `work/{machine}/{date}` (`-2` on
-collision) — superseded by the assembler's branch-day-span directive when present. Diverged from
+collision) — superseded by the branch-day-span directive when present. Diverged from
 `main` >2 days → recommend `/merge-to-main`, wait for the PM; ≤2 days → continue silently.
 
 ### Context load — not part of the shared spine

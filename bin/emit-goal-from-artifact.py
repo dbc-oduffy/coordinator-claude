@@ -39,11 +39,22 @@ subprocess-invoked read-frontmatter-field.py
 per field per goal. Fix-in-port (DR-059): drops the jq dependency entirely — JSON
 projection uses the stdlib `json` module — and imports
 coordinator_core.ops.read_frontmatter_field.read_frontmatter_field directly
-in-process (via cc_invoke.resolve_engine_root() for CLAUDE_KLABAUTER_ROOT resolution,
+in-process (via cc_invoke.resolve_engine_root() for engine-root resolution,
 matching every other Windows-campaign per-op port) instead of subprocess-spawning
 read-frontmatter-field.py once per field per goal artifact. append-goal-event.py
 itself stays a subprocess invocation — that IS the DR-210 single-writer facade
 boundary, not an incidental transport choice.
+
+Batch fix (amplification-gate, 2026-08-19): the per-goal-file loop used to
+spawn append-goal-event.py once PER FILE (N spawns for N goal artifacts) —
+refuted as an amplification-gate exemption (that one-per-invocation arity
+was this pairing's own design choice, not an external floor). Every valid
+goal now becomes one entry in an --events-file batch, and the whole run
+makes exactly ONE append-goal-event.py spawn regardless of goal count. The
+DR-210 single-writer facade boundary is unchanged by this — it is still the
+one subprocess, not an in-process goal.append call, that owns the write;
+only the ARITY of goals-per-spawn changed. See append-goal-event.py's
+`_main_batch()`/`_build_batch_params()` for the batch-side half of this fix.
 
 Negative-spec: as of 2026-07-25 this module DOES forward the artifact->wire
 status mapping (see _map_status()/_STATUS_MAP below) via append-goal-event.py's
@@ -60,6 +71,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
@@ -103,7 +115,7 @@ def _map_status(artifact_status: str) -> str:
 def _resolve_read_frontmatter_field():
     """Import coordinator_core.ops.read_frontmatter_field.read_frontmatter_field.
 
-    Raises RuntimeError on CLAUDE_KLABAUTER_ROOT/import failure — mapped to a fatal
+    Raises RuntimeError on engine-root/import failure — mapped to a fatal
     precondition (exit 1) by main(), matching the bash oracle's jq-absent /
     helper-not-found fatal-precondition class.
     """
@@ -296,7 +308,7 @@ def main(argv: list[str]) -> int:
     try:
         read_frontmatter_field = _resolve_read_frontmatter_field()
     except RuntimeError as exc:
-        print(f"ERROR: could not resolve CLAUDE_KLABAUTER_ROOT: {exc}", file=sys.stderr)
+        print(f"ERROR: could not resolve the engine root: {exc}", file=sys.stderr)
         return 1
 
     git_root = _resolve_repo_root(root_override)
@@ -325,6 +337,7 @@ def main(argv: list[str]) -> int:
     print(f"[emit-goal] found {len(goal_files)} goal artifact(s) in {goals_dir}", file=sys.stderr)
 
     emit_fail = False
+    batch: list[tuple[str, dict]] = []  # (basename, event) for every valid, non-dry-run goal
 
     for goal_file in goal_files:
         basename = os.path.basename(goal_file)
@@ -370,35 +383,55 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
 
-        new_field_args: list[str] = ["--parent-goal-id", parent_goal_id]
+        event: dict = {"period": period, "period_value": period_value, "text": wire_text}
+        if parent_goal_id:
+            event["parent_goal_id"] = parent_goal_id
         if weekly_perceptible_raw:
-            new_field_args += ["--weekly-perceptible", weekly_perceptible_raw]
+            event["weekly_perceptible"] = weekly_perceptible_raw == "true"
         if key_results_status_json:
-            new_field_args += ["--key-results-status", key_results_status_json]
+            event["key_results_status"] = json.loads(key_results_status_json)
         if goal_id_field:
-            new_field_args += ["--goal-id", goal_id_field]
+            event["goal_id"] = goal_id_field
         if wire_status:
-            new_field_args += ["--status", wire_status]
+            event["status"] = wire_status
 
         if dry_run:
-            print(f"[emit-goal] DRY-RUN: python {append_helper} \\", file=sys.stderr)
-            print(f"  --period {period} \\", file=sys.stderr)
-            print(f"  --period-value {period_value} \\", file=sys.stderr)
-            print(f"  --text {wire_text!r} \\", file=sys.stderr)
-            print(f"  --repo {repo_slug} \\", file=sys.stderr)
-            print(f"  --root {git_root} \\", file=sys.stderr)
-            print(f"  {' '.join(new_field_args)}", file=sys.stderr)
+            print(f"[emit-goal] DRY-RUN: would batch event for {basename}:", file=sys.stderr)
+            print(f"  {json.dumps(event, ensure_ascii=False)}", file=sys.stderr)
             continue
+
+        batch.append((basename, event))
+
+    if dry_run:
+        print(f"[emit-goal] DRY-RUN: python {append_helper} --events-file <batch-file> "
+              f"--repo {repo_slug} --root {git_root}", file=sys.stderr)
+        return 2 if emit_fail else 0
+
+    if not batch:
+        if emit_fail:
+            print("[emit-goal] one or more goals failed to emit — check stderr above", file=sys.stderr)
+            return 2
+        print("[emit-goal] all goals emitted successfully", file=sys.stderr)
+        return 0
+
+    # One spawn of append-goal-event.py for the WHOLE batch (amplification-gate
+    # fix — see module docstring). --events-file carries every valid goal's
+    # event as one JSON array; --repo/--root stay CLI-level, shared by every
+    # event in the batch exactly as they would across N separate per-file
+    # spawns of the same script.
+    events_fh = tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", prefix="emit-goal-events-", delete=False, encoding="utf-8"
+    )
+    try:
+        json.dump([event for _basename, event in batch], events_fh)
+        events_fh.close()
 
         cmd = [
             sys.executable,
             append_helper,
-            "--period", period,
-            "--period-value", period_value,
-            "--text", wire_text,
+            "--events-file", events_fh.name,
             "--repo", repo_slug,
             "--root", ".",
-            *new_field_args,
         ]
         try:
             result = subprocess.run(
@@ -406,23 +439,46 @@ def main(argv: list[str]) -> int:
                 capture_output=True, text=True,
             )
         except (OSError, RuntimeError, ImportError) as exc:
-            print(f"[emit-goal] FAIL {basename}: append-goal-event.py invocation error: {exc}", file=sys.stderr)
-            emit_fail = True
-            continue
+            print(f"[emit-goal] FAIL: append-goal-event.py batch invocation error: {exc}", file=sys.stderr)
+            for basename, _event in batch:
+                print(f"[emit-goal] FAIL {basename}: batch invocation did not complete", file=sys.stderr)
+            return 2
+    finally:
+        try:
+            os.unlink(events_fh.name)
+        except OSError:
+            pass
 
-        if result.returncode == 0:
-            # Success-path stdout (append-goal-event.py's json.dumps(result) line)
-            # is intentionally not relayed here — no caller/downstream process
-            # consumes it (confirmed: no test or wiki contract asserts on it);
-            # only failure output is surfaced for diagnosability. (Review:
-            # code-reviewer — Finding 6, 2026-07-22.)
+    outcomes = None
+    if result.stdout:
+        try:
+            outcomes = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            outcomes = None
+
+    if outcomes is None or len(outcomes) != len(batch):
+        print(
+            f"[emit-goal] FAIL: append-goal-event.py batch call produced no usable per-event "
+            f"outcome (exit={result.returncode})",
+            file=sys.stderr,
+        )
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
+        for basename, _event in batch:
+            print(f"[emit-goal] FAIL {basename}: no outcome reported by batch call", file=sys.stderr)
+        return 2
+
+    if result.stderr:
+        # append-goal-event.py's own per-event RuntimeError text (from
+        # _main_batch's failure branch) lands here — relayed verbatim rather
+        # than re-derived, matching the single-event path's prior posture.
+        print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
+
+    for (basename, _event), outcome in zip(batch, outcomes):
+        if outcome.get("ok"):
             print(f"[emit-goal] OK {basename}", file=sys.stderr)
         else:
-            print(f"[emit-goal] FAIL {basename}: append-goal-event.py exited non-zero", file=sys.stderr)
-            if result.stdout:
-                print(result.stdout, file=sys.stderr, end="" if result.stdout.endswith("\n") else "\n")
-            if result.stderr:
-                print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
+            print(f"[emit-goal] FAIL {basename}: {outcome.get('error', 'unknown error')}", file=sys.stderr)
             emit_fail = True
 
     if emit_fail:

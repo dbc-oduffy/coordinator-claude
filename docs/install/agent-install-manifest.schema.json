@@ -94,6 +94,11 @@
         "minLength": 1
       }
     },
+    "required_local_surfaces": {
+      "description": "OPTIONAL. Registrations written INTO the operator's ~/.claude (or other configurable_locations root) that a `git pull` cannot carry -- distinct from `required_mcp_surfaces` (marketplace plugins / external MCP servers) and `required_env_vars` (shell environment). Each entry must be re-performed on every machine; when it isn't, a session on that machine is silently missing the capability with no signal, since every other install-surface check measures a repo artifact. Reuses the McpSurface vocabulary (`id`, `description`, `why`, `tier`, `probe`, `install`, `reference`) rather than inventing a parallel one.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/LocalSurface" }
+    },
     "override_flags": {
       "description": "The canonical flag-pair that bypasses the hard-dep consent gate. Both flags must be passed together; passing only one produces exit code 93.",
       "type": "object",
@@ -643,6 +648,86 @@
           "description": "Install/enable instructions. Same shape as SystemPrereq.install.",
           "type": "object",
           "required": ["mode"],
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": ["auto-with-confirmation", "manual"]
+            },
+            "posix": { "type": "string", "minLength": 1 },
+            "windows": { "type": "string", "minLength": 1 },
+            "remediation": { "type": "string", "minLength": 1 }
+          }
+        },
+        "reference": {
+          "description": "Doc pointer — path to further documentation about this surface.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "LocalSurface": {
+      "type": "object",
+      "description": "A single required machine-local registration -- state written into the operator's install root (e.g. ~/.claude/settings.json) that a `git pull` cannot carry, so it must be re-performed on every machine. Reuses the `tier` vocabulary from `SystemPrereq`/`McpSurface` (hard|semi-hard|advisory), not a fresh severity enum.",
+      "required": ["id", "description", "why", "tier", "probe", "install", "reference"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "Canonical identifier for this local surface, e.g. 'statusline-registration'.",
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "description": "What this surface is -- the registration's shape and where it lives on disk.",
+          "type": "string",
+          "minLength": 1
+        },
+        "why": {
+          "description": "Why coordinator needs this surface -- names the specific degraded consumer or capability, not a generic 'improves quality' claim.",
+          "type": "string",
+          "minLength": 1
+        },
+        "tier": {
+          "description": "Same ENV-PREREQ-PROBE tier vocabulary as SystemPrereq.tier / McpSurface.tier.",
+          "type": "string",
+          "enum": ["hard", "semi-hard", "advisory"]
+        },
+        "probe": {
+          "description": "Detection probe. json_key_present reads a JSON file at `relative_path` under the `configurable_locations` entry named by `location`, and passes only when the top-level key at `json_path` resolves to a non-null value. json_object_key_true reuses the McpSurface probe of the same kind -- reads the object at `json_path` and passes only when `key` inside it is truthy. Both stay zero-subprocess: a file read and a JSON parse, never a shell command -- see the boot-path zero-spawn mandate in coordinator/hooks/scripts/project-orientation.py's module docstring, which is the consumer of this probe shape. A `command_succeeds`-kind probe is deliberately NOT admitted here (unlike McpSurface.probe, which allows it) -- the boot-path consumer cannot spawn a subprocess to evaluate one, and it would be declared only to be silently skipped.",
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["json_key_present", "json_object_key_true"]
+            },
+            "location": {
+              "description": "REQUIRED. Names an entry in this manifest's own `configurable_locations` (e.g. 'install_root') whose discovery ladder resolves the directory. A named reference, not an interpolated path token.",
+              "type": "string",
+              "minLength": 1
+            },
+            "relative_path": {
+              "description": "REQUIRED. Path to the JSON file, relative to the directory `location` resolves to, e.g. 'settings.json'.",
+              "type": "string",
+              "minLength": 1
+            },
+            "json_path": {
+              "description": "REQUIRED. Top-level key to resolve in the file -- for json_key_present, the key whose value must be non-null; for json_object_key_true, the key whose value is the object to look up `key` in.",
+              "type": "string",
+              "minLength": 1
+            },
+            "key": {
+              "description": "REQUIRED for json_object_key_true. The key that must be present in the object at `json_path` with a truthy value for the probe to pass. Not used by json_key_present.",
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "install": {
+          "description": "Install/register instructions. Same shape as SystemPrereq.install / McpSurface.install, except `remediation` is REQUIRED here (unlike its siblings): the boot-path banner in project-orientation.py skips any entry lacking a non-empty `remediation` string, so a schema-valid entry without one would silently never surface -- the declared-but-unevaluable gap this manifest section exists to prevent, one level deeper than probe.kind.",
+          "type": "object",
+          "required": ["mode", "remediation"],
           "additionalProperties": false,
           "properties": {
             "mode": {

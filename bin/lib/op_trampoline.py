@@ -17,7 +17,7 @@ through `cc_invoke.route`, and so can only share the repo-root-resolution
 and exit-code pieces, not the whole recipe.
 
 `resolve_claude_klabauter_root_or_exit(cli_name)` is the third module-level helper --
-the CLAUDE_KLABAUTER_ROOT-resolution sub-recipe (`from cc_invoke import
+the engine-root-resolution sub-recipe (`from cc_invoke import
 _resolve_claude_klabauter_root`, try/except RuntimeError, diagnostic naming the
 calling CLI, `sys.path.insert` if not already present) that `query-file-
 attribution.py` and `query-routine-signals.py` each hand-copied before this
@@ -87,30 +87,30 @@ def resolve_repo_root_or_exit() -> str | int:
 
 
 def resolve_claude_klabauter_root_or_exit(cli_name: str) -> str | int:
-    """Resolve CLAUDE_KLABAUTER_ROOT via the checked ladder and put it on sys.path.
+    """Resolve the engine root via the checked ladder and put it on sys.path.
 
-    Extracted from `query-file-attribution.py::_resolve_repo_name_or_exit`
+    Extracted from `query-file-attribution.py::_resolve_repo_name_or_exit` (that CLI was
+    retired 2026-08-23 with the file-attribution capability; this helper outlived it and is
+    used by the surviving query-* CLIs)
     and `query-routine-signals.py::_resolve_claude_klabauter_root` -- both hand-rolled
     this identical sub-recipe. `cli_name` is stamped into the failure
     diagnostic so a consumer reading stderr can tell which CLI failed;
     callers must NOT be collapsed onto one shared generic message.
 
-    Returns the resolved CLAUDE_KLABAUTER_ROOT (`str`) on success, with `sys.path`
+    Returns the resolved engine root (`str`) on success, with `sys.path`
     already updated if it was not already present. On an unresolvable root,
     prints a diagnostic naming `cli_name` and the underlying error to
     stderr and returns `1` (the exit code the caller should return/exit
     with) instead of raising or calling `sys.exit` itself -- this module
     never exits the process.
     """
-    from cc_invoke import _resolve_claude_klabauter_root
+    from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path
 
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except RuntimeError as exc:
         print(f"{cli_name}: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         return 1
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
     return claude_klabauter_root
 
 
@@ -120,16 +120,28 @@ def run(
     *,
     argv: list[str],
 ) -> int:
-    """Route `op_name` through `cc_invoke.route`, print the result as JSON,
-    return an exit code.
+    """Route `op_name` through `cc_invoke.route_mutation`, print the result as
+    JSON, return an exit code.
 
     `params_builder(argv)` is the one piece of per-CLI knowledge this
     function does not own -- argparse shape (flags, filter grammar,
     `--help` honesty disclosures) is inherently per-CLI.
 
+    Uses `route_mutation`, not the bare `route`, so that an in-envelope
+    refusal (build_setup_error_result's `{"exit_code": N, ...}`,
+    build_act_result's partial/total `failed` list, or the completion_ops/
+    plan_ops `{"error": "..."}` shape) is inspected and raised as
+    `RouteMutationError` instead of being printed and exited 0 as if it were
+    a success payload -- this trampoline is the documented anti-hand-copying
+    seam (module docstring), so the first MUTATING op routed through it must
+    not silently inherit the exit_code trap `route_mutation` exists to close.
+    Read-only ops still route correctly: `route_mutation` only raises when
+    the result dict carries a refusal-shaped `exit_code`/`failed`/`error`
+    field, which a read-only op's result never does.
+
     Exit-code convention: 0 on success; 1 for every non-success path
-    (transport failure, seam-absent, root-unresolvable) -- the 4-of-5
-    majority among the pre-existing hand-copied CLIs.
+    (transport failure, seam-absent, root-unresolvable, op-level refusal)
+    -- the 4-of-5 majority among the pre-existing hand-copied CLIs.
     """
     params = params_builder(argv)
 
@@ -141,7 +153,12 @@ def run(
         raise RuntimeError(f"{op_name}: native seam required (no bash fallback)")
 
     try:
-        result = cc_invoke.route(op_name, params, repo_root, _no_legacy)
+        result = cc_invoke.route_mutation(op_name, params, repo_root, _no_legacy)
+    except cc_invoke.RouteMutationError as exc:
+        # In-envelope op-level refusal (exit_code/failed/error) -- see
+        # module docstring above.
+        print(f"{op_name}: refused -- {exc}", file=sys.stderr)
+        return 1
     except RuntimeError as exc:
         # Transport failure (State-3) or legacy-seam-absent raise (State-1).
         print(f"{op_name}: {exc}", file=sys.stderr)
@@ -149,3 +166,14 @@ def run(
 
     print(json.dumps(result, ensure_ascii=False))
     return 0
+
+# Dual-read window for the engine-root rename (docs/plans/2026-08-20-an-engine-
+# root-is-not-named-for-the-repo.md), same class as cc_invoke's alias and found
+# by the same mechanism. The PUBLISHED engine and its CLIs are transformed on the
+# way out -- every `claude-klabauter` identifier becomes `claude_klabauter` -- but a
+# published CLI still imports THIS module from the live tree, which is not
+# transformed. So it asks for `resolve_claude_klabauter_root_or_exit` and finds only `resolve_claude_klabauter_root_or_exit`, and dies on
+# ImportError in whatever ceremony happens to call it rather than in any test.
+# In the mirror this line transforms into a self-assignment: a harmless no-op.
+# Remove it only once no published CLI references the old spelling.
+resolve_claude_klabauter_root_or_exit = resolve_claude_klabauter_root_or_exit

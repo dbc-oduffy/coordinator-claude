@@ -185,6 +185,57 @@ $claudeExe = (Get-Command claude -CommandType Application -ErrorAction Stop | Se
 $__cdlHarborKitePresent = Test-Path -LiteralPath Env:\CLAUDE_CODE_HARBOR_KITE
 $__cdlHarborKitePrior = if ($__cdlHarborKitePresent) { $env:CLAUDE_CODE_HARBOR_KITE } else { $null }
 if (-not $__cdlHarborKitePresent) { $env:CLAUDE_CODE_HARBOR_KITE = '1' }
+
+# Export the resolved coordinator CLONE ROOT as the http-hook routing key
+# (DR-http-hook-forwarder-fixed-port, Decision 1). The forwarder cannot route a
+# fired hook to the right engine clone from the port alone -- the port is
+# machine-global and single -- and `body.cwd` was refused as the key because it
+# names the operator's live shell directory, not the clone the session launched
+# from.
+#
+# The value is the CLONE ROOT, not $pluginDir: $pluginDir is <clone>/coordinator
+# (the --plugin-dir the harness consumes), and the routing key names the clone
+# itself.
+#
+# setdefault, never overwrite: an operator who has already exported this key is
+# pinning a clone deliberately, and this launcher must not silently override
+# that.
+#
+# Save/restore is NOT optional here for the same reason as the kite above: this
+# runs in the operator's own pwsh process, so an unrestored assignment would
+# leak the clone root into their interactive shell and mis-route every session
+# they launch afterwards by hand.
+$__cdlCloneRootPresent = Test-Path -LiteralPath Env:\COORDINATOR_CLONE_ROOT
+$__cdlCloneRootPrior = if ($__cdlCloneRootPresent) { $env:COORDINATOR_CLONE_ROOT } else { $null }
+if (-not $__cdlCloneRootPresent) { $env:COORDINATOR_CLONE_ROOT = (Split-Path -Parent $pluginDir) }
+
+# Export the http-hook override-channel CANARY. A `type: "http"` registration
+# reaches the caller's environment only through interpolated headers -- the POST
+# body carries no `env` key under any spelling -- and an `httpHookAllowedEnvVars`
+# setting can veto a name by emptying its header rather than by erroring. An
+# emptied override header is indistinguishable from a caller who set no
+# override, and the guard resolves that ambiguity permissively, so the channel
+# carries two discriminators: a STATIC literal that survives a veto, and this
+# INTERPOLATED canary, which does not. Declared-plus-empty-canary is a vetoed
+# channel and answers "the guard did not run"; undeclared is silent, so no
+# legacy registration fails closed. Registration side is pinned by
+# test_hooks_json_http_fail_open_boundary.py gate 5; this is the other half --
+# an allowlisted canary the launcher never exports interpolates EMPTY on every
+# fire, which reads as a permanent veto.
+#
+# The value is arbitrary and only ever tested for non-emptiness. It is not a
+# secret, not a token, and grants nothing.
+#
+# setdefault on a PRESENCE test, same posture and same measured reason as the
+# two exports above -- and here the empty string is meaningful rather than
+# merely possible: an operator exporting it empty is simulating a veto, which a
+# truthiness guard would silently overwrite with '1'.
+#
+# Save/restore for the same reason as the clone root: this runs in the
+# operator's own pwsh process.
+$__cdlProbeCanaryPresent = Test-Path -LiteralPath Env:\COORDINATOR_PROBE_CANARY
+$__cdlProbeCanaryPrior = if ($__cdlProbeCanaryPresent) { $env:COORDINATOR_PROBE_CANARY } else { $null }
+if (-not $__cdlProbeCanaryPresent) { $env:COORDINATOR_PROBE_CANARY = '1' }
 try {
     & $claudeExe --plugin-dir $pluginDir @passthru
 } finally {
@@ -192,6 +243,16 @@ try {
         $env:CLAUDE_CODE_HARBOR_KITE = $__cdlHarborKitePrior
     } else {
         Remove-Item -LiteralPath Env:\CLAUDE_CODE_HARBOR_KITE -ErrorAction SilentlyContinue
+    }
+    if ($__cdlCloneRootPresent) {
+        $env:COORDINATOR_CLONE_ROOT = $__cdlCloneRootPrior
+    } else {
+        Remove-Item -LiteralPath Env:\COORDINATOR_CLONE_ROOT -ErrorAction SilentlyContinue
+    }
+    if ($__cdlProbeCanaryPresent) {
+        $env:COORDINATOR_PROBE_CANARY = $__cdlProbeCanaryPrior
+    } else {
+        Remove-Item -LiteralPath Env:\COORDINATOR_PROBE_CANARY -ErrorAction SilentlyContinue
     }
 }
 exit $LASTEXITCODE

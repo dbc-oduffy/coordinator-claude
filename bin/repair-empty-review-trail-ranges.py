@@ -188,7 +188,7 @@ def _process_record(path: Path, repo_root: Path, apply: bool) -> Optional[_Recor
 
     if apply:
         new_text = text.replace(old_field, new_field, 1)
-        path.write_text(new_text, encoding="utf-8")
+        path.write_text(new_text, encoding="utf-8", newline="\n")
     else:
         status = f"WOULD_{status}"
 

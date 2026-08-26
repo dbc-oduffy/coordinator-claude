@@ -4,7 +4,7 @@
 # spines: bug-blitz, mise-en-place, bug-sweep, debt-triage, dogfood).
 # Direct-import variant (template-variant #1, mirrors coordinator/bin/
 # pickup-assemble and baton-assemble): a plain in-process function call
-# after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# after resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
 # Spec backlink: docs/plans/2026-07-26-backlog-grind-computed-frontage.md,
@@ -77,7 +77,7 @@
 #   1 — business failure.
 #   2 — usage error (malformed arguments, malformed --decisions JSON,
 #       unrecognized subcommand).
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core import
+#   3 — transport failure (the engine root unresolvable, coordinator_core import
 #       failure, or no enclosing git worktree) — this trampoline's own
 #       transport failure, distinct from any business exit code.
 

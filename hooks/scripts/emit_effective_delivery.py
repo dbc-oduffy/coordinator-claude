@@ -63,6 +63,7 @@ import json
 import re
 import subprocess
 import sys
+from collections import namedtuple
 from datetime import datetime, timezone
 from pathlib import Path, PureWindowsPath
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -84,6 +85,10 @@ _GIT_TIMEOUT_SECONDS = 10
 #: Bootstrap trampoline tails -- present at the tail of every hooks.json
 #: `args` array, never a registration in their own right (AC-3's structural
 #: partition excludes them explicitly, matching C1's finding).
+#: `_hook_venv_inject.py` is retired and no current registration carries it;
+#: it stays listed so this walk still partitions a pre-retirement `hooks.json`
+#: correctly (an older installed mirror, a stale branch) instead of promoting
+#: a dead trampoline tail into a phantom registration.
 _TRAMPOLINE_TAILS = frozenset({"scripts/_hook_venv_inject.py", "scripts/_hook_boot.py"})
 
 #: The four carrier tail keys this plan's delivery graph names (C1),
@@ -97,6 +102,24 @@ _CARRIER_RAW_TOKENS = {
     "bash_dispatch": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
     "advisory_dispatch": "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/postuse-advisory-dispatch.py",
 }
+
+#: Filenames from `_CARRIER_RAW_TOKENS` above, bare (no `${CLAUDE_PLUGIN_ROOT}/...`
+#: prefix) -- three of these also appear in `_fanin_registries.FANIN_DISPATCHERS`
+#: (`preuse-write-dispatch.py`, `postuse-stop-family-dispatch.py`,
+#: `preuse-bash-dispatch.py`). Those three already have a DEDICATED builder above
+#: (`build_carrier_write_dispatch`, `build_carrier_stop_family`,
+#: `build_carrier_bash_dispatch`) that merges cross-plane engine-sourced guards
+#: (`_load_engine_write_guard_names()`, `coordinator_core.bash_guards.guard_roster()`)
+#: which `build_carrier_fanin`'s doctrine-plane-only walk over `_fanin_registries`
+#: has no way to see. `build_carrier_fanin` MUST skip any dispatcher named here --
+#: otherwise its doctrine-plane-only entry silently overwrites the dedicated
+#: builder's engine-merged one in the `carriers` dict below, dropping every
+#: engine-sourced guard from the manifest with no error. Named exclusion, not an
+#: ordering accident: a future eighth (or ninth...) `FANIN_DISPATCHERS` entry is
+#: safe by default, and only lands here if it too grows a dedicated builder.
+_DEDICATED_BUILDER_FANIN_FILENAMES = frozenset(
+    token.rsplit("/", 1)[-1] for token in _CARRIER_RAW_TOKENS.values()
+)
 
 #: The five confirmed retirees (AC-6) -- declared data, not discoverable by
 #: scanning hooks.json, since two of the five are fully absent from it (not
@@ -125,6 +148,59 @@ _RETIRED = (
     ),
 )
 
+
+
+import _fanin_registries  # noqa: E402 -- sibling module, resolved off this script's own directory
+
+
+#: Tails delivered by more than one path ON PURPOSE, with the count each must
+#: show in the AC-3 partition. Declared data, never inferred: an undeclared
+#: duplicate is the accident this generator must fail loud on, and a blanket
+#: exemption for fan-in guards would have hidden every future one.
+_DUAL_DELIVERY_REASONS = {
+    "scripts/runtime-tripwire-em-check.py": (
+        "directly registered on PostToolUse(Agent) and UserPromptSubmit, and also "
+        "carried by stop-dispatch.py's REGISTRY -- three events, one handler"
+    ),
+}
+_DUAL_DELIVERY_REASONS["scripts/watchdog-undischarged-next-move.py"] = (
+    "TWO EVENTS, ONE SCRIPT, per its own module docstring: directly registered on "
+    "PostToolUse(Skill|Agent) to OPEN and DISCHARGE ledger obligations, and carried by "
+    "stop-dispatch.py for the one-shot Stop read that surfaces whatever is still "
+    "undischarged. main() branches on payload shape. Removing either leg breaks the "
+    "ledger -- emission without a read, or a read with nothing recorded."
+)
+_DUAL_DELIVERY_REASONS["scripts/block-dispatch-suite-invocation.py"] = (
+    "TWO EVENTS, ONE SCRIPT: directly registered on PreToolUse(Workflow) (hooks.json's "
+    "own _comment on that entry: 'C8 -- Layer 2 of the DR-088 ladder', ordered before "
+    "block-workflow-unmodeled-agent.py so its deny wins first), and separately carried "
+    "by preuse-agent-dispatch.py's PreToolUse(Agent) fan-in (hooks.json's PRETOOLUSE-AGENT "
+    "FAN-IN _comment: folded in as one of the four guards that used to be standalone "
+    "Agent-matcher registrations). Workflow and Agent are different tool events -- this "
+    "is the same DR-088 suite-invocation deny reused on both, not a leftover duplicate "
+    "registration."
+)
+_DECLARED_DUAL_DELIVERY = {
+    "scripts/runtime-tripwire-em-check.py": 2,
+    "scripts/watchdog-undischarged-next-move.py": 2,
+    "scripts/block-dispatch-suite-invocation.py": 2,
+}
+
+
+#: Doctrine-plane guards whose registry `module_key` collides with a DIFFERENT
+#: engine-plane guard's name inside the same carrier. Declared data, never a
+#: dedup: the two entries are two distinct guards with distinct
+#: responsibilities, and collapsing them would erase a live guard from the
+#: manifest -- the failure mode the delivery detector exists to prevent.
+#:
+#: check_claude_md_size: the engine owns the HARD_LIMIT block leg (ported
+#: 2026-07-29, docs/plans/2026-07-29-hook-fan-in-write-path.md C8). What stays
+#: doctrine-plane-resident is the C7 admission gate plus the soft size warning
+#: -- a wholly separate predicate, permanently local per that hook's own
+#: docstring. Same name, different guard.
+_DOCTRINE_LOCAL_ID_OVERRIDES = {
+    "check_claude_md_size": "claude_md_admission_gate",
+}
 
 
 class EmitterError(RuntimeError):
@@ -281,14 +357,19 @@ def _import_engine_module(module_path: str):
         ) from exc
 
 
-def _load_doe_local_guard_registry():
-    """`_guard_runner.REAL_GUARD_REGISTRY` -- this repo's own module, sibling
-    of this generator, no cross-plane read involved."""
-    sys.path.insert(0, str(SCRIPTS_DIR))
-    import importlib
+_DoeLocalGuard = namedtuple("_DoeLocalGuard", ["module_key", "filename"])
 
-    module = importlib.import_module("_guard_runner")
-    return module.REAL_GUARD_REGISTRY
+
+def _load_doe_local_guard_registry() -> List["_DoeLocalGuard"]:
+    """`(module_key, filename)` pairs for `preuse-write-dispatch.py`'s
+    doctrine-plane-local guards -- read from `_fanin_registries.carried_guards()`,
+    the one enumeration C1 consolidated this fact into, rather than importing
+    `_guard_runner.REAL_GUARD_REGISTRY` a second time here. Two paths to the
+    same fact is how the emitter and `population_scan`'s census could disagree;
+    this generator now reads the same source the census does. Wrapped in a
+    namedtuple (not a bare tuple) so attribute access (`.module_key`) keeps
+    working for callers that pre-date this consolidation."""
+    return [_DoeLocalGuard(*row) for row in _fanin_registries.carried_guards("preuse-write-dispatch.py")]
 
 
 def _load_engine_write_guard_names() -> List[Tuple[str, str, List[str]]]:
@@ -359,45 +440,76 @@ def _load_engine_write_guard_names() -> List[Tuple[str, str, List[str]]]:
     return result
 
 
-def _load_doe_local_stop_family_registry():
-    sys.path.insert(0, str(SCRIPTS_DIR))
-    import importlib
+def _load_doe_local_stop_family_registry() -> List["_DoeLocalGuard"]:
+    """`(module_key, filename)` pairs for `postuse-stop-family-dispatch.py`'s
+    carried guards -- read from `_fanin_registries.carried_guards()` rather
+    than `_stop_family_runner_contract.ENROLLED_GUARD_MODULES` directly, same
+    consolidation as `_load_doe_local_guard_registry()` above."""
+    return [_DoeLocalGuard(*row) for row in _fanin_registries.carried_guards("postuse-stop-family-dispatch.py")]
 
-    module = importlib.import_module("_stop_family_runner_contract")
-    return module.ENROLLED_GUARD_MODULES
+
+#: The advisory carrier's declared op list -- AC-11's doctrine-plane-derived
+#: contract, NOT a transcription of the engine plane's `list_ported_advisory_ops()`
+#: six-name tuple (C1 proved only 1 of those 6 is actually delivered by this
+#: carrier). This tuple is what `_advisory_ops_delivered()` actually returns; it
+#: is what survives a call-shape change at postuse-advisory-dispatch.py's own
+#: `dispatch_message()` sites (e.g. the op name moving from a `"method"` dict-
+#: literal key to a positional argument) -- the regex cross-check below only
+#: catches the OTHER failure mode, a call site added without updating this
+#: declaration. Keep in sync with postuse-advisory-dispatch.py's own
+#: `dispatch_message()` call sites by hand; the cross-check exists so drift
+#: fails loud rather than silently.
+_ADVISORY_OPS_DECLARED: Tuple[str, ...] = (
+    "hooks.postuse_advisory_dispatch",
+    "hooks.track_touched_files",
+)
 
 
 def _advisory_ops_delivered() -> List[str]:
-    """Parses `postuse-advisory-dispatch.py`'s own `dispatch_message()`
-    call sites for their `"method"` values -- AC-11's doctrine-plane-derived op list,
-    NOT a transcription of the engine plane's `list_ported_advisory_ops()` six-name tuple
-    (C1 proved only 1 of those 6 is actually delivered by this carrier).
-    Structural (regex over the literal `"method": "hooks.<name>"` pairs
-    this module's own dict-literal source contains, quote-style-tolerant so a
-    reformat from double- to single-quoted dict literals doesn't silently
-    drop a call site), not an import -- the carrier module fails open on an
-    unresolved engine plane and has no listing API of its own to call.
+    """Returns `_ADVISORY_OPS_DECLARED` -- AC-11's doctrine-plane-derived op
+    list, NOT a transcription of the engine plane's `list_ported_advisory_ops()`
+    six-name tuple (C1 proved only 1 of those 6 is actually delivered by this
+    carrier). The declaration, not a regex parse, is the source of truth: it
+    is what survives a call-shape change at postuse-advisory-dispatch.py's own
+    `dispatch_message()` sites, e.g. the op name moving from a `"method"` dict-
+    literal key to a positional argument, which would silently empty out a
+    regex-only parse.
 
-    Residual fragility, stated honestly: this is a structural parse of
-    another file's source, not a real parser -- a sufficiently different
-    reformat (e.g. a computed `method=` kwarg, or the literal split across
-    lines) can still defeat it. The non-empty check below only proves SOME
-    match was found, not that ALL call sites were found; this function feeds
-    AC-11, where under-reporting the delivered op set is exactly the failure
-    mode the manifest exists to prevent."""
+    The regex below is retained as a CROSS-CHECK, never the source: it scans
+    postuse-advisory-dispatch.py's source for `"method": "hooks.<name>"`
+    dict-literal pairs (quote-style-tolerant) and, when it finds at least one,
+    asserts the declaration still matches what it found -- catching someone
+    adding a new dict-literal call site without declaring it here. When the
+    regex finds nothing (exactly the call-shape change this chunk exists to
+    survive -- a positional-argument call site has no `"method": ...` pair to
+    match), the cross-check is silently skipped and the declaration alone is
+    trusted; an empty regex result is not itself proof of drift.
+
+    Fails closed (`EmitterError`) if the declaration is empty, and on any
+    detected drift between the regex cross-check and the declaration -- an
+    under-reporting or silently-widened op list is exactly the failure mode
+    AC-11 and this manifest exist to prevent."""
+    ops = sorted(set(_ADVISORY_OPS_DECLARED))
+    if not ops:
+        raise EmitterError(
+            "_ADVISORY_OPS_DECLARED is empty -- advisory-carrier op list "
+            "cannot be derived; aborting closed"
+        )
+
     source_path = SCRIPTS_DIR / "postuse-advisory-dispatch.py"
     try:
         text = source_path.read_text(encoding="utf-8")
     except Exception as exc:  # noqa: BLE001
         raise EmitterError(f"cannot read {source_path}: {exc}") from exc
 
-    ops = sorted(
+    regex_ops = sorted(
         set(re.findall(r'["\']method["\']\s*:\s*["\'](hooks\.[A-Za-z0-9_]+)["\']', text))
     )
-    if not ops:
+    if regex_ops and regex_ops != ops:
         raise EmitterError(
-            f"no dispatch_message 'method' literals found in {source_path} -- "
-            "advisory-carrier op list cannot be derived; aborting closed"
+            f"advisory-carrier op declaration drifted from {source_path}'s own "
+            f"dict-literal call sites -- declared {ops!r}, regex cross-check "
+            f"found {regex_ops!r}; update _ADVISORY_OPS_DECLARED to match"
         )
     return ops
 
@@ -415,9 +527,12 @@ def build_carrier_write_dispatch(matchers_by_tail: Dict[str, Set[str]]) -> Dict[
 
     registry = _load_doe_local_guard_registry()
     guards = []
-    for entry in registry:
-        guard_id = _check_string("write_dispatch guard id", entry.module_key)
-        guard_tail = tail_key(entry.module_path)
+    for module_key, filename in registry:
+        guard_id = _check_string(
+            "write_dispatch guard id",
+            _DOCTRINE_LOCAL_ID_OVERRIDES.get(module_key, module_key),
+        )
+        guard_tail = tail_key(f"hooks/scripts/{filename}")
         guards.append(
             {
                 "id": guard_id,
@@ -458,9 +573,9 @@ def build_carrier_stop_family(matchers_by_tail: Dict[str, Set[str]]) -> Dict[str
     carrier_matcher = next(iter(carrier_matcher_tokens))
     carrier_tool_names = _matcher_tool_names(carrier_matcher)
 
-    filenames = _load_doe_local_stop_family_registry()
+    registry = _load_doe_local_stop_family_registry()
     guards = []
-    for filename in filenames:
+    for _module_key, filename in registry:
         guard_tail = tail_key(f"hooks/scripts/{filename}")
         guards.append(
             {
@@ -546,6 +661,52 @@ def build_carrier_advisory_dispatch(matchers_by_tail: Dict[str, Set[str]]) -> Di
         "matcher": _check_string("advisory_dispatch carrier matcher", carrier_matcher),
         "guards": [],
         "ops": ops,
+    }
+
+
+def build_carrier_fanin(
+    dispatcher_filename: str, matchers_by_tail: Dict[str, Set[str]]
+) -> Dict[str, Any]:
+    """Carrier entry for one SessionStart/Stop fan-in dispatcher.
+
+    These three were previously emitted as bare `direct` rows, which reported the
+    dispatcher and silently dropped every guard behind it -- fifteen delivered guards
+    invisible to the engine plane's duplication detector, and indistinguishable from
+    deregistered. The guard list is read LIVE from the dispatcher's own `REGISTRY`
+    via `_fanin_registries`, never transcribed, so folding a guard in or out cannot
+    desync this manifest.
+
+    Unlike the tool-event carriers, a fan-in dispatcher's matcher is a SOURCE set
+    (`startup|resume|clear|compact|fork`), not a tool set, so `tool_names` is empty:
+    these events carry no tool. That emptiness is meaningful -- it is what lets a
+    reader confirm no fan-in guard sits on a dispatch-shaped tool.
+    """
+    carrier_tail = tail_key(
+        "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/" + dispatcher_filename
+    )
+    carrier_matcher_tokens = matchers_by_tail.get(carrier_tail, set())
+    if len(carrier_matcher_tokens) != 1:
+        raise EmitterError(
+            f"fan-in carrier ({carrier_tail}) matcher is not singular in "
+            f"hooks.json: {carrier_matcher_tokens!r}"
+        )
+    carrier_matcher = next(iter(carrier_matcher_tokens))
+
+    guards = []
+    for module_key, guard_filename in _fanin_registries.carried_guards(dispatcher_filename):
+        guards.append(
+            {
+                "id": _check_string("fan-in guard id", module_key),
+                "script": _check_string(
+                    "fan-in guard script", "scripts/" + guard_filename
+                ),
+                "tool_names": [],
+            }
+        )
+    return {
+        "script": carrier_tail,
+        "matcher": _check_string("fan-in carrier matcher", carrier_matcher),
+        "guards": guards,
     }
 
 
@@ -666,6 +827,15 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
         carrier_stop_family,
         carrier_bash_dispatch,
         carrier_advisory_dispatch,
+    ] + [
+        build_carrier_fanin(dispatcher, matchers_by_tail)
+        for dispatcher in _fanin_registries.FANIN_DISPATCHERS
+        # Skip dispatchers that already have a dedicated builder above (see
+        # `_DEDICATED_BUILDER_FANIN_FILENAMES`) -- their entry is already in
+        # `carrier_list` via the four `carrier_*` locals above, engine-plane
+        # merge included. Running `build_carrier_fanin` for them too would
+        # produce a second, doctrine-plane-only entry under the same tail key.
+        if dispatcher not in _DEDICATED_BUILDER_FANIN_FILENAMES
     ]
     # Map shape, keyed by each carrier's own tail key -- the engine plane's
     # reader (`hook_delivery_manifest.py`) requires `carriers` to be a JSON
@@ -674,7 +844,21 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # (`carriers field is not an object`) -- see this plan's Problem section.
     # `matcher` stays inside each value: it is load-bearing for our own
     # AC-9 union check and the reader ignores unknown keys in a carrier body.
-    carriers = {c["script"]: c for c in carrier_list}
+    # Built as an explicit loop, not a dict comprehension, so a tail-key
+    # collision this module didn't anticipate (the exclusion set above missing
+    # one) raises loud instead of the last-built entry silently winning --
+    # exactly the failure mode this fix exists to close off.
+    carriers: Dict[str, Dict[str, Any]] = {}
+    for c in carrier_list:
+        if c["script"] in carriers:
+            raise EmitterError(
+                f"carrier tail {c['script']!r} built twice -- two carrier "
+                "builders produced entries for the same tail key. Add the "
+                "later one's dispatcher filename to "
+                "_DEDICATED_BUILDER_FANIN_FILENAMES if it has a dedicated "
+                "builder, or fix the duplicate registration."
+            )
+        carriers[c["script"]] = c
     carrier_tails = set(carriers)
 
     direct = build_direct_entries(raw_token_by_tail, matchers_by_tail, carrier_tails)
@@ -687,6 +871,16 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     # PROOF, not a hope -- it recomputes membership counts independently
     # and fails loud on any drift, including a retired tail resurfacing in
     # hooks.json without this generator's retired list being updated.
+    # Fan-in guards ARE counted. A blanket exemption for them would silently
+    # admit the defect this loop exists to catch: a handler accidentally left
+    # registered directly AND folded into a dispatcher runs twice per event, and
+    # nothing local would say so. Only the one DECLARED dual delivery is exempt,
+    # by name, so a new one still fails loud here rather than relying on a
+    # detector in another repo.
+    #
+    # A guard that is ONLY fan-in-carried never had an `args` entry, so it is not
+    # in `raw_token_by_tail` and this loop never asks about it -- the check is
+    # over hooks.json tokens, which is what it always measured.
     seen_tails: Dict[str, int] = {}
     for carrier in carriers.values():
         for guard in carrier["guards"]:
@@ -700,10 +894,42 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
             # carrier's own top-level token is not itself a "guard" entry;
             # it is the carrier key. Skip the membership-count check for it.
             continue
-        if count != 1:
+        want = _DECLARED_DUAL_DELIVERY.get(tail, 1)
+        if count != want:
+            detail = (
+                f" -- declared dual delivery ({_DUAL_DELIVERY_REASONS[tail]})"
+                if tail in _DECLARED_DUAL_DELIVERY
+                else ""
+            )
             raise EmitterError(
                 f"AC-3 exhaustiveness violation: tail {tail!r} appears in "
-                f"{count} of carriers[*].guards[*]/direct[*] (want exactly 1)"
+                f"{count} of carriers[*].guards[*]/direct[*] (want exactly "
+                f"{want}){detail}. A handler both registered directly and carried "
+                "by a fan-in dispatcher runs twice per event; if that is deliberate, "
+                "declare it in _DECLARED_DUAL_DELIVERY with its reason."
+            )
+
+    # A guard id repeated inside ONE delivery surface is a double-registration:
+    # the surface runs it twice, and the consuming reader degrades the whole
+    # manifest to `malformed` on it, so the detector goes blind rather than
+    # reporting the duplicate. Never resolve this by deduping -- two entries
+    # sharing an id can be two DIFFERENT guards whose names collide across
+    # planes, and collapsing them erases a live guard (see
+    # _DOCTRINE_LOCAL_ID_OVERRIDES). Give the distinct guard a distinct id.
+    for surface_name, entries in [
+        *((f"carrier {k}", c["guards"]) for k, c in carriers.items()),
+        ("direct", direct),
+    ]:
+        seen_ids: Dict[str, int] = {}
+        for entry in entries:
+            seen_ids[entry["id"]] = seen_ids.get(entry["id"], 0) + 1
+        repeated = sorted(i for i, n in seen_ids.items() if n > 1)
+        if repeated:
+            raise EmitterError(
+                f"duplicate guard id(s) {repeated} within {surface_name} -- that surface "
+                "declares the same id twice. If these are two different guards whose names "
+                "collide, declare the doctrine-plane one in _DOCTRINE_LOCAL_ID_OVERRIDES; "
+                "do not dedupe them."
             )
 
     retired_tails = {r["script"] for r in retired}

@@ -44,7 +44,7 @@
 #         docstring negative-spec) -- this trampoline never raises that to
 #         a nonzero exit.
 #   2  -- usage error (missing/unknown subcommand, wrong arity).
-#   3  -- _TRANSPORT_FAIL: CLAUDE_KLABAUTER_ROOT could not be resolved, the
+#   3  -- _TRANSPORT_FAIL: the engine root could not be resolved, the
 #         coordinator_core.session.{reachability,peer_roster,artifact_owner}
 #         modules were not importable, OR the wrapped
 #         resolve_address/build_roster/resolve_artifact_owner call itself
@@ -74,15 +74,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 _TRANSPORT_FAIL = 3
 
 
 def _import_modules():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.reachability as reachability_mod
     import coordinator_core.session.peer_roster as peer_roster_mod
     import coordinator_core.session.artifact_owner as artifact_owner_mod

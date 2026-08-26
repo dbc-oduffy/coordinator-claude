@@ -210,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
         registry["generated"] = datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        REGISTRY_PATH.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8")
+        REGISTRY_PATH.write_text(json.dumps(registry, indent=2) + "\n", encoding="utf-8", newline="\n")
 
     print(json.dumps(diff, indent=2))
     if diff["new_unmarked_red"] or diff["stale_registry_entries"]:
