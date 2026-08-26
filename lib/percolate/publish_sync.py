@@ -90,6 +90,19 @@ def load_ignore(path: Path | None) -> IgnoreMatcher:
 _STRUCTURAL_BUILD_ARTIFACT_DIR_NAMES = ("__pycache__",)
 _STRUCTURAL_BUILD_ARTIFACT_SUFFIXES = (".pyc", ".pyo")
 
+# A console-subsystem child with no console of its own allocates a fresh
+# conhost on Windows -- with a visible window. Every git spawn in this module
+# is short-lived and output-captured, so without this each one flashes a
+# window at whoever is running the publish. 0 on POSIX, where the flag does
+# not exist, which is why this is unconditional rather than platform-branched.
+#
+# Belongs HERE, not in a consumer's per-root override: this is generic engine
+# behaviour, and a downstream override carrying it (DoE-claude
+# `setup/publish_sync.py`, whose own negative spec forbids engine behaviour in
+# an override) had to keep it only because this module lacked it. That
+# override drops it on its next re-derivation from this file.
+_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
 
 def _is_structural_build_artifact(rel_path: str) -> bool:
     """True iff `rel_path` (a POSIX-relative path, or a bare top-level
@@ -244,6 +257,42 @@ def _empty_source_prune_override() -> "bool | frozenset[str]":
     if raw == "1":
         return True
     return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _orphan_sweep_override() -> "bool | frozenset[str]":
+    """Parses `COORDINATOR_OVERRIDE_ORPHAN_SWEEP`. Returns `False` when
+    unset/empty (no override — the top-level presence preflight and
+    mass-deletion guard below run at full strength), `True` for the literal
+    `1` (blanket override — every top-level orphan this run encounters is
+    exempted from both guards, the original all-or-nothing form), or a
+    `frozenset` of top-level directory names for a scoped override (only
+    orphans with one of those names are exempted; any other orphan in the
+    same round still goes through the preflight/guard exactly as before).
+
+    An operator who reasoned about removing ONE directory used to have to
+    arm `=1` against every other removal in the same round, including ones
+    they never looked at — the scoped form lets them name exactly the
+    directories they reasoned about. Same parse shape as
+    `_empty_source_prune_override`, kept as its own function/env var rather
+    than merged with it: the two knobs gate independently destructive
+    actions (empty-source pruning vs. top-level orphan deletion) and must
+    stay separately settable."""
+    raw = os.environ.get("COORDINATOR_OVERRIDE_ORPHAN_SWEEP", "")
+    if not raw:
+        return False
+    if raw == "1":
+        return True
+    return frozenset(part.strip() for part in raw.split(",") if part.strip())
+
+
+def _orphan_sweep_overridden(name: str, override: "bool | frozenset[str]") -> bool:
+    """Whether top-level directory `name` is exempted from the orphan-sweep
+    guards under the parsed `override` value (§ `_orphan_sweep_override`)."""
+    if override is True:
+        return True
+    if override is False:
+        return False
+    return name in override
 
 
 def _effective_file_count(
@@ -750,40 +799,49 @@ def sync_mirror(
         # Spec: state/subagent-share/5bae563a-448a-4c5e-96ef-2de84498bd09/
         #       coordinatorstaff-eng-dfffb96b.md § 6 (The orphan-sweep invariant).
         if orphans:
-            override = os.environ.get("COORDINATOR_OVERRIDE_ORPHAN_SWEEP") == "1"
-            names = ", ".join(p.name for p in orphans)
-            plural = len(orphans) != 1
-            diagnostic = (
-                f"top-level presence check: {len(orphans)} destination top-level "
-                f"director{'ies are' if plural else 'y is'} absent from the "
-                f"restricted source: {names!r} and would be deleted outright by the "
-                "orphan sweep below, regardless of .percolate-ignore (the sweep "
-                "does not consult it).\n"
-                "    Likely cause: a source_map root that failed to contribute this "
-                "target, or an allowlist entry that dropped a top-level directory "
-                "entirely — check the target's source_path / plugin-source config "
-                "in setup/publish-targets.portable and any source_map wiring for "
-                "this publish target.\n"
-                f"    If this IS a confirmed, deliberate removal of "
-                f"{'these top-level directories' if plural else 'this top-level directory'}, "
-                "re-run with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1."
-            )
-            if override:
+            override = _orphan_sweep_override()
+            exempt = [p for p in orphans if _orphan_sweep_overridden(p.name, override)]
+            at_risk = [p for p in orphans if not _orphan_sweep_overridden(p.name, override)]
+            if exempt:
+                exempt_names = ", ".join(p.name for p in exempt)
                 print(
-                    f"    WARNING: {diagnostic}\n    COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 "
-                    "confirms this is intentional — proceeding.",
+                    f"    WARNING: top-level presence check: {exempt_names!r} "
+                    "absent from the restricted source and would be deleted "
+                    "outright by the orphan sweep below — "
+                    "COORDINATOR_OVERRIDE_ORPHAN_SWEEP confirms this is "
+                    "intentional — proceeding.",
                     file=sys.stderr,
                 )
-            elif dry_run:
-                print(
-                    f"    WARNING (dry-run): WOULD ABORT — {diagnostic}\n    A real "
-                    "run WOULD ABORT here without the override; this preview does "
-                    "not delete anything.",
-                    file=sys.stderr,
+            if at_risk:
+                names = ", ".join(p.name for p in at_risk)
+                plural = len(at_risk) != 1
+                diagnostic = (
+                    f"top-level presence check: {len(at_risk)} destination top-level "
+                    f"director{'ies are' if plural else 'y is'} absent from the "
+                    f"restricted source: {names!r} and would be deleted outright by the "
+                    "orphan sweep below, regardless of .percolate-ignore (the sweep "
+                    "does not consult it).\n"
+                    "    Likely cause: a source_map root that failed to contribute this "
+                    "target, or an allowlist entry that dropped a top-level directory "
+                    "entirely — check the target's source_path / plugin-source config "
+                    "in setup/publish-targets.portable and any source_map wiring for "
+                    "this publish target.\n"
+                    f"    If this IS a confirmed, deliberate removal of "
+                    f"{'these top-level directories' if plural else 'this top-level directory'}, "
+                    "re-run with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 (whole run) or "
+                    f"COORDINATOR_OVERRIDE_ORPHAN_SWEEP={names.replace(', ', ',')} "
+                    "(only these name(s))."
                 )
-            else:
-                print(f"FATAL: {diagnostic}", file=sys.stderr)
-                raise SystemExit(3)
+                if dry_run:
+                    print(
+                        f"    WARNING (dry-run): WOULD ABORT — {diagnostic}\n    A real "
+                        "run WOULD ABORT here without the override; this preview does "
+                        "not delete anything.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f"FATAL: {diagnostic}", file=sys.stderr)
+                    raise SystemExit(3)
 
         # Mass-deletion guard: a misconfigured src_dir makes EVERY dst plugin look
         # orphaned, so an unguarded rmtree loop would wipe the whole destination.
@@ -791,29 +849,36 @@ def sync_mirror(
         # ≥2 of them). Override with COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 for the rare
         # legitimate mass-prune. Dry-run reports but never aborts.
         if orphans and len(non_dot_dst) >= 2 and len(orphans) > len(non_dot_dst) / 2:
-            override = os.environ.get("COORDINATOR_OVERRIDE_ORPHAN_SWEEP") == "1"
-            names = ", ".join(p.name for p in orphans)
-            if not override and not dry_run:
-                print(
-                    f"FATAL: orphan sweep would remove {len(orphans)} of {len(non_dot_dst)} "
-                    f"destination plugin dirs ({names}) — refusing as a likely src_dir "
-                    f"misconfiguration. Set COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 to force.",
-                    file=sys.stderr,
-                )
-                raise SystemExit(3)
-            if not override and dry_run:
+            # `at_risk`/`exempt` (§ the top-level presence preflight above) —
+            # an exempted top-level name is pre-approved and must not be
+            # blocked by this threshold; only the non-exempt orphans can
+            # trigger a FATAL here.
+            if at_risk:
+                names = ", ".join(p.name for p in at_risk)
+                if not dry_run:
+                    print(
+                        f"FATAL: orphan sweep would remove {len(orphans)} of {len(non_dot_dst)} "
+                        f"destination plugin dirs ({names}) — refusing as a likely src_dir "
+                        "misconfiguration. Set COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 (whole run) "
+                        f"or COORDINATOR_OVERRIDE_ORPHAN_SWEEP={names.replace(', ', ',')} "
+                        "(only these name(s)) to force.",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(3)
                 # Preview only — report the would-be-fatal condition, never abort
                 # (the dry-run contract is non-aborting; a real run would SystemExit(3)).
                 print(
                     f"    WARNING: orphan sweep WOULD remove {len(orphans)}/{len(non_dot_dst)} "
-                    f"plugin dirs ({names}) — a real run would FATAL here without "
-                    f"COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1.",
+                    f"plugin dirs ({names}) — a real run would FATAL here without an "
+                    "override.",
                     file=sys.stderr,
                 )
-            if override:
+            if exempt:
+                names = ", ".join(p.name for p in exempt)
                 print(
                     f"    WARNING: orphan sweep removing {len(orphans)}/{len(non_dot_dst)} "
-                    f"plugin dirs ({names}) — COORDINATOR_OVERRIDE_ORPHAN_SWEEP=1 set, proceeding.",
+                    f"plugin dirs ({names}) — COORDINATOR_OVERRIDE_ORPHAN_SWEEP set, "
+                    "proceeding.",
                     file=sys.stderr,
                 )
 
@@ -931,6 +996,7 @@ def _run_git(dest_dir: Path, *args: str) -> None:
         capture_output=True,
         text=True,
         check=False,
+        **_NO_CONSOLE,
     )
     if result.returncode != 0:
         # Bounded — an unbounded git stderr blob (a looping hook, a credential
@@ -962,6 +1028,7 @@ def _repo_cut_is_bootstrapped(dest_dir: Path) -> bool:
         capture_output=True,
         text=True,
         check=False,
+        **_NO_CONSOLE,
     )
     return result.returncode == 0
 

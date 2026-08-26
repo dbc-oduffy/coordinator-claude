@@ -941,15 +941,32 @@ def _filter_commit_pathspec(
     def _under_staging_dir(rel_path: str) -> bool:
         return any(_STAGING_RE.search(part) for part in rel_path.split("/")[:-1])
 
+    def _staging_drop(rel_path: str, tag: str) -> bool:
+        """Decline staging content ENTERING the commit — never its removal.
+
+        Direction is load-bearing. This filter exists to keep a crashed
+        round's scratch out of the mirror, but a `DELETE`/`REMOVE` intent for
+        a staging path is the opposite motion: the mirror shedding a
+        directory that already got in. Dropping both directions makes an
+        already-committed staging directory PERMANENTLY unremovable — every
+        round stages its deletion and this filter puts it straight back.
+
+        Measured, not hypothetical: after
+        `.coordinator_core.publish-staging-4f5zkrth` was removed from the
+        mirror's disk and index, 1,028 of its 4,045 files were still at HEAD
+        one round later, because their deletions were filtered out here.
+        """
+        return _under_staging_dir(rel_path) and tag not in ("DELETE", "REMOVE")
+
     survivors = [
         (abs_path, tag, resolved_rel)
         for (abs_path, (tag, resolved_rel)), rel_path in zip(entries, rel_paths)
-        if rel_path not in ignored and not _under_staging_dir(rel_path)
+        if rel_path not in ignored and not _staging_drop(rel_path, tag)
     ]
     staging_dropped = sum(
         1
-        for rel_path in rel_paths
-        if rel_path not in ignored and _under_staging_dir(rel_path)
+        for (_abs_path, (tag, _resolved_rel)), rel_path in zip(entries, rel_paths)
+        if rel_path not in ignored and _staging_drop(rel_path, tag)
     )
     gitignored_dropped = len(entries) - len(survivors) - staging_dropped
 
@@ -1200,6 +1217,35 @@ def _summarize_change_lines(change_lines: List[Tuple[str, str]]) -> Tuple[int, i
     return added, modified, removed
 
 
+def _partition_carried_changes(
+    real_changes: List[Tuple[str, str]], pathspec: List[str]
+) -> Tuple[List[Tuple[str, str]], List[Tuple[str, str]]]:
+    """Splits the real run's own change lines into the ones the derived
+    commit pathspec actually carries and the ones it drops, so every
+    downstream count can say which of the two it is counting.
+
+    Both sides key on the same string: `_pathspec_from_manifest` builds each
+    pathspec entry from `repo_root / rel` for a `rel` drawn from the SAME
+    manifest that feeds `real_changes`, and `_filter_commit_pathspec` emits
+    it back as a `repo_root`-relative POSIX path -- so the round-trip is
+    identity for every path that survived filtering. `as_posix()` on both
+    sides is the one normalization that costs nothing and protects the
+    Windows leg, where a manifest path may still carry backslashes.
+
+    A dropped entry is not an error: the three commit-safety filters
+    (gitignored-at-dest, already-absent deletion-intent, beneath a
+    publish-staging directory) and the gated-off removal side
+    (`_REMOVAL_SIDE_ENABLED`) all legitimately drop paths. What is an error
+    is reporting a dropped path as though it landed -- hence this split.
+    """
+    carried_keys = {Path(p).as_posix() for p in pathspec}
+    carried: List[Tuple[str, str]] = []
+    dropped: List[Tuple[str, str]] = []
+    for tag, path in real_changes:
+        (carried if Path(path).as_posix() in carried_keys else dropped).append((tag, path))
+    return carried, dropped
+
+
 def _build_commit_subject(
     target: str, real_changes: List[Tuple[str, str]], pathspec: List[str]
 ) -> str:
@@ -1230,18 +1276,34 @@ def _build_commit_subject(
     near dest's full tree size (see this file's CRLF-normalization
     investigation note) — so both counts are named, never blended into a
     single misleading added/modified/removed triple.
+
+    NEGATIVE SPEC — the added/modified/removed triple describes the CARRIED
+    subset only (`_partition_carried_changes`), never all of `real_changes`.
+    Sizing the triple off `real_changes` while the commit carries `pathspec`
+    made the mirror's own PUBLIC git history assert changes that never
+    landed: a real commit read "dest diverged on 646 added, 0 modified, 67
+    removed" while carrying zero removals, because the removal side is gated
+    off (`_REMOVAL_SIDE_ENABLED`) downstream of the count (DoE-claude memo
+    2026-08-26, percolate-round-passes-but-drops-every-removal). A commit
+    subject is the one report that outlives the round, so it states what the
+    commit carries and names the remainder as not carried, rather than
+    describing a comparison the commit did not act on.
     """
-    added, modified, removed = _summarize_change_lines(real_changes)
+    carried, dropped = _partition_carried_changes(real_changes, pathspec)
+    added, modified, removed = _summarize_change_lines(carried)
+    residual = (
+        f"; {len(dropped)} reported change(s) not carried" if dropped else ""
+    )
     return (
         f"percolate publish: {target} "
-        f"({len(pathspec)} file(s) to commit; dest diverged on "
-        f"{added} added, {modified} modified, {removed} removed)"
+        f"({len(pathspec)} file(s) to commit; carries "
+        f"{added} added, {modified} modified, {removed} removed{residual})"
     )
 
 
 def _report_commit_residual(
     target: str, real_changes: List[Tuple[str, str]], pathspec: List[str]
-) -> None:
+) -> Optional[str]:
     """Surfaces, on stderr, the gap this module used to discard silently:
     `real_changes` is publish.py's own dest-working-tree comparison (see
     `_build_commit_subject`); `pathspec` is what actually gets named to
@@ -1258,9 +1320,26 @@ def _report_commit_residual(
     matching the payload. Both directions are reported here as the same
     named gap, never blended into one count. No-op when the two already
     agree.
+
+    RETURNS the one-line warning the round's own verdict block counts and
+    renders, or `None` when there is nothing to report. Stderr alone was not
+    enough: this function's whole purpose is to be "loud rather than
+    silent", and a round that dropped 57 intended changes still printed a
+    bare `PASS` with `Warnings: 0`, because nothing downstream of this print
+    knew the gap existed (DoE-claude memo 2026-08-26,
+    percolate-round-passes-but-drops-every-removal). The verdict is what an
+    operator reads; a stderr line scrolled past above a green verdict is
+    indistinguishable from a clean round.
+
+    The returned line names the removal-side gate explicitly whenever the
+    dropped set contains removals and `_REMOVAL_SIDE_ENABLED` is off — that
+    is a KNOWN LIMITATION with a stale mirror as its visible consequence,
+    not an anomaly, and it does not converge: every subsequent round
+    re-reports and re-drops the same set until AC1b lands.
     """
-    if len(real_changes) == len(pathspec):
-        return
+    carried, dropped = _partition_carried_changes(real_changes, pathspec)
+    if not dropped and len(real_changes) == len(pathspec):
+        return None
     delta = len(real_changes) - len(pathspec)
     if delta >= 0:
         detail = (
@@ -1278,6 +1357,27 @@ def _report_commit_residual(
         f"{len(pathspec)} path(s) in the derived commit pathspec ({detail}).",
         file=sys.stderr,
     )
+    if not dropped:
+        return (
+            f"intent vs commit pathspec diverge: {len(real_changes)} change "
+            f"line(s) reported vs {len(pathspec)} path(s) committed ({detail})"
+        )
+    dropped_removals = sum(1 for tag, _ in dropped if tag in ("DELETE", "REMOVE"))
+    warning = (
+        f"{len(dropped)} change(s) the real run reported were NOT committed "
+        f"({len(carried)} of {len(real_changes)} carried)"
+    )
+    if dropped_removals and not _REMOVAL_SIDE_ENABLED:
+        gate_note = (
+            f"{dropped_removals} of them removal(s): the removal side is gated "
+            "OFF (_REMOVAL_SIDE_ENABLED, pending AC1b of docs/plans/"
+            "2026-08-26-a-refused-round-strands-its-payload-forever.md), so "
+            "dest keeps files this round intended to delete and every "
+            "subsequent round re-reports the same set"
+        )
+        print(f"percolate-round: {target} — {gate_note}.", file=sys.stderr)
+        warning = f"{warning}; {gate_note}"
+    return warning
 
 
 # ---------------------------------------------------------------------------
@@ -1417,6 +1517,31 @@ def _round_refusal_reason(
     if ci_exit not in (None, 0):
         return f"CI smoke came back red (exit {ci_exit})"
     return None
+
+
+def _round_warnings(
+    *, has_review_warnings: bool, residual_warning: Optional[str]
+) -> List[str]:
+    """Every condition that makes a round less than clean, collected in ONE
+    place so the verdict block can both COUNT and NAME them. The count is
+    what an operator reads: a round that dropped 57 intended changes printed
+    a bare `PASS` with a zero warning count, because the only report of the
+    drop was a stderr line scrolled past far above the verdict (DoE-claude
+    memo 2026-08-26, percolate-round-passes-but-drops-every-removal).
+
+    NEGATIVE SPEC — a warning here does NOT refuse the push.
+    `_round_refusal_reason` owns refusal and is deliberately not fed from
+    this list: the residual gap is a known, non-converging limitation for as
+    long as the removal side is gated off (`_REMOVAL_SIDE_ENABLED`), so
+    refusing on it would refuse every round rather than surface anything.
+    Degrading `PASS` to `PASS-WITH-WARNINGS` is the whole intervention.
+    """
+    warnings: List[str] = []
+    if has_review_warnings:
+        warnings.append("Phase 4 audit found unacknowledged REVIEW warnings")
+    if residual_warning:
+        warnings.append(residual_warning)
+    return warnings
 
 
 def _print_push_notice(target: str, *, refusal_reason: Optional[str] = None) -> None:
@@ -1934,7 +2059,7 @@ def _cmd_round_default(
                 )
                 return _EXIT_OK
 
-            _report_commit_residual(target, real_changes, pathspec)
+            residual_warning = _report_commit_residual(target, real_changes, pathspec)
             subject = _build_commit_subject(target, real_changes, pathspec)
             print(f"=== percolate-round {target} — commit ({len(pathspec)} file(s)) ===")
             pathspec_file_path = tmp / "commit-pathspec.txt"
@@ -2054,16 +2179,24 @@ def _cmd_round_default(
                 ci_exit=ci_exit,
             )
 
+            round_warnings = _round_warnings(
+                has_review_warnings=has_review_warnings,
+                residual_warning=residual_warning,
+            )
+
             verdict = "PASS"
             if ci_exit not in (None, 0):
                 verdict = "FAIL"
-            elif has_review_warnings:
+            elif round_warnings:
                 verdict = "PASS-WITH-WARNINGS"
 
             print("")
             print(f"percolate-round {target} — {verdict}")
             print("  real-run:  exit 0")
             print(f"  ci-smoke:  {'exit ' + str(ci_exit) if ci_exit is not None else 'n/a (no run-all-checks.py)'}")
+            print(f"  warnings:  {len(round_warnings)}")
+            for warning in round_warnings:
+                print(f"    - {warning}")
 
             if verdict == "FAIL":
                 print("")
