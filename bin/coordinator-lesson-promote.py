@@ -43,6 +43,10 @@ Exit-code contract:
   3  DoE-claude root unresolvable — the write (or the --target-wiki inventory check) was
      SKIPPED, not silently treated as success. Remediate per the stderr message
      (`machine-local set repos.doe_claude /path/to/DoE-claude`).
+     Also used when the DISPATCH engine root (claude-klabauter) itself is
+     unresolvable, a fresh-machine case reachable before the DoE-root check
+     ever runs — remediate per the stderr message ('machine-local set
+     repos.claude_klabauter /path/to/claude-klabauter').
 
 Negative-spec (A13): a skipped write due to an unresolvable DoE-claude root is NEVER
 exit 0. A caller checking only `returncode == 0` must be able to trust that outcome —
@@ -146,6 +150,39 @@ _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
 # local constant for documentation and error-message reference.
 # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
 _DOE_ROOT_ENV = "DOE_ROOT"
+
+
+def _claude_klabauter_resolution_error_class() -> type[Exception] | None:
+    """Return the exact ``ClaudeKlabauterResolutionError`` class the DISPATCH-engine
+    resolution ladder raises, or None if that ladder never got far enough to
+    define it.
+
+    `require_dispatch_engine_on_path()` -> `cc_invoke._resolve_engine_root()`
+    -> `coordinator_core.engine_root.coordinator_engine_root_with_class()`
+    (imported as a normal package import once a candidate `coordinator_core`
+    is self-located) -> that module's own `_load_shim()`, which loads
+    `coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py` BY PATH under the
+    fixed synthetic name `_claude_klabauter_root_gate_shim` and memoizes the module
+    object on `coordinator_core.engine_root._shim_module`. The raised
+    exception's class therefore lives on THAT cached module object, not on
+    any copy this CLI could import itself — `_resolve_claude_klabauter.py` is loaded
+    by path independently in at least two places in this tree (this shim
+    loader and `percolate-liveops-preflight.py`'s own direct import), and
+    `spec_from_file_location` gives each loader a distinct module/class
+    object with no identity relationship. Re-importing the file under our
+    own name would produce a DIFFERENT class object that `isinstance()`
+    would never match against an exception raised from the shim loader's
+    copy, so catching narrowly requires reading the class back off the one
+    module object the ladder actually used.
+
+    Returns None (never raises) when `coordinator_core.engine_root` was
+    never reached (an earlier, unrelated resolution rung raised instead) or
+    its shim memo is unset — callers treat that as "not this error, re-raise
+    the original exception unchanged."
+    """
+    mod = sys.modules.get("coordinator_core.engine_root")
+    shim = getattr(mod, "_shim_module", None) if mod is not None else None
+    return getattr(shim, "ClaudeKlabauterResolutionError", None) if shim is not None else None
 
 
 class _ClaudeKlabauterUnresolvable(RuntimeError):
@@ -644,7 +681,37 @@ def main(argv: list[str] | None = None) -> int:
     # coordinator_core is not on sys.path here by construction on the
     # published mirror (not pip-installed there) — the _LIB_DIR insert at the
     # top of this file only reaches coordinator/bin/lib, never the engine root.
-    require_dispatch_engine_on_path()
+    #
+    # A fresh machine with repos.claude_klabauter unregistered (no CLAUDE_KLABAUTER_ROOT
+    # env override either) is the reachable, production case this guards:
+    # `_resolve_engine_root()` walks all the way to
+    # `coordinator_core.engine_root.coordinator_engine_root_with_class()`,
+    # whose own resolve-claude-klabauter shim fails loud with `ClaudeKlabauterResolutionError`
+    # (its documented, correct contract — see that module's own docstring;
+    # NOT touched here). Prior to this fix that propagated as an unhandled
+    # traceback instead of the same graceful WARN+skip degrade this CLI
+    # already gives an unresolvable DoE-claude root. Caught narrowly (never
+    # a bare `except Exception`) via `_claude_klabauter_resolution_error_class()`,
+    # because the exception class this raises has no import-stable identity
+    # this CLI can name ahead of time — see that helper's docstring.
+    try:
+        require_dispatch_engine_on_path()
+    except RuntimeError as exc:
+        _resolution_err_cls = _claude_klabauter_resolution_error_class()
+        if _resolution_err_cls is None or not isinstance(exc, _resolution_err_cls):
+            raise
+        # Same remediation vocabulary the resolver itself already names —
+        # do not invent a second one (message-register doctrine, one fact
+        # once). Reuses _EXIT_DOE_UNRESOLVABLE: the one caller in this tree
+        # that shells out to this CLI (coordinator-harvest-deferrals.py)
+        # only ever branches on `returncode != 0`, never on the specific
+        # code, so a distinct exit code would buy no caller anything today.
+        print(
+            f"warn: coordinator-lesson-promote: claude-klabauter root unresolvable — "
+            f"skipping central lessons-outbox write: {exc}",
+            file=sys.stderr,
+        )
+        return _EXIT_DOE_UNRESOLVABLE
     from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
 
     try:
