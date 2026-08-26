@@ -12,7 +12,7 @@ Check-claude-klabauter-doctor-sentinel.sh — CLI trampoline over claude-klabaut
 coordinator_core.ops.check_claude_klabauter_doctor_sentinel.
 
 Read-only consumer of claude-klabauter's health sentinel
-(<CLAUDE_KLABAUTER_ROOT>/state/doctor-last-run.json, claude-klabauter-owned schema). Surfaces the
+(<engine root>/state/doctor-last-run.json, claude-klabauter-owned schema). Surfaces the
 GREEN/AMBER/RED verdict during fleet `/workday-start`, mirroring how
 check-plugin-drift.py nudges on drift. This trampoline never writes the
 sentinel — claude-klabauter's `bin/claude-klabauter-doctor-probe.py` owns that.
@@ -30,11 +30,11 @@ here).
 
 Always exits 0 — advisory only, never gating (matches check-plugin-drift.py /
 scan-addon-health.py convention of "probe never fails the ceremony"). This
-mirrors the original bash script's own convention: CLAUDE_KLABAUTER_ROOT-unresolvable
+mirrors the original bash script's own convention: engine-root-unresolvable
 and sentinel-absent/malformed are all soft-skip states, not failures.
 
 Divergence from the original .sh (documented, not a parity break): the
-original silently discarded the CLAUDE_KLABAUTER_ROOT-resolution stderr
+original silently discarded the engine-root-resolution stderr
 (`coordinator_claude_klabauter_root 2>/dev/null || exit 0`); this trampoline follows the
 house convention of printing the resolution failure to stderr before the same
 exit-0 fallback (matches coordinator-auto-push/handoff-gate-aging). stdout and
@@ -59,13 +59,30 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 
 def _import_run_op_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    """Resolve the CO-LOCATED engine root and import the in-process runner.
+
+    LOCATOR AXIS, NOT DISPATCH, for the same named reason as
+    `install-claude-klabauter-precommit-hook.py`: the publish transform renames the op
+    this dispatches (`check_claude_klabauter_doctor_sentinel.py` ->
+    `check_claude_klabauter_doctor_sentinel.py`, the `basename_rename` table in
+    setup/percolate-hooks/percolate-store.yaml), so the module name spelled
+    below resolves ONLY inside the tree this file itself ships in. On any box
+    whose dispatch root is the published mirror, the op is present under its
+    other name and the import failed unconditionally — and because this probe
+    is advisory (exit 0 on every failure path, per the module docstring), that
+    failure was silent: the workday-start sentinel nudge had simply stopped
+    running. Measured 2026-08-26 alongside the pre-commit installer's louder
+    instance of the same defect.
+
+    Guard: coordinator/bin/tests/test_precommit_trampoline_engine_axis.py
+    (AC-axis) cross-checks every dispatch-axis trampoline against the store's
+    rename table, so a third instance fails a test rather than going quiet.
+    """
+    claude_klabauter_root = require_colocated_engine_on_path(__file__)
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 
@@ -74,7 +91,7 @@ def main() -> None:
     try:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:
-        print(f"check-claude-klabauter-doctor-sentinel.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"check-claude-klabauter-doctor-sentinel.sh: engine root resolution failed: {exc}", file=sys.stderr)
         sys.exit(0)
     except ImportError as exc:
         print(

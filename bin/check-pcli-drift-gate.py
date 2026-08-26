@@ -25,7 +25,7 @@ carve-out in the sibling DoE repo's coordinator/docs/wiki/bash-on-windows-gotcha
 § Carve-out (cross-repo — that wiki lives in the sibling repo, not here).
 
 Exit codes: this is a BLOCKING gate, not an advisory nudge — a transport
-failure (CLAUDE_KLABAUTER_ROOT unresolvable, module not importable) maps to
+failure (the engine root unresolvable, module not importable) maps to
 EXIT_ERROR (2), never a silent 0. Business-logic exit codes (0 PASS / 1 FAIL
 / 2 ERROR) are otherwise produced by
 coordinator_core.ops.check_pcli_drift_gate.main() once import succeeds —

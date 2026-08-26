@@ -18,6 +18,13 @@ order: 1
   added/removed/edited). A prior sidecar exists; the checker renames it (Phase 0) and the
   EM diffs the new sidecar against it to see what the amendment moved.
 
+**A delta re-run writes the canonical path, never a delta-suffixed one.** The plan-sidecar
+family has exactly one path per `(plan-stem, lens)` pair — `state/plan-sidecars/<plan-stem>.<lens>.md`
+— and provisioning re-opens it idempotently on re-dispatch. A re-run archives the prior sidecar
+by inserting `.<UTC-mtime>` before its final `.md` (filename-safe — hyphens for colons) and
+writes the fresh findings at the canonical path. A name like `<plan-stem>.<lens>-delta.md` is off
+the pattern every consumer derives, so it is invisible to them: reject it, don't sanction it.
+
 Name the delta in the re-dispatch brief ("amendment touched §X and the slate table;
 scope your check to those"). A full re-run is correct only when the amendment was
 structural enough that the prior pass's coverage fails to hold.

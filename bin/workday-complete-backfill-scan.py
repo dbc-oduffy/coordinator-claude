@@ -19,7 +19,7 @@ Feeds a nudge at `/workday-start` Step 1.85 and an auto-backfill fan-out at
 # (DoE owns contract/generator, claude-klabauter owns engine).
 #
 # Exit codes (this trampoline):
-#   0 — claude-klabauter-link (transport) failure: CLAUDE_KLABAUTER_ROOT unresolved or
+#   0 — claude-klabauter-link (transport) failure: the engine root unresolved or
 #       coordinator_core.ops.workday_complete_backfill_scan not importable.
 #       This scanner only ever feeds a nudge (`/workday-start` Step 1.85) or
 #       an auto-backfill fan-out (`/workday-complete` Step 3.5) — never a hard
@@ -42,21 +42,19 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
+    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here (this scanner is not a registered op).
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.workday_complete_backfill_scan import main as _op_main
 
     return _op_main
@@ -67,7 +65,7 @@ def main() -> None:
         op_main = _import_main()
     except RuntimeError as exc:
         print(
-            f"workday-complete-backfill-scan: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"workday-complete-backfill-scan: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(0)

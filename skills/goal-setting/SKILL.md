@@ -106,9 +106,10 @@ proposes a revised shape, and asks the PM to confirm.
 
 ### Step 4 — Scaffold the goal artifact
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type goal --title "<objective-slug>"
-```
+**On a PowerShell host, use the `.cmd` sibling through the call operator** (Shape W) for every
+invocation in Steps 4-5. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+
+`coordinator-doc-new --type goal --title "<objective-slug>"`, resolved per that ladder.
 
 Fill: `objective:` (ratified text), `key_results:` (≤5, weekly-perceptible), `period:` (e.g.
 `Q3-2026`), `status: active`.
@@ -119,9 +120,8 @@ Fill: `objective:` (ratified text), `key_results:` (≤5, weekly-perceptible), `
 invocation, one coherent capability arc; when in doubt, fewer/larger — the PM can split at
 pickup):
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"
-```
+`coordinator-doc-new --type roadmap-seed --goals "<goal-id>" --title "<roadmap-topic>"`,
+resolved per `snippets/resolve-coordinator-bin.md`.
 
 Each stub carries `kind: roadmap-seed`, `origin_goal_id:` FK (via `--goals`), `deployment_state:
 awaiting_gate`, a one-line title naming the capability arc.
@@ -129,9 +129,8 @@ awaiting_gate`, a one-line title naming the capability arc.
 **5b. Goal-seed stubs (optional)** — for vision-slices out of scope this period, or KRs deferred
 rather than rewritten:
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type goal-seed --title "<deferred-vision-slice>"
-```
+`coordinator-doc-new --type goal-seed --title "<deferred-vision-slice>"`,
+resolved per `snippets/resolve-coordinator-bin.md`.
 
 Each stub carries `kind: goal-seed`, `deployment_state: awaiting_gate`, and a brief body
 capturing the vision-slice verbatim — raw over polished. These feed the pickup-from-goal-seed
@@ -148,10 +147,9 @@ entry point; they are vision preservation, not roadmap stubs.
 
 Stage only the goal artifact and stubs this run scaffolded — no blanket add:
 
-```bash
-git add -- <goal-artifact-path> <stub-path-1> [<stub-path-N>]
-git commit -m "goal-setting: ratify <objective-slug> + scaffold {N} downstream stubs"
-```
+Commit per `snippets/scoped-commit-route.md`, subject `goal-setting: ratify <objective-slug> +
+scaffold {N} downstream stubs`, pathspec exactly the goal artifact plus the stubs this run
+scaffolded.
 
 ---
 

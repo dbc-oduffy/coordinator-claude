@@ -86,7 +86,7 @@ def _cooldown_active(marker: str) -> tuple[bool, int]:
 
 def _write_marker(marker: str) -> None:
     today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
-    with open(marker, "w", encoding="utf-8") as fh:
+    with open(marker, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(today + "\n")
 
 

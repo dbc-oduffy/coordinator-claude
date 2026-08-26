@@ -24,7 +24,7 @@ here).
 Exit convention: this is a fail-loud GATE script (exit 1 blocks Phase 3
 dispatch on any audit failure; exit 2 on usage/config error; exit 3 on a hard
 internal error) — never a never-block/best-effort script. A claude-klabauter-link
-failure (CLAUDE_KLABAUTER_ROOT unresolvable, or coordinator_core.roadmap.audit not
+failure (the engine root unresolvable, or coordinator_core.roadmap.audit not
 importable) is therefore surfaced as exit 3, mirroring the ported module's
 own "hard error while auditing — aborting to avoid dead-gate silent skip"
 contract (coordinator_core/roadmap/audit.py `main()`'s blanket-except path)
@@ -36,7 +36,7 @@ the bash oracle threads DATA_ROOT to cc_records_query via
 `export CLAUDE_KLABAUTER_ROOT="$DATA_ROOT"` — a subprocess-boundary env-var overload
 that silently mis-roots PMG/RECON whenever the caller's cwd is a different
 repo than an explicit `--root`, AND (verified empirically during this port's
-parity pass) unconditionally clobbers any ambient CLAUDE_KLABAUTER_ROOT needed to
+parity pass) unconditionally clobbers any ambient engine root needed to
 locate the coordinator_core Python package itself, breaking cc_records_query
 in any environment where the data root and the claude-klabauter installation root
 differ. The ported module (coordinator_core/roadmap/audit.py) has no such
@@ -58,21 +58,19 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
+    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.roadmap.audit import main as _op_main
 
     return _op_main

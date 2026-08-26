@@ -10,9 +10,10 @@ This doctrine-plane repo owns only this thin PLUMBING shim (DR-047 transport-sea
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 advisory LOGIC (coordinator_core.hooks.postuse_advisory_dispatch, registered
 under the JSON-RPC method "hooks.postuse_advisory_dispatch"). The engine is
-imported and run IN-PROCESS via coordinator_core.ipc.dispatch_message -- no
-bash, no `python3 -m` subprocess re-spawn -- so a whole PostToolUse fire pays
-exactly one Python interpreter start.
+imported and run IN-PROCESS via coordinator_core.ipc.dispatch_ops_from_hook
+(DR-175's named hook-dispatch seam, multi-op form -- see the per-concern
+isolation note in `main()`) -- no bash, no `python3 -m` subprocess re-spawn
+-- so a whole PostToolUse fire pays exactly one Python interpreter start.
 
 TRACK-TOUCHED-FILES FOLD (C4b, docs/plans/2026-08-06-hook-spawn-fan-in-
 finish-and-extend.md § C4b): this dispatcher ALSO issues the
@@ -24,8 +25,8 @@ Stop-family runner (`postuse-stop-family-dispatch.py`, the sibling
 mechanism for the other four): it has NO advisory text to aggregate (always
 returns `no_advisory() == {}`), and both this dispatcher and that stub
 already pay the SAME `coordinator_core.hooks` package-import cost and the
-SAME in-process `dispatch_message` IPC call shape, so folding it in adds
-one more `dispatch_message` call, not a second mechanism. Gated on
+SAME in-process `dispatch_ops_from_hook` IPC call shape, so folding it in
+adds one more op to the same call, not a second mechanism. Gated on
 `tool_name` internally (see `_TRACK_TOUCHED_FILES_TOOLS` below) to mirror
 that guard's own former hooks.json matcher -- this dispatcher's OWN matcher
 (`Write|Edit|MultiEdit|NotebookEdit|Agent`, narrowed 2026-08-16 from `''`
@@ -117,7 +118,6 @@ strict subset of the OLD matcher and remains one of the NEW, narrower matcher.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -155,12 +155,18 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
-    from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
+    from _engine_root import (  # noqa: E402
+        arm_lazy_ops as _arm_lazy_ops,
+        resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+    )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
     # sibling _engine_root.py (e.g. an isolated test harness, or a
     # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
+        return None
+
+    def _arm_lazy_ops() -> None:
         return None
 
 
@@ -185,6 +191,14 @@ def main() -> int:
     if root not in sys.path:
         sys.path.insert(0, root)
 
+    # Must precede the first coordinator_core.* import -- see
+    # _engine_root.arm_lazy_ops. Both ops this dispatcher names are
+    # registered by the coordinator_core.hooks package import immediately
+    # below, so the registry hits and no `_eager_import_all()` fallback
+    # fires at lookup. Measured on Windows: ~0.12s -> ~0.09s end-to-end
+    # per fire, warm cache, identical results either way.
+    _arm_lazy_ops()
+
     try:
         # Importing coordinator_core.hooks.postuse_advisory_dispatch triggers the
         # coordinator_core.hooks package __init__ (registers all 7 advisory ops +
@@ -195,35 +209,9 @@ def main() -> int:
         # cost recurs every fire, not just once per session. track_touched_files
         # (C4b) is the SAME package -- no additional import cost to fold it in.
         from coordinator_core.hooks import postuse_advisory_dispatch as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_ops_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open
-
-    async def _dispatch_both(advisory_msg: dict, track_msg: "dict | None"):
-        """Runs the (always-present) advisory dispatch, then (tool_name
-        -gated, possibly absent) the track-touched-files bookkeeping call,
-        SEQUENTIALLY under ONE `asyncio.run()` -- not `asyncio.gather()`.
-        Concurrent scheduling of the two `dispatch_message()` calls was
-        tried first and broke `test_postuse_advisory_dispatch.py`'s
-        existing nudge-firing tests (empty stdout where an advisory was
-        expected) -- `dispatch_message`'s own concurrency-safety under two
-        simultaneous in-flight calls in one event loop is unverified engine
-        -side behaviour this dispatcher has no business relying on.
-        Sequential execution costs one extra await, not one extra process
-        or import -- the actual fan-in goal (one interpreter, in-process,
-        zero subprocess spawns) is unaffected either way. The
-        track-touched-files call's own failure is swallowed here (never
-        raised past this function) so it can never suppress the advisory
-        dispatch's own result -- same fail-open-per-concern posture as the
-        rest of this module."""
-        advisory_response = await dispatch_message(advisory_msg)
-        track_response = None
-        if track_msg is not None:
-            try:
-                track_response = await dispatch_message(track_msg)
-            except Exception:
-                track_response = None
-        return advisory_response, track_response
 
     try:
         payload = json.loads(raw)
@@ -258,45 +246,57 @@ def main() -> int:
         params["file_path"] = tool_input.get("file_path", "")
         params["content"] = tool_input.get("content", "")
 
-    advisory_msg = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.postuse_advisory_dispatch",
-        "params": params,
-        # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
-        # _origin_worktree required; this op accesses no repo-specific state.
-    }
+    # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
+    # _origin_worktree required for this op; it accesses no repo-specific
+    # state. dispatch_ops_from_hook stamps origin_worktree onto EVERY op's
+    # envelope (there is one shared origin_worktree kwarg, not a per-op
+    # field), which is harmless here -- the postuse_advisory_dispatch
+    # handler simply ignores an _origin_worktree key it never reads.
+    ops: list[tuple[str, dict]] = [("hooks.postuse_advisory_dispatch", params)]
 
-    track_msg = None
     if tool_name in _TRACK_TOUCHED_FILES_TOOLS:
-        track_msg = {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "hooks.track_touched_files",
-            "params": {
-                "session_id": payload.get("session_id", ""),
-                "tool_name": tool_name,
-                "file_path": tool_input.get("file_path", "") or "",
-                "agent_id": payload.get("agent_id", ""),
-            },
-            # scope "common_dir" (coordinator_core/ipc.py _OP_KEY_SCOPE) --
-            # REQUIRED. Handed through raw; the engine resolves
-            # git-common-dir itself from whatever cwd the harness reports.
-            "_origin_worktree": payload.get("cwd", ""),
-        }
+        ops.append(
+            (
+                "hooks.track_touched_files",
+                {
+                    "session_id": payload.get("session_id", ""),
+                    "tool_name": tool_name,
+                    "file_path": tool_input.get("file_path", "") or "",
+                    "agent_id": payload.get("agent_id", ""),
+                },
+            )
+        )
 
     try:
-        response, _track_response = asyncio.run(_dispatch_both(advisory_msg, track_msg))
+        # Ops dispatched sequentially, in order, under ONE asyncio.run
+        # inside dispatch_ops_from_hook -- same sequencing this dispatcher
+        # always used, now expressed via the shared seam instead of a
+        # locally-defined asyncio coroutine. Per-op errors are RETURNED
+        # (HookDispatchError instances), not raised, so a failure in the
+        # track_touched_files bookkeeping op can never suppress the
+        # advisory op's own result, and vice versa -- the same
+        # per-concern isolation the old local swallow provided, now
+        # supplied by the seam's own returned-not-raised contract instead
+        # of a try/except around the second call.
+        results = dispatch_ops_from_hook(
+            ops,
+            origin_worktree=payload.get("cwd", ""),
+        )
     except Exception:
         return 0  # any engine failure -> fail-open (never brick a tool call)
 
-    # _track_response is deliberately never inspected/relayed: track_touched_
-    # files is MUTATING bookkeeping, never advisory (see track-touched-
-    # files.py's own former module docstring, "stdout NOTHING") -- its
-    # result is discarded here exactly as that stub discarded it itself.
-    result = response.get("result") if isinstance(response, dict) else None
-    if result:  # {} (no_advisory) and None both fall through to no-output
-        sys.stdout.write(json.dumps(result))
+    advisory_result = results[0] if results else None
+    if isinstance(advisory_result, HookDispatchError):
+        advisory_result = None
+
+    # results[1] (track_touched_files), when present, is deliberately never
+    # inspected/relayed: track_touched_files is MUTATING bookkeeping, never
+    # advisory (see track-touched-files.py's own former module docstring,
+    # "stdout NOTHING") -- a HookDispatchError there is simply discarded,
+    # exactly as the old try/except swallow discarded it, and exactly as
+    # the isolation contract above requires it not to touch advisory_result.
+    if advisory_result:  # {} (no_advisory) and None both fall through to no-output
+        sys.stdout.write(json.dumps(advisory_result))
         sys.stdout.write("\n")
     return 0
 

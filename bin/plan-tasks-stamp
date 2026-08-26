@@ -54,8 +54,8 @@ Exit codes:
       malformed/absent spine, schema-invalid resulting row, ...) or plan
       not found.
   2 — usage error (bad args, no --id, no --set, a reserved disposition
-      field named in --set) or transport failure (CLAUDE_KLABAUTER_ROOT unresolvable,
-      coordinator_core.invoke seam absent/broken).
+      field named in --set) or transport failure (the engine root
+      unresolvable, coordinator_core.invoke seam absent/broken).
 
 Spec backlink: coordinator_core/ops/plan_tasks_mutate.py (_stamp)
 """
@@ -73,7 +73,6 @@ if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 
 import cc_invoke  # noqa: E402
-from cc_invoke import require_engine_on_path  # noqa: E402
 
 # The engine root must be on sys.path before any coordinator_core import —
 # this file is also published into the claude-klabauter mirror, where
@@ -81,8 +80,13 @@ from cc_invoke import require_engine_on_path  # noqa: E402
 # is this bin/ directory, not the checkout root. Same bootstrap as
 # coordinator/bin/plan-tasks-resolve and coordinator/bin/coordinator-
 # lesson-add (9b979ee5f).
-_ENGINE_ROOT = require_engine_on_path(__file__)
-
+#
+# Deferred to first use inside main() (below `parser.parse_args()`), NOT
+# resolved here at module scope: `--help` (and every other argparse exit
+# path) must survive an unresolvable engine root, since it never needs
+# coordinator_core on sys.path at all. The dispatch site inside main()
+# still fails loud via `require_engine_on_path`'s existing RuntimeError;
+# only the MOMENT of resolution moved, not the contract.
 _OP = "plan.tasks.mutate"
 
 # Mirrors `_STAMP_RESERVED_DISPOSITION_FIELDS` in plan_tasks_mutate.py —
@@ -158,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv if argv is not None else sys.argv[1:])
 
+    cc_invoke.require_engine_on_path(__file__)
+
     fields: dict[str, object] = {}
     for key, value in args.sets:
         fields[key] = value
@@ -185,8 +191,8 @@ def main(argv: list[str] | None = None) -> int:
     def _no_legacy() -> None:
         raise RuntimeError(
             "plan-tasks-stamp: coordinator_core.invoke seam absent — no legacy "
-            "path exists for plan.tasks.mutate. Verify CLAUDE_KLABAUTER_ROOT and the "
-            "claude-klabauter coordinator_core install."
+            "path exists for plan.tasks.mutate. Verify COORDINATOR_ENGINE_ROOT "
+            "(or CLAUDE_KLABAUTER_ROOT) and the claude-klabauter coordinator_core install."
         )
 
     try:

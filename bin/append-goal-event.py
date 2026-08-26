@@ -33,6 +33,37 @@ pre-existing flags, AC8; --status is new, see below):
                           [--key-results-status <json-array>] [--goal-id <id>]
                           [--status <active|done|dropped|...>]
 
+Batch form (amplification-gate fix, 2026-08-19 — see
+coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py's exemption
+register): --events-file <path> replaces the single-event flags above with
+ONE spawn covering N events. `<path>` names a JSON file holding an array of
+event objects, each shaped like a single call's varying fields (period,
+period_value, text, and the optional passthrough fields — parent_goal_id,
+weekly_perceptible [bool], key_results_status [list], goal_id, status).
+--repo and --root stay CLI-level flags and apply to every event in the
+batch, exactly as they would to N separate single-event invocations sharing
+the same repo/root (emit-goal-from-artifact.py's actual call shape — every
+goal file in one repo already shared --repo/--root across its per-file
+spawns before this fix).
+
+The batch is carried as ONE `events` list param on ONE goal.append dispatch
+(one `coordinator_core.invoke` spawn total, not one per event) — the op
+itself fans the list out into N in-process append_goal() writes, no further
+subprocess spawns anywhere in the chain. See `_main_batch()` below and
+coordinator_core/ops/goal_append.py::_goal_append_batch (the engine-side
+half this batch form actually depends on — a naive events-file that still
+called `_cc_invoke_bare()` once per event would only move the fan-out down
+a level, which is exactly what this two-part fix corrects).
+
+Prints a JSON array of {"ok": bool, "result"|"error": ...} objects, one per
+input event, in input order — never the bare single-result object the
+non-batch path prints. Exit code: 0 only if every event succeeded, 2 if the
+dispatch itself failed transport/op-side OR any individual event's outcome
+was ok=False, 1 for a malformed --events-file or a malformed response
+envelope (mirrors the --key-results-status client-side parse-error
+precedent below).
+    append-goal-event.sh --events-file <path> [--repo <r>] [--root <p>]
+
 --status, when supplied, IS forwarded into the dispatched params (as
 `status`) and passed straight through to the goal.append op UNVALIDATED here
 — the op itself is the single source of truth for the valid-status enum
@@ -64,7 +95,7 @@ failure). Faithfully carried over, not "fixed" mid-port:
         2026-07-25: an unrecognized token used to be silently skipped —
         see the CLI-parsing block below for why that was itself a defect).
     2 — everything else: unresolvable git repo root, OR any cc_invoke
-        transport/op failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core.invoke
+        transport/op failure (the engine root unresolvable, coordinator_core.invoke
         unimportable, op-level ValueError such as missing/invalid --period,
         --period-value, or --text, timeout, malformed envelope).
 
@@ -118,7 +149,12 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
     claude_klabauter_root = _resolve_claude_klabauter_root()
 
     env = dict(os.environ)
+    # BOTH names, same value, for the duration of the rename window. Setting
+    # only the retired name gives the child an environment where the variable
+    # IS set and every post-C14 reader has stopped reading it, so the failure
+    # surfaces rungs downstream of the pin that caused it.
     env["CLAUDE_KLABAUTER_ROOT"] = claude_klabauter_root
+    env["COORDINATOR_ENGINE_ROOT"] = claude_klabauter_root
     sep = os.pathsep
     existing_pp = env.get("PYTHONPATH", "")
     if f"{sep}{claude_klabauter_root}{sep}" not in f"{sep}{existing_pp}{sep}":
@@ -206,6 +242,7 @@ _FLAGS_WITH_VALUE = frozenset(
         "--key-results-status",
         "--goal-id",
         "--status",
+        "--events-file",
     }
 )
 
@@ -221,6 +258,7 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
     key_results_status: str | None = None
     goal_id_arg = ""
     status_arg: str | None = None
+    events_file = ""
 
     i = 0
     n = len(argv)
@@ -248,6 +286,8 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
                 goal_id_arg = val
             elif tok == "--status":
                 status_arg = val
+            elif tok == "--events-file":
+                events_file = val
             i += 2
         else:
             print(f"ERROR: unrecognized argument: {tok}", file=sys.stderr)
@@ -264,6 +304,7 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
         "key_results_status": key_results_status,
         "goal_id": goal_id_arg,
         "status": status_arg,
+        "events_file": events_file,
     }
 
 
@@ -290,6 +331,75 @@ def _build_params(parsed: dict[str, object]) -> dict[str, object]:
     return params
 
 
+def _main_batch(parsed: dict[str, object]) -> int:
+    """Batch entry point for --events-file.
+
+    ONE process (this one) makes exactly ONE goal.append dispatch — i.e. one
+    _cc_invoke_bare() call, one coordinator_core.invoke spawn — carrying
+    every event in the file as the op's `events` list param (2026-08-19
+    amplification-gate fix, second pass: the first pass moved the per-item
+    fan-out from emit-goal-from-artifact.py's N `sys.executable` spawns down
+    into N _cc_invoke_bare() spawns inside this process, which the
+    amplification-gate measurement caught as the SAME defect one level
+    lower. `events` batching on the op itself (see
+    coordinator_core/ops/goal_append.py::_goal_append_batch) is what
+    actually collapses the whole run to one process spawn: this script's
+    own subprocess call, period. The op fans out into N in-process
+    append_goal() calls on the engine side — zero further subprocess
+    spawns — and returns one {"events": [...]} envelope carrying a
+    per-event ok/error outcome in input order, which this function
+    reprints verbatim to stdout.
+
+    Exit codes: 1 for a malformed --events-file (client-side, mirrors the
+    --key-results-status JSON-parse precedent in _build_params) OR a
+    malformed response envelope (missing/non-list "events" — an engine-side
+    contract violation this script cannot recover from); 2 if the dispatch
+    itself failed transport/op-side, OR any individual event's outcome came
+    back ok=False; 0 only when every event succeeded.
+    """
+    events_path = parsed["events_file"]
+    try:
+        with open(events_path, "r", encoding="utf-8") as fh:
+            events = json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"ERROR: --events-file could not be read as JSON: {exc}", file=sys.stderr)
+        return 1
+    if not isinstance(events, list):
+        print("ERROR: --events-file must contain a JSON array of event objects", file=sys.stderr)
+        return 1
+
+    repo_root = _resolve_repo_root()
+
+    params: dict[str, object] = {
+        "repo": parsed["repo"] or None,
+        "coordinator_root_path": parsed["root"],
+        "events": events,
+    }
+    try:
+        envelope = _cc_invoke_bare("goal.append", params, repo_root)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+    outcomes = envelope.get("events")
+    if not isinstance(outcomes, list):
+        print(
+            "ERROR: goal.append batch response missing an 'events' array "
+            f"(got: {envelope!r})",
+            file=sys.stderr,
+        )
+        return 1
+
+    any_failed = False
+    for i, outcome in enumerate(outcomes):
+        if not isinstance(outcome, dict) or not outcome.get("ok"):
+            print(f"[append-goal-event] batch event {i} failed: {outcome}", file=sys.stderr)
+            any_failed = True
+
+    print(json.dumps(outcomes, ensure_ascii=False))
+    return 2 if any_failed else 0
+
+
 def _resolve_repo_root() -> str:
     """Resolve the repo root via the checked resolver (repo_identity).
 
@@ -312,6 +422,8 @@ def _resolve_repo_root() -> str:
 
 def main(argv: list[str]) -> int:
     parsed = _parse_args(argv)
+    if parsed["events_file"]:
+        return _main_batch(parsed)
     params = _build_params(parsed)
     repo_root = _resolve_repo_root()
 

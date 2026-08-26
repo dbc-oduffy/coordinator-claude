@@ -100,7 +100,7 @@ def _no_console_kw() -> dict:
 def _no_fallback():
     raise RuntimeError(
         f"{PROG}: {_OP} requires the native seam (no bash fallback -- big-bang "
-        "cutover); re-run the engine install step or verify CLAUDE_KLABAUTER_ROOT"
+        "cutover); re-run the engine install step or verify COORDINATOR_ENGINE_ROOT"
     )
 
 
@@ -130,8 +130,8 @@ def _reread_claim_fields(handoff_path: str) -> "tuple[str | None, str | None]":
     if split is None:
         return None, None
     return (
-        read_fm_field_unquoted(split.fm_text, "claimed_at"),
-        read_fm_field_unquoted(split.fm_text, "claimed_by"),
+        read_fm_field_unquoted(split.fm_text, "claimed_at"),  # dr084: confirms THIS CLI's own new-vocabulary write, not a mixed-corpus dual-read
+        read_fm_field_unquoted(split.fm_text, "claimed_by"),  # dr084: confirms THIS CLI's own new-vocabulary write, not a mixed-corpus dual-read
     )
 
 

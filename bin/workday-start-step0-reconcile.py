@@ -23,7 +23,7 @@ Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not
 here).
 
 Exit-code convention: this is a FAIL-LOUD gate script, not a never-block
-hook (contrast coordinator-auto-push). A CLAUDE_KLABAUTER_ROOT-resolution or
+hook (contrast coordinator-auto-push). An engine-root-resolution or
 import failure is a hard error — sys.exit(1) — matching the ported module's
 own "1 — unexpected error" convention, never a silent exit 0.
 
@@ -50,19 +50,17 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_run_op_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
+    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -73,7 +71,7 @@ def main() -> None:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:
         print(
-            f"workday-start-step0-reconcile.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"workday-start-step0-reconcile.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(1)

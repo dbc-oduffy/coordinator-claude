@@ -43,8 +43,23 @@ class SuffixCollisionError(RuntimeError):
 
 @dataclass
 class EnsureResult:
-    result: str  # "FRESH-CUT", "REFUSED-LIVE-PEERS", or "" (no-op)
-    new_branch: str  # branch name when FRESH-CUT; "" otherwise
+    result: str  # see the negative-spec in session_ensure_branch's docstring
+    new_branch: str  # branch name when FRESH-CUT/ADOPTED-EXISTING/INHERITED; "" otherwise
+
+
+#: The tree already sits on today's branch's tip and it merely had to be
+#: checked out — content-neutral, no new ref minted.
+ADOPTED_EXISTING = "ADOPTED-EXISTING"
+#: Another session won the cut lock and this one inherited its branch. NOT
+#: "FRESH-CUT" (this session did not cut) and NOT "REFUSED-LIVE-PEERS" (the
+#: invariant now holds) — callers branching on the result MUST carry an arm
+#: for it rather than folding it into either.
+INHERITED = "INHERITED"
+
+#: Bounded window a lock-loser polls for the winner's branch before falling
+#: through to the timeout arm.
+_INHERIT_POLL_SECONDS = 2.0
+_INHERIT_POLL_INTERVAL = 0.05
 
 
 def _branch_ref_exists(name: str) -> bool:
@@ -63,6 +78,30 @@ def _branch_mutation_verdict():
     from coordinator_core.session.worktree_safety import branch_mutation_verdict
 
     return branch_mutation_verdict
+
+
+def _cut_lock():
+    """Import indirection mirroring `_branch_mutation_verdict`."""
+    from coordinator_core.session import day_branch_cut_lock
+
+    return day_branch_cut_lock
+
+
+def _git_capture(argv: list[str]) -> str:
+    from coordinator_core.win_portability import no_console_creationflags
+
+    proc = subprocess.run(argv, capture_output=True, **no_console_creationflags())
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.decode("utf-8", errors="replace").strip()
+
+
+def _current_branch_now() -> str:
+    return _git_capture(["git", "branch", "--show-current"])
+
+
+def _head_sha(rev: str = "HEAD") -> str:
+    return _git_capture(["git", "rev-parse", rev])
 
 
 def _parses_as_branch_span(name: str) -> bool:
@@ -85,6 +124,8 @@ def session_ensure_branch(
     commits_ahead,
     env: Optional[dict] = None,
     stderr=None,
+    *,
+    caller: str = "ceremony",
 ) -> EnsureResult:
     """Gate: on main, detached HEAD, or zero-ahead non-span branch → cut
     work/{machine}/{today} (collision-safe suffix loop), push it, return
@@ -102,6 +143,36 @@ def session_ensure_branch(
     returns EnsureResult("REFUSED-LIVE-PEERS", ""). This value is
     deliberately distinguishable from both "" (nothing-to-do) and
     "FRESH-CUT" (cut succeeded) — callers must not conflate it with either.
+
+    ``caller`` selects one of two paths and defaults to the CEREMONY's
+    pre-existing synchronous behaviour, so no existing caller changes:
+
+      "ceremony" — /workday-start and friends, an EM present, no shared
+        boot budget to protect. Wider admission set (main / detached /
+        zero-ahead non-span), the -N collision suffix loop, and a
+        SYNCHRONOUS ``git push -u``.
+      "boot" — the SessionStart invariant (see
+        ``coordinator_core/hooks/day_branch_assert.py``). ``main`` ONLY,
+        the adopt-existing arm instead of the -N loop, and NO network call:
+        the push is left to ``auto_push.push_once``, which already pushes
+        with ``--set-upstream``.
+
+    Two axes (admission width and push synchrony) always move together, so
+    they are one parameter rather than two booleans that could be combined
+    incoherently — e.g. a boot-width admission set with a synchronous push
+    inside the fan-in's 10s budget, which is exactly the shape being
+    avoided.
+
+    Negative-spec — the result vocabulary now has FIVE values and callers
+    that branch on it MUST carry an arm for each. In particular:
+      - ``INHERITED`` is NOT ``FRESH-CUT`` (this session did not cut) and
+        NOT ``REFUSED-LIVE-PEERS`` (the invariant HOLDS — some session cut
+        and this one is on the branch). Folding it into either misreports a
+        healthy tree.
+      - ``ADOPTED-EXISTING`` means today's branch already existed and HEAD
+        was already at its tip, so it was merely checked out. No new ref was
+        minted; this is the routine every-boot answer once the day's first
+        session has cut.
 
     Parameters mirror the bash oracle's positional contract:
       machine       — coordinator machine slug (from cs_compute_machine)
@@ -151,8 +222,19 @@ def session_ensure_branch(
     if not (is_main or is_detached or is_zero_ahead_non_span):
         return EnsureResult(result="", new_branch="")
 
+    is_boot = caller == "boot"
+    if is_boot and not is_main:
+        # Case (B) -- a detached HEAD and a zero-ahead non-span branch are not
+        # "on main" in the PM's own words and take C10's warn, never a cut. The
+        # CEREMONY caller keeps the wider admission set; inheriting it here
+        # would silently extend the authorised reversal on a path that fires
+        # on every boot.
+        return EnsureResult(result="", new_branch="")
+
+    from coordinator_core.session import worktree_safety as _ws
+
     branch_mutation_verdict = _branch_mutation_verdict()
-    verdict = branch_mutation_verdict()
+    verdict = branch_mutation_verdict(operation=_ws.FRESH_CUT_AT_HEAD, current_branch=current)
     if verdict.outcome != "ok":
         print(
             f"REFUSED-LIVE-PEERS branch=work/{machine}/{today} reason={verdict.reason}",
@@ -160,9 +242,106 @@ def session_ensure_branch(
         )
         return EnsureResult(result="REFUSED-LIVE-PEERS", new_branch="")
 
-    new_branch = f"work/{machine}/{today}"
+    target = f"work/{machine}/{today}"
+    lock = _cut_lock()
+    acquired = lock.acquire(".", session_id=_self_session_id())
+    if not acquired.acquired:
+        return _inherit(target, acquired, is_boot, env, err)
+
+    try:
+        return _cut_or_adopt(target=target, is_boot=is_boot, env=env, err=err)
+    finally:
+        lock.release(".")
+
+
+def _self_session_id() -> str:
+    try:
+        from coordinator_core.session.core import resolve_session_id
+
+        return resolve_session_id(None) or ""
+    except Exception:
+        return ""
+
+
+def _inherit(target: str, acquired, is_boot: bool, env, err) -> EnsureResult:
+    """Lock-loser path: poll for the winner's branch and INHERIT it.
+
+    Losers do NOT queue for the cut -- the tree is shared, so the winner's
+    checkout already IS the loser's checkout and inheriting needs no work from
+    it. At poll timeout the lock record is re-read: a CONFIRMED-DEAD holder is
+    taken over and cut; a LIVE holder is never raced, and the loser falls
+    through to the genuine-failure banner naming the holder and the elapsed
+    wait. A loser must never attempt an unserialised cut of its own.
+    """
+    import time as _time
+
+    lock = _cut_lock()
+    deadline = _time.monotonic() + _INHERIT_POLL_SECONDS
+    while _time.monotonic() < deadline:
+        branch = _current_branch_now()
+        if branch and branch != "main":
+            print(f"INHERITED branch={branch}")
+            return EnsureResult(result=INHERITED, new_branch=branch)
+        _time.sleep(_INHERIT_POLL_INTERVAL)
+
+    record = lock.read_record(".")
+    if record is not None and lock.record_is_stale(record):
+        retry = lock.acquire(".", session_id=_self_session_id())
+        if retry.acquired:
+            try:
+                return _cut_or_adopt(target=target, is_boot=is_boot, env=env, err=err)
+            finally:
+                lock.release(".")
+
+    branch = _current_branch_now()
+    if branch and branch != "main":
+        print(f"INHERITED branch={branch}")
+        return EnsureResult(result=INHERITED, new_branch=branch)
+
+    print(
+        f"REFUSED-LIVE-PEERS branch={target} reason=cut lock held by live "
+        f"pid={acquired.holder_pid} sid={acquired.holder_sid or 'unknown'}; "
+        f"waited {_INHERIT_POLL_SECONDS:.0f}s and the tree is still on main",
+        file=err,
+    )
+    return EnsureResult(result="REFUSED-LIVE-PEERS", new_branch="")
+
+
+def _cut_or_adopt(*, target: str, is_boot: bool, env, err) -> EnsureResult:
+    from coordinator_core.win_portability import no_console_creationflags, run_forwarding
+
+    new_branch = target
 
     if _branch_ref_exists(new_branch):
+        if is_boot:
+            # Every-boot invariant: the tree returns to main routinely
+            # (/merging-to-main ends there), so re-entering the -N suffix loop
+            # on every subsequent boot would mint a new branch each time and
+            # raise SuffixCollisionError INSIDE a SessionStart hook on the
+            # 10th. The cut mutex does not help -- it serialises CONCURRENT
+            # boots, not sequential ones hours apart.
+            if _head_sha() and _head_sha() == _head_sha(new_branch):
+                run_forwarding(
+                    ["git", "checkout", new_branch],
+                    env=_checkout_env(env),
+                    stdout=err,
+                    stderr=err,
+                    check=True,
+                    **no_console_creationflags(),
+                )
+                print(f"ADOPTED-EXISTING branch={new_branch}")
+                return EnsureResult(result=ADOPTED_EXISTING, new_branch=new_branch)
+            print(
+                f"REFUSED-LIVE-PEERS branch={new_branch} reason=today's branch "
+                "already exists and HEAD is not at its tip; checking it out "
+                "would MOVE HEAD, which case (A) does not cover -- never "
+                "adopted silently",
+                file=err,
+            )
+            return EnsureResult(result="REFUSED-LIVE-PEERS", new_branch="")
+
+        # Ceremony path ONLY. The arm above makes this structurally
+        # unreachable from the boot path -- keep it that way.
         n = 2
         while _branch_ref_exists(f"{new_branch}-{n}"):
             n += 1
@@ -172,17 +351,13 @@ def session_ensure_branch(
                 )
         new_branch = f"{new_branch}-{n}"
 
-    checkout_env = dict(env) if env is not None else None
-    if checkout_env is not None:
-        checkout_env.update(_OVERRIDE_ENV)
+    checkout_env = _checkout_env(env)
 
     # run_forwarding, not subprocess.run: `err` may be workday-start-step0's
     # own `sys.stderr`, which is an io.StringIO with no fileno() when this
     # gate runs in-process through coordinator_core.workday_complete.apply's
-    # capture-buffer dispatch — see coordinator_core.win_portability.
+    # capture-buffer dispatch -- see coordinator_core.win_portability.
     # run_forwarding's own docstring.
-    from coordinator_core.win_portability import no_console_creationflags, run_forwarding
-
     run_forwarding(
         ["git", "checkout", "-b", new_branch],
         env=checkout_env,
@@ -192,6 +367,17 @@ def session_ensure_branch(
         **no_console_creationflags(),
     )
 
+    if is_boot:
+        # NO network call on the boot path. The SessionStart fan-in runs under
+        # a single shared 10s timeout with no per-guard budget; a cold-
+        # connection push to GitHub routinely exceeds it, and a harness kill
+        # mid-push leaves the cut lock held by a dead process for the whole
+        # stale-grace window. auto_push.push_once already pushes with
+        # --set-upstream, so upstream is still established -- just not from
+        # inside the fan-in's budget.
+        print(f"FRESH-CUT branch={new_branch}")
+        return EnsureResult(result="FRESH-CUT", new_branch=new_branch)
+
     push = subprocess.run(
         ["git", "push", "-u", "origin", new_branch],
         env=checkout_env,
@@ -200,9 +386,20 @@ def session_ensure_branch(
         **no_console_creationflags(),
     )
     if push.returncode != 0:
-        print("WARN: push of new branch failed — crash-insurance push not established", file=err)
+        print(
+            "WARN: push of new branch failed -- crash insurance is NOT in "
+            "force for this branch even though the cut succeeded",
+            file=err,
+        )
         if push.stdout:
             err.write(push.stdout.decode("utf-8", errors="replace"))
 
     print(f"FRESH-CUT branch={new_branch}")
     return EnsureResult(result="FRESH-CUT", new_branch=new_branch)
+
+
+def _checkout_env(env):
+    checkout_env = dict(env) if env is not None else None
+    if checkout_env is not None:
+        checkout_env.update(_OVERRIDE_ENV)
+    return checkout_env

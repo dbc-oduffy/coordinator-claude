@@ -1,0 +1,115 @@
+# Lane: add-repo. The thin door -- registration-only, no full onboarding. See CONTRACT.md for
+# the shape every lane follows.
+# spec_backlink: docs/plans/2026-08-20-repo-setup-as-a-product-surface.md (C2)
+# census_backlink: state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md
+
+lane: add-repo
+authored_against_contract_version: "1.0.0"
+basis: >
+  Register a repo as an addressable fleet peer without running full onboarding. Answers
+  p1.repo-classification-ask as (b) published-artifact, which p1.classification-branch-b-stop
+  halts on -- Phase 1.5/2/3 are not reached under this lane's own answer. This is the material
+  difference from add-existing-project.yaml (which answers (a) working and runs the full spine);
+  per plan instruction, the two lanes are NOT collapsed because they differ on this and on the
+  memo-destination default below.
+
+# --- AC2: every round_trip census row, pre-answered as tier-1. The classification answer halts
+# the flow before the other five would ever fire, but AC2 requires every round_trip row answered
+# regardless of reachability -- declared here for completeness and cross-lane join, each noting
+# its own unreachability.
+round_trip_directives:
+  - step_id: p1.repo-classification-ask
+    engine_judgment_point_id: null
+    value: "published-artifact (b)"
+    rationale: >
+      The thin door: register the repo as an addressable fleet peer without running full
+      onboarding. Halts at p1.classification-branch-b-stop; Phase 2/3 do not run.
+    resolves: [p1.classification-branch-b-stop]
+
+  - step_id: p15.ratification-ask
+    engine_judgment_point_id: null
+    value: "not reached (classification (b) halts before Phase 1.5)"
+    rationale: >
+      Declared for AC2 completeness only. If a future contract revision ever reaches this point
+      under this lane, the safe fallback value is go-cold (same as new-project.yaml).
+    resolves: []
+
+  - step_id: p2.ask-project-name
+    engine_judgment_point_id: null
+    value: "not reached (classification (b) halts before Phase 2)"
+    rationale: Declared for AC2 completeness only; see p15.ratification-ask above.
+    resolves: []
+
+  - step_id: p2.ask-project-type
+    engine_judgment_point_id: null
+    value: "not reached (classification (b) halts before Phase 2)"
+    rationale: Declared for AC2 completeness only; see p15.ratification-ask above.
+    resolves: []
+
+  - step_id: p2.ask-workstreams
+    engine_judgment_point_id: null
+    value: "not reached (classification (b) halts before Phase 2)"
+    rationale: Declared for AC2 completeness only; see p15.ratification-ask above.
+    resolves: []
+
+  - step_id: tw.ci-inference-prompt
+    engine_judgment_point_id: null
+    value: "not reached (classification (b) halts before the tripwire-installs phase)"
+    rationale: Declared for AC2 completeness only; see p15.ratification-ask above.
+    resolves: []
+
+# --- Nine agent-work steps: named, not pre-answered. None reachable under this lane's own
+# classification answer; named for the same completeness reason as the round_trip rows above.
+second_phase_deferred:
+  - p15.substrate-read
+  - p15.propose-project-type
+  - p15.peer-repo-candidate-extraction
+  - tw.spawn-gate-exclude-set
+  - tw.spawn-gate-ratchet-init
+  - tw.spawn-gate-run-and-burndown
+  - p15.peer-scout-dispatch-offer
+  - tw.windows-console-allowlist-customize
+  - tw.windows-console-suppression-tagging
+
+# --- Policy default for every terminal offer not on the deferred list above. Only
+# p3x.memo-destination-offer is reachable under this lane's own classification answer -- the
+# register-repo step runs regardless of the branch-b stop; the rest are unreachable and declared
+# for completeness.
+terminal_offer_defaults:
+  - step_id: p15.propose-workstreams
+    value: "not reached"
+    rationale: Phase 1.5 does not run under this lane's classification answer.
+
+  - step_id: p3d5.hand-section-prompt
+    value: "not reached"
+    rationale: Phase 3 does not run under this lane's classification answer.
+
+  - step_id: p3f.untrack-scratch-offer
+    value: "not reached"
+    rationale: Phase 3 does not run under this lane's classification answer.
+
+  - step_id: p3f5.custom-hook-skip
+    value: "not reached"
+    rationale: Phase 3 does not run under this lane's classification answer.
+
+  - step_id: p3l.curation-prompt
+    value: "not reached"
+    rationale: Phase 3 does not run under this lane's classification answer.
+
+  - step_id: p3x.memo-destination-offer
+    value: "no"
+    rationale: >
+      Default no for classification (b) per census note ("default yes for (a)/(c), default no for
+      (b)") -- the material differentiator against add-existing-project.yaml's "yes". A thin-door
+      registration is not yet a fully addressable fleet peer.
+
+  - step_id: tw.windows-console-offer
+    value: "not reached"
+    rationale: Phase 3 (tripwire-installs) does not run under this lane's classification answer.
+
+  - step_id: tw.ci-offer
+    value: "not reached"
+    rationale: Phase 3 (tripwire-installs) does not run under this lane's classification answer.
+
+# --- AC5: ROSTER SLOTS. The thin door registers only -- no follow-on onboarding roster.
+roster_slots: []

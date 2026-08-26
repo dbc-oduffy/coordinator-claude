@@ -45,7 +45,7 @@ Supports --check-only (validate without mutating live files) and --rc/
 # Exit codes: 0 on success (including an idempotent no-op re-run, or a clean
 # --check-only pass); 1 on a business failure (unknown argument, missing flag
 # value, template not found, rc sentinel block hand-modified, rc file
-# uncreatable); 2 on a CLAUDE_KLABAUTER_ROOT-resolution or import (transport) failure --
+# uncreatable); 2 on a engine-root-resolution or import (transport) failure --
 # a dedicated code, never a reused business rc, so install-maximalist.py's
 # `run_required` wrapper (and any other caller) can distinguish "the install
 # step itself failed" from "the claude-klabauter engine link is broken" -- this is an
@@ -67,7 +67,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_data_root import data_root  # noqa: E402
 
 
@@ -112,9 +112,9 @@ def _shell_family_from_argv(argv: list[str]) -> str:
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the in-process runner.
+    """Resolve the engine root, put it on sys.path, and import the in-process runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -126,9 +126,7 @@ def _import_runner():
     rc-file source block this CLI writes are orphans at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -139,7 +137,7 @@ def main() -> None:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         print(
-            f"gen-claude-doe-shim.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"gen-claude-doe-shim.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(2)

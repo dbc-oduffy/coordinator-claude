@@ -43,7 +43,7 @@ field):
         result (`ok: true, configured: false`) — see Result shape above.
     2 — usage error (missing verb, missing required --key on launch/
         teardown, unrecognized verb/argument, or repo_root unresolvable).
-    3 — transport/op failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core.
+    3 — transport/op failure (the engine root unresolvable, coordinator_core.
         invoke seam absent, or the op itself raised).
 
 Spec backlink: cross-repo/inbox/2026-08-15-*-app-session-ops-need-a-cli-entrypoint.md

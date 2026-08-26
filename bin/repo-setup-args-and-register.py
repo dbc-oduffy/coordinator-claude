@@ -80,6 +80,7 @@ _CLAUDE_KLABAUTER_ROOT = _BIN_DIR.parent.parent  # coordinator/bin/.. .. == clau
 if str(_CLAUDE_KLABAUTER_ROOT) not in sys.path:
     sys.path.insert(0, str(_CLAUDE_KLABAUTER_ROOT))
 
+from coordinator_core.engine_root import coordinator_engine_root_env  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
 
 
@@ -232,13 +233,17 @@ def cmd_whoami_status(args: argparse.Namespace) -> int:
 def _resolve_claude_klabauter_root_for_exec_summary(settings_home: "str | None") -> "str | None":
     """Native mirror of the skill's claude-klabauter-root fallback chain used only by
     the exec-summary generator lookup:
-    REPO_CLAUDE_KLABAUTER, falling back to CLAUDE_KLABAUTER_ROOT, falling back to
-    `<settings-home>/machine-local/.claude-klabauter-root`, falling back to
-    `.claude/machine-local/.claude-klabauter-root` under CLAUDE_HOME or, absent that, the
-    platform home directory (USERPROFILE on Windows, HOME or the passwd entry
-    on POSIX).
+    REPO_CLAUDE_KLABAUTER, falling back to COORDINATOR_ENGINE_ROOT (via the
+    accessor), falling back to `<settings-home>/machine-local/.claude-klabauter-root`,
+    falling back to `.claude/machine-local/.claude-klabauter-root` under CLAUDE_HOME or,
+    absent that, the platform home directory (USERPROFILE on Windows, HOME or
+    the passwd entry on POSIX).
+
+    C23: was a bare ``os.environ.get("CLAUDE_KLABAUTER_ROOT")`` with no new-name rung at
+    all -- silently dark since C14 closed the dual-read window. Routed through
+    the accessor rather than adding a second raw read of the new name.
     """
-    candidate = os.environ.get("REPO_CLAUDE_KLABAUTER") or os.environ.get("CLAUDE_KLABAUTER_ROOT")
+    candidate = os.environ.get("REPO_CLAUDE_KLABAUTER") or coordinator_engine_root_env(__name__)
     if candidate:
         return candidate
 

@@ -77,11 +77,10 @@ from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 # coordinator_core is co-located in this same repo (the engine plane) --
 # resolvable only from the repo root, which is not on sys.path when this
-# file is run directly (only its own dir and lib/ are). cc_invoke (imported
-# above) already arms sys._coordinator_core_lazy_ops as an import side effect
-# (unless an operator explicitly set COORDINATOR_CORE_LAZY_OPS), so the
-# queue_family import below skips coordinator_core.ops's ~70ms eager
-# op-registration sweep it does not need (it only wants the read seam).
+# file is run directly (only its own dir and lib/ are). coordinator_core.ops
+# registers ops lazily, unconditionally, so the queue_family import below
+# never pays coordinator_core.ops's eager op-registration sweep it does not
+# need (it only wants the read seam).
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)

@@ -51,7 +51,7 @@ and hands it to that module.
 # Exit codes (unchanged contract from the bash oracle, PLUS a new dedicated
 # transport code — addendum rule 3b): 0 all assertions passed/skipped;
 # 1 one or more assertions FAILed (business outcome); 3 TRANSPORT/
-# ORCHESTRATION failure — CLAUDE_KLABAUTER_ROOT unresolvable, the default
+# ORCHESTRATION failure — the engine root unresolvable, the default
 # COORDINATOR_ROOT unresolvable (doe_root() raised _DoeUnresolvable),
 # coordinator_core not importable, or an unhandled exception inside the
 # claude-klabauter module. The bash oracle had no dedicated transport code (an
@@ -59,7 +59,7 @@ and hands it to that module.
 # the failing builtin produced); this is a flagged behavioral improvement,
 # not a silent one — a caller can now tell "checks ran, some failed" (1)
 # apart from "checks could not run at all, e.g. cold machine with
-# CLAUDE_KLABAUTER_ROOT/DoE root unresolvable" (3).
+# the engine root/DoE root unresolvable" (3).
 from __future__ import annotations
 import os
 import sys
@@ -67,7 +67,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 
 _TRANSPORT_FAILURE_RC = 3
@@ -107,9 +107,7 @@ def _resolve_coordinator_root() -> str:
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.install.sandbox_check import main as _op_main
     return _op_main
 
@@ -121,7 +119,7 @@ def main() -> None:
         print(f"install-sandbox-check: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
         print(
             "  Remediation: this is a FAMILY-I (fresh-install) surface — on a cold machine "
-            "CLAUDE_KLABAUTER_ROOT may not yet be resolvable. Set CLAUDE_KLABAUTER_ROOT explicitly, or seed the "
+            "COORDINATOR_ENGINE_ROOT may not yet be resolvable. Set COORDINATOR_ENGINE_ROOT explicitly, or seed the "
             "repos.claude_klabauter machine-local registry key, then re-run.",
             file=sys.stderr,
         )

@@ -9,7 +9,7 @@ consuming session) and writes a full-rebuild, atomic, per-machine shard to
 
 This op always targets claude-klabauter's OWN checkout (post-migration, handoffs live
 there) — it does NOT read/write anything under this repo's tree, regardless
-of where this trampoline is invoked from. No arguments; CLAUDE_KLABAUTER_ROOT is
+of where this trampoline is invoked from. No arguments; the engine root is
 resolved via the usual ladder (env var -> settings-home pointer file ->
 Coordinator-claude-klabauter-root.sh), same as every other claude-klabauter-backed trampoline.
 
@@ -26,7 +26,7 @@ this wiki lives in the DoE-claude repo, not here).
 Usage:
   derive-session-hierarchy
 
-Exit codes: 0 — derived + written; 1 — CLAUDE_KLABAUTER_ROOT / import / engine-worktree
+Exit codes: 0 — derived + written; 1 — engine root / import / engine-worktree
 resolution failed.
 
 Spec backlink: DoE-claude:pln-bash-to-naked-python-engine-mi-c09292 § T3a-g3c
@@ -40,13 +40,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the DR-276 op runner.
+    """Resolve the engine root, put it on sys.path, and import the DR-276 op runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -57,9 +57,7 @@ def _import_runner():
     become a session scope-touch claim. Without that, everything this CLI
     writes is an orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -69,7 +67,7 @@ def main() -> None:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        print(f"derive-session-hierarchy: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"derive-session-hierarchy: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
     except ImportError as exc:
         print(

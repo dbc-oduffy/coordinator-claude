@@ -39,9 +39,9 @@ target dir, `mkdir`s, `git init`s (`main` default branch), renders the template
 minimal `README.md`, and for `next-app` runs the boot smoke (`pnpm install` + `pnpm typecheck` +
 `pnpm test`):
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/new-project-scaffold" --name "<name>" --parent "<parent>" --template "<template>"
-```
+Shape W (rung 0) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\new-project-scaffold.cmd" --name "<name>" --parent "<parent>" --template "<template>"`
 
 A template that does not boot is a **failed scaffold** — report it, don't work around it.
 <!-- engine-gap: field=new_project.scaffold.file_manifest producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
@@ -50,9 +50,8 @@ A template that does not boot is a **failed scaffold** — report it, don't work
 cwd-scoped to where it started, not the new project — Phase 4's onboarding needs the Bash-tool
 cwd moved first. `cd` in its own Bash call (never a compound `cd &&`), then assert:
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/assert-cwd" "<new-dir-abs>"
-```
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\assert-cwd.cmd" "<new-dir-abs>"`
+(Shape W)
 
 **4 — Delegate onboarding to `coordinator:repo-setup`** against the new dir — it produces the
 coordinator artifacts (CLAUDE.md, tracker, README index, orientation cache, `state/` skeleton,
@@ -83,17 +82,12 @@ Substitute `--public` for the public choice. Never create a remote unasked; neve
 `BLOCK-BLANKET-GIT-ADD` hook guards only the `~/.claude` meta-repo). Detail: wiki.
 
 **7 — Report the honest boundary.** The current session does NOT become the new project — its
-`CLAUDE.md`/`coordinator.local.md` stay cwd-scoped to where it started. Emit a paste-able
-launcher:
-
-```
-✓ Created <name> at <new-dir> — scaffolded (<template>), onboarded via repo-setup<, pushed to <remote>>.
-
-This session is still cwd-scoped to where it started — it does NOT become the new project.
-To start working in it, open a Claude session rooted there:
-
-    cd <new-dir> && claude
-```
+`CLAUDE.md`/`coordinator.local.md` stay cwd-scoped to where it started. Report to the user, naming
+what was created, scaffolded, onboarded, and (if applicable) pushed — for example: "Created
+`<name>` at `<new-dir>` — scaffolded (`<template>`), onboarded via repo-setup, pushed to
+`<remote>`." Note that this session is still cwd-scoped to where it started and does not become
+the new project, and that to start working in it they should open a Claude session rooted in
+`<new-dir>` — `cd <new-dir>`, then start Claude Code there.
 
 ## Out of scope (v1)
 

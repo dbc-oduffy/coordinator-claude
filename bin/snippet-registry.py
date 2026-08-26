@@ -48,7 +48,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_data_root import data_root  # noqa: E402
 from machine_local_resolve import resolve_machine_local_bin  # noqa: E402
 
@@ -77,9 +77,7 @@ def main() -> None:
         print("  list-for <consumer-path>")
         sys.exit(0)
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     try:
         from coordinator_core.snippet_sync import registry as reg
     except ImportError as exc:

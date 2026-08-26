@@ -31,7 +31,7 @@ own § Exit-code contract):
         this trampoline never re-validates argv shape past the subcommand
         token, so a submodule's own usage-error exit code passes through
         unchanged.
-    3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable or
+    3 — transport failure (engine root unresolvable or
         `coordinator_core.workday_complete.{brief,apply}` not importable) —
         this trampoline's own transport failure, distinct from any business
         exit code the underlying submodule may compute.

@@ -158,7 +158,7 @@ def cmd_visited_init(args: argparse.Namespace) -> int:
         .replace("+00:00", "Z"),
         "visited": [],
     }
-    visited_file.write_text(json.dumps(data, indent=2))
+    visited_file.write_text(json.dumps(data, indent=2), newline="\n")
 
     print(f"Session ID: {session_id}")
     print(f"Visited-set: {visited_file}")

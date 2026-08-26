@@ -74,10 +74,12 @@ from __future__ import annotations
 # `python -c` and JSON (see SINGLE LINE, DELIBERATELY above), not from the shell. The legacy
 # string emitter `wrap_command()` (and its `_shell_quote` helper) is deleted (C2): all 43
 # `hooks.json` registrations moved to exec form, leaving it with no remaining caller.
-# SITE-PACKAGES INJECTION. The BOOTSTRAP three-rung ladder (env var, pointer file, layout-derived
-# path), pyvenv.cfg ABI version gating, sys.path precedence/promotion, the TOCTOU acceptance, and
-# the pointer-file trust-boundary analysis are documented in _hook_venv_inject.py's own module
-# docstring, where that mechanism actually lives -- not here.
+# NO SITE-PACKAGES INJECTION, BY CONSTRUCTION. Registrations carry one trailing token
+# (BOOTSTRAP_PATH), not two. The three-rung site-packages ladder, its pyvenv.cfg ABI gate and its
+# sys.path promotion step are retired along with the coordinator venv they resolved; hook-path
+# third-party imports resolve from whichever interpreter bare `python3` lands on. Re-adding a
+# path-mutating token here would reintroduce a seam whose only supported target is a venv --
+# `_find_venv_root` gated every rung on a `pyvenv.cfg`, which a machine interpreter does not have.
 LOADER = (
     "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) "
     "else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)"
@@ -114,27 +116,30 @@ def _split_python3_command(command: str):
     return parts[1], parts[2:]
 
 
-INJECTOR_TOKEN = "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_venv_inject.py"
 BOOTSTRAP_PATH = "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
 
 
 def wrap_command_exec(command: str) -> dict:
     """Rewrite ``python3 <script> [args]`` into its fail-open exec-form registration.
 
-    Returns ``{"command": "python3", "args": ["-c", LOADER, script, *args, INJECTOR_TOKEN,
-    BOOTSTRAP_PATH]}`` -- the shape `hooks.json` exec-form registrations consume. The target
-    script stays at `args` index 2, the only index with production evidence of
-    `${CLAUDE_PLUGIN_ROOT}` expansion (AC3); the injector path and the trampoline's own path
-    are appended as the last two elements instead, where each is popped off the end in turn --
-    `LOADER` pops `BOOTSTRAP_PATH` first and `exec()`s it, then `_hook_boot.py`'s own shim pops
-    `INJECTOR_TOKEN` -- before either sees the remaining `sys.argv` handed to the target. No
-    shell is ever in the path: each element is passed to the child process verbatim, which is
-    what retires the `_dq` quoting-invariant hazard class this module used to police.
+    Returns ``{"command": "python3", "args": ["-c", LOADER, script, *args, BOOTSTRAP_PATH]}``
+    -- the shape `hooks.json` exec-form registrations consume. The target script stays at
+    `args` index 2, the only index with production evidence of `${CLAUDE_PLUGIN_ROOT}`
+    expansion (AC3); the trampoline's own path is appended as the last element, where `LOADER`
+    pops it and `exec()`s it before the remaining `sys.argv` reaches the target. No shell is
+    ever in the path: each element is passed to the child process verbatim, which is what
+    retires the `_dq` quoting-invariant hazard class this module used to police.
+
+    One trailing token, not two: the site-packages injector that used to occupy the
+    second-to-last slot is retired, and hook-path third-party imports now resolve from the
+    interpreter `python3` lands on. `_hook_boot.py` drains a stale injector element off the
+    tail so a registration snapshotted by a still-running pre-retirement session does not hand
+    the target script a spurious argument.
     """
     script, args = _split_python3_command(command)
     return {
         "command": "python3",
-        "args": ["-c", LOADER, script, *args, INJECTOR_TOKEN, BOOTSTRAP_PATH],
+        "args": ["-c", LOADER, script, *args, BOOTSTRAP_PATH],
     }
 
 

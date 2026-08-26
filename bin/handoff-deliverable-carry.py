@@ -68,7 +68,7 @@ The carry/mint-from-slug path (mirrors mint_deliverable_id.mint's own "carry" /
 as the bash oracle's inline comment documented ("logs 'carry path' / 'mint-from-slug
 path' to stderr").
 
-Exit codes: 0 on success. A missing/unresolvable CLAUDE_KLABAUTER_ROOT (this trampoline's own
+Exit codes: 0 on success. A missing/unresolvable engine root (this trampoline's own
 transport failure) exits 3 — distinct from any business-logic exit, so a broken engine
 link surfaces immediately rather than silently degrading to an empty/wrong carry.
 Exit 4 is a dropped join: an active plan was named but yields no `deliverable_id` (read
@@ -100,13 +100,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
 
 _TRANSPORT_FAIL = 3
 _DROPPED_JOIN_FAIL = 4
 _DIVERGENT_JOIN_FAIL = 5
 
-# Pre-resolve CLAUDE_KLABAUTER_ROOT and import the cascade eagerly (same
+# Pre-resolve the engine root and import the cascade eagerly (same
 # _resolve_claude_klabauter_root() ladder _import_ops() below reuses for the remaining
 # ops) so `resolve_deliverable_and_initiative` / `DroppedDeliverableJoinError`
 # are real, directly callable module attributes for in-process callers —
@@ -115,9 +115,7 @@ _DIVERGENT_JOIN_FAIL = 5
 # failure reporting in main() (exit 3, no traceback) is unchanged.
 _IMPORT_ERROR: Exception | None = None
 try:
-    _claude_klabauter_root = _resolve_claude_klabauter_root()
-    if _claude_klabauter_root not in sys.path:
-        sys.path.insert(0, _claude_klabauter_root)
+    _claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.deliverable_carry import (
         DivergentDeliverableIdError,
         DroppedDeliverableJoinError,
@@ -131,9 +129,9 @@ except (RuntimeError, ImportError) as _exc:
 
 
 def _import_ops():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the two composed ops.
+    """Resolve the engine root, put it on sys.path, and import the two composed ops.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is deliberately
@@ -142,9 +140,7 @@ def _import_ops():
     """
     if _IMPORT_ERROR is not None:
         raise _IMPORT_ERROR
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.read_frontmatter_field import read_frontmatter_field
     from coordinator_core.ops.mint_deliverable_id import mint
 
@@ -152,6 +148,17 @@ def _import_ops():
 
 
 def _cmd_resolve(args: argparse.Namespace, read_frontmatter_field, mint) -> int:
+    # `work_slug` is passed CONDITIONALLY, not unconditionally with a None
+    # default, because this CLI resolves its engine through
+    # `require_dispatch_engine_on_path` — the PUBLISHED mirror, not the live
+    # tree this file sits in (the doc-new entrypoint's self-location walk-up
+    # ladder is a different one and does land live). Between a live edit here
+    # and the next publish round the mirror's cascade has no `work_slug`
+    # parameter, and an unconditional kwarg would TypeError every existing
+    # invocation for a value none of them supply. Passing it only when the
+    # caller actually asked confines the skew window to the new flag, where
+    # failing loud is correct.
+    _extra_kwargs = {"work_slug": args.work_slug} if args.work_slug else {}
     dlvr_id, initiative_id = resolve_deliverable_and_initiative(
         read_frontmatter_field,
         mint,
@@ -159,6 +166,7 @@ def _cmd_resolve(args: argparse.Namespace, read_frontmatter_field, mint) -> int:
         args.predecessor,
         args.slug_suffix,
         additional_predecessors=args.additional_predecessor or None,
+        **_extra_kwargs,
     )
     print(f"DLVR_ID={dlvr_id}")
     print(f"INITIATIVE_ID={initiative_id}")
@@ -185,6 +193,14 @@ def main(argv: list[str]) -> int:
         "matching the bash oracle's '<YYYYMMDD>-handoff' slug)",
     )
     resolve_parser.add_argument(
+        "--work-slug",
+        default="",
+        help="the WORK's own slug, used as the mint-from-slug basis when no rung of the "
+        "cascade carries an id. Omitted (the default), the basis stays the date-shaped "
+        "'<YYYYMMDD>-<slug-suffix>', which names the day rather than the work. Pass an "
+        "author-written slug only -- a placeholder title must not become a durable id.",
+    )
+    resolve_parser.add_argument(
         "--additional-predecessor",
         action="append",
         default=[],
@@ -202,7 +218,7 @@ def main(argv: list[str]) -> int:
     try:
         read_frontmatter_field, mint = _import_ops()
     except RuntimeError as exc:
-        print(f"handoff-deliverable-carry.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"handoff-deliverable-carry.py: engine-root resolution failed: {exc}", file=sys.stderr)
         return _TRANSPORT_FAIL
     except ImportError as exc:
         print(f"handoff-deliverable-carry.py: coordinator_core ops not importable: {exc}", file=sys.stderr)

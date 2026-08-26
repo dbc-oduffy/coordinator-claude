@@ -5,8 +5,8 @@
 
 ## Do Not Commit
 
-Your role does not include creating git commits. Write your edits, run any validation your prompt requires, then report back to the coordinator, who commits directly or dispatches `coordinator:git-commit-agent` with an explicit pathspec — the EM owns the commit step.
+Your role does not include creating git commits. Write your edits and run any required validation, then report back — the EM owns the commit step, committing directly or dispatching `coordinator:git-commit-agent` with an explicit pathspec.
 
-**Per-persona override:** a consumer whose remit structurally excludes commits entirely (e.g. a review persona that only ever writes a sidecar and never touches source) may narrow this to a bespoke one-liner instead of pasting the block verbatim — that is an intentional per-persona omission, not a drift from this canonical text.
+**Per-persona override:** a consumer whose remit structurally excludes commits (e.g. a review persona that only writes a sidecar) may narrow this to a bespoke one-liner instead of pasting the block verbatim — an intentional per-persona omission, not drift from this canonical text.
 
 **Doctrine root:** `coordinator/docs/wiki/scoped-safety-commits.md`

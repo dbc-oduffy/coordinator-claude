@@ -11,7 +11,7 @@ full design rationale and negative-spec.
 
 `--wrapper-src` defaults to this trampoline's own sibling `claude-doe.py` file
 (this script and the wrapper it installs both live under
-`<claude_klabauter_root>/coordinator/bin/`) — no CLAUDE_KLABAUTER_ROOT resolution is needed for
+`<engine_root>/coordinator/bin/`) — no engine-root resolution is needed for
 that default, since it is always co-located.
 
 Spec backlink: docs/plans/2026-07-23-skills-carry-no-code-extirpation.md § M3/D9
@@ -25,7 +25,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _default_wrapper_src() -> str:
@@ -38,9 +38,7 @@ def _resolve_run_op_main():
     scope-touch claim instead of an unclaimed orphan at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 

@@ -41,7 +41,7 @@ concurrent-em-hazards.md § H33.
 #   1 — usage/argument error
 #   2 — `bash -n` validation failure on commit (or `bash` unavailable on this
 #       machine) — the swap did NOT happen; live hook untouched.
-#   3 — CLAUDE_KLABAUTER_ROOT resolution / import failure (transport failure). This is
+#   3 — engine-root resolution / import failure (transport failure). This is
 #       a dedicated code, distinct from both business codes above, per the
 #       fail-loud-validator posture (a stage/commit call must not silently
 #       misreport a claude-klabauter-link outage as either a usage error or a syntax
@@ -68,16 +68,16 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 EXIT_TRANSPORT_FAILURE = 3
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the shared
+    """Resolve the engine root, put it on sys.path, and import the shared
     in-process runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -89,9 +89,7 @@ def _import_runner():
     that, the live hook this helper swaps in is an orphan at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -111,7 +109,7 @@ def main() -> None:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        print(f"edit-live-hook.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"edit-live-hook.sh: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(EXIT_TRANSPORT_FAILURE)
     except ImportError as exc:
         print(

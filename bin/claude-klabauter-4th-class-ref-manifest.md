@@ -2,6 +2,12 @@
 
 **C2b ground-truth for C3/C4 scripted seam-adoption.**
 Generated: 2026-07-03
+
+> **Superseded in part, 2026-08-23.** Every row citing `cockpit-emission.json` as a live output
+> path is now historical: the artifact and its producer (`artifact.emit`) were deleted under
+> DR-351. The rows are left intact because this file is a dated ground-truth snapshot of a
+> completed plan, not a live index — the same reason its `bin/emit-cockpit-snapshot.sh:NNN`
+> citations were already marked RETIRED in 2026-07-08 rather than removed.
 Plan: docs/plans/2026-07-03-stop-the-rot-claude-klabauter-state-home-placement.md
 Spec backlink: plan § "Indirect / rev-parse-rooted" 4th-class taxonomy row
 
@@ -199,6 +205,9 @@ line 34 and a class-b PER-REPO ref at line 101). Count as one unique file but tw
    `CLAUDE_KLABAUTER_ROOT` instead of relying on `CLAUDE_HOME`.
    **Post-DR-208/DR-210 note (2026-07-08):** the tests exercise `cockpit-emission.json`
    as an output artifact, which is unaffected by the producer-identity change — claude-klabauter's
-   `artifact.emit` now writes that file. The `bin/emit-cockpit-snapshot.sh:NNN` citations
+   `artifact.emit` wrote that file until 2026-08-23, when both it and the file were deleted
+   (DR-351) — so the tests below exercise a path that no longer exists at all. The
+   `bin/emit-cockpit-snapshot.sh:NNN` citations
    in this manifest's class-(a) table above are stale (retired bash body); this item's
-   `$ROOT/state/cockpit-emission.json` output-path reference remains accurate.
+   `$ROOT/state/cockpit-emission.json` output-path reference named a real file at the time and
+   names nothing now.

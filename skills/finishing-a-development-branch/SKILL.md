@@ -21,8 +21,9 @@ Guide completion of development work by presenting clear options and handling ch
 
 **Before presenting options, check whether test evidence already covers this branch.** If this session already has fast-tier or targeted-test evidence for the current diff, report it as-is and move to Step 2 — this step is not a cadence gate that reruns tests on every branch finish.
 
-If no such evidence exists, a scoped run beats a broad one: prefer targeted tests covering the touched files over the fast tier. Reaching for the fast tier at all means reaching for the grant first — this skill is not on the implicit-grant ceremony list (`/workday-complete`, `/workweek-complete`, `/merging-to-main`), so before invoking a resolved Tier F command, check
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check` (the same session-scoped token Tier U consumes). Exit 0 = granted, resolve and run via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-resolve-validation-cmd" --fast` (rc 0 = resolved, run the result and capture its exit code; rc 2 = no `fast_test_cmd` configured — skipped, not failed). Exit 1 (ungranted) halts before invoking it: ask the PM for a session grant, run under a ceremony that already holds the implicit grant, or defer and report `Validation: skipped` for this invocation. Either way, a full-suite gate belongs to the merge ceremony downstream (Option 1 chains into `merging-to-main`, which runs its own CI-gated checks) — this step never substitutes for that gate. Interim caveat: a chained `fast_test_cmd` (`a && b`, `a; b`, a pipe) is denied by the invocation guard today — don't reshape the command to dodge it; configure `fast_test_cmd` as a single command, with multi-step logic in a wrapper script instead.
+If no such evidence exists, a scoped run beats a broad one: prefer targeted tests covering the touched files over the fast tier. Reaching for the fast tier at all means reaching for the grant first — this skill is not on the implicit-grant ceremony list (`/workday-complete`, `/workweek-complete`, `/merging-to-main`), so before invoking a resolved Tier F command, check (POSIX-host form below; on a PowerShell host
+use the `.cmd` sibling through the call operator — Shape W, `snippets/resolve-coordinator-bin.md`)
+`tier-u-grant-cli check` (the same session-scoped token Tier U consumes). Exit 0 = granted, resolve and run via `coordinator-resolve-validation-cmd --fast` (rc 0 = resolved, run the result and capture its exit code; rc 2 = no `fast_test_cmd` configured — skipped, not failed). Exit 1 (ungranted) halts before invoking it: ask the PM for a session grant, run under a ceremony that already holds the implicit grant, or defer and report `Validation: skipped` for this invocation. Either way, a full-suite gate belongs to the merge ceremony downstream (Option 1 chains into `merging-to-main`, which runs its own CI-gated checks) — this step never substitutes for that gate. Interim caveat: a chained `fast_test_cmd` (`a && b`, `a; b`, a pipe) is denied by the invocation guard today — don't reshape the command to dodge it; configure `fast_test_cmd` as a single command, with multi-step logic in a wrapper script instead.
 
 **If tests fail:**
 ```
@@ -143,5 +144,5 @@ If yes, remove it (`git worktree remove <worktree-path>`) — regardless of whic
   separate skill from this one rather than folded, since a "fold thin engines into their only
   caller" consolidation only applies when the two skills share one caller and scope — these don't.
 
-**Extraction note:** the Step 3 3-option menu is the judgment residue an assembler cannot
-resolve — it stays hand-authored prose, not a computed op.
+**Extraction note:** the Step 3 3-option menu is a judgment call nothing can compute — it stays
+hand-authored prose, not a computed op.

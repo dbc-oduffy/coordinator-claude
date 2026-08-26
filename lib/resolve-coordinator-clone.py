@@ -116,20 +116,18 @@ if _LIB_DIR not in sys.path:
 
 
 def _import_registry_get():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import the canonical settings-home registry
+    """Resolve the engine root and import the canonical settings-home registry
     reader. Returns None (not raises) on any resolution failure — this is an
     advisory fallback rung (see `_registry_live_path`), never a hard
     dependency."""
     try:
-        from cc_invoke import _resolve_claude_klabauter_root
+        from cc_invoke import require_dispatch_engine_on_path
     except ImportError:
         return None
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except Exception:
         return None
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
     try:
         from coordinator_core.machine_resolver import registry_get
     except ImportError:

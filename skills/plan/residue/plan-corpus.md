@@ -29,7 +29,19 @@ _Condition: substrate verified. The four PM doctrinal lenses bind here — this 
 - _The drafted spine carries 5+ candidate scope-cut rows?_ (disposition `backlogged`/`wont_do`, or `open` rows carrying `case_against`) — a literal count over the spine's typed disposition fields, no judgment in the count itself.
   → That volume means the plan is mis-scoped, not that each cut needs individual disposition. Stop enumerating IDs; describe the shape the cuts form, bucket them, and propose one spinoff per bucket. Same move as the `plan⇄sizing` return edge: a plan discovering mid-draft that its scope was mis-read routes back to re-scoping rather than pushing through.
 
+- _Writing `## Anti-scope`, or any prose about how the plan gets executed?_
+  → **Name no execution vehicle.** Anti-scope binds the change; the vehicle is the executing EM's
+  call at dispatch time, default a background Workflow. *"Do not fan this out"* / *"EM-sequenced,
+  chunk at a time"* will be overridden, so write the real constraint instead: a shared write target
+  is a `depends_on` edge on the spine, a Workflow-inexpressible shape is a named carve-out
+  (`docs/wiki/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
+- _Wave shape depends on something this plan has not established ("do X, then decide")?_
+  → That is a **spike chunk before execution**, not a licence to grind chunk-at-a-time. An
+  unresolved decision left in the body bounces at `/execute-plan` Phase 1.4 anyway.
+
 - _Plan mutates a shared symbol (state enum, gameplay tag, public field, exported signature)?_ → Add a reverse-reference scan subsection listing every consumer.
+
+- _Drafting tasks?_ → Declare `review_signals` first, from `coordinator/contract/review-signals.json` — membership is enforced by the contract's parity test plus the frontmatter write guard where a coordinator engine is installed, never by an enum here or in the schema. An absent field is a positive claim: no specialist and no external-docs surface is in play, not an oversight to fill in later.
 
 - _Plan amends an assumption another live plan depends on?_
   → **Edit the body of every affected sibling in this same change.** (1) grep `docs/plans/` for references to the amended assumption; (2) edit each hit inline so the assumption matches the new shape; (3) add `**Amended <YYYY-MM-DD> by <this-plan-slug>:** <one-line change>` at the top of each; (4) commit the amending plan and all edited siblings together. Silent drift is the failure mode — a sibling still citing the old shape gets dispatched against stale substrate.

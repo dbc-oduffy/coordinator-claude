@@ -11,7 +11,7 @@ Usage: dirty-tree-gate.py --terminator <token>
 
 Exit codes:
     0  all dirty paths attributable (phantom / staged-a / consumed-handoff-b)
-    1  CLAUDE_KLABAUTER_ROOT resolution or coordinator_core import failure (fail-loud —
+    1  engine-root resolution or coordinator_core import failure (fail-loud —
        this is a gate script; a silent claude-klabauter-link failure must not let a
        dirty-tree pre-terminate check silently pass)
     2  usage error (missing --terminator, not a git repo)
@@ -35,13 +35,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.dirty_tree_gate import main as _op_main
     return _op_main
 
@@ -50,7 +48,7 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        print(f"dirty-tree-gate.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"dirty-tree-gate.py: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
     except ImportError as exc:
         print(f"dirty-tree-gate.py: coordinator_core.ops.dirty_tree_gate not importable: {exc}", file=sys.stderr)

@@ -270,10 +270,15 @@ def is_denied_repo_setup_claude_home(
     return resolved_candidate == claude_home
 
 
-_WIKI_ANCHOR = (
-    "coordinator/docs/wiki/doe-altitude-and-shared-infra.md"
-    "#claude-central-is-a-backup-repo-not-a-working-tree"
-)
+#: No wiki anchor. The obvious target (`docs/wiki/doe-altitude-and-shared-
+#: infra.md`) is a fleet-private page outside `SEED_WIKIS`, so it 404s for
+#: every reader this hook actually reaches -- a sibling repo's checkout or an
+#: OSS install, which is where `repo-setup` runs. The prose below therefore
+#: carries the whole diagnosis inline (what ~/.claude is, why it is not a
+#: target, and the command that IS) rather than pointing at further reading
+#: the denied caller cannot open. Do not re-add a citation here without first
+#: promoting its target into the seed allowlist; a pointer that 404s is worse
+#: than none, because it reads as an answer.
 
 
 def _compose_deny_message() -> Message:
@@ -284,7 +289,7 @@ def _compose_deny_message() -> Message:
         "against the DoE-claude clone instead: "
         "/repo-setup --root <path-to-DoE-claude>."
     )
-    return compose(prose, anchor=_WIKI_ANCHOR)
+    return compose(prose)
 
 
 def main() -> int:

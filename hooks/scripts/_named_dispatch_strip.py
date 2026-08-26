@@ -71,11 +71,93 @@ from _message_envelope import compose, render  # noqa: E402
 #: alias, per docs/plans/2026-08-02-guard-message-character-cap.md § C6).
 _WIKI_ANCHOR = "coordinator/docs/wiki/guard-message-concision.md#named-dispatch-strip"
 
+#: CONFINEMENT reason. Naming one of these discards a read-only tool
+#: restriction (`tools` falls back to `"*"`), so a rewrite this module cannot
+#: build faithfully fails CLOSED -- see `_DENY_MESSAGE` and the FAIL-CLOSED
+#: contract in the module docstring.
 _RESTRICTED_SUBAGENT_TYPES = ("Explore", "Plan")
+
+#: DELIVERY reason. These are the agent definitions that report by returning
+#: a pointer line -- naming one converts it into an Agent-teams teammate whose
+#: final text is never delivered to the dispatcher, so the report is silently
+#: voided (claude-klabauter-em, 2026-08-25, transcript-backed; filed at
+#: state/improvement-queue/2026-08-25-named-dispatch-voids-a-reporting-agents-report.yaml).
+#: Stripping `name` restores ordinary tool-result delivery.
+#:
+#: THREE-CLASS TAXONOMY (2026-08-25, named-dispatch-three-class-partition
+#: C1). This tuple declares classes 2+3 ONLY -- class 1 is deliberately
+#: absent from this module, never declared as an in-module roster; the
+#: full three-way taxonomy lives in C2's oracle and C5's wiki, the only
+#: places anything at runtime (or in tests) consumes the 2-vs-3 distinction.
+#: Nothing here reads that distinction -- both classes strip identically.
+#:
+#:   Class 1 (never strips, not in this tuple, 16 types: eng-director,
+#:   staff-eng, staff-ux, staff-data-sci, senior-front-end, vp-product,
+#:   research-specialist, repo-specialist, research-worker, docs-checker,
+#:   research-sweep, research-synthesizer, structured-synthesizer,
+#:   research-scout, repo-scout, notebooklm-research-scout). Derived from
+#:   two properties: declares `SendMessage` in its frontmatter `tools:`
+#:   line (13/13, verified with zero difference in either direction), OR
+#:   is named-by-driver per the namer census (research-scout, repo-scout,
+#:   notebooklm-research-scout -- named on purpose by four in-tree drivers
+#:   even without declaring `SendMessage`). Either property means naming it
+#:   does NOT silently void the report, so there is nothing here to strip.
+#:
+#:   Class 2 (strips, carries the clause, 13 types below through
+#:   `test_runner`). The resident named-dispatch clause in its
+#:   `coordinator/agents/*.md` definition is what marks it reporting-typed
+#:   without a delivery guarantee -- naming it voids the report exactly as
+#:   this module's top-level rationale describes.
+#:
+#:   Class 3 (strips, no clause, 3 types: enricher, executor,
+#:   review-integrator). Same DELIVERY exposure as class 2 -- naming voids
+#:   the report -- but these definitions do not carry the resident clause,
+#:   so they are added by name rather than picked up by the clause-set
+#:   derivation below.
+#:
+#: NEGATIVE SPEC: this tuple is not a hand-curated taste list for classes 2
+#: and 3 combined. Class 2 is exactly the set of `coordinator/agents/*.md`
+#: definitions carrying the resident named-dispatch clause, and
+#: `test_reporting_type_set_matches_the_agent_definitions` pins that subset
+#: -- add the clause to a definition and this tuple must gain the type in
+#: the same pass. Class 3 (enricher, executor, review-integrator) has no
+#: clause and is not derivable that way; it is added by name because those
+#: three definitions share class 2's DELIVERY exposure without the marker.
+#: The whole tuple is hardcoded rather than derived because this module is
+#: on the PreToolUse path and must not read 25+ files per dispatch.
+_REPORTING_SUBAGENT_TYPES = (
+    "coordinator:atlas-clarity-reviewer",
+    "coordinator:code-reviewer",
+    "coordinator:code-reviewer-weekly",
+    "coordinator:coverage-auditor",
+    "coordinator:dep-cve-auditor",
+    "coordinator:doc-link-checker",
+    "coordinator:enricher",
+    "coordinator:executor",
+    "coordinator:external-pattern-checker",
+    "coordinator:parallel-review-synthesizer",
+    "coordinator:plan-coverage-checker",
+    "coordinator:prior-art-checker",
+    "coordinator:review-integrator",
+    "coordinator:security-audit-worker",
+    "coordinator:test-evidence-parser",
+    "coordinator:test-runner",
+)
 
 # The complete set of keys this module knows how to carry forward into a
 # stripped `tool_input`. A key outside this set is a schema drift neither
 # caller has been taught about -- see the fail-closed discussion above.
+#
+# NEGATIVE SPEC: this set is reconciled against the LIVE Agent tool schema,
+# never against the keys a dispatch happens to use. A key the harness accepts
+# but this set omits is not caught by the fail-closed contract -- it IS the
+# failure: `compute_named_dispatch_result` denies the whole tool call, so a
+# harness-legal dispatch dies at the guard. `mode` and `team_name` are here
+# for that reason and no other; both are accepted by the Agent schema, both
+# are carried forward verbatim by the `dict(tool_input)` copy below, and
+# neither encodes a confinement property that stripping `name` discards --
+# which is the only thing the deny leg exists to protect. When the Agent
+# schema gains a key, add it here in the same pass.
 _KNOWN_AGENT_TOOL_INPUT_KEYS = frozenset(
     {
         "subagent_type",
@@ -85,11 +167,31 @@ _KNOWN_AGENT_TOOL_INPUT_KEYS = frozenset(
         "run_in_background",
         "isolation",
         "model",
+        "mode",
+        "team_name",
     }
 )
 
 
-def _compose_offer_message(subagent_type: str) -> str:
+#: Why a given type is in scope. `_REASON_CONFINEMENT` fails CLOSED on a
+#: rewrite it cannot build (naming discards a real read-only restriction, so
+#: allowing it through unchecked is the worse outcome). `_REASON_DELIVERY`
+#: fails OPEN -- see `compute_named_dispatch_result`'s asymmetry note.
+_REASON_CONFINEMENT = "confinement"
+_REASON_DELIVERY = "delivery"
+
+
+def _reason_for(subagent_type: Any) -> Optional[str]:
+    """Which leg, if any, this `subagent_type` is in scope for. `None` means
+    out of scope entirely -- an ordinary pass, never a failure."""
+    if subagent_type in _RESTRICTED_SUBAGENT_TYPES:
+        return _REASON_CONFINEMENT
+    if subagent_type in _REPORTING_SUBAGENT_TYPES:
+        return _REASON_DELIVERY
+    return None
+
+
+def _compose_offer_message(subagent_type: str, reason: str) -> str:
     """Pure composer for the `strip` offer (docs/plans/2026-08-02-guard-
     message-character-cap.md § C6). The full rationale (read-only
     restriction, system prompt, and omitClaudeMd loss; the ~31k-token cost
@@ -98,12 +200,23 @@ def _compose_offer_message(subagent_type: str) -> str:
     `Message`) since both callers (`enforce-agent-dispatch-mode.py`,
     `guard-named-dispatch-tool-restriction.py`) treat this as a plain
     `additionalContext` string, not a `Message` they render themselves."""
-    prose = (
-        "[named-dispatch guard] `name:` stripped from {} -- naming "
-        "Explore/Plan loses read-only + costs ~31k tokens; proceeds "
-        "unnamed. Use a non-plugin subagent_type for teammate messaging."
-    ).format(subagent_type)
+    if reason == _REASON_DELIVERY:
+        prose = (
+            "[named-dispatch guard] `name:` stripped from {} -- naming it "
+            "makes it a teammate, whose report never reaches you; proceeds "
+            "unnamed so it arrives. Its sidecar is the durable copy either "
+            "way. (Some other reporting-typed agents declare `SendMessage` "
+            "or are named-by-driver and keep reaching you when named -- this "
+            "one does not.)"
+        ).format(subagent_type)
+    else:
+        prose = (
+            "[named-dispatch guard] `name:` stripped from {} -- naming "
+            "Explore/Plan loses read-only + costs ~31k tokens; proceeds "
+            "unnamed. Use a non-plugin subagent_type for teammate messaging."
+        ).format(subagent_type)
     return render(compose(prose, anchor=_WIKI_ANCHOR))
+
 
 _DENY_MESSAGE = (
     "[named-dispatch guard] denied: this dispatch names {subagent_type} "
@@ -121,9 +234,23 @@ _DENY_MESSAGE = (
 def compute_named_dispatch_result(tool_input: dict) -> Optional[tuple[str, Any, str]]:
     """Pure computation, no I/O.
 
-    Returns `None` when there is nothing to do: `subagent_type` is not
-    `Explore`/`Plan`, or `name` is absent from `tool_input` -- an ordinary
-    pass, not a failure.
+    Returns `None` when there is nothing to do: `subagent_type` is in
+    neither `_RESTRICTED_SUBAGENT_TYPES` nor `_REPORTING_SUBAGENT_TYPES`, or
+    `name` is absent from `tool_input` -- an ordinary pass, not a failure.
+
+    THE TWO LEGS ARE DELIBERATELY ASYMMETRIC ON FAILURE, and this is the
+    whole reason `_reason_for` exists rather than one flat tuple.
+    `_REASON_CONFINEMENT` fails CLOSED: naming Explore/Plan discards a real
+    read-only restriction, so a rewrite this module cannot build faithfully
+    must deny rather than risk allowing an unconfined agent through.
+    `_REASON_DELIVERY` fails OPEN (returns `None`, dispatch proceeds named):
+    naming a reporting agent discards nothing -- it costs a report that may
+    be lost, which is exactly today's behaviour, so denying would trade a
+    sometimes-lost report for a certainly-dead dispatch. Symmetry here would
+    be a defect: claude-klabauter-em measured 410 report-eligible named
+    dispatches in two weeks, peak 103/day, so a fail-closed delivery leg
+    turns one unreconciled `tool_input` key into ~100 hard-denied dispatches
+    in a day. Deny where confinement is at stake; pass where it is not.
 
     Returns `("strip", merged_tool_input, offer_message)` when this IS a
     named Explore/Plan dispatch and a faithful rewrite could be built --
@@ -140,7 +267,8 @@ def compute_named_dispatch_result(tool_input: dict) -> Optional[tuple[str, Any, 
     silently drop it and fall through to allow.
     """
     subagent_type = tool_input.get("subagent_type")
-    if subagent_type not in _RESTRICTED_SUBAGENT_TYPES:
+    reason = _reason_for(subagent_type)
+    if reason is None:
         return None
     if "name" not in tool_input:
         return None
@@ -149,9 +277,13 @@ def compute_named_dispatch_result(tool_input: dict) -> Optional[tuple[str, Any, 
     try:
         unknown_keys = set(tool_input.keys()) - _KNOWN_AGENT_TOOL_INPUT_KEYS
         if unknown_keys:
+            if reason == _REASON_DELIVERY:
+                return None
             return ("deny", None, _DENY_MESSAGE.format(subagent_type=subagent_type_str))
         merged = dict(tool_input)
         del merged["name"]
-        return ("strip", merged, _compose_offer_message(subagent_type_str))
+        return ("strip", merged, _compose_offer_message(subagent_type_str, reason))
     except Exception:
+        if reason == _REASON_DELIVERY:
+            return None
         return ("deny", None, _DENY_MESSAGE.format(subagent_type=subagent_type_str))

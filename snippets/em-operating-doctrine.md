@@ -11,8 +11,6 @@
 
 **Plan-and-dispatch by default.** A handoff is planning context, not a trigger to implement inline. Disk-first: persist review/plan output before acting. STOP and re-plan when something goes sideways.
 
-**Handoff Lineage.** Predecessor is whatever handoff opened this session — no adjacency inference. Spinoffs are PM-authorized forks only, never self-authored.
-
 **Improvement Queue.** Don't queue what you could fix now. A same-session fix and an inbound memo `ask` are hard-forbidden queue writes.
 
 **Captain's Log.** What isn't in code or docs didn't happen. Every residual you won't fix gets a durable home — dispatch, lesson, queue, bug; telling the PM is not one. A close is your last act: leave it better, not annotated.
@@ -47,7 +45,7 @@ Bias to action: phase/wave/chunk boundaries are not stop boundaries. Unchanged: 
 
 **Agent Teams** are for cross-pollination/blocking chains; serial subagents for independent work. `/staff-session`/`/coordinator:research` are PM-gated. A teammate blocked on `blockedBy` will not auto-resume — `SendMessage` to wake it.
 
-**Git worktrees are banned** at the tool seam (`git worktree add`, `EnterWorktree`, `isolation: "worktree"`) — parallel agents share one tree, separated by disjoint file scope, never by checkout. **Scoped commits only** — never `git add -A`/`.`/`commit -a`; use `ceremony.scoped_git_commit`. Only the EM, or `coordinator:git-commit-agent` (deliberately Sonnet — pathspec verification, not judgment), commits. **Never revert a hunk you did not write** — drop out-of-scope files from the pathspec and report; don't `git checkout --` them. **Never bare-`git stash`** — it sweeps peers' uncommitted work. Scope it, or read `git show HEAD:<path>`.
+**Scoped commits only** — never `git add -A`/`.`/`commit -a`; use `ceremony.scoped_git_commit`. Only the EM, or `coordinator:git-commit-agent` (deliberately Sonnet — pathspec verification, not judgment), commits. **Never revert a hunk you did not write** — drop out-of-scope files from the pathspec and report; don't `git checkout --` them. **Never bare-`git stash`** — it sweeps peers' uncommitted work. Scope it, or read `git show HEAD:<path>`.
 
 **Never brief a non-committer to commit.** Its resident `do-not-commit` snippet collides with the brief, and capability resolves that contradiction wrong. Need something committed? EM commits it, or dispatches `git-commit-agent` with an explicit pathspec.
 
@@ -57,16 +55,8 @@ Bias to action: phase/wave/chunk boundaries are not stop boundaries. Unchanged: 
 
 **Tier-4 rationale is hard-required.** Any `Explore`/`general-purpose`/`feature-dev:code-explorer` dispatch opens with `Tier 1-3 attempted: <results>; <why insufficient>`.
 
-**Pick the cheap tier deliberately.** Unnamed `Explore`/`Plan` skip the doctrine corpus (~17.6k vs ~45k tokens) — default to it for read-only sweeps. **Never `name:` an `Explore`/`Plan` dispatch** — naming discards the built-in definition: corpus-skipping goes, tools widen, and it can now write.
-
-**Scouts are disk-first**: reply DONE only after `ls`-verifying the file.
+**Pick the cheap tier deliberately.** Unnamed `Explore`/`Plan` skip the doctrine corpus (~17.6k vs ~45k tokens) — default to it for read-only sweeps.
 
 **Handoff claims are hypotheses** — verify against HEAD before acting. Grep is authoritative over the spec.
 
-## How to Review What Came Back
-
-**Reviews are sequential, never parallel** — integrate finding-set 1 before dispatching reviewer 2 (exceptions: merge-gate, workstream-complete slices). Pre-flight sidecars are consumed alongside the plan, not inserted into that chain.
-
-**Reviewer-routed workers:** a `## Worker Dispatch Recommendations` block is a finding to dispatch, not optional.
-
-**Two Sonnet pre-flights gate before an Opus reviewer**; `plan-coverage-checker` has no EM opt-out. A recurring "what should the brief have told you?" naming an EM-only rule is a mis-routing signal.
+**A recurring "what should the brief have told you?" naming an EM-only rule is a mis-routing signal** — the brief is yours to fix, not the reviewer's to work around.

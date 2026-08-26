@@ -29,7 +29,7 @@ Relocated from bin/distill-delete-guard.py (DEC-3, 2026-07-23
 Claude-klabauter-driven-ceremony-redesign) to coordinator/bin/ conventions — discoverability
 (fleet `resolve-claude-klabauter-bin` machinery points at coordinator/bin, not top-level bin/)
 plus Windows `.cmd` twin coverage. The old bin/ path is now a thin deprecation
-forwarder; see that file. CLAUDE_KLABAUTER_ROOT is resolved via cc_invoke's
+forwarder; see that file. The engine root is resolved via cc_invoke's
 resolve_colocated_claude_klabauter_root ladder: this file's own coordinator/bin/ parent-of-
 parent location is tried FIRST (self-location, zero external dependency, cannot be
 unset) and accepted once it probes as a real claude-klabauter checkout; the machine-local
@@ -55,7 +55,7 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 try:
     _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
 except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
     sys.exit(1)
 
 from coordinator_core.distill import delete_guard as _delete_guard

@@ -51,7 +51,7 @@ Exit codes:
     snapshot — 0 (JSON printed) / 1 (freeze-review-diff.py failed; its own
                stderr is surfaced verbatim) / 2 (usage error).
 
-Negative-spec: does NOT resolve CLAUDE_KLABAUTER_ROOT, does NOT source the
+Negative-spec: does NOT resolve the engine root, does NOT source the
 _cc_trusted/_cc_root plugin-root-trust preamble, and does NOT walk the
 resolve-claude-klabauter-bin settings-home ladder — none of that applies here. This
 CLI and the two sibling CLIs it wraps (verify-parallel-review-lens-
@@ -90,9 +90,21 @@ require_engine_on_path(__file__)
 
 from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv  # noqa: E402
 
 _PROG = "parallel-review-orthogonality-guard.py"
 _BIN_DIR = Path(__file__).resolve().parent
+
+#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
+#: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
+#: capture. `snapshot --range` takes a git rev/range typed directly at the
+#: CLI (e.g. the `sha^..sha` predecessor-range shape), which cmd.exe's `%*`
+#: batch-parameter population silently strips a literal `^` from — see
+#: `coordinator/bin/lib/raw_cmdline_recovery.py`'s module docstring. Refuses
+#: on an unvouchable capture (coordinator-write-review-trail.py's C2
+#: posture — this is a low-traffic weekly-gate CLI, not scoped-git-commit's
+#: ~40-concurrent-session hot path).
+_LAUNCHER_CMD_NAME = "parallel-review-orthogonality-guard.cmd"
 _VERIFY_CLI = _BIN_DIR / "verify-parallel-review-lens-orthogonality.py"
 _FREEZE_CLI = _BIN_DIR / "freeze-review-diff.py"
 
@@ -219,4 +231,14 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
+    except UnsoundRawCmdlineTransport:
+        print(
+            f"{_PROG}: the invoking shell stripped characters from this "
+            f'command line before this process started — run `python "'
+            f'{_BIN_DIR / _PROG}" ...` instead.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sys.exit(main(_argv))

@@ -11,16 +11,16 @@ sourced-lib boolean primitive) paid the bash-invocation tax on every call and
 degrades Windows. This port preserves the bash original's SELF-CONTAINMENT
 deliberately: the bash oracle resolved the meta-repo root by shelling out to
 this repo's own `claude-home/claude-home dir` — a DoE-local resolver with no
-CLAUDE_KLABAUTER_ROOT / engine-repo dependency — never the engine checkout. A
+engine-root / engine-repo dependency — never the engine checkout. A
 sibling native module exists on the engine side
 (`coordinator_core.meta_repo_identity.is_meta_repo`, authored explicitly as
 "the Python-native peer of DoE's coordinator-is-meta-repo.sh" for a future
 gated adoption wave) but importing it here would introduce a bootstrap
-coupling this primitive never had: CLAUDE_KLABAUTER_ROOT must already resolve to a
+coupling this primitive never had: the engine root must already resolve to a
 real engine checkout with `coordinator_core` importable just to
 answer "is cwd the meta-repo?" — a question this file's own callers
 (coordinator_state_root's Rule 5, and coordinator_doe_root's bootstrap
-ladder) ask BEFORE CLAUDE_KLABAUTER_ROOT is necessarily known. Reusing the DoE-local
+ladder) ask BEFORE the engine root is necessarily known. Reusing the DoE-local
 `claude-home` seam (this repo's own `coordinator/lib/claude-home/_claude_home.py`,
 already the sourced-out implementation the bash oracle shelled to) avoids
 that bootstrap-order hazard while still reusing an existing seam rather
@@ -51,7 +51,7 @@ Public API (importable, mirrors the retired bash function's call shape):
 
 Negative-spec:
   - Does NOT modify any global variables.
-  - Does NOT call coordinator_claude_klabauter_root or resolve CLAUDE_KLABAUTER_ROOT — purely
+  - Does NOT call the engine-root resolver or resolve the engine root — purely
     about meta-repo identity, deliberately self-contained (see rationale
     above).
   - Does NOT use GNU realpath — uses Path.resolve() for BSD/Windows-portable
@@ -75,7 +75,7 @@ from typing import Optional
 
 def _claude_home_module():
     """Import this repo's own claude-home resolver module (DoE-local, no
-    CLAUDE_KLABAUTER_ROOT dependency) — mirrors the bash oracle's own lib-relative
+    engine-root dependency) — mirrors the bash oracle's own lib-relative
     resolution of `${_cimr_lib_dir}/claude-home/claude-home`."""
     _lib_dir = os.path.dirname(os.path.abspath(__file__))
     _claude_home_dir = os.path.join(_lib_dir, "claude-home")

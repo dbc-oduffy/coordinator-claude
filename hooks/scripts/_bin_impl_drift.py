@@ -48,7 +48,7 @@ def _templates_bin() -> Path:
 
     `<plugin>/hooks/scripts/_bin_impl_drift.py` → `<plugin>/templates/bin`. Anchoring
     on `__file__` means the refresh always reads the tree that is actually running,
-    which is the correct source under both install shapes (a DoE dev clone resolved
+    which is the correct source under both install shapes (a dev clone resolved
     via `--plugin-dir`, and the OSS plugin root).
     """
     return Path(__file__).resolve().parents[2] / "templates" / "bin"

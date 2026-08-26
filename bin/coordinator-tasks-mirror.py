@@ -37,7 +37,7 @@ cs_resolve_session_id. Fix-in-port (DR-059): the coordinator-root resolution +
 trusted-root-guard dance existed ONLY as bash's mechanism for safely `source`-ing a
 sibling script — it is not needed here. This port imports
 coordinator_core.session.core.resolve_session_id directly (via
-cc_invoke.resolve_engine_root() for CLAUDE_KLABAUTER_ROOT resolution — self-location-first,
+cc_invoke.resolve_engine_root() for engine-root resolution — self-location-first,
 so this co-located script finds its own checkout even on an install whose
 machine-local registry was never populated — matching every other
 Windows-campaign per-op port) — no bash-source chain, no coordinator-root trust check,
@@ -71,7 +71,7 @@ from repo_identity import resolve_checked_repo_root  # noqa: E402
 def _resolve_session_id(cwd: str) -> str:
     """Import + call coordinator_core.session.core.resolve_session_id(cwd).
 
-    Raises RuntimeError on CLAUDE_KLABAUTER_ROOT/import failure (caller maps to exit 1,
+    Raises RuntimeError on engine-root/import failure (caller maps to exit 1,
     matching the bash oracle's fail-loud coordinator-root-unresolved path).
     """
     cc_invoke.require_engine_on_path(__file__)
@@ -151,7 +151,7 @@ def cmd_init(repo_root: str, sid: str, name: str, titles: list[str]) -> int:
         lines.append(f"    updated_at: {now}")
 
     tmp_path = mirror_file + ".tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines) + "\n")
     os.replace(tmp_path, mirror_file)
 
@@ -209,7 +209,7 @@ def cmd_update(repo_root: str, sid: str, name: str, title: str, state: str) -> i
             out_lines[i] = f"updated_at: {now}"
 
     tmp_path = mirror_file + ".update.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
+    with open(tmp_path, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(out_lines) + "\n")
     os.replace(tmp_path, mirror_file)
 
@@ -247,7 +247,7 @@ def main(argv: list[str]) -> int:
     try:
         sid = _resolve_session_id(os.getcwd())
     except RuntimeError as exc:
-        print(f"ERROR: could not resolve CLAUDE_KLABAUTER_ROOT: {exc}", file=sys.stderr)
+        print(f"ERROR: could not resolve the engine root: {exc}", file=sys.stderr)
         return 1
 
     if not sid:

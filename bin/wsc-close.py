@@ -251,7 +251,7 @@ def _cmd_archive_session(args: argparse.Namespace) -> int:
         require_colocated_engine_on_path(__file__)
     except RuntimeError as exc:
         print(
-            f"wsc-close.py archive-session: CLAUDE_KLABAUTER_ROOT resolution failed: {exc} "
+            f"wsc-close.py archive-session: engine-root resolution failed: {exc} "
             "(non-fatal — skipping, per module docstring)",
             file=sys.stderr,
         )

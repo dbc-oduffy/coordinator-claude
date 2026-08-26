@@ -45,9 +45,9 @@ _NO_CONSOLE_WINDOW = (
 
 
 def _claude_klabauter_env() -> Optional[dict]:
-    """Resolve CLAUDE_KLABAUTER_ROOT and build the js_bridge_cli subprocess env.
+    """Resolve the engine root and build the js_bridge_cli subprocess env.
 
-    Returns None if CLAUDE_KLABAUTER_ROOT is unresolvable — callers treat that as a
+    Returns None if the engine root is unresolvable — callers treat that as a
     best-effort skip, matching the old "lib not found" branch.
     """
     try:
@@ -99,6 +99,15 @@ def claim_path(touched_file: str, entry: str) -> None:
     failure (no session, ambiguous sessions, subprocess errors, unresolvable
     claude-klabauter engine).
 
+    ``entry`` MUST be repo-relative. Since 2026-08-21 the CLI REFUSES an
+    absolute entry (``claims.canonical_claim_entry`` returns None) rather than
+    recording an unmatchable key, and says so on its own stderr — which this
+    wrapper captures. Its stderr is therefore FORWARDED below whenever it is
+    non-empty, at rc 0 as well as non-zero: the child exits 0 on a refusal by
+    design (the "never throws" contract), so a returncode-only check would
+    swallow the one line telling the operator their claim was dropped, and a
+    dropped claim nobody sees is a path nobody is protecting.
+
     Args:
         touched_file: Absolute path to the session's touched.txt.
         entry: Repo-relative path to record (the file that was just written).
@@ -113,6 +122,8 @@ def claim_path(touched_file: str, entry: str) -> None:
 
     try:
         result = _js_bridge_cli(["claim-path", touched_file, entry], env)
+        if result.stderr and result.stderr.strip():
+            print(result.stderr.rstrip("\n"), file=sys.stderr)
         if result.returncode != 0:
             print(
                 f"coordinator-session: claim-path failed (rc={result.returncode}) — "

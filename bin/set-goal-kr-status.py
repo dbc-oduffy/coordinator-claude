@@ -28,17 +28,26 @@ Options:
                          locate the cross-process lock sidecar. Default: the
                          goal file's parent directory (mirrors the op's own
                          default — see goal_kr_status.py's set_kr_status()).
-    --timeout <secs>    Max seconds to wait for the cross-process lock
-                         (default: 10.0, matching the op's own default).
+    --timeout <secs>    Max seconds to wait for the cross-process lock.
+                         Capped at 2.0 (MAX_TIMEOUT_SECS): a larger value is
+                         clamped, with a stderr notice, never honoured. Ask for
+                         less, never for more. Omitting the flag leaves the op
+                         on its own 10.0 default, which the op's
+                         MAX_LOCK_TIMEOUT_SECS clamps to the same 2.0 — so 2.0s
+                         is the effective wait either way.
 
 Exit codes:
     0 — success; the op's bare result ({goal_file, kr_id, status}) printed to
         stdout as JSON.
     1 — client-side argument error (missing --goal-file / --kr-id / --status).
     2 — everything else: unresolvable git repo root for the cc_invoke spawn,
-        or any cc_invoke transport/op failure (op-level ValueError such as an
+        any cc_invoke transport/op failure (op-level ValueError such as an
         unknown kr_id or a missing status: field, missing goal file, lock
-        timeout, malformed envelope).
+        timeout, malformed envelope), or an in-envelope refusal (non-zero
+        'exit_code' / non-empty 'error') that cc_invoke's transport-only
+        ladder returns as an ordinary bare result rather than raising —
+        inspected here via cc_invoke.mutation_refusal_message() (DR-215
+        exit_code trap).
 
 Spec backlink: docs/plans/2026-07-25-goal-kr-status-provenance-and-bin-door.md [DEAD-CITATION: plan file never committed to this repo]
 Source memo: cross-repo/inbox/2026-07-25-example-market-data-repo-em-goal-engine-seams-and-kr-status-provenance.md
@@ -54,8 +63,40 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke  # noqa: E402
+from cc_invoke import cc_invoke, mutation_refusal_message  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
+
+MAX_TIMEOUT_SECS: float = 2.0
+"""Ceiling on --timeout, mirroring coordinator_core.ops.goal_kr_status's
+MAX_LOCK_TIMEOUT_SECS (itself matching ipc.CEREMONY_BUDGET_SECS). Restated
+rather than imported: this door reaches the op
+only across the cc_invoke process boundary and cannot import coordinator_core.
+The op-side clamp is the authority and holds regardless of this one; this exists
+so an over-ask is answered at the door the caller typed at, not silently
+downstream."""
+
+
+def _clamp_timeout(raw: str) -> float:
+    """Parse a --timeout argument and clamp it to MAX_TIMEOUT_SECS.
+
+    Exits 1 on an unparseable value (previously a bare float() call that raised
+    an uncaught ValueError). A request above the ceiling is clamped, not refused,
+    with a one-line stderr notice — the caller asked for a lock wait, and a
+    shorter wait still does the work they asked for.
+    """
+    try:
+        requested = float(raw)
+    except ValueError:
+        print(f"ERROR: --timeout must be a number, got {raw!r}", file=sys.stderr)
+        sys.exit(1)
+    if requested > MAX_TIMEOUT_SECS:
+        print(
+            f"set-goal-kr-status: --timeout {requested}s exceeds the "
+            f"{MAX_TIMEOUT_SECS}s ceiling; using {MAX_TIMEOUT_SECS}s",
+            file=sys.stderr,
+        )
+        return MAX_TIMEOUT_SECS
+    return requested
 
 
 def _parse_args(argv: list[str]) -> dict[str, str]:
@@ -136,7 +177,7 @@ def main(argv: list[str]) -> int:
     if parsed["repo_root"]:
         params["repo_root"] = parsed["repo_root"]
     if parsed["timeout"]:
-        params["timeout"] = float(parsed["timeout"])
+        params["timeout"] = _clamp_timeout(parsed["timeout"])
 
     cwd_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if cwd_repo_root is None:
@@ -161,6 +202,11 @@ def main(argv: list[str]) -> int:
         result = cc_invoke("goal.set_kr_status", params, cwd_repo_root)
     except RuntimeError as exc:
         print(f"set-goal-kr-status: {exc}", file=sys.stderr)
+        return 2
+
+    message = mutation_refusal_message("goal.set_kr_status", result)
+    if message is not None:
+        print(f"set-goal-kr-status: {message}", file=sys.stderr)
         return 2
 
     print(json.dumps(result, ensure_ascii=False))

@@ -600,7 +600,7 @@ def repair_registry_pollution(diagnose: Optional[Finding] = None) -> RepairOutco
         )
 
     try:
-        local_path.write_text("".join(kept_lines), encoding="utf-8")
+        local_path.write_text("".join(kept_lines), encoding="utf-8", newline="\n")
     except OSError as exc:
         return RepairOutcome(
             "registry-pollution", applied=False, detail="write failed", error=str(exc),

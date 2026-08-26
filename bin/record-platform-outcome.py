@@ -313,7 +313,7 @@ def write_record(path: str, record: dict) -> None:
         f"invoking_repo: {_yaml_str(record['invoking_repo'])}",
         "",
     ]
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))
 
 

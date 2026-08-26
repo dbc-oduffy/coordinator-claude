@@ -183,7 +183,7 @@ Improvement-queue triage: daily emits depth nudge only (≥5 → notice); weekly
 ## Weekly ceremony — `/workweek-start`
 
 PM-facing weekly bookend, chains into `/workday-start` at its own close (the week's first session
-is also a workday). Bootstraps `state/week-changelog/HEADER.md` on a fresh project.
+is also a workday). Bootstraps the week-changelog header on a fresh project.
 
 ### `state/week-changelog/` directory conventions
 

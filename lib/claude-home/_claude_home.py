@@ -496,7 +496,7 @@ def write_config(data: dict[str, Any]) -> None:
     fd, tmp = tempfile.mkstemp(dir=str(cfg.parent), prefix=".claude.json.", suffix=".tmp")
     os.close(fd)
     try:
-        with open(tmp, "w", encoding="utf-8") as fh:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)
             fh.flush()
             os.fsync(fh.fileno())

@@ -123,12 +123,87 @@ class _CommitError(Exception):
 
 
 def _get_staged_paths(coordinator_root):
-    """Repo-root-relative paths currently staged (`git diff --cached --name-only`)."""
+    """Repo-root-relative paths currently staged (`git diff --cached --name-only`).
+
+    This is a raw snapshot of the SHARED index, not a per-session set: on a
+    working tree shared by multiple concurrent sessions, `git diff --cached`
+    returns the UNION of every session's staged work, with no way to tell
+    them apart on its own. Callers wanting "paths this session may safely
+    commit" must run this through `_filter_pre_staged_by_ownership` before
+    treating it as this ceremony's own pre-stage.
+    """
     out = subprocess.run(
         ["git", "-C", coordinator_root, "diff", "--cached", "--name-only"],
         capture_output=True, text=True,
     ).stdout
     return [line for line in out.splitlines() if line]
+
+
+def _filter_pre_staged_by_ownership(coordinator_root, pre_staged_paths):
+    """Filter a raw `_get_staged_paths` snapshot down to paths this session may
+    safely fold into its own commit -- i.e. paths that are unclaimed, or
+    claimed by THIS session. A path claimed by a DIFFERENT live session is
+    dropped: it is that peer's in-flight work, staged in the shared index
+    concurrently with this ceremony, not something step9 ever staged itself.
+
+    Reuses the SAME in-process ownership resolver
+    `coordinator_core.ops.session.safe_commit_offer.full_ownership_map` that
+    Step 2.5's dirty-tree scan (`workday_complete_step2_5_dirty_tree.
+    _resolve_claim_context`) already relies on for the identical question --
+    no second ownership mechanism is invented here.
+
+    Fail-safe direction: EXCLUDE whenever ownership cannot be confidently
+    resolved for a path, never include-by-default. Concretely:
+      - session id unresolvable, or the ownership map raises -- exclude
+        EVERY pre-staged path (no claim awareness this run at all).
+      - a path with no peer-map entry (unclaimed, or claimed by this
+        session per `mine_paths`) -- keep.
+      - a path with a peer-map entry whose liveness is "live" -- drop (a
+        different live session owns it).
+      - a path with a peer-map entry whose liveness is "dead" -- keep (a
+        stale claim is not a live peer's in-flight work).
+      - a path with a peer-map entry whose liveness is "undetermined" --
+        drop: an unresolved liveness verdict must never be read as
+        permission to commit over a possibly-live peer.
+    """
+    if not pre_staged_paths:
+        return []
+    try:
+        from coordinator_core.ops.session.safe_commit_offer import full_ownership_map
+        from coordinator_core.session import core as _session_core
+    except Exception:
+        return []
+
+    try:
+        sid = _session_core.resolve_session_id(coordinator_root)
+    except Exception:
+        sid = ""
+    if not sid:
+        return []
+
+    try:
+        mine_paths, peer_map = full_ownership_map(sid, coordinator_root)
+    except Exception:
+        return []
+
+    kept = []
+    for path in pre_staged_paths:
+        if path in mine_paths:
+            kept.append(path)
+            continue
+        peer_fact = peer_map.get(path)
+        if peer_fact is None:
+            kept.append(path)
+            continue
+        if peer_fact.get("liveness") == "dead":
+            kept.append(path)
+            continue
+        print(
+            f"[step9] excluding pre-staged path claimed by another session: "
+            f"{path} owner={peer_fact.get('owner')} liveness={peer_fact.get('liveness')}",
+            file=sys.stderr,
+        )
+    return kept
 
 
 def _to_repo_relative(coordinator_root, path):
@@ -142,10 +217,15 @@ def _to_repo_relative(coordinator_root, path):
 def _commit_frozen_paths(coordinator_root, commit_paths, commit_msg):
     """Commit EXACTLY `commit_paths` via an explicit pathspec -- never a bare
     `git commit` that would sweep in whatever else happens to be in the index.
-    `commit_paths` must be the set step9 observed and intended at entry (its own
-    output files, plus whatever was already staged by 2.6/4.5 BEFORE step9 ran);
-    anything a peer stages DURING step9's own execution is a snapshot omission by
-    construction and is left untouched in the index.
+    `commit_paths` must be the set step9 observed and intended at entry: its own
+    output files, plus whatever was ALREADY staged before step9 ran and this
+    session could confirm is not a DIFFERENT live session's in-flight work (see
+    `_filter_pre_staged_by_ownership` at the call site -- a raw `git diff
+    --cached` snapshot on this shared working tree is the union of every
+    concurrent session's staged paths, not this ceremony's own pre-stage, and
+    must never be trusted unfiltered). Anything a peer stages DURING step9's
+    own execution is a snapshot omission by construction and is left untouched
+    in the index.
 
     Returns the short commit SHA, or None if none of commit_paths has staged
     changes (idempotent no-op). Raises _CommitError on a genuine git-commit failure.
@@ -392,10 +472,16 @@ def main(argv):
 
     coordinator_root = _resolve_coordinator_root()
 
-    # Snapshot the index BEFORE step9 does anything of its own -- this is the
-    # frozen "already-staged-by-someone-else" set (the 2.6/4.5 pre-stage contract)
-    # that Zone C is contracted to sweep in. Anything staged by a peer AFTER this
-    # point is, by construction, not in this snapshot and will not be committed.
+    # Snapshot the index BEFORE step9 does anything of its own. On a working
+    # tree used by exactly one session this would be the "already-staged-by-
+    # someone-else" set the 2.6/4.5 pre-stage contract describes; on the
+    # SHARED tree this repo actually runs on, `git diff --cached` returns the
+    # union of every concurrent session's staged work, with no way to tell
+    # them apart from the snapshot alone. `_filter_pre_staged_by_ownership`
+    # (called below, once coordinator_core is importable) is what narrows
+    # this raw union down to paths this ceremony may actually fold in.
+    # Anything staged by a peer AFTER this snapshot point is, by
+    # construction, not in this snapshot and will not be committed either way.
     pre_staged_paths = _get_staged_paths(coordinator_root)
 
     # ---------------------------------------------------------------------
@@ -405,6 +491,21 @@ def main(argv):
     # ---------------------------------------------------------------------
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
+        # Verify coordinator_core actually LIVES at the resolved claude_klabauter_root
+        # before trusting the imports below. sys.path.insert(0, claude_klabauter_root)
+        # alone does not guarantee this: if claude_klabauter_root is empty (or lacks
+        # coordinator_core) but coordinator_core is ALSO reachable elsewhere
+        # on this interpreter's sys.path -- e.g. a developer's ambient
+        # `pip install -e .` of the engine, ahead or behind the inserted
+        # entry -- the bare import below silently succeeds against that
+        # OTHER install instead of failing. That is a dependency-resolution
+        # failure wearing a success's clothes: the operator asked for the
+        # engine at claude_klabauter_root and got a possibly-different one with no
+        # signal. Fail loud here instead, before either import is attempted.
+        if not os.path.isdir(os.path.join(claude_klabauter_root, "coordinator_core")):
+            raise RuntimeError(
+                f"coordinator_core not found under resolved CLAUDE_KLABAUTER_ROOT={claude_klabauter_root!r}"
+            )
         if claude_klabauter_root not in sys.path:
             sys.path.insert(0, claude_klabauter_root)
         from coordinator_core.state_root import coordinator_state_root
@@ -581,18 +682,42 @@ def main(argv):
     if os.path.isfile(legacy_daily_summary):
         files_to_commit.append(legacy_daily_summary)
 
-    for f in files_to_commit:
-        subprocess.run(
-            ["git", "-C", coordinator_root, "add", "--", f],
-            capture_output=True, text=True,
+    subprocess.run(
+        ["git", "-C", coordinator_root, "add", "--", *files_to_commit],
+        capture_output=True, text=True,
+    )
+
+    # Second guard: refuse to commit at all when this ceremony's OWN output
+    # (the changelog block, plus the daily summary if present) has no actual
+    # staged diff of its own -- e.g. an idempotent re-run against an already-
+    # up-to-date changelog. Without this check, a non-empty PRE-STAGED set
+    # (this session's or a filtered-in peer path) would still make
+    # `_commit_frozen_paths`'s own union-scoped diff check pass, producing a
+    # commit whose subject claims a "daily block" it does not itself contain
+    # -- the exact shape seen in d721e7b3e / 9822a595f (a peer's file
+    # committed alone, under this ceremony's own commit message).
+    own_rel = [_to_repo_relative(coordinator_root, f) for f in files_to_commit]
+    own_diff = subprocess.run(
+        ["git", "-C", coordinator_root, "diff", "--cached", "--name-only", "--", *own_rel],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    if not own_diff:
+        print(
+            f"[step9] refusing to commit: named artifact ({changelog_file}) has no "
+            "staged changes of its own -- not committing any pre-staged/peer paths "
+            "under this ceremony's commit message",
         )
+        print("[step9] block unchanged (idempotent no-op)")
+        return 0
 
     # Frozen intended set: step9's own outputs, UNIONED with whatever was already
-    # staged BEFORE step9 ran (the 2.6/4.5 pre-stage contract) -- never "whatever
-    # happens to be in the index right now", which would also absorb anything a
-    # concurrent peer staged mid-run in this shared working tree.
-    own_rel = [_to_repo_relative(coordinator_root, f) for f in files_to_commit]
-    commit_paths = sorted(set(pre_staged_paths) | set(own_rel))
+    # staged BEFORE step9 ran and this session may safely fold in -- filtered by
+    # ownership (see `_filter_pre_staged_by_ownership`) so a DIFFERENT live
+    # session's in-flight staged work is never swept into this commit. Never
+    # "whatever happens to be in the index right now", which would also absorb
+    # anything a concurrent peer staged mid-run in this shared working tree.
+    filtered_pre_staged = _filter_pre_staged_by_ownership(coordinator_root, pre_staged_paths)
+    commit_paths = sorted(set(filtered_pre_staged) | set(own_rel))
 
     # Prefix with [backfill] when wrapping a past day (C2).
     if is_backfill:

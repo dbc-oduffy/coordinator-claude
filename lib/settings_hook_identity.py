@@ -113,7 +113,7 @@ def inverse_strip(settings_json: str, coordinator_root: str, out_path: str) -> N
     generated_hooks_dir = coordinator_root.rstrip("/") + "/hooks"
     program = jq_program() + _INVERSE_STRIP_FILTER
 
-    with open(out_path, "w", encoding="utf-8") as out_fh:
+    with open(out_path, "w", encoding="utf-8", newline="\n") as out_fh:
         subprocess.run(
             ["jq", "--arg", "generated_hooks_dir", generated_hooks_dir, program, settings_json],
             stdout=out_fh,

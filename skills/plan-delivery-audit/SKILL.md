@@ -42,8 +42,9 @@ scope/chunks/AC prose, extracts concrete artifact claims, checks each, reports P
 UNVERIFIABLE. No file modification, commit, or push during Oracle 2. If a plan names no concrete
 artifacts, Oracle 2(a) is unverifiable — treat the plan conservatively (see tie-breaks below).
 
-(b) *Project test suite* — not on the implicit-grant ceremony list; gate via
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check`
+(b) *Project test suite* — not on the implicit-grant ceremony list; gate via (shape per
+`snippets/resolve-coordinator-bin.md`; PowerShell shown)
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.cmd" check`
 the way `coordinator:validate` does. Granted: run the project's `fast_test_cmd` at HEAD once for
 the whole batch — a failing suite is independent falsifying evidence even when artifacts check
 out. Ungranted: report Oracle 2(b) as skipped-pending-grant; never substitute a hand-rolled
@@ -51,9 +52,10 @@ command or treat an unrun suite as passing.
 
 **Oracle 3 — review (archive-aware).** Trail records live at BOTH `state/review-trail/**/*.json`
 AND `archive/review-trail/**/*.json` — `/workweek-complete` moves the current week's records into
-`archive/review-trail/<week>/` on every reset, so a live-only glob under-counts. Read via:
+`archive/review-trail/<week>/` on every reset, so a live-only glob under-counts. Read via
+(shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown):
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/list-review-trail-records"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\list-review-trail-records.cmd"`
 
 For each returned record, call `coordinator_core.git_ancestry.is_covered(commit, start_sha,
 end_sha)` — the single source of truth for the covered-by-range polarity — for each of the

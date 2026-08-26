@@ -1,7 +1,7 @@
 """Shared claude-klabauter-root resolution seam for coordinator/hooks/scripts/*.py hooks.
 
 Purpose: every hook that needs to import `coordinator_core` from the sibling
-Claude-klabauter checkout previously carried its own copy-pasted
+engine checkout previously carried its own copy-pasted
 `_resolve_claude_klabauter_root()` ladder (22 independent copies as of the 2026-07-22
 executable-surface migration). This module is the ONE seam all of them import
 from instead — one place to fix, one place to test.
@@ -22,7 +22,7 @@ try/except so a pre-3.11 interpreter degrades to the next rung rather than
 raising).
 
 Spec: 2026-07-22 executable-surface-migration break-class fix (coordinator
-`bin`/`lib`/`scripts`/`tests` relocated to claude-klabauter; `coordinator/schemas/`
+`bin`/`lib`/`scripts`/`tests` relocated to the engine repo; `coordinator/schemas/`
 stayed here). Negative-spec: the previous per-hook ladder read a registry path
 built from the home directory joined with a literal `machine-local` segment
 under a literal dot-claude segment — that path does not exist on this fleet's
@@ -60,7 +60,7 @@ def _settings_home_registry_dir() -> Path:
     override rung), it already points AT the settings home, so appending the
     suffix again produced a doubled, nonexistent
     `<value>/.coordinator-claude-settings/machine-local` path. On a machine
-    where a sibling `claude-klabauter` checkout also exists next to this repo,
+    where a sibling engine checkout also exists next to this repo,
     rung 3 (sibling walk) silently produced the right answer anyway, masking
     the registry rung never having fired. Caught 2026-07-22 by explicitly
     setting COORDINATOR_SETTINGS_HOME and neutralizing rung 3.
@@ -119,7 +119,7 @@ _CLAUDE_KLABAUTER_SIBLING_DIR_NAME = "claude-klabauter"
 #: through the publish content-transform sweep and the injected skill payload
 #: deliberately does not, so a literal spelled on the consumer side would name
 #: a variable the published resolver no longer reads.
-LIVE_TREE_ENV_VARS = ("REPO_CLAUDE_KLABAUTER", "CLAUDE_KLABAUTER_ROOT")
+LIVE_TREE_ENV_VARS = ("REPO_CLAUDE_KLABAUTER", "COORDINATOR_ENGINE_ROOT")
 
 
 def _warn_fail_open(where: str, exc: BaseException) -> None:
@@ -749,6 +749,14 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
     co-development machine it is the answer you want. What this makes possible
     is that it be a deliberate, visible state rather than an invisible default.
 
+    **Cross-plane downstream consumer — this ladder is not repo-local.** The
+    engine plane's warm-server generation token fingerprints
+    `coordinator_core/_engine_stamp` in whichever clone THIS ladder resolved,
+    so a rung reordering here changes warm-generation behaviour in the engine
+    plane with no engine commit and no engine test. Rung ordering changes
+    carry the same cross-repo heads-up duty as a change to the hook
+    invocation shape: tell the engine team's EM before it lands.
+
     **Rung 2 is a DISJUNCTION (2026-08-16, C4).** Divert to the published
     engine when EITHER `engine.target` is readable (`_resolve_engine_target()`
     is not `None`) OR the legacy gate concretely confirms a non-working repo
@@ -821,8 +829,10 @@ def resolve_claude_klabauter_root_with_provenance() -> tuple[str | None, str, st
     once did (see module docstring, rung 3 negative-spec):
 
       0. `env_override = _resolve_live_tree_env_override()` (an explicit
-         `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT` env var pointing at an existing
-         directory). If set AND healthy (contains `coordinator_core/`) →
+         live-tree env var — see `LIVE_TREE_ENV_VARS` for the ratified
+         precedence order among the current spellings — pointing at an
+         existing directory). If set AND healthy (contains
+         `coordinator_core/`) →
          `(env_override, RESOLUTION_LIVE_WORKING_TREE, "env-override")` — an
          explicit override always wins over ambient discovery, published-
          engine registration included, when it is actually an engine
@@ -964,9 +974,10 @@ def resolve_claude_klabauter_root() -> str | None:
 
 
 def _resolve_live_tree_env_override() -> str | None:
-    """Rung 0 of `resolve_claude_klabauter_root_with_class` — an EXPLICIT
-    `REPO_CLAUDE_KLABAUTER`/`CLAUDE_KLABAUTER_ROOT` env var pointing at an existing
-    directory, checked ahead of the published-engine rung.
+    """Rung 0 of `resolve_claude_klabauter_root_with_class` — an EXPLICIT live-tree
+    env var (see `LIVE_TREE_ENV_VARS` for the ratified precedence order
+    among the current spellings) pointing at an existing directory, checked
+    ahead of the published-engine rung.
 
     Split out from `_resolve_live_working_tree` so the class-reporting
     resolver can consult the explicit-override rung alone, before any
@@ -1189,40 +1200,202 @@ def run_stop_hook_pointer_shim(module_name: str) -> int:
 
 def arm_lazy_ops() -> None:
     """Suppress `coordinator_core.ops`' eager all-op-module registration for
-    THIS process only. MUST be called BEFORE the first `import coordinator_core.*`.
+    THIS process only, on an engine old enough to still have a mode to select.
+    MUST be called BEFORE the first `import coordinator_core.*`.
 
-    Why: `coordinator_core/ops/__init__.py` imports ~80 op modules at package-init
-    time to populate the op registry. A hook stub that reaches into ONE engine
-    module (`from coordinator_core.ops.session.X import evaluate_Y`) still pays
-    for all 80 — measured on this machine at ~100ms of the ~122ms a SessionStart
-    guard stub costs end-to-end, against ~2ms of actual guard logic. Arming the
-    lazy channel drops that engine-import leg from ~101ms to ~23ms.
+    Backward-compatibility affordance, not a live control channel. Current
+    engines register lazily UNCONDITIONALLY: `coordinator_core/ops/__init__.py`
+    retired its `_lazy_ops_requested()` gate, so it reads neither this `sys`
+    attribute nor the `COORDINATOR_CORE_LAZY_OPS` env var, and this call is an
+    inert no-op against such an engine. It is retained because an install
+    resolves whatever engine revision is on disk, and against a PRE-retirement
+    engine this call is still the difference between the lazy and eager import
+    paths. Retire it — and every call site at once, never a subset — once the
+    fleet's engine floor is past that retirement.
 
-    This is the in-process channel documented at
-    `coordinator_core.ops._lazy_ops_requested` — a `sys` attribute, deliberately
-    NOT an env var, so it is inherited by no child process. Two writers existed
-    before this one (`coordinator_core.invoke.__main__` and
-    `coordinator/bin/lib/cc_invoke.py`); hook stubs are the same shape of caller
-    those two are: short-lived processes that touch a single named op module.
+    Why it mattered: a pre-retirement `ops/__init__.py` imported ~80 op modules
+    at package-init time to populate the op registry, so a hook stub reaching
+    into ONE engine module
+    (`from coordinator_core.ops.session.X import evaluate_Y`) still paid for all
+    80 — measured on this machine at ~100ms of the ~122ms a SessionStart guard
+    stub costs end-to-end, against ~2ms of actual guard logic. Arming dropped
+    that engine-import leg from ~101ms to ~23ms.
+
+    The channel is a `sys` attribute, deliberately NOT an env var, so it is
+    inherited by no child process. Two writers existed before this one
+    (`coordinator_core.invoke.__main__` and `coordinator/bin/lib/cc_invoke.py`);
+    hook stubs are the same shape of caller those two are: short-lived processes
+    that touch a single named op module.
 
     Safe for registry dispatch too, not just direct-import stubs: a registry miss
-    under lazy mode falls back to `_eager_import_all()`, so an op looked up by
-    name still resolves — it just pays the eager cost at lookup instead of at
-    import. Callers that dispatch by name and are latency-sensitive should still
-    prefer `cc_invoke`, which arms this channel itself.
+    resolves the op through its targeted per-op import on either engine, so an op
+    looked up by name still resolves — under a pre-retirement engine it just pays
+    the eager cost at lookup instead of at import.
 
-    Never raises: an engine whose `ops` package predates the lazy channel simply
-    ignores an attribute it does not read. The operator override
-    `COORDINATOR_CORE_LAZY_OPS` still wins in BOTH directions over this call.
+    Never raises: setting an attribute on `sys` cannot fail, and an engine that
+    does not read it simply ignores it. Against a PRE-retirement engine ONLY,
+    that engine's own operator override `COORDINATOR_CORE_LAZY_OPS` still wins in
+    both directions over this call ("1" forces lazy, "0" forces eager); a current
+    engine reads neither, so there is no precedence left to state.
     """
     import sys
 
     sys._coordinator_core_lazy_ops = True  # type: ignore[attr-defined]
 
 
+def place_engine_root_on_path(root: str) -> str:
+    """Put the resolved engine `root` on `sys.path` where it can actually win,
+    WITHOUT displacing the hooks dir from index 0. Returns `root` unchanged so a
+    caller can end on `return place_engine_root_on_path(root)`.
+
+    This is the one primitive every hook uses to reach the engine; do not
+    hand-roll the placement at a call site.
+
+    **Why not `sys.path.append`, which the runner contract used to mandate.**
+    The contract's requirement is that the hooks dir stay AHEAD of the engine
+    root, so a module-NAME collision resolves toward the doctrine-plane-local
+    helper. Appending satisfies that and nothing else: it puts the root at the
+    END of `sys.path`, behind site-packages, and therefore behind an editable
+    install of the engine (`__editable__.coordinator_core-*.pth` naming the
+    WORKING TREE). On such a box the resolver answers the published mirror and
+    the import returns the working tree -- in a clean process, every time, with
+    nothing else having run. Append cannot lose to a late import because it has
+    already lost to site-packages.
+
+    Index 1 satisfies the contract's ACTUAL requirement and outranks
+    site-packages: hooks dir at 0, engine root at 1. When the hooks dir is not
+    at index 0 (a caller that resolved the engine before its own
+    self-resolution), the root goes to index 0 -- being outranked by
+    site-packages is the failure this exists to prevent, and there is no
+    collision to lose because the hooks dir is not competing yet.
+
+    Idempotent: a root already at index 0 or 1 is left alone. A root elsewhere
+    on `sys.path` -- e.g. appended by an older caller in the same process -- is
+    MOVED, because leaving it where it cannot win is the whole defect.
+
+    Never raises: `sys.path` manipulation cannot fail, and a falsy root is a
+    no-op returning what it was given.
+
+    Placement is necessary, not sufficient -- it loses to a module cache already
+    bound by an earlier bare import. Confirm the outcome with
+    `engine_import_provenance()`; see
+    [[A-FRONT-INSERTED-ENGINE-ROOT-LOSES-TO-THE-MODULE-CACHE]].
+    """
+    import sys
+
+    if not root:
+        return root
+
+    hooks_dir = str(Path(__file__).resolve().parent)
+    target = 1 if (sys.path and sys.path[0] == hooks_dir) else 0
+
+    if root in sys.path[:2]:
+        return root
+    while root in sys.path:
+        sys.path.remove(root)
+    sys.path.insert(target, root)
+    return root
+
+
+PROVENANCE_UNIMPORTED = "unimported"
+PROVENANCE_MATCH = "match"
+PROVENANCE_DIVERGENT = "divergent"
+PROVENANCE_UNRESOLVED = "unresolved"
+
+
+def engine_import_provenance() -> tuple[str, str | None, str | None]:
+    """Where the ALREADY-IMPORTED `coordinator_core` actually came from,
+    against the root this module resolves. Returns
+    `(verdict, imported_file, engine_root)` where verdict is one of
+    `PROVENANCE_UNIMPORTED` / `PROVENANCE_MATCH` / `PROVENANCE_DIVERGENT` /
+    `PROVENANCE_UNRESOLVED`.
+
+    Why this is not redundant with `sys.path.insert(0, root)`. Front-inserting
+    the resolved root is the correct guard and it wins in a clean process, but
+    it is defeated by the module cache: once ANYTHING in the process has done a
+    bare `import coordinator_core`, `sys.modules` is bound and every later
+    insert is a no-op. On a box with an editable install
+    (`site-packages/__editable__.coordinator_core-*.pth` naming the engine's
+    WORKING TREE) that ambient path is on `sys.path` from site init, so the
+    losing case is the default rather than the exception. The insert asserts
+    an intent; this asserts the outcome.
+
+    Negative spec -- what this deliberately does NOT do:
+
+    - It does NOT import `coordinator_core`. A consumer that has not imported
+      the engine gets `PROVENANCE_UNIMPORTED`, never an import as a side
+      effect of asking a question. Calling this on a hot-path hook that never
+      touches the engine must stay free.
+    - It does NOT raise, on any input or any filesystem state. Hooks call it;
+      `UserPromptSubmit` is blocking and a non-zero exit rejects the human's
+      prompt. Every fallible step degrades to `PROVENANCE_UNRESOLVED`.
+    - It does NOT mutate `sys.path` to repair a divergence. By the time this
+      can observe one, the module object is already bound and handed out;
+      re-pathing would produce a second, differently-rooted copy of the same
+      package, which is strictly worse than one wrong copy.
+
+    The failure this exists to make visible is silent, not loud: both trees
+    export the same names, so a consumer reading the wrong one differs only in
+    behaviour or timing that will not reproduce elsewhere -- and can still pass
+    every budget and assertion it is checked against.
+    """
+    try:
+        import sys
+
+        module = sys.modules.get("coordinator_core")
+        if module is None:
+            return (PROVENANCE_UNIMPORTED, None, None)
+
+        imported_file = getattr(module, "__file__", None)
+        if not imported_file:
+            return (PROVENANCE_UNRESOLVED, None, None)
+
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return (PROVENANCE_UNRESOLVED, str(imported_file), None)
+
+        imported_resolved = Path(imported_file).resolve()
+        root_resolved = Path(root).resolve()
+        try:
+            imported_resolved.relative_to(root_resolved)
+        except ValueError:
+            return (PROVENANCE_DIVERGENT, str(imported_resolved), str(root_resolved))
+        return (PROVENANCE_MATCH, str(imported_resolved), str(root_resolved))
+    except Exception as exc:
+        _warn_fail_open("engine_import_provenance", exc)
+        return (PROVENANCE_UNRESOLVED, None, None)
+
+
+def warn_on_engine_import_divergence(where: str) -> str:
+    """Emit ONE stderr line if the imported engine is not the resolved one,
+    and return the verdict. Never raises; safe on a blocking hook.
+
+    Deliberately a warning and not a hard failure at the hook seam: a
+    divergent engine still executes, and converting an observability gap into
+    a prompt rejection trades a silent problem for a louder one the operator
+    did not ask for. Tests are where this verdict is an assertion -- see
+    `coordinator/tests/test_engine_import_provenance.py`.
+    """
+    verdict, imported_file, root = engine_import_provenance()
+    if verdict != PROVENANCE_DIVERGENT:
+        return verdict
+    try:
+        import sys
+
+        sys.stderr.write(
+            f"[_engine_root] engine import divergence in {where}: "
+            f"imported {imported_file!r}, resolved root {root!r} -- "
+            "an earlier bare `import coordinator_core` bound the module cache "
+            "before the front-insert ran\n"
+        )
+    except Exception:
+        pass
+    return verdict
+
+
 if __name__ == "__main__":
     # CLI entrypoint so a `.md` command/skill fence (which cannot `import`
-    # this module) resolves the claude-klabauter root by shelling out to this SAME
+    # this module) resolves the engine root by shelling out to this SAME
     # seam instead of hand-rolling a second, bash-native TOML reader — one
     # implementation, three consumers (Python import, `_claude_klabauter-root.js`
     # mirror, this CLI). Prints the resolved path, or an empty line on total

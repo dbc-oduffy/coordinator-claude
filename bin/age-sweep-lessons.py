@@ -190,24 +190,68 @@ def main(argv: list[str]) -> int:
 
     from coordinator_core.win_portability import no_console_creationflags
 
-    archived = 0
-    for src, date in archive_entries:
-        dst = adir / src.name
-        result = subprocess.run(
-            ["git", "mv", str(src), str(dst)],
-            capture_output=True,
-            cwd=str(repo_root),
-            **no_console_creationflags(),
-        )
-        if result.returncode != 0:
-            err = result.stderr.decode("utf-8", errors="replace").strip()
-            print(f"  error: git mv failed for {src.name}: {err}", file=sys.stderr)
-            return 1
-        archived += 1
-        print(f"  [APPLIED] archived {src.name} -> {dst}")
+    archived = _batched_git_mv_into_dir(
+        [src for src, _date in archive_entries], adir, repo_root, no_console_creationflags()
+    )
+    if archived is None:
+        return 1
+    for src, _date in archive_entries:
+        print(f"  [APPLIED] archived {src.name} -> {adir / src.name}")
 
     print(f"  [APPLIED] moved {archived} entries to {adir}")
     return 0
+
+
+# Windows caps a process command line at 32767 characters (`CreateProcess`); a
+# corpus of aged lessons can in principle exceed one batch. All sources share
+# ONE destination directory here (same `adir` for the whole sweep), so `git mv
+# src1 src2 ... dst/` is valid git syntax (basenames are preserved on a
+# directory destination) and the batch just needs byte-budget chunking against
+# the argv cap -- the idiom named in this plan's Safe-primitive map
+# (discriminator 7), applied by hand here since the loop target is a `Path`
+# list, not a raw argv splice.
+_GIT_MV_BATCH_BUDGET = 20000
+
+
+def _batched_git_mv_into_dir(
+    srcs: list, dst_dir, repo_root, creationflags_kwargs: dict
+) -> int | None:
+    """`git mv` every `srcs` entry into `dst_dir` (same target for all, so
+    basenames are preserved) using as few spawns as the argv-length budget
+    allows: N -> ceil(N / batch) calls, never N -> N. Returns the count moved,
+    or None (having already printed the ERROR) on any batch failure -- a
+    batch failure aborts the sweep rather than guessing which entries in a
+    failed batch actually moved."""
+    if not srcs:
+        return 0
+    batches: list[list] = []
+    current: list = []
+    current_len = 0
+    for src in srcs:
+        entry_len = len(str(src)) + 1
+        if current and current_len + entry_len > _GIT_MV_BATCH_BUDGET:
+            batches.append(current)
+            current = []
+            current_len = 0
+        current.append(src)
+        current_len += entry_len
+    if current:
+        batches.append(current)
+
+    moved = 0
+    for batch in batches:
+        result = subprocess.run(
+            ["git", "mv", *[str(s) for s in batch], str(dst_dir)],
+            capture_output=True,
+            cwd=str(repo_root),
+            **creationflags_kwargs,
+        )
+        if result.returncode != 0:
+            err = result.stderr.decode("utf-8", errors="replace").strip()
+            print(f"  error: git mv failed for a {len(batch)}-entry batch: {err}", file=sys.stderr)
+            return None
+        moved += len(batch)
+    return moved
 
 
 if __name__ == "__main__":

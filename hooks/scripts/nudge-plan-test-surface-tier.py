@@ -70,12 +70,37 @@ Spec: inline dispatch brief (no plan file), team-lead dispatch
 (tripwire registration, SKILL.md/wiki wording) owned by a peer worker in
 `coordinator/skills/plan/SKILL.md`, `coordinator/docs/wiki/writing-plans.md`,
 `coordinator/docs/wiki/coordinator-tripwires/tripwire-registry/` -- NOT touched here.
+
+SECOND DETECTOR (C4, `docs/plans/2026-08-19-vehicle-prohibition-caught-by-a-mechanism.md`)
+-- a plan cannot pick its execution vehicle
+(`coordinator/docs/wiki/coordinator-tripwires/a-plan-does-not-pick-the-execution-vehicle.md`,
+token `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`). C1/C2 (a dispatch-time detector) were
+CUT on a measured zero fire rate (`state/audits/2026-08-19-vehicle-advisory-baseline.md`) --
+this is the one authorship-time leg that ships. NARROW OR NOTHING: this detector matches
+`_VEHICLE_PHRASE_PATTERNS` (kept as one named constant so a reader can diff this guard's
+vocabulary against the `plan-coverage-checker` Anti-scope lens's finding text) ONLY inside a
+plan body's `## Anti-scope` section -- the first `## Anti-scope` heading to the next
+same-level `## ` heading, fenced code blocks excluded (`_extract_anti_scope_section`). A
+vehicle-naming sentence anywhere else in the body (a Tried/Failed record, a quoted parent
+baton, a whole-body scan) is deliberately invisible to this detector -- see
+`writing-plans.md` § Test Surface's standing objection to whole-corpus prose-matching, which
+this narrowing answers by construction rather than by tuning. The vocabulary is narrow by
+design: literal execution-vehicle nouns (`fan-out`, `EM-sequenced`, `chunk-at-a-time`,
+`hand-dispatch`, "one executor owns the whole thing"), not generic mechanism words -- a
+registration/hook prohibition inside `## Anti-scope` (e.g. "do not add a seventh standalone
+PreToolUse:Agent registration") names no vehicle noun and stays silent, which is the plan's
+own worked fixture for the negative case.
+
+Review: coordinator:code-reviewer (finding 2) -- `chunk-at-a-time`/`hand-dispatch` can also
+fire on legitimate non-dispatch prose (e.g. a data-migration batching constraint); accepted
+residual risk of the narrow-vocabulary design, not tightened further.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -99,6 +124,99 @@ _FIXTURE_SEGMENT = "/tests/fixtures/"
 _ANCHOR = "coordinator/skills/plan/residue/shared-corpus.md § test-surface row"
 
 _TOKEN = "PLAN-TEST-SURFACE-TIER"
+
+#: One named constant, per the module docstring's "SECOND DETECTOR" note --
+#: kept narrow (literal execution-vehicle nouns from the tripwire's own
+#: "Tell", not generic mechanism/registration words) so it never matches a
+#: legitimate hook/registration prohibition sitting in the same section.
+_VEHICLE_TOKEN = "A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE"
+
+_VEHICLE_ANCHOR = (
+    "coordinator/docs/wiki/coordinator-tripwires/"
+    "a-plan-does-not-pick-the-execution-vehicle.md"
+)
+
+_ANTI_SCOPE_HEADING = "## Anti-scope"
+
+_VEHICLE_PHRASE_PATTERNS: "tuple[re.Pattern[str], ...]" = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"\bfan-out\b",
+        r"\bem-sequenced\b",
+        r"\bchunk[- ]at[- ]a[- ]time\b",
+        r"\bhand-dispatch(?:ed)?\b",
+        r"one executor owns the whole thing",
+    )
+)
+
+
+def _extract_anti_scope_section(text: str) -> str:
+    """Section boundary: the first `## Anti-scope` heading (exact, own
+    line) to the next same-level `## ` heading, exclusive. Fenced code
+    blocks (```...```) within that span are stripped before returning, so a
+    quoted example inside a fence never reaches the phrase matcher. Returns
+    "" when no `## Anti-scope` heading exists -- the caller treats that as
+    "nothing to match".
+
+    Review: coordinator:code-reviewer (finding 1) -- fence PARITY is carried
+    in from the top of the document, not reset to False at `start`. A fence
+    opened before `## Anti-scope` and still open when the section begins
+    (malformed markdown, but plans are long freeform documents) would
+    otherwise make genuinely-fenced content read as plain text, the exact
+    false-positive shape the in-section fence handling below exists to
+    rule out -- just triggered from outside the section."""
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == _ANTI_SCOPE_HEADING:
+            start = i + 1
+            break
+    if start is None:
+        return ""
+
+    end = len(lines)
+    for j in range(start, len(lines)):
+        if lines[j].startswith("## "):
+            end = j
+            break
+
+    in_fence = False
+    for line in lines[:start]:
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+
+    kept: "list[str]" = []
+    for line in lines[start:end]:
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def _vehicle_match(anti_scope_text: str) -> "str | None":
+    """First `_VEHICLE_PHRASE_PATTERNS` match in `anti_scope_text`, or None.
+    Caller is responsible for having already scoped `anti_scope_text` to a
+    `## Anti-scope` section -- this function does no section detection of
+    its own."""
+    for pattern in _VEHICLE_PHRASE_PATTERNS:
+        hit = pattern.search(anti_scope_text)
+        if hit:
+            return hit.group(0)
+    return None
+
+
+def _vehicle_advisory_message(target: str, phrase: str) -> Message:
+    return compose(
+        f"{_VEHICLE_TOKEN}: {target}'s ## Anti-scope names an execution "
+        f"vehicle (\"{phrase}\") -- a plan owns what changes and what must "
+        "not, not how it is dispatched; the vehicle is resolved at "
+        "dispatch time from file overlap and the gate graph. Re-express a "
+        "real constraint as a depends_on edge or a named carve-out instead.",
+        anchor=_VEHICLE_ANCHOR,
+    )
 
 
 def _normalize_path(file_path: str) -> str:
@@ -137,7 +255,10 @@ def _classify(text: str) -> "list[Any]":
     rather than imports (that file is not a module other hooks import from;
     every consumer re-does this same seam)."""
     try:
-        from _engine_root import resolve_claude_klabauter_root  # noqa: E402
+        from _engine_root import (  # noqa: E402
+            resolve_claude_klabauter_root,
+            place_engine_root_on_path as _place_engine_root_on_path,
+        )
     except Exception:
         return []
 
@@ -157,8 +278,11 @@ def _classify(text: str) -> "list[Any]":
     # doctrine-plane-local helper. Migrated to append-ordered resolution as part of
     # C2 (see _LATE_INSERT_RATCHET's former entry for this guard in
     # coordinator/tests/test_guard_runner_contract.py).
-    if engine_root not in sys.path:
-        sys.path.append(engine_root)
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
+    _place_engine_root_on_path(engine_root)
 
     try:
         from coordinator_core.bash_guards.check_test_suite_invocation import (  # noqa: E402
@@ -242,13 +366,19 @@ def _main_impl() -> int:
 
     matches = _classify(after)
     imperative = [m for m in matches if getattr(m, "position", "") == "imperative"]
-    if not imperative:
+    if imperative:
+        hit = imperative[0]
+        detected = getattr(hit, "detected", "a test-suite command")
+        emit(_advisory_message(target_raw, detected), CHANNEL_ADDITIONAL_CONTEXT)
         return 0
 
-    hit = imperative[0]
-    detected = getattr(hit, "detected", "a test-suite command")
+    anti_scope_text = _extract_anti_scope_section(after)
+    if anti_scope_text:
+        phrase = _vehicle_match(anti_scope_text)
+        if phrase:
+            emit(_vehicle_advisory_message(target_raw, phrase), CHANNEL_ADDITIONAL_CONTEXT)
+            return 0
 
-    emit(_advisory_message(target_raw, detected), CHANNEL_ADDITIONAL_CONTEXT)
     return 0
 
 

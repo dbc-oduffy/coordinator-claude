@@ -204,7 +204,7 @@ def cmd_run_step1(extra: list[str]) -> int:
 
     # Review: code-reviewer P2 — resolve_engine_root() can raise RuntimeError
     # on this, the primary dispatch path of a workday ceremony step, with no
-    # prior CLAUDE_KLABAUTER_ROOT resolution anywhere upstream in this codepath; an
+    # prior engine-root resolution anywhere upstream in this codepath; an
     # uncaught raise here was a regression versus the pre-diff code, which
     # never depended on resolution succeeding. Mirrors cmd_check_cross_machine's
     # own established local try/except pattern around _current_machine().

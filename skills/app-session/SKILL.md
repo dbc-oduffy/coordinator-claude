@@ -2,7 +2,6 @@
 name: app-session
 description: "Census/launch/teardown lifecycle for a repo's declared app under coordinator.local.md's app_session config -- complementary to the platform's built-in run skill, not competing with it."
 version: 1.0.0
-spec_backlink: docs/plans/2026-08-15-launch-half-to-claude-klabauter-ops-and-skill-surface.md
 allowed-tools: ["Read", "Bash"]
 ---
 
@@ -34,21 +33,24 @@ ops and prints that op's own result object verbatim as JSON.
   runtime resolver supports it) which process/port it occupies. Read-only; makes no state
   change. `--key` is optional -- omitted, it lists every persisted handle in the repo.
 
-  `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/app-session" census --key <target>`
+  Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W).
+  Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
-  `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/app-session" census`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" census --key <target>`
+
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" census`
 
 - **launch** -- starts a target per its `app_session` config and records that it is running, so a
   later `census` or `teardown` call can find it. Fails loudly on a launch error -- this verb's
   failures propagate rather than being swallowed.
 
-  `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/app-session" launch --key <target>`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" launch --key <target>`
 
 - **teardown** -- stops a previously launched target and clears its recorded state. Matches the
   specific command line it launched rather than a blanket process kill, because this machine
   routinely runs concurrent sessions against the same runtimes (wiki).
 
-  `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/app-session" teardown --key <target>`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" teardown --key <target>`
 
 `<target>` is the `app_session` mapping key (`desktop` above). `--repo-root <path>` is accepted on
 every verb but normally omitted -- it defaults to the git toplevel. Exit code 0 covers both a real

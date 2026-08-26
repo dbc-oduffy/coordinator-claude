@@ -1,8 +1,8 @@
 """reaper-resting-batons.py — read-only surfacing pass for `open`/`ready_to_fire`
 resting handoff batons.
 
-Purpose (sedge-19, "Resting batons no reaper covers"): all five existing
-reaper/sweep passes (`sweep-consumed-handoffs.py`, `sweep-shipped-handoffs.py`,
+Purpose (sedge-19, "Resting batons no reaper covers"): all existing
+reaper/sweep passes (`sweep-shipped-handoffs.py`,
 `handoff-gate-aging`, `reap-orphaned-in-flight-handoffs.py`, `baton-drift-sweep.py`)
 start their own selection predicate from `status: consumed` or a terminal
 `deployment_state` (verified by reading each one's own module docstring/scope
@@ -11,7 +11,7 @@ state/roadmap/sedge-2026-08-06/research-corpus/writer-and-referent-shape.md §
 Cluster 21). None names `status: open` + `deployment_state: ready_to_fire` in
 scope, so that population — a legitimately machine-written resting-baton set,
 not a bug or an orphan — sits invisible to every existing sweep. This script
-composes with, and does not replace, any of the five; it adds a new, additive
+composes with, and does not replace, any of them; it adds a new, additive
 surfacing leg alongside them.
 
 Delivery-shape choice (open per the OVERVIEW's Contested block, this stub's

@@ -213,7 +213,7 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
 
 # `_registry_machine_local_get` is the only reader this lib exposes for an
 # arbitrary registry key, and the allowlist-rot check needs exactly one class
@@ -309,7 +309,7 @@ def _resolve_live_targets_path() -> Optional[Path]:
     of whether a DoE clone pointer is configured.
 
     Returns None when the claude-klabauter checkout itself is unresolvable (no
-    CLAUDE_KLABAUTER_ROOT rung matched — e.g. `claude-klabauter` isn't registered on this
+    engine-root rung matched — e.g. `claude-klabauter` isn't registered on this
     machine), OR when the shared-install root's setup/publish-targets.portable
     does not exist (e.g. a fresh machine with no ~/.claude install). Both are
     the same "not applicable on this machine" outcome from this check's
@@ -323,11 +323,9 @@ def _resolve_live_targets_path() -> Optional[Path]:
     # the P-22 wiki row assert. Both RuntimeError sources are now folded into the same
     # clean-skip path.
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = require_dispatch_engine_on_path()
     except RuntimeError:
         return None
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
     from coordinator_core.percolate.runtime_root import _rung4_shared_install
 
     live_path = _rung4_shared_install() / _TARGETS_RELATIVE
@@ -674,7 +672,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
     except RuntimeError as exc:
         print(
-            "verify-publish-targets-portable-sync.py: CLAUDE_KLABAUTER_ROOT resolution "
+            "verify-publish-targets-portable-sync.py: engine-root resolution "
             f"failed: {exc}",
             file=sys.stderr,
         )

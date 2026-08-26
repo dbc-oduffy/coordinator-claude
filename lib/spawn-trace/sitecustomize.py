@@ -74,7 +74,7 @@ def _record(event: str, args: tuple) -> None:
             "monotonic": time.monotonic(),
             "recorder_argv": sys.argv,
         }
-        with open(_LOG_PATH, "a", encoding="utf-8") as fh:
+        with open(_LOG_PATH, "a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(row) + "\n")
     except Exception:
         return

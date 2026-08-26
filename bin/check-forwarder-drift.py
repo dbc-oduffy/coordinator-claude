@@ -65,15 +65,15 @@ from pathlib import Path
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_module():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported op
+    """Resolve the engine root, put it on sys.path, and import the ported op
     module (name axis + the pieces the CONTENT axis below reuses:
     `_PROG`, `_REMEDY`, `_resolve_settings_bin`).
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -83,9 +83,7 @@ def _import_module():
     resolution of the source-of-truth checkout, so it is returned rather than
     re-resolved a second time via a separate ladder call.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.plugin_health import forwarder_drift as _op_module
 
     return claude_klabauter_root, _op_module
@@ -113,14 +111,73 @@ def _content_axis_lib_names() -> tuple:
         return ("_resolve_claude_klabauter.py",)
 
 
-def _content_axis_source_dir(claude_klabauter_root: str) -> Path:
+def _content_axis_source_dir(dispatch_root: str) -> Path:
     """Source-of-truth dir for the resolve-claude-klabauter lib family — the same
-    `<claude_klabauter_root>/coordinator/lib/resolve-claude-klabauter` join `_install_bin_
+    `<root>/coordinator/lib/resolve-claude-klabauter` join `_install_bin_
     resolvers`'s `resolve_claude_klabauter_lib` local computes (coordinator_core/
     install/substrate.py); not itself exposed as a callable there, so
     re-derived here from the structural layout fact, not substrate's
-    install policy."""
-    return Path(claude_klabauter_root) / "coordinator" / "lib" / "resolve-claude-klabauter"
+    install policy.
+
+    RESOLVES ON THE LOCATOR AXIS, NOT THE DISPATCH ONE (C18/AC20). This is a
+    case-(c) consumer by C20's census: it wants the source CHECKOUT whose bytes
+    are the source of truth, not the engine that happens to be executing. Those
+    are different trees on any DR-326 box, and `_import_module` hands back the
+    DISPATCH answer — measured 2026-08-20 on this machine, dispatch resolves to
+    X:/claude-klabauter, so this function was reading the published mirror's
+    copies and comparing installed bytes against them instead of against the
+    live checkout. A drift checker pointed at the wrong tree reports PASS by
+    looking at the wrong thing, which is worse than reporting nothing.
+
+    The accessor answers from COORDINATOR_ENGINE_SOURCE_ROOT when it is set,
+    and otherwise falls back to the dispatch variable while emitting a
+    once-per-site advisory. That fallback is deliberately NOT silent: it is the
+    misread C18 exists to retire, and its exit evidence is that the advisory
+    stopped firing. So an unrouted box still behaves exactly as it does today —
+    it just stops being quiet about it.
+
+    THE `None` CASE NEEDS ITS OWN ADVISORY, and leaving it to the accessor is a
+    hole. The accessor only warns when it ANSWERS from the dispatch variable;
+    when NEITHER variable is set it returns `None` silently, because it declines
+    to invent a checkout. On this box the dispatch root comes from a pointer
+    file rather than the environment, so `None` is the ORDINARY case — and a
+    bare `or dispatch_root` there would restore exactly the silent misread this
+    change removes, while looking like it had fixed it. Measured before adding
+    this branch: with no engine-root variable exported, the accessor returned
+    `None` and emitted nothing.
+    """
+    from coordinator_core.engine_root import coordinator_engine_source_root_env
+
+    source_root = coordinator_engine_source_root_env(
+        "check-forwarder-drift._content_axis_source_dir"
+    )
+    if source_root is None:
+        source_root = dispatch_root
+        _warn_content_axis_fell_back(dispatch_root)
+    return Path(source_root) / "coordinator" / "lib" / "resolve-claude-klabauter"
+
+
+_CONTENT_AXIS_FALLBACK_EMITTED = False
+
+
+def _warn_content_axis_fell_back(dispatch_root: str) -> None:
+    """Say so, once per process, when the CONTENT axis borrowed the dispatch
+    answer because no locator variable was exported at all.
+
+    Mirrors the accessor's own advisory for the one case it cannot cover —
+    neither variable set — so the misread is never silent whichever branch
+    produced it."""
+    global _CONTENT_AXIS_FALLBACK_EMITTED
+    if _CONTENT_AXIS_FALLBACK_EMITTED:
+        return
+    _CONTENT_AXIS_FALLBACK_EMITTED = True
+    print(
+        "check-forwarder-drift.py: no COORDINATOR_ENGINE_SOURCE_ROOT; CONTENT axis "
+        f"compared against "
+        f"{dispatch_root!r}, which names the executing engine and may be a published "
+        "mirror rather than the source checkout whose bytes are authoritative.",
+        file=sys.stderr,
+    )
 
 
 def _check_content_axis(fd_module, claude_klabauter_root: str) -> "tuple[list, bool]":

@@ -3,7 +3,7 @@
 # shared by `/handoff` and `/spinoff`'s id-inheritance/lineage cascade).
 # Direct-import variant (template-variant #1, mirrors coordinator/bin/
 # pickup-assemble and archive-stamp-cli): a plain in-process function call
-# after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# after resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
 # Spec backlink: docs/plans/2026-07-24-computed-skills-b4-baton-branch-lifecycle.md,
@@ -36,7 +36,7 @@
 #   0 — OK.
 #   1 — business failure.
 #   2 — usage error (malformed arguments, malformed --decisions JSON).
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core import
+#   3 — transport failure (the engine root unresolvable, coordinator_core import
 #       failure, or no enclosing git worktree).
 
 # --- routing half: this file is now a thin shim over entry_point_shim.run_target ---

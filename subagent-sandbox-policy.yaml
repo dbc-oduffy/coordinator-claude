@@ -68,6 +68,7 @@ report_sidecar:
   - coordinator:dep-cve-auditor
   - coordinator:test-evidence-parser
   - coordinator:test-runner
+  - coordinator:atlas-clarity-reviewer
 # 2026-07-30 (dispatch-tiering, Leg B): coordinator:atlassian-worker and
 # coordinator:drive-worker were removed from this list — dispatch_tier: (below)
 # classifies both as exploration tier (write-toolless, clause (1)), so neither is
@@ -162,6 +163,12 @@ report_type_map:
   # Its reporting contract (SHA, exact paths committed, what it declined and
   # why) returns as final message text to the dispatching EM.
   coordinator:git-commit-agent: run-report
+  # assessment, not review-findings: its Structured Output Contract is three fixed
+  # question sections (followability / boundary-entry specificity / ambiguity risk)
+  # answered per page, with no per-finding disposition slot — question/answer shape.
+  # Its resident subagent-sandbox-preamble paste is already the assessment VARIANT,
+  # which the sync verifier selects off this row.
+  coordinator:atlas-clarity-reviewer: assessment
 
 # dispatch_tier:  dict[str, str] — subagent_type -> "exploration" | "review-execution".
 # Additive on top of report_sidecar: / report_type_map: / contract_blocks: — does not
@@ -282,6 +289,14 @@ dispatch_tier:
   coordinator:dep-cve-auditor: review-execution
   # no Write/Edit — clause (1) forces exploration tier, same as atlassian-worker/drive-worker
   coordinator:git-commit-agent: exploration
+  # Holds Edit, so clause (1) passes. Clause (2)(c): its body hard-requires the
+  # pre-provisioned sidecar (Edit only — "never `Write` a new file, never guess a
+  # path") and its return is a bare `DONE: <sidecar-path> — <verdict>`, so the whole
+  # verdict payload — one bullet per finding across three lenses, scaling with the
+  # page — exists only in the sidecar. Same shape as dep-cve-auditor/
+  # test-evidence-parser: exploration tier would make its own contract
+  # unfulfillable at every dispatch. Not (a)/(b): one page per dispatch, EM-read.
+  coordinator:atlas-clarity-reviewer: review-execution
 
 # contract_blocks:  dict[str, list[str]] — subagent_type -> ORDERED list of
 # canonical snippet block names to assemble and inject into that subagent's
@@ -448,6 +463,7 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble
+    - named-dispatch-relay
   coordinator:plan-coverage-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
@@ -457,10 +473,12 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble
+    - named-dispatch-relay
   coordinator:external-pattern-checker:
     - provisioned-scaffold-precedence
     - sidecar-emission-contract
     - quota-self-detect-preamble
+    - named-dispatch-relay
   # enricher gets quota-self-detect-preamble ONLY — deliberately NOT
   # sidecar-emission-contract. enricher edits the plan/stub body in-place by
   # charter and is explicitly not a sidecar emitter
@@ -472,6 +490,7 @@ contract_blocks:
     - run-report-citizenship
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-class-3-backstop
   # G3 (review-pipeline agents, 2nd pass) rows: quota-self-detect-preamble is
   # the one universal-safe block these 8 already carry RESIDENT (pasted) in
   # every agent file — no per-agent behavioral variance, same content
@@ -531,7 +550,15 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay
   coordinator:doc-link-checker:
+    - provisioned-scaffold-precedence
+    - quota-self-detect-preamble
+    - named-dispatch-relay
+  # atlas-clarity-reviewer is handed a provisioned per-page verdict scaffold
+  # like every other review-execution-tier agent, so it takes the same
+  # precedence block; quota-self-detect-preamble is the universal-safe row.
+  coordinator:atlas-clarity-reviewer:
     - provisioned-scaffold-precedence
     - quota-self-detect-preamble
   # G4 (execute-pipeline, 2nd pass) rows: the third contract_blocks
@@ -546,11 +573,13 @@ contract_blocks:
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
     - context7-lazy-load-bootstrap
+    - named-dispatch-class-3-backstop
   coordinator:review-integrator:
     - provisioned-scaffold-precedence
     - run-report-citizenship
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-class-3-backstop
   # G5 (deep-research pipeline, 2nd pass) rows: same universal-safe
   # quota-self-detect-preamble win as G3/G4 — all 9 already carry it
   # RESIDENT (same transient-duplication note applies). No G2-style
@@ -578,44 +607,53 @@ contract_blocks:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
+    - named-dispatch-relay-named-scout
   coordinator:research-specialist:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay
   coordinator:research-sweep:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay
   coordinator:research-synthesizer:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
+    - named-dispatch-relay
   coordinator:research-worker:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay
   coordinator:repo-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay-named-scout
   coordinator:repo-specialist:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay
   coordinator:structured-synthesizer:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
     - no-grep-glob-harness-note
+    - named-dispatch-relay
   coordinator:notebooklm-research-scout:
     - provisioned-scaffold-precedence
     - disk-first-protocol
     - quota-self-detect-preamble
+    - named-dispatch-relay-named-scout
   # atlassian-worker / drive-worker: quota-self-detect-preamble ONLY, restored
   # 2026-07-30 same-day fix (code-reviewer finding #2 on the dispatch-tiering
   # diff). Both are exploration tier (see dispatch_tier: above) and absent

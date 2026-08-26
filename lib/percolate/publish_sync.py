@@ -417,13 +417,10 @@ def _sync_mirror_top_level_files(
     payload. An allowlisted dotted entry that IS payload — `.claude-plugin` —
     is a directory and travels through the main loop, untouched by this rule.
 
-    Negative spec — this leg deliberately does NOT delete destination top-level
-    files that are absent from the source, and must not grow one. The main
-    loop's orphan sweep can safely delete an unmatched top-level DIRECTORY
-    because every such directory is target-owned by construction; top-level
-    FILES at the destination are not (a mirror repo's own `README.md`,
-    `LICENSE`, or dotfiles live exactly there). Sweeping them would delete
-    repo-owned content the publisher never created.
+    Negative spec — this COPY leg never deletes anything. The destination-side
+    sweep is `_sweep_mirror_top_level_orphans` below, deliberately a separate
+    function and deliberately opt-in per row; see its own docstring for the
+    condition under which sweeping a top-level file is safe at all.
     """
     synced = 0
     for src_file in sorted(p for p in src_dir.iterdir() if p.is_file()):
@@ -452,6 +449,98 @@ def _sync_mirror_top_level_files(
     return synced
 
 
+def _sweep_mirror_top_level_orphans(
+    src_dir: Path,
+    dst_dir: Path,
+    ignore: IgnoreMatcher,
+    dry_run: bool,
+    renamed_file_names: "frozenset[str]",
+) -> int:
+    """Delete the destination's top-level FILES that the source no longer has,
+    returning how many were removed. Opt-in per row — see `sync_mirror`'s
+    `sweep_top_level_orphans` parameter for who may turn it on and why.
+
+    Why this is a separate, gated function rather than a second phase of
+    `_sync_mirror_top_level_files`: whether a top-level file is target-owned
+    depends on WHERE the row lands, and this module cannot see that. A row
+    projecting into a destination SUBDIRECTORY it owns outright (`coordinator/
+    bin`, `coordinator_core`) owns every file directly under it, so a file the
+    source dropped is an orphan by construction. A row landing at a mirror
+    repo's ROOT does not: `README.md`, `LICENSE`, and the repo's own dotfiles
+    live exactly there, were never published by any row, and sweeping them
+    would delete repo-owned content the publisher never created. That was the
+    whole content of this leg's former blanket negative-spec, and it is right
+    for the root case -- it was only ever wrong as a rule for every case.
+
+    The incident that narrowed it (2026-08-26): `coordinator/bin/detect-staged-
+    rollback.py`/`.cmd` were retired at source and correctly removed from the
+    `claude-klabauter-coordinator-bin` row's allowlist, and went on shipping in
+    the mirror anyway. Every published CLI in that row IS a top-level file, so
+    the no-sweep rule made retirement unrepresentable for the entire row: a
+    name could be added to the mirror but never taken off it. Audited before
+    changing anything -- of 942 entries under that row's destination, exactly
+    that one pair was a true orphan (the other nine apparent orphans are
+    legitimate published basename substitutions), so this closes a real gap
+    rather than licensing a mass delete.
+
+    `renamed_file_names` is the exemption without which this sweep is actively
+    destructive, not merely aggressive: the destination also holds every file the
+    engine's own content-transform pass RENAMED, and those are absent from the
+    source under their published names by construction (the source name never
+    changes; only the destination copy is renamed). To this sweep they look
+    identical to a dropped file. Measured the first time this sweep was previewed
+    against a real row: 10 of 12 proposed deletions were engine-renamed published
+    files, which the next transform pass would have re-created under the same
+    names -- the file-granular form of exactly the oscillation `sync_mirror`'s
+    `renamed_dir_names` exists to prevent for directories. A name in this set is
+    treated as present-by-construction, the same contract `renamed_dir_names`
+    carries. The caller sources it from the rename-generation ledger unioned with
+    the store's static `basename_rename` section -- ledger alone is a cache that is
+    empty on a fresh clone, which is precisely when a wrong delete is least
+    recoverable.
+
+    `_guard_against_empty_source_mass_delete` runs first, `recursive=False` to
+    match this sweep's own non-recursive scope, so an allowlist that narrows to
+    nothing aborts instead of emptying the destination -- the same preflight
+    `sync_flat_mirror` (which has always swept its top-level files) already
+    runs for the same reason. Dotfiles are skipped on the destination side
+    exactly as the copy leg skips them on the source side: a dotfile at a
+    destination root is publish machinery or repo-owned, never this row's
+    payload, so it is neither copied nor deleted.
+    """
+    if not dst_dir.is_dir():
+        return 0
+
+    _guard_against_empty_source_mass_delete(
+        dst_dir.name or str(dst_dir),
+        src_dir,
+        dst_dir,
+        ignore,
+        dry_run=dry_run,
+        context_label="mirror top-level",
+        recursive=False,
+    )
+
+    removed = 0
+    for dst_file in sorted(p for p in dst_dir.iterdir() if p.is_file()):
+        rel_path = dst_file.name
+        if rel_path.startswith("."):
+            continue
+        if _archived_or_orphan(rel_path):
+            continue
+        if ignore.matches(rel_path):
+            continue
+        if rel_path in renamed_file_names:
+            continue
+        if (src_dir / rel_path).is_file():
+            continue
+        if not dry_run:
+            dst_file.unlink()
+        print(f"  REMOVE: {rel_path} (not in source)")
+        removed += 1
+    return removed
+
+
 # ---------------------------------------------------------------------------
 # Mirror mode — per-plugin subdir sync
 # ---------------------------------------------------------------------------
@@ -464,8 +553,23 @@ def sync_mirror(
     copy_file: CopyFileFn | None = None,
     renamed_dir_names: frozenset[str] | None = None,
     changed_paths: "set[str] | None" = None,
+    sweep_top_level_orphans: bool = False,
+    renamed_file_names: "frozenset[str] | None" = None,
 ) -> tuple[int, int]:
-    """`changed_paths` (optional, default `None` -- 100% behavior-preserving for
+    """`sweep_top_level_orphans` (default `False` -- 100% behavior-preserving
+    for every existing caller): when True, destination top-level FILES absent
+    from the source are deleted as orphans, via
+    `_sweep_mirror_top_level_orphans` (see that function for the incident, the
+    audit, and the empty-source preflight it runs first). Only a caller that
+    knows this row projects into a destination SUBDIRECTORY the row owns
+    outright may pass True -- a row landing at a mirror repo's ROOT must leave
+    it False, because `README.md`/`LICENSE`/dotfiles live there and belong to
+    the repo, not to any row. This module cannot determine that itself: it is a
+    portable, repo-agnostic sync engine (see module docstring) and has no view
+    of the target table, so the decision arrives as this parameter rather than
+    being inferred from `dst_dir`'s shape.
+
+    `changed_paths` (optional, default `None` -- 100% behavior-preserving for
     every existing caller): when supplied, every `dst_dir`-relative posix rel_path
     this pass actually copies (top-level files, via `_sync_mirror_top_level_files`,
     and per-plugin files below, prefixed `f"{plugin_name}/{rel_path}"`) is added to
@@ -525,6 +629,10 @@ def sync_mirror(
     synced += _sync_mirror_top_level_files(
         src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
     )
+    if sweep_top_level_orphans:
+        removed += _sweep_mirror_top_level_orphans(
+            src_dir, dst_dir, ignore, dry_run, renamed_file_names or frozenset()
+        )
 
     for src_plugin in sorted(p for p in src_dir.iterdir() if p.is_dir()):
         plugin_name = src_plugin.name
@@ -648,7 +756,7 @@ def sync_mirror(
             diagnostic = (
                 f"top-level presence check: {len(orphans)} destination top-level "
                 f"director{'ies are' if plural else 'y is'} absent from the "
-                f"restricted source ({names}) and would be deleted outright by the "
+                f"restricted source: {names!r} and would be deleted outright by the "
                 "orphan sweep below, regardless of .percolate-ignore (the sweep "
                 "does not consult it).\n"
                 "    Likely cause: a source_map root that failed to contribute this "
@@ -930,7 +1038,7 @@ def sync_repo_cut(dest_dir: Path, dry_run: bool) -> bool:
     _run_git(dest_dir, "init", "-q")
     _run_git(dest_dir, "config", "core.autocrlf", "true")
     _run_git(dest_dir, "config", "core.safecrlf", "false")
-    (dest_dir / ".gitattributes").write_text("* text=auto\n", encoding="utf-8")
+    (dest_dir / ".gitattributes").write_text("* text=auto\n", encoding="utf-8", newline="\n")
     _run_git(dest_dir, "add", ".gitattributes")
     _run_git(dest_dir, "commit", "-m", "repo-cut: bootstrap .gitattributes")
     return True

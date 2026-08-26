@@ -16,7 +16,8 @@ The metaphor is the TV-series sense: same universe, separate series. The word re
 
 Before writing ANY handoff (spinoff or continuation), run Step 0: the successor-work check. The gate is binary.
 
-**NO-tests — any one of these → STOP, do not write a handoff:**
+**NO-tests — any one of these → STOP, do not write a handoff.** A PM ask for a handoff, and a
+next action blocked on something outside this session, both override the whole list:
 
 1. The workstream's next action is `/merge-to-main`, or the terminal PR is already merged with no follow-up commits expected.
 2. Work is described in your head as "shipped," "complete on branch ready for merge," or "ready for the merge gate." That phrasing IS the disqualifier — write a commit message, not a handoff.
@@ -76,6 +77,17 @@ The gate is not eroded:
 
 `/workday-start` and a bare-relative `/pickup` resolve handoffs against the **cwd's git root**. Any leg / restart / onboarding prose that precedes one of these commands must therefore either say `cd <repo>` first or hand an absolute baton path — otherwise the command resolves against whatever repo the operator happens to be sitting in and either finds nothing or picks up the wrong repo's batons. Handing an absolute `/pickup <path>` removes the coupling entirely: the lifecycle bookkeeping (claim, frontmatter mutation, archival) then routes through the baton's own repo regardless of cwd. This matters most in install-chain and multi-repo restart flows, where the operator's cwd after a Claude Code restart is not guaranteed to be the repo whose baton is next.
 
+## Mint mechanics
+
+`_scaffold_spinoff` (`coordinator-doc-new.py:2105`) and `_scaffold_handoff`
+(`coordinator-doc-new.py:1644`) are siblings behind one `--type` dispatch — one minting path.
+Spinoffs validate against `handoff.schema.json` with `kind` as the sole discriminator, and mint
+from the same `hnd-` prefix (`coordinator-doc-new.py:2126`). The spinoff branch derives
+`origin_plan_id` from the forked-from artifact's own `plan_id`, `predecessor: none` invariantly.
+
+An EM proposing to "port" a baton feature onto spinoffs would fork this one path, creating the
+divergence the port was meant to close. See tripwire `SPINOFF-AND-HANDOFF-MINT-ARE-ONE-DISPATCH`.
+
 ## Frontmatter schema
 
 ```yaml
@@ -86,11 +98,11 @@ authoring_session: <one-line description>   # replaces predecessor link as audit
 workstream: <slug>          # required, so /pickup can group them
 ```
 
-`predecessor: none` is load-bearing on the **primary spine**: the "Single Predecessor, No Adjacency-Inference" rule (in `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Handoff Lineage") requires every handoff to have a single named predecessor or `none`. Spinoffs are always `none`; the audit trail back to origin lives in `authoring_session`.
+`predecessor: none` is load-bearing on the **primary spine**: the "Single Predecessor, No Adjacency-Inference" rule (in `coordinator/skills/handoff/SKILL.md` § Handoff Lineage) requires every handoff to have a single named predecessor or `none`. Spinoffs are always `none`; the audit trail back to origin lives in `authoring_session`.
 
 Three optional fields extend or annotate the primary spine — **do not conflate them**:
 
-- **`forked_from: <handoff-path>`** — DAG branch-point ancestry, **lineage/render-only**. The level-of-effort aggregator does NOT follow this edge (preserves effort-isolation for pure-fork spinoffs). The archival guard DOES follow it — archiving a live fork-point breaks the DAG render walk. Must be PM-directed; adjacency-inference ban applies (`coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Handoff Lineage").
+- **`forked_from: <handoff-path>`** — DAG branch-point ancestry, **lineage/render-only**. The level-of-effort aggregator does NOT follow this edge (preserves effort-isolation for pure-fork spinoffs). The archival guard DOES follow it — archiving a live fork-point breaks the DAG render walk. Must be PM-directed; adjacency-inference ban applies (`coordinator/skills/handoff/SKILL.md` § Handoff Lineage).
 - **`supersedes:`** — spine-build-time ordering preference ("when building the orientation spine, prefer this baton over the one it names"). No DAG graph semantics; does not affect level-of-effort or archival traversal. See § `` `supersedes:` on a live baton`` below.
 - **`authoring_session:`** — origin prose only; no graph traversal. The required audit trail for every spinoff.
 
@@ -363,7 +375,7 @@ Single-dispatch parallel fan-out within a sprint. All wave-N stubs are file-disj
 
 ### Sprint
 
-Multi-session time-box. Wave-N+1 stubs gate on all-of-wave-N completing; `/handoff` bridges between sessions. Cost: multi-day, multi-session. Risk: compound — a sprint-N architectural finding can invalidate sprint-N+M stubs authored against a now-wrong assumption.
+A coherent slice of work with its own JTBD, research, and exit condition — not a time-box. Sprints run concurrently wherever nothing gates them; wave's "within a sprint" containment is scope nesting, not temporal nesting. `/handoff` bridges between sessions. Cost: multi-day, multi-session. Risk: compound — a sprint's architectural finding can invalidate a scope-nested later sprint's stubs authored against a now-wrong assumption.
 
 ### Smell-tests
 
@@ -393,7 +405,7 @@ Doctrine describes lineage chains via `predecessor:`; empirical observation acro
 
 This is **not** a bug. Continuation chains tend to be in-session (one EM threads through several handoffs in a single thread) where the `/pickup` → `/handoff` cycle implicitly carries lineage via session memory rather than the file field. Long-form cross-session ancestry is rare because (a) most workstreams complete in 1–2 sessions, (b) spinoffs (`predecessor: none` by schema) account for the majority of new handoffs, and (c) `kind: recovery` is the only kind that routinely back-points to a non-handoff SHA.
 
-**Operational implication:** Treat `predecessor:` as a low-signal lineage field at query time. The high-signal lineage fields in practice are `authoring_session:` (spinoff origin), `shipped_in:` (terminal commit/PR), `consumed_by:`/`claimed_by:` (pickup-session UUID, see below). Don't infer adjacency from `predecessor:` being populated on one of several timestamp-adjacent handoffs — the rule in `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Handoff Lineage" is exactly this caveat.
+**Operational implication:** Treat `predecessor:` as a low-signal lineage field at query time. The high-signal lineage fields in practice are `authoring_session:` (spinoff origin), `shipped_in:` (terminal commit/PR), `consumed_by:`/`claimed_by:` (pickup-session UUID, see below). Don't infer adjacency from `predecessor:` being populated on one of several timestamp-adjacent handoffs — the rule in `coordinator/skills/handoff/SKILL.md` § Handoff Lineage is exactly this caveat.
 
 ## consumed_by:/claimed_by: is a session UUID, filename SHA is different
 
@@ -402,7 +414,7 @@ This is **not** a bug. Continuation chains tend to be in-session (one EM threads
 Practical consequences:
 
 - Do not assume the 8-hex in a filename equals the UUID prefix in `consumed_by:`/`claimed_by:`. They are different identifier classes and will not collide.
-- A handoff with `consumed_by:` or `claimed_by:` populated is **claimed** — it must not be re-picked. `/pickup` enforces this via an EEXIST-style single-machine claim lock and, cross-machine, a `git fetch` + non-empty-field check. See `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Handoff Lineage" — Concurrent `/pickup` is fail-loud.
+- A handoff with `consumed_by:` or `claimed_by:` populated is **claimed** — it must not be re-picked. `/pickup` enforces this via an EEXIST-style single-machine claim lock and, cross-machine, a `git fetch` + non-empty-field check. See `coordinator/skills/handoff/SKILL.md` § Handoff Lineage — Concurrent `/pickup` is fail-loud.
 - Closing a handoff (`status: consumed`/`claimed`) is a separate write from claiming it (`consumed_by:`/`claimed_by:` populated). The two fields move together at `/workstream-complete`'s terminal-archival step, but auditing should treat them as a pair, not synonyms.
 
 ## Frontmatter format drift — `created:` and `pickup_ready:`
@@ -601,4 +613,4 @@ The guard is idempotent: a not-yet-seeded baton passes through normally; a re-se
 - `skills/pickup/SKILL.md` — premise check and awaiting_gate aging (both Step 1: Classify, Load, and Reconcile Against Reality) consumers.
 - `skills/roadmap-planning/SKILL.md` — wave/sprint distinction, soft-seams body section, and Phase 2 exit gate consumers.
 - `skills/spinoff/SKILL.md` (if present) — initial-state authoring for `kind: spinoff`.
-- `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off, "Handoff Lineage" — deployment_state enum, predecessor rules (canonical tripwire form).
+- `coordinator/skills/handoff/SKILL.md` § Handoff Lineage — deployment_state enum, predecessor rules (canonical tripwire form).

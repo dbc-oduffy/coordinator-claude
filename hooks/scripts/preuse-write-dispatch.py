@@ -42,6 +42,7 @@ try:
     from _engine_root import (  # noqa: E402
         arm_lazy_ops as _arm_lazy_ops,
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+        place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
@@ -50,6 +51,13 @@ except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
+
+    def _place_engine_root_on_path(root):
+        # Fallback mirrors the primitive's placement rule: never index 0 when the
+        # hooks dir holds it, never the tail where site-packages outranks us.
+        if root and root not in sys.path[:2]:
+            sys.path.insert(1 if sys.path else 0, root)
+        return root
     def _arm_lazy_ops() -> None:
         return None
 
@@ -120,8 +128,11 @@ def main() -> int:
     # of the engine root on sys.path, so a module-name collision between a
     # doctrine-plane-local helper and a same-named engine-side module resolves toward
     # the doctrine-plane-local helper.
-    if root not in sys.path:
-        sys.path.append(root)
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
+    _place_engine_root_on_path(root)
 
     # Must precede the first coordinator_core.* import -- see
     # _engine_root.arm_lazy_ops for the ~90ms package-init cost this avoids.
@@ -158,10 +169,52 @@ def main() -> int:
     # runner (below) reuses this SAME list for its own exception isolation
     # (contract clause 11) -- one breadcrumb surface, not two.
     _skipped: list[str] = []
+
+    # Aggregation opt-in. Without it the engine returns only the FIRST matching
+    # advisory in priority order and stops, so a lower-priority guard that fired
+    # is discarded before anyone reads it. Measured on the live engine: the
+    # EM-code-dispatch nudge (priority 105) fires on essentially every EM code
+    # write and masks the Windows-console-popup advisory (110) on exactly the
+    # files where a subprocess spawn site is being authored -- which is a large
+    # part of why a console-window storm ran unflagged. Re-prioritising was
+    # rejected: it only moves which advisory is masked.
+    #
+    # `evaluate_payload_json` does not declare `aggregate` yet -- only the
+    # `evaluate()` it delegates to does. Passing it blind would raise TypeError
+    # into the fail-open below and silently disable EVERY write guard, hard-denies
+    # included. So this feature-detects, the same idiom `preuse-bash-dispatch.py`
+    # uses for `policy_file`/`resolution_class`/`provenance`: byte-for-byte
+    # identical behaviour until the engine plane forwards the keyword, and
+    # aggregating automatically the moment it does.
+    #
+    # Detection reads `__code__` directly rather than importing `inspect`: this
+    # dispatcher runs in a fresh interpreter on every Write/Edit event, and
+    # `inspect` is a multi-millisecond import to answer a question one tuple
+    # lookup already answers. A callee without `__code__` (a C function, an
+    # un-unwrappable wrapper) simply keeps today's non-aggregating behaviour.
+    kwargs: dict = {"policy_path": policy_path, "cwd": cwd, "skipped_out": _skipped}
     try:
-        out = evaluate_payload_json(raw, policy_path=policy_path, cwd=cwd, skipped_out=_skipped)
+        _code = evaluate_payload_json.__code__
+        _names = _code.co_varnames[: _code.co_argcount + _code.co_kwonlyargcount]
+        if "aggregate" in _names:
+            kwargs["aggregate"] = True
+    except Exception:
+        pass
+
+    try:
+        out = evaluate_payload_json(raw, **kwargs)
     except Exception:
         return 0  # any engine failure → fail-open ALLOW (never brick an edit)
+
+    # Under `aggregate=True` the advisory phase returns a LIST of envelopes
+    # (empty when nothing fired); the hard-deny phase is unchanged and still
+    # returns a single envelope. Normalising here keeps `out` a lone envelope
+    # or None for every path below -- a list must never reach stdout, where the
+    # harness expects exactly one `hookSpecificOutput`.
+    engine_envelopes: list = []
+    if isinstance(out, list):
+        engine_envelopes = out
+        out = None
 
     # In-process guard runner (C1): batches the doctrine-plane-resident write-path
     # guards named in `_GUARD_REGISTRY` into this SAME interpreter, after
@@ -172,8 +225,13 @@ def main() -> int:
     # through, so the two verdict sources are never reconciled by two
     # separate code paths.
     try:
-        engine_verdict = _envelope_to_verdict(out)
-        guard_entries: list = [engine_verdict] if engine_verdict else []
+        if engine_envelopes:
+            guard_entries: list = [
+                v for v in (_envelope_to_verdict(e) for e in engine_envelopes) if v
+            ]
+        else:
+            engine_verdict = _envelope_to_verdict(out)
+            guard_entries = [engine_verdict] if engine_verdict else []
         if _GUARD_REGISTRY and _RegisteredGuard is not None:
             guard_entries.extend(_build_registry_entries(_GUARD_REGISTRY, raw, payload))
         aggregated = _run_guards(guard_entries, payload, skipped_out=_skipped)

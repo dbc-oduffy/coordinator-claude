@@ -10,7 +10,8 @@ The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carv
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 REROUTE-gate LOGIC (coordinator_core.hooks.nudge_foreground_agent_dispatch,
 registered under the JSON-RPC method hooks.nudge_foreground_agent_dispatch).
-The engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_message
+The engine is imported and run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook
+(DR-175 -- the named hook-dispatch seam, above the dispatch_message telemetry wrapper)
 -- no bash, no python3 -m subprocess re-spawn -- so a whole PreToolUse fire pays
 exactly one Python interpreter start.
 
@@ -133,7 +134,6 @@ matcher any more.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -360,7 +360,7 @@ def main() -> int:
 
     try:
         from coordinator_core.hooks import nudge_foreground_agent_dispatch as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
         return _fail()  # engine unimportable
 
@@ -380,26 +380,18 @@ def main() -> int:
     # engine never runs its business logic at all. `cwd` was already resolved above (with
     # the same os.getcwd() fallback) so the ENGINE decides (reroute + escape-hatch honoured)
     # from the identical fact this shim's own fail-closed leg would fall back to.
-    msg = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.nudge_foreground_agent_dispatch",
-        "params": params,
-        "_origin_worktree": cwd,
-    }
-
     try:
-        response = asyncio.run(dispatch_message(msg))
-    except Exception:
-        return _fail()  # any engine failure
-
-    result = response.get("result") if isinstance(response, dict) else None
-    if result is None:
-        # No result object at all == the engine did not adjudicate (INVALID_PARAMS,
-        # unregistered op, malformed response). NOT the same as {}, which is the engine
-        # deliberately saying PASS -- conflating the two is what let a foreground dispatch
-        # through unremarked.
+        result = dispatch_from_hook(
+            "hooks.nudge_foreground_agent_dispatch",
+            params,
+            origin_worktree=cwd,
+        )
+    except HookDispatchError:
+        # Any engine failure (including INVALID_PARAMS/unregistered-op/handler-exception,
+        # all surfaced as an "error" response) -- deny a known foreground dispatch, pass
+        # anything else, same as the "no result object at all" branch this replaces.
         return _fail()
+
     if result:
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")

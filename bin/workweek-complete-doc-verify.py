@@ -24,7 +24,7 @@ consistently").
 Usage:
     workweek-complete-doc-verify [--root PATH] [--doc PATH ...] [--ignore TOKEN ...]
 
-Exits 3 if CLAUDE_KLABAUTER_ROOT cannot be resolved (see stderr) before ever reaching
+Exits 3 if the engine root cannot be resolved (see stderr) before ever reaching
 `main()`; otherwise exit code and stdout/stderr are exactly
 `coordinator_core.ops.doc_content_verify.main`'s.
 
@@ -48,7 +48,7 @@ from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 try:
     require_colocated_engine_on_path(__file__)
 except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
     sys.exit(3)
 
 from coordinator_core.cli_entry import run_op_main  # noqa: E402

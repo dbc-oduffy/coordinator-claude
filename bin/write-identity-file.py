@@ -10,7 +10,7 @@ trampoline call over the already-built, already-registered
 coordinator_core.ops.write_identity_file op (atomic via locked_rmw,
 merge-not-replace, idempotent — see that module's docstring for the full
 contract). This script does NOT reimplement any of that logic — it only
-resolves CLAUDE_KLABAUTER_ROOT, builds the `fields` dict from argv, and invokes the op
+resolves the engine root, builds the `fields` dict from argv, and invokes the op
 via cc_invoke.
 
 Usage:
@@ -25,7 +25,7 @@ Exit codes:
     0 — op reported exit_code 0 (write succeeded, or idempotent no-op).
     1 — op reported exit_code 1 (op-level error; message on stderr), or usage
         error (missing --claude-home / no fields given).
-    2 — transport failure (CLAUDE_KLABAUTER_ROOT unresolved, cc_invoke raised
+    2 — transport failure (the engine root unresolved, cc_invoke raised
         RuntimeError) — distinguished from an op-level failure per the
         fleet's dedicated-transport-exit-code convention (see
         backfill-initiative-fk.py's header for the precedent).
@@ -88,7 +88,7 @@ def main(argv: list[str]) -> int:
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
     except RuntimeError as exc:
-        print(f"write-identity-file: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"write-identity-file: engine-root resolution failed: {exc}", file=sys.stderr)
         return _EXIT_TRANSPORT_FAILURE
 
     params = {"claude_home": args.claude_home, "fields": fields}

@@ -19,7 +19,7 @@ orchestrator's `*.sh` glob matches any drop-in by extension regardless of
 its interpreter, so this is not a wiring change.
 
 Exit convention: FAIL-LOUD. install-health-run.py is a REQUIRED install step
-(install-maximalist.py's `run_required`), not an advisory hook — CLAUDE_KLABAUTER_ROOT
+(install-maximalist.py's `run_required`), not an advisory hook — the engine root
 resolution failure or an untrusted plugin root both exit 1, matching the
 original script's own `--mode=fail-loud` trust-guard call.
 
@@ -40,13 +40,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.ops.install_health_run import main as _op_main
     return _op_main, recording_declared_writes

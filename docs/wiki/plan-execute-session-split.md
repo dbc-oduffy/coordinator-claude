@@ -19,7 +19,8 @@ same-session execution → default fresh-session execution via handoff), the emp
 that keeps this narrow rather than a general handoff-at-any-tidy-point license.
 Negative-spec: NOT a rewrite of handoff/execute-plan/review mechanics (those skills own their own
 procedures and cite this doctrine); NOT a license to hand off at any convenient stopping point —
-the trigger is the `execution_authorized_at` stamp, not "felt like a good pause"; NOT the same
+the trigger is review-integration completing with execution work still pending, not "felt like a
+good pause"; NOT the same
 observation as workflow-orchestration.md's mid-execution compaction risk (see § Relationship to
 workflow-orchestration.md below); NOT a bare-date stamp — `execution_authorized_sha` binds the
 stamp to plan CONTENT and must be re-verified by every consumer, not just checked for presence.
@@ -36,22 +37,28 @@ Planning through review-approval and review-integration stays in one session —
 pipeline does not change. What changes is the tail: **after review-integration completes, the
 default is a fresh session, not same-session `/execute-plan`.** Instead:
 
-1. The EM asks the PM to approve execution.
-2. On approval, the EM stamps the plan's YAML frontmatter with the authorization of record:
+1. The EM writes an **execution handoff** — a `kind: session-handoff` handoff (no new `kind:`
+   value, no new frontmatter enum) whose next action is `/execute-plan <plan-path>`, carrying
+   `deployment_state: ready_to_fire` and a `## Plan to Execute` body section (see § Pinned
+   conventions below) — and stops. Writing (or picking up) the baton IS the PM's authorization;
+   there is no separate PM-ask step to insert before it.
+2. A **fresh session** picks up the handoff and runs `/execute-plan`, which mints the plan's YAML
+   frontmatter authorization stamp of record from the act of invocation itself (or re-verifies an
+   existing one):
    ```yaml
    execution_authorized_by: PM
    execution_authorized_at: <YYYY-MM-DD>
    execution_authorized_sha: <hash>
    execution_authorized_note: "<verbatim PM utterance>"
    ```
-   `execution_authorized_sha` binds the stamp to the plan's CONTENT at approval time, not merely a
-   date (see § Content-binding below for the failure mode this closes and the exact recipe).
-   `execution_authorized_note` is the self-attesting field — see § Write-bar below.
-3. The EM writes an **execution handoff** — a `kind: session-handoff` handoff (no new `kind:`
-   value, no new frontmatter enum) whose next action is `/execute-plan <plan-path>`, carrying
-   `deployment_state: ready_to_fire` and a `## Plan to Execute` body section (see § Pinned
-   conventions below).
-4. The EM stops. A **fresh session** picks up the handoff and runs `/execute-plan`.
+   `execution_authorized_sha` binds the stamp to the plan's CONTENT at authorization time, not
+   merely a date (see § Content-binding below for the failure mode this closes and the exact
+   recipe). `execution_authorized_note` is the self-attesting field — see § Write-bar below.
+
+   The stamp is minted at invocation, never earlier. Stamping ahead of the invocation binds a sha
+   to a plan body that can still change, which is precisely the drift `pickup-assemble
+   stamp-check`'s STALE-substantive halt exists to catch — an early stamp manufactures that halt
+   rather than recording anything.
 
 This reverses the prior default, in which after a plan cleared review the EM only paused to ask
 the PM before invoking `/execute-plan` in the same conversation — a "yes" meant same-session
@@ -122,9 +129,10 @@ not paraphrase.
   ```
   The presence of `execution_authorized_at` with a date **is** the authorization of record. It
   replaces the old, weaker definition — "the PM said 'execute' somewhere in this chat" — with a
-  disk-persisted fact a fresh session with zero chat history can read and verify. It is set by the
-  reviewing session at the `coordinator:review` Exit gate, and only after the PM has approved
-  execution — never speculatively, never before approval.
+  disk-persisted fact a fresh session with zero chat history can read and verify. It is minted by
+  the authorizing act itself — the reviewing session writing (or a fresh session picking up) the
+  execution handoff, or a direct `/execute-plan` invocation — never checked as a precondition
+  before that act.
 
   **Write-bar (when the stamp may be written).** The stamp is written ONLY when the PM's message
   NAMES execution — "execute", "proceed to execute", "run it", "go ahead and execute", or an
@@ -249,12 +257,14 @@ not paraphrase.
   just because it superficially looks like tidy paperwork; the ladder's re-stamp path is a
   pre-execution remedy and doesn't apply once execution has already occurred.
 - **Execution-handoff body section** — every execution handoff's body includes a `## Plan to
-  Execute` section containing (a) the plan path, and (b) a line citing the plan's
-  `execution_authorized_at` stamp (and, per the content-binding above, its
-  `execution_authorized_sha`) as the premise the picking-up session must verify. That verification
-  happens at `/pickup` Step 1 (Classify, Load, and Reconcile Against Reality) — the picking-up session confirms the stamp is present AND its
-  `execution_authorized_sha` still matches the current plan body before invoking `/execute-plan`,
-  rather than trusting the handoff prose alone.
+  Execute` section containing (a) the plan path, and (b), when a stamp already exists, a line
+  citing the plan's `execution_authorized_at` (and, per the content-binding above, its
+  `execution_authorized_sha`). Handing off — or picking up — the baton is itself the
+  authorization; a pre-existing stamp is not a precondition for either act. When `/pickup` Step 1
+  (Classify, Load, and Reconcile Against Reality) finds a stamp already present, it re-verifies
+  `execution_authorized_sha` against the current plan body (the staleness leg, unaffected by this)
+  rather than trusting the handoff prose alone; when none exists yet, invoking `/execute-plan`
+  mints it.
 - **Canonical doctrine home** — this file,
   `coordinator/docs/wiki/plan-execute-session-split.md`. Every other surface that touches this
   boundary (review, handoff, execute-plan, pickup, autonomous, writing-plans, and the CLAUDE.md
@@ -262,12 +272,13 @@ not paraphrase.
 
 ## Default vs. exceptions
 
-- **DEFAULT (interactive sessions).** Review-integration completes → the EM asks the PM to
-  approve execution → on approval (only once the PM's message names execution — see the
-  write-bar above), the EM (1) stamps the plan frontmatter `execution_authorized_by` /
-  `execution_authorized_at` / `execution_authorized_sha` / `execution_authorized_note`, (2) writes
-  an execution handoff via `/handoff`, (3) stops. A fresh session picks it up (`/pickup`) and runs
-  `/execute-plan`, re-verifying `execution_authorized_sha` before proceeding.
+- **DEFAULT (interactive sessions).** Review-integration completes → the EM (1) writes an
+  execution handoff via `/handoff`, (2) stops — writing (or picking up) the baton is itself the
+  PM's authorization, so no wait for a write-bar utterance gates the handoff. If the PM does
+  explicitly name execution in-session first (see the write-bar above), the EM may stamp the plan
+  frontmatter immediately as a courtesy record; otherwise the stamp is minted downstream, at
+  `/execute-plan` invocation. A fresh session picks the handoff up (`/pickup`) and runs
+  `/execute-plan`, which mints or re-verifies `execution_authorized_sha` before proceeding.
 
 - **EXCEPTION 1 — `/autonomous` mode.** No PM-ask, no handoff; execution continues same-session
   straight into `/execute-plan`. Autonomous mode already bypasses the review checkpoint (it isn't
@@ -350,11 +361,12 @@ Handing off here isn't punting work to "later" — it's routing the work to a se
 actually execute it reliably.
 
 This distinction is narrow on purpose. The plan→execute handoff is a **specific,
-empirically-justified first-class trigger**, gated on the `execution_authorized_at` stamp existing
-— it is not a general license to hand off at any tidy stopping point. An un-stamped "the plan
-looks approved, this feels like a natural pause" moment is still exactly the deferral the NO-test
-forbids: STOP-and-dispatch (or continue), not hand off. The stamp is the discriminator between the
-sanctioned trigger and the general anti-deferral rule that still governs everywhere else.
+empirically-justified first-class trigger**, gated on review-integration having completed with
+execution work still pending — it is not a general license to hand off at any tidy stopping point.
+A plan that has NOT yet cleared review-integration and "feels like a natural pause" is still
+exactly the deferral the NO-test forbids: STOP-and-dispatch (or continue), not hand off.
+Review-integration-complete is the discriminator between the sanctioned trigger and the general
+anti-deferral rule that still governs everywhere else.
 
 ## What does NOT change
 

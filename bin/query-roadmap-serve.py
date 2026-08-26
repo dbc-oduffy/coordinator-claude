@@ -29,13 +29,11 @@ describe it as CPM anywhere in this file's help text or docstrings.
 
 Exit-code convention (owned by `op_trampoline.run`, cited here so the choice
 reads as inherited): exit 1 for every non-success path (transport failure,
-seam-absent, root-unresolvable) is the established majority — 4 of 5 existing
+seam-absent, root-unresolvable) is the established majority — 3 of 4 existing
 `query-*` CLIs already do this (`query-handoff-columns`, `query-completions`,
-`query-session-hierarchy`, `query-file-attribution`). `query-records`' 2/3
+`query-session-hierarchy`). `query-records`' 2/3
 split is a known, deliberately-not-normalised outlier here, not a competing
-convention; `query-file-attribution`'s exit 2 is a semantic no-matches code
-on a separate axis from error handling, not a third opinion on failure
-either.
+convention.
 
 Usage:
     python3 query-roadmap-serve.py --roadmap-id <id>

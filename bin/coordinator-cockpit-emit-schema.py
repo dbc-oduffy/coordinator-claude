@@ -21,7 +21,7 @@ this repo's CLAUDE.md § Architecture) actually points at: DoE consumes this
 by spawning a command, per DR-215, never by resolving claude-klabauter's interpreter
 and importing internals.
 
-This file is a thin trampoline: resolve CLAUDE_KLABAUTER_ROOT, import, forward argv
+This file is a thin trampoline: resolve the engine root, import, forward argv
 — matching coordinator-install.py's shape, its closest sibling in both
 naming and lifecycle. `main(argv)` parses `argv` itself (defaulting to
 `sys.argv[1:]` when called with none) and either returns normally (success,
@@ -30,7 +30,7 @@ implicit exit 0) or raises `SystemExit` (error) — unlike
 forwarding `sys.argv[1:]` and letting any `SystemExit` propagate is
 sufficient; no explicit `sys.exit()` wrapping is needed here either.
 
-Fail-loud-on-ambiguity: if CLAUDE_KLABAUTER_ROOT cannot be resolved or the claude-klabauter
+Fail-loud-on-ambiguity: if the engine root cannot be resolved or the claude-klabauter
 module is not importable, exit 1 rather than 0 — a silent no-op here would
 be indistinguishable from a well-formed empty schema emission, which is
 exactly the ambiguity DoE's release capability cannot tolerate.
@@ -51,13 +51,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.contract.cockpit_schema.emit_schema import main as _op_main
     return _op_main
 

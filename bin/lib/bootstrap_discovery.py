@@ -107,15 +107,30 @@ _COORDINATOR_CORE_ROOT = "coordinator_core"
 #: see module docstring for the empirical survey backing this list.
 _ROOT_IDENTIFIER_RE = re.compile(r"root|engine|claude-klabauter", re.IGNORECASE)
 
-#: The three `cc_invoke.py` seam calls `_has_engine_root_bootstrap` recognizes
-#: by call NAME alone (see that function's docstring for why name, not
-#: argument analysis) — `ensure_engine_on_path` (best-effort, swallows),
-#: `require_engine_on_path` (env-first, fail-loud), and
-#: `require_colocated_engine_on_path` (self-location-first, fail-loud).
+#: The `cc_invoke.py` seam calls `_has_engine_root_bootstrap` recognizes by
+#: call NAME alone (see that function's docstring for why name, not argument
+#: analysis) — `ensure_engine_on_path` (best-effort, swallows),
+#: `require_engine_on_path` (env-first, fail-loud),
+#: `require_colocated_engine_on_path` (self-location-first, fail-loud), and
+#: `require_dispatch_engine_on_path`.
+#:
+#: The fourth name was MISSING until 2026-08-25, and its absence read as ~175
+#: simultaneously-broken CLIs. It is the collapse target for the inline
+#: `_resolve_claude_klabauter_root()` + `sys.path.insert` preamble that population
+#: carried verbatim, so every one of them bootstraps correctly and every one
+#: of them was reported as having no bootstrap at all. A discovery gate that
+#: names 175 files at once is describing its own name list, not the tree.
 _ENGINE_ROOT_BOOTSTRAP_CALL_NAMES = frozenset({
     "ensure_engine_on_path",
     "require_engine_on_path",
     "require_colocated_engine_on_path",
+    "require_dispatch_engine_on_path",
+    # `lib/op_trampoline.py`'s wrapper: resolves the engine root through the
+    # checked ladder, puts it on sys.path, and returns an exit code instead of
+    # raising (its module never exits the process). It delegates to
+    # `require_dispatch_engine_on_path` — a caller that uses it HAS bootstrapped,
+    # and the surviving `query-*` CLIs all reach the seam only through it.
+    "resolve_claude_klabauter_root_or_exit",
 })
 
 #: Resolver-family classification for the AST family-map gate (AC4,
@@ -130,6 +145,16 @@ _ENGINE_ROOT_BOOTSTRAP_CALL_NAMES = frozenset({
 FAMILY_ENV_FIRST = "env_first"
 FAMILY_SELF_LOCATION = "self_location"
 
+#: Negative-spec: `require_dispatch_engine_on_path` is deliberately ABSENT.
+#: The two families here are both on the LOCATOR axis ("where is the source
+#: checkout"), and the map exists to catch a file moving between them and to
+#: police the fixed-depth `parents[2]` trap. That seam answers a different
+#: question on a different axis ("which engine executes", a property of the
+#: box) and takes NO script path at all — see its docstring in `cc_invoke.py`,
+#: which is emphatic that it is a second seam, not a duplicate of the first.
+#: With no path argument it has no depth sensitivity, so it has nothing for
+#: either gate to assert. It IS a recognized bootstrap (see
+#: `_ENGINE_ROOT_BOOTSTRAP_CALL_NAMES` above); it is simply not a locator.
 _RESOLVER_CALL_FAMILY: dict[str, str] = {
     "resolve_engine_root": FAMILY_ENV_FIRST,
     "ensure_engine_on_path": FAMILY_ENV_FIRST,

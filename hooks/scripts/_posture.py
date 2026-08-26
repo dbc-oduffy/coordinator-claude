@@ -144,7 +144,12 @@ def _resolve_posture_from(repo_root: str | None) -> str:
             if value in _VALID_POSTURES:
                 return value
 
-        identity_path = os.path.join(os.path.expanduser("~"), ".claude", "coordinator-identity.yaml")
+        # WS-2 home-resolution shape: CLAUDE_HOME first, `Path.home()` as the terminal
+        # rung. A bare `expanduser("~")` yields the literal "~" when every home rung is
+        # unset, which silently reads a posture file that is not the operator's.
+        from pathlib import Path
+        claude_home = os.environ.get("CLAUDE_HOME") or Path.home()
+        identity_path = os.path.join(claude_home, ".claude", "coordinator-identity.yaml")
         value = _read_key_from_file(identity_path, "engagement_posture")
         if value is not None:
             value = value.lower()

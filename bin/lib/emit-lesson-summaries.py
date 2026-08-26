@@ -377,7 +377,16 @@ def _relativize_prov_path(prov_path: str, repo_root: Path) -> str:
     Spec backlink: cross-repo/archive/2026-07-21-claude-klabauter-em-lessons-producer-absolute-provenance-path-relativize-at-source.md
     """
     p = Path(prov_path)
-    if not p.is_absolute():
+    # `Path.is_absolute()` is platform-dependent: on Windows, a drive-less
+    # rooted path (e.g. "/Users/operator/...", the shape a Mac-authored
+    # prov_path or this function's own cross-platform test fixtures carry)
+    # has a root but no drive, so `PureWindowsPath.is_absolute()` returns
+    # False for it — this function then silently fell into the "already
+    # relative" branch and returned the leaked absolute path unchanged,
+    # exactly the operator-home leak this function exists to strip. Treat a
+    # leading POSIX or Windows path separator as absolute too, regardless of
+    # host platform.
+    if not (p.is_absolute() or prov_path.startswith(("/", "\\"))):
         # Already relative (e.g. the "state/lessons" fallback strings) — POSIX-normalize only.
         return p.as_posix()
     # Review: code-reviewer (Finding 3) — the two-iteration relative_to loop is dead defensive

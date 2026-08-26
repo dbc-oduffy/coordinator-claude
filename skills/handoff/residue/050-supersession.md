@@ -7,12 +7,28 @@ order: 50
 
 ## Supersession — Genuine Dead-End (case ii)
 
-When a workstream is superseded and ownership moves to a named successor, the assembler's `d6` directive (`handoff.supersede_predecessor`, computed in `coordinator_core/baton_assemble/__init__.py`) fires automatically on the normal `/handoff` path whenever this brief's lineage names a predecessor — it stamps the predecessor `continued` + `continued_into:<successor>` and archives it, in the same transaction as the successor's own mint. For a predecessor cut before `d6` existed, or otherwise stranded off the normal path, the manual equivalent is the `supersede` verb (NOT `chain` — `chain` only ever dispatches `stamp_shipped` or `stamp_only`, never `continued`; see `handoff-archive-transition.py`'s own docstring):
+Full operator mechanics — the `d6` directive, the manual `supersede` verb, `chain` vs
+`supersede`, `reconcile_close_terminal`, and the roadmap-baton refusal rationale — are the baton
+lifecycle's, not this residue block's. **`--exclude` is required on the manual
+`supersede` verb** — without it the live-children guard sees the successor as a live child and
+the op silently retains rather than superseding.
 
-invoked through the settings-home forwarder — `python3 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/handoff-archive-transition" supersede <absolute-predecessor-path> --continued-into <successor> --exclude <successor>`. `--exclude` is required — without it the live-children guard sees the successor (which names the predecessor via its own `predecessor:` field) as a live child and the op silently retains rather than superseding.
+**Hand-authoring an audit record is not the close** — a reconcile narrated into a
+`*-baton-reconciled-closed.md` file without the frontmatter flip leaves the baton resurfacing as
+pickup-ready; stamp the frontmatter in the same breath as the record. Supersession is a
+PM-or-roadmap event, not an EM unilateral call on adjacent handoffs — do not park another
+session's handoff without an explicit successor link or a named dead-end reason.
 
-The other shape — a **genuine dead-end with no continuation at all**, including the reconcile-to-terminal case where every next-step was closed by work that landed after the baton was written — has a one-call op: `handoff.reconcile_close_terminal`, which composes the `closed` stamp and the archive move, is idempotent, and refuses on live children. Run it — `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/handoff-reconcile-close-terminal" <handoff-path> --reason <cancelled|displaced|stale>`. For a content-free/never-used stub, remove it instead (git history is the trail). **Hand-authoring an audit record is not the close** — a reconcile narrated into a `*-baton-reconciled-closed.md` file without the frontmatter flip leaves the baton resurfacing as pickup-ready; stamp the frontmatter in the same breath as the record. Supersession is a PM-or-roadmap event, not an EM unilateral call on adjacent handoffs — do not park another session's handoff without an explicit successor link or a named dead-end reason.
+**Send the stand-down notice before you stamp `closed`.** If the handoff's deliverable was a
+memo to a named receiver — today that means the doctrine-plane→engine-repo pair specifically,
+not a fleet-wide broadcast — the named receiver is still waiting: draft and send that receiver a
+stand-down notice via the settings-home forwarder (Shape W, per
+`snippets/resolve-coordinator-bin.md`) — `& "$env:COORDINATOR_SETTINGS_HOME\bin\cross-repo-memo.cmd"`
+— before hand-authoring `closed_reason`, so they don't keep waiting on a workstream that already
+ended.
 
-**Roadmap batons are never an automated supersede target — a `d6` decline there is the doctrine working, not an engine bug.** Their dependents point at them through `blocked_by:` (a `stub_id:` edge) that no archival-path guard can see, so stamping one `continued` silently strands them. `d6` therefore declines to arm when the predecessor's `kind` canonicalizes to `roadmap-baton`, surfacing a judgment point instead — route the supersession through the roadmap owner; never file it as a defect, never reach for the manual `supersede` verb to route around it. Which baton states admit an automated supersede is settled: **none**. The refusal keys on canonical `kind` alone, so a roadmap baton with no live dependents is refused identically — the dependent set is authored incrementally and a stub id outlives the baton file. To free a stranded baton's dependents, repoint their `blocked_by` at the successor that actually ships — session-decided and recorded, never swept.
-
-**Closing one whose deliverable was a cross-repo memo? The named receiver is still waiting — send the stand-down notice before you stamp `closed`.** If the handoff's deliverable was a memo to a named receiver — today that means the doctrine-plane→engine-repo pair specifically, not a fleet-wide broadcast — hand-authoring `closed_reason` is not the finish line by itself: draft and send that receiver a stand-down notice via the settings-home forwarder — `${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/cross-repo-memo` — so they don't keep waiting on a workstream that already ended.
+**A roadmap-baton judgment point is a routing decision, not a defect.** When the engine declines
+to arm `d6` on a roadmap-baton predecessor, route the supersession through the roadmap owner —
+never file it as a defect, never reach for the manual `supersede` verb to route around it. No baton state admits an
+automated supersede there: `--exclude` hides the successor from the live-children guard, and a
+roadmap baton's dependents are not visible to the op making the call.

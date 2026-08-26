@@ -38,7 +38,7 @@ DR-047 — the discovery logic itself is ported to coordinator_core/ops/discover
 # Never-block contract (preserved from the bash oracle): this script ALWAYS
 # exits 0 — there is no failure signal to distinguish via exit code, on either
 # side of the claude-klabauter link. If the claude-klabauter link itself cannot be resolved
-# (CLAUDE_KLABAUTER_ROOT unresolvable, module not importable), this trampoline ALSO
+# (engine root unresolvable, module not importable), this trampoline ALSO
 # exits 0 (loud on stderr) rather than blocking `/setup` — matching the
 # oracle's "advisory, never a gate" posture (transport-failure disposition per
 # PORTER-BRIEF-ADDENDUM.md § 3b: best-effort/advisory scripts degrade to exit 0).
@@ -49,13 +49,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.discover_working_repos import main as _op_main
     return _op_main
 

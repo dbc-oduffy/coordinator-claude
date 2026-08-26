@@ -319,7 +319,7 @@ def _rewrite_rows_dest_root(rows: List[str], scratch_dest_root: Path) -> List[st
     `MACHINE_LOCAL_<KEY>` override (confirmed: still returned the real
     path with one set) -- so a whole-registry-dir override would also have
     to re-supply every OTHER key the rest of the publish pipeline resolves
-    (e.g. whatever `repos.*` key backs `CLAUDE_KLABAUTER_ROOT` resolution), which is
+    (e.g. whatever `repos.*` key backs the engine root's resolution), which is
     a second, parallel, drift-prone registry-authoring surface this
     function's simpler row-rewrite avoids entirely.
 

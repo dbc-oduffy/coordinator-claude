@@ -5,7 +5,7 @@ Populates the two MANAGED sections (identity, progress) of a per-repo
 docs/exec-summary.md from disk artifacts while preserving the two HAND
 sections (special, goals) verbatim across regenerations. Derivation/emission
 logic lives claude-klabauter-side in coordinator_core.ops.generate_exec_summary; this
-file resolves CLAUDE_KLABAUTER_ROOT and forwards argv. Invoked from /workweek-start and
+file resolves the engine root and forwards argv. Invoked from /workweek-start and
 repo-setup as a best-effort cadence-step doc generator, never a merge gate.
 """
 # generate-exec-summary.py — CLI trampoline over claude-klabauter
@@ -35,7 +35,7 @@ repo-setup as a best-effort cadence-step doc generator, never a merge gate.
 #         or malformed on an existing target; or the state-root resolver
 #         failed (coordinator_claude_klabauter_root() raised).
 #     2 — CLI usage error (unknown argument).
-#   Trampoline-level (THIS file, CLAUDE_KLABAUTER_ROOT-resolution / import failure):
+#   Trampoline-level (THIS file, engine-root-resolution / import failure):
 #     0 — best-effort degrade, loud on stderr. This script is a cadence-step
 #         doc generator (invoked from /workweek-start, repo-setup) — never a
 #         merge/commit gate — so a broken claude-klabauter link is advisory, matching
@@ -60,7 +60,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 # Generator-provenance declaration (C2, generator_provenance.py's AST reader).
 # THIS file is a thin CLI trampoline (see module docstring) -- `sources`
@@ -80,16 +80,14 @@ GENERATES = [
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import the runner.
+    """Resolve the engine root and import the runner.
 
     DR-276: the op is run through `coordinator_core.cli_entry.run_op_main`
     rather than by calling its `main` directly, so the paths it declares become
     a session scope-touch claim. Without that, everything this CLI writes is an
     orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 
@@ -98,7 +96,7 @@ def main() -> None:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        print(f"generate-exec-summary: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"generate-exec-summary: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(0)
     except ImportError as exc:
         print(

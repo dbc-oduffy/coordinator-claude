@@ -1,22 +1,22 @@
 ---
 name: review
-description: "Review a plan/design doc or code diff — findings land on either one."
+description: "Review a plan/design doc, a code diff, or a roadmap spine/sprint slice — findings land on the artifact."
 version: 2.0.0
-argument-hint: "--surface plan|diff"
+argument-hint: "--surface plan|diff|roadmap"
 allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskUserQuestion","TaskCreate","TaskUpdate","TaskGet","TaskList"]
 ---
 
 # coordinator:review
 
-<!-- Purpose: Merged decision-tree router for plan-review and code-review workflows, arg-branched on --surface plan|diff. Covers outgoing (pre-flight + dispatch) and incoming (triage + integrate) directions for both surfaces. Does NOT cover the frozen weekly diff at /workweek-complete Step 7 — that is coordinator:parallel-code-review. -->
+<!-- Purpose: Merged decision-tree router for plan-review, code-review, and roadmap/sprint-review workflows, arg-branched on --surface plan|diff|roadmap. Covers outgoing (pre-flight + dispatch) and incoming (triage + integrate) directions for both surfaces. Does NOT cover the frozen weekly diff at /workweek-complete Step 7 — that is coordinator:parallel-code-review. -->
 
-**Trigger:** a reviewable artifact exists — a plan/design doc/RFC, or a code change — outgoing when nothing on it has been reviewed yet, incoming when a reviewer's findings have landed.
+**Trigger:** a reviewable artifact exists — a plan/design doc/RFC, a code change, or a roadmap spine/sprint slice — outgoing when nothing on it has been reviewed yet, incoming when a reviewer's findings have landed.
 
-**When NOT to use:** frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Stuck/oscillating → self-monitor, don't dispatch a reviewer. Pure mechanical citation check, no Opus → `docs-checker` directly. `--surface plan` mid-drafting, or `--surface diff` mid-implementation → keep working. `--surface diff` pure test-output classification → capture stdout/stderr to a file, dispatch `test-evidence-parser` on it.
+**When NOT to use:** frozen weekly diff at `/workweek-complete` Step 7 → `coordinator:parallel-code-review`. Stuck/oscillating → self-monitor, don't dispatch a reviewer. Pure mechanical citation check, no Opus → `docs-checker` directly. `--surface plan` mid-drafting, `--surface diff` mid-implementation, or `--surface roadmap` before the PM has shape-approved the spine → keep working. A finding about how one stub will be BUILT is plan altitude, not roadmap altitude → route it to that stub's own plan review. `--surface diff` pure test-output classification → capture stdout/stderr to a file, dispatch `test-evidence-parser` on it.
 
 `--surface` is resolved before this skill loads. Pre-flight checks, reviewer-tier precedence, sequencing exceptions, and prior-art mutability are retrieved by `review-assemble brief`, scoped to the resolved surface (segment set: `coordinator/skills/review/residue/`).
 
-**Invoking this skill IS the dispatch request** — not a separate ask. Doesn't waive any gate this skill names for itself (execution-authorization, per-session cross-repo-commit assent, ask-before-external-action). Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ---
 
@@ -28,14 +28,15 @@ _A reviewable artifact exists for `--surface`, no reviewer invoked yet this iter
 
 **Diff freeze:** only the caller knows the intended range — `code-reviewer` never selects its own. Freeze via `freeze-review-diff` with the caller-chosen range and slice-id before dispatch; never default a shared `work/*` branch to `origin/main...HEAD` (sweeps in sibling sessions' reviewed commits). Inject the frozen diff path as the primary dispatch artifact.
 
-**Reviewers don't execute.** Bash is read-only inspection — no interpreter, scratch files, or test runs. A runtime claim gets the EM running the probe before dispatch and pasting captured output into the brief as evidence, never a task. Verdict line's `executed: <yes|no>` discloses whether a WARN was empirically checked or hand-traced.
+**Reviewers don't execute.** Bash is read-only inspection — no interpreter, scratch files, or test runs. A runtime claim gets the EM running the probe before dispatch and pasting its output into the brief as evidence, never a task. The verdict's `executed: <yes|no>` discloses whether a WARN was empirically checked or hand-traced.
 
 ### A.2 — Reviewer selection and dispatch
 
 <!-- engine-gap: field=review.reviewer_selection producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
-Reviewer selection (routing-table match, tier precedence, effort) is a signal-lookup a program can compute; no producer emits it yet. Until then:
+Reviewer selection (routing-table match, tier precedence, effort) is a signal-lookup a program can compute; no producer AUTOMATES it yet — the plan carries the input, nothing yet merges it at dispatch time. Until then:
 
 - **Routing table:** merge `coordinator/routing.md` with every enabled plugin's `routing.md` fragments into one composite table; match signals to identify Reviewer 1 (domain specialist) and Reviewer 2 (generalist, if needed) — same table both surfaces.
+- **Read `review_signals` off the plan first.** A plan carrying the field resolves each id through `coordinator/contract/review-signals.json` — membership is enforced by the contract's parity test plus the frontmatter write guard where a coordinator engine is installed, never by a second copy of the vocabulary here. An id present in `review_signals` but ABSENT from the contract surfaces loudly (name the unrecognized id, do not proceed as if unset) rather than silently falling through to prose-matching. Hand-matching the routing table against prose is the fallback for a plan carrying **no** `review_signals` field at all, not the default path.
 - **Tier precedence** (Sonnet-vs-Opus, single-vs-cross-domain) is surface-specific, assembled by `review-assemble brief`.
 - **Effort is PM-gated, not an EM dial.** `routing.md`'s Effort field is PM-facing reference only — never put a level in a dispatch prompt or narrate one unless the PM named it.
 - **the Director of Engineering:** cross-team/consumer-leak signal → dispatch standalone as primary (director-altitude posture in brief; no `mode` arg), skip the Staff Engineer. Chained-after-the Staff Engineer ("backstop") is the High-effort-architectural routing entry, not the Director of Engineering's only mode.
@@ -52,15 +53,31 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 
 ### A.3 — Sequencing
 
-Sequential by default; integrate Reviewer 1 before dispatching Reviewer 2 — see `em-operating-doctrine.md` § How to Review What Came Back. One exception: the merge-gate parallel carve-out, ONLY at `/workweek-complete` Step 7 on a frozen weekly diff with orthogonal lenses + a no-rewrite synthesizer. Never applies mid-session, at `/merge-to-main`, at `/workday-complete`, or to plan reviews (plans are never parallelized).
+**Reviews are sequential, never parallel** — integrate finding-set 1 before dispatching reviewer 2. One exception: the merge-gate carve-out at `/workweek-complete` Step 7 — frozen weekly diff, orthogonal lenses, no-rewrite synthesizer. Never mid-session, at `/merge-to-main`, at `/workday-complete`, or on plan reviews (never parallelized).
+
+**Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; two Sonnet pre-flights gate before an Opus reviewer, and `plan-coverage-checker` has no EM opt-out.
 
 ---
 
 ## Branch B — Incoming
 
-_A reviewer has returned output; EM is deciding disposition per finding._
+_A reviewer has returned output. The integrator applies; the EM checks whether anything should
+come back out._
 
-**Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale. Any of these → surface to PM, the EM does not decide to defer.
+**The double-check is a disagreement scan, not a re-adjudication.** By the time findings reach the
+EM they have been filtered at the reviewer, routed by the integrator's own AUTO-FIX/ASK table, and
+given an explicit disposition in its triage table — every suggestion has already been checked once.
+Re-judging each one repeats work the pipeline did. Read the applied diff and the integrator's
+escalations, and revert what you disagree with; a finding you would have applied anyway needs no
+ceremony. The classification below is where the integrator's escalations land, not a per-finding
+gate the EM walks.
+
+**Integration is not measured by count.** "Every nitpick must land" is not the bar — enforcing it
+turns a correctness pipeline into a completeness ritual, and an EM required to integrate polish it
+disagrees with routes around the gate instead. Severity and the integrator's confidence floor do
+the filtering; disagreeing with a nit and reverting it is a correct outcome, not a skipped step.
+
+**Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale. Any of these → surface to PM, the EM does not decide to defer. Reverting a finding you disagree with is none of those — it is a disposition, and it belongs in the triage record with its reason.
 
 **Provenance gate — resolve before triage.** Reviewer (persona/`code-reviewer`) sidecar at `state/subagent-share/<session>/<key>.md`? → table below applies. Pre-flight lens checker (`prior-art-checker`, `plan-coverage-checker`, `docs-checker`, `external-pattern-checker`) sidecar at `state/plan-sidecars/<plan-stem>.<lens>.md`? → `review-integrator`'s intake guard denies it; dispatch `coordinator:enricher` with the lens sidecar path + adjudicated items instead. Never hand-author around the denial.
 
@@ -74,6 +91,11 @@ Finding classification/disposition below is a lookup a program can compute from 
 - **Independent reviewers converge on the same issue** → high-confidence, apply via integrator without per-finding verification. Single-agent findings (especially math/logic/precedence) still need it. On divergence, read source rather than tiebreak by vote.
 - **Worker Dispatch Recommendations block present** → dispatch each named worker (reviewers name, EM dispatches), feed output back into EM context. Surface-specific eligibility and the test-evidence-parser capture-before-dispatch rule are assembled by the op.
 - **Default/unmatched** → apply via integrator; default is integrate, not ratify, same exceptions as above.
+
+**`/review` fires on exiting `/plan`, not after an announcement.** Naming review as the next step
+and stopping is the failure this sequencing exists to remove — the EM invokes it, in the same turn,
+without waiting to be asked. Same rule as the review gate's own vehicle
+(`coordinator:parallel-code-review`): a gate that waits to be told to continue is not a gate.
 
 ---
 

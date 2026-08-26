@@ -93,6 +93,17 @@ _UNMATCHED_SOURCE_BREADCRUMB = (
 
 
 REGISTRY: Tuple[StartGuard, ...] = (
+    # FIRST, but NOT because the guards below need a warm engine -- both were
+    # read and neither imports `coordinator_core` nor dispatches anything (one
+    # shells to the machine-local registry, the other does zero-spawn path
+    # resolution). This is simply the only guard here that reaches the engine at
+    # all, so it goes first to start the spawn as early as possible.
+    # All five sources — omitting `resume`/`compact`/`fork` would lose warm start
+    # for exactly the long-lived sessions that benefit most from it, which is why
+    # the op declares that same set as its own SESSIONSTART_MATCHERS.
+    StartGuard("sessionstart_warm_start",
+               "sessionstart-warm-start.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("session_start_register_doe_claude_root",
                "session-start-register-doe-claude-root.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),

@@ -23,7 +23,7 @@ here).
 
 Exit convention: this is an ADVISORY orientation-nudge probe (invoked from
 `/workday-start`), not a commit gate — never blocks the caller on a
-trampoline/transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, module not
+trampoline/transport failure (the engine root unresolvable, module not
 importable). On such failure this prints a stderr note and exits 0, same
 posture as `coordinator-auto-push`. Business-logic exit codes (0 = probe ran,
 nudge or silent; 1 = archive/specs/ present but canonical log absent —
@@ -41,21 +41,19 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the ported entrypoint.
+    """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.check_harvest_debt import main as _op_main
 
     return _op_main

@@ -21,7 +21,7 @@ Back. The Staff Engineer is not in this gate — that advisory Layer-2 architect
 ## Wrong-Context Refusal
 
 Invoked exclusively from coordinator:/workweek-complete. Reached any other way — STOP, surface
-the misroute to the PM. `em-operating-doctrine.md` § How to Review What Came Back governs every
+the misroute to the PM. `coordinator/skills/review/SKILL.md` § A.3 — Sequencing governs every
 other surface.
 
 ---
@@ -29,10 +29,13 @@ other surface.
 ## Gate, Chunk, and Resolver Decisions
 
 Three CLI calls drive dispatch shape; each prints a decision envelope whose `next_move` field is
-the literal next step to take:
+the literal next step to take. **On a PowerShell host, use the `.cmd` sibling through the call
+operator** (Shape W) for every invocation on this page, never the `${...}` POSIX-shell form shown
+below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
-- **Gate:** `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/parallel-review-gate-decision" gate --range "origin/main...HEAD" [--force]`. `judgment_points` is always
-  `[]` here.
+- **Gate:** invoke `parallel-review-gate-decision gate --range "origin/main...HEAD" [--force]`,
+  resolved per `snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on
+  PowerShell). `judgment_points` is always `[]` here.
 - **Chunking:** same binary, `chunk --scope-files-file <scope-files> --seam-manifest-file
   <seam-manifest> [--target-size 25] --out "$FINDINGS_DIR/chunk-manifest.tsv"` — `<scope-files>`
   is `staff_eng_scope`'s narrowed code-semantics scope (the 3 specialists still see the full
@@ -53,7 +56,9 @@ wiki.
 
 ## Pre-Flight Orthogonality Assertion
 
-Before dispatch: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/parallel-review-orthogonality-guard" guard`. Non-zero — do not dispatch, surface to the PM.
+Before dispatch: invoke `parallel-review-orthogonality-guard guard`, resolved per
+`snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell). Non-zero
+— do not dispatch, surface to the PM.
 
 After chunking, before dispatching chunk reviewers: same command with `--chunk-manifest
 "$FINDINGS_DIR/chunk-manifest.tsv"`. Non-zero — re-chunk.
@@ -62,17 +67,19 @@ After chunking, before dispatching chunk reviewers: same command with `--chunk-m
 
 ## Snapshot
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/parallel-review-orthogonality-guard" snapshot --range "origin/main...HEAD"`. Capture its four printed fields as
+Invoke `parallel-review-orthogonality-guard snapshot --range "origin/main...HEAD"`, resolved per
+`snippets/resolve-coordinator-bin.md`. Capture its four printed fields as
 `$FINDINGS_DIR`, `$WEEKLY_SLICE_ID`, `$DIFF_PATH`, `$HEAD_SHA_PATH` — the only copies; reviewers
 and the synthesizer read them directly, never from `$FINDINGS_DIR`.
 
 ### Test-Output Capture — Tier-U, EM-only
 
-`/workweek-complete` holds this ceremony's implicit Tier-U grant. Consult it anyway:
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check`.
+`/workweek-complete` holds this ceremony's implicit Tier-U grant. Consult it anyway, resolved per
+`snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell):
+`tier-u-grant-cli check`.
 Ungranted (exit 1, or malformed/absent) — halt, surface to the PM, skip this step.
 
-Resolve: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-resolve-validation-cmd" --full` → `$TEST_CMD` / `$RESOLVER_EXIT`. Set
+Resolve: `coordinator-resolve-validation-cmd --full` (same resolution) → `$TEST_CMD` / `$RESOLVER_EXIT`. Set
 `TEST_OUTPUT_PATH="state/review-trail/diffs/${WEEKLY_SLICE_ID}.test.log"`, then run the
 resolver-branch decision above and act on its `next_move`.
 
@@ -85,8 +92,24 @@ test-evidence-parser — the untouched file fails the synthesizer's pre-flight a
 
 ## Parallel Dispatch
 
-Dispatch all active reviewers in one multi-tool-call batch. Each reads its own frozen input and
-writes only its own findings file:
+**Dispatch the whole span as one Workflow — `Workflow({scriptPath: "coordinator/workflows/review-wave.mjs", args: {...}})`.** It encodes this
+section and the synthesizer dispatch below; its `args` contract is in the script's own header.
+Pre-provision each dispatched agent's sidecar first, resolved per
+`snippets/resolve-coordinator-bin.md` (Shape A/B on POSIX hosts, Shape W on PowerShell) —
+`provision-sidecar --agent-type <type> --provision-key <slice-id>` — and inject the printed path
+as `sidecar_path:` in its brief: a Workflow spawn never auto-provisions one. Omit
+`testOutputPath` on an unconfigured-resolver (`RESOLVER_EXIT=2`) week and the parser is skipped.
+
+The gate is not a checkpoint. Reviewers run to completion without pausing for the EM to authorize
+each one, and a run that stops between reviewers to narrate the next dispatch has converted an
+automatic gate back into a manual one. Oversight is on disk and after the fact, not in the loop:
+every reviewer's reasoning lands in its own findings file and sidecar, and the EM reverts anything
+it disagrees with the same way it reverts any other landed change.
+
+**Hand-dispatch is the fallback for a broken vehicle, not a preference.** If the Workflow refuses
+or the script is unusable, dispatch all active reviewers in one multi-tool-call batch and say why
+the vehicle was bypassed. Either way, each reviewer reads its own frozen input and writes only its
+own findings file:
 
 - **Chunk reviewers** (`agents/code-reviewer-weekly.md`, skip all if `SKIP_CODE_SEMANTICS=1`): one
   per chunk, its file-scope list plus `$DIFF_PATH`, writing **only** `$FINDINGS_DIR/chunk-<k>.md`
@@ -129,14 +152,9 @@ Once all present files pass, dispatch Sonnet `parallel-review-synthesizer`
 `arch_tier_candidates` aggregation — this skill does not restate its rules. Writes
 `$FINDINGS_DIR/synthesis.json`.
 
-**Offer — background-Workflow vehicle** exists for this whole dispatch-and-synthesize span
-(`coordinator/workflows/review-wave.mjs`). Hand-dispatch above remains recommended. If used: (1)
-pre-provision each dispatched agent's sidecar first —
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/provision-sidecar"
---agent-type <type> --provision-key <slice-id>` — and inject the printed path as `sidecar_path:`
-in its brief, since a Workflow spawn never auto-provisions one; (2) do not use it on an
-unconfigured-resolver (`RESOLVER_EXIT=2`) week — it dispatches test-evidence-parser
-unconditionally regardless of `testOutputPath`. Why: wiki.
+`review-wave.mjs` covers this span too — its Synthesize phase runs the pre-flight and the
+synthesizer dispatch above. The rules here are the contract either vehicle satisfies, not a
+second path to run beside it.
 
 ---
 

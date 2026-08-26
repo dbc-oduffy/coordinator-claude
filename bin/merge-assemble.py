@@ -2,7 +2,7 @@
 # coordinator_core.merge_assemble (the computed-skill assembler for
 # `/merge-to-main`'s branch/release-tag/PR ceremony). Direct-import variant
 # (template-variant #1, mirrors coordinator/bin/pickup-assemble): a plain
-# in-process function call after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# in-process function call after resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
 # Spec backlink: docs/plans/2026-07-24-computed-skills-b4-baton-branch-lifecycle.md, chunk C6
@@ -21,7 +21,7 @@
 #   0 — OK.
 #   1 — business failure (brief) / halted-at-judgment (apply).
 #   2 — usage error.
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, import failure, no
+#   3 — transport failure (the engine root unresolvable, import failure, no
 #       enclosing git worktree).
 
 # --- routing half: this file is now a thin shim over entry_point_shim.run_target ---

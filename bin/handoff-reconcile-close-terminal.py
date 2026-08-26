@@ -103,7 +103,7 @@ def _no_console_kw() -> dict:
 def _no_fallback():
     raise RuntimeError(
         f"{PROG}: {_OP} requires the native seam (no bash fallback -- big-bang "
-        "cutover); re-run coordinator:install or verify CLAUDE_KLABAUTER_ROOT"
+        "cutover); re-run coordinator:install or verify COORDINATOR_ENGINE_ROOT"
     )
 
 

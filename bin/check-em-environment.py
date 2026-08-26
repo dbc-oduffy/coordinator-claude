@@ -23,7 +23,7 @@ here).
 Exit convention: ALWAYS exits 0, even if the claude-klabauter link fails — this check
 is a best-effort orientation banner inside a start ceremony, never a gate.
 The bash oracle's own final line is an unconditional `exit 0`; this trampoline
-preserves that even on CLAUDE_KLABAUTER_ROOT-resolution / import failure (unlike a
+preserves that even on engine-root-resolution / import failure (unlike a
 fail-loud gate/config-writer trampoline, which would sys.exit(1) there).
 
 Spec backlink: DoE-claude:pln-bash-polyglot-clean-slate-full-5c71ee

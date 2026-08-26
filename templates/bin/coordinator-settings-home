@@ -3,8 +3,8 @@
 #
 # Returns the absolute path to the coordinator settings home directory.
 # This is the sibling directory to ~/.claude that holds coordinator's durable
-# per-machine substrate: machine-local registry, coordinator-whoami identity,
-# .coordinator-venv, bin/ resolvers, setup/, and settings-manifest.md.
+# per-machine substrate: machine-local registry, bin/ resolvers, setup/,
+# and settings-manifest.md.
 #
 # Precedence (most-specific first):
 #   COORDINATOR_SETTINGS_HOME  — explicit override (sandboxes/CI/XDG users)

@@ -15,7 +15,7 @@ concern, not this chunk's).
 
 Because this file lives co-located with its sibling probes under
 `coordinator/bin/`, it resolves them via `os.path.dirname(__file__)` rather
-than re-running the DoE-side CLAUDE_KLABAUTER_ROOT resolution ladder a second time —
+than re-running the DoE-side engine-root resolution ladder a second time —
 the DoE fence already did that resolution once to find *this* file.
 
 Subcommands (argv[1] selects):
@@ -54,21 +54,69 @@ Subcommands (argv[1] selects):
       Exit: always 0 (the wrapped ceremony hook must never block the
       calling ceremony; see coordinator-ceremony-hook.py's own contract).
 
+  mis-channelled-box
+      NEW 2026-08-16 (chunk C29). PM RULING, verbatim: "we should detect this."
+      Detects a box running the PUBLISHED engine on the wrong release channel —
+      the gap neither repo's plan closed on its own (DoE-claude's resolver
+      diverts to a klabauter tree on the wrong channel and reports
+      `resolved-engine` truthfully; nothing on either plane notices the branch
+      disagrees with the box's own declaration). Catches both entry points to
+      the same defect: a manual `git checkout` in the mirror
+      (`klabauter-release-channels` AC11's residual) and a box INSTALLED onto
+      the wrong channel (the AC8 gap, drift included).
+
+      Only fires when `resolve_claude_klabauter_root_with_class()` answers
+      `RESOLUTION_RESOLVED_ENGINE` — a live working tree isn't running a
+      published channel at all, so it is out of scope by construction.
+      "Actually on" is read zero-spawn, mirroring DoE-claude's
+      `_read_current_branch_boot()` technique (`project-orientation.py`) — a
+      direct `.git/HEAD` text read, never a `git` subprocess. "Should be on"
+      is the box's own declaration, `engine.target`
+      (`_resolve_claude_klabauter.resolve_engine_target`) — its two values, `main` and
+      `candidate`, ARE the branch names C8 established as the channel-
+      selecting fact, so no further translation is needed.
+
+      NOT a hard block: a box legitimately sits mid-transition during a
+      channel switch, so this only WARNs (non-blocking) and names the
+      runnable remediation (`klabauter-channel.py --set <target>`) — never a
+      slash command (cold-path rule).
+
+      NEGATIVE SPEC: never infers the expected channel from what the mirror
+      has checked out — that is the same declared-or-nothing rule C3 carries;
+      inferring it here would make the probe agree with itself and detect
+      nothing.
+
+      ABSENT `engine.target` IS NOT A MISMATCH — the not-yet-rolled-out
+      state (C8's own doctor probe already enumerates it); reporting it here
+      would false-positive on every machine on day one. Silent (exit 0).
+
+      Zero-spawn end to end: no subprocess is spawned by this subcommand.
+      Never raises — any resolution/read failure degrades to pass (0), same
+      "never block the boot path" contract as every other probe in this file.
+      Exit: 0 clean/not-applicable/absent-target, 1 mismatch (WARN to stderr,
+      remediation included verbatim).
+
   working-repo-registration [--fix]
       Confirms `engine.working_repos.claude_klabauter` (the machine-local
-      registry key `_is_engine_working_repo()` — DoE-claude
-      `coordinator/hooks/scripts/_engine_root.py` — consults to decide
-      whether an engine-repo session resolves the LIVE engine working
-      tree or the PUBLISHED engine mirror) is registered and matches this
-      repo's own root. Written only at install time by
-      `scripts/setup.py::register_claude_klabauter_root()`; if wiped or
-      hand-corrupted, claude-klabauter's own sessions would silently resolve the
-      published engine instead (edits to `coordinator_core` stop
-      executing), and the live-tree fallback rungs do not rescue it because
-      the working-repo gate short-circuits first. Governing record: DR-132
-      (DoE-claude `docs/decisions/DR-132-engine-working-repos-is-its-own-
-      namespace-not-a-repos-star-inference.md`). Currently inert —
-      `_resolve_published_engine()` returns None while
+      registry key) is registered and matches this repo's own root.
+      Written only at install time by `scripts/setup.py::register_claude_klabauter_root()`.
+
+      2026-08-18 (C4): this key is a PURE LOCATOR on claude-klabauter's own plane —
+      claude-klabauter's own resolver (`coordinator/lib/resolve-claude-klabauter/
+      _resolve_claude_klabauter.py::resolve_claude_klabauter_root_with_class`) no longer
+      consults `engine.working_repos.*` at all; its live-tree-vs-published
+      discriminant is now structural (is the session's own root the
+      resolved `repos.claude_klabauter` value?), not a lookup against this
+      key. This probe still matters because OTHER consumers of this
+      namespace remain (DoE-claude's own resolver, per DR-132; other
+      cross-repo locator callers that resolve "where is claude-klabauter
+      checked out" via this key, e.g. `coordinator_core/ops/
+      setup_chain_walker.py`'s doe_claude analogue) — a wiped or
+      hand-corrupted entry still breaks THOSE reads, just not claude-klabauter's own
+      session resolution any more. Governing record: DR-132 (DoE-claude
+      `docs/decisions/DR-132-engine-working-repos-is-its-own-
+      namespace-not-a-repos-star-inference.md`). Currently inert on claude-klabauter's
+      own gate — `_resolve_published_engine()` returns None while
       `repos.claude_klabauter` is unregistered on this machine — and ARMS
       as soon as the OSS-release workstream registers klabauter; this probe
       lands detection ahead of that.
@@ -162,6 +210,12 @@ from coordinator_core.machine_resolver import registry_get  # noqa: E402
 from coordinator_core.win_portability import is_executable, no_console_creationflags  # noqa: E402
 from cli_shared import machine_local_impl, resolve_python  # noqa: E402
 
+_RESOLVE_CLAUDE_KLABAUTER_DIR = os.path.join(_REPO_ROOT, "coordinator", "lib", "resolve-claude-klabauter")
+if _RESOLVE_CLAUDE_KLABAUTER_DIR not in sys.path:
+    sys.path.insert(0, _RESOLVE_CLAUDE_KLABAUTER_DIR)
+
+import _resolve_claude_klabauter  # noqa: E402
+
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 _WORKING_REPO_REGISTRY_KEY = "engine.working_repos.claude_klabauter"
@@ -174,7 +228,7 @@ def _usage(prog: str) -> int:
         f"usage: {prog} <subcommand> <args...>\n"
         "subcommands: observer-sidecar-scan [--dir <path>] | "
         "claude-klabauter-bin-sentinel | ceremony-hook <ceremony-name> | "
-        "working-repo-registration [--fix]",
+        "mis-channelled-box | working-repo-registration [--fix]",
         file=sys.stderr,
     )
     return 2
@@ -313,6 +367,76 @@ def cmd_ceremony_hook(argv: list[str]) -> int:
     return 0
 
 
+def _read_current_branch_boot(repo_root: str | None) -> str:
+    """Pure-Python `.git/HEAD` read — no `git` subprocess.
+
+    Port of DoE-claude's zero-spawn technique (`coordinator/hooks/scripts/
+    project-orientation.py::_read_current_branch_boot`, cited verbatim in
+    this chunk's spec as prior art to reuse rather than re-derive) — module
+    docstring's "mis-channelled-box" entry. `.git/HEAD` normally contains
+    `ref: refs/heads/<branch>\n` on a checked-out branch, or a bare 40-char
+    SHA in detached-HEAD state; this returns the branch name in the former
+    case and "" (undeterminable) in the latter. Never raises."""
+    if not repo_root:
+        return ""
+    try:
+        head_text = (Path(repo_root) / ".git" / "HEAD").read_text(
+            encoding="utf-8", errors="replace"
+        ).strip()
+    except Exception:
+        return ""
+    if not head_text.startswith("ref:"):
+        return ""
+    ref = head_text.split(":", 1)[1].strip()
+    if not ref.startswith("refs/heads/"):
+        return ""
+    return ref[len("refs/heads/"):]
+
+
+def cmd_mis_channelled_box(argv: list[str]) -> int:
+    """Detect a box running the published engine on the wrong release
+    channel. See module docstring's "mis-channelled-box" entry for the full
+    contract (never raises, zero-spawn, non-blocking WARN on mismatch)."""
+    del argv  # no flags accepted
+    try:
+        root, resolution_class = _resolve_claude_klabauter.resolve_claude_klabauter_root_with_class()
+    except Exception:  # noqa: BLE001 — a health probe must never itself raise/block the boot path
+        return 0
+
+    if resolution_class != _resolve_claude_klabauter.RESOLUTION_RESOLVED_ENGINE:
+        # A live working tree isn't running a published channel at all.
+        return 0
+
+    try:
+        declared = _resolve_claude_klabauter.resolve_engine_target()
+    except Exception:  # noqa: BLE001
+        return 0
+
+    if declared is None:
+        # AC20-style rule: absent/unreadable engine.target is the
+        # not-yet-rolled-out state, never a mismatch.
+        return 0
+
+    actual = _read_current_branch_boot(root)
+    if not actual:
+        # Undeterminable (detached HEAD, unreadable .git/HEAD, ...) —
+        # degrade to pass rather than false-positive on a guess.
+        return 0
+
+    if actual == declared:
+        return 0
+
+    print(
+        f"[workday-start] WARN: box is running the wrong channel — declared "
+        f"engine.target={declared!r}, resolved engine at {root!r} is checked "
+        f"out on {actual!r}. Fix: {resolve_python()} "
+        f"{_sibling('klabauter-channel.py')} "
+        f"--set {declared}",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def cmd_working_repo_registration(argv: list[str]) -> int:
     """Confirm `engine.working_repos.claude_klabauter` is registered and
     points at THIS repo's own root (`_REPO_ROOT`, derived from `__file__` —
@@ -443,6 +567,7 @@ _SUBCOMMANDS = {
     "observer-sidecar-scan": cmd_observer_sidecar_scan,
     "claude-klabauter-bin-sentinel": cmd_claude_klabauter_bin_sentinel,
     "ceremony-hook": cmd_ceremony_hook,
+    "mis-channelled-box": cmd_mis_channelled_box,
     "working-repo-registration": cmd_working_repo_registration,
 }
 

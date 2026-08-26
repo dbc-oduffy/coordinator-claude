@@ -35,12 +35,12 @@ from datetime import date, datetime, time
 # oracle, reintroducing a `bash <seam>.sh` shell-out the oracle had already
 # removed (raises uncaught FileNotFoundError on a bash-less Windows box — the
 # exact audience this campaign exists for). Replaced with the improved oracle's
-# own call shape: `python3 -m coordinator_core.state_root`, CLAUDE_KLABAUTER_ROOT resolved
+# own call shape: `python3 -m coordinator_core.state_root`, the engine root resolved
 # natively via the shared cc_invoke ladder (zero bash anywhere in the chain).
 
 
 def _resolve_claude_klabauter_root_silent() -> str | None:
-    """Resolve CLAUDE_KLABAUTER_ROOT via the shared cc_invoke resolver (self-location-first);
+    """Resolve the engine root via the shared cc_invoke resolver (self-location-first);
     None on any failure."""
     try:
         lib_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")

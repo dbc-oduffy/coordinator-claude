@@ -9,51 +9,59 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 ## Overview
 
-Reduce branch and worktree sprawl to a single clean workstream branch. The assembler inventories
-every local and remote branch AND every worktree, computes ownership, unique-commit evidence,
-and the absorb/delete sequencing, and returns one decision object. An unconditional directive in
-that object (no-unique-commit deletes, clean-worktree removal, prune, fetch-prune) executes as
-soon as you reach it. What follows is the judgment residue the assembler cannot resolve for you:
+Reduce branch and worktree sprawl to a single clean workstream branch. Every local and remote
+branch AND every worktree is inventoried for you — ownership, unique-commit evidence, and the
+absorb/delete sequencing. Unconditional directives (no-unique-commit deletes, clean-worktree
+removal, prune, fetch-prune) execute as soon as you reach them. What is left is yours to decide:
 supersession verdicts on branches with unique commits, conflict resolution, the locked/dirty
 worktree pause, and the merge-ready call.
 
 **Consolidation and shipping are separate decisions — this skill never merges to main.** It
 leaves the repo with one current branch holding all of *my* in-flight work, no leftover sibling
 branches, no stale worktrees. Whether that branch is ready to ship is `/merge-to-main`'s call,
-made after this skill reports and optionally offered via the assembler's `merge-ready` judgment
-point.
+made after this skill reports and optionally offered via the `merge-ready` judgment point.
 
 **Announce at start:** "I'm using the coordinator:consolidate-git skill to consolidate branches
 and worktrees into the current branch. Merge to main is a separate step."
 
-## Run the Assembler
+## Compute the Inventory
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/consolidate-assemble" brief`
-computes the eight-key decision object: current-user + branch inventory (ownership category per
-branch and worktree), unique-commit evidence per stale branch, absorb/delete directives, and the
-judgment points below. It is READ-ONLY — every mutating action surfaces as a directive or a
-judgment point, never fires silently.
+**On a PowerShell host, use the `.cmd` sibling through the call operator** (Shape W), never the
+`${...}` POSIX-shell form shown below. Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+
+`consolidate-assemble brief` (per `snippets/resolve-coordinator-bin.md`)
+returns the current-user + branch inventory (ownership category per branch and worktree),
+unique-commit evidence per stale branch, absorb/delete directives, and the judgment points below.
+It is READ-ONLY — every mutating action surfaces as a directive or a judgment point, never fires
+silently.
 
 **Worktrees are not exempt.** A worktree whose branch tip is already reachable from main or the
 current branch is stale state, not active work — a lock from a long-finished isolation run is a
-stale signal, not a veto, and the assembler proposes its removal like any other stale branch. A
+stale signal, not a veto, and its removal is proposed like any other stale branch. A
 worktree with uncommitted changes is a genuine pause, not an auto-fire.
 
 **Only branches/worktrees owned by the current git identity are candidates.** Everyone else's
-are reported in the decision object's `gates` but never touched.
+are reported under `gates` but never touched.
 
 ## Resolve the Judgment Points
 
 Each judgment point below carries its own evidence and per-option guidance in the decision
 object — decide from it, never invent a verdict the evidence doesn't support.
 
-**`j-absorb-<branch>` — supersession verdict.** The assembler hands you the unique-commit list
-plus a `git show --stat` per commit; it never labels a commit "superseded" itself. Before
+**`j-absorb-<branch>` — supersession verdict.** You get the unique-commit list plus a
+`git show --stat` per commit; nothing labels a commit "superseded" for you. Before
 choosing **skip**, name the file(s) on the current branch that supersede each commit — "current
 branch has a newer version" without a path is a guess, not evidence, and any commit touching a
 file the current branch never touched must be absorbed, not skipped. Choosing **absorb** applies
-the assembler's own cherry-pick/merge selection (cherry-pick for small counts, merge for large)
+the computed cherry-pick/merge selection (cherry-pick for small counts, merge for large)
 via the closed CLI table — you are not hand-choosing the git verb.
+
+**A ref can exist to hold objects rather than changes — the unique-commit count cannot see it.**
+A `backup/`- or `pre-*`-named ref is doing its job precisely when it is identical to its source,
+so faithfulness reads here as pure redundancy. Never resolve one on unique-commit count alone:
+name what it was cut to insure against, and if that is unknown, report it and leave it. "Merged
+into HEAD" and "safe to lose" are different predicates — the gap between them is a ref whose
+objects live on no pushed remote.
 
 **Conflict resolution (surfaces mid-directive-apply, not as a separate judgment point).**
 Inspect conflicting files — if the current branch already supersedes the change, abort and skip,
@@ -88,7 +96,7 @@ ratifies default behavior; phrase chain-to-merge as a recommendation with the ev
 
 ## Report
 
-Summarize per the assembler's own `branches`/`worktrees` gates: absorbed, skipped (with the
+Summarize per the `branches`/`worktrees` gates: absorbed, skipped (with the
 superseding evidence named), deleted (branches + worktrees), and left untouched (other owners).
 Close with current branch, ahead-of-main count, and the merge-ready disposition.
 
@@ -96,8 +104,8 @@ Close with current branch, ahead-of-main count, and the merge-ready disposition.
 
 **On main with no other branches:** abort early — nothing to consolidate.
 
-**Remote branches with no local counterpart:** fetch first to let the assembler inspect their
-commits before it proposes the remote delete.
+**Remote branches with no local counterpart:** fetch first, so their commits are inspected
+before a remote delete is proposed.
 
 ## What This Does NOT Do
 

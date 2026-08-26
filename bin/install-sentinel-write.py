@@ -82,7 +82,7 @@ def _main(argv: list[str] | None = None) -> int:
     sha = _resolve_sha(Path(args.source), args.sha)
 
     sentinel = target / "version.txt"
-    sentinel.write_text(sha + "\n", encoding="utf-8")
+    sentinel.write_text(sha + "\n", encoding="utf-8", newline="\n")
     return 0
 
 

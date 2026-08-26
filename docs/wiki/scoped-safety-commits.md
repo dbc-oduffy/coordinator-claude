@@ -2,6 +2,11 @@
 
 <!-- distilled from internal specs and dogfood session notes -->
 
+**Invocation form.** Every `coordinator-safe-commit` example below is written in its POSIX-host
+form. On a PowerShell host, resolve it per rung 0 / Shape W in
+`coordinator/snippets/resolve-coordinator-bin.md` instead of transcribing the POSIX expansion
+literally.
+
 **System:** coordinator
 **Sibling:** this page's enforcement machinery defends against a symptom-indexed hazard catalog maintained alongside it — that catalog covers the *why*; this page covers the *how*.
 
@@ -225,11 +230,11 @@ The fix uses `agentId` (durable, opaque, mechanical — `^[a-f0-9]{12,}$`, lower
 
 Probe 0.2 confirmed there is **no autonomous HEAD-mutating code** in the coordinator scripts: zero `git checkout`/`switch`/`reset`/`worktree`/`update-ref`. `coordinator-auto-push` is push-only. The session-init hook chain is read-only for branch detection. All `git checkout` instructions in `.md` files are LLM-consumed only. Wrong-branch commits did NOT result from a code-level branch-switch bug. Most plausible cause: shared working tree was on the daily branch at dispatch time (sibling-session checkout), and the dispatching EM did not verify before sending the prompt.
 
-The fix was a deterministic gate on the helper, not a doctrine line:
+The fix was a deterministic gate on the helper, not a doctrine line.
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --expected-branch <name> "<subject>"
-```
+On a PowerShell host (Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --expected-branch <name> "<subject>"`
 
 The helper aborted before staging on mismatch, printed reflog entries for both current and expected branches, and emitted:
 
@@ -256,6 +261,10 @@ When an executor produces files whose paths weren't predictable at handoff-write
 
 ## How to Use It (EM-Facing)
 
+Every `coordinator-safe-commit` invocation below is the POSIX-host form; a PowerShell host uses
+rung 0 / Shape W instead — see `coordinator/snippets/resolve-coordinator-bin.md`'s precedence
+ladder.
+
 ### Default scoped commit (post-SC-DR-008)
 
 ```bash
@@ -269,25 +278,25 @@ The trailing `-- <paths>` scopes the commit to those paths regardless of index s
 
 ### Sweep ceremonies (`--blanket`)
 
-```bash
-CLAUDE_INVOKING_COMMAND=workstream-start "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --blanket "chore: workstream-start sweep — pre-orientation capture"
-```
+PowerShell (Shape W):
+
+    $env:CLAUDE_INVOKING_COMMAND = "workstream-start"; & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --blanket "chore: workstream-start sweep — pre-orientation capture"
 
 Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `update-docs`, `relay-protocol`, `distillation`. The helper rejects `--blanket` from all other callers. (`/workday-complete` was removed from the allow-list — it now uses a path-classifier instead of `--blanket`; see § Carve-Outs and Why.)
 
 ### Workstream-anchored (handoff/pickup)
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --scope-from state/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"
-```
+PowerShell (Shape W):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --scope-from state/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"`
 
 Pulls pathspecs from the handoff frontmatter's `scope:` field. Both bookends (handoff prep, pickup safety commit) use the same declared scope — honest and consistent.
 
 ### Dry-run preview
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --dry-run "subject"
-```
+PowerShell (Shape W):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --dry-run "subject"`
 
 Shows what would be staged and committed. Does not commit. Use to verify scope before important commits.
 
@@ -411,25 +420,22 @@ Bash edits aren't tracked by the hook — intentionally. They fall to mtime dete
 
 **Preferred — audited, overlap-checked:**
 
-In a single-EM environment (one live session):
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --include-orphans <path> "subject"
-```
+In a single-EM environment (one live session), PowerShell (Shape W):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --include-orphans <path> "subject"`
 
 In a concurrent-EM environment (multiple live sessions), combine with `--scope-from`:
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --scope-from <handoff.md> --include-orphans <path> "subject"
-```
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --scope-from <handoff.md> --include-orphans <path> "subject"`
 
 The helper resolves the pathspec, checks the runtime overlap gate (first claimant wins), writes
 an audit log at `.git/coordinator-sessions/<id>/orphan-claims.log`, and annotates the file with
 `(orphan-claimed)` in `print_summary`. One-shot: does not append to `touched.txt`.
 
 **Fallback — when `--include-orphans` is unavailable (older helper version):**
-```bash
-git add <path>
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" "subject"
-```
+
+    git add <path>
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" "subject"`
 
 The explicit `git add` preloads the index; the helper proceeds from there. Use this only when
 the `--include-orphans` flag is not yet available — it lacks the overlap gate and audit trail.
@@ -967,7 +973,7 @@ Verified clean on both axes: it neither reads the worktree nor touches the share
 
 **This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is `ceremony.scoped_git_commit` (`coordinator_core/ops/ceremony/scoped_git_commit.py`): it takes the path set, fails loud on an empty set or a directory pathspec, and computes the branch itself from `diverging_paths()` (`coordinator_core/git/divergence.py`) rather than asking the caller to classify the horn — agree takes `git add -- <paths> && git commit -F <msg> -- <paths>`; diverge takes the private-index sequence above (HEAD captured once, `commit-tree -p <old>`, 4-argument compare-and-swap `update-ref`). **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is not the fallback advice; call the op.
 
-**Never resolve this by widening.** `git add -A` / `git add .` remain hard-denied (SC-DR-014's structural floor stands, unchanged). `git commit -a` / `-am` is prohibited too, but by the scoped-commit *form* (SC-DR-008), not by SC-DR-014 — and its enforcement is asymmetric: hard-denied for a dispatched agent (`block_subagent_commit`), advisory-only on the EM path, where `_bt_commit_has_sweep_all_flag` excludes the `-a` family from C7's index probe under PM Ruling 2 of `docs/plans/2026-08-01-advisory-firing-shape-predicate.md` and the check falls back to warning on the full staged set. Prohibited-by-doctrine, advisory-in-enforcement is the actual state; do not read the prohibition as a claim that the EM-path guard denies it. This ruling makes scoped committing *safer*, never optional.
+**Never resolve this by widening.** `git add -A` / `git add .` remain hard-denied (SC-DR-014's structural floor stands, unchanged). `git commit -a` / `-am` is prohibited too, but by the scoped-commit *form* (SC-DR-008), not by SC-DR-014 — and its enforcement is asymmetric: hard-denied for a dispatched agent (`block_subagent_commit`), advisory-only on the EM path, where `_bt_commit_has_sweep_all_flag` excludes the `-a` family from C7's index probe under the advisory-firing-shape ruling and the check falls back to warning on the full staged set. Prohibited-by-doctrine, advisory-in-enforcement is the actual state; do not read the prohibition as a claim that the EM-path guard denies it. This ruling makes scoped committing *safer*, never optional.
 
 **What this supersedes and what it leaves standing.**
 
@@ -1154,11 +1160,11 @@ This is the consuming-side failure mode of the blanket-add hazard catalogued in 
 
 *Empirical basis (doctrine-plane follow-up 8):* Shipped `coordinator-safe-commit --expected-owner em-only` to prevent executor self-commits, then immediately invoked it as a smoke test with `coordinator-safe-commit --expected-owner em-only "test"` (env unset). The gate passed (correct — EM context), and the script ran through to commit, landing Chunk 1's content under subject literally `"test"` . The EM committed exactly the eager-helpful pattern the gate was designed to prevent on the executor side.
 
-**Use `--dry-run` whenever the helper is the unit under test:**
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --dry-run "subject"   # shows scope without committing
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-safe-commit" --dry-run --expected-branch <name> "subject"  # gate test
-```
+**Use `--dry-run` whenever the helper is the unit under test.** PowerShell (Shape W — see
+`coordinator/snippets/resolve-coordinator-bin.md`):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --dry-run "subject"`   # shows scope without committing
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --dry-run --expected-branch <name> "subject"`  # gate test
 
 The EM is subject to the same eager-helpful failure mode the doctrine attributes to executors. The gate is opt-in by caller; a test invocation IS the happy path and the happy path commits.
 

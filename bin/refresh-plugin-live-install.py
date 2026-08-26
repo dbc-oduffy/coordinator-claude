@@ -73,21 +73,53 @@ PROG = "refresh-plugin-live-install.py"
 GENERATES = []  # writes live_path (a registered plugin's live checkout under the Claude plugins dir), the refresh audit log, and snapshot dirs — all under the operator's Claude home, outside claude-klabauter's own tree (abs-path-ok: descriptive prose, not a resolve site)
 
 
+def _resolved_uv():
+    """The absolute path `shutil.which` resolved for uv, or None.
+
+    WHY NOT THE BARE NAME. `shutil.which` honours `PATHEXT` on Windows and will happily
+    return a `uv.bat` / `uv.cmd` shim; `subprocess.run` without `shell=True` goes through
+    `CreateProcess`, which appends only `.exe` and never consults `PATHEXT`. So a gate
+    written as `which("uv")` can succeed on a shim that the matching `run(["uv", ...])`
+    cannot launch -- FileNotFoundError [WinError 2] at best, and at worst a DIFFERENT
+    `uv.exe` elsewhere on PATH runs silently in place of the one that was detected.
+    POSIX is unaffected: `execvp` resolves the same way `which` does.
+
+    Reported with measurements by project-rag (project-rag-d5) against seven reds in
+    their install suite, where a `uv.bat` test shim was detected and then bypassed. An
+    absolute path to a `.bat` DOES launch via CreateProcess -- their first diagnosis said
+    otherwise, they retested and refuted it themselves, and that is what makes resolving
+    the path a sufficient fix rather than a cosmetic one.
+
+    Resolved fresh per call rather than cached: the bootstrap leg installs uv partway
+    through a run, so a value captured at entry would still be None afterwards.
+    """
+    return shutil.which("uv")
+
+
+def _uv_or_die():
+    """`_resolved_uv()` at a spawn site, where None means the gate above it lied.
+
+    Falls back to the bare name rather than raising: every caller is already inside a
+    branch that established uv is present, so a None here means uv vanished mid-run.
+    The bare name is what the code did before this fix, so the fallback is exactly the
+    old behaviour rather than a new failure mode.
+    """
+    return _resolved_uv() or "uv"
+
+
 def _no_console_kwargs() -> dict:
-    """Deferred coordinator_core import — matches this file's CLAUDE_KLABAUTER_ROOT
+    """Deferred coordinator_core import — matches this file's engine-root
     bootstrap posture (see ``_import_registry_deps``) so ``--help``/usage
-    paths never pay a CLAUDE_KLABAUTER_ROOT resolution cost. On any CLAUDE_KLABAUTER_ROOT
+    paths never pay an engine-root resolution cost. On any engine-root
     resolution/import failure, falls back to the same suppression kwargs
     computed inline (zero imports beyond ``subprocess``) rather than
     silently dropping console suppression -- a resolution failure must
     never turn a quiet spawn into a visible console window.
     """
     try:
-        from cc_invoke import _resolve_claude_klabauter_root
+        from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path
 
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()
@@ -132,9 +164,9 @@ def eprint(*args, **kwargs) -> None:
 
 
 # ---------------------------------------------------------------------------
-# coordinator_core import bootstrap (CLAUDE_KLABAUTER_ROOT resolution) — deferred, not
+# coordinator_core import bootstrap (engine-root resolution) — deferred, not
 # module-level, matching this tree's coordinator/bin/*.py convention (see e.g.
-# check-em-environment.py) so `--help`/usage paths never pay a CLAUDE_KLABAUTER_ROOT
+# check-em-environment.py) so `--help`/usage paths never pay an engine-root
 # resolution cost.
 # ---------------------------------------------------------------------------
 
@@ -146,7 +178,7 @@ from win_argv import win_safe_shlex_split  # noqa: E402
 
 
 def _import_registry_deps():
-    """Resolve CLAUDE_KLABAUTER_ROOT and import ``coordinator_core.machine_resolver`` —
+    """Resolve the engine root and import ``coordinator_core.machine_resolver`` —
     the canonical registry reader (``registry_get``) and the sole
     registry-directory ladder (``registry_dir``).
 
@@ -159,11 +191,9 @@ def _import_registry_deps():
     ``machine_local_dir()``. That second resolver is what created the
     split-brain documented in ``_read_registry`` — do not reintroduce it here.
     """
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+    from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_dispatch_engine_on_path()
     from coordinator_core import machine_resolver
 
     return machine_resolver
@@ -356,7 +386,7 @@ def _last_recorded_hash(refresh_log: Path, plugin: str) -> str:
 
 def _append_audit(refresh_log: Path, line: str) -> None:
     try:
-        with open(refresh_log, "a", encoding="utf-8") as f:
+        with open(refresh_log, "a", encoding="utf-8", newline="\n") as f:
             f.write(line + "\n")
     except OSError:
         pass
@@ -602,7 +632,7 @@ def _acquire_lock(lock_dir: Path) -> None:
             eprint(f"  If this is stale, run: rm -rf '{lock_dir}'")
             sys.exit(1)
 
-    (lock_dir / "pid").write_text(str(os.getpid()), encoding="utf-8")
+    (lock_dir / "pid").write_text(str(os.getpid()), encoding="utf-8", newline="\n")
 
     def _cleanup() -> None:
         _safe_rmtree(lock_dir)
@@ -822,7 +852,7 @@ def _tty_writer():
         except OSError:
             return None
     try:
-        return open("/dev/tty", "w", encoding="utf-8")
+        return open("/dev/tty", "w", encoding="utf-8", newline="\n")
     except OSError:
         return None
 
@@ -902,6 +932,23 @@ def _interactive_gate(plugin: str, live_path: Path, checkout_ref: str):
     finally:
         if tty is not None:
             tty.close()
+
+
+def _checkout_approved_files(
+    checkout_ref: str, approved_files: list[str], live_path: Path
+) -> subprocess.CompletedProcess:
+    """`git checkout <checkout_ref> -- <approved_files...>` in ONE spawn.
+
+    Amplification burn-down (state/ledgers/amp-wave4-worklist.md W2):
+    previously one `_git(["checkout", checkout_ref, "--", f], live_path)`
+    spawn per approved file (`_handle_default`'s interactive-partial leg).
+    `git checkout <tree-ish> -- <pathspec>...` accepts multiple pathspecs in
+    a single invocation, so the whole approved set rides one call -- an
+    all-or-nothing checkout (git's own atomicity for this form), matching
+    the pre-existing all-or-nothing error handling at the call site (any
+    failure aborts the refresh; there was never a per-file retry/skip
+    path)."""
+    return _git(["checkout", checkout_ref, "--", *approved_files], live_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1010,12 +1057,12 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
             )
             return 1
         rc = result.returncode
-    elif shutil.which("uv"):
+    elif _resolved_uv() is not None:
         from cc_invoke import child_env  # noqa: E402 (path injected at module top)
 
         install_tool = "uv"
         result = subprocess.run(
-            ["uv", "pip", "install", "-e", str(sil_source_path), "--python", str(venv_py)],
+            [_resolved_uv(), "pip", "install", "-e", str(sil_source_path), "--python", str(venv_py)],
             env=child_env(),
         )
         rc = result.returncode
@@ -1369,7 +1416,7 @@ def _handle_editable_sibling_venv(
         venv_created_by_pip = _venv_created_by_pip(pyvenv_cfg)
         venv_python = _venv_python_path(live_path / ".venv")
 
-        if shutil.which("uv"):
+        if _resolved_uv() is not None:
             install_tool = "uv"
         elif venv_created_by_pip:
             print(f"{PROG}: [editable_sibling_venv] [venv-leg] venv created by pip; using pip for editable install.")
@@ -1402,7 +1449,7 @@ def _handle_editable_sibling_venv(
 
         if install_tool == "uv":
             r = subprocess.run(
-                ["uv", "pip", "install", "-e", str(source_path), "--python", str(venv_python)],
+                [_uv_or_die(), "pip", "install", "-e", str(source_path), "--python", str(venv_python)],
                 env=child_env(),
             )
             if r.returncode != 0:
@@ -1546,11 +1593,10 @@ def _handle_default(
 
     if interactive_partial:
         print(f"{PROG}: [git-leg] PARTIAL checkout of approved files only (HEAD will NOT advance).")
-        for f in interactive_approved:
-            r = _git(["checkout", checkout_ref, "--", f], live_path)
-            if r.returncode != 0:
-                eprint(f"{PROG}: git checkout of '{f}' failed.")
-                return 1
+        r = _checkout_approved_files(checkout_ref, interactive_approved, live_path)
+        if r.returncode != 0:
+            eprint(f"{PROG}: git checkout of approved files failed.")
+            return 1
         new_sha = _git_rev_parse(live_path, "HEAD") or "unknown"
         print(f"{PROG}: [git-leg] PARTIAL checkout complete. HEAD stayed at {new_sha[:12]}.")
     else:
@@ -1601,7 +1647,7 @@ def _handle_default(
         venv_created_by_pip = _venv_created_by_pip(pyvenv_cfg)
         venv_python = _venv_python_path(live_path / ".venv")
 
-        if shutil.which("uv"):
+        if _resolved_uv() is not None:
             install_tool = "uv"
         elif venv_created_by_pip:
             print(
@@ -1636,7 +1682,7 @@ def _handle_default(
 
         if install_tool == "uv":
             r = subprocess.run(
-                ["uv", "pip", "install", "-e", ".", "--python", str(venv_python)],
+                [_uv_or_die(), "pip", "install", "-e", ".", "--python", str(venv_python)],
                 cwd=str(live_path),
                 env=child_env(),
             )

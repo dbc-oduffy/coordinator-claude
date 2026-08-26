@@ -17,7 +17,7 @@ playbook, the Phase 8 report shape, and the heavy-queue promotion-sprint procedu
 **Announce:** "I'm using the coordinator:learn-lessons skill in `<mode>` mode." Mode default: cwd
 `~/.claude` central → `central`; else `local`; PM can override.
 
-## Hard Rules (judgment residue, not engine-enforced)
+## Hard Rules (not engine-enforced)
 
 - **No-defer.** A `wiki-append`/`wiki-new` record with a named destination applies THIS run —
   never "the next pass." Legitimate deferrals: a structurally-required cross-mode block (e.g.
@@ -51,7 +51,12 @@ playbook, the Phase 8 report shape, and the heavy-queue promotion-sprint procedu
 ## Phase Flow (invocation pointers — mechanics: wiki)
 
 Discovery roots: `coordinator/bin/learn-lessons-roots.py` (machine-registry-derived, never a
-committed list). Extraction: `extract-lessons.py extract`. Routing populates
+committed list). Baton lift source: batons joined to the plan under distillation by
+`deliverable_id`; each baton's `## What I Learned` section is a flat bullet list, one standalone
+lesson per line, no sub-headings and no nesting — that shape is fixed so a line survives being
+lifted out of the baton with nothing around it. Every line read this way is a candidate lesson,
+never an auto-promote: the EM still decides to promote, amend, or drop it through the same
+routing/gate mechanics as any other extracted lesson. Extraction: `extract-lessons.py extract`. Routing populates
 `candidate_restatements` via `coordinator_core.learn_lessons_assemble.generate_candidates(...)`
 (or `learn-lessons-reconcile-candidates` for bulk). Central mode also runs an undated-pass via
 `coordinator_core.ops.lessons_filter.filter_undated_universal(extraction_yaml)` (registered op

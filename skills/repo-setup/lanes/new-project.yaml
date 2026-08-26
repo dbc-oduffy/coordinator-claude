@@ -1,0 +1,124 @@
+# Lane: new-project (greenfield). Caller supplies a project name and a goal statement; there is
+# no existing code for Phase 1.5 to read. See CONTRACT.md for the shape every lane follows.
+# spec_backlink: docs/plans/2026-08-20-repo-setup-as-a-product-surface.md (C2)
+# census_backlink: state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md
+
+lane: new-project
+authored_against_contract_version: "1.0.0"
+basis: >
+  Name + goal statement. No existing code, no README, no commit history for Phase 1.5 to
+  synthesize from -- the from-scratch case.
+
+# --- AC2: every round_trip census row, pre-answered as tier-1, landed at directive-firing time,
+# never left at tier 2. `resolves` names the directive(s) this pre-answer unblocks.
+round_trip_directives:
+  - step_id: p1.repo-classification-ask
+    engine_judgment_point_id: null
+    value: working
+    rationale: >
+      A from-scratch repo is by definition actively being developed. Phase 2 runs.
+    resolves: [p1.classification-branch-b-stop, p2.question-set-selection]
+
+  - step_id: p15.ratification-ask
+    engine_judgment_point_id: null
+    value: go-cold
+    rationale: >
+      Phase 1.5 substrate synthesis has nothing to read on a from-scratch repo --
+      p15.skip-gate-empty-repo mechanically skips the phase before this point would fire. Declared
+      here (AC2 requires every round_trip row pre-answered regardless of reachability) with the
+      safe value: skip straight to Phase 2 cold-asks, answered below.
+    resolves: [p15.skip-phase2-on-ratification]
+
+  - step_id: p2.ask-project-name
+    engine_judgment_point_id: null
+    value: "caller-supplied (op parameter `project_name`, required)"
+    rationale: Feeds every rendered template; the op does not proceed without it.
+    resolves: [p3a.render-claude-md, p3d.render-docs-readme]
+
+  - step_id: p2.ask-project-type
+    engine_judgment_point_id: null
+    value: "caller-supplied (op parameter `project_type`, required, closed four-value enum)"
+    rationale: >
+      Selects the project-type-block templates; a from-scratch repo has no manifest signals for
+      detection to fall back on, so this is caller-required rather than caller-optional.
+    resolves: [p3a.render-claude-md]
+
+  - step_id: p2.ask-workstreams
+    engine_judgment_point_id: null
+    value: "caller-supplied (op parameter `workstreams`, 1-3 entries derived from the goal statement)"
+    rationale: Feeds the orientation-cache seed. No commit history or README exists to derive from instead.
+    resolves: [p3h.orientation-cache-seed]
+
+  - step_id: tw.ci-inference-prompt
+    engine_judgment_point_id: null
+    value: "no"
+    rationale: >
+      cross_platform stays false until a caller declares otherwise -- a from-scratch repo has no
+      code yet for either named inference signal to fire on. Never auto-write true.
+    resolves: [tw.ci-eligibility-resolve]
+
+# --- Nine agent-work steps: named, not pre-answered. See CONTRACT.md.
+second_phase_deferred:
+  - p15.substrate-read
+  - p15.propose-project-type
+  - p15.peer-repo-candidate-extraction
+  - tw.spawn-gate-exclude-set
+  - tw.spawn-gate-ratchet-init
+  - tw.spawn-gate-run-and-burndown
+  - p15.peer-scout-dispatch-offer
+  - tw.windows-console-allowlist-customize
+  - tw.windows-console-suppression-tagging
+
+# --- Policy default for every terminal offer not on the deferred list above.
+terminal_offer_defaults:
+  - step_id: p15.propose-workstreams
+    value: skip
+    rationale: Superseded by the caller-supplied p2.ask-workstreams round_trip answer above.
+
+  - step_id: p3d5.hand-section-prompt
+    value: defer
+    rationale: Leave the two HAND sections as placeholders; report Needs Attention.
+
+  - step_id: p3f.untrack-scratch-offer
+    value: skip
+    rationale: A from-scratch repo has no tracked scratch content to offer untracking for.
+
+  - step_id: p3f5.custom-hook-skip
+    value: "no"
+    rationale: No custom hook exists yet; proceed with the standard post-commit hook install.
+
+  - step_id: p3l.curation-prompt
+    value: defer
+    rationale: Decline strategic-self-description curation now; report Needs Attention.
+
+  - step_id: p3x.memo-destination-offer
+    value: "yes"
+    rationale: >
+      Default yes for classification (a)/(c) per census note; this lane always answers
+      p1.repo-classification-ask as (a) working.
+
+  - step_id: tw.windows-console-offer
+    value: "yes"
+    rationale: >
+      Install by default on a from-scratch repo to establish the bash-free convention from day
+      one, rather than waiting for a *.sh signal to accrete first.
+
+  - step_id: tw.ci-offer
+    value: "not now"
+    rationale: Defer until the project has a runnable test suite for CI to reference.
+
+# --- AC5: ROSTER SLOTS. Ordered ready_to_fire baton slots; see CONTRACT.md § Roster slots for
+# the ordering convention. This lane writes no baton -- slots are data naming the primitive.
+roster_slots:
+  - slot: 1
+    title: "coordinator:goal-setting"
+    pickup_ready_condition: immediate
+    note: >
+      Greenfield's terminal names the goal-setting ceremony directly -- the name+goal statement
+      this lane collects is the ceremony's input, not a separate step.
+  - slot: 2
+    title: "the roadmap ceremony as it stands at execution time"
+    pickup_ready_condition: "after: 1"
+    note: >
+      Named generically per plan § Cross-plan coordination -- a live sibling plan is mid-flight on
+      where roadmap-planning ends; this slot does not pin a phase name that would drift under it.

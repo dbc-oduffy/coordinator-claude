@@ -9,9 +9,10 @@ argument-hint: "<slug> [optional one-line title]"
 
 A **spinoff** is a handoff written mid-session by the current EM, addressed to a *future* picking-up EM, describing a workstream the current session does NOT intend to execute. Synonyms used in older artifacts: "orphan-promotion handoff," "ersatz-handoff." `spinoff` is the canonical term.
 
-The assembler computes the mechanical spine — deliverable/initiative id inheritance, `origin_*` provenance capture, frontmatter scaffolding, and the scoped commit — and returns one decision object. What follows is the judgment residue the assembler cannot resolve for you: it narrows the evidence, you decide.
+The mechanical spine — deliverable/initiative id inheritance, `origin_*` provenance capture, frontmatter scaffolding, and the scoped commit — is computed for you. What follows is what it cannot resolve: the evidence is narrowed, you decide.
 
-Compute it via `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/baton-assemble" brief spinoff <slug> [title]`. Every `judgment_points[]` entry in the returned object carries its own guidance inline — describing what each disposition means and how to carry it out, never a recommendation to pick from; resolve each one before its gated directive(s) proceed.
+Compute it via `baton-assemble brief spinoff <slug> [title]`, resolved per
+`snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts). Every `judgment_points[]` entry in the returned object carries its own guidance inline — describing what each disposition means and how to carry it out, never a recommendation to pick from; resolve each one before its gated directive(s) proceed.
 
 Feed those resolutions back by passing `--decisions` to `apply`: a JSON object mapping each `judgment_points[].id` to `{"disposition": "<value>"}`. The legal values for a given point are that point's own `dispositions[].value` entries from the same run's `brief` output — read them there rather than guessing. `{"value": "<v>"}` is accepted as an exact equivalent of `{"disposition": "<v>"}`, and sibling keys (a `decision_note`, for instance) are carried through; supplying both keys with disagreeing values fails loud.
 
@@ -31,7 +32,7 @@ No authorization? Surface a one-line proposal — "Candidate spinoff: `<slug>` �
 
 **Do NOT add interactive AskUserQuestion ceremony.** The EM (you) writes the body from current session context. The PM has just told you what the spinoff covers; you have everything you need. A skill that auto-fills the body from heuristics will produce shallow spinoffs the picking-up EM can't act on.
 
-The assembler scaffolds frontmatter and the canonical body-section skeleton; fill each section's content via Edit — the body is the value, never a placeholder stub. End the file with a single-line HTML comment marker for greppability:
+Frontmatter and the canonical body-section skeleton are scaffolded for you; fill each section's content via Edit — the body is the value, never a placeholder stub. End the file with a single-line HTML comment marker for greppability:
 
 ```html
 <!-- spinoff: <YYYY-MM-DD> by current EM during <authoring_session> -->
@@ -60,9 +61,9 @@ Then mark the fork in the source session's own task tracker (or session memory) 
 ## Anti-scope
 
 - **`reviewed_at_workstream_complete:` does NOT apply to spinoffs.** Spinoffs are forks authored mid-session, not continuations of a session's own work — the workstream-complete review marker tracks what the *current* EM reviewed before handing off a workstream they were executing. A spinoff has no executed diff to review; it is a brief for someone else's future session. Do not add `reviewed_at_workstream_complete:` to spinoff frontmatter.
-- **Don't bake content generation into this skill.** No heuristic templates that fill `## Specification` from the slug. The body is the value — the assembler provides the shape, the EM provides the content.
+- **Don't bake content generation into this skill.** No heuristic templates that fill `## Specification` from the slug. The body is the value — the scaffold provides the shape, the EM provides the content.
 - **Don't auto-delete or auto-merge spinoffs that get picked up.** Spinoffs follow the standard handoff lifecycle on consumption: `/pickup` mutates frontmatter in place, then the picking-up session's `/handoff` (chain-archival) or `/workstream-complete` moves the file to `archive/handoffs/`. The `<!-- consumed: -->` marker is deprecated — do not write it.
-- **Don't extend `kind:` to other values speculatively.** Further extension requires a documented recurring shape, not speculation — the hand-authorable set is deliberately narrower than the schema enum (see `schemas/handoff.schema.json` for the full list, including assembler-only kinds no human or EM may scaffold).
+- **Don't extend `kind:` to other values speculatively.** Further extension requires a documented recurring shape, not speculation — the hand-authorable set is deliberately narrower than the schema enum (see `schemas/handoff.schema.json` for the full list, including engine-only kinds no human or EM may scaffold).
 - **Don't replace `/handoff` with `/spinoff`.** They serve different needs. The writer-of-spinoff still ends their own session with `/handoff`.
 - **Don't migrate prior orphan-promotion handoffs.** Their lifecycle is over; renaming retroactively is churn. New spinoffs use the `kind:` field; old ones stay as-is.
 

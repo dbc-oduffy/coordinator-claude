@@ -19,7 +19,7 @@ subprocess hop for no benefit, same rationale as coordinator-auto-push.
 
 Exit-code convention: this is a FAIL-LOUD gate-shaped script (its own bash
 oracle `exit 1`s on both "state is unknown" and "DoE-root/trust preflight
-failed") — the trampoline preserves that: sys.exit(1) on CLAUDE_KLABAUTER_ROOT
+failed") — the trampoline preserves that: sys.exit(1) on the engine root
 resolution failure or import failure, exactly like handoff-gate-aging, NOT
 the auto-push "never block" exit-0 shape.
 """
@@ -32,16 +32,14 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _prepare_claude_klabauter_root() -> None:
     """DR-276: routes through `coordinator_core.cli_entry.run_op_main` so any
     `declare_write()`d paths become a session scope-touch claim rather than an
     unclaimed orphan at the `scoped_git_commit` sink."""
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
 
 
 def main() -> None:

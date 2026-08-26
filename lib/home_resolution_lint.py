@@ -1282,7 +1282,7 @@ def _cli_write_ledger(ledger_path: Path, findings_by_rule: dict[str, list[Findin
             for name in RULE_NAMES
         },
     }
-    ledger_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    ledger_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
 def _cli_build_engine(root: Path) -> HomeResolutionLintEngine:

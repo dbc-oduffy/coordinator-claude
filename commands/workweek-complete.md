@@ -11,11 +11,13 @@ PM-invoked, release-grade close. Week-changelog is the canonical ledger, never `
 
 ## Step 0.9: Tier-U Grant
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" grant ceremony "workweek-complete Tier-U consumers (Step 2 plugin-ecosystem run.js, Step 7 parallel-code-review full-tier suite)" --ceremony workweek-complete` before either consumer fires (wiki: why both need it).
+Shape W (rung 0, `coordinator/snippets/resolve-coordinator-bin.md`):
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.cmd" grant ceremony "workweek-complete Tier-U consumers (Step 2 plugin-ecosystem run.js, Step 7 parallel-code-review full-tier suite)" --ceremony workweek-complete`
+before either consumer fires (wiki: why both need it).
 
 ## Step 0.95: Compute the Ceremony Spine
 
-Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/workweek-complete-brief"`.
+Shape W (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-complete-brief.cmd"`.
 Returns `directives[]` (render each `detail` verbatim), `judgment_points[]` (resolve every open
 one before its gated directive proceeds; never auto-pick a Tier-3 no-recommendation), `narration`
 (surface verbatim).
@@ -75,7 +77,7 @@ Resolve from the spine's directives in one pass; advisory rows never block:
 - **Prior-art sidecar scan:** dispositioned `override-and-document`/`update-prior-art`/`both`;
   wiki cited ≥3× → revision candidate.
 - **Audience-mismatch (hand-run):** `coordinator_core.ops.audience_mismatch_scan --root .`.
-  ≥3-cluster on one gap → route via `em-operating-doctrine.md § How to Review What Came Back`.
+  ≥3-cluster on one gap → route via `coordinator/skills/review/SKILL.md` § A.3 — Sequencing.
 - **Bug backlog:** open P1/P2 ≥10 → ask `/bug-blitz` now or defer.
 - **Portability sweep:** handled by Step 7's `code-reviewer-weekly`, not standalone.
 - **Initiative-govern sweep:** `coordinator-initiative create`/`attach` per PM confirmation.
@@ -187,8 +189,12 @@ gate; PM may promote an entry to Highlights at Step 12.
 catch-up target, not a double-count risk — what matters is coverage in a *prior* release's notes
 (check `archive/release-notes/`, never `git log --contains`).
 
-**Reconcile backstop (hand-run):** `workweek-complete-close reconcile-sweep` first; warning →
-fold missing SHAs via `reconcile-completion-commits.py --append`.
+**Reconcile backstop is KILLED — no step here.** `workweek-complete-close reconcile-sweep` and
+`reconcile-completion-commits.py` are both retired in the engine repo's relocation ledger; the
+launchers survive and exit 127. The requirement (folding `Session-Id:`-trailer commits into a
+pending-release entry's `commits:`) is a live rebuild candidate in the kill-ledger — restore this
+backstop only when a successor CLI ships. Until then a missing SHA is caught, if at all, by the
+editorial pass below reading the entry corpus.
 
 **Editorial bucketing:** dispatch a Sonnet worker with the entry corpus; writes
 `state/week-changelog/YYYY-MM-DD-pending-release.md`. Bucket by `nature`+`loe.tshirt`: roadmap
@@ -211,6 +217,13 @@ reclassifications.
 
 `docs/wiki/versioning-convention.md`, if present, is authority. Fallback: Major = breaking change
 in any `Decisions:` field; Minor = new feature/command; Patch = fixes/docs/refactors only.
+
+**This step is the weekly bump for the coordinator-plugin-triple anchor** — `plugin.json`
+`.version`, `marketplace.json` `.metadata.version`, and the CHANGELOG's latest `## [X.Y.Z]`
+section, the only anchors that exist today. EM proposes the level; PM confirms — the gate below
+IS that confirmation, because a release surface is a product call. **Engine anchor row:
+named-but-empty here** — a different, per-publish-shaped cadence, not this bump/miss-flag cycle;
+fills once claude-klabauter-em's contract converges.
 
 **PM gate:** propose vX.Y.Z with one-line rationale; update release-notes filename and
 HEADER.md `Prior week released:`.
@@ -257,9 +270,9 @@ date.
 
 Auto-memory is ephemeral — drains to zero every close.
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/check-auto-memory-drained" --root .
-```
+Shape W (rung 0):
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.cmd" --root .`
 
 Exit 0 → Step 18. Exit 1 → prints every residual path attributed to this closing session. For
 EACH: **PROMOTE** (write to its durable home — doctrine, wiki, `docs/decisions/`,
@@ -298,6 +311,17 @@ first.
 
 Tail: opt-in `workweek_complete_post_command:` hook (advisory, non-blocking); cadence emission
 at completion (best-effort).
+
+**Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
+is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
+it (~150ms, synchronous — no detach or background wrapper):
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`
+
+Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
+`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
+branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
+never hand-roll a `git push` beside it.
 
 ---
 

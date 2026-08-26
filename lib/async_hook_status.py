@@ -80,7 +80,7 @@ def record_failure(hook: str, exit_code, detail: str = "", logpath: str = "") ->
             "remediation": "",
         }
         marker = os.path.join(directory, f"{hook_name}.json")
-        with open(marker, "w", encoding="utf-8") as fh:
+        with open(marker, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(record) + "\n")
     except Exception:
         # Best-effort: any failure on the write path is swallowed.

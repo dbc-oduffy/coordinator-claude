@@ -53,7 +53,6 @@ from __future__ import annotations
 import os
 import re
 import stat
-import subprocess
 import sys
 from pathlib import Path
 from typing import IO, List, Optional
@@ -64,6 +63,7 @@ from coordinator.lib.percolate.resolve_target import (
     resolve_machine_local_bin,
     resolve_publish_row,
 )
+from coordinator.lib.percolate.resolve_target import _machine_local_get as _dump_backed_get
 
 
 class TargetsError(Exception):
@@ -92,42 +92,67 @@ def _paths_tried_desc(root: Path) -> str:
     return f"MACHINE_LOCAL_BIN env var (unset), {rung2}, {rung3}, machine-local on PATH"
 
 
-def _machine_local_has(machine_local_bin: str, key: str) -> bool:
-    """`<machine_local_bin> has <key>` — direct shebang-honoring exec (the
-    bash-wrap the original used breaks now that machine-local is a Python
-    forwarder; see resolve_target._machine_local_get). True iff the key is
-    present (exit 0)."""
-    try:
-        result = subprocess.run(
-            [machine_local_bin, "has", key],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return False
-    return result.returncode == 0
+def _publish_targets_supplement(machine_local_bin: str) -> str:
+    """Registry `publish.targets` key (step 2's SUPPLEMENT tier), read via
+    the shared process-lifetime `machine-local dump` cache
+    (`resolve_target._machine_local_get` / `_dump_registry`) instead of a
+    dedicated `has`-then-`get` subprocess pair per call.
 
+    Collapsing `has`+`get` into one `get`-shaped read is safe because their
+    net effect was already identical on every path: `has` true + `get`
+    empty (a declared-but-unset key) added no rows, same as `has` false —
+    and a present, non-empty value is unaffected by dropping the redundant
+    presence probe. `resolve_publish_row`'s `repo:`/`publish-mirror:`
+    resolution (step 1) already populates the same `_dump_cache` entry
+    keyed by this `machine_local_bin`, so this call is free whenever step 1
+    already touched the registry, and costs at most ONE additional `dump`
+    subprocess (never the old pair's two) otherwise — see
+    `resolve_target._dump_cache`'s own docstring for the shared-cache
+    contract.
 
-def _machine_local_get_multi(machine_local_bin: str, key: str) -> str:
-    """`<machine_local_bin> get <key>` — direct shebang-honoring exec (see
-    _machine_local_has) — raw stdout, trailing newline stripped (matching
-    bash `$(...)` command substitution). Empty string on any failure
-    (mirrors the bash original invoking `get` only after `has` already
-    confirmed the key's presence — a subsequent failure is not expected but
-    must not raise)."""
+    Empty string on any failure — absent key, or a transport failure
+    resolving the CLI itself — mirrors the old `_machine_local_has` +
+    `_machine_local_get_multi` pair's swallow-to-empty-on-`OSError`
+    contract exactly (neither ever raised out of `load_targets`'s step 2).
+
+    SHARP EDGE, inherited rather than introduced here: a machine-local CLI
+    that is present but BROKEN (a nonzero exit, unparseable stdout, or a
+    dependency it needs missing — e.g. an interpreter absent from its own
+    invocation environment) is indistinguishable from a genuinely EMPTY
+    registry at this call site. `resolve_target._dump_registry` already
+    degrades a bad `dump` invocation to `{}` rather than raising (its own
+    docstring: "degrades to an empty registry rather than raising"), and the
+    old `_machine_local_has`/`_machine_local_get_multi` pair had the same
+    property for a `has`/`get` that ran but failed. This call inherits it,
+    unchanged: `publish.targets` reading as unset here does not distinguish
+    "the key really is unset" from "the CLI could not answer." Verified
+    concretely during this workstream's own review: a mock CLI that failed
+    to launch its own dependency reproduced exactly this — the SUPPLEMENT
+    tier silently contributed zero rows, with no error anywhere in
+    `load_targets`'s output.
+
+    SEPARATELY, a REAL SEMANTIC CHANGE from the cache itself, not just a
+    spawn-count win — state it plainly: before this function existed, `publish.targets` was re-read from disk on
+    EVERY `load_targets` call, so a `machine-local set publish.targets ...`
+    write landing between two calls in the same process was visible to the
+    second one. `_dump_cache` never invalidates for the life of the process,
+    so a second `load_targets` call against the SAME `machine_local_bin`
+    now returns the value from the FIRST call's `dump`, even if the
+    registry was written in between. Safe for every caller verified so
+    far — `round.py::resolve_row_from_registry`'s CLI (one round-row
+    resolution per process, no mid-process registry write), and this
+    module's own multi-row callers (a round holds the registry fixed by
+    construction: nothing in a round writes `machine-local set`). NOT
+    exhaustively audited against `publish.py`'s two `load_targets` call
+    sites (its per-archive pathspec-scoping helper and `main()`'s own
+    resolution) — both run in one process per invocation and neither is
+    known to write the registry mid-run, but this was read, not proven, and
+    is flagged rather than assumed."""
     try:
-        result = subprocess.run(
-            [machine_local_bin, "get", key],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
+        value = _dump_backed_get(machine_local_bin, "publish.targets")
+    except ResolveError:
         return ""
-    if result.returncode != 0:
-        return ""
-    return result.stdout.rstrip("\n")
+    return value or ""
 
 
 def _iter_portable_rows(path: Path) -> List[str]:
@@ -397,12 +422,8 @@ def load_targets(
                 add_resolved(resolved, "publish-targets.portable")
 
     # --- Step 2: machine-local registry publish.targets (per-machine supplement) ---
-    if (
-        not cli_absent_fallthrough
-        and is_executable(machine_local_bin)
-        and _machine_local_has(machine_local_bin, "publish.targets")
-    ):
-        raw = _machine_local_get_multi(machine_local_bin, "publish.targets")
+    if not cli_absent_fallthrough and is_executable(machine_local_bin):
+        raw = _publish_targets_supplement(machine_local_bin)
         for row in raw.splitlines():
             if not row:
                 continue

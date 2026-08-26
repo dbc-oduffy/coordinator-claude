@@ -38,7 +38,7 @@ shape, which carries no error signal of its own on success):
         JSON for updated/unchanged/changed).
     2 — usage error (missing/malformed --tracker-path/--stub-ids/--to-status,
         unrecognized extra argument, or repo_root unresolvable).
-    3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core.invoke seam
+    3 — transport failure (the engine root unresolvable, coordinator_core.invoke seam
         absent, or the op itself raised — not-found/ambiguous stub_id, tracker_path
         outside the worktree, missing tracker file, malformed to_status).
 

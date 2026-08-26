@@ -32,7 +32,11 @@ Usage:
                  two data-loss-capable directives in the whole consumes-manifest).
 
 Exit codes:
-    0 — always (best-effort; errors logged to stderr, never propagated).
+    0 — best-effort; transport/resolution failures are logged to stderr,
+        never propagated as non-zero.
+    1 — the act call returned a recognized-refusal or unrecognized exit_code
+        (anything other than 0/None/2) — a setup-error shape, not a healthy
+        prune.
 
 Big-bang cutover (2026-07-19 Windows de-bash campaign, Wave F1): no legacy
 bash fallback — the op is assumed present; a genuinely seam-absent install
@@ -51,7 +55,7 @@ _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
 import cc_invoke  # noqa: E402
-from cc_invoke import RouteMutationError, route_mutation  # noqa: E402
+from cc_invoke import RouteMutationError, is_timeout_error, route_mutation  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
@@ -132,7 +136,17 @@ def main(argv: list[str] | None = None) -> int:
         act_result = cc_invoke.route("fleet.prune_closed_bugs", act_params, repo_root, _no_fallback)
     except RuntimeError as exc:
         print(f"prune-closed-bugs.py: WARN: fleet.prune_closed_bugs act call failed: {exc}", file=sys.stderr)
-        print(f"prune-closed-bugs.py: {len(ids)} candidate(s) selected but not archived (transport error)")
+        if is_timeout_error(exc):
+            # CLAUDE.md § Load norm: a timeout is a SLOW op, not a stopped one -- the
+            # act call may be mid-git-mv+commit and about to succeed. Reporting a
+            # completed/absent count here would be a false negative that re-dispatches
+            # the same ids on the next sweep.
+            print(
+                f"prune-closed-bugs.py: {len(ids)} candidate(s) selected -- archive status "
+                "indeterminate (engine timeout, op may still complete)"
+            )
+        else:
+            print(f"prune-closed-bugs.py: {len(ids)} candidate(s) selected but not archived (transport error)")
         return 0
 
     acted = act_result.get("acted", []) if isinstance(act_result, dict) else []
@@ -143,6 +157,12 @@ def main(argv: list[str] | None = None) -> int:
             f"prune-closed-bugs.py: WARN: fleet.prune_closed_bugs partial (exit_code=2, acted={count}) -- check claude-klabauter logs",
             file=sys.stderr,
         )
+    elif act_exit not in (0, None):
+        print(
+            f"prune-closed-bugs.py: fleet.prune_closed_bugs act call refused (exit_code={act_exit}) -- not archived",
+            file=sys.stderr,
+        )
+        return 1
     print(f"prune-closed-bugs.py: fleet.prune_closed_bugs completed -- {count} entr(ies) archived")
     return 0
 

@@ -49,6 +49,21 @@ The guard's disposition is `skip` (counted, logged, non-terminal) — never `aba
 per the same 2026-07-20 PM ruling, no automated writer in this family produces that
 deployment_state.
 
+Governed-plan guard on the same fall-through: an orphan whose `deliverable_id` joins a
+plan already stamped `status: implemented` did not merely lose its holder — its work
+shipped, and releasing it back to open+ready_to_fire re-advertises finished work as a
+live pickup target. `_unclaim` refuses those writes already (handoff_transition.py ::
+`_find_implemented_governing_plan`), so this is a REPORTING fix, not a safety one: the
+refusal surfaced as `release attempt(s) FAILED`, indistinguishable from a broken tool,
+and `--dry-run` promised a release that could not happen. Same join, imported not
+re-derived (`build_implemented_plan_index`), built once per run — the per-lookup form
+cost 406ms of process time for 16 orphans against a 533-plan corpus, over the whole
+run's 500ms budget on its own.
+Disposition is `skip`, NOT auto-ship. An implemented plan can still govern a handoff
+with genuinely open work, so plan status is a sufficient oracle for "do not release"
+and an insufficient one for "ship" — shipping on it would be the stealth-skip
+disposition in costume. Ship-or-discharge on these is an operator call.
+
 Companion to the `repark` verb (archive-stamp-cli's repark-handoff) — repark is the INTENTIONAL-pause
 path for a LIVE session choosing to step away; this reaper is the crash-orphan path for a
 DEAD one, and now shares repark's non-terminal spirit (return to the pool) rather than
@@ -81,9 +96,11 @@ failure — see _shipped_orphan_sha):
     handoff across state/handoffs/ + archive/handoffs/. More than one is ambiguous
     (which consumption does a completion-log entry attest to?) and fails closed.
   P3 (completion-entry oracle, DoE-local) — exactly one completion-log entry with
-    authored_by == the dead consumed_by session id (via query-completions.py --where
-    "authored_by=<id>"). Zero means no terminal ceremony ran; two+ is ambiguous. Either
-    fails closed. This is the ONLY ship-signal source; no claude-klabauter/ceremony coupling.
+    authored_by == the dead consumed_by session id. Zero means no terminal ceremony
+    ran; two+ is ambiguous. Either fails closed. This is the ONLY ship-signal source;
+    no claude-klabauter/ceremony coupling. Served from a completion index built ONCE per run
+    (_resolve_completion_index) — this used to spawn `query-completions.py` TWICE per
+    orphan, which was 9 of the 11.6s this script cost; see that resolver's docstring.
   P4 (terminal SHA selection) — from that single completion entry's commits[], pick the
     SHA with the MAX committer timestamp (git show -s --format=%ct), mirroring the
     best_sha/best_ct idiom in promote-shipped-in-flight-stubs.py:137-151. No resolvable
@@ -118,7 +135,7 @@ stamp-shipped-in.js deleted 2026-07-22 — claude-klabauter's parity suites froz
 goldens, dissolving the DEC-3 keep-as-oracle hold)
 
 Negative-spec: does NOT reimplement session-liveness logic — the orphan predicate calls
-coordinator_core.session.liveness.session_live() (in-process import via CLAUDE_KLABAUTER_ROOT, no
+coordinator_core.session.liveness.session_live() (in-process import via the engine root, no
 subprocess, no bash re-exec). Does NOT mutate frontmatter directly — every mutation is
 delegated to bin/archive-stamp-cli's stamp-shipped-in / ship-handoff / unconsume-handoff
 verbs (a Python trampoline into claude-klabauter coordinator_core.archive_stamp — no node spawn),
@@ -127,43 +144,41 @@ single-writer invariant, AC5.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import glob
 import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from handoff_lifecycle import is_claimed_status  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _ARCHIVE_STAMP_CLI = os.path.join(_SCRIPT_DIR, "archive-stamp-cli.py")
-_QUERY_CLI_DEFAULT = os.path.join(_SCRIPT_DIR, "query-completions.py")
-_HAS_LIVE_CHILDREN_CLI = os.path.join(_SCRIPT_DIR, "handoff-has-live-children.py")
 
 
 def _resolve_session_live():
-    """Import coordinator_core.session.liveness.session_live via CLAUDE_KLABAUTER_ROOT.
+    """Import coordinator_core.session.liveness.session_live via the engine root.
 
     In-process import (no subprocess, no bash) — mirrors the direct-import
     trampoline shape used by aggregate-chain-loe.py / query-completions.py.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.session.liveness import session_live
     return session_live
 
 
 def _resolve_find_archived_twin_by_handoff_id():
     """Import coordinator_core.handoff_creation_guard.find_archived_twin_by_handoff_id
-    via CLAUDE_KLABAUTER_ROOT.
+    via the engine root.
 
     Same in-process import trampoline as ``_resolve_session_live`` above.
     Shares the archived-twin match predicate with the creation-side guard
@@ -173,16 +188,14 @@ def _resolve_find_archived_twin_by_handoff_id():
     ``_handoff_id_archived_twin`` below for the thin wrapper that preserves
     this script's own str-path-or-"" return shape.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.handoff_creation_guard import find_archived_twin_by_handoff_id
     return find_archived_twin_by_handoff_id
 
 
 def _resolve_claim_state():
     """Import coordinator_core.claim_state.resolve_claim_state via
-    CLAUDE_KLABAUTER_ROOT.
+    the engine root.
 
     Same in-process import trampoline as ``_resolve_session_live`` above.
     C1 (commit 1194eb3f4) landed this as the canonical ledger-first claim
@@ -191,16 +204,115 @@ def _resolve_claim_state():
     ``source: "mirror"``/``"none"``, never ``"ledger"``. See
     ``_claim_holder`` below for how this reaper consumes it.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.claim_state import resolve_claim_state
     return resolve_claim_state
 
 
+def _resolve_handoff_has_live_children():
+    """Import coordinator_core.ops.handoff_children._handoff_has_live_children
+    and coordinator_core.git.repo_root.git_common_dir via the engine root.
+
+    Same in-process import trampoline as ``_resolve_session_live`` above.
+    Amplification burn-down (state/ledgers/amp-wave4-worklist.md W2):
+    ``_has_live_children_exit_code`` previously spawned
+    ``handoff-has-live-children.py`` as a subprocess per orphan, and that
+    script itself spawns a SECOND subprocess (``cc_invoke.route()`` into
+    ``coordinator_core.invoke``) to reach this exact op — two spawns per
+    orphan for a pure read (``handoff.has_live_children`` is
+    ``OpClass.COMPUTE_ONLY``). This resolver goes straight to the op
+    function, mirroring how this file already reaches ``session_live`` /
+    ``resolve_claim_state`` / ``canonical_kind`` in-process rather than via
+    a CLI veneer — zero spawns per orphan instead of two, and no per-item
+    register entry, per the ledger's own guidance to check the walking
+    seams before exempting a primitive-absence claim.
+
+    ``git_common_dir`` (``coordinator_core.git.repo_root``) resolves the op's
+    expected ``repo_root`` param (the git COMMON dir — see that op's own
+    ``main_worktree_root`` derivation) purely by filesystem walk, never a
+    subprocess — the CLI veneer got this for free from its router; calling
+    the op directly means resolving it ourselves.
+    """
+    claude_klabauter_root = require_dispatch_engine_on_path()
+    from coordinator_core.git.repo_root import git_common_dir
+    from coordinator_core.ops.handoff_children import has_live_children_many
+    return has_live_children_many, git_common_dir
+
+
+def _resolve_completion_index():
+    """Import coordinator_core.ops.ceremony.records_query.query_records via
+    the engine root and return a builder for the completion-log index.
+
+    Same in-process import trampoline as ``_resolve_session_live`` above, and
+    the same amplification burn-down that already moved ``session_live`` /
+    ``canonical_kind`` / ``handoff_has_live_children`` off their CLI veneers.
+    P3 (the completion-entry oracle) was the last per-orphan spawn site in
+    this script: it ran ``query-completions.py --where authored_by=<id>``
+    TWICE per orphan (once for ``--format paths``, once for ``--format
+    json``), each a fresh interpreter at ~175ms. Measured on this box before
+    the change: **11,640ms process time across 53 processes** for a
+    26-orphan dry-run, against DR-344's 500ms bar — the spawns were ~9s of
+    it. `query-completions.py` is the SAME op behind that CLI
+    (`coordinator_core.ops.query_completions` forwards to `query_records`),
+    so this reaches the oracle directly rather than through two interpreter
+    starts per orphan.
+
+    The whole completion log is read ONCE (546 records, 62ms process time)
+    and grouped by ``authored_by``, so P3 becomes a dict lookup. This is the
+    same fix shape C13 already applied to P4's ``git show`` — that chunk
+    batched the git-spawning leg and left this one per-orphan.
+
+    `limit=0` is unbounded. The CLI path this replaces passed no `--limit`
+    and so inherited `query_completions._DEFAULT_LIMIT = 50`; that cap never
+    changed a verdict, because P3 fails closed on anything other than
+    EXACTLY one entry and a capped result is still `!= 1`. Unbounded here
+    keeps the same verdict while removing a silent truncation from the read.
+    """
+    claude_klabauter_root = require_dispatch_engine_on_path()
+    from coordinator_core.ops.ceremony.records_query import query_records
+
+    def build(repo_root: str) -> dict:
+        index: dict = {}
+        records = query_records("completion", Path(repo_root), where=None, since=None, limit=0)
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            frontmatter = record.get("frontmatter")
+            if not isinstance(frontmatter, dict):
+                continue
+            authored_by = frontmatter.get("authored_by")
+            if not isinstance(authored_by, str) or not authored_by.strip():
+                continue
+            index.setdefault(authored_by.strip(), []).append(record)
+        return index
+
+    return build
+
+
+def _resolve_implemented_plan_index():
+    """Import coordinator_core.ops.handoff_transition.build_implemented_plan_index
+    via the engine root.
+
+    Same in-process import trampoline as ``_resolve_session_live`` above. This
+    is the SAME join `_unclaim` itself consults before refusing a release
+    (`handoff_transition._find_implemented_governing_plan` is a lookup over
+    this index), imported rather than re-derived so the reaper's pre-check and
+    the writer's refusal can never disagree about which handoffs are governed
+    by an implemented plan.
+
+    The index is built ONCE per run and shared across every orphan: the
+    per-lookup form measured 406ms of process time for 16 orphans against a
+    533-plan corpus, which alone exceeds the 500ms end-to-end budget for the
+    whole run. Built: 78ms; each lookup is then a dict hit.
+    """
+    claude_klabauter_root = require_dispatch_engine_on_path()
+    from coordinator_core.ops.handoff_transition import build_implemented_plan_index
+    return build_implemented_plan_index
+
+
 def _resolve_canonical_kind():
     """Import coordinator_core.frontmatter.baton_class.canonical_kind via
-    CLAUDE_KLABAUTER_ROOT.
+    the engine root.
 
     Same in-process import trampoline as ``_resolve_session_live`` above.
     De-aliases a still-live PRE-rename `kind` value (e.g. `spinoff-roadmap`)
@@ -208,9 +320,7 @@ def _resolve_canonical_kind():
     not a hand-rolled retired/canonical pair (see that module's own
     "Vocabulary bridge" section).
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.frontmatter.baton_class import canonical_kind
     return canonical_kind
 
@@ -220,6 +330,52 @@ def _resolve_canonical_kind():
 # retired bash's awk-based _fm_field (mirrors sweep-shipped-handoffs.sh
 # process_file).
 # ---------------------------------------------------------------------------
+def _fm_fields(path: str, keys: "tuple") -> dict:
+    """Read SEVERAL frontmatter keys from ONE file open.
+
+    Byte-for-byte the same single-key scan `_fm_field` does — same
+    frontmatter delimiting, same `startswith(key + ":")` match, same
+    single-matched-quote-pair strip, same "" for a missing key — just not
+    reopening the file once per key. Pass 1 reads five keys per handoff, so
+    the per-key open was four opens of avoidable I/O on every node in the
+    corpus.
+
+    Deliberately NOT switched to `dag._read_meta`: that returns PARSED YAML,
+    where this file's comparisons (`is_claimed_status`, `== "in_flight"`,
+    `canonical_kind`) are all written against the raw scanned string. Swapping
+    the reader would quietly change value shapes (a YAML-parsed date or number
+    is not the string this scan yields) on the corpus's own liveness path.
+    Fewer opens, identical strings.
+    """
+    remaining = set(keys)
+    out = {k: "" for k in keys}
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            in_fm = False
+            for line in fh:
+                if not remaining:
+                    break
+                stripped_line = line.rstrip("\n").rstrip("\r")
+                if not in_fm:
+                    if stripped_line.strip() == "---":
+                        in_fm = True
+                    continue
+                if stripped_line.strip() == "---":
+                    break
+                for key in tuple(remaining):
+                    prefix = key + ":"
+                    if stripped_line.startswith(prefix):
+                        val = stripped_line[len(prefix):].strip()
+                        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("'", '"'):
+                            val = val[1:-1]
+                        out[key] = val
+                        remaining.discard(key)
+                        break
+    except OSError:
+        return {k: "" for k in keys}
+    return out
+
+
 def _fm_field(path: str, key: str) -> str:
     prefix = key + ":"
     val = ""
@@ -334,18 +490,41 @@ def _handoff_id_archived_twin(handoff_id: str, repo_root: str) -> str:
     return str(twin) if twin is not None else ""
 
 
-def _run_query_cli(query_cli: str, where: str, fmt: str) -> str:
-    if query_cli.endswith(".py"):
-        cmd = [sys.executable, query_cli, "--where", where, "--format", fmt]
-    else:
-        cmd = [query_cli, "--where", where, "--format", fmt]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, **no_console_creationflags())
-    except OSError:
-        return ""
-    if result.returncode != 0:
-        return ""
-    return result.stdout or ""
+
+def _build_holder_census(handoffs_dir: str, repo_root: str) -> dict:
+    """One walk of state/handoffs/ + archive/handoffs/ returning
+    ``{claim_holder: count}`` -- P2's bounded-scan oracle.
+
+    P2 asks a per-session question ("did this dead holder claim EXACTLY one
+    handoff?"), but answering it inside the per-orphan predicate meant
+    re-walking the whole corpus once per orphan: 18 orphans against ~950
+    handoffs measured 17,133 ``_claim_holder`` calls and 6.3s of an 8.3s run.
+    The census is the same walk done once; the predicate becomes a lookup.
+
+    Verdict-preserving, not merely faster: ``_claim_holder`` is the same
+    ledger-first accessor the per-orphan scan used, applied to the same two
+    directories in the same order, so a session's count here is exactly the
+    ``match_count`` that scan produced. Sessions with no claim never enter the
+    census, and ``.get(sid, 0) != 1`` fails closed for them exactly as
+    ``match_count != 1`` did.
+    """
+    census: dict = {}
+    for h in glob.glob(os.path.join(handoffs_dir, "*.md")):
+        if not os.path.isfile(h):
+            continue
+        holder = _claim_holder(h, repo_root=repo_root)
+        if holder:
+            census[holder] = census.get(holder, 0) + 1
+
+    archive_handoffs_dir = os.path.join(repo_root, "archive", "handoffs")
+    if os.path.isdir(archive_handoffs_dir):
+        for h in glob.glob(os.path.join(archive_handoffs_dir, "**", "*.md"), recursive=True):
+            if not os.path.isfile(h):
+                continue
+            holder = _claim_holder(h, repo_root=repo_root)
+            if holder:
+                census[holder] = census.get(holder, 0) + 1
+    return census
 
 
 def _shipped_orphan_candidate(
@@ -353,7 +532,8 @@ def _shipped_orphan_candidate(
     this_handoff: str,
     handoffs_dir: str,
     repo_root: str,
-    query_cli: str = _QUERY_CLI_DEFAULT,
+    completion_index: Optional[dict] = None,
+    holder_census: Optional[dict] = None,
 ) -> Optional[list]:
     """Ship-check predicate P2+P3 (P1 is checked by the caller; P4's SHA
     selection is DEFERRED — see ``_batch_commit_timestamps`` /
@@ -379,44 +559,30 @@ def _shipped_orphan_candidate(
     # ONE handoff (across state/handoffs/ + archive/handoffs/). More than one is
     # ambiguous (a completion-log entry can't be disambiguated to a specific
     # consumption) and fails closed.
-    match_count = 0
-    for h in glob.glob(os.path.join(handoffs_dir, "*.md")):
-        if not os.path.isfile(h):
-            continue
-        if _claim_holder(h, repo_root=repo_root) == consumed_by:
-            match_count += 1
-
-    archive_handoffs_dir = os.path.join(repo_root, "archive", "handoffs")
-    if os.path.isdir(archive_handoffs_dir):
-        for h in glob.glob(os.path.join(archive_handoffs_dir, "**", "*.md"), recursive=True):
-            if not os.path.isfile(h):
-                continue
-            if _claim_holder(h, repo_root=repo_root) == consumed_by:
-                match_count += 1
-
-    if match_count != 1:
+    # Served from the caller's one-shot holder census (see _build_holder_census).
+    # Counted per-orphan, this walked state/handoffs/ + archive/handoffs/ in full
+    # and called `_claim_holder` on every file EACH TIME -- 18 orphans against
+    # ~950 handoffs was 17,133 calls / 6.3s of the run. The census answers the
+    # same question ("how many handoffs did this session claim?") from one walk.
+    # `None` (a standalone caller with no prebuilt census) walks it here, so
+    # this predicate stays callable on its own; `main()` passes one built once.
+    if holder_census is None:
+        holder_census = _build_holder_census(handoffs_dir, repo_root)
+    if holder_census.get(consumed_by, 0) != 1:
         return None
 
     # P3 — completion-entry oracle (DoE-local ONLY; no claude-klabauter/ceremony coupling).
     # Exactly one completion-log entry authored by the dead session. Zero means
     # no terminal ceremony ran; two+ is ambiguous. Either fails closed.
-    where = f"authored_by={consumed_by}"
-    completion_paths = _run_query_cli(query_cli, where, "paths")
-    completion_path_count = len([ln for ln in completion_paths.splitlines() if ln.strip()])
-    if completion_path_count != 1:
+    # Served from the caller's one-shot index (see _resolve_completion_index)
+    # rather than two `query-completions.py` spawns per orphan. The predicate
+    # is unchanged: EXACTLY one entry authored by the dead session, zero or
+    # two-plus fails closed.
+    matched = (completion_index or {}).get(consumed_by) or []
+    if len(matched) != 1:
         return None
 
-    completion_json = _run_query_cli(query_cli, where, "json")
-    if not completion_json.strip():
-        return None
-    try:
-        parsed = json.loads(completion_json)
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(parsed, list) or not parsed:
-        return None
-
-    entry = parsed[0] if isinstance(parsed[0], dict) else {}
+    entry = matched[0] if isinstance(matched[0], dict) else {}
     frontmatter = entry.get("frontmatter") if isinstance(entry, dict) else None
     commits = frontmatter.get("commits") if isinstance(frontmatter, dict) else None
     if not isinstance(commits, list):
@@ -515,7 +681,8 @@ def _shipped_orphan_sha(
     this_handoff: str,
     handoffs_dir: str,
     repo_root: str,
-    query_cli: str = _QUERY_CLI_DEFAULT,
+    completion_index: Optional[dict] = None,
+    holder_census: Optional[dict] = None,
 ) -> str:
     """Ship-check predicate P2-P4 for a SINGLE orphan (P1 is checked by the
     caller — see module docstring). Returns a landing SHA iff P2 AND P3 AND
@@ -529,7 +696,9 @@ def _shipped_orphan_sha(
     leg across every in-flight orphan in ONE git call instead of once per
     orphan.
     """
-    candidates = _shipped_orphan_candidate(consumed_by, this_handoff, handoffs_dir, repo_root, query_cli)
+    candidates = _shipped_orphan_candidate(
+        consumed_by, this_handoff, handoffs_dir, repo_root, completion_index, holder_census
+    )
     if candidates is None:
         return ""
     sha_ct = _batch_commit_timestamps(candidates, repo_root)
@@ -566,7 +735,7 @@ def _run_archive_stamp_cli(args: list) -> tuple:
     return False, f"{os.path.basename(_ARCHIVE_STAMP_CLI)} {args[0]} exit {result.returncode}: {detail}"
 
 
-def _has_live_children_exit_code(handoff_path: str) -> int:
+def _has_live_children_exit_code(handoff_path: str, repo_root: str) -> int:
     """Reverse-membership crash-orphan guard for the clean release fall-through.
 
     The ordinary crash shape this guards against: a session runs /handoff under
@@ -577,19 +746,50 @@ def _has_live_children_exit_code(handoff_path: str) -> int:
     handoff.has_live_children reverse-membership predicate the /handoff
     chain-archival path and fleet.archive_completed_handoffs already consult;
     this reaper was the one lifecycle writer that didn't. Fail-closed: any
-    transport/subprocess failure returns 2 (indeterminate), never 1 (safe to
+    resolution/import/op failure returns 2 (indeterminate), never 1 (safe to
     release).
-    """
-    try:
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
 
-        result = subprocess.run(
-            [sys.executable, _HAS_LIVE_CHILDREN_CLI, handoff_path],
-            capture_output=True, text=True, check=False, env=child_env(), **no_console_creationflags(),
+    Calls the op in-process (see ``_resolve_handoff_has_live_children``) —
+    zero subprocess spawns, not a CLI veneer. ``repo_root`` is this script's
+    own resolved worktree root (``resolve_checked_repo_root``'s
+    ``_show_toplevel``-derived value); the op itself expects the git COMMON
+    dir, so it is re-derived here via ``git_common_dir`` rather than
+    threading the worktree root straight through.
+    """
+    return _has_live_children_exit_codes([handoff_path], repo_root).get(handoff_path, 2)
+
+
+def _has_live_children_exit_codes(handoff_paths: list, repo_root: str) -> dict:
+    """``{path: exit_code}`` for the whole fall-through set, from ONE corpus pass.
+
+    Delegates to ``handoff_children.has_live_children_many`` — the same guards
+    and the same verdicts as the singular op, with the reverse-edge index built
+    once instead of per candidate. Asking per orphan cost 36,638 ``_read_meta``
+    calls (19 orphans x ~950 handoffs) and was the entire remaining 3.1s of this
+    script's process time; the index primitive it now routes through
+    (``dag.build_reverse_edge_index``) already existed and was already in
+    production behind ``fleet.archive_terminal_handoffs``.
+
+    Fail-closed per path exactly as before: 2 (indeterminate) on any resolution,
+    import, or op failure, never 1 (safe to release).
+    """
+    if not handoff_paths:
+        return {}
+    try:
+        has_live_children_many, git_common_dir = _resolve_handoff_has_live_children()
+    except (RuntimeError, ImportError):
+        return {p: 2 for p in handoff_paths}
+
+    common_dir = git_common_dir(cwd=repo_root)
+    if not common_dir:
+        return {p: 2 for p in handoff_paths}
+
+    try:
+        return asyncio.run(
+            has_live_children_many(list(handoff_paths), repo_root=Path(common_dir))
         )
-    except OSError:
-        return 2
-    return result.returncode
+    except Exception:
+        return {p: 2 for p in handoff_paths}
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -633,13 +833,60 @@ def main(argv: Optional[list] = None) -> int:
         canonical_kind = _resolve_canonical_kind()
     except (RuntimeError, ImportError) as exc:
         # Review: code-reviewer (P2, Finding 3) — matches the guard already
-        # applied to _resolve_session_live() above (same CLAUDE_KLABAUTER_ROOT
+        # applied to _resolve_session_live() above (same engine-root
         # sys.path trampoline); a stale sibling checkout predating this
         # migration must fail loud with a clean message, not a raw
         # traceback. See _PRE_RENAME_ALIASES's module docstring: a
         # half-migrated fleet is the normal state, not a hypothetical.
         print(f"reap-orphaned-in-flight-handoffs.py: canonical-kind resolver not importable: {exc}", file=sys.stderr)
         return 2
+
+    # P2's oracle: one walk of state/ + archive/handoffs/, shared by every
+    # orphan (see _build_holder_census).
+    holder_census = _build_holder_census(handoffs_dir, repo_root)
+
+    # Both indexes are built ON FIRST USE, not up front: they cost 109ms and
+    # 78ms of whole-corpus reading, and neither is consulted at all unless an
+    # orphan actually reaches its gate. A clean corpus — the steady state once
+    # the backlog is drained, and the overwhelmingly common case for a sweep
+    # that runs on a cadence — should not pay 187ms to answer nothing. Each
+    # still builds at most once per run.
+    _index_cache: dict = {}
+
+    def _completion_index() -> dict:
+        if "completion" not in _index_cache:
+            try:
+                _index_cache["completion"] = _resolve_completion_index()(repo_root)
+            except (RuntimeError, ImportError) as exc:
+                # Fail CLOSED to an empty index. P3 then matches nothing, every
+                # ship-check fails closed, and each orphan falls through to the
+                # release path — the same disposition an unreadable completion
+                # log already produced. Never a wrong ship.
+                print(
+                    f"reap-orphaned-in-flight-handoffs.py: completion-log index not importable: {exc}; "
+                    "ship-check disabled for this run (every orphan falls through to release)",
+                    file=sys.stderr,
+                )
+                _index_cache["completion"] = {}
+        return _index_cache["completion"]
+
+    def _implemented_plan_index() -> dict:
+        if "plans" not in _index_cache:
+            try:
+                _index_cache["plans"] = _resolve_implemented_plan_index()(Path(repo_root))
+            except (RuntimeError, ImportError) as exc:
+                # Same fail-loud posture. Fail CLOSED to an empty index rather
+                # than exiting: an unresolvable index means the governed-plan
+                # pre-check below can't fire, which restores exactly the
+                # pre-fix behaviour (attempt the release, let `_unclaim` refuse
+                # it) — degraded reporting, never a wrong write.
+                print(
+                    f"reap-orphaned-in-flight-handoffs.py: implemented-plan index not importable: {exc}; "
+                    "governed-plan pre-check disabled for this run",
+                    file=sys.stderr,
+                )
+                _index_cache["plans"] = {}
+        return _index_cache["plans"]
 
     released = 0
     would_release = 0
@@ -651,6 +898,8 @@ def main(argv: Optional[list] = None) -> int:
     would_skip_by_guard = 0
     skipped_archived_duplicate = 0
     would_skip_archived_duplicate = 0
+    skipped_plan_implemented = 0
+    would_skip_plan_implemented = 0
     failed_release = 0
 
     # -----------------------------------------------------------------
@@ -674,8 +923,10 @@ def main(argv: Optional[list] = None) -> int:
             if not os.path.isfile(f):
                 continue
 
-            status = _fm_field(f, "status")
-            deployment_state = _fm_field(f, "deployment_state")
+            # One open serves every key pass 1 needs off this node.
+            fm = _fm_fields(f, ("status", "deployment_state", "handoff_id", "kind", "deliverable_id"))
+            status = fm["status"]
+            deployment_state = fm["deployment_state"]
 
             # Orphan candidate shape: (status:consumed OR status:claimed) +
             # deployment_state:in_flight. DR-084 dual-read: field/value
@@ -718,7 +969,7 @@ def main(argv: Optional[list] = None) -> int:
             # archive/handoffs/ is residue, not a real orphan — a handoff
             # cannot legitimately be both terminal-archived and currently in
             # flight. Fail closed: skip, never claim-release/resurrect it.
-            handoff_id = _fm_field(f, "handoff_id")
+            handoff_id = fm["handoff_id"]
             archived_twin = _handoff_id_archived_twin(handoff_id, repo_root)
             if archived_twin:
                 msg = (
@@ -746,15 +997,28 @@ def main(argv: Optional[list] = None) -> int:
             # non-empty deliverable_id nodes belong to that script's
             # deliverable-spine join; skip the ship-check for them entirely
             # and fall through to the unmodified claim-release path.
-            kind = _fm_field(f, "kind")
-            deliverable_id = _fm_field(f, "deliverable_id")
+            kind = fm["kind"]
+            deliverable_id = fm["deliverable_id"]
             candidates = None
             if not (canonical_kind(kind) == "roadmap-baton" and deliverable_id):
-                candidates = _shipped_orphan_candidate(claim_holder, f, handoffs_dir, repo_root)
+                candidates = _shipped_orphan_candidate(
+                    claim_holder, f, handoffs_dir, repo_root, _completion_index(), holder_census
+                )
                 if candidates:
                     all_candidate_shas.update(candidates)
 
-            pending.append({"path": f, "claim_holder": claim_holder, "candidates": candidates})
+            pending.append(
+                {
+                    "path": f,
+                    "claim_holder": claim_holder,
+                    "candidates": candidates,
+                    # Carried for the governed-plan pre-check in pass 2 — read
+                    # here rather than re-read there so the disposition and the
+                    # ship-check's P1 gate see the SAME frontmatter snapshot.
+                    "kind": kind,
+                    "deliverable_id": deliverable_id,
+                }
+            )
 
     # -----------------------------------------------------------------
     # ONE batched git call resolves every candidate SHA's committer
@@ -768,10 +1032,31 @@ def main(argv: Optional[list] = None) -> int:
     # Pass 2 (mutating): P4 selection against the batched map, then the
     # unchanged ship / release disposition per orphan.
     # -----------------------------------------------------------------
+    # One corpus pass answers the live-children guard for every fall-through
+    # candidate (see _has_live_children_exit_codes). `sha` is pure in-memory
+    # selection against the already-batched timestamp map, so the release-path
+    # set is knowable up front; a sha-truthy orphan takes the ship path and
+    # never consults the guard.
+    #
+    # This set is a mild SUPERSET -- an orphan that short-circuits later in the
+    # disposition loop is answered here anyway. That was a real cost when each
+    # answer re-walked the corpus, and is now a dict lookup against an index
+    # built once, so the superset is free where it used to be the defect.
+    guard_codes = _has_live_children_exit_codes(
+        [
+            item["path"]
+            for item in pending
+            if not (_best_shipped_sha(item["candidates"], sha_ct) if item["candidates"] else "")
+        ],
+        repo_root,
+    )
+
     for item in pending:
         f = item["path"]
         claim_holder = item["claim_holder"]
         candidates = item["candidates"]
+        orphan_kind = item["kind"]
+        orphan_deliverable_id = item["deliverable_id"]
         sha = _best_shipped_sha(candidates, sha_ct) if candidates else ""
 
         if sha:
@@ -845,7 +1130,7 @@ def main(argv: Optional[list] = None) -> int:
         # land) keeps falling through to release unchanged — it must not
         # be re-gated here.
         if not sha:
-            guard_exit = _has_live_children_exit_code(f)
+            guard_exit = guard_codes.get(f, 2)
             if guard_exit == 0:
                 reason = "has a live succession child; releasing would resurrect an ancestor"
             elif guard_exit == 2:
@@ -860,6 +1145,45 @@ def main(argv: Optional[list] = None) -> int:
                 else:
                     print(f"reap-orphaned-in-flight-handoffs.py: skip: {f} — {reason}", file=sys.stderr)
                     skipped_by_guard += 1
+                continue
+
+        # Governed-plan pre-check — release is the WRONG verb for an orphan
+        # whose governing plan is already stamped `implemented`. That plan
+        # shipped, so returning its handoff to open+ready_to_fire re-advertises
+        # finished work as a live pickup target: the exact defect this reaper
+        # exists to clear. `_unclaim` already refuses these writes, so nothing
+        # was ever corrupted — but the refusal surfaced as `release attempt(s)
+        # FAILED`, which reads as a tool error rather than as "these need a
+        # different verb", and `--dry-run` promised a release that could not
+        # happen. Checking here makes both honest.
+        #
+        # NOT auto-shipped. Plan status alone is not a sufficient oracle: an
+        # implemented plan can still have a handoff carrying genuinely open
+        # work (`state/handoffs/2026-08-25_193508_the-scoped-commit-rebuilt-
+        # from-first-principles.md` declares two open P1s and a blocking PM
+        # decision under an implemented plan). Shipping on plan status would
+        # be the stealth-skip disposition in costume, so the disposition is
+        # `skip` — counted, named, non-terminal — matching the live-children
+        # guard above and the 2026-07-20 PM ruling that no automated writer in
+        # this family resolves a handoff a session never resolved.
+        #
+        # Kind exemption mirrors `_unclaim`'s own (C3, docs/plans/2026-08-18-a-
+        # spinoff-is-not-its-parents-deliverable.md): a `kind: spinoff`
+        # record's `deliverable_id` is an inherited id, not a true join onto
+        # the plan it matches.
+        if not sha and orphan_deliverable_id and canonical_kind(orphan_kind) != "spinoff":
+            governing_plan = _implemented_plan_index().get(orphan_deliverable_id)
+            if governing_plan is not None:
+                reason = (
+                    f"governing plan {governing_plan['title']!r} ({governing_plan['path']}) is "
+                    "stamped implemented — needs ship-or-discharge adjudication, not release"
+                )
+                if dry_run:
+                    print(f"reap-orphaned-in-flight-handoffs.py: [dry-run] would skip {f} ({reason})")
+                    would_skip_plan_implemented += 1
+                else:
+                    print(f"reap-orphaned-in-flight-handoffs.py: skip: {f} — {reason}", file=sys.stderr)
+                    skipped_plan_implemented += 1
                 continue
 
         # Dispatch the `unconsume` claim-release transition (this script
@@ -937,9 +1261,19 @@ def main(argv: Optional[list] = None) -> int:
                 f"{would_skip_archived_duplicate} orphaned in_flight handoffs would be "
                 "skipped (archived-twin guard, dry-run)"
             )
+        if would_skip_plan_implemented > 0:
+            print(
+                f"{would_skip_plan_implemented} orphaned in_flight handoffs would be skipped "
+                "(governing plan implemented — ship or discharge, never release; dry-run)"
+            )
     else:
         if skipped_by_guard > 0:
             print(f"{skipped_by_guard} orphaned in_flight handoffs skipped (live-children guard)")
+        if skipped_plan_implemented > 0:
+            print(
+                f"{skipped_plan_implemented} orphaned in_flight handoffs skipped "
+                "(governing plan implemented — ship or discharge, never release)"
+            )
         if skipped_archived_duplicate > 0:
             print(
                 f"{skipped_archived_duplicate} orphaned in_flight handoffs skipped "

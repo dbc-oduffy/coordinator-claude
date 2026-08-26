@@ -87,6 +87,12 @@ if sys.version_info < (3, 11):
 
 import tomllib  # stdlib, 3.11+
 
+# A console-subsystem child with no console of its own allocates a fresh
+# conhost on Windows -- with a visible window. Every git spawn below is
+# short-lived and output-captured, so without this each one flashes.
+# 0 on POSIX, where the flag does not exist.
+_NO_CONSOLE = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+
 SCHEMA_EXPECTED = 1
 
 
@@ -511,6 +517,7 @@ def _git_common_dir(cand: str) -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
+            **_NO_CONSOLE,
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -1190,8 +1197,44 @@ def cmd_get(args: argparse.Namespace) -> int:
     return EXIT_NOT_FOUND
 
 
+def _repos_shell_var_name(key: str) -> str | None:
+    """Normalize a repos.<slug> key to its shell variable name: REPO_<SLUG>.
+
+    Strips the "repos." prefix, uppercases the suffix, and maps both "." and
+    "-" to "_" -- the transform claude-machine-local.sh/.ps1 used to each
+    implement themselves before dump grew a --format sh emitter; this is now
+    the one implementation both indirectly share (they consume the emitter's
+    output rather than re-deriving the name).
+
+    Returns None for anything the shell exporter must not emit: a key that
+    is not a two-segment repos.<slug> key, or one whose normalized name is
+    not a valid POSIX shell identifier (^[A-Z_][A-Z0-9_]*$) -- callers skip
+    and warn in that case, mirroring the identifier guard the shell wrappers
+    used to apply themselves.
+    """
+    parts = key.split(".")
+    if len(parts) != 2 or parts[0] != "repos":
+        return None
+    var = "REPO_" + re.sub(r"[.\-]", "_", parts[1]).upper()
+    if not re.match(r"^[A-Z_][A-Z0-9_]*$", var):
+        return None
+    return var
+
+
+def _shell_single_quote(value: str) -> str:
+    """Escape `value` for a POSIX single-quoted shell literal, eval-safe.
+
+    Closes the quote, emits a literal escaped quote, reopens -- the standard
+    '\\'' idiom. Registry values are local paths today, but dump's `--format
+    sh` output is `eval`'d by its caller, so this must hold for arbitrary
+    content, not just the paths currently stored.
+    """
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
 def cmd_dump(args: argparse.Namespace) -> int:
-    """Implement: machine-local dump [--prefix <p>] — resolve EVERY key in one process.
+    """Implement: machine-local dump [--prefix <p>] [--format json|sh] — resolve
+    EVERY key in one process.
 
     Emits a single JSON object of key → resolved value on stdout.  Exists because the
     enumerate-then-read pattern (`machine-local keys`, then one `machine-local get`
@@ -1209,6 +1252,13 @@ def cmd_dump(args: argparse.Namespace) -> int:
     Membership therefore means exactly "`get` would succeed" — a consumer never has
     to re-check a key it found here.
 
+    `--prefix` narrows the OUTPUT, never the process: the registry is read and the
+    interpreter started either way, and interpreter start is the whole cost (measured
+    ~459ms median on Windows against ~34ms to compile this file). A consumer wanting
+    several namespaces takes ONE unprefixed dump and filters it in-process; repeated
+    prefixed dumps are the `keys`+`get` mistake one level up, and cost one process per
+    namespace for a single file read.
+
     `--include-unset` emits those absent keys as JSON `null` instead of omitting
     them, so DECLARED-but-unresolvable stays distinguishable from UNREGISTERED in
     ONE process. Without it, a consumer needing that distinction reads `keys`
@@ -1223,7 +1273,47 @@ def cmd_dump(args: argparse.Namespace) -> int:
     still resolves and the object is still emitted, the failing key is named on
     stderr, and the exit code is EXIT_OPERATIONAL so a caller checking rc learns the
     batch was not fully answerable. Stdout stays pipe-clean JSON on every path.
+
+    `--format sh` is the batch-`eval` sibling of the default JSON: it prints one
+    guarded `export` statement per resolved repos.<slug> key instead of a JSON
+    object, so claude-machine-local.sh can replace its own enumerate-then-read
+    (`keys` + one `get` per key) loop with a single `eval "$(... dump --prefix
+    repos --format sh)"`. It exists only for repos.<slug> keys -- the shell
+    exporters' sole consumer. (`claude-machine-local.ps1` deliberately stays
+    on the JSON path instead: PowerShell cannot safely `eval` shell export
+    syntax, and it re-implements the idempotency guard itself via
+    `[Environment]::GetEnvironmentVariable`. -- Review: coordinator:code-reviewer,
+    slice4) It reproduces the JSON path's four per-key
+    states, moved to the stream a shell `eval` can tolerate:
+      - resolved, non-empty            -> `[ -n "${VAR:-}" ] || export VAR='...'`
+        (the guard preserves the caller's own idempotency contract: a
+        pre-set, non-empty $VAR is a deliberate operator override and must
+        keep winning over the ladder -- see DR-087. `dump` cannot see the
+        calling shell's environment, so the guard has to travel WITH the
+        emitted line rather than living in the caller's loop.)
+      - resolved, declared-but-empty (AC14) -> nothing on stdout, warning on stderr
+      - cleanly absent (rc=1)                -> nothing on stdout, warning on stderr
+      - operational failure (rc=2)           -> nothing on stdout, error on stderr
+    Every value is single-quote-escaped for `eval` safety (see
+    `_shell_single_quote`). Non-repos keys, or repos keys whose normalized name
+    is not a valid shell identifier, are skipped with a stderr warning -- see
+    `_repos_shell_var_name`. Stdout stays `eval`-clean on every path, exactly as
+    it stays JSON-clean on every path for the default format.
+
+    `--format sh --include-unset` is a usage error (exit 2): the sh form
+    conveys absence by emitting nothing for that key, so `--include-unset`
+    (whose only effect is emitting JSON `null`) has no shell equivalent.
     """
+    fmt = args.format
+    if fmt == "sh" and args.include_unset:
+        print(
+            "machine-local dump: --format sh --include-unset is a usage error -- "
+            "the sh emitter conveys absence by emitting nothing for that key, so "
+            "--include-unset (JSON null) has no shell equivalent.",
+            file=sys.stderr,
+        )
+        return 2
+
     reg_dir = _registry_dir()
     layers = _build_resolution_layers(reg_dir)
     all_keys = _all_keys(layers)
@@ -1234,8 +1324,47 @@ def cmd_dump(args: argparse.Namespace) -> int:
 
     values: dict[str, str | None] = {}
     failures: list[str] = []
+    sh_lines: list[str] = []
     for k in all_keys:
         rc, val = resolve_one(k, layers)
+
+        if fmt == "sh":
+            var = _repos_shell_var_name(k)
+            if var is None:
+                print(
+                    f"claude-machine-local: warning: skipping key '{k}' — not a "
+                    "repos.<slug> key, or produces a non-conformant shell "
+                    "identifier",
+                    file=sys.stderr,
+                )
+                continue
+            if rc == EXIT_OK and val is not None:
+                if val == "":
+                    print(
+                        f"claude-machine-local: warning: '{k}' declared but has "
+                        f"no value — ${var} not exported",
+                        file=sys.stderr,
+                    )
+                else:
+                    sh_lines.append(
+                        f'[ -n "${{{var}:-}}" ] || export {var}='
+                        f'{_shell_single_quote(val)}'
+                    )
+            elif rc == EXIT_OPERATIONAL:
+                failures.append(f"  {k}: {val}")
+                print(
+                    f"claude-machine-local: error: machine-local reader failed "
+                    f"for '{k}' (rc={rc}) — ${var} not exported",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"claude-machine-local: warning: '{k}' not resolved by "
+                    f"ladder — ${var} not exported",
+                    file=sys.stderr,
+                )
+            continue
+
         if rc == EXIT_OK and val is not None:
             values[k] = val
         elif rc == EXIT_OPERATIONAL:
@@ -1243,16 +1372,22 @@ def cmd_dump(args: argparse.Namespace) -> int:
         elif args.include_unset:
             values[k] = None
 
-    print(json.dumps(values, indent=2, sort_keys=True))
+    if fmt == "sh":
+        for line in sh_lines:
+            print(line)
+    else:
+        print(json.dumps(values, indent=2, sort_keys=True))
+
+        if failures:
+            print(
+                "machine-local dump: {} key(s) could not be resolved (values above are "
+                "complete for every other key):".format(len(failures)),
+                file=sys.stderr,
+            )
+            for line in failures:
+                print(line, file=sys.stderr)
 
     if failures:
-        print(
-            "machine-local dump: {} key(s) could not be resolved (values above are "
-            "complete for every other key):".format(len(failures)),
-            file=sys.stderr,
-        )
-        for line in failures:
-            print(line, file=sys.stderr)
         return EXIT_OPERATIONAL
 
     return EXIT_OK
@@ -3198,14 +3333,28 @@ def main() -> int:
     )
     dump_p.add_argument(
         "--prefix", metavar="PREFIX", default=None,
-        help="Only dump keys equal to, or nested under (dotted), PREFIX (e.g. repos)",
+        help=(
+            "Only dump keys equal to, or nested under (dotted), PREFIX (e.g. repos). "
+            "Narrows the OUTPUT, not the process: each dump is a fresh interpreter "
+            "start, which dominates the cost. Wanting several namespaces? Take ONE "
+            "unprefixed dump and filter it in-process -- N prefixed dumps is the "
+            "`keys`+`get` mistake one level up."
+        ),
     )
     dump_p.add_argument(
         "--include-unset", action="store_true",
         help=(
             "Also emit declared-but-unresolvable keys, as JSON null. Keeps "
             "DECLARED-but-unset distinguishable from UNREGISTERED without a second "
-            "`keys` process."
+            "`keys` process. Incompatible with --format sh (exit 2)."
+        ),
+    )
+    dump_p.add_argument(
+        "--format", choices=["json", "sh"], default="json",
+        help=(
+            "Output format. 'json' (default): a JSON object of key -> value, "
+            "unchanged contract. 'sh': one guarded `export VAR=...` line per "
+            "resolved repos.<slug> key, for `eval` by claude-machine-local.sh."
         ),
     )
 

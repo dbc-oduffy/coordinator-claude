@@ -16,9 +16,10 @@ Writes or removes the autonomous-run sentinel file that the context pressure hoo
 
 ## Instructions
 
-Run, relaying its own stdout confirmation verbatim (don't re-author it):
+Run, relaying its own stdout confirmation verbatim (don't re-author it). Shape W
+(`coordinator/snippets/resolve-coordinator-bin.md`):
 
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/autonomous-verb" $ARGUMENTS`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\autonomous-verb.cmd" $ARGUMENTS`
 
 ## Behavior While Active
 

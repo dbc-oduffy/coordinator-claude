@@ -16,10 +16,6 @@ Single entry point for all deep-research pipelines. Route by `--mode`.
 - `--mode=structured <spec-path> [subject-key]` — Pipeline C (structured research, Agent Teams); `create` sub-mode builds a new spec (see driver file Step 0)
 
 <!-- engine-gap: field=research.resolved_mode producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
-<!-- Review: code-reviewer bad07211 — routing logic determines which of three pipelines runs;
-restored the resolution order inline alongside the engine-gap marker rather than deferring it
-wholesale to wiki. Full decision tree (pattern-match detail, fallback wording): wiki
-(`deep-research-pipelines`). -->
 **Auto-detect (legacy, no `--mode`):** path that exists on disk → `--mode=repo`. Otherwise, a
 repo-target candidate (GitHub URL, bare `<owner>/<repo>`, or a name resolvable via
 `machine-local`) routes to `--mode=repo` only if it resolves via, in order: (1) `machine-local get

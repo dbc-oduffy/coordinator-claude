@@ -16,4 +16,8 @@ That `kind:` routes the file to the `review-sidecar` schema — NOT the plan sch
 
 The fields above are ones you ADD within the scaffold you were handed — see the **Provisioned Scaffold On Disk Always Wins** block in this prompt for why your scaffold's frontmatter will not match this list, and how to confirm your type from the body headings instead.
 
+**Run-nonce stamp.** When your brief carries `run_nonce:`, write the sidecar THIS run and stamp `run_nonce: <value>` verbatim into its frontmatter. Never copy a nonce off disk, never emit one you were not given, and do not substitute your own timestamp — a consumer refuses any verdict whose sidecar lacks this run's nonce, and a same-session re-dispatch lands on the same provisioned path. No `run_nonce:` in your brief → omit the field.
+
 > When a `review-integrator` is downstream, your brief carries your provisioned subagent-share sidecar path — write your `ReviewOutput` there and return only the pointer line; inline ONLY when no path is in the brief. The integrator hard-stops on inline-relayed findings (`agents/review-integrator.md` § Intake precondition).
+
+**Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"`.

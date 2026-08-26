@@ -19,7 +19,7 @@ from __future__ import annotations
 #       negative-spec docstring)
 #   3 — schema_version present but unsupported (not 1 or 2)
 #   4 — DEDICATED transport-failure code (PORTER-BRIEF-ADDENDUM § 3b): the
-#       coordinator-root / CLAUDE_KLABAUTER_ROOT resolution failed, the DoE-claude repo
+#       coordinator-root / engine-root resolution failed, the DoE-claude repo
 #       root (which owns snippets/registry.toml) was unresolvable, or
 #       coordinator_core.snippet_sync.verify_registry_consistency was not
 #       importable. Distinct from business code 2 ("missing dep or file not
@@ -37,7 +37,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 
 _TRANSPORT_FAILURE_EXIT = 4
@@ -61,7 +61,7 @@ def _resolve_plugin_root() -> str:
     parity is exactly what caused the break once this file moved repos.
 
     Fails loud (sys.exit(_TRANSPORT_FAILURE_EXIT)) if doe_root() cannot
-    resolve, via the same transport-failure path as CLAUDE_KLABAUTER_ROOT resolution
+    resolve, via the same transport-failure path as engine-root resolution
     below — this is a gate script, not a never-block hook.
     """
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -81,9 +81,7 @@ def _resolve_plugin_root() -> str:
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.snippet_sync.verify_registry_consistency import main as _op_main
     return _op_main
 
@@ -101,7 +99,7 @@ def main() -> None:
         op_main = _import_main()
     except RuntimeError as exc:
         print(
-            f"verify-snippet-registry-consistency: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"verify-snippet-registry-consistency: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(_TRANSPORT_FAILURE_EXIT)

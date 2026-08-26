@@ -37,11 +37,17 @@ the SINK:
   1. GOVERNED-IDENTIFIER MENTION (unchanged fast path). Build the
      identifier set from every ``_claude_md_ledger.GOVERNED_AUTHORING_
      SURFACES`` entry: its full repo-relative POSIX path AND its bare
-     basename. If NONE of these identifiers appears as a literal substring
-     anywhere in the command text, the command cannot be directed at a
-     governed surface by any means this hook can see -> ALLOW immediately
-     (the overwhelming majority of Bash calls never mention a governed
-     surface at all).
+     basename. If NONE of these identifiers appears, PATH-SEGMENT-BOUNDARY-
+     ANCHORED (see ``_mentions_governed_identifier`` -- the character
+     immediately before and after the match, if any, must not be
+     ``[A-Za-z0-9]``, so ``CLAUDE.md`` matches bare, quoted, or preceded by
+     ``/``, a backslash, whitespace, ``=``, ``(``, a backtick, ``;``, ``>``,
+     but a longer
+     basename that merely ENDS in the same characters -- ``dotclaude.md``
+     containing ``claude.md`` -- does not), anywhere in the command text,
+     the command cannot be directed at a governed surface by any means this
+     hook can see -> ALLOW immediately (the overwhelming majority of Bash
+     calls never mention a governed surface at all).
 
   2. TOP-LEVEL SEGMENTATION. The command is split into segments at
      top-level ``;``, ``&&``, ``||``, ``|``, and newline -- "top-level"
@@ -406,6 +412,21 @@ _GOVERNED_IDENTIFIERS = _governed_identifiers()
 #: security-audit-worker's own triage).
 _GOVERNED_IDENTIFIERS_LOWER = tuple(identifier.lower() for identifier in _GOVERNED_IDENTIFIERS)
 
+#: Path-segment-boundary-anchored mirror of ``_GOVERNED_IDENTIFIERS_LOWER`` --
+#: see ``_mentions_governed_identifier``. A governed identifier (bare
+#: basename or full repo-relative path alike) may legitimately sit adjacent
+#: to a quote, `/`, `\`, whitespace, `=`, `(`, a backtick, `;`, `>`, or
+#: string-start/end -- none of those are word characters, so a lookbehind/
+#: lookahead excluding `[A-Za-z0-9]` on either side accepts all of them
+#: while rejecting a longer basename that merely ends/starts with the same
+#: characters (`dotclaude.md` contains `claude.md` as a raw substring, but
+#: the character immediately before the match is `t`, a word character, so
+#: the anchored pattern does not match it).
+_GOVERNED_IDENTIFIER_PATTERNS = tuple(
+    re.compile(r"(?<![A-Za-z0-9])" + re.escape(identifier) + r"(?![A-Za-z0-9])")
+    for identifier in _GOVERNED_IDENTIFIERS_LOWER
+)
+
 #: Redirect targets that are never a write to a governed surface: fd
 #: duplication (``2>&1``, ``>&2``) and ``/dev/null``. Stripped before
 #: scanning for a bare ``>``/``>>`` so stderr/stdout plumbing that names no
@@ -425,7 +446,19 @@ def _has_redirect_marker(text: str) -> bool:
 _TEE_RE = re.compile(r"\btee\b")
 _SED_INPLACE_RE = re.compile(r"\bsed\b.{0,120}?(-i\b|--in-place\b)", re.DOTALL)
 _PERL_INPLACE_RE = re.compile(r"\bperl\b.{0,120}?-i\b", re.DOTALL)
-_CP_MV_RE = re.compile(r"\b(cp|mv|install|dd|truncate)\b")
+#: A copying/truncating command name counts only in COMMAND POSITION -- at the
+#: start of the segment or right after a shell operator -- never as a word
+#: inside a path operand. `\b(...)\b` alone matched `install` inside the
+#: filename `2026-07-08-install-baton-rendezvous-off-dotclaude.md`, because
+#: hyphens are non-word characters that make every hyphenated fragment its own
+#: `\b`-delimited word; combined with the mention prefilter that denied a plain
+#: `grep -c` as a write. A path operand never sits in command position, so this
+#: keeps the over-deny side (any genuine `cp`/`mv`/`install` invocation) while
+#: dropping the filename-fragment match.
+_CP_MV_RE = re.compile(
+    r"(?:^|[|&;(]|\|\||&&)\s*(?:\w+=\S*\s+)*(?:sudo\s+|command\s+|env\s+)*"
+    r"\b(cp|mv|install|dd|truncate)\b"
+)
 _WRITE_MODE_OPEN_RE = re.compile(r"open\([^)]*['\"][wax]['\"]")
 _WRITE_METHOD_RE = re.compile(r"\.write(_text|_bytes)?\(")
 
@@ -562,8 +595,32 @@ def _has_indirection_marker(text: str) -> bool:
 
 
 def _mentions_governed_identifier(text: str) -> bool:
+    """Whole-command PREFILTER: does this text mention a governed surface at all?
+
+    Deliberately UNBOUNDED (plain substring), and it must stay that way. This is
+    the fast-path gate at the top of ``is_denied_bash_write``, so it decides what
+    even reaches segmentation and the point-4 variable-assignment-indirection
+    scan. Anchoring it narrows the funnel rather than the verdict: the write
+    target may be a VARIABLE whose value merely CONTAINS the identifier with an
+    adjacent character the shell strips before the write lands, e.g.
+    ``X=xCLAUDE.md; echo pwned > "${X:1}"`` -- a real write to a governed
+    surface that an anchored prefilter never sees. A false positive here costs
+    nothing: the segment still has to clear a write-marker check downstream. A
+    false negative here is total.
+
+    Path-identity precision belongs at the decision point, not at the gate --
+    see ``_names_governed_identifier``."""
     lowered = text.lower()
     return any(identifier in lowered for identifier in _GOVERNED_IDENTIFIERS_LOWER)
+
+
+def _names_governed_identifier(text: str) -> bool:
+    """Path-segment-BOUNDARY-anchored test: does this text name a governed
+    surface as its own path component, rather than merely contain the
+    characters inside a longer basename (``dotclaude.md``)? Precision half of
+    the pair above; never a prefilter."""
+    lowered = text.lower()
+    return any(pattern.search(lowered) for pattern in _GOVERNED_IDENTIFIER_PATTERNS)
 
 
 #: Markers that can actually EXECUTE arbitrary code inside a segment. A
@@ -648,6 +705,109 @@ def _strip_heredoc_bodies(text: str) -> str:
         out.append(line[: match.end()])
         out.append(line[term_match.start() :])  # keep the terminator token onward
     return "\n".join(out)
+
+
+#: An interpreter invocation that makes STDIN the program text rather than a
+#: data stream: ``python3 -``, ``python -``, ``bash -s``, ``sh -s``, ``node -``,
+#: ``perl -``, ``ruby -``, and a bare ``bash``/``sh`` with no script operand.
+#: For these -- and ONLY these -- a heredoc body is executable source, not
+#: inert stdin data.
+_STDIN_PROGRAM_RE = re.compile(
+    r"(?:^|[;&|]|\s)(?:python3?|perl|ruby|node)\s+-(?=\s|$)"
+    r"|(?:^|[;&|]|\s)(?:bash|sh)\s+-s(?=\s|$)"
+    r"|(?:^|[;&|]|\s)(?:bash|sh)\s*(?=<<)"
+)
+
+
+def _stdin_program_heredoc_bodies(text: str) -> "list[str]":
+    """The BODY of every heredoc whose introducing line makes stdin the
+    program (``_STDIN_PROGRAM_RE``).
+
+    ``_strip_heredoc_bodies`` rests on "a heredoc body is inert data -- it is
+    fed to a command's stdin, and no amount of ``>`` or quoting inside it can
+    write a file." That premise is exactly false for ``python3 - <<'PY'`` and
+    friends, where the body IS the executed program. Returning those bodies
+    lets the point-4 companion below scan them as live code without
+    disturbing the strip that legitimately suppresses prose-in-a-heredoc
+    false positives everywhere else."""
+    bodies: "list[str]" = []
+    lines = text.split("\n")
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        match = _HEREDOC_START_RE.search(line)
+        idx += 1
+        if not match:
+            continue
+        terminator = match.group(2)
+        scan = idx
+        while scan < len(lines) and lines[scan].strip() != terminator:
+            scan += 1
+        body = "\n".join(lines[idx:scan]) if scan < len(lines) else ""
+        if scan < len(lines):
+            idx = scan + 1
+        if body and _STDIN_PROGRAM_RE.search(line[: match.start()] + " "):
+            bodies.append(body)
+    return bodies
+
+
+#: ``NAME = "<governed path>"`` in an interpreter payload. The value must be
+#: the governed identifier ALONE (optionally with a directory prefix) -- prose
+#: that merely embeds the name inside a larger string is the documented point-4
+#: false positive and must keep passing.
+#: Quoted form covers interpreter payloads (``p = "CLAUDE.md"``); the bare
+#: form covers a shell assignment in a ``bash -s`` body (``p=CLAUDE.md``),
+#: which carries no quotes at all.
+#: Triple-quoted branch is checked FIRST so a Python triple-quoted literal
+#: (``p = """CLAUDE.md"""``) is matched against the true `"""`/`'''`
+#: terminator rather than the single-quote branch closing early on the
+#: literal's own adjacent leading quote pair (Review: coordinator:code-
+#: reviewer, wsc-c3final-20260818 slice4 finding 1 -- the empty-capture
+#: evasion this branch exists to close).
+_PAYLOAD_ASSIGN_RE = re.compile(
+    r"(?<![\w.])([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+    r"(?:('''|\"\"\")([\s\S]*?)\2"
+    r"|(['\"])([^'\"]*)\4|([^\s;&|()]+))"
+)
+
+
+def _has_stdin_program_var_write(cmd: str) -> bool:
+    """True iff a stdin-as-program heredoc body binds a governed doctrine
+    surface to a name and then writes THROUGH that name.
+
+    Closes the seam between point 3 and point 4. Point 3 denies only when the
+    identifier and the write marker share one segment, so it catches
+    ``open('CLAUDE.md','w')`` on a single body line. Point 4 catches the
+    assign-then-dereference shape, but runs on heredoc-STRIPPED text so a
+    body never reaches it. A payload that binds the path on one line and
+    writes through the binding on another therefore satisfied neither.
+
+    Requiring the bound value to be the governed path itself (not prose
+    containing it) plus a write that names the same variable keeps the
+    point-4 false positive -- a prose blob mentioning a governed surface
+    beside a ``.write_text(`` to a DIFFERENT file -- passing."""
+    for body in _stdin_program_heredoc_bodies(cmd):
+        for match in _PAYLOAD_ASSIGN_RE.finditer(body):
+            name = match.group(1)
+            value = (
+                match.group(3) or match.group(5) or match.group(6) or ""
+            ).strip().replace("\\", "/")
+            if " " in value:
+                continue  # prose that embeds the name, not a path -- point-4 FP
+            if not _mentions_governed_identifier(value.rsplit("/", 1)[-1]):
+                continue
+            # WRITE intent through the bound name only. A bare ``open(NAME)``
+            # is a READ and must keep passing -- matching it on the name alone
+            # denied ``print(open(p).read())``.
+            deref = re.compile(
+                r"open\s*\(\s*%s\s*,\s*['\"][wax]"  # open(p, "w")
+                r"|%s\s*,\s*['\"][wax]"  # io.open(p, "w"), any write-mode call
+                r"|%s\s*\)\s*\.\s*write"  # Path(p).write_text(...)
+                r"|>\s*\$?\{?%s\}?\b" % ((re.escape(name),) * 4)  # redirect via $p
+            )
+            if deref.search(body):
+                return True
+    return False
 
 
 def _copy_command_substitution(text: str, start: int) -> "tuple[str, int]":
@@ -1221,6 +1381,14 @@ def is_denied_bash_write(cmd: str) -> bool:
     stripped_cmd = _strip_heredoc_bodies(cmd)
     stripped_segments = _split_top_level_segments(stripped_cmd)
     if _has_var_assignment_indirection(stripped_segments) and _has_write_marker(stripped_cmd):
+        return True
+
+    # Point 4's companion for the one case the strip above cannot cover: a
+    # heredoc feeding an interpreter that takes its PROGRAM from stdin. There
+    # the body is executable source, so an assign-then-write-through-the-name
+    # payload is a real indirected write that neither point 3 (identifier and
+    # marker land on different body lines) nor the stripped point-4 scan sees.
+    if _has_stdin_program_var_write(cmd):
         return True
 
     if _has_xargs_pipe_indirection(segments):

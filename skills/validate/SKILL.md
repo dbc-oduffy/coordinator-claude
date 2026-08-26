@@ -12,9 +12,14 @@ workday or workweek, or an explicit "does everything pass?" ask.
 
 ## Run It
 
+On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) for every
+invocation on this page, never the `${...}` POSIX-shell form shown below. Ladder and shapes:
+`snippets/resolve-coordinator-bin.md`.
+
 ```
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/validate-fast-and-packageability" fast
+validate-fast-and-packageability fast
 ```
+(resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Resolves the command (env var → `coordinator.local.md` `fast_test_cmd:` → skip-with-notice, no
 conventional fallback), executes it, prints exactly one `Validation: <value>` line. Run via Bash
@@ -43,8 +48,9 @@ This doctrine-source repo additionally validates its own install manifest — se
 any repo that hasn't opted in), never a fleet-wide gate:
 
 ```
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/validate-fast-and-packageability" packageability
+validate-fast-and-packageability packageability
 ```
+(resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Prints its own `Packageability: <exit-code>` line, separate from `Validation:` above. Do not wire
 this into any cross-repo/fleet-shared hook.
@@ -56,8 +62,9 @@ Tier U), never by which config key it came from. **Both tiers require a live ses
 time, with no standing exemption** — checked via:
 
 ```
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/tier-u-grant-cli" check
+tier-u-grant-cli check
 ```
+(resolved per `snippets/resolve-coordinator-bin.md`: Shape A/B on POSIX hosts, Shape W on PowerShell)
 
 Exit 0 = granted, proceed. Exit 1 (or an absent/malformed token) = ungranted, fail-closed — halt
 before invoking. This skill never writes a grant itself. On a halt, or when a command's shape is
@@ -80,7 +87,7 @@ subset covering the change's own surface (Tier T), not this skill.
 
 Complements `verification-before-completion` (that skill requires evidence; this skill produces
 it). `/workday-complete` Step 1 and `/workweek-complete` Step 2 both delegate here as sole owner
-of the resolution logic — `/workday-complete`'s delegation fires inside the engine assembler and
+of the resolution logic — `/workday-complete`'s delegation fires inside the engine and
 is not yet grant-check-observable the way `/workweek-complete`'s Bash-level call is. Detail: wiki.
 
 ## Common Mistakes

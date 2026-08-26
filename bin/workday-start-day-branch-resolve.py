@@ -51,10 +51,39 @@ Subcommands:
         commands/workday-start.md Step 0.45. This assertion is a TRIPWIRE, not a
         retry: it never renames the branch itself.
 
+    day-branch-assert [--repo-root <path>]
+        C6 of DoE-claude docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
+        (AC-6). Gives `/workweek-start` a real branch leg: `orient-assemble brief
+        --cadence week`'s spine is READ-ONLY BY CONSTRUCTION (module docstring of
+        coordinator_core.orient_assemble, enforced by
+        orient_assemble/tests/test_read_only_guarantee.py — every disk-write
+        primitive and any `git fetch` fails the test if a reader touches it), so it
+        structurally CANNOT host the git-mutating leg C4b/C10 own. That rules out
+        folding the assertion into the cadence-invariant spine (the plan's option
+        (b)); this subcommand is option (a) instead — a direct invoke DoE's
+        `workweek-start.md` Step 1 calls.
+
+        Calls coordinator_core.hooks.day_branch_assert.assert_day_branch(repo_root,
+        compute_machine(), local_day()) — the SAME dispatch C4b's SessionStart shim
+        uses (case (A) on `main`: cut/adopt/inherit automatically; case (B)
+        otherwise: warn without switching). `repo_root` defaults to the current
+        working directory (`--repo-root` overrides it, a test seam mirroring
+        `span-assert`'s `--branch`). Prints `result.message` verbatim when
+        non-empty — this file does NOT re-render it; warn/refusal messages are
+        already rendered by `day_branch_assert.banner()`, the one shared,
+        non-suppressible renderer (AC-1's "same rendering, not a re-implementation
+        printing similar-but-different text" constraint for this path, since
+        `/workweek-start` is a mid-session slash command and may never re-enter the
+        SessionStart hook that hosts C5's banner mount point).
+
 Exit codes:
-    reap-log:    always 0 (best-effort hygiene, never a gate).
-    span-assert: 0 — no mismatch (silent); 1 — mismatch detected (message on stdout).
-    Both:        2 — bad subcommand/usage.
+    reap-log:          always 0 (best-effort hygiene, never a gate).
+    span-assert:        0 — no mismatch (silent); 1 — mismatch detected (message on stdout).
+    day-branch-assert:  0 — cut/adopted/inherited/compliant/warn (a WARN is reported,
+                        not blocking — same posture as the SessionStart shim, which
+                        always continues); 1 — FAILED (the cut was attempted, inside
+                        the tree-keyed lock, and genuinely failed; still on `main`).
+    All:                2 — bad subcommand/usage.
 
 Negative-spec (do NOT reintroduce while touching this file):
     - Does NOT carry the `_cc_trusted`/`_cc_root` guard preamble, the
@@ -66,10 +95,16 @@ Negative-spec (do NOT reintroduce while touching this file):
       SHELLS OUT to the co-located script and only owns the log-append conditional,
       matching the bash fragment's own division of labor.
     - Does NOT auto-rename a mismatched branch — span-assert is read-only.
+    - `day-branch-assert` does NOT re-implement `assert_day_branch`'s dispatch or
+      `banner()`'s rendering — it is a thin CLI wrapper over the same engine-plane
+      function C4b's SessionStart shim calls, so the two entry paths can never
+      drift into printing different text for the same state.
 
 Spec backlink: DoE-claude commands/workday-start.md § Step -1 (Session Reaper),
 § Step 0.45 (Post-Step-0 Span Assertion)
 Spec backlink: docs/plans/2026-07-23-extirpate-bash-from-workday-start.md § WDS-1 [DEAD-CITATION: plan file never committed to this repo]
+Spec backlink: DoE-claude docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md
+    § C6 / AC-6 (day-branch-assert subcommand)
 """
 from __future__ import annotations
 
@@ -160,7 +195,7 @@ def cmd_reap_log(_args: argparse.Namespace) -> int:
         log_dir = claude_config_dir() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(log_dir / "coordinator-reap.log", "a", encoding="utf-8") as f:
+        with open(log_dir / "coordinator-reap.log", "a", encoding="utf-8", newline="\n") as f:
             f.write(f"{ts}  {reap_log}\n")
     return 0  # best-effort hygiene — never blocks session start
 
@@ -223,6 +258,29 @@ def cmd_span_assert(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# day-branch-assert — C6, AC-6: the /workweek-start branch leg
+# ---------------------------------------------------------------------------
+
+
+def cmd_day_branch_assert(args: argparse.Namespace) -> int:
+    """Invoke the SAME `assert_day_branch` dispatch C4b's SessionStart shim
+    calls, from a mid-session CLI entry point instead of a `startup`-sourced
+    hook. See the module docstring's `day-branch-assert` block for why this
+    is the seam (orient-assemble's spine is read-only by construction) and
+    what its exit codes mean."""
+    _ensure_claude_klabauter_on_path()
+    from coordinator_core.daily_day import local_day
+    from coordinator_core.hooks.day_branch_assert import FAILED, assert_day_branch
+    from coordinator_core.machine_resolver import compute_machine
+
+    repo_root = args.repo_root if args.repo_root else os.getcwd()
+    result = assert_day_branch(repo_root, compute_machine(), local_day())
+    if result.message:
+        print(result.message)
+    return 1 if result.outcome == FAILED else 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -236,6 +294,9 @@ def _build_parser() -> argparse.ArgumentParser:
     span_p = sub.add_parser("span-assert", help="assert the active branch's span covers today's local day")
     span_p.add_argument("--branch", default=None, help="branch name to check (default: `git branch --show-current`)")
 
+    dba_p = sub.add_parser("day-branch-assert", help="the boot day-branch invariant, invoked mid-session (C6 -- gives /workweek-start a real branch leg)")
+    dba_p.add_argument("--repo-root", default=None, help="repo root to assert against (default: current working directory)")
+
     return p
 
 
@@ -246,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_reap_log(args)
     if args.subcommand == "span-assert":
         return cmd_span_assert(args)
+    if args.subcommand == "day-branch-assert":
+        return cmd_day_branch_assert(args)
     print(f"workday-start-day-branch-resolve.py: unknown subcommand {args.subcommand!r}", file=sys.stderr)
     return 2
 

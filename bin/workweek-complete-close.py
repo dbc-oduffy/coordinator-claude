@@ -13,17 +13,6 @@ Subcommands:
                      `grep -m1 ... | sed ...` derivation, ported verbatim
                      as a reusable function — several ceremony steps need
                      this same value).
-  reconcile-sweep    Step 9.1.5's detect-only pending-release reconcile
-                     backstop: query pending-release completion entries
-                     since the week start, and for each one dispatch the
-                     co-located reconcile-completion-commits.py in
-                     detect-only mode, surfacing any unaccounted session
-                     commits. Sibling in spirit to the already-ported
-                     workday-start-reconcile-sweep.py / workday-complete-
-                     reconcile.py — same authored_by-keyed dispatch shape,
-                     different entry-selection query (this ceremony scans
-                     by week-start date via query-completions.py rather
-                     than a bounded today/yesterday archive/completed scan).
   archive            Step 13's week-close: move the closing week's daily
                      changelog files + priorities fragments to
                      archive/week-changelogs/<week-starting>/, move the
@@ -45,11 +34,7 @@ leave" rule.
 
 Spec backlink: DoE-claude coordinator/commands/workweek-complete.md
     § Step 9.1 (week-start derivation, lines ~3337-3339)
-    § Step 9.1.5 (reconcile sweep, lines ~3358-3505)
     § Step 13 (archive + reset + commit + push, lines ~3762-3903)
-Spec backlink: docs/plans/2026-06-27-post-summary-completion-loop-closure.md § C5b
-    (Step 9.1.5's detect-only backstop rationale — shared with the
-    workday-side reconcile sweeps)
 """
 from __future__ import annotations
 
@@ -86,11 +71,9 @@ def _import_rel_id():
     # construction through the single sanctioned wire_paths.rel_id helper
     # instead of a hand-rolled .as_posix() that would silently drift if
     # rel_id's contract is ever extended.
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: WPS433 (deferred, mirrors house style)
+    from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: WPS433 (deferred, mirrors house style)
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.wire_paths import rel_id
 
     return rel_id
@@ -101,11 +84,9 @@ def _ensure_claude_klabauter_root_on_path() -> None:
     bootstrap as :func:`_import_rel_id` — shared here rather than
     duplicated, since the archive command needs TWO coordinator_core
     symbols (``resolve_session_id`` and ``relocate_touched_path``), not one."""
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: WPS433 (deferred, mirrors house style)
+    from cc_invoke import require_dispatch_engine_on_path  # noqa: WPS433 (deferred, mirrors house style)
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_dispatch_engine_on_path()
 
 
 def _resolve_session_id_for_relocate() -> str:
@@ -223,7 +204,6 @@ def _no_console_passthrough_kw() -> dict:
     return kwargs
 
 
-_DELTA_RE = re.compile(r"delta=(\d+)")
 _WEEK_STARTING_RE = re.compile(r"\*\*Week starting:\*\*[ \t]*(.*)")
 _DAILY_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}.*\.md$")
 _LEADING_DATE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
@@ -249,8 +229,7 @@ def _in_week_window(d: date, week_starting: date) -> bool:
 
 def _bin_dir() -> Path:
     """This script's own directory — every sibling CLI it dispatches to
-    (query-completions.py, reconcile-completion-commits.py,
-    coordinator-current-branch.py) is co-located here. Path(__file__)-relative,
+    (coordinator-current-branch.py) is co-located here. Path(__file__)-relative,
     never cwd-relative, so this CLI is self-resolving regardless of caller cwd."""
     return Path(__file__).resolve().parent
 
@@ -294,135 +273,6 @@ def derive_week_start(header_path: Path) -> str:
 def _cmd_week_start(args: argparse.Namespace) -> int:
     print(derive_week_start(Path(args.header)))
     return 0
-
-
-# ---------------------------------------------------------------------------
-# reconcile-sweep
-# ---------------------------------------------------------------------------
-
-
-def _frontmatter_field(content: str, key: str) -> str:
-    """First `^{key}:` value within the leading `---`...`---` frontmatter
-    fence; "" if the fence never closes or the key is absent."""
-    n = 0
-    prefix_re = re.compile(rf"^{re.escape(key)}:[ \t]*")
-    for line in content.splitlines():
-        if line == "---":
-            n += 1
-            if n == 2:
-                return ""
-            continue
-        if n == 1:
-            m = prefix_re.match(line)
-            if m:
-                return line[m.end():]
-    return ""
-
-
-def _authored_by_field(content: str) -> str:
-    """`authored_by:` value with a trailing ` # comment` and surrounding
-    double-quotes stripped, mirroring the bash oracle's awk scrub
-    (`sub(/[[:space:]]*#.*$/,"",v); gsub(/^"|"$/,"",v)`)."""
-    raw = _frontmatter_field(content, "authored_by")
-    raw = re.sub(r"[ \t]*#.*$", "", raw)
-    if len(raw) >= 2 and raw.startswith('"') and raw.endswith('"'):
-        raw = raw[1:-1]
-    return raw
-
-
-def _query_pending_release_paths(query_script: str, since: str, limit: int) -> list[str]:
-    """Invoke the co-located query-completions.py to list pending-release
-    completion-entry paths since `since`. Returns [] on a non-zero exit
-    (mirrors the bash fence, which had no dedicated failure path here —
-    an empty $RECONCILE_PATHS just means the for-loop body never runs)."""
-    try:
-        result = subprocess.run(
-            [
-                sys.executable,
-                query_script,
-                "--since",
-                since,
-                "--where",
-                "status=pending-release",
-                "--format",
-                "paths",
-                "--limit",
-                str(limit),
-            ],
-            capture_output=True,
-            text=True,
-            **_no_console_kw(),
-        )
-    except OSError:
-        return []
-    if result.returncode != 0:
-        return []
-    return [line for line in result.stdout.splitlines() if line.strip()]
-
-
-def _run_reconcile_helper(reconcile_script: str, session_id: str, entry_path: str) -> tuple[int, str]:
-    """Invoke reconcile-completion-commits.py in detect-only mode (never
-    --append — this sweep is a cross-session bulk over entries not
-    necessarily authored by the current session). Stderr is discarded,
-    mirroring the bash fence's `2>/dev/null` on this call."""
-    try:
-        result = subprocess.run(
-            [sys.executable, reconcile_script, "--session-id", session_id, entry_path],
-            capture_output=True,
-            text=True,
-            **_no_console_kw(),
-        )
-    except OSError as exc:
-        return 2, str(exc)
-    return result.returncode, result.stdout
-
-
-def run_reconcile_sweep(entry_paths: list[str], reconcile_script: str, out=sys.stdout, err=sys.stderr) -> int:
-    """Detect-only reconcile pass over an already-resolved entry-path list
-    (Step 9.1.5's pre-release backstop). Advisory only — always returns 0;
-    the ceremony does NOT hard-fail on unaccounted commits."""
-    for entry_path in entry_paths:
-        try:
-            content = Path(entry_path).read_text(encoding="utf-8")
-        except OSError:
-            continue
-
-        authored_by = _authored_by_field(content)
-        if not authored_by or authored_by == "null":
-            continue
-
-        rc, stdout = _run_reconcile_helper(reconcile_script, authored_by, entry_path)
-        if rc != 0:
-            # Advisory-only sweep — a helper failure is surfaced, not fatal.
-            continue
-
-        m = _DELTA_RE.search(stdout)
-        if m and int(m.group(1)) > 0:
-            print(
-                f"⚠ entry {Path(entry_path).name}: {m.group(1)} session "
-                "commit(s) unaccounted — reconcile before release",
-                file=out,
-            )
-    return 0
-
-
-def _default_query_script() -> str:
-    return str(_bin_dir() / "query-completions.py")
-
-
-def _default_reconcile_script() -> str:
-    return str(_bin_dir() / "reconcile-completion-commits.py")
-
-
-def _cmd_reconcile_sweep(args: argparse.Namespace) -> int:
-    since = args.since or derive_week_start(Path(args.header))
-    if args.entries_file:
-        entry_paths = [
-            line for line in Path(args.entries_file).read_text(encoding="utf-8").splitlines() if line.strip()
-        ]
-    else:
-        entry_paths = _query_pending_release_paths(args.query_script, since, args.limit)
-    return run_reconcile_sweep(entry_paths, args.reconcile_script)
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +443,7 @@ def perform_archive_files(
     if should_rewrite_header:
         header_path.write_text(
             _HEADER_TEMPLATE.format(version=version, merge_sha=merge_sha, released_date=released_date),
-            encoding="utf-8",
+            encoding="utf-8", newline="\n",
         )
         actions.append(f"rewrote {header_path}")
 
@@ -725,7 +575,7 @@ def _cmd_archive(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Closing-orchestration CLI for /workweek-complete (week-start "
-        "derivation, pending-release reconcile sweep, week-close archive+push)."
+        "derivation, week-close archive+push)."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -734,25 +584,6 @@ def _build_parser() -> argparse.ArgumentParser:
         "--header", default="state/week-changelog/HEADER.md", help="Path to HEADER.md (cwd-relative)."
     )
     p_week_start.set_defaults(func=_cmd_week_start)
-
-    p_reconcile = sub.add_parser(
-        "reconcile-sweep", help="Step 9.1.5 detect-only pending-release reconcile backstop."
-    )
-    p_reconcile.add_argument(
-        "--header", default="state/week-changelog/HEADER.md", help="Path to HEADER.md, for --since auto-derivation."
-    )
-    p_reconcile.add_argument("--since", default=None, help="Override the week-start date (default: derive from --header).")
-    p_reconcile.add_argument("--limit", type=int, default=1000, help="query-completions.py --limit (default 1000).")
-    p_reconcile.add_argument("--query-script", default=None, help="Path to query-completions.py (default: co-located sibling).")
-    p_reconcile.add_argument(
-        "--reconcile-script", default=None, help="Path to reconcile-completion-commits.py (default: co-located sibling)."
-    )
-    p_reconcile.add_argument(
-        "--entries-file",
-        default=None,
-        help="Test/override hook: newline-delimited entry paths, bypassing the query-completions.py call.",
-    )
-    p_reconcile.set_defaults(func=_cmd_reconcile_sweep)
 
     p_archive = sub.add_parser("archive", help="Step 13: archive the closing week + reset HEADER.md + commit + push.")
     p_archive.add_argument("--repo-root", default=".", help="Repo root (default: cwd).")
@@ -797,10 +628,6 @@ def main(argv: list[str]) -> int:
     # mirrors the 2026-07-26 fix to `workday-complete-reconcile.py`'s
     # identical defect).
     args = _build_parser().parse_args(argv)
-    if args.command in ("reconcile-sweep",) and not args.query_script:
-        args.query_script = _default_query_script()
-    if args.command in ("reconcile-sweep",) and not args.reconcile_script:
-        args.reconcile_script = _default_reconcile_script()
     return args.func(args)
 
 

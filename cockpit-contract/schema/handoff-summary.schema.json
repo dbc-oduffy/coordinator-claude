@@ -743,6 +743,26 @@
           "type": "null"
         }
       ]
+    },
+    "human_assignee": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "human_claimant": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -788,5 +808,20 @@
     "producer"
   ],
   "additionalProperties": false,
-  "version": "3.12.0"
+  "version": "4.0.0",
+  "x-baton-class": {
+    "description": "kind -> baton_class derivation map. Generated from frontmatter/schemas/handoff.schema.json's own x-baton-class.mapping key, resolved through coordinator_core.frontmatter.baton_class.baton_class() (which also folds in that function's pre-rename kind-alias resolution). One entry per member of this schema's own properties.kind.enum; a null value means baton_class() returns null for that kind (it is not a baton, e.g. 'spike-result'). Do not hand-author a copy of this map — it is generated at emit time from the one canonical source above.",
+    "mapping": {
+      "session-handoff": "continuation",
+      "spinoff": "deflection",
+      "spinoff-roadmap": "intention",
+      "recovery": "continuation",
+      "spinoff-goal": "deflection",
+      "spinoff-roadmap-creator": "intention",
+      "spike-result": null,
+      "roadmap-baton": "intention",
+      "roadmap-seed": "intention",
+      "goal-seed": "deflection"
+    }
+  }
 }

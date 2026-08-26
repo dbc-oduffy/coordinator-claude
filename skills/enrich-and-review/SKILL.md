@@ -8,7 +8,7 @@ argument-hint: "[stub-ids|directory-path|'all']"
 # Enrich and Review — Enrichment Pipeline for Plan Stubs
 
 Run the enrichment-review pipeline on a chunk directory: dispatch Sonnet enricher agents, then
-Opus reviewers, sequentially. No assembler computes this pipeline yet — every phase below is a
+Opus reviewers, sequentially. Nothing computes this pipeline for you yet — every phase below is a
 manual EM procedure over theoretically claude-klabauter-izable facts (stub discovery, independence
 verification, status transitions); worked detail and phase archaeology: wiki.
 

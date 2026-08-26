@@ -60,7 +60,7 @@ Exit codes: each subcommand documents its own contract above; there is no
 shared transport-failure exit code (no coordinator_core import is required
 for claim-classify or rag-freshness-gate — those are pure stdlib. The
 autonomous-sentinel subcommand imports coordinator_core.session.core and
-exits 3 on an unresolvable CLAUDE_KLABAUTER_ROOT / import failure, matching the
+exits 3 on an unresolvable engine root / import failure, matching the
 archive-stamp-cli / check-rag-state.py trampoline convention).
 """
 from __future__ import annotations
@@ -149,7 +149,7 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
 
     check_rag_state = _BIN_DIR / "check-rag-state.py"
     try:
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        from cc_invoke import child_env, require_dispatch_engine_on_path  # noqa: E402 (path injected at module top)
         from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
 
         proc = subprocess.run(
@@ -258,22 +258,18 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
 
 
 def _import_resolve_session_id():
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: WPS433 (deferred, mirrors house style)
+    from cc_invoke import require_dispatch_engine_on_path  # noqa: WPS433 (deferred, mirrors house style)
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_dispatch_engine_on_path()
     from coordinator_core.session.core import resolve_session_id
 
     return resolve_session_id
 
 
 def _import_sentinel_path():
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: WPS433 (deferred, mirrors house style)
+    from cc_invoke import require_dispatch_engine_on_path  # noqa: WPS433 (deferred, mirrors house style)
 
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    require_dispatch_engine_on_path()
     from coordinator_core.session.autonomous_sentinel import sentinel_path
 
     return sentinel_path
@@ -331,7 +327,7 @@ def _cmd_autonomous_sentinel(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-        _sentinel_path(session_id).write_text(f"{mode}\n", encoding="utf-8")
+        _sentinel_path(session_id).write_text(f"{mode}\n", encoding="utf-8", newline="\n")
         print(str(_sentinel_path(session_id)))
         return 0
 

@@ -62,10 +62,9 @@ auto-defer, force A/B/C next interactive run.
 **0.5 `orphan-branch-sweep`** moves to the weekly group (below) — a branch orphaned overnight is
 not urgent.
 
-**0.6 `agent-worktree-sweep --reap`** is suppressed in this repo: no git worktrees are run here
-(`CLAUDE.md`), so the sweep is structurally inert here. This is a local suppression only — the
-step stays in the shipped ceremony for repos that do use worktrees; do not delete it from the
-skill's canonical form, only skip its execution here.
+**0.6 `agent-worktree-sweep --reap`** is inert in this repo — no git worktrees run here
+(`CLAUDE.md`). Skip its execution only; the step stays in the shipped ceremony for repos that do
+use worktrees.
 
 One shell call: `normalize-consumed-frontmatter` (idempotent frontmatter/status sync — surface the
 stale-executing-plan directive's `detail`, triage implemented/abandoned/pick-back-up; surface
@@ -117,6 +116,8 @@ memo) otherwise. Stays open: capture didn't land, or an unanswered PM question.
 `workday-start-cross-repo-memo-outbox-surface` runs only when `cross-repo/outbox/**` is non-empty
 (glob-count precondition, no process cost to check) — outbox drafts awaiting send.
 
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+
 **1.45a Inbox blitz:** `workday-start-inbox-blitz-assemble` routes on `state`: `skipped`/
 `inventory` (plain roster stands)/`escalate` (open-count or oldest-age over threshold — surface
 counts, run the blitz). On `escalate`, dispatch **at most 5** Sonnet agents per day (explicit
@@ -124,7 +125,12 @@ bound — a 150-memo inbox can propose far more; queue the remainder for the nex
 than dispatching unbounded), one per `dispatches[]` entry up to that cap, `brief` and `memos[]`
 passed **verbatim**, never paraphrased. `supersession_candidates[]` are candidates, never
 confirmations. Group PLAN-WEIGHT items by problem/solution space, one baton per space, routed via
-the default above.
+the default above — that per-space rule governs PLAN-WEIGHT only: **every XS/S item from one blitz
+bundles into one baton**, never one each. The standing "classification is a claim at memo-send
+time" caveat covers cited *defects*; an **ask** is already-answered as often as a defect is
+already-fixed, so before rating one PLAN-WEIGHT glob the sender's `cross-repo/archive/`: a reply
+sitting `actioned` there closes the ask whatever its body says. Tripwires:
+`SMALL-BLITZ-ITEMS-BUNDLE-INTO-ONE-BATON`, `AN-ANSWERED-ASK-IS-CLOSED-WHATEVER-ITS-BODY-SAYS`.
 
 There is deliberately no `/inbox-blitz` skill (skill-accumulation aversion) — do not re-house
 this.
@@ -134,12 +140,10 @@ this.
 Each: named CLI, non-empty/stated-exit-code surfaces under its heading, else silent.
 
 - **1.55** `records_query.py completion "nature=roadmap"` top-10 rollup is KILLED from the daily —
-  it renders `(none)` most days and the heading cost is not earning its process. If a recent-roadmap
-  view is wanted, pull it on demand, not every morning.
+  pull a recent-roadmap view on demand instead.
 - **1.6** `workday-start-advisory-counters` — batched below with 1.9/1.91/1.92.
 - **1.65** `query-records --type bug --where 'severity in (P1,P2) AND status=open'` is KILLED from
-  the daily — with 123 open bugs against a threshold of 10, it has been permanently tripped and
-  carries no information. `/bug-blitz` remains the PM-actioned path to the same data on demand.
+  the daily — permanently tripped, so it carries no signal. `/bug-blitz` is the on-demand path.
 - **1.66 Test-red delta:** `state/test-red/<machine>.yaml`; absent/malformed → silent (pending the
   emitter). `failing` tri-state — `[]` authoritative-clean, `null` red-but-undeterminable, never
   green/`cleared`. Baseline: `acknowledged.baseline` if unvoided else `previous.failing`; VOID
@@ -158,8 +162,11 @@ Each: named CLI, non-empty/stated-exit-code surfaces under its heading, else sil
 - **1.82** No detector CLI for CLAUDE_PLUGIN_ROOT source-guard drift — degraded, no check this cadence.
 - **1.85** `workday-complete-backfill-scan --lookback 7` moves to the weekly group — the 7-day
   window re-scans the same days every morning; 6 of every 7 runs are definitionally redundant.
-- **1.86** `workday-start-reconcile-sweep` (today + prior day only) → **Completion Reconcile**,
-  detect-only. KEEP daily — genuinely bounded, not a repeat scan.
+- **1.86** Completion Reconcile is KILLED from `/workday-start` — `workday-start-reconcile-sweep`
+  and the `reconcile-completion-commits` worker it dispatched are both `retired` in the engine
+  repo's relocation ledger; the step invokes nothing. The requirement (recording
+  `Session-Id:`-trailer commits against a pending-release completion entry) is a live rebuild
+  candidate in the engine's kill-ledger, so restore the step only when a successor CLI ships.
 - **1.9 / 1.91 / 1.92** Batched into the single `workday-start-advisory-counters` call below.
 - **1.11** `cruft-sweep --dry-run` is KILLED from `/workday-start` — it already runs in
   `/workday-complete`, and the skill body has always said so. Reclaimable disk surfacing in the
@@ -180,6 +187,17 @@ run together instead of as four cold starts.
 - stale-stashes: → `### Stale Stashes`, then `advice` verbatim — leads with the safe forward
   action, never a scold (a stash may hold a sibling's only copy of real work). Read-only, never
   `pop`/`apply`/`drop`.
+
+**Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
+is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
+it (~150ms, synchronous — no detach or background wrapper):
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`
+
+Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
+`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
+branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
+never hand-roll a `git push` beside it.
 
 ## Step 1.10: Addon Health Sentinels
 
@@ -203,6 +221,13 @@ same WARN shape, naming dates) — eight named CLIs, one shell invocation, each 
 a fleet-topology fact, never a health regression. No multiplexer CLI for these eight exists today;
 this is the interim shell-level batch, not a new engine CLI — do not invent one here, that surface
 is engine-owned, not this skill's to add.
+
+**Boot currency dependency:** `coordinator-doctor-sentinel --full` above writes P-19's verdict to
+`~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`, the only cache
+`install_currency_banner()` reads at boot (zero-spawn). Drop or reorder this sentinel run and the
+boot line doesn't go quiet — it degrades to `stale-unknown` past the 24h refresh window.
+`<ENGINE-CURRENCY-PROBE-PLACEHOLDER>`: engine leg, added here once C6's contract with
+Claude-klabauter-em lands; not yet in this batch.
 
 **1.10.5** MCP registration: per `~/.claude.json mcpServers` entry, skip disabled/off-project,
 count `mcp__<server>__` matches; 0 → `### MCP Tool Registration` line + `/<server>:doctor`.

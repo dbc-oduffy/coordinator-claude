@@ -5,7 +5,7 @@ coordinator_core.install.run_platform_localize.
 
 Collapses install.md § Step 9 ("Fire platform-localize once at install
 time") into one call — this trampoline owns no logic of its own beyond the
-standard CLAUDE_KLABAUTER_ROOT resolve-and-import dance (mirrors
+standard engine-root resolve-and-import dance (mirrors
 coordinator/bin/ensure-doe-clone.py's own shape 1:1). All install-time
 behavior — the in-process ``platform_localize.main()`` call, the
 ``--check-only`` short-circuit, and the conditional JSON-schema-validation
@@ -23,13 +23,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.install.run_platform_localize import main as _op_main
     return _op_main
 

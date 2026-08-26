@@ -11,8 +11,9 @@ The doctrine plane owns only this thin PLUMBING shim (DR-047 transport-seam carv
 the claude-klabauter engine, hand it the mapped params, relay its stdout. Claude-klabauter owns the
 advisory LOGIC (coordinator_core.hooks.suggest_sonnet_research, registered under
 the JSON-RPC method "hooks.suggest_sonnet_research"). The engine is imported and
-run IN-PROCESS via coordinator_core.ipc.dispatch_message -- no bash, no
-`python3 -m` subprocess re-spawn -- so a whole PreToolUse fire pays exactly one
+run IN-PROCESS via coordinator_core.ipc.dispatch_from_hook (DR-175 -- the named
+hook-dispatch seam, above the dispatch_message telemetry wrapper) -- no bash,
+no `python3 -m` subprocess re-spawn -- so a whole PreToolUse fire pays exactly one
 Python interpreter start.
 
 Contract (mirrors the former bash hook it replaces):
@@ -50,7 +51,6 @@ registration in hooks.json.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys
@@ -113,7 +113,7 @@ def main() -> int:
         # spawns -- but each hook fire is a fresh process, so this import
         # cost recurs every fire, not just once per session.
         from coordinator_core.hooks import suggest_sonnet_research as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
+        from coordinator_core.ipc import HookDispatchError, dispatch_from_hook
     except Exception:
         return 0  # engine unimportable -> fail-open
 
@@ -128,22 +128,14 @@ def main() -> int:
         "agent_id": payload.get("agent_id", ""),
     }
 
-    msg = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "hooks.suggest_sonnet_research",
-        "params": params,
-        # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
-        # _origin_worktree required; this op accesses no repo-specific state
-        # (only an in-process coordinator content-root resolution, self-contained).
-    }
-
+    # scope "none" (coordinator_core/ipc.py _OP_KEY_SCOPE) -- no
+    # _origin_worktree required; this op accesses no repo-specific state
+    # (only an in-process coordinator content-root resolution, self-contained).
     try:
-        response = asyncio.run(dispatch_message(msg))
-    except Exception:
+        result = dispatch_from_hook("hooks.suggest_sonnet_research", params)
+    except HookDispatchError:
         return 0  # any engine failure -> fail-open (never brick a tool call)
 
-    result = response.get("result") if isinstance(response, dict) else None
     if result:  # {} (no_advisory) and None both fall through to no-output
         sys.stdout.write(json.dumps(result))
         sys.stdout.write("\n")

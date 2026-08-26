@@ -16,9 +16,10 @@ out-of-scope: `gh pr create/merge`, `git push origin main`, any commit to `main`
 merge urge to the EM instead.
 
 Unless a row below says otherwise: **non-zero exit → surface path+error to PM, don't auto-fix,
-don't abort. Zero/nothing found → no Phase 14 line.** All CLIs run via
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<name>"`. Rationale,
-worked examples, and incident write-ups for any row: wiki.
+don't abort. Zero/nothing found → no Phase 14 line.** All CLIs run per
+`coordinator/snippets/resolve-coordinator-bin.md` — Shape W (`& "$env:COORDINATOR_SETTINGS_HOME\bin\<name>.cmd"`)
+on PowerShell, `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<name>"` on
+POSIX hosts. Rationale, worked examples, and incident write-ups for any row: wiki.
 
 ### Pre-flight
 
@@ -71,13 +72,13 @@ Report by exception — the ≤200-word budget buys a reader's attention, not a 
 ## Documentation Update Summary
 
 **Synced:** [N] doc(s) updated (indexes, plans, memory, lessons, CLAUDE.md, handoffs, artifact pruning, completion archive, repomap, preamble/callout sync) — see commit for detail
-**Pushed:** yes (branch) / no (reason)
 ```
 
 Append a line only if its condition holds:
 
 | Line | Include only when |
 |---|---|
+| `**Pushed:**` | the push did **not** land — auto-push handles the routine case, and its success is not a PM line |
 | `**Plugin Doc-Link Health:**` | broken link(s) or a skipped-cap notice — omit when clean |
 | `**Architecture Atlas:**` | drift, staleness banner, or quarterly drift note fired — omit when clean |
 | `**Frontmatter Schema Drift:**` | N ≥ 1 violations, or the sweep errored — omit at 0 |

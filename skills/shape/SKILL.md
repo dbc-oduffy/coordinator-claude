@@ -24,10 +24,7 @@ them is the EM's job (`global CLAUDE.md § PM Altitude`).
 
 **Announce at start:** "Using `/shape` to converge on the problem before we plan a solution."
 
-**Invoking this skill IS the dispatch authorization** for the actions it performs — no separate
-clearance needed. This attaches to skill entry only; every gate the skill or its body names still
-binds (pre-`/execute-plan` authorization, per-session cross-repo-commit assent,
-ask-before-external-action). Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ## When NOT to invoke
 
@@ -92,8 +89,8 @@ helpfulness, so it self-reports green every time. Step 2 must instead produce th
 
 ## The problem-set artifact
 
-**Scaffold via:**
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type problem-set --title "<problem title>"`
+**Scaffold via** (POSIX-host form; PowerShell hosts: Shape W, `snippets/resolve-coordinator-bin.md`):
+`coordinator-doc-new --type problem-set --title "<problem title>"`
 — emits `docs/problems/YYYY-MM-DD-<slug>.md`, `status: draft`, canonical skeleton. Tiny by
 design: a bulleted problem list, not a design doc.
 

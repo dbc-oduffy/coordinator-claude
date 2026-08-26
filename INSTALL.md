@@ -157,19 +157,23 @@ working. That self-containment is scoped to the plugin, not to every capability 
 engine (§ Step 4) is a separate install this step does not provide. Read the CLI output; if it
 reports an error, surface it verbatim — do not paper over it.
 
-> **Why the GitHub repo, not your clone path?** `claude plugin marketplace add <a-directory>`
-> registers a *directory* source that Claude Code resolves from that exact path on **every**
-> load — it never copies a directory marketplace into `~/.claude`. Point it at your clone and the
-> installed plugins gain a hard runtime dependency on the clone staying put; move or delete the
-> clone and `/reload-plugins` reports `0 plugins`. A `git`/`github` source is cached into
-> `~/.claude` instead, so it survives. The repo is public — no credentials needed.
+> **Why the GitHub repo, not your clone path?** A directory source makes the *marketplace*
+> resolve from that exact path on every load, so the installed plugin gains a runtime dependency
+> on the clone staying put: move or delete the clone and `/reload-plugins` reports `0 plugins`.
+> A `git`/`github` source is registered from `~/.claude` instead, so it survives. The repo is
+> public — no credentials needed.
 >
-> **Offline, or installing local modifications?** With no network access, or to reflect
-> *uncommitted* clone edits, register the clone directly:
-> `claude plugin marketplace add <clone-path>`. In that mode the clone **is** the runtime source —
-> keep it in place, or re-add from GitHub later to cut over to the self-contained source.
-> (A future coordinator session also auto-repairs a clone-bound entry once the clone goes missing,
-> but don't rely on it; prefer the GitHub source up front.)
+> **A directory source does NOT give you live edits — verify this before relying on it.**
+> `claude plugin install` copies the plugin into
+> `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/` and pins
+> `installed_plugins.json`'s `gitCommitSha` to the commit present at install time, for a directory
+> source exactly as for a git one. The running plugin is that **snapshot**, not your working tree:
+> uncommitted edits are invisible, and committed ones are too until you reinstall. On an actively
+> committed clone the gap opens within minutes, silently. Check it yourself:
+>
+> ```bash
+> diff -r ~/.claude/plugins/cache/coordinator-claude/coordinator/*/ <clone>/coordinator/
+> ```
 
 > **No sentinel, no onboarding baton, no `/pickup` staging here.** The native CLI flow has no
 > pre-restart script, so there is nothing to seed: the post-restart `/coordinator:install`
@@ -263,11 +267,13 @@ installed` — the fix it names is exactly "run `/coordinator:setup` (Phase 3)."
    (Windows: `python <klabauter-clone>\scripts\setup.py --i-am-agent`.) This checks dependencies
    (including that the `machine-local` resolver from Step 3 is present), installs, and registers
    the engine.
-6. **Verify with the check-only pass:**
-   ```bash
-   python3 <klabauter-clone>/scripts/setup.py --check
-   ```
-   No side effects — use it to confirm success without risk of re-running the install.
+6. **Read step 5's output — it is the only thing that tells you the engine installed.** Every
+   line is prefixed `PASS`/`FAIL`; a non-zero exit or a traceback means the install did not
+   complete, however many `PASS` lines preceded it.
+
+   `scripts/setup.py --check` is **not** an install verification. It smoke-tests that the script
+   itself is present and executable and exits 0 — it returns green on a box whose engine install
+   crashed. Do not report an install as verified on the strength of it.
 
 **What NOT to do:**
 - **Do not run `pip install .` as the engine install.** It makes `coordinator_core` importable
@@ -321,14 +327,20 @@ is genuinely unavailable.
 
 1. `mkdir -p ~/.claude/plugins/coordinator-claude`
 2. `cp -r coordinator ~/.claude/plugins/coordinator-claude/` (the repo's single top-level plugin
-   dir — deep-research ships folded inside it).
-3. Copy `.claude-plugin/marketplace.json` into
-   `~/.claude/plugins/.claude-plugin/marketplace.json`. Its one plugin entry's `source` field is
-   already flat (`.`) — keep it as-is.
-4. Merge an entry into `~/.claude/plugins/known_marketplaces.json` for `coordinator-claude`
-   pointing at the install dir.
-5. Merge entries into `~/.claude/plugins/installed_plugins.json` (one per plugin, key
-   `<name>@coordinator-claude`, with `installPath` and `version` from each plugin's `plugin.json`).
+   dir — deep-research ships folded inside it). This carries `coordinator/.claude-plugin/` —
+   both `marketplace.json` and `plugin.json` — across with it; there is no separate manifest
+   copy to make, and the manifest's `source` field is already flat (`.`) because the manifest
+   sits at the plugin root. Keep it as-is.
+3. **The installed plugin root is `~/.claude/plugins/coordinator-claude/coordinator`** — one
+   level below the marketplace-named dir, because the manifest lives at
+   `coordinator/.claude-plugin/`, not at the repo root. Every path in the two steps below means
+   that path, `/coordinator` suffix included.
+4. Merge an entry into `~/.claude/plugins/known_marketplaces.json` keyed `coordinator-claude`,
+   with `source` `{"source": "directory", "path": "<plugin root>"}` and `installLocation` set to
+   the same `<plugin root>`.
+5. Merge an entry into `~/.claude/plugins/installed_plugins.json` keyed
+   `coordinator@coordinator-claude`, with `installPath` set to `<plugin root>` and `version`
+   from `coordinator/.claude-plugin/plugin.json`.
 6. Merge `~/.claude/settings.json`: enable plugins under `enabledPlugins` (keys are
    `<name>@coordinator-claude`, **not** bare `<name>`); register the marketplace under
    `extraKnownMarketplaces` (an object, each key a marketplace name); and add `Edit` and `Write`

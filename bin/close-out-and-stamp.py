@@ -5,7 +5,7 @@
 # implemented` on the full-shipped path only, land one scoped commit --
 # into one named op). Direct-import variant (template-variant #1, mirrors
 # coordinator/bin/pickup-assemble, archive-stamp-cli, review-exec-auth-stamp):
-# a plain in-process function call after resolving CLAUDE_KLABAUTER_ROOT, no
+# a plain in-process function call after resolving the engine root, no
 # cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
@@ -47,7 +47,7 @@
 #       failed live is a genuine verdict, not suppressed by --dry-run).
 #   2 — usage error (missing/unrecognized arguments; --dry-run is the only
 #       recognized flag, and does not itself constitute an "extra" argument).
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core import
+#   3 — transport failure (the engine root unresolvable, coordinator_core import
 #       failure, or no enclosing git worktree).
 from __future__ import annotations
 """close-out-and-stamp — see the # comment block above for the RAG-bait
@@ -61,15 +61,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 _TRANSPORT_FAIL = 3
 
 
 def _import_module():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.execute_plan_assemble.close_out_and_stamp as _mod
 
     return _mod

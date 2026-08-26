@@ -50,8 +50,9 @@ Write-capable on both the canonical and draft files. Observe:
 - **NEVER mark a field `provenance: curated` or `asserted` without an explicit human decision
   this session.** Only `provenance: generated` may carry forward from the draft unconfirmed, and
   only into a field the human hasn't overridden.
-- **NEVER delete or truncate `self-description.yaml`.** If absent, create fresh via
-  `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type strategic-self-description` —
+- **NEVER delete or truncate `self-description.yaml`.** If absent, create fresh via Shape W
+  (`snippets/resolve-coordinator-bin.md`):
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type strategic-self-description` —
   never treat a missing canonical file as license to bulk-write unreviewed content.
 - **The draft may be archived/cleared ONLY after its fields are reconciled into the canonical
   file (or explicitly rejected) this same session.** Deleting an unreconciled draft destroys the

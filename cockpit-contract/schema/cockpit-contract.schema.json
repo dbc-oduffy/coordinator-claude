@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://coordinator.local/cockpit-contract.schema.json",
   "title": "Cockpit work-state contract",
-  "description": "Canonical work-state contract (tc-2), version 3.12.0.",
-  "version": "3.12.0",
+  "description": "Canonical work-state contract (tc-2), version 4.0.0.",
+  "version": "4.0.0",
   "$defs": {
     "provenance-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -216,7 +216,7 @@
           }
         }
       ],
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "coordinator-root": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -520,7 +520,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "branch": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -856,7 +856,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "goal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1194,7 +1194,7 @@
         "parent_goal_id"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "routine-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1507,7 +1507,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "day-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1900,7 +1900,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "week-rollup": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -2308,7 +2308,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "handoff-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3055,6 +3055,26 @@
               "type": "null"
             }
           ]
+        },
+        "human_assignee": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "human_claimant": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -3100,7 +3120,22 @@
         "producer"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0",
+      "x-baton-class": {
+        "description": "kind -> baton_class derivation map. Generated from frontmatter/schemas/handoff.schema.json's own x-baton-class.mapping key, resolved through coordinator_core.frontmatter.baton_class.baton_class() (which also folds in that function's pre-rename kind-alias resolution). One entry per member of this schema's own properties.kind.enum; a null value means baton_class() returns null for that kind (it is not a baton, e.g. 'spike-result'). Do not hand-author a copy of this map — it is generated at emit time from the one canonical source above.",
+        "mapping": {
+          "session-handoff": "continuation",
+          "spinoff": "deflection",
+          "spinoff-roadmap": "intention",
+          "recovery": "continuation",
+          "spinoff-goal": "deflection",
+          "spinoff-roadmap-creator": "intention",
+          "spike-result": null,
+          "roadmap-baton": "intention",
+          "roadmap-seed": "intention",
+          "goal-seed": "deflection"
+        }
+      }
     },
     "backlog-item-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3423,7 +3458,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "review-trail": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3718,7 +3753,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "lesson-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4067,7 +4102,7 @@
         "created"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "plan-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4489,6 +4524,16 @@
             }
           ]
         },
+        "review_verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "content_hash": {
           "type": "object",
           "properties": {
@@ -4536,10 +4581,11 @@
         "last_meaningful_activity",
         "workstream_type",
         "shipped_sha",
-        "deliverable_status"
+        "deliverable_status",
+        "review_verified"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "cross-repo-memo-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -4850,7 +4896,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "roadmap-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5400,7 +5446,7 @@
         "scan_errors"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "tracker-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -5687,6 +5733,16 @@
             "source_path"
           ],
           "additionalProperties": false
+        },
+        "human_owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -5701,7 +5757,7 @@
         "items"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "health-status-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6009,7 +6065,7 @@
         "summary"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "decision-guide-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6329,7 +6385,7 @@
         "decision_count"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "session-hierarchy": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6689,357 +6745,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
-    },
-    "file-attribution": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "type": "object",
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Owner-qualified repo identity: '<owner>/<repo>'. Owner carries the producing repo's own casing (producer-authoritative — there is no independent casing authority); no '.git' suffix. Consumers must not assume pre-normalization: normalizing to lower(owner)/lower(repo) for join, dedup, or storage keying is conformant. See DR-022. This owner-qualified string is the canonical cross-entity join anchor."
-        },
-        "coordinator_root_path": {
-          "type": "string"
-        },
-        "session_id": {
-          "type": "string"
-        },
-        "file_path": {
-          "type": "string"
-        },
-        "edited_count": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
-        },
-        "read_count": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
-        },
-        "referenced_count": {
-          "type": "integer",
-          "minimum": -9007199254740991,
-          "maximum": 9007199254740991
-        },
-        "lines_added": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "lines_removed": {
-          "anyOf": [
-            {
-              "type": "integer",
-              "minimum": -9007199254740991,
-              "maximum": 9007199254740991
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "last_operation": {
-          "anyOf": [
-            {
-              "type": "string",
-              "enum": [
-                "edit",
-                "create",
-                "delete",
-                "rename",
-                "bash"
-              ]
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "completeness": {
-          "type": "string",
-          "enum": [
-            "complete",
-            "partial",
-            "unknown"
-          ]
-        },
-        "capture_source": {
-          "type": "string",
-          "enum": [
-            "journal_projection",
-            "hook_capture",
-            "derived"
-          ]
-        },
-        "provenance_completeness": {
-          "type": "string",
-          "enum": [
-            "complete",
-            "unknown"
-          ]
-        },
-        "provenance": {
-          "type": "object",
-          "properties": {
-            "source_kind": {
-              "type": "string",
-              "enum": [
-                "github_graphql",
-                "github_rest",
-                "git_commit",
-                "local_fs",
-                "coordinator_artifact",
-                "transcript_summary",
-                "sec_edgar",
-                "code_comparison"
-              ]
-            },
-            "repo": {
-              "type": "string",
-              "description": "Owner-qualified repo identity: '<owner>/<repo>'. Owner carries the producing repo's own casing (producer-authoritative — there is no independent casing authority); no '.git' suffix. Consumers must not assume pre-normalization: normalizing to lower(owner)/lower(repo) for join, dedup, or storage keying is conformant. See DR-022. This owner-qualified string is the canonical cross-entity join anchor. repo: '' means the fact is NOT repo-anchored — see entity_anchor (entity-first claims with no repo to join on)."
-            },
-            "ref": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "branch": {
-                      "type": "string"
-                    },
-                    "sha": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "branch",
-                    "sha"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "path": {
-              "type": "string"
-            },
-            "observed_at": {
-              "type": "string",
-              "format": "date-time",
-              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-            },
-            "derivation": {
-              "type": "string",
-              "enum": [
-                "raw",
-                "parsed",
-                "rolled_up",
-                "computed",
-                "synthesized"
-              ]
-            },
-            "entity_anchor": {
-              "anyOf": [
-                {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string"
-                    },
-                    "value": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "kind",
-                    "value"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            }
-          },
-          "required": [
-            "source_kind",
-            "repo",
-            "ref",
-            "path",
-            "observed_at",
-            "derivation",
-            "entity_anchor"
-          ],
-          "additionalProperties": false,
-          "allOf": [
-            {
-              "if": {
-                "properties": {
-                  "source_kind": {
-                    "enum": [
-                      "github_graphql",
-                      "github_rest",
-                      "git_commit"
-                    ]
-                  }
-                },
-                "required": [
-                  "source_kind"
-                ]
-              },
-              "then": {
-                "properties": {
-                  "ref": {
-                    "not": {
-                      "type": "null"
-                    }
-                  }
-                }
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "source_kind": {
-                    "enum": [
-                      "local_fs",
-                      "coordinator_artifact",
-                      "transcript_summary",
-                      "sec_edgar",
-                      "code_comparison"
-                    ]
-                  }
-                },
-                "required": [
-                  "source_kind"
-                ]
-              },
-              "then": {
-                "properties": {
-                  "ref": {
-                    "type": "null"
-                  }
-                }
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "repo": {
-                    "const": ""
-                  }
-                },
-                "required": [
-                  "repo"
-                ]
-              },
-              "then": {
-                "properties": {
-                  "entity_anchor": {
-                    "type": "object",
-                    "properties": {
-                      "value": {
-                        "not": {
-                          "const": ""
-                        }
-                      }
-                    },
-                    "required": [
-                      "kind",
-                      "value"
-                    ]
-                  }
-                },
-                "required": [
-                  "entity_anchor"
-                ]
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "entity_anchor": {
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "entity_anchor"
-                ]
-              },
-              "then": {
-                "properties": {
-                  "entity_anchor": {
-                    "properties": {
-                      "kind": {
-                        "not": {
-                          "const": ""
-                        }
-                      },
-                      "value": {
-                        "not": {
-                          "const": ""
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          ]
-        },
-        "content_hash": {
-          "type": "object",
-          "properties": {
-            "algo": {
-              "type": "string",
-              "const": "sha256"
-            },
-            "hex": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{64}$",
-              "description": "sha256 over the raw bytes of the whole source artifact at `source_path` — file-granular. This is a CHANGE-SIGNAL for consumer cache-invalidation on `(source_path, hex)`, NOT a record identity. See DECISIONS.md § D32."
-            },
-            "source_path": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "algo",
-            "hex",
-            "source_path"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "required": [
-        "repo",
-        "coordinator_root_path",
-        "session_id",
-        "file_path",
-        "edited_count",
-        "read_count",
-        "referenced_count",
-        "lines_added",
-        "lines_removed",
-        "last_operation",
-        "completeness",
-        "capture_source",
-        "provenance_completeness",
-        "provenance"
-      ],
-      "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "initiative-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -7679,7 +7385,7 @@
         "description"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "exec-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8084,7 +7790,7 @@
         "docs_staleness"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "roadmap-dag-node": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8414,7 +8120,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "roadmap-dag-edge": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8438,7 +8144,10 @@
         },
         "type": {
           "type": "string",
-          "const": "blocks"
+          "enum": [
+            "blocks",
+            "blocks-sprint"
+          ]
         },
         "provenance": {
           "type": "object",
@@ -8685,7 +8394,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "backlog-history": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -8974,7 +8683,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "competitor-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9303,7 +9012,7 @@
         "display_order"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "intelligence-signal": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -9741,7 +9450,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "financial-metric-summary": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10102,7 +9811,7 @@
         "measurement_basis"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "priority-ledger-entry": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -10411,7 +10120,7 @@
         "provenance"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "snapshot-envelope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -11812,6 +11521,26 @@
                       "typed_command"
                     ],
                     "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "human_assignee": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "human_claimant": {
+                "anyOf": [
+                  {
+                    "type": "string"
                   },
                   {
                     "type": "null"
@@ -15030,6 +14759,16 @@
                   }
                 ]
               },
+              "review_verified": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
               "content_hash": {
                 "type": "object",
                 "properties": {
@@ -15077,7 +14816,8 @@
               "last_meaningful_activity",
               "workstream_type",
               "shipped_sha",
-              "deliverable_status"
+              "deliverable_status",
+              "review_verified"
             ],
             "additionalProperties": false
           }
@@ -16581,6 +16321,16 @@
                   "source_path"
                 ],
                 "additionalProperties": false
+              },
+              "human_owner": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
@@ -17583,357 +17333,6 @@
               "provenance_completeness",
               "capture_source",
               "completeness",
-              "provenance"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "file_attributions": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "repo": {
-                "type": "string",
-                "description": "Owner-qualified repo identity: '<owner>/<repo>'. Owner carries the producing repo's own casing (producer-authoritative — there is no independent casing authority); no '.git' suffix. Consumers must not assume pre-normalization: normalizing to lower(owner)/lower(repo) for join, dedup, or storage keying is conformant. See DR-022. This owner-qualified string is the canonical cross-entity join anchor."
-              },
-              "coordinator_root_path": {
-                "type": "string"
-              },
-              "session_id": {
-                "type": "string"
-              },
-              "file_path": {
-                "type": "string"
-              },
-              "edited_count": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "read_count": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "referenced_count": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "lines_added": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "lines_removed": {
-                "anyOf": [
-                  {
-                    "type": "integer",
-                    "minimum": -9007199254740991,
-                    "maximum": 9007199254740991
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "last_operation": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "enum": [
-                      "edit",
-                      "create",
-                      "delete",
-                      "rename",
-                      "bash"
-                    ]
-                  },
-                  {
-                    "type": "null"
-                  }
-                ]
-              },
-              "completeness": {
-                "type": "string",
-                "enum": [
-                  "complete",
-                  "partial",
-                  "unknown"
-                ]
-              },
-              "capture_source": {
-                "type": "string",
-                "enum": [
-                  "journal_projection",
-                  "hook_capture",
-                  "derived"
-                ]
-              },
-              "provenance_completeness": {
-                "type": "string",
-                "enum": [
-                  "complete",
-                  "unknown"
-                ]
-              },
-              "provenance": {
-                "type": "object",
-                "properties": {
-                  "source_kind": {
-                    "type": "string",
-                    "enum": [
-                      "github_graphql",
-                      "github_rest",
-                      "git_commit",
-                      "local_fs",
-                      "coordinator_artifact",
-                      "transcript_summary",
-                      "sec_edgar",
-                      "code_comparison"
-                    ]
-                  },
-                  "repo": {
-                    "type": "string",
-                    "description": "Owner-qualified repo identity: '<owner>/<repo>'. Owner carries the producing repo's own casing (producer-authoritative — there is no independent casing authority); no '.git' suffix. Consumers must not assume pre-normalization: normalizing to lower(owner)/lower(repo) for join, dedup, or storage keying is conformant. See DR-022. This owner-qualified string is the canonical cross-entity join anchor. repo: '' means the fact is NOT repo-anchored — see entity_anchor (entity-first claims with no repo to join on)."
-                  },
-                  "ref": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "branch": {
-                            "type": "string"
-                          },
-                          "sha": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "branch",
-                          "sha"
-                        ],
-                        "additionalProperties": false
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "path": {
-                    "type": "string"
-                  },
-                  "observed_at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                  },
-                  "derivation": {
-                    "type": "string",
-                    "enum": [
-                      "raw",
-                      "parsed",
-                      "rolled_up",
-                      "computed",
-                      "synthesized"
-                    ]
-                  },
-                  "entity_anchor": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "properties": {
-                          "kind": {
-                            "type": "string"
-                          },
-                          "value": {
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "kind",
-                          "value"
-                        ],
-                        "additionalProperties": false
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                },
-                "required": [
-                  "source_kind",
-                  "repo",
-                  "ref",
-                  "path",
-                  "observed_at",
-                  "derivation",
-                  "entity_anchor"
-                ],
-                "additionalProperties": false,
-                "allOf": [
-                  {
-                    "if": {
-                      "properties": {
-                        "source_kind": {
-                          "enum": [
-                            "github_graphql",
-                            "github_rest",
-                            "git_commit"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "source_kind"
-                      ]
-                    },
-                    "then": {
-                      "properties": {
-                        "ref": {
-                          "not": {
-                            "type": "null"
-                          }
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "properties": {
-                        "source_kind": {
-                          "enum": [
-                            "local_fs",
-                            "coordinator_artifact",
-                            "transcript_summary",
-                            "sec_edgar",
-                            "code_comparison"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "source_kind"
-                      ]
-                    },
-                    "then": {
-                      "properties": {
-                        "ref": {
-                          "type": "null"
-                        }
-                      }
-                    }
-                  },
-                  {
-                    "if": {
-                      "properties": {
-                        "repo": {
-                          "const": ""
-                        }
-                      },
-                      "required": [
-                        "repo"
-                      ]
-                    },
-                    "then": {
-                      "properties": {
-                        "entity_anchor": {
-                          "type": "object",
-                          "properties": {
-                            "value": {
-                              "not": {
-                                "const": ""
-                              }
-                            }
-                          },
-                          "required": [
-                            "kind",
-                            "value"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "entity_anchor"
-                      ]
-                    }
-                  },
-                  {
-                    "if": {
-                      "properties": {
-                        "entity_anchor": {
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "entity_anchor"
-                      ]
-                    },
-                    "then": {
-                      "properties": {
-                        "entity_anchor": {
-                          "properties": {
-                            "kind": {
-                              "not": {
-                                "const": ""
-                              }
-                            },
-                            "value": {
-                              "not": {
-                                "const": ""
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              },
-              "content_hash": {
-                "type": "object",
-                "properties": {
-                  "algo": {
-                    "type": "string",
-                    "const": "sha256"
-                  },
-                  "hex": {
-                    "type": "string",
-                    "pattern": "^[0-9a-f]{64}$",
-                    "description": "sha256 over the raw bytes of the whole source artifact at `source_path` — file-granular. This is a CHANGE-SIGNAL for consumer cache-invalidation on `(source_path, hex)`, NOT a record identity. See DECISIONS.md § D32."
-                  },
-                  "source_path": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "algo",
-                  "hex",
-                  "source_path"
-                ],
-                "additionalProperties": false
-              }
-            },
-            "required": [
-              "repo",
-              "coordinator_root_path",
-              "session_id",
-              "file_path",
-              "edited_count",
-              "read_count",
-              "referenced_count",
-              "lines_added",
-              "lines_removed",
-              "last_operation",
-              "completeness",
-              "capture_source",
-              "provenance_completeness",
               "provenance"
             ],
             "additionalProperties": false
@@ -20109,7 +19508,10 @@
               },
               "type": {
                 "type": "string",
-                "const": "blocks"
+                "enum": [
+                  "blocks",
+                  "blocks-sprint"
+                ]
               },
               "provenance": {
                 "type": "object",
@@ -20776,16 +20178,6 @@
                 "additionalProperties": {}
               }
             },
-            "file_attributions": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {}
-              }
-            },
             "initiatives": {
               "type": "array",
               "items": {
@@ -20860,7 +20252,6 @@
             "health",
             "decision_guides",
             "session_hierarchies",
-            "file_attributions",
             "initiatives",
             "exec_summaries",
             "roadmap_dag_nodes",
@@ -20891,7 +20282,6 @@
         "health",
         "decision_guides",
         "session_hierarchies",
-        "file_attributions",
         "initiatives",
         "exec_summaries",
         "competitor_summaries",
@@ -20903,7 +20293,7 @@
         "malformed_records"
       ],
       "additionalProperties": false,
-      "version": "3.12.0"
+      "version": "4.0.0"
     },
     "emission-scope": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -21208,7 +20598,7 @@
           "additionalProperties": false
         }
       ],
-      "version": "3.12.0"
+      "version": "4.0.0"
     }
   }
 }

@@ -1,33 +1,23 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """merge-release-notes-derive.py -- native port of the /merging-to-main Step 5.5
-pending-release reconcile sweep + release-tag attribution walk.
+release-tag attribution walk.
 
 Purpose: DoE-claude's coordinator/skills/merging-to-main/SKILL.md Step 5.5
 ("Post-Merge Completion-Log Status Flip") previously embedded two blocks of
 genuine imperative logic directly as bash-fenced content -- a reconcile
-sweep loop and a 125-line heredoc-fed `python3 -` script that walks git tag
-history to attribute completion-log entries to the earliest release tag that
-actually contains their commits. Per the "a skill must LINK to an entrypoint,
-not carry a command payload for the EM to transcribe" ruling
-(DoE-claude/CLAUDE.local.md, 2026-07-22), that logic is lifted here as a
-real, testable, self-contained naked-Python CLI. The skill-side repoint
-(replacing both fenced blocks with a call to this CLI) is a separate wave
-(D2) and is NOT done by this port -- this file only has to exist and be
-callable with an equivalent contract.
+sweep loop (ported here as `reconcile-sweep`; removed 2026-08-23 along with
+`completion.reconcile_commits`, the op it dispatched) and a 125-line
+heredoc-fed `python3 -` script that walks git tag history to attribute
+completion-log
+entries to the earliest release tag that actually contains their commits.
+Per the "a skill must LINK to an entrypoint, not carry a command payload for
+the EM to transcribe" ruling (DoE-claude/CLAUDE.local.md, 2026-07-22), that
+logic is lifted here as a real, testable, self-contained naked-Python CLI.
+The skill-side repoint (replacing both fenced blocks with a call to this
+CLI) is a separate wave (D2) and is NOT done by this port -- this file only
+has to exist and be callable with an equivalent contract.
 
 Subcommands:
-  reconcile-sweep
-      Detect-only sweep over every completion-log entry with
-      `status=pending-release` (queried via the sibling `query-completions.py
-      --where "status=pending-release" --format paths` CLI). For each entry
-      with a non-empty/non-null `authored_by:` frontmatter field, invokes the
-      sibling `reconcile-completion-commits.py --session-id <authored_by>
-      <entry>` CLI (detect-only -- no `--append`) and parses its
-      `delta=<N>` stdout line. Entries with delta > 0 print an advisory
-      warning line to stdout. Never mutates anything -- pure detection,
-      mirroring the bash oracle's "DETECT-ONLY — do NOT pass --append"
-      comment verbatim.
-
   flip-tags <release_tag_cut> <merge_sha> <merge_date> <entry_path>...
       Per-entry version resolution (NOT blanket-latest): for each entry path
       whose frontmatter `status:` is exactly `pending-release`, resolves the
@@ -45,10 +35,9 @@ Subcommands:
       of coordinator/skills/merging-to-main/SKILL.md in DoE-claude for the
       pre-port original.
 
-Both subcommands are self-resolving (no cwd dependence beyond the git
+This subcommand is self-resolving (no cwd dependence beyond the git
 commands themselves, which operate against whatever repo the caller's cwd
 is inside -- same contract the bash oracle had) and idempotent: re-running
-reconcile-sweep is pure detection (no state change), and re-running
 flip-tags on an already-`released` entry is a silent no-op (the
 `status != "pending-release"` guard skips it).
 
@@ -60,9 +49,7 @@ Negative-spec:
   - Does NOT resolve _mkb_bin / resolve-claude-klabauter-bin itself -- that resolver
     ladder is D1/D2's concern (the skill-side repoint), not this CLI's. This
     CLI assumes it is invoked from its own coordinator/bin/ directory (or via
-    an already-resolved absolute path) and locates its sibling CLIs
-    (query-completions.py, reconcile-completion-commits.py) by
-    Path(__file__).parent, not by re-deriving _mkb_bin.
+    an already-resolved absolute path).
   - Does NOT parse YAML with a YAML library -- the frontmatter reader/writer
     here is a line-oriented `---`-delimited scan, exactly mirroring the
     heredoc original (ported verbatim, not reimplemented against a schema).
@@ -74,12 +61,11 @@ Negative-spec:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Set
 
 _BIN_DIR = Path(__file__).resolve().parent
 _LIB_DIR = str(_BIN_DIR / "lib")
@@ -108,24 +94,6 @@ def _git(*args: str, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
     )
 
 
-# ---------------------------------------------------------------------------
-# reconcile-sweep
-# ---------------------------------------------------------------------------
-
-
-def _run_sibling_cli(name: str, args: List[str]) -> subprocess.CompletedProcess:
-    """Invoke a sibling coordinator/bin/ CLI by absolute path (self-resolving,
-    matches the "self-contained, self-resolving (Path(__file__)-relative)"
-    CLI contract -- never depends on cwd or PATH)."""
-    script = _BIN_DIR / name
-    return subprocess.run(
-        [sys.executable, str(script), *args],
-        capture_output=True,
-        text=True,
-        **no_console_creationflags(),
-    )
-
-
 def _frontmatter_field(text: str, key: str) -> Optional[str]:
     n = 0
     val: Optional[str] = None
@@ -138,42 +106,6 @@ def _frontmatter_field(text: str, key: str) -> Optional[str]:
         if n == 1 and line.startswith(f"{key}:"):
             val = line[len(key) + 1:].strip()
     return val
-
-
-_DELTA_RE = re.compile(r"delta=(\d+)")
-
-
-def cmd_reconcile_sweep(_args: argparse.Namespace) -> int:
-    """Detect-only sweep -- mirrors SKILL.md Step 5.5 item 2 verbatim (never
-    passes --append; unconditional repo-wide sweep, not session-scoped)."""
-    query = _run_sibling_cli(
-        "query-completions.py",
-        ["--where", "status=pending-release", "--format", "paths"],
-    )
-    entry_paths = [p for p in query.stdout.splitlines() if p.strip()]
-
-    for entry in entry_paths:
-        try:
-            with open(entry, encoding="utf-8") as f:
-                text = f.read()
-        except OSError:
-            continue
-        authored_by = _frontmatter_field(text, "authored_by")
-        if not authored_by or authored_by == "null":
-            continue
-        result = _run_sibling_cli(
-            "reconcile-completion-commits.py",
-            ["--session-id", authored_by, entry],
-        )
-        match = _DELTA_RE.search(result.stdout)
-        delta = int(match.group(1)) if match else 0
-        if delta > 0:
-            basename = os.path.basename(entry)
-            print(
-                f"⚠ entry {basename}: {delta} session commit(s) unaccounted "
-                "— reconcile before release"
-            )
-    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -191,10 +123,26 @@ def _tag_date(tag: str, sha: Optional[str], merge_date: str) -> str:
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else merge_date
 
 
+def _tag_ancestor_shas(tag: str) -> Set[str]:
+    """Single `git rev-list <tag>` in place of a per-commit `merge-base
+    --is-ancestor` spawn -- "c is an ancestor of tag" is equivalent to "c is
+    in tag's rev-list", so `_contains_all` can check the whole commits list
+    against one spawn's output. A tag that fails to resolve yields an empty
+    set, same as every per-commit ancestor check failing did before."""
+    r = _git("rev-list", tag)
+    if r.returncode != 0:
+        return set()
+    return {line.strip() for line in r.stdout.splitlines() if line.strip()}
+
+
 def _contains_all(tag: str, commits: List[str]) -> bool:
-    return all(
-        _git("merge-base", "--is-ancestor", c, tag).returncode == 0 for c in commits
-    )
+    # Membership is by PREFIX, not equality: completion-log `commits:` entries
+    # carry abbreviated shas (8 chars today) while `git rev-list` emits full
+    # 40-char ones, so equality would be False for every real entry and silently
+    # collapse every lookup to the release-tag-cut fallback -- no exception, no
+    # failing test. `merge-base --is-ancestor` resolved the abbreviation itself.
+    ancestors = _tag_ancestor_shas(tag)
+    return all(any(a.startswith(c) for a in ancestors) for c in commits)
 
 
 def _parse_commits(text: str) -> List[str]:
@@ -277,7 +225,7 @@ def _flip_entry(
                 continue
         out.append(line)
 
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
         f.writelines(out)
     return f"{path}: released_in={resolved_tag}"
 
@@ -313,19 +261,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="merge-release-notes-derive",
         description=(
-            "Pending-release reconcile sweep + tag-history release-note "
-            "attribution walk, ported from /merging-to-main Step 5.5."
+            "Tag-history release-note attribution walk, ported from "
+            "/merging-to-main Step 5.5."
         ),
     )
     sub = p.add_subparsers(dest="subcommand", required=True)
-
-    sub.add_parser(
-        "reconcile-sweep",
-        help=(
-            "Detect-only sweep over pending-release entries, warning on "
-            "unaccounted session commits (never mutates)."
-        ),
-    )
 
     flip = sub.add_parser(
         "flip-tags",
@@ -349,8 +289,6 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.subcommand == "reconcile-sweep":
-        return cmd_reconcile_sweep(args)
     if args.subcommand == "flip-tags":
         return cmd_flip_tags(args)
     parser.print_usage(sys.stderr)

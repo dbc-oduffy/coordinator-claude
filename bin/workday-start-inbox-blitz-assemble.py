@@ -45,7 +45,7 @@ Test seam (test-only): COORDINATOR_INBOX_BLITZ_JSON, when set and non-empty,
 supplies the memo.blitz_buckets envelope directly (a `result` key is
 unwrapped, an `error` key renders the skipped state, malformed JSON likewise)
 -- the real cc_invoke() call is skipped entirely, and the seam is checked
-BEFORE CLAUDE_KLABAUTER_ROOT resolution so a test needs no live checkout.
+BEFORE engine-root resolution so a test needs no live checkout.
 
 Spec backlink: DoE state/handoffs/2026-07-28-fold-inbox-blitz-into-workday-start-as-a.md;
   DoE cross-repo/inbox/2026-07-28-project-rag-em-inbox-blitz-proven-pattern.md;
@@ -89,11 +89,9 @@ def _no_console_kw() -> dict:
     window (Review: code-reviewer P2 — matched to the pattern ccbdbecc2 applied
     to sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py)."""
     try:
-        from cc_invoke import _resolve_claude_klabauter_root
+        from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path
 
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.win_portability import no_console_creationflags
 
         return no_console_creationflags()
@@ -437,11 +435,9 @@ def _resolve_repo_root() -> str:
     if env:
         return env
     try:
-        from cc_invoke import _resolve_claude_klabauter_root
+        from cc_invoke import require_dispatch_engine_on_path
 
-        claude_klabauter_root = _resolve_claude_klabauter_root()
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 
         # `show_toplevel`'s own spawn fallback bounds its wait at 2s (see

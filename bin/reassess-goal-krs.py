@@ -33,7 +33,7 @@ Options:
 Exit codes:
   0 — assessment complete (even if some goals have no movement, or the op
       degraded a signal source to a warning)
-  1 — fatal error (CLAUDE_KLABAUTER_ROOT resolution failure, op transport failure, or
+  1 — fatal error (engine-root resolution failure, op transport failure, or
       the op itself returned exit_code != 0)
 
 Recipe: scratch/subagent-sandbox/bash-to-python-engine-migration/recipe-t3a-g3.md § 1
@@ -121,20 +121,14 @@ def main() -> None:
         "signal_repo_root": cwd_repo_root,
     }
 
-    # Review: code-reviewer P0 — _gather_signal makes two SEQUENTIAL subprocess
-    # calls each with its own 30s internal timeout (up to 60s worst case), but
-    # cc_invoke's default client-side timeout is 10s — an order of magnitude
-    # smaller than the internal budget it wraps. A slow-but-within-budget
-    # signal source (10-60s) would otherwise trigger cc_invoke's outer kill of
-    # the whole op mid-write. Set a default that comfortably covers 30s×2 +
-    # slack, without clobbering an explicit operator override (mirrors the
-    # `${CC_INVOKE_TIMEOUT_SECS:-90}` bash pattern used for ceremony.wsc_commit).
-    os.environ.setdefault("CC_INVOKE_TIMEOUT_SECS", "70")
-
     try:
         result = cc_invoke("goals.reassess_krs", params, cwd_repo_root)
     except RuntimeError as exc:
         print(f"reassess-goal-krs: op transport failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    if not isinstance(result, dict):
+        print(f"reassess-goal-krs: malformed result from cc_invoke: not a dict ({result!r})", file=sys.stderr)
         sys.exit(1)
 
     for warning in result.get("warnings") or []:

@@ -202,7 +202,7 @@ from typing import List, Optional
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # coordinator/lib/ (distinct from coordinator/bin/lib/ above — the two lib
@@ -221,15 +221,13 @@ if _COORDINATOR_LIB_DIR not in sys.path:
 from settings_home import settings_home as _coordinator_settings_home  # noqa: E402
 
 try:
-    _CLAUDE_KLABAUTER_ROOT = _resolve_claude_klabauter_root()
+    _CLAUDE_KLABAUTER_ROOT = require_dispatch_engine_on_path()
 except RuntimeError as _exc:
     sys.stderr.write(
-        f"cruft-sweep: cannot resolve CLAUDE_KLABAUTER_ROOT for native coordinator_core "
+        f"cruft-sweep: cannot resolve the engine root for native coordinator_core "
         f"import: {_exc}\n"
     )
     sys.exit(1)
-if _CLAUDE_KLABAUTER_ROOT not in sys.path:
-    sys.path.insert(0, _CLAUDE_KLABAUTER_ROOT)
 
 from coordinator_core.state_root import (  # noqa: E402
     StateRootError,
@@ -270,16 +268,32 @@ from coordinator_core.cli_entry import recording_declared_writes  # noqa: E402
 SELF_NAME = "cruft-sweep"
 
 
+#: Why a resolution failed, keyed by the flag whose default went unresolved.
+#: `_state_root_or_empty` folds the StateRootError to "" for the bash-oracle
+#: concatenation semantics; the REASON is what the refusal below needs, and
+#: dropping it is what left a caller reading "fix the root: machine-local get
+#: <key>" against a registry key that was correct all along.
+_STATE_ROOT_FAILURES: dict[bool, str] = {}
+
+
 def _state_root_or_empty(*, central: bool = False) -> str:
     """coordinator_state_root(...), folding StateRootError to "" — mirrors the
     bash oracle's `$(coordinator_state_root ...)` command-substitution
     semantics: a failing subshell contributes an empty string to the
     surrounding string concatenation rather than aborting the script (the
     failure only becomes visible later, as a malformed path). Faithful
-    port of an existing bash-oracle quirk, not a design choice made here."""
+    port of an existing bash-oracle quirk, not a design choice made here.
+
+    Records the swallowed reason in `_STATE_ROOT_FAILURES` so
+    `_reject_rootless_defaults` can name the ACTUAL cause. The empty-string
+    return is the oracle-faithful part; discarding the diagnosis was never
+    load-bearing."""
     try:
-        return coordinator_state_root(central=central)
-    except StateRootError:
+        root = coordinator_state_root(central=central)
+        _STATE_ROOT_FAILURES.pop(central, None)
+        return root
+    except StateRootError as exc:
+        _STATE_ROOT_FAILURES[central] = str(exc)
         return ""
 
 
@@ -572,7 +586,60 @@ def parse_args(argv: List[str]) -> SweepConfig:
         else:
             sys.exit(_usage_error(f"unknown flag '{arg}'\n  Use --help for usage."))
 
+    _reject_rootless_defaults(cfg, central_state_root, non_central_state_root)
     return cfg
+
+
+def _reject_rootless_defaults(
+    cfg: SweepConfig, central_state_root: str, non_central_state_root: str
+) -> None:
+    """Refuse an unresolved-state-root run instead of writing to the drive root.
+
+    `_state_root_or_empty` folds a resolution failure to "" (bash-oracle
+    command-substitution fidelity), so the defaults above degrade to
+    `/cruft-sweep-log.md` and `/cruft-sweep.lock.d`. POSIX makes those a
+    root-owned refusal; Windows resolves a leading `/` against the CURRENT
+    DRIVE and the run silently succeeds against `<drive>:\\cruft-sweep-log.md`
+    — the run marker lands where the workweek staleness advisory
+    (`workweek-complete-advisories.py cruft-sweep-last-run`) will never read
+    it, so the sweep reads as never-run. Only fires when the unresolved
+    default is still in effect: an explicit `--log-path` is honoured.
+    """
+    if central_state_root and non_central_state_root:
+        return
+    unresolved = [
+        flag
+        for flag, root, value, default in (
+            ("--log-path", central_state_root, cfg.log_path, "/cruft-sweep-log.md"),
+            (
+                "--handoffs-glob",
+                non_central_state_root,
+                cfg.handoffs_glob,
+                "/handoffs/*.md",
+            ),
+        )
+        if not root and value == default
+    ]
+    if not unresolved:
+        return
+    causes = [
+        _STATE_ROOT_FAILURES[central]
+        for central in (True, False)
+        if central in _STATE_ROOT_FAILURES
+    ]
+    reason = (
+        " Cause: " + " / ".join(causes)
+        if causes
+        else " Cause: no state root is registered for this machine — "
+        "machine-local set repos.claude_klabauter <path-to-live-claude-klabauter>."
+    )
+    sys.exit(
+        _usage_error(
+            "state root did not resolve; refusing to write to the drive root "
+            "(%s). Pass %s.%s"
+            % (cfg.log_path, " and ".join(unresolved), reason)
+        )
+    )
 
 
 def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
@@ -868,7 +935,7 @@ def _write_run_marker(cfg: "SweepConfig", totals: "Totals", total_bytes: int) ->
         except OSError:
             pass
     try:
-        with open(cfg.log_path, "a", encoding="utf-8") as f:
+        with open(cfg.log_path, "a", encoding="utf-8", newline="\n") as f:
             f.write(
                 f"| {ts} | run-marker | {total_bytes} bytes | "
                 f"{total_items} items |\n"

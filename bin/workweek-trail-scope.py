@@ -41,7 +41,7 @@ so concurrent weekly gates never clobber each other's scope.
 #       business error propagated verbatim, git-log failure, unresolvable
 #       session id, scope-shard write failure) — see the claude-klabauter module's own
 #       docstring for the full negative-spec.
-#   2 - transport failure: CLAUDE_KLABAUTER_ROOT / coordinator_core.ops.workweek_trail_scope
+#   2 - transport failure: the engine root / coordinator_core.ops.workweek_trail_scope
 #       could not be resolved/imported. Kept distinct from exit 1 (this script's
 #       own contract is fail-loud on any error, never silent exit 0 — unlike
 #       coordinator-auto-push's best-effort/never-block posture).
@@ -59,13 +59,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import the run-op runner.
+    """Resolve the engine root, put it on sys.path, and import the run-op runner.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -76,9 +76,7 @@ def _import_runner():
     become a session scope-touch claim. Without that, the session-keyed
     scope shard this CLI writes is an orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 
@@ -87,7 +85,7 @@ def main() -> None:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        print(f"workweek-trail-scope.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"workweek-trail-scope.py: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(2)
     except ImportError as exc:
         print(

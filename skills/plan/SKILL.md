@@ -21,7 +21,7 @@ allowed-tools: ["Read","Write","Edit","Bash","Grep","Glob","Agent","Skill","AskU
 
 Route is resolved by the caller/engine before this skill loads (Branch A). The route-specific procedure detail below this point — Branch B substrate verification, Branch C composition lenses, Exit terminal specifics, Branch D drift handling, Branch E friction — is retrieved by the `plan-assemble brief` op, which reads the segment set scoped to the resolved route. Segment content: `coordinator/skills/plan/residue/`.
 
-**Dispatch authorization — invoking this skill IS the request.** Its dispatches are constitutive steps, not a separate thing to get cleared — re-asking spends the context the dispatch exists to protect. This satisfies, never overrides, a harness line gating dispatch "unless the user requested it", and dissolves no gate the skill itself names (pre-`/execute-plan` authorization, per-session cross-repo-commit assent, ask-before-external-action). Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
+**Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
 ---
 
@@ -31,16 +31,16 @@ _Condition: a planning trigger has arrived; decide whether a plan doc is the rig
 
 - _An incoming sizing-object is present?_ (`coordinator:sizing` resolved this ask and handed a `state/sizings/<id>.yaml`, or the EM is picking up a sizing-routed baton citing one)
   → **Conform, don't gate — skip the rest of triage — but conform per the object's actual `route`.** The D5 shape-entry gate still wins over whatever base route the object carries — wiki § Shape-is-a-conditional-room, not this file.
-  → **Arrival split, for `route: plan` and `route: spec-dispatch` alike.** **Fresh inbound** (the lobby resolved this ask for the first time, or the baton cites an object this pass has not yet conformed against) → cite the object's `intent` (verbatim), `estimate`, and `appetite` when present (optional, usually absent — never block or backfill on it) in B.0's restatement, then proceed to **Branch B**. An unanswered post-size prompt does not gate plan authoring and is not re-asked here or at the execution gate — PM ratification of this plan answers it. **Via the return edge** (Branch B's verified-scope-collapse row re-invoked sizing this pass) → conform identically but resume at **Branch C**: Branch B already ran all-green, which is that row's own firing precondition, so re-running wastes done work and lets the collapse row fire twice.
-  → **`route: spec-dispatch` is the S lane:** set `scope_mode: spec-dispatch`; the Exit resolves its light terminal. **OWES** full Branch B substrate verification, B.0's proportional doubt-check, the concurrent-session pre-flight, the cross-plan conflict scan, and both `scaffold-plan` invocation points. **SKIPS** Branch C's four-lens composition (an S-lane body is four parts: problem sentence, file scope, acceptance criteria, test surface) and the Opus plan review — the rest of Branch C runs at S-lane weight. **NEVER skips** scoped-commit discipline or ask-before-external-action. Carries **no pre-execute authorization gate** — that gate's referent is a reviewed body, which this lane does not produce.
+  → **Arrival split, for `route: plan` and `route: spec-dispatch` alike.** **Fresh inbound** (the lobby resolved this ask for the first time, or the baton cites an object not yet conformed against this pass) → cite the object's `intent` (verbatim), `estimate`, and `appetite` when present (optional, usually absent — never block or backfill on it) in B.0's restatement, then proceed to **Branch B**. An unanswered post-size prompt does not gate plan authoring and is not re-asked here or at the execution gate. **Via the return edge** (Branch B's verified-scope-collapse row re-invoked sizing this pass) → conform identically but resume at **Branch C**, since Branch B already ran all-green — re-running wastes it and lets the collapse row fire twice.
+  → **`route: spec-dispatch` is the S lane:** set `scope_mode: spec-dispatch`; the Exit resolves its light terminal. **OWES** full Branch B substrate verification, B.0's proportional doubt-check, the concurrent-session pre-flight, the cross-plan conflict scan, and both `scaffold-plan` invocation points. **SKIPS** Branch C's four-lens composition (an S-lane body is four parts: problem sentence, file scope, acceptance criteria, test surface) and the Opus plan review — the rest of Branch C runs at S-lane weight. **NEVER skips** scoped-commit discipline or ask-before-external-action.
   → **`route: shape` / `roadmap` / `pm-decision`** → **plan is not the room.** Do not enter Branch B; route to `coordinator:shape` or `coordinator:roadmap-planning`, or surface the choice. The engine sets `pm_decision_pending` and never auto-selects — the PM's pick lands in `xl_exit`, and a null `xl_exit` never means accept. `split` is retired: an ask decomposing into independently shippable pieces is `roadmap`. Preconditions: **`shape`** — JTBD unstated, or you cannot falsifiably restate the problem in the PM's vocabulary; **`roadmap`** — spans ≥2 workstreams, or carries/needs an initiative/goal FK; **`accept_multi_session`** — neither holds **and** the PM explicitly assented (`xl_exit: accept_multi_session`).
   → **plan requires a sizing-object and trampolines back without one — this is a wall, not a courtesy.** The do-not-build-a-wall anti-scope ruling is lifted for `plan` alone; it still governs `shape`, `roadmap-planning`, and `goal-setting` unchanged. Do not soften it back.
-  → **What the machine actually enforces.** `scaffold-plan --sizing-object <path>` refuses an unresolvable path at write time; `assert-plan-sizing-citation` sweeps frontmatter only (never body prose) for dangling citations. Neither catches ABSENCE — an omitted flag writes clean, a body-only citation is invisible to both. Absence is covered only by the trampoline (EM behaviour plus the `nudge-unrouted-sizing.py` Stop-hook, which never intercepts the write). Cite the wall as a rule that binds you, never a mechanism that would have caught you. Detail: wiki.
+  → **What the machine actually enforces.** `scaffold-plan --sizing-object` refuses an unresolvable path; `assert-plan-sizing-citation` sweeps frontmatter only, never body prose. Neither catches ABSENCE — an omitted flag writes clean, and a body-only citation is invisible to both. Only the trampoline covers absence, as EM behaviour. Cite the wall as a rule that binds you, never a mechanism that would have caught you.
 - _No sizing-object, and this ask has not been through the lobby — **whatever its provenance**?_
   → **STOP. Do not enter Branch B. Invoke `coordinator:sizing` directly** — never ask permission to size, never offer sizing as a question. On return, re-enter Branch A; the conform detent fires because an object now exists, so this row fires **at most once per invocation**. All six routes: **`plan`** → conform, Branch B as fresh inbound; **`spec-dispatch`** → conform, Branch B at S-lane weight; **`dispatch`** → plan is not the room; abandon the pass and dispatch directly (clean by construction — `scaffold-plan` runs at Exit, so nothing is scaffolded yet); **`shape`/`roadmap`** → the named room; **`pm-decision`** → surface the offered exits. **Termination:** sizing always writes an object before returning, so re-entry lands on the conform detent, never back here.
   - **Anti-gaming clause.** Satisfied only by **an artifact on disk in `state/sizings/` citing this ask** — not by already holding file:line substrate, not by silently concluding the work is plan-tier in your head, not by asking *"want me to plan that?"*.
   - **Provenance-blind, not just PM-direct-blind.** A picked-up cross-repo memo's `ask` is novel work in THIS repo, sized against the *sender's* substrate — it needs the lobby too. The trampoline fires for it.
-  - **Carve-outs — exactly two.** (1) Handoff/pickup continuation is exempt — already sized upstream (sizing is mutually exclusive with pickup on the handoff leg only, never the memo leg); a continuation citing no sizing object is `route: plan` by default. (2) The express lane is not a plan-side carve-out — PM ruling: *"just do it doesn't make it to planning anyway. that's an exit for the sizing lobby."* Such an ask never reaches `plan`.
+  - **Carve-outs — exactly two, no more.** (1) A continuation is exempt only if its baton **cites** work already routed: a resolving `sizing_object`, or a plan — via `origin_plan_id`/`plan_ids`, or via a `deliverable_id` some plan on disk carries, the ordinary mid-execution baton's only link back. Every citation must resolve; an unresolvable one is a broken pointer, not a size — never re-litigate a resolved citation, and never audit a baton for one you were not handed. A baton citing none is unsized whatever its provenance — a spinoff mints its own fresh `deliverable_id`, naming only itself — and the trampoline fires. Tripwire: `A-BATON-IS-NOT-A-SIZING-ARTIFACT`. (2) The express lane is not a plan-side carve-out — PM ruling: *"just do it doesn't make it to planning anyway. that's an exit for the sizing lobby."* Such an ask never reaches `plan`.
 - _Trivial?_ (single-file change, no new abstraction, scope obvious)
   → Just do it. No plan doc. _See `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off._
 - _Implementation-only ambiguity?_ (choosing between two valid shapes mid-typing)
@@ -61,7 +61,7 @@ _Condition: a planning trigger has arrived; decide whether a plan doc is the rig
 
 ---
 
-**Known boundary:** this floor protects the plan path only — work mis-triaged as "trivial → just do it" at Branch A bypasses both `/shape` and the doubt-check by construction. Mitigation is EM alertness at that routing row, not a second doubt-check over the trivial path.
+**Known boundary:** this floor protects the plan path only — work mis-triaged as trivial at Branch A bypasses both `/shape` and the doubt-check by construction. Mitigation is EM alertness at that row, not a second doubt-check over the trivial path.
 
 ## Exit — Route-Selected Terminal
 
@@ -71,21 +71,24 @@ _Condition: body drafted and saved to `docs/plans/YYYY-MM-DD-<slug>.md`. Which t
 
 **Invocation point 1 — scaffold.** The generator is the single emission point for frontmatter — never hand-author field lists against `schemas/plan.schema.json`. If frontmatter was hand-authored, conform it now through the same invocation.
 
-```bash
-"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type plan --title "<title>" --sizing-object state/sizings/<the-object-that-routed-you-here>.yaml --out docs/plans/YYYY-MM-DD-<slug>.md
-```
+Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W) —
+ladder and shapes: `snippets/resolve-coordinator-bin.md`.
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type plan --title "<title>" --sizing-object state/sizings/<the-object-that-routed-you-here>.yaml --out docs/plans/YYYY-MM-DD-<slug>.md`
 
 **Pass `--sizing-object` — mandatory to the tool, not merely to you.** `coordinator-doc-new --type plan` hard-refuses without an explicit `--sizing-object`/`--no-sizing-object`, exit 1, nothing written. Branch A refused you entry without a sizing object, so you hold its path. The flag also writes the reverse edge onto the cited sizing (plan FK plus status flip, same transaction) — omit it and the sizing never learns it was routed.
 
 `Read` the scaffolded file before authoring the body — `coordinator-doc-new` writes it via Bash, so the first `Write`/`Edit` bounces until it is read once.
 
-**Invocation point 2 — commit.** Commit the moment the body is saved, *then* proceed to review, via `ceremony.scoped_git_commit` (`paths: [docs/plans/<slug>.md]`, message `"plan(<slug>): draft"`) — scope stays to the single plan doc, never a sweep commit. Distinct from the review-integrator's commit-after-integrate discipline.
+**Invocation point 2 — commit.** Commit the moment the body is saved, *then* proceed to review, per
+`snippets/scoped-commit-route.md` — pathspec exactly `docs/plans/<slug>.md`, subject
+`plan(<slug>): draft`. Scope stays to the single plan doc, never a sweep commit. Distinct from the review-integrator's commit-after-integrate discipline.
 
 ---
 
 ## Test Surface
 
-**No runtime test for this skill body** — prose-doctrine, not executable code; no harness runs a skill end-to-end as a unit test. The applicable automated check is skill-body lint / frontmatter validation. Grep-asserts below stand in for a prose-skill test harness; each is a single `grep -c` against the named file.
+**No runtime test for this skill body** — prose-doctrine, not executable code. The applicable automated check is skill-body lint / frontmatter validation; the grep-asserts below stand in for a test harness, each a single `grep -c` against the named file.
 
 | # | token | file | expect | threshold reason |
 |---|---|---|---|---|

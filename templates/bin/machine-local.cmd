@@ -2,29 +2,29 @@
 REM Windows shim for machine-local, python-direct: invokes _machine_local.py
 REM under python.exe directly; no bash.exe re-exec.
 REM
-REM WHY THIS EXISTS. The extensionless machine-local bash forwarder, at
-REM templates/bin/machine-local and coordinator/bin/machine-local, is a real
-REM bin-bash-env-bash script, not a python/sh polyglot, so Windows
-REM CreateProcess cannot execute it directly since it is not a PE. Any
-REM Windows-layer launcher therefore falls through to ShellExecute, which
-REM pops the Open-With picker asking which app should open the file. The bash
+REM WHY THIS EXISTS. The extensionless machine-local forwarder, at
+REM templates/bin/machine-local and coordinator/bin/machine-local, is a
+REM python3-shebang script (ported off bash by the 2026-07-22 de-bash
+REM campaign), not a PE, so Windows CreateProcess cannot execute it directly.
+REM Any Windows-layer launcher therefore falls through to ShellExecute, which
+REM pops the Open-With picker asking which app should open the file. The
 REM forwarder's only job, though, is to locate _machine_local.py via the
 REM settings-home seam and exec a Python interpreter on it: pure
 REM path-resolution plus interpreter-dispatch value, which this shim promotes
-REM directly into the .cmd ladder below rather than re-wrapping the bash
+REM directly into the .cmd ladder below rather than re-wrapping the
 REM forwarder. _machine_local.py itself is a plain dot-py file, not a
 REM polyglot, so running python against that file runs it directly, no shell
 REM in the loop. See docs/wiki/windows-cmd-shims.md and
 REM docs/plans/2026-07-19-debash-coordinator-windows.md, Wave 0.
 REM
-REM SETTINGS-HOME SEAM, ported verbatim from the bash forwarder's resolution
+REM SETTINGS-HOME SEAM, ported verbatim from the Python forwarder's resolution
 REM order, NOT percent-tilde-dp0-relative. _machine_local.py is not always
 REM co-located with this shim: the primary copy installs at settings-home's
 REM bin directory, but this shim is ALSO installed as a compat forwarder at
 REM the dotfile claude bin directory during the settings-home migration
 REM window, where no local _machine_local.py exists. Precedence:
 REM COORDINATOR_SETTINGS_HOME env var, else CLAUDE_HOME-or-USERPROFILE-or-HOME
-REM joined with dot-coordinator-claude-settings, mirroring the bash original's
+REM joined with dot-coordinator-claude-settings, mirroring the forwarder's own
 REM nested-default expansion, with CLAUDE_HOME slash USERPROFILE slash HOME
 REM ordering per the HOME-substitute convention in
 REM coordinator-settings-home.ps1: there is no HOME env var on a bare cmd.exe
@@ -32,15 +32,15 @@ REM session, so USERPROFILE is the Windows analog, checked ahead of a literal
 REM HOME in case a POSIX-style shell set one.
 REM Spec backlink: docs/plans/2026-07-06-durable-substrate-to-settings-home.md, section C4
 REM
-REM NOTE. The bash forwarder ALSO probes multiple python3.NN candidates for a
+REM NOTE. The Python forwarder ALSO probes multiple python3.NN candidates for a
 REM 3.11-or-newer match before falling back to first-python-found as a last
 REM resort, so that _machine_local.py's own version guard, a plain
 REM sys.version_info check that exits 2 with an actionable message rather than
 REM a shell construct, emits the clearer error. That probe loop is a UX
-REM optimization, not load-bearing correctness, per the bash script's own
+REM optimization, not load-bearing correctness, per the forwarder script's own
 REM fallback comment, so this shim does not replicate it: it resolves any
 REM interpreter and lets _machine_local.py's own guard fire on a stale one,
-REM exactly like the bash forwarder's documented last-resort path already
+REM exactly like the Python forwarder's documented last-resort path already
 REM does. Exit code 2 for both implementation-missing and
 REM no-interpreter-found below matches the bash original's
 REM operational-failure contract, _machine_local.py's own EXIT_OPERATIONAL
@@ -77,7 +77,7 @@ REM __PYTHON_BIN__ was not substituted at install time, which is the steady stat
 REM on installs whose substrate installer does not bake it. The answer it computes
 REM changes only when the operator installs or removes a Python, so it is cached to
 REM a one-line sidecar next to this shim and re-read with a single set-slash-p.
-REM The POSIX forwarder writes and reads the SAME file, so whichever entrypoint
+REM The Python forwarder writes and reads the SAME file, so whichever entrypoint
 REM runs first warms the other. A cache naming an interpreter that no longer exists
 REM fails the exist check below and falls through to a fresh probe that rewrites it,
 REM so an uninstalled or moved Python self-heals. A torn line from a concurrent

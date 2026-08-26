@@ -38,7 +38,7 @@ documented posture):
       coordinator_core.hooks.platform_localize.main's own docstring for its
       business exit-code contract).
   3 — DEDICATED transport-failure code (PORTER-BRIEF-ADDENDUM § 3b): the
-      coordinator-root / CLAUDE_KLABAUTER_ROOT resolution failed, or
+      coordinator-root / COORDINATOR_ENGINE_ROOT resolution failed, or
       coordinator_core.hooks.platform_localize was not importable. Distinct
       from 1 (a business-logic failure) so a caller can tell "claude-klabauter link is
       down" apart from "localization itself found something wrong" — never
@@ -125,7 +125,7 @@ def _resolve_coordinator_root() -> str:
 
 
 def _import_main():
-    """Resolve the coordinator root, then CLAUDE_KLABAUTER_ROOT via cc_invoke's
+    """Resolve the coordinator root, then the engine root via cc_invoke's
     battle-tested ladder (env var -> settings-home pointer file ->
     coordinator-claude-klabauter-root.sh) rather than re-deriving it -- this is a plain
     in-process import, not an RPC invoke, so cc_invoke's subprocess-spawn
@@ -133,11 +133,12 @@ def _import_main():
     as coordinator-auto-push / handoff-gate-aging — template-variant #1,
     direct-import).
     """
-    # Rung 0 — CLAUDE_KLABAUTER_ROOT env, honored directly. cc_invoke.py migrated to
-    # claude-klabauter with the executable surface (b644d5a9), so on a post-migration
-    # content root the cc_invoke import below is unreachable until claude-klabauter is
-    # already known — env-pinned callers (tests, install legs) break that cycle.
-    env_claude_klabauter = os.environ.get("CLAUDE_KLABAUTER_ROOT")
+    # Rung 0 — COORDINATOR_ENGINE_ROOT env, honored directly.
+    # cc_invoke.py migrated to the engine plane with the executable surface
+    # (b644d5a9), so on a post-migration content root the cc_invoke import
+    # below is unreachable until the engine root is already known —
+    # env-pinned callers (tests, install legs) break that cycle.
+    env_claude_klabauter = os.environ.get("COORDINATOR_ENGINE_ROOT")
     if env_claude_klabauter and os.path.isdir(env_claude_klabauter):
         claude_klabauter_root = env_claude_klabauter
     else:
@@ -161,7 +162,7 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        print(f"platform-localize: coordinator-root/CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"platform-localize: coordinator-root/COORDINATOR_ENGINE_ROOT resolution failed: {exc}", file=sys.stderr)
         sys.exit(_TRANSPORT_FAILURE_EXIT)
     except ImportError as exc:
         print(

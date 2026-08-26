@@ -64,6 +64,19 @@ from typing import Optional, Tuple
 
 _LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Two named bounds, not eight literals — the shape hitlist G7 prescribes, kept
+# module-local (this module deliberately touches coordinator_core only through
+# a deferred, ImportError-tolerant import, so it cannot reach for a shared
+# engine constant eagerly). Mirrors the live twin,
+# `coordinator_core/plugin_health/release_currency.py`, value for value —
+# these two files are the same probe and their dials had already drifted:
+# `_rc_is_git_worktree` bounded a local `rev-parse --is-inside-work-tree` at 5s
+# where the twin bounds the identical call at 2s. A local git read is process
+# creation plus a plumbing query (25.3ms, DR-344 § 4); 5s marked nothing.
+_LOCAL_GIT_TIMEOUT_SECS: float = 2.0
+_REMOTE_GIT_TIMEOUT_SECS: float = 3.0
+_REMOTE_FETCH_TIMEOUT_SECS: float = 5.0
+
 _SHA40_RE = re.compile(r"^[0-9a-f]{40}$")
 _TAG_ALLOWLIST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/+-]{0,127}$")
 _TAG_REF_RE = re.compile(r"refs/tags/(v[^^]*)$")
@@ -78,12 +91,23 @@ _COUNT_RE = re.compile(r"^[0-9]+$")
 # Returns stdout on a zero exit within the deadline, else None.
 # ---------------------------------------------------------------------------
 def _run(args: list, timeout: float) -> Optional[str]:
+    """Bounded git spawn. Windows-first-class: every child here is created
+    with `CREATE_NO_WINDOW`, without which each `git` spawn allocates a
+    `conhost.exe` window — visible flashes during a boot-currency check, and
+    the live twin (`coordinator_core.plugin_health.release_currency._run`)
+    already suppresses them via `win_portability.no_console_creationflags()`.
+    The flag is read off `subprocess` rather than imported from
+    `coordinator_core.win_portability` because this module's whole contract is
+    that coordinator_core may be unimportable (see `_rc_registry_live_path`).
+    Every call below wires `capture_output=True`, which is the precondition
+    that keeps the child's output reaching us under this flag."""
     try:
         proc = subprocess.run(
             args,
             capture_output=True,
             text=True,
             timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (subprocess.TimeoutExpired, OSError):
         return None
@@ -114,7 +138,7 @@ def _rc_registry_live_path() -> str:
     Delegates to `coordinator_core.machine_resolver.registry_get` — the
     canonical registry.local.toml-before-registry.toml reader with
     empty-string-is-a-miss semantics — rather than a hand-rolled TOML parse.
-    A plain `try/except ImportError` (no CLAUDE_KLABAUTER_ROOT sys.path bootstrap) is
+    A plain `try/except ImportError` (no engine-root sys.path bootstrap) is
     correct here: this is an importable library module consumed in-process by
     callers that already share coordinator_core's interpreter/venv (see
     session_ensure_branch.py::_parses_as_branch_span for the same pattern),
@@ -180,7 +204,7 @@ def _rc_fetch_latest_release_tag(owner_repo: str) -> Optional[str]:
         return None
 
     repo_url = f"https://github.com/{owner_repo}.git"
-    out = _run(["git", "ls-remote", "--tags", repo_url, "refs/tags/v*"], timeout=3)
+    out = _run(["git", "ls-remote", "--tags", repo_url, "refs/tags/v*"], timeout=_REMOTE_GIT_TIMEOUT_SECS)
     if not out:
         return None
 
@@ -209,9 +233,9 @@ def _rc_resolve_tag_sha(owner_repo: str, tag: str) -> Optional[str]:
         return None
 
     repo_url = f"https://github.com/{owner_repo}.git"
-    out = _run(["git", "ls-remote", repo_url, f"refs/tags/{tag}^{{}}"], timeout=3)
+    out = _run(["git", "ls-remote", repo_url, f"refs/tags/{tag}^{{}}"], timeout=_REMOTE_GIT_TIMEOUT_SECS)
     if not out:
-        out = _run(["git", "ls-remote", repo_url, f"refs/tags/{tag}"], timeout=3)
+        out = _run(["git", "ls-remote", repo_url, f"refs/tags/{tag}"], timeout=_REMOTE_GIT_TIMEOUT_SECS)
     if not out:
         return None
 
@@ -230,7 +254,13 @@ def _rc_resolve_tag_sha(owner_repo: str, tag: str) -> Optional[str]:
 def _rc_is_git_worktree(install_root: str) -> bool:
     if not _git_available():
         return False
-    return _run(["git", "-C", install_root, "rev-parse", "--is-inside-work-tree"], timeout=5) is not None
+    return (
+        _run(
+            ["git", "-C", install_root, "rev-parse", "--is-inside-work-tree"],
+            timeout=_LOCAL_GIT_TIMEOUT_SECS,
+        )
+        is not None
+    )
 
 
 def _rc_git_clone_behind_count(install_root: str) -> Optional[Tuple[int, str]]:
@@ -252,21 +282,21 @@ def _rc_git_clone_behind_count(install_root: str) -> Optional[Tuple[int, str]]:
     if not _git_available():
         return None
 
-    if _run(["git", "-C", install_root, "rev-parse", "--is-inside-work-tree"], timeout=2) is None:
+    if _run(["git", "-C", install_root, "rev-parse", "--is-inside-work-tree"], timeout=_LOCAL_GIT_TIMEOUT_SECS) is None:
         return None
 
-    if _run(["git", "-C", install_root, "fetch", "-q"], timeout=5) is None:
+    if _run(["git", "-C", install_root, "fetch", "-q"], timeout=_REMOTE_FETCH_TIMEOUT_SECS) is None:
         return None
 
-    count_out = _run(["git", "-C", install_root, "rev-list", "--count", "HEAD..@{u}"], timeout=2)
+    count_out = _run(["git", "-C", install_root, "rev-list", "--count", "HEAD..@{u}"], timeout=_LOCAL_GIT_TIMEOUT_SECS)
     if count_out is not None:
         count_str = count_out.strip()
-        ref_out = _run(["git", "-C", install_root, "rev-parse", "--abbrev-ref", "@{u}"], timeout=2)
+        ref_out = _run(["git", "-C", install_root, "rev-parse", "--abbrev-ref", "@{u}"], timeout=_LOCAL_GIT_TIMEOUT_SECS)
         ref = ref_out.strip() if ref_out and ref_out.strip() else "@{u}"
     else:
-        if _run(["git", "-C", install_root, "rev-parse", "origin/main"], timeout=2) is None:
+        if _run(["git", "-C", install_root, "rev-parse", "origin/main"], timeout=_LOCAL_GIT_TIMEOUT_SECS) is None:
             return None
-        count_out = _run(["git", "-C", install_root, "rev-list", "--count", "HEAD..origin/main"], timeout=2)
+        count_out = _run(["git", "-C", install_root, "rev-list", "--count", "HEAD..origin/main"], timeout=_LOCAL_GIT_TIMEOUT_SECS)
         if count_out is None:
             return None
         count_str = count_out.strip()
@@ -283,7 +313,7 @@ def _rc_check_ancestry(install_root: str, local_sha: str, tag_sha: str) -> bool:
     """
     if not os.path.isdir(os.path.join(install_root, ".git")):
         return False
-    return _run(["git", "-C", install_root, "merge-base", "--is-ancestor", local_sha, tag_sha], timeout=2) is not None
+    return _run(["git", "-C", install_root, "merge-base", "--is-ancestor", local_sha, tag_sha], timeout=_LOCAL_GIT_TIMEOUT_SECS) is not None
 
 
 def _rc_local_describe_tag(install_root: str, local_sha: str) -> str:
@@ -291,10 +321,10 @@ def _rc_local_describe_tag(install_root: str, local_sha: str) -> str:
     the SHA when no describable tag is found.
     """
     if os.path.isdir(os.path.join(install_root, ".git")):
-        desc = _run(["git", "-C", install_root, "describe", "--tags", "--exact-match", local_sha], timeout=2)
+        desc = _run(["git", "-C", install_root, "describe", "--tags", "--exact-match", local_sha], timeout=_LOCAL_GIT_TIMEOUT_SECS)
         if desc and desc.strip():
             return desc.strip()
-        desc = _run(["git", "-C", install_root, "describe", "--tags", local_sha], timeout=2)
+        desc = _run(["git", "-C", install_root, "describe", "--tags", local_sha], timeout=_LOCAL_GIT_TIMEOUT_SECS)
         if desc and desc.strip():
             return desc.strip()
     return local_sha[:12]

@@ -12,7 +12,7 @@ Purpose: CLI entrypoint that sequences the uninstall legs
 All orchestration logic (flag parsing, ordered-plan printing, --dry-run
 short-circuit, fail-loud leg sequencing) now lives claude-klabauter-side —
 naked-Python port, T4a-g3b/uninstall-orchestrator chunk. This file is a
-thin CLI trampoline: resolve CLAUDE_KLABAUTER_ROOT, import, forward argv, forward
+thin CLI trampoline: resolve the engine root, import, forward argv, forward
 exit code. Kept as a `.sh`-suffixed polyglot (not renamed) so every
 existing caller (`bash coordinator-uninstall.py ...`, direct exec, docs)
 keeps working unchanged — the sh/python polyglot shebang below makes
@@ -25,7 +25,7 @@ Fail-loud-on-ambiguity doctrine (prior-art Compatible #6): this
   standards, "Detect-then-silently-pick is a footgun — refactor to
   detect-then-fail-loud on ambiguity" (coordinator/CLAUDE.md § Implementation
   Standards retired 2026-07-27) — already the discipline every leg follows.
-  If CLAUDE_KLABAUTER_ROOT cannot be resolved or the claude-klabauter module is not
+  If the engine root cannot be resolved or the claude-klabauter module is not
   importable, this trampoline exits 1 (fail-loud), matching the
   orchestrator's own leg-failure exit convention — never exit 0 on a
   broken link, since a silent no-op here would leave the maximalist
@@ -46,13 +46,11 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.install.uninstall_legs import orchestrate_uninstall as _op_main
     return _op_main
 
@@ -61,7 +59,7 @@ def main() -> None:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
-        print(f"coordinator-uninstall.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"coordinator-uninstall.py: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(1)
     except ImportError as exc:
         print(

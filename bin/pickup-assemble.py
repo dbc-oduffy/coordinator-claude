@@ -2,7 +2,7 @@
 # coordinator_core.pickup_assemble (the computed-skill assembler for
 # `/pickup`'s branch inventory). Direct-import variant (template-variant #1,
 # mirrors coordinator/bin/archive-stamp-cli): a plain in-process function
-# call after resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# call after resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md
 # Spec backlink: docs/plans/2026-07-23-computed-skills-pickup-beachhead.md, chunk A2
@@ -27,7 +27,7 @@
 #       held by a live peer, addressee mismatch without override) — the
 #       returned decision object still carries the failing gate's full detail.
 #   2 — usage error (malformed arguments, malformed --decisions JSON).
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core import
+#   3 — transport failure (the engine root unresolvable, coordinator_core import
 #       failure, or no enclosing git worktree) — this trampoline's own
 #       transport failure, distinct from any business exit code.
 

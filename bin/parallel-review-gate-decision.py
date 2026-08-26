@@ -125,6 +125,9 @@ _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+_LIB_DIR = str(_BIN_DIR / "lib")
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
 from coordinator_core.contract.decision_object import (  # noqa: E402
     build_envelope,
@@ -133,6 +136,18 @@ from coordinator_core.contract.decision_object import (  # noqa: E402
 )
 from coordinator_core.contract.decision_object.judgment import build_disposition  # noqa: E402
 from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv  # noqa: E402
+
+#: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
+#: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
+#: capture. `gate --range` takes a git rev/range typed directly at the CLI
+#: (e.g. the `sha^..sha` predecessor-range shape), which cmd.exe's `%*`
+#: batch-parameter population silently strips a literal `^` from — see
+#: `coordinator/bin/lib/raw_cmdline_recovery.py`'s module docstring. Refuses
+#: on an unvouchable capture (coordinator-write-review-trail.py's C2
+#: posture — this is a low-traffic weekly-gate CLI, not scoped-git-commit's
+#: ~40-concurrent-session hot path).
+_LAUNCHER_CMD_NAME = "parallel-review-gate-decision.cmd"
 
 # build_judgment_point is intentionally NOT imported: every judgment point
 # this assembler emits is untrusted-gate-shaped (Rule 5's skip-vs-narrow
@@ -425,7 +440,7 @@ def _write_manifest_tsv(chunks: dict[str, list[str]], out_path: Path) -> None:
     for chunk_name, files in chunks.items():
         for f in files:
             lines.append(f"{chunk_name}\t{f}")
-    out_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    out_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8", newline="\n")
 
 
 def _cmd_chunk(args: argparse.Namespace) -> int:
@@ -542,4 +557,15 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
+    except UnsoundRawCmdlineTransport:
+        print(
+            "parallel-review-gate-decision.py: the invoking shell stripped "
+            "characters from this command line before this process started — "
+            f'run `python "{_BIN_DIR / "parallel-review-gate-decision.py"}" '
+            "...` instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sys.exit(main(_argv))

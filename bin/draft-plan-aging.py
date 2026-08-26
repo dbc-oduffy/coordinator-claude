@@ -50,7 +50,7 @@ any are found.
 # on 0/1/2, so claude-klabauter-link failure gets a DEDICATED code rather than reusing
 # business code 2 or silently degrading to 0 — mirrors
 # verify-dist-publish-repo-sync.py's identical resolution):
-#   3 — CLAUDE_KLABAUTER_ROOT resolution failed, or coordinator_core.ops.draft_plan_aging
+#   3 — engine-root resolution failed, or coordinator_core.ops.draft_plan_aging
 #       was not importable
 #
 # Spec backlink: DoE-claude:pln-continuity-artifact-staleness--bec61c § Design Fix #2, § Chunks C1
@@ -65,13 +65,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
-    """Resolve CLAUDE_KLABAUTER_ROOT, put it on sys.path, and import `run_op_main`.
+    """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
@@ -82,9 +82,7 @@ def _import_runner():
     a session scope-touch claim instead of an unclaimed orphan at the
     `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -94,7 +92,7 @@ def main() -> None:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
-        print(f"draft-plan-aging.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+        print(f"draft-plan-aging.sh: engine-root resolution failed: {exc}", file=sys.stderr)
         sys.exit(3)
     except ImportError as exc:
         print(

@@ -163,6 +163,7 @@ NEGATIVE SPEC
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import stat
 import sys
@@ -240,11 +241,36 @@ SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backli
 # to the caret-eating defect on those two CLIs. Closed here — see
 # `test_bin_launcher_parity.py::test_raw_cmdline_entrypoints_matches_substrate_targets`
 # for the drift guard. Extend BOTH sets together, or that test goes red.
+# 2026-08-19 survey (docs/plans/2026-08-15-the-caret-fix-went-to-the-caller-
+# that-never-broke.md's mechanism, extended to the rest of the git-rev-taking
+# bin/ surface): `freeze-review-diff.py`, `parallel-review-gate-decision.py`,
+# `parallel-review-orthogonality-guard.py`, and `wsc-coverage-gate-runner.py`
+# all take an arbitrary git rev/range directly from an agent's typed CLI
+# invocation (never defaulted, never composed internally via a Python-list
+# subprocess call the way e.g. wsc-close.py's --review-sha-range is), so a
+# literal `^` (`sha^..sha`, the per-commit predecessor-range shape `--scope
+# chain` callers use) is genuinely reachable in normal use on each. Every
+# other git-rev/sha-taking bin/ CLI surveyed at the same time (`close-origin-
+# stub-on-ship.py --sha`, `install-sentinel-write.py --sha`) takes only a
+# single 40-hex SHA with no range/caret shape, and was deliberately NOT
+# enrolled -- see this generator's own module docstring § RAW-CMDLINE-
+# PRESERVATION ENTRYPOINTS for why this stays a narrow, named, opt-in set.
 _RAW_CMDLINE_ENTRYPOINTS = frozenset(
     {
         "coordinator/bin/coordinator-write-review-trail.py",
         "coordinator/bin/scoped-git-commit",
         "coordinator/bin/cross-repo-memo.py",
+        "coordinator/bin/freeze-review-diff.py",
+        "coordinator/bin/parallel-review-gate-decision.py",
+        "coordinator/bin/parallel-review-orthogonality-guard.py",
+        "coordinator/bin/wsc-coverage-gate-runner.py",
+        "coordinator/bin/backlog-grind-assemble.py",
+        "coordinator/bin/baton-assemble.py",
+        "coordinator/bin/consolidate-assemble.py",
+        "coordinator/bin/merge-assemble.py",
+        "coordinator/bin/pickup-assemble.py",
+        "coordinator/bin/workday-complete-assemble.py",
+        "coordinator/bin/workstream-complete-assemble.py",
     }
 )
 
@@ -499,6 +525,149 @@ def _cmd_localappdata_rung() -> str:
         "goto :run_baked\n"
     )
     return read_block, write_block
+
+
+# --- Dispatch-root launcher cache (C15, docs/plans/2026-08-21-the-cli-
+# bootstrap-tax-dies-at-the-interpreter-floor.md) -----------------------
+#
+# THE SHAPE: stamp + `_registry_mtime_pair`'s triple as the composite key,
+# carried in the `%LOCALAPPDATA%` self-healing cache, NEVER in any tracked
+# `.cmd`/`.ps1` body -- the byte-parity guard over all 393 launchers requires
+# that, and a launcher cannot re-bake itself past the next publish (see this
+# row's own plan body). `_cmd_localappdata_rung` above is precedent for WHERE
+# a resolution-cache value lives, and for NOTHING ELSE -- its validity
+# predicate is pure EXISTENCE (`if exist`, non-empty), which is exactly what
+# a dispatch-root cache cannot use: a stale root still exists. THE FRESHNESS
+# COMPARISON HERE HAPPENS IN PYTHON, AFTER INTERPRETER START, NEVER IN
+# cmd.exe -- cmd.exe's timestamp expansion is minute-granular against a
+# float `st_mtime` and cannot express this composite key at all.
+#
+# A SEPARATE cache file from `python-bin-cache.txt`/`python-bin-cache-ps1.txt`
+# (different question: "which interpreter" vs "which engine root"), and a
+# SEPARATE directory entry from the `.cmd` rung's own key derivation --
+# no `.cmd`/`.ps1` rung reads or writes this file; only a Python-side reader
+# does (see `read_dispatch_root_cache` below).
+_DISPATCH_ROOT_CACHE_DIRNAME = "coordinator"
+_DISPATCH_ROOT_CACHE_FILENAME = "dispatch-root-cache.json"
+
+#: Repo-relative path of the engine build stamp DR-328 blessed as an
+#: invalidation key -- mirrors `coordinator_core.warm.skew.ENGINE_STAMP_FILENAME`
+#: (`coordinator_core/_engine_stamp`) by hand, not by import: that module is
+#: the warm-server's own concept of the stamp, this is a read-only consumer
+#: of the same on-disk fact, same shape as `_resolve_claude_klabauter.py`'s own
+#: `_ENGINE_STAMP_RELATIVE_PARTS` mirror of it.
+_ENGINE_STAMP_RELATIVE_PARTS = ("coordinator_core", "_engine_stamp")
+
+
+def dispatch_root_cache_path() -> Path | None:
+    """The `%LOCALAPPDATA%\\coordinator\\dispatch-root-cache.json` path, or
+    `None` when `LOCALAPPDATA` is unset (non-Windows / a stripped
+    environment) -- mirrors `_cmd_localappdata_rung`'s own guard rather than
+    inventing a fallback location this mechanism was never designed to use.
+    """
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local:
+        return None
+    return Path(local) / _DISPATCH_ROOT_CACHE_DIRNAME / _DISPATCH_ROOT_CACHE_FILENAME
+
+
+def _engine_stamp_bytes(engine_root: Path) -> bytes:
+    """Raw bytes of `<engine_root>/coordinator_core/_engine_stamp`, or `b""`
+    when absent/unreadable. An absent stamp is a normal state (an unstamped
+    working tree, e.g. a live dev checkout) -- never an error; it simply
+    participates in the composite key like any other observed value, so an
+    unstamped tree's cache entry is invalidated the instant it gains one."""
+    stamp_path = engine_root.joinpath(*_ENGINE_STAMP_RELATIVE_PARTS)
+    try:
+        return stamp_path.read_bytes()
+    except OSError:
+        return b""
+
+
+def write_dispatch_root_cache(
+    ml_dir: Path, engine_root: Path, root: str, resolution_class: str
+) -> None:
+    """Persist a gate-resolved `(root, resolution_class)` answer under
+    `%LOCALAPPDATA%`, keyed on the engine build stamp PLUS
+    `_registry_mtime_pair`'s float triple (AC17) -- the stamp alone misses a
+    `machine-local set repos.*` redirect, which changes which engine
+    executes WITHOUT touching any stamp (HARD CONSTRAINT 2: that would trade
+    a visible latency bug for an invisible staleness one).
+
+    Best-effort: any failure to write is swallowed -- a launcher that never
+    gets a bake still resolves the root the slow way, exactly as it does
+    today; this is a fast-path accelerator, never a required write. The
+    write itself is atomic (temp file + `os.replace`, same-directory rename)
+    so a reader never observes a torn file.
+    """
+    path = dispatch_root_cache_path()
+    if path is None:
+        return
+    from coordinator_core.engine_root import _registry_mtime_pair
+
+    payload = {
+        "stamp": _engine_stamp_bytes(engine_root).hex(),
+        "registry_mtime": list(_registry_mtime_pair(ml_dir)),
+        "root": root,
+        "resolution_class": resolution_class,
+    }
+    tmp_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.parent / f".{_DISPATCH_ROOT_CACHE_FILENAME}.{os.getpid()}.tmp"
+        tmp_path.write_text(json.dumps(payload), encoding="utf-8", newline="\n")
+        os.replace(tmp_path, path)
+    except OSError:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
+def read_dispatch_root_cache(ml_dir: Path, engine_root: Path) -> tuple[str, str] | None:
+    """Read back a still-fresh dispatch-root bake, or `None` on any miss.
+
+    THE FRESHNESS COMPARISON HAPPENS HERE, IN PYTHON, AFTER INTERPRETER
+    START -- never in a generated `.cmd`/`.ps1` body (AC17's clause; see
+    this row's own plan body, "THE RESOLUTION HOLDS ONLY WHILE..."). No
+    rung of any generated launcher decides hit-vs-miss for this cache before
+    starting Python -- only this function does.
+
+    Composite key: engine build stamp bytes (DR-328's invalidation key)
+    PLUS `_registry_mtime_pair`'s triple (HARD CONSTRAINT 2 -- a stamp alone
+    misses a `machine-local set repos.*` redirect). Both must match the
+    cached values for a hit; any mismatch, missing file, or corrupt content
+    is a miss -- never an error, since a miss just falls back to the full
+    gate walk this cache exists to shortcut around.
+    """
+    path = dispatch_root_cache_path()
+    if path is None:
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    from coordinator_core.engine_root import _registry_mtime_pair
+
+    if payload.get("stamp") != _engine_stamp_bytes(engine_root).hex():
+        return None
+    if payload.get("registry_mtime") != list(_registry_mtime_pair(ml_dir)):
+        return None
+    root = payload.get("root")
+    resolution_class = payload.get("resolution_class")
+    if not isinstance(root, str) or not root:
+        return None
+    if not isinstance(resolution_class, str) or not resolution_class:
+        return None
+    return root, resolution_class
 
 
 def render_cmd(
@@ -954,7 +1123,7 @@ def generate(
 
     if whoami_bootstrap:
         bootstrap_path = out / base
-        bootstrap_path.write_text(render_whoami_bootstrap(name), encoding="utf-8")
+        bootstrap_path.write_text(render_whoami_bootstrap(name), encoding="utf-8", newline="\n")
         _chmod_executable(bootstrap_path)
         written.append(bootstrap_path)
         declare_write(bootstrap_path)

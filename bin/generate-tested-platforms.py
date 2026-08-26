@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     from coordinator_core.session.declared_writes import declare_write
 
     with recording_declared_writes():
-        with open(manifest_path, "w", encoding="utf-8") as fh:
+        with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(manifest, fh, indent=2)
             fh.write("\n")
         declare_write(manifest_path)

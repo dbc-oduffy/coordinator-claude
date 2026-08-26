@@ -21,7 +21,7 @@ carve-out in DoE-claude's coordinator/docs/wiki/bash-on-windows-gotchas.md §
 Carve-out (cross-repo — this wiki lives in the DoE-claude repo, not here).
 
 Exit convention: this is a once-a-day bookkeeping write, never a gate — mirrors
-central-run-due.py's fail-open shape (CLAUDE_KLABAUTER_ROOT/import resolution failure
+central-run-due.py's fail-open shape (engine-root/import resolution failure
 degrades to a stderr note + exit 0, never a nonzero abort), NOT
 capture-fan-out-threshold.py's fail-loud install-gate shape.
 
@@ -36,7 +36,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_runner():
@@ -45,9 +45,7 @@ def _import_runner():
     declares becomes a session scope-touch claim. Without that, the marker
     write is an orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
@@ -58,7 +56,7 @@ def main() -> None:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         print(
-            f"write-workday-start-marker: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
+            f"write-workday-start-marker: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
         sys.exit(0)

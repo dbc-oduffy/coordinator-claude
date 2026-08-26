@@ -3,7 +3,7 @@
 # `/staff-session`'s persona-roster tables). Direct-import variant
 # (template-variant #1, mirrors coordinator/bin/sizing-assemble and
 # coordinator/bin/pickup-assemble): a plain in-process function call after
-# resolving CLAUDE_KLABAUTER_ROOT, no cc_invoke/IPC hop.
+# resolving the engine root, no cc_invoke/IPC hop.
 #
 # Contract: DoE-claude coordinator/docs/wiki/computed-skills.md, DR-090
 # Spec backlink: DoE-claude:pln-computed-skills-b5-planning-cl-a28764,
@@ -28,7 +28,7 @@
 #   2 — usage error (missing/malformed --domain-signal, --session-mode, or an
 #       unresolvable doctrine-side routing.md read — see
 #       coordinator_core.staff_session_assemble.StaffSessionAssembleError).
-#   3 — transport failure (CLAUDE_KLABAUTER_ROOT unresolvable, coordinator_core import
+#   3 — transport failure (the engine root unresolvable, coordinator_core import
 #       failure, or an unexpected exception inside resolve_roster()).
 
 # --- routing half: this file is now a thin shim over entry_point_shim.run_target ---

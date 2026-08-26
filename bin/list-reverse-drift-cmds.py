@@ -36,7 +36,7 @@ repo's release never gates on a sibling plugin's live-install drift.
 #   3  — copy_install plugins ARE registered but NONE carry a reverse_drift_cmd.
 #        The gate is structurally blind (the bug-equivalent state). Fail loud.
 #   2  — invocation/parse error.
-#   1  — TRANSPORT failure (CLAUDE_KLABAUTER_ROOT resolution or import failed) — this
+#   1  — TRANSPORT failure (engine-root resolution or import failed) — this
 #        trampoline's OWN exit code, distinct from the ported module's 0/2/3
 #        business codes (addendum rule 3b: this is a fail-loud gate feeder —
 #        Step 4g must not misclassify a claude-klabauter-link outage as "no copy_install
@@ -53,13 +53,13 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _prepare_claude_klabauter_root() -> None:
-    """Resolve CLAUDE_KLABAUTER_ROOT and put it on sys.path.
+    """Resolve the engine root and put it on sys.path.
 
-    Reuses cc_invoke's battle-tested CLAUDE_KLABAUTER_ROOT resolution ladder (env var ->
+    Reuses cc_invoke's battle-tested engine-root resolution ladder (env var ->
     settings-home pointer file -> coordinator-claude-klabauter-root.sh) rather than
     re-deriving it.
 
@@ -68,9 +68,7 @@ def _prepare_claude_klabauter_root() -> None:
     declares via `declare_write()` become a session scope-touch claim instead
     of landing unclaimed as an orphan at the `scoped_git_commit` sink.
     """
-    claude_klabauter_root = _resolve_claude_klabauter_root()
-    if claude_klabauter_root not in sys.path:
-        sys.path.insert(0, claude_klabauter_root)
+    claude_klabauter_root = require_dispatch_engine_on_path()
 
 
 def main() -> None:

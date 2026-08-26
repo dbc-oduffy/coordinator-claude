@@ -43,7 +43,11 @@ Surface a needed merge to the EM instead of doing it.
 `PLUGIN_ROOT` is two levels up from this skill file (`coordinator/skills/setup/SKILL.md` →
 `coordinator/`); resolve it relative to wherever this file lives on disk.
 
-Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" layout --plugin-root "<PLUGIN_ROOT>"`.
+**On a PowerShell host, use the `.cmd` sibling through the call operator** (Shape W) for every
+`setup-verify` invocation on this page, never the `${...}` POSIX-shell form shown. Ladder and
+shapes: `snippets/resolve-coordinator-bin.md`.
+
+Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" layout --plugin-root "<PLUGIN_ROOT>"` (Shape W; ladder and POSIX shapes: `snippets/resolve-coordinator-bin.md`).
 Prints `Layout: <flat|nested>` and `Manifest path: <path>`; exits 1 with a "Manifest not found"
 remediation if `docs/install/agent-install-manifest.json` is absent under the resolved repo root.
 Surface an exit-1 error verbatim.
@@ -63,10 +67,10 @@ continue with a corrupt manifest.
 ## Step 3 — Initialise the visited-set
 
 Disk-resident, for diamond-DAG and cycle detection across recursive subagent dispatches:
-`<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, where `<settings-home>` =
-`${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings}`.
+`<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, where `<settings-home>` is
+resolved per `snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts).
 
-Run `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" visited-init`
+Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" visited-init` (Shape W)
 — generates a session id, prunes `chain-walk-*.json` files older than 60 minutes, writes the new
 file with an empty `visited` array, prints `Session ID:` and `Visited-set:`.
 
@@ -101,7 +105,8 @@ serviced before any dep-walking and do not trigger the override check.
 
 **Override flags** — both must be passed TOGETHER: `--skip-dep-check` and
 `--accept-missing-deps-risk`. Validate via
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-override-flags -- "$@"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-override-flags -- $args`
+(Shape W)
 — exits 93 when exactly one is present, 0 otherwise (printing which path applies). Passing only
 one degrades most mutating coordinator operations (no bash fallback under the big-bang cutover);
 both together bypass the consent gate.
@@ -186,14 +191,16 @@ Run via Bash. Resolve `PLUGIN_ROOT` per-probe if not already in scope (each prob
 self-contained). Rationale for probe ordering and design: wiki.
 
 **Probe 0 — Plugin reachable.**
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`.
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`
+(Shape W).
 Asserts reachability (marketplace registration OR live `--plugin-dir` resolution — `PASS
 (live-resolved)` when a manifest plus commands or hooks are present at that path), not mere
 enablement membership. Runs before Probe 1 deliberately. **Never restart-gated** — always
 configured-but-broken on FAIL.
 
 **Probe 1 — Plugin enabled in settings.json.**
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"` (optional `--settings <path>`, default `~/.claude/settings.json`).
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"`
+(Shape W; optional `--settings <path>`, default `~/.claude/settings.json`).
 Pass the same `<PLUGIN_ROOT>` Probe 0 got — omitting `--plugin-dir` FAILs a live-resolved install.
 `PASS`/exit 0, `[WARN]`/exit 0 if settings.json missing/unparseable, `FAIL`/exit 1 otherwise. A
 FAIL after a config write with no subsequent restart is restart-gated-expected; after a restart,
@@ -204,7 +211,8 @@ Probe 1 degrades to `[WARN]`/exit 0 — absence from enabledPlugins is that shap
 never a configured-but-broken install.
 
 **Probe 2 — Hooks registered and live on disk.**
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-hooks --plugin-root "<PLUGIN_ROOT>"`.
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-hooks --plugin-root "<PLUGIN_ROOT>"`
+(Shape W).
 Parses `<PLUGIN_ROOT>/hooks/hooks.json`, verifies each coordinator-owned hook path exists on disk
 (named lookup, not a blanket file count). `PASS`/exit 0, `FAIL` (lists missing paths)/exit 1,
 `[WARN]` (hooks.json absent/unparseable, or no coordinator-owned hooks)/exit 0. Hooks absent from
@@ -213,7 +221,8 @@ restart-gated-expected.
 
 **Probe 3 — Skill discovery preconditions.**
 Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.md`.
-`"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/setup-verify" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`.
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`
+(Shape W).
 `PASS`/exit 0, `FAIL` (missing file, no frontmatter, no/empty `description:`)/exit 1. Missing or
 unparseable skill file is always configured-but-broken — never restart-gated. Probe 1's WARN
 propagates here since plugin-enabled is a precondition for the model reaching this skill.
@@ -259,4 +268,4 @@ exit code. All probes PASS → emit the summary table, exit 0.
 <!-- negative-spec: this skill does NOT dispatch subagents. coordinator-claude's one direct_dep (the engine) self-confirms via the claude_klabauter_seam_resolvable probe kind — there is no recursive chain-walk into the engine's own manifest. The visited-set is initialised for contract-conformance only. -->
 <!-- negative-spec: this skill does NOT replace coordinator:install (OSS plugin install) or coordinator:repo-setup (consumer-project first-time setup). This skill DOES assert, via Probe 0, that the plugin is actually reachable — by marketplace registration or live --plugin-dir resolution — rather than merely enabled by membership; that assertion is in scope here even though performing the registration itself remains coordinator:install's job. -->
 <!-- negative-spec: this skill does NOT seed install-leg spinoffs into the install-baton rendezvous (`$(coordinator-settings-home)/state/handoffs/`). Spinoffs are PM-authorized via /spinoff only. -->
-<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> = ${COORDINATOR_SETTINGS_HOME:-${CLAUDE_HOME:-$HOME}/.coordinator-claude-settings} — canonical per agent-install-contract.md § Visited-set protocol. -->
+<!-- negative-spec: the visited-set path is <settings-home>/coordinator-claude/chain-walk-*.json where <settings-home> resolves per snippets/resolve-coordinator-bin.md (Shape W on PowerShell hosts) — canonical per agent-install-contract.md § Visited-set protocol. -->
