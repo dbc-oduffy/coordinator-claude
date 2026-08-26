@@ -5845,6 +5845,24 @@ def sync_manifest(
 _ENGINE_PUBLISH_SYNC_PATH = _COORDINATOR_LIB / "percolate" / "publish_sync.py"
 
 
+def _engine_reference_suffix(module_path: Path) -> str:
+    """The one field a contract refusal is missing when an OVERRIDE won the
+    seam: which module the reader should diff the offending one against.
+
+    Empty when `module_path` IS the engine module -- naming the same path
+    twice is noise, and the register rule is one fact once. `check_publish_
+    sync_contract` is provenance-blind by design (§ `_resolve_publish_sync_
+    module_path`); this suffix does not reintroduce provenance into the
+    CHECK, it only tells the reader where the interface it failed is
+    declared. Asked for by doe-claude-em 2026-08-26, after an AC15 refusal
+    whose kwarg name and rung made the diagnosis fast and whose missing
+    reference path made the fix slower than it needed to be.
+    """
+    if module_path == _ENGINE_PUBLISH_SYNC_PATH:
+        return ""
+    return f" Expected (engine): {_ENGINE_PUBLISH_SYNC_PATH}."
+
+
 def _resolve_publish_sync_module_path(setup_dir: Path) -> Path:
     """Resolve which `publish_sync.py` wins the seam for `setup_dir`:
     `setup_dir/publish_sync.py` if present (DoE's per-root override, or any
@@ -6039,6 +6057,7 @@ def check_publish_sync_contract(
                 f"[publish.py] FATAL: {module_path} (resolved via rung {rung_label!r}) "
                 f"does not define {symbol!r} — dispatch_mirror_like cannot call it. "
                 "Refusing to dispatch any mirror/flat-mirror target (AC15 fail-closed)."
+                + _engine_reference_suffix(module_path)
             )
 
         try:
@@ -6048,6 +6067,7 @@ def check_publish_sync_contract(
                 f"[publish.py] FATAL: {module_path} (resolved via rung {rung_label!r}) "
                 f"defines {symbol!r} but its signature could not be inspected: {exc}. "
                 "Refusing to dispatch any mirror/flat-mirror target (AC15 fail-closed)."
+                + _engine_reference_suffix(module_path)
             ) from exc
 
         params = list(sig.parameters.values())
@@ -6062,6 +6082,7 @@ def check_publish_sync_contract(
                 "a superficial signature check while still failing at runtime for the "
                 f"mirror-dispatch keyword arguments {sorted(mirror_kwargs)}. Refusing to "
                 "dispatch any mirror/flat-mirror target (AC15 fail-closed)."
+                + _engine_reference_suffix(module_path)
             )
 
         try:
@@ -6072,6 +6093,7 @@ def check_publish_sync_contract(
                 f"defines {symbol!r} but its signature does not accept the mirror-dispatch "
                 f"keyword arguments {sorted(mirror_kwargs)}: {exc}. Refusing to dispatch "
                 "any mirror/flat-mirror target (AC15 fail-closed)."
+                + _engine_reference_suffix(module_path)
             ) from exc
 
     load_ignore_fn = getattr(publish_sync_module, "load_ignore", None)
@@ -6080,6 +6102,7 @@ def check_publish_sync_contract(
             f"[publish.py] FATAL: {module_path} (resolved via rung {rung_label!r}) "
             "does not define 'load_ignore' — dispatch_mirror_like cannot call it. "
             "Refusing to dispatch any mirror/flat-mirror target (AC15 fail-closed)."
+            + _engine_reference_suffix(module_path)
         )
 
     try:
@@ -6089,6 +6112,7 @@ def check_publish_sync_contract(
             f"[publish.py] FATAL: {module_path} (resolved via rung {rung_label!r}) "
             f"defines 'load_ignore' but its signature could not be inspected: {exc}. "
             "Refusing to dispatch any mirror/flat-mirror target (AC15 fail-closed)."
+            + _engine_reference_suffix(module_path)
         ) from exc
 
     load_ignore_params = list(load_ignore_sig.parameters.values())
@@ -6103,6 +6127,7 @@ def check_publish_sync_contract(
             "a superficial signature check while still failing at runtime for the single "
             "path-or-None argument dispatch_mirror_like passes. Refusing to dispatch any "
             "mirror/flat-mirror target (AC15 fail-closed)."
+            + _engine_reference_suffix(module_path)
         )
 
     try:
@@ -6113,6 +6138,7 @@ def check_publish_sync_contract(
             "defines 'load_ignore' but its signature does not accept a single "
             f"path-or-None argument: {exc}. Refusing to dispatch any mirror/flat-mirror "
             "target (AC15 fail-closed)."
+            + _engine_reference_suffix(module_path)
         ) from exc
 
 
