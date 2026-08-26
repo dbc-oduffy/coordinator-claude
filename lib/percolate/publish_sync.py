@@ -679,13 +679,20 @@ def sync_mirror(
     removed = 0
     copier = copy_file or _default_copy_file
     renamed_dir_names = renamed_dir_names or frozenset()
+    # Normalised once for BOTH consumers: the top-level orphan sweep below and the
+    # per-plugin phase-2 delete loop further down. `None` collapses to empty here
+    # deliberately -- unlike `sweep_top_level_orphans` (which the caller fails CLOSED on
+    # an unknown exemption set, because that sweep is opt-in and its blast radius is a
+    # row's whole top level), the per-plugin loop has always deleted unconditionally, so
+    # "unknown" must keep meaning "behave exactly as before", never "stop reaping".
+    renamed_file_names = renamed_file_names or frozenset()
 
     synced += _sync_mirror_top_level_files(
         src_dir, dst_dir, ignore, dry_run, copier, changed_paths=changed_paths
     )
     if sweep_top_level_orphans:
         removed += _sweep_mirror_top_level_orphans(
-            src_dir, dst_dir, ignore, dry_run, renamed_file_names or frozenset()
+            src_dir, dst_dir, ignore, dry_run, renamed_file_names
         )
 
     for src_plugin in sorted(p for p in src_dir.iterdir() if p.is_dir()):
@@ -750,6 +757,22 @@ def sync_mirror(
                 # comment above. Keeps ignored files untouched on the destination
                 # (neither copied nor deleted).
                 if ignore.matches(f"{plugin_name}/{rel_path}"):
+                    continue
+                # Same exemption, same reason, as `_sweep_mirror_top_level_orphans`'s
+                # (see that function's `renamed_file_names` paragraph) -- applied here
+                # too because a row's renamed files are not all top-level: 15 of
+                # `claude-klabauter-bin`'s 16 renamed basenames live under `tests/`,
+                # where only this loop sees them. Basename, not rel_path: the exemption
+                # set is basenames (a rename never moves a file between directories), and
+                # rel_path here is plugin-relative and may carry directory components.
+                # Read as a bug in the wild first (state/bug-backlog/2026-08-26-publish-
+                # dry-run-wants-to-un-rename-test-*.yaml): the two legs disagreeing made
+                # a preview report a rename running BACKWARDS -- top-level renames
+                # exempt and silent, nested ones listed as REMOVE + re-added under their
+                # pre-rename names. Convergence was never at risk (the transform pass
+                # renames them again immediately after), but a preview nobody can read
+                # is what the exemption exists to prevent.
+                if Path(rel_path).name in renamed_file_names:
                     continue
                 if (src_plugin / rel_path).is_file():
                     continue

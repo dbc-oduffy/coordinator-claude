@@ -9297,6 +9297,76 @@ def _swap_publish_staging_entry(dest_entry: Path, staging_entry: Path) -> None:
             raise
 
 
+def _refuse_stranded_root_swap_prior(dest_dir: Path) -> None:
+    """The root-dest branch's counterpart to the whole-tree branch's own
+    stranded-prior refusal, which it could never have reached OR matched.
+
+    Could not reach: `_swap_publish_staging_into_dest` delegates to the
+    root-dest branch and RETURNS before the whole-tree refusal below it ever
+    runs. Both publish mirrors are repo roots, so both take that branch and
+    neither has ever been offered a stranded-prior check.
+
+    Could not match: the whole-tree refusal globs `dest_dir.parent` for
+    `.{dest_dir.name}.publish-staging-*.prior` and predicates on a `.git`
+    inside the candidate. `_swap_publish_staging_entry` mints
+    `<entry>.prior` INSIDE `dest_dir` and never moves `.git` (it is not in
+    `staging_dir` at all), so a root-branch strand matches neither the glob
+    nor the predicate. `surface.PUBLISH_STAGING_DIR_RE` does not match it
+    either -- no surface walk, manifest widening or pathspec filter sees one.
+
+    WHAT IT COSTS TO GO UNSEEN, which is why this is a refusal and not a
+    warning. `_swap_publish_staging_entry` renames `dest_entry` aside to
+    `<entry>.prior`, then renames `staging_entry` into place; the restore
+    sits in an `except OSError` and so covers a failed rename but NOT a
+    SIGKILL, OOM or host reboot between the two. A death in that window
+    leaves a whole top-level subtree gone from the worktree, its content in
+    an untracked `<entry>.prior`, and every one of its files still tracked at
+    dest HEAD -- which is exactly the three conditions percolate-round's
+    removal side reads as a stranded removal (`(head_tree n row_scope) -
+    declared_payload`). `_refuse_removals_present_on_disk` cannot catch it:
+    those paths are genuinely absent. The per-entry loop reopens the window
+    once per top-level entry per round.
+
+    Reported by doe-claude-6e (2026-08-26), verified line-by-line here.
+    Live mechanism, not a live incident -- neither mirror carried a strand
+    when this landed.
+
+    NO FALSE-POSITIVE PATH FROM NORMAL OPERATION. A successful swap
+    `rmtree`s its own `.prior` before returning, so a surviving one means a
+    swap that did not finish. `surface.STRUCTURAL_NEVER_PUBLISHED_PREFIXES`
+    is subtracted because it NAMES `.fleet-env.prior` -- destination-repo
+    build plumbing minted by something else entirely, which an unfiltered
+    check would read as a strand and refuse every round on.
+    """
+    import fnmatch  # noqa: PLC0415 - lazy, this check is the only user
+
+    from coordinator_core.percolate.surface import (  # noqa: PLC0415
+        STRUCTURAL_NEVER_PUBLISHED_PREFIXES as _STRUCTURAL,
+    )
+
+    stranded = sorted(
+        entry
+        for entry in dest_dir.glob("*.prior")
+        if not any(fnmatch.fnmatch(entry.name, pattern) for pattern in _STRUCTURAL)
+    )
+    if not stranded:
+        return
+    shown = "".join(f"      {p}\n" for p in stranded[:10])
+    raise PublishSwapPartial(
+        f"refusing to publish {dest_dir}: {len(stranded)} stranded "
+        "prior-backup entr(ies) from an earlier incomplete root-dest swap "
+        "sit in the destination root:\n"
+        f"{shown}"
+        "    Each one holds the ONLY copy of a top-level subtree that is "
+        "still tracked at dest HEAD but absent from its worktree. Restore it "
+        "by hand (rename `<entry>.prior` back to `<entry>`, or reconcile "
+        "against HEAD) before re-running this row -- publishing over it "
+        "would let the removal side read that subtree as retired payload.",
+        prior_backup=stranded[0],
+        content_swapped=False,
+    )
+
+
 def _swap_publish_staging_into_dest_root(dest_dir: Path, staging_dir: Path) -> None:
     """Root-dest branch of `_swap_publish_staging_into_dest`, taken when
     `dest_dir` IS a repo root (§ that function's docstring for the
@@ -9512,6 +9582,7 @@ def _swap_publish_staging_into_dest(dest_dir: Path, staging_dir: Path) -> None:
     the "re-diagnose from first principles" warning above, not instead of it.
     No retry is added here, or anywhere in this change."""
     if (dest_dir / ".git").exists():
+        _refuse_stranded_root_swap_prior(dest_dir)
         _swap_publish_staging_into_dest_root(dest_dir, staging_dir)
         return
 
@@ -10220,6 +10291,33 @@ def process_target(
                 # every call site (outer AND inner).
                 except (ImportError, OSError, ValueError, RuntimeError):
                     renamed_dir_names = None
+            if (
+                dry_run
+                and renamed_file_names is None
+                and mode_descriptor is not None
+                and mode_descriptor.accepts_renamed_dir_names
+            ):
+                # Say it AT the output it explains, not only in the run-level engine
+                # banner 200 lines up. With no exemption set, the sync preview below
+                # reports every published rename target as `REMOVE: <published-name>
+                # (not in source)` and re-adds it under its pre-rename source name --
+                # which reads as the row's rename map running BACKWARDS, and was filed
+                # as exactly that (state/bug-backlog/2026-08-26-publish-dry-run-wants-
+                # to-un-rename-test-*.yaml) before anything connected the two. A real
+                # run never does this: it refuses outright when the engine is
+                # unavailable, and when the engine IS available the exemption resolves
+                # and the transform pass renames what sync deposits. The plan this
+                # requirement comes from names the contract directly -- preview and
+                # real run MUST agree on the exemption set (docs/plans/2026-08-11-dry-
+                # run-cries-wolf-on-the-rename-exemption.md); until they do, the
+                # preview has to say which of the two it is showing.
+                print(
+                    "  Rename exemption: UNAVAILABLE (engine not loaded) — this row's "
+                    "published rename targets preview as REMOVE, their source names as "
+                    "NEW. Absent exemption, not a failing rename map; a real run "
+                    "resolves it.",
+                    file=out,
+                )
             row_sync_changed = set()
             with _time_phase(timing_sink, target.name, "dispatch_mirror_like"):
                 dispatch_mirror_like(
@@ -10792,7 +10890,9 @@ def _walk_published_payload(published_dest_dirs: "Iterable[Path]") -> "set[Path]
 
     NEGATIVE SPEC — every prune below is load-bearing, none is tidiness:
 
-    - `.git`: a flat-mirror row's `dest_dir` IS the mirror root (`LICENSE` and
+    - `surface.STRUCTURAL_NEVER_PUBLISHED_PREFIXES` — `.git`, `.fleet-env` and
+      kin: destination-repo plumbing, never publish-owned content. A
+      flat-mirror row's `dest_dir` IS the mirror root (`LICENSE` and
       `.gitignore` sit in `declared_payload` today), so an unpruned walk names
       thousands of git objects as declared payload. `declared_payload` drives
       the ADD side of `percolate-round.py :: _pathspec_from_manifest`, so they
@@ -10800,6 +10900,19 @@ def _walk_published_payload(published_dest_dirs: "Iterable[Path]") -> "set[Path]
       `declined_paths` refuses the round's push outright (§
       `_round_refusal_reason`). Unpruned, this widening breaks every future
       round rather than merely costing a slow walk.
+
+      A HAND-ROLLED `(".git", "__pycache__")` TUPLE STOOD HERE AND WAS NOT
+      ENOUGH, measured on klabauter 2026-08-26: the first post-AC2 manifest
+      carried 48,929 declared paths, of which **44,264 were `.fleet-env/`** —
+      the multi-GB build tree the mirror's own `.gitignore` excludes. That is
+      not merely bloat. `declared_payload` is SUBTRACTED from `row_scope` in
+      the removal derivation, so over-declaring silently disables the removal
+      side: the dry run reported 0 candidates while the same round warned that
+      1 removal went uncarried. An over-wide declaration reads as a clean pass,
+      which is the failure shape this whole deliverable exists to close.
+      Reusing the SSOT — which already names `.fleet-env`, `.fleet-env.prior`,
+      `.fleet-env.gen-*` and `.percolate` — is what makes the prune list
+      unable to drift from the one every other walk in this system uses.
     - `surface.PUBLISH_STAGING_DIR_RE`: a crashed round's scratch, which no row
       declares. 1,028 files of one reached the public mirror in round
       `eebf1c67`; letting this walk re-declare one would reopen that incident
@@ -10810,9 +10923,19 @@ def _walk_published_payload(published_dest_dirs: "Iterable[Path]") -> "set[Path]
 
     Each prune reuses the SSOT the rest of this system already walks on; none
     introduces a fresh exclusion vocabulary."""
+    import fnmatch  # noqa: PLC0415 - lazy, this walk is the only user
+
     from coordinator_core.percolate.surface import (  # noqa: PLC0415 - lazy, this walk is the only user
         PUBLISH_STAGING_DIR_RE as _STAGING_DIR_RE,
     )
+    from coordinator_core.percolate.surface import (  # noqa: PLC0415
+        STRUCTURAL_NEVER_PUBLISHED_PREFIXES as _STRUCTURAL,
+    )
+
+    def _structural(name: str) -> bool:
+        # The SSOT carries glob entries (`.fleet-env.gen-*`) beside literals,
+        # so a plain membership test would let a generation directory through.
+        return any(fnmatch.fnmatch(name, pattern) for pattern in _STRUCTURAL)
 
     found: "set[Path]" = set()
     for published_dir in published_dest_dirs:
@@ -10820,7 +10943,9 @@ def _walk_published_payload(published_dest_dirs: "Iterable[Path]") -> "set[Path]
             walk_dirs[:] = [
                 d
                 for d in walk_dirs
-                if d not in (".git", "__pycache__") and not _STAGING_DIR_RE.search(d)
+                if d != "__pycache__"
+                and not _structural(d)
+                and not _STAGING_DIR_RE.search(d)
             ]
             for walk_file in walk_files:
                 if walk_file.endswith((".pyc", ".pyo")):
