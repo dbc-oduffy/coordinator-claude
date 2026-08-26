@@ -60,6 +60,32 @@ _LEGACY_INJECTOR_TAIL = '_hook_venv_inject.py'
 if sys.argv and sys.argv[-1].endswith(_LEGACY_INJECTOR_TAIL):
     sys.argv.pop()
 
+# NO HOOK MAY EVER SIT IN THE ENGINE'S BOUNDED BOOT WAIT.
+#
+# The engine's op door polls a just-spawned warm server for a bounded interval
+# (`_wait_for_warm_boot`, 15s by default) rather than refusing a call the
+# respawn it triggered is already healing. That is right where a human is
+# already waiting on one result. It is catastrophic on a hook path: hooks fire
+# on every tool call, and a 15s stall per fire is a far worse outage than the
+# refusal it replaced.
+#
+# THE PARENT IS THE ONLY THING THAT KNOWS IT IS A HOOK. The spawned child cannot
+# tell, and must not guess. This trampoline is that parent for EVERY hook by
+# construction -- every registration routes through it -- so pinning the bound
+# here also covers hooks that do not exist yet, which per-caller discipline in
+# each script would not. Leaving it to each caller is the same trust-the-author
+# hole the http registration gates exist to close.
+#
+# UNCONDITIONAL, not a setdefault: an operator's exported value is a preference
+# about their own shell, never a licence for a hook to block, and a var
+# arriving here already set to 15 is exactly the case this must survive.
+# Anything that needs a waiting engine call is not a hook.
+#
+# Set to '0' rather than deleted, so it crosses the engine-invoke spawn
+# boundary explicitly: the invoke wrapper passes this environment through, and
+# an unset var would restore the default bound in the child.
+os.environ['COORDINATOR_WARM_BOOT_WAIT_SECS'] = '0'
+
 
 def _detect_hook_seam_drift():
     """Banner once per session if this process's snapshotted `-c` payload no longer matches the

@@ -210,13 +210,15 @@ def resolve_checked_repo_root(
     if cached is not None:
         return resolved_root, cached
 
-    # Imported at call time, not module scope: `coordinator_core.pickup_assemble`
-    # costs ~360ms to import and this module is plumbing for ~25 CLIs, most of
-    # which never reach the gate (no $CLAUDE_CODE_SESSION_ID, or a memo hit
-    # above returns first). Module-scope it was also an import-chain the fake
-    # engine trees in facade tests cannot satisfy, failing them on a symbol
-    # unrelated to what they assert.
-    from coordinator_core.pickup_assemble import compute_repo_identity_gate
+    # Imported at call time, not module scope: this module is plumbing for
+    # ~25 CLIs, most of which never reach the gate (no
+    # $CLAUDE_CODE_SESSION_ID, or a memo hit above returns first).
+    # `coordinator_core.repo_identity_gate` (C1 extraction) is itself lean --
+    # unlike the `coordinator_core.pickup_assemble` re-export it now lives
+    # alongside, importing it does not drag the 10k-line module in -- but
+    # this stays a call-time import to preserve the same import-chain shape
+    # the fake engine trees in facade tests are built against.
+    from coordinator_core.repo_identity_gate import compute_repo_identity_gate
 
     verdict = compute_repo_identity_gate(Path(resolved_root), sid)
 

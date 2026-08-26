@@ -63,6 +63,7 @@ SKIP sentinel — callers MUST check stdout for a line matching:
   <!-- coordinator-fold-execution-record: SKIP
 before appending stdout to a plan file. Scripted pipelines that blindly
 redirect stdout (>> "$plan") will silently write the SKIP comment into the
+shell-doc-ok: that redirect is the real shell hazard this warns a caller away from.
 plan body. Hard-error SKIPs (plan-not-found, invalid-slug, repo-root-fail)
 also write a diagnostic to stderr. Soft SKIPs (no subagent-share dir, no
 sidecars, trivial observations) write only to stdout; exit is always 0 for

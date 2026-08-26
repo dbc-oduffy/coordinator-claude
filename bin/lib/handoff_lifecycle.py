@@ -43,7 +43,7 @@ Spec backlink: docs/decisions/DR-084-handoff-lifecycle-vocabulary-overhaul-open-
 """
 from __future__ import annotations
 
-from typing import Union
+from typing import Union, Callable
 
 # Fields whose status values are terminal (no flip allowed). DR-084 additive
 # widen: 'consumed' is being renamed to 'claimed'; both vocabularies are
@@ -106,6 +106,28 @@ def _read_field(source: FrontmatterOrPath, new_key: str, old_key: str) -> str:
     if isinstance(source, dict):
         return source.get(new_key) or source.get(old_key) or ""
     return _fm_field(source, new_key) or _fm_field(source, old_key)
+
+
+#: Frontmatter-TEXT readers. A caller that has already read a handoff's bytes
+#: once — a single-open-per-file corpus pass — holds neither a dict nor a path.
+#: Before these existed it had to name `claimed_by`/`consumed_by` itself, which
+#: reintroduces exactly the second raw read site DR084-SINGLE-ACCESSOR forbids,
+#: in a caller whose own design forbids reopening the file to avoid it. The
+#: field names and the precedence rule stay here.
+def claim_holder_from_fm(fm_text: str, read_field: "Callable[[str, str], str | None]") -> str:
+    """DR-084 dual-read over already-read frontmatter TEXT.
+
+    `read_field(fm_text, key) -> value|None` is the caller's own single-key
+    scanner (e.g. `frontmatter.primitives.read_fm_field_unquoted`), so this adds
+    no I/O and no second parse. It owns only the PRECEDENCE decision — the part
+    that must not be duplicated.
+    """
+    return read_field(fm_text, "claimed_by") or read_field(fm_text, "consumed_by") or ""
+
+
+def claim_timestamp_from_fm(fm_text: str, read_field: "Callable[[str, str], str | None]") -> str:
+    """`claim_holder_from_fm`'s sibling for `claimed_at`/`consumed_at`."""
+    return read_field(fm_text, "claimed_at") or read_field(fm_text, "consumed_at") or ""
 
 
 def claim_holder(frontmatter_or_path: FrontmatterOrPath) -> str:

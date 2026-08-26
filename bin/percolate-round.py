@@ -411,6 +411,14 @@ _GIT_PUSH_TIMEOUT_SECS = 120.0
 #: seconds is the defect, not the bound.
 _REGISTRY_CLI_TIMEOUT_SECS = 2.0 + _SPAWN_SCHEDULING_HEADROOM_SECS
 
+# NOT dead, despite this module's own legs no longer passing it: the scan and
+# parse legs here became in-process `_run_step` calls, but `percolate-mirror.py`
+# loads THIS module as `_round` and still spawns `percolate-parse-dryrun.py`
+# through `_round._run(..., timeout=_round._ROUND_SCAN_LEG_TIMEOUT_SECS)` at
+# three sites, and `test_percolate_round.py :: _DECLARED_LEG_BOUNDS` names it.
+# Deleting it as unreferenced-in-this-file breaks the mirror driver at runtime.
+_ROUND_SCAN_LEG_TIMEOUT_SECS = 60.0
+
 #: The round's own scan legs: `percolate-parse-dryrun.py` (x2 per branch)
 #: over the publish leg's stdout, and `percolate-gate.py`'s `scan-secrets`
 #: and `inverse-drift` over the round's scan-file-list.
@@ -428,7 +436,12 @@ _REGISTRY_CLI_TIMEOUT_SECS = 2.0 + _SPAWN_SCHEDULING_HEADROOM_SECS
 #: gate leg is the amplification shape
 #: `coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py`
 #: exists to catch. This constant comes down when they are fixed.
-_ROUND_SCAN_LEG_TIMEOUT_SECS = 60.0
+#:
+#: All four call sites that once passed this as `timeout=` to a spawned
+#: `_run` moved to in-process `_run_step`, which takes no timeout -- the
+#: derivation above is preserved as the provenance record for
+#: `percolate-gate.py`'s `_GIT_LEG_TIMEOUT_SECS` (60s, same figure), which
+#: cites this number by value, not by name.
 
 #: The commit leg used to be a `scoped-git-commit` subprocess with its own
 #: timeout, split OUT of the publish bound below (staging/committing is a
@@ -497,6 +510,103 @@ def _run(cmd: List[str], *, timeout: float, **kwargs) -> subprocess.CompletedPro
         return subprocess.CompletedProcess(cmd, returncode=124, stdout=stdout, stderr=stderr)
 
 
+_SIBLING_CLI_MODULES: Dict[str, object] = {}
+
+
+def _sibling_cli(script: Path):
+    """Import a sibling step CLI once and keep it for the rest of the round.
+
+    Same `importlib.util` idiom as `percolate-gate.py::_import_publish_module`
+    and `percolate-sweep-scope-probe.py::_import_publish_module`. Cached per
+    script because a round calls into `percolate-parse-dryrun.py` twice and
+    `percolate-gate.py` five times; re-executing a module body per call would
+    trade a process for an import and keep most of the cost.
+    """
+    key = str(script)
+    module = _SIBLING_CLI_MODULES.get(key)
+    if module is not None:
+        return module
+    import importlib.util  # noqa: PLC0415 - only needed on this path
+
+    name = "_percolate_round_" + script.stem.replace("-", "_")
+    spec = importlib.util.spec_from_file_location(name, script)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not build a module spec for {script}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    _SIBLING_CLI_MODULES[key] = module
+    return module
+
+
+def _run_step(script: Path, argv: List[str]) -> subprocess.CompletedProcess:
+    """Call a sibling step CLI's `main(argv)` in THIS interpreter.
+
+    A round used to spawn eight Python interpreters: five `percolate-gate.py`,
+    two `percolate-parse-dryrun.py`, one `publish.py`. That is an artifact of
+    this module's own origin -- it ports nine steps the EM used to type one CLI
+    invocation at a time, and the subprocess boundary came along with them
+    rather than being required by any of them. Measured with
+    `coordinator_core/benchmarks/process_time.py :: batched_process_time_ms`
+    (k=6): `percolate-gate.py resolve-root`, which does almost nothing, costs
+    39.1ms process / 104.2ms wall against a 15.6ms bare-interpreter floor.
+
+    Both sibling CLIs are shaped for this: `main(argv)` is three lines over
+    `args.func(args)`, every `_cmd_*` handler RETURNS an int, and the only
+    `sys.exit` in either file is its `__main__` guard. `SystemExit` is caught
+    anyway -- a handler is free to grow one, and the round must not die of a
+    step's exit the way it would not have died of a child's.
+
+    Returns a `CompletedProcess` rather than a bare int so every call site
+    keeps its existing `returncode`/`stdout`/`stderr` handling verbatim,
+    including `_print_step_failure`, which prints the argv. `args[0]` is
+    therefore the equivalent spawn, not a real one: it is what a reader would
+    run by hand to reproduce the step.
+
+    WHAT STAYS SPAWNED, and why it is not an oversight: `publish.py` (§ the
+    real run). It is the only leg whose `_run` bound guards actual work rather
+    than spawn scheduling (`_PUBLISH_LEG_TIMEOUT_SECS`, 3600s), it needs a
+    distinct child environment (`_INHERITED_LOCK_ROOTS_ENV`), and one
+    interpreter for the round's real work is proportionate where eight for its
+    bookkeeping was not. An in-process call cannot be timed out -- there is no
+    killable unit -- so a leg whose bound is load-bearing keeps its process.
+    That is also why `percolate-gate.py`'s two `git` calls grew their own
+    `timeout=` in the same change: collapsing `inverse-drift` in here would
+    otherwise have removed the only bound they had.
+
+    This function itself carries no timeout of any kind -- verified true for
+    the two sibling CLIs as they stand today (no other blocking call, no
+    unbounded loop, no network I/O), but that is an inspection of the
+    current bodies, not a property this function enforces. The old
+    subprocess boundary was a backstop regardless of what the child did;
+    this one is not. A future change adding a blocking call (another
+    `subprocess.run`, a network fetch, an unbounded read) to either sibling
+    CLI must bring its own bound the way `_GIT_LEG_TIMEOUT_SECS` does,
+    because the round driver no longer supplies one.
+    """
+    import contextlib  # noqa: PLC0415 - only needed on this path
+    import io  # noqa: PLC0415 - only needed on this path
+    import traceback  # noqa: PLC0415 - only needed on this path
+
+    out, err = io.StringIO(), io.StringIO()
+    equivalent_spawn = [sys.executable, str(script), *argv]
+    try:
+        module = _sibling_cli(script)
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = module.main(argv)
+    except SystemExit as exc:
+        code = 0 if exc.code is None else (exc.code if isinstance(exc.code, int) else 1)
+    except Exception:
+        err.write(traceback.format_exc())
+        code = 1
+    return subprocess.CompletedProcess(
+        equivalent_spawn,
+        returncode=int(code) if code is not None else 0,
+        stdout=out.getvalue(),
+        stderr=err.getvalue(),
+    )
+
+
 def _resolve_python() -> str:
     """CI-smoke interpreter resolution ladder (SKILL.md Step 5's `coordinator.
     python` contract): COORDINATOR_PYTHON env -> `machine-local get
@@ -532,10 +642,7 @@ def _resolve_python() -> str:
 def _resolve_percolate_root(override: Optional[str]) -> Optional[str]:
     if override:
         return override
-    result = _run(
-        [sys.executable, str(_PERCOLATE_GATE), "resolve-root"],
-        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
-    )
+    result = _run_step(_PERCOLATE_GATE, ["resolve-root"])
     if result.returncode != 0:
         print("percolate-round: could not resolve PERCOLATE_ROOT:", file=sys.stderr)
         print(result.stderr.strip(), file=sys.stderr)
@@ -549,16 +656,37 @@ def _resolve_central_state() -> Optional[Path]:
     peer-repo-name scan leg, same as the skill's own "omit the flag if it
     doesn't exist" contract — never fatal to the round.
     """
+    # Calls the native seam DIRECTLY rather than `_run_step`-ing the CLI over
+    # it, and that distinction is load-bearing rather than a shortcut.
+    # `coordinator-state-root.py`'s `main()` opens with
+    # `require_dispatch_engine_on_path()`, whose whole job is putting an engine
+    # on `sys.path` for an interpreter that has not got one. Run in a CHILD --
+    # a clean slate, no `coordinator_core` bound -- it resolves and exits 0.
+    # Run HERE it raises `ProvenanceDivergenceError`: this module binds
+    # `coordinator_core` at module scope off the LOCATOR axis (ordinary
+    # `sys.path`), and on a box whose DISPATCH ladder (env var / pointer file /
+    # machine-local registry) names a different engine root, the two disagree
+    # and the guard fires. Measured on this box: spawned rc=0
+    # ('<repo>/state'), in-process rc=1 (`coordinator_core` bound from
+    # claude-klabauter against a dispatch root of claude-klabauter).
+    #
+    # `_run_step` would swallow that in its `except Exception` and this
+    # best-effort caller would return None, silently dropping the
+    # peer-repo-name scan leg on a box where the old spawn worked. The seam
+    # underneath the CLI needs no engine-root resolution at all -- we are
+    # already running inside the engine -- so reaching past the argv wrapper
+    # keeps the spawn eliminated AND the leg alive.
+    # Review: coordinator:code-reviewer, slice B finding 1.
     if not _STATE_ROOT_RESOLVER.is_file():
         return None
-    python = _resolve_python()
-    result = _run(
-        [python, str(_STATE_ROOT_RESOLVER), "--central"],
-        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
-    )
-    if result.returncode != 0:
+    try:
+        from coordinator_core.state_root import (  # noqa: PLC0415 - engine-only path
+            coordinator_state_root as _coordinator_state_root,
+        )
+
+        central = (_coordinator_state_root(central=True) or "").strip()
+    except Exception:
         return None
-    central = result.stdout.strip()
     if not central:
         return None
     registry = Path(central) / "repo-registry.md"
@@ -573,9 +701,8 @@ def _branch0_gate(target: str, percolate_root: str) -> Optional[str]:
     """Returns the target's `<source_dir>`, or None on any Branch-0 failure
     (already printed to stderr). Never walks the interactive first-run setup
     procedure — see this module's own negative-spec."""
-    result = _run(
-        [sys.executable, str(_PERCOLATE_GATE), "branch0-gate", target, "--percolate-root", percolate_root],
-        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
+    result = _run_step(
+        _PERCOLATE_GATE, ["branch0-gate", target, "--percolate-root", percolate_root]
     )
     if result.returncode != 0:
         stdout = result.stdout.strip()
@@ -599,9 +726,9 @@ def _branch0_gate(target: str, percolate_root: str) -> Optional[str]:
 
 
 def _resolve_dest(target: str, percolate_root: str) -> Optional[str]:
-    result = _run(
-        [sys.executable, str(_PERCOLATE_GATE), "list-targets", "--percolate-root", percolate_root, "--target", target],
-        timeout=_REGISTRY_CLI_TIMEOUT_SECS,
+    result = _run_step(
+        _PERCOLATE_GATE,
+        ["list-targets", "--percolate-root", percolate_root, "--target", target],
     )
     if result.returncode != 0 or not result.stdout.strip():
         print(f"percolate-round: could not resolve dest for target '{target}'.", file=sys.stderr)
@@ -728,79 +855,69 @@ def _read_fresh_round_manifest(
     return _read_manifest(manifest_path)
 
 
-_REMOVAL_SIDE_ENABLED = False
-"""The removal side stays OFF. Both operands the earlier gate named as
-mis-scoped are now fixed in-process (§ C1, docs/dispatch-briefs/2026-08-26-
-open-the-percolate-removal-side-without-65ff4e/C1.md, superseding docs/plans/
-2026-08-26-a-refused-round-strands-its-payload-forever.md) -- this flag
-still stays False because flipping it is an external, irreversible action on
-two public mirrors -- `coordinator-claude` (doe-claude-em) and
-`claude-klabauter` (OURS, PM 2026-08-26; an earlier revision of this
-docstring said this repo owned neither, which was wrong for klabauter) --
-not because the derivation is still known-wrong.
+_REMOVAL_SIDE_ENABLED = True
+"""The removal side is ON (PM, 2026-08-26). It derives `(head_tree ∩
+row_scope) - declared_payload` and commits those deletions at the mirror.
 
-What now holds: the removal rule is `(head_tree ∩ row_scope) -
-declared_payload` (§ `_pathspec_from_manifest`), not the bare `head_tree -
-declared_payload` this docstring used to describe.
+WHAT OPENED IT, in the order the objections fell. Each was a real gate, and
+none was waved through -- the history is here because a reader deciding
+whether to trust this flag needs to know which arguments were answered by
+evidence and which dissolved.
 
-`row_scope` fixes the width problem. `manifest.published_dest_dirs` (§
-`RoundManifest`'s fourth set) names the dest-relative directories THIS run
-actually published into; the removal side only ever considers `head_tree`
-paths beneath one of those directories, so a `--target`-filtered round or a
-`--delta`-skipped row's untouched files -- previously the entire rest of the
-mirror -- can no longer be marked for deletion by construction, not by
-scoping discipline at the call site.
+  Both operands mis-scoped   -> fixed (C1). `row_scope` from
+                                `manifest.published_dest_dirs` bounds width;
+                                `declared_payload` widened past the scan
+                                surface by `_walk_published_payload` bounds
+                                narrowness.
+  Could delete a live file   -> `_refuse_removals_present_on_disk`, a hard
+                                refusal, doe-claude-em's condition of assent.
+  Per-mirror assent needed   -> DISSOLVED, not satisfied. klabauter is ours
+                                (PM); both owners can assent, so the
+                                per-target scoping this flag lacks is
+                                unnecessary. See the space-vs-time note below.
+  Numbers off stale walks    -> a round on the fixed walk ran at each mirror.
+  A crash could fake it      -> `publish.py :: _refuse_stranded_root_swap_
+                                prior`. The root-dest swap's window was the
+                                one mechanism that manufactures this leg's
+                                exact preconditions; it is guarded at the
+                                source rather than predicated around here.
 
-`declared_payload` fixes the narrowness problem. It no longer stops at
-`end_of_run_visited_by_repo_root` (the percolation-surface SCAN,
-`surface.iter_surface_files`'s `include_extensions`-eligible paths only) --
-publish.py's manifest-write block now widens it, within `published_dest_
-dirs` and only there, by enumerating every path already on disk under those
-directories directly (`os.walk`-class path enumeration, no content read).
-Binary and other non-transform-eligible payload files (`door.exe`'s shape)
-are named in `declared_payload` even though the surface walk never visited
-them.
+MEASURED before the flip, both manifests postdating `e6ca74a70` (the walk fix):
 
-WHAT GATES THIS FLAG, corrected 2026-08-26 -- and the retired gate is worth
-naming because it was retired by dissolving, not by being satisfied.
+  coordinator-claude   66 candidates, 0 present on disk, all 66 verified by
+                       hand as absent from DoE source (tracked or untracked),
+                       so none is re-publishable payload.
+  claude-klabauter     0 candidates. declared 4673 / head 4670 / 0
+                       `.fleet-env`.
 
-RETIRED: per-mirror scoping / mirror-owner assent. This flag is a bare module
-constant with no env override, CLI flag or per-target config, so an assent
-scoped to ONE mirror could not be honoured -- which is why doe-claude-em's
-mirror-scoped assent was offered and then withdrawn as unfulfillable. The PM
-then settled it from the other end: klabauter is ours, so both owners can
-assent and the scoping work is unnecessary. Note the shape, because it
-generalises: a property someone proposes to scope by SPACE (per-mirror,
-per-target, per-path) where the scoping does not bite is usually a property
-that varies over TIME instead. Every safety question on this deliverable has
-had that shape (§ DoE-claude coordinator/docs/wiki/verification-discipline.md,
-tripwire A-SAFETY-PROPERTY-HOLDS-OVER-AN-INTERVAL-NOT-OVER-A-THING).
+klabauter read 0 BEFORE the walk fix too, and that 0 was the opposite of this
+one: `declared_payload` had swamped the tree (48,929 declared, 44,264 of them
+`.fleet-env`), emptying the removal set while the round reported a clean pass.
+Same digit, opposite meaning. Never read a 0 here as "no backlog" without
+checking the manifest's provenance first.
 
-LIVE: a round on the FIXED WALK at each mirror, which has never run. The
-`declared_payload` widening landed at `e6ca74a70` (2026-08-26T13:36:43Z) and
-both mirror manifests predate it -- klabauter's declares 48,929 paths against
-a 4,661-path tree, of which 44,264 are `.fleet-env`, and its Leg B candidate
-set reads 0. That 0 is the silent-inertness failure `e6ca74a70` pins, not an
-empty backlog: the same round reported 47 uncarried removals.
+THE STANDING RISK, said out loud rather than left to be discovered:
+`_refuse_removals_present_on_disk` is DORMANT at coordinator-claude, because 0
+of the 66 are present on disk. The safety of that set therefore rests on the
+by-hand source verification above, not on the guard. The guard protects the
+NEXT round, not this one.
 
-DO NOT read a Leg B number off a manifest without first establishing that the
-manifest was written by a round on the CURRENT walk -- i.e. that it postdates
-the newest change to `declared_payload`'s derivation (publish.py ::
-`_walk_published_payload` and its manifest-write caller). That is the method;
-`e6ca74a70` is merely the change that made it matter first, and pinning this
-check to that SHA would rot the same way the instruction below did.
+Two notes worth carrying to the next question on this module:
 
-The previous revision said the opposite -- "do not re-derive from scratch,
-read it off the manifests already on disk". It was true when written and false
-twelve minutes later, and it had no tell: the prose does not change, the
-artifact still exists, and nothing prompts a provenance check. An instruction
-that points at a RESULT rots silently; one that points at the METHOD, or names
-what would invalidate it, does not. That is the whole reason this paragraph is
-phrased as a property rather than a timestamp.
+  - A property someone proposes to scope by SPACE (per-mirror, per-target,
+    per-path), where the scoping does not bite, is usually one that varies
+    over TIME. Every safety question here had that shape (DoE-claude
+    coordinator/docs/wiki/verification-discipline.md, tripwire
+    A-SAFETY-PROPERTY-HOLDS-OVER-AN-INTERVAL-NOT-OVER-A-THING).
+  - An in-process predicate cannot close a cross-process hole. Two attempts
+    were made here -- a round-clean predicate and a pre-sync probe -- and both
+    failed for that reason. What works is a durable witness written BEFORE the
+    window opens.
 
-A stale manifest fails toward INERT (over-declaring empties the removal set),
-so what it costs is not a wrong deletion; it is a confident zero that reads as
-a clean pass."""
+Leg A (`manifest.removed`, ungated, below) is not retired by this. The two
+legs cover disjoint cases: Leg A carries a removal the CURRENT round observed;
+only this leg can clear a backlog, which is by construction invisible to
+`_report_published_diff`."""
 
 
 def _pending_removal_warning(dest: str) -> str:
@@ -828,18 +945,30 @@ def _pending_removal_warning(dest: str) -> str:
 
     Named, never blocked. The revert is still the right move for an operator
     who wants the round undone; what was missing is that it is not free. Reads
-    `git status --porcelain` and counts ` D` (deleted in worktree, tracked at
-    HEAD). Fails toward saying nothing on a probe failure -- an unreadable
-    dest must not manufacture a warning about a count it does not have.
+    `git status --porcelain=v1` and counts a `D` in EITHER the staged or the
+    worktree column (`line[0] == "D"` or `line[1] == "D"`) -- both leave a
+    deleted-and-tracked-at-HEAD path whose only record is dest's worktree, the
+    hazard this probe exists to catch. An unstaged deletion (`" D"`) is the
+    ordinary case; a staged one (`"D "`) is left behind by a prior invocation
+    of THIS module's own commit leg (`commit_pipeline.explicit_stage`'s
+    `git add -- <paths>`) that died between staging and committing. A
+    rename-with-delete (`"R  old -> new"`) is correctly excluded by this
+    predicate: the destination content still exists under the new name, so
+    there is no lost record for this warning to raise. `=v1` pins the format
+    explicitly rather than relying on it staying git's untagged default.
+    Fails toward saying nothing on a probe failure -- an unreadable dest must
+    not manufacture a warning about a count it does not have.
 
     Reported by doe-claude-6e (2026-08-26)."""
     result = _run(
-        ["git", "-C", dest, "--no-optional-locks", "status", "--porcelain"],
+        ["git", "-C", dest, "--no-optional-locks", "status", "--porcelain=v1"],
         timeout=_GIT_PLUMBING_TIMEOUT_SECS,
     )
     if result.returncode != 0:
         return ""
-    pending = sum(1 for line in result.stdout.splitlines() if line[:2] == " D")
+    pending = sum(
+        1 for line in result.stdout.splitlines() if len(line) >= 2 and (line[0] == "D" or line[1] == "D")
+    )
     if not pending:
         return ""
     return (
@@ -947,7 +1076,7 @@ def _pathspec_from_manifest(manifest: _RoundManifest, repo_root: str) -> List[st
             seen.setdefault(str(repo_root_path / rel), ("NEW", rel))
     if _REMOVAL_SIDE_ENABLED:
         # § AC3, docs/dispatch-briefs/2026-08-26-open-the-percolate-removal-
-        # side-without-65ff4e/C1.md -- the removal rule is `(head_tree ∩
+        # side/C1.md -- the removal rule is `(head_tree ∩
         # row_scope) - declared_payload`, never a bare `head_tree -
         # declared_payload`. `row_scope` is `manifest.published_dest_dirs`
         # expanded to every dest-HEAD path beneath one of those directories
@@ -1572,9 +1701,12 @@ def _report_commit_residual(
 
     The returned line names the removal-side gate explicitly whenever the
     dropped set contains removals and `_REMOVAL_SIDE_ENABLED` is off — that
-    is a KNOWN LIMITATION with a stale mirror as its visible consequence,
-    not an anomaly, and it does not converge: every subsequent round
-    re-reports and re-drops the same set until AC1b lands.
+    was a KNOWN LIMITATION with a stale mirror as its visible consequence
+    while the flag was off, and did not converge: every subsequent round
+    re-reported and re-dropped the same set. AC1b landed (PM, 2026-08-26)
+    and `_REMOVAL_SIDE_ENABLED` is now `True`, so this branch is dead in the
+    shipped state; it stays correct for the case where the flag is ever
+    flipped back.
     """
     carried, dropped = _partition_carried_changes(real_changes, pathspec)
     if not dropped and len(real_changes) == len(pathspec):
@@ -1609,8 +1741,9 @@ def _report_commit_residual(
     if dropped_removals and not _REMOVAL_SIDE_ENABLED:
         gate_note = (
             f"{dropped_removals} of them removal(s): the removal side is gated "
-            "OFF (_REMOVAL_SIDE_ENABLED, pending AC1b of docs/plans/"
-            "2026-08-26-a-refused-round-strands-its-payload-forever.md), so "
+            "OFF (_REMOVAL_SIDE_ENABLED is False -- AC1b of docs/plans/"
+            "2026-08-26-a-refused-round-strands-its-payload-forever.md landed "
+            "and shipped it True by default; someone has flipped it back), so "
             "dest keeps files this round intended to delete and every "
             "subsequent round re-reports the same set"
         )
@@ -1770,10 +1903,13 @@ def _round_warnings(
 
     NEGATIVE SPEC — a warning here does NOT refuse the push.
     `_round_refusal_reason` owns refusal and is deliberately not fed from
-    this list: the residual gap is a known, non-converging limitation for as
-    long as the removal side is gated off (`_REMOVAL_SIDE_ENABLED`), so
-    refusing on it would refuse every round rather than surface anything.
-    Degrading `PASS` to `PASS-WITH-WARNINGS` is the whole intervention.
+    this list: the residual gap was a known, non-converging limitation for
+    as long as the removal side was gated off (`_REMOVAL_SIDE_ENABLED`);
+    refusing on it would have refused every round rather than surface
+    anything. The flag is now `True` (AC1b landed, PM, 2026-08-26), so this
+    path is dead in the shipped state, but if the flag is ever flipped back
+    the same reasoning holds. Degrading `PASS` to `PASS-WITH-WARNINGS` is
+    the whole intervention.
     """
     warnings: List[str] = []
     if has_review_warnings:
@@ -2085,17 +2221,15 @@ def _cmd_round_default(
             real_stdout_path.write_text(real.stdout, encoding="utf-8", newline="\n")
 
             # --- scan-file-list build, off the real run's own output -------
-            parse1 = _run(
+            parse1 = _run_step(
+                _PARSE_DRYRUN,
                 [
-                    sys.executable,
-                    str(_PARSE_DRYRUN),
                     "parse-dryrun",
                     "--stdout-file",
                     str(real_stdout_path),
                     "--source-dir",
                     source_dir,
                 ],
-                timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS,
             )
             if parse1.returncode != 0:
                 _print_step_failure("percolate-parse-dryrun (pass 1)", [], parse1.stderr)
@@ -2119,8 +2253,6 @@ def _cmd_round_default(
             identity_file = Path(percolate_root) / "setup" / ".percolate-identity"
             peer_repos_file = _resolve_central_state()
             scan_cmd = [
-                sys.executable,
-                str(_PERCOLATE_GATE),
                 "scan-secrets",
                 "--files",
                 str(scan_files_path),
@@ -2133,7 +2265,7 @@ def _cmd_round_default(
             ]
             if peer_repos_file is not None:
                 scan_cmd += ["--peer-repos-file", str(peer_repos_file)]
-            scan = _run(scan_cmd, timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS)
+            scan = _run_step(_PERCOLATE_GATE, scan_cmd)
             print(scan.stdout)
             if scan.returncode == 2:
                 print(
@@ -2145,15 +2277,13 @@ def _cmd_round_default(
                 )
                 return _EXIT_FAIL
             if scan.returncode != 0:
-                _print_step_failure("Step 2 (scan-secrets)", scan_cmd, scan.stderr)
+                _print_step_failure("Step 2 (scan-secrets)", list(scan.args), scan.stderr)
                 return _EXIT_FAIL
             medium_count = _count_medium_hits(scan.stdout)
 
             # --- Step 2b: inverse-drift detection ---------------------------
             print(f"=== percolate-round {target} — Step 2b: inverse-drift detection ===")
             drift_cmd = [
-                sys.executable,
-                str(_PERCOLATE_GATE),
                 "inverse-drift",
                 target,
                 "--percolate-root",
@@ -2165,19 +2295,18 @@ def _cmd_round_default(
                 "--source-dir",
                 source_dir,
             ]
-            drift = _run(drift_cmd, timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS)
+            drift = _run_step(_PERCOLATE_GATE, drift_cmd)
             print(drift.stdout)
             if drift.returncode != 0:
-                _print_step_failure("Step 2b (inverse-drift)", drift_cmd, drift.stderr)
+                _print_step_failure("Step 2b (inverse-drift)", list(drift.args), drift.stderr)
                 return _EXIT_FAIL
             drift_count = _count_drift_hits(drift.stdout)
 
             # --- Step 3: gate-fire predicate + confirmation, sourced from the
             # real run's own output -- no second materialization -----------
-            parse2 = _run(
+            parse2 = _run_step(
+                _PARSE_DRYRUN,
                 [
-                    sys.executable,
-                    str(_PARSE_DRYRUN),
                     "parse-dryrun",
                     "--stdout-file",
                     str(real_stdout_path),
@@ -2188,7 +2317,6 @@ def _cmd_round_default(
                     "--inverse-drift-count",
                     str(drift_count),
                 ],
-                timeout=_ROUND_SCAN_LEG_TIMEOUT_SECS,
             )
             if parse2.returncode != 0:
                 _print_step_failure("percolate-parse-dryrun (pass 2)", [], parse2.stderr)

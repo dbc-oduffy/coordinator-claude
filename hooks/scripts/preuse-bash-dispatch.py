@@ -12,30 +12,53 @@ FOLD SHAPE -- FIRST-DENY-WINS, NOT CONCATENATE-ALL, mirroring
 `preuse-agent-dispatch.py`'s own choice for the same reason: each of the two
 folded guards is a hard exit-0/exit-2 refusal (never an advisory), so the
 first one that denies is the whole verdict -- there is nothing for a second
-guard's text to add once the command is already blocked. The two folded
+guard's text to add once the command is already blocked. The three folded
 guards run BEFORE the engine dispatch below (cheaper, DoE-resident, no
 sibling-repo resolution), in their PRIOR hooks.json registration order
-(`guard-doctrine-surface-bash-write.py` first, then
-`guard-repo-setup-claude-home-refusal.py`) -- registration order was never
-policy-significant between these two (their predicates are structurally
-disjoint: one keys on a governed-doctrine-surface mention, the other on the
-repo-setup scaffold mechanism naming Claude Home), so preserving it is a
-convenience, not a behaviour dependency. Only once NEITHER denies does this
+(`guard-doctrine-surface-bash-write.py`, then
+`guard-repo-setup-claude-home-refusal.py`, then
+`guard-host-subagent-bash-ban.py`) -- registration order was never
+policy-significant among them (their predicates are structurally disjoint:
+one keys on a governed-doctrine-surface mention, one on the repo-setup
+scaffold mechanism naming Claude Home, one on caller identity), so
+preserving it is a convenience, not a behaviour dependency. THE POPULATION
+IS THREE, not two: a count taken from this file's prose rather than from
+`_BASH_GUARD_REGISTRY` has already been used to size a transport flip, and a
+flip sized against two would drop `guard-host-subagent-bash-ban` silently.
+Only once NONE denies does this
 file's own engine-backed evaluation run, exactly as it did standalone.
 
-LAZY SCOPE DESCRIPTORS. Each folded guard carries an import-FREE, string-only
-precondition (`_pre_doctrine_surface`/`_pre_repo_setup`) computed from the
-raw payload's `tool_name`/`tool_input.command` alone -- no module import, no
-regex compilation, no `_claude_md_ledger`/wiki-anchor module load -- for the
-overwhelming majority of Bash/PowerShell calls that mention no governed
-identifier and no scaffold-mechanism marker at all. This is the same
-"a guard's expensive work must not run when its precondition is false" shape
-`stop-dispatch.py` ships for the Stop event; unlike that dispatcher's five
-guards, here BOTH preconditions are payload-text-only (no filesystem stat,
-no transcript read) since both folded guards' own predicates are themselves
-payload-text-only.
+LAZY SCOPE DESCRIPTORS, AND WHAT EACH ONE ACTUALLY COSTS. Each of the THREE
+folded guards carries a precondition that avoids importing the guard module
+itself for calls it cannot apply to. This is the same "a guard's expensive
+work must not run when its precondition is false" shape `stop-dispatch.py`
+ships for the Stop event. The three are NOT equally cheap, and reading them
+as uniformly free has already produced one wrong cost estimate:
 
-FAILURE ISOLATION. Each of the two folded guards runs inside its own
+  `_pre_repo_setup`     genuinely free -- two substring tests on the command
+                        text, no import, no stat, no regex.
+  `_pre_doctrine_surface`  NOT import-free. It imports `_claude_md_ledger`
+                        for `GOVERNED_AUTHORING_SURFACES` on every
+                        Bash/PowerShell call carrying a command, and each
+                        hook fire is a fresh process, so that load is paid
+                        per fire rather than amortised. Cheaper than loading
+                        the 1531-line guard, which is the point, but not
+                        nothing. It also fails OPEN into the guard when the
+                        ledger will not import (returns True), so a broken
+                        ledger costs the full guard load on every call.
+  `_pre_host_bash_ban`  does not filter Bash AT ALL -- it is
+                        `tool_name == "Bash"`, true for every Bash fire. Its
+                        real predicate is caller identity (a subagent
+                        `agent_id`), which this signature cannot see, so the
+                        guard module loads on every Bash call to discover
+                        it is inert. PowerShell traffic skips it; Bash
+                        traffic never does.
+
+Any sizing of this dispatcher's per-fire cost has to price those three
+separately. "Most fires short-circuit before importing any guard module" is
+true of PowerShell and false of Bash.
+
+FAILURE ISOLATION. Each of the three folded guards runs inside its own
 `try/except BaseException`, with a stderr skipped-list breadcrumb on the
 guard that raised -- one guard crashing removes only that guard's coverage
 (fail-open for it alone) and the dispatcher proceeds to the next guard, then
@@ -178,101 +201,6 @@ except Exception:
         return None
 
 
-def _rearm_command_tool_name(raw: str) -> str:
-    """Re-arm of the engine repo's command-guard chain under the PowerShell tool.
-
-    All 22 gates in ``coordinator_core.bash_guards`` test ``tool_name == "Bash"`` --
-    the dispatcher itself plus each guard's own ``check(payload)`` -- so on a
-    Windows workstation with no Bash tool, every guard silently returns ``None``
-    under the PowerShell tool while the test suite stays green (it calls guard
-    functions directly, never through the harness matcher). This rewrites
-    ``tool_name`` from ``"PowerShell"`` to ``"Bash"`` before the payload reaches
-    ``evaluate_payload_json``, re-arming the chain from the one seam the doctrine plane owns,
-    without waiting on the engine repo's unscheduled XL 22-site conversion.
-
-    Proven mechanism, not a guess: see
-    docs/research/spike-verdicts/2026-08-07-powershell-guard-chain-rearm-via-tool-name-normalization.md
-    -- with normalization active, a real command issued through the PowerShell
-    tool was observed BLOCKED by a guard; with the sentinel removed, the
-    byte-identical command ran.
-
-    ON BY DEFAULT since 2026-08-07 (DR-144). This shipped opt-in behind a
-    session-keyed sentinel and was flipped to unconditional on PM ratification
-    once roster evidence existed: 24 distinct guards were observed firing under
-    the PowerShell tool with normalization active, 14 of the 20 severity-ranked
-    roster items fully discharged, no regression to the Bash leg observed.
-    Evidence: state/audits/2026-08-07-bx17-piece3-observed-block-discharge.md.
-    Before the flip, guard coverage on a PowerShell-only workstation was ZERO
-    by construction while the test suite stayed green -- that asymmetry, not
-    the convenience, is what justified promoting it.
-
-    NO SESSION-KEYED OPT-OUT, DELIBERATELY -- and this is a negative spec, not
-    an omission. A session-keyed opt-out sentinel was written during the flip
-    and removed before it landed: under an opt-IN default, a sentinel an agent
-    could create only ever *armed* guards, so agent-writability was harmless.
-    Inverted to opt-OUT, the identical file becomes a one-line chain-wide
-    self-disarm that any agent can write for itself, defeating every guard in
-    ``bash_guards`` at once. The engine repo already treats that shape as hostile --
-    ``block_disarm_marker_sentinel_creation`` exists precisely to stop an agent
-    creating a blanket-disarm marker -- so shipping an unguarded equivalent
-    here would have punched a hole through a boundary the sibling plane
-    actively defends. Do not re-add one.
-
-    The escape hatches that already exist are the right ones, and they are
-    operator-facing rather than agent-facing: each guard advertises its own
-    one-shot ``coordinator-guard-unlock-<session_id>.<guard>`` key in its own
-    deny message, and each carries a pre-launch ``COORDINATOR_OVERRIDE_*`` env
-    var. Per-guard and human-gated beats chain-wide and agent-writable.
-
-    Checks run cheapest-first (AC-3), because this is the hottest hook path in
-    the system -- one fresh subprocess per command tool call:
-      1. empty ``raw`` -> return unchanged.
-      2. parse JSON; non-dict -> return unchanged.
-      3. ``tool_name`` not in ``("PowerShell",)`` -> return unchanged. This is
-         the fast path for every ordinary Bash call, and it touches no
-         filesystem at all -- there is no sentinel stat() left on any path.
-      4. otherwise set ``payload["tool_name"] = "Bash"`` and return
-         ``json.dumps(payload)``.
-    The whole body is wrapped in ``try/except Exception: return raw`` --
-    fail-open is the contract, not a nicety, since this function sits in front
-    of every command tool call in every session sharing the worktree (AC-3).
-    ``session_id`` is no longer read here; a malformed one can no longer
-    suppress the rewrite, which is the one behavioural inversion the flip
-    introduces beyond the default itself.
-
-    RETIREMENT CONDITION (AC-5): this is a placeholder for the engine repo's SSOT
-    command-tool constant, where guards test MEMBERSHIP in a tool set rather
-    than equality with one literal name. Delete this function -- and its call
-    site in ``main()`` -- the moment that constant lands and
-    ``evaluate_payload_json`` (or its dispatcher) consumes it.
-
-    REVIEW TRIGGER -- 2026-11-07, or sooner if the engine repo's constant lands
-    first. A dated trigger rather than a bare "retire me eventually", because
-    the named risk in ratifying this flip was precisely that a placeholder
-    which works well enough never gets retired. If that date passes with the
-    constant still unbuilt, the question to put to the PM is whether to chase
-    the engine repo's conversion or accept this as the permanent seam -- not
-    whether to leave it undecided for another quarter.
-    """
-    try:
-        import json
-
-        if not raw:
-            return raw
-
-        payload = json.loads(raw)
-        if not isinstance(payload, dict):
-            return raw
-
-        if payload.get("tool_name") not in ("PowerShell",):
-            return raw
-
-        payload["tool_name"] = "Bash"
-        return json.dumps(payload)
-    except Exception:
-        return raw
-
-
 # --------------------------------------------------------------------------
 # Fold: guard-doctrine-surface-bash-write.py + guard-repo-setup-claude-home-
 # refusal.py, first-deny-wins, ahead of the engine dispatch below. See module
@@ -284,7 +212,7 @@ _COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
 
 def _extract_command_for_preconditions(raw: str) -> "Tuple[Optional[str], Optional[str]]":
     """Best-effort, side-effect-free ``(tool_name, command)`` extraction from
-    the raw stdin payload -- used ONLY to compute the two folded guards'
+    the raw stdin payload -- used ONLY to compute the folded guards'
     lazy-import preconditions below. Never raises; any parse failure yields
     ``(None, None)``, which simply skips both guards' import -- matching
     what each guard's own ``main()`` would independently decide (fail open)
@@ -448,7 +376,9 @@ def _invoke_bash_guard(main_fn: Callable[[], int], stdin_text: str) -> "Tuple[in
 
 
 def _run_folded_bash_guards(raw: str) -> "Optional[int]":
-    """Runs the two folded guards, first-deny-wins. Returns 2 (already having
+    """Runs the folded guards in `_BASH_GUARD_REGISTRY` order, first-deny-wins.
+    Walks the registry rather than a fixed list, so the count lives in one
+    place. Returns 2 (already having
     written the denying guard's stderr) the moment one denies; returns
     ``None`` once neither denies (or both were skipped/crashed), signalling
     the caller to fall through to the engine dispatch."""
@@ -513,16 +443,17 @@ def main() -> int:
     # confinement guards onto resolved caller-context first.
     raw = sys.stdin.read()
 
-    # Folded guards run on the ORIGINAL payload, before the PowerShell->Bash
-    # rearm below -- both already accept tool_name in ("Bash", "PowerShell")
-    # natively, so rearming first would only be a no-op relabel, not a
-    # behaviour change; keeping them on the untouched payload is the more
-    # conservative choice. First-deny-wins: a 2 here is the whole verdict.
+    # The payload reaches both the folded guards and the engine dispatch with
+    # the tool_name the caller actually used. NEVER normalize it, here or at
+    # any transport layer: the engine's guards read the dialect themselves and
+    # gate their PowerShell conversions on it, so a rewritten tool_name does
+    # not widen coverage, it silently deletes the conversions that depend on
+    # the real value. If a matcher ever needs a normalized form, compute a
+    # LOCAL value for that gate and leave payload["tool_name"] untouched.
+    # First-deny-wins: a 2 here is the whole verdict.
     folded_rc = _run_folded_bash_guards(raw)
     if folded_rc is not None:
         return folded_rc
-
-    raw = _rearm_command_tool_name(raw)
 
     root, resolution_class, provenance = _resolve_engine()
     if not root:

@@ -41,7 +41,7 @@ import sys
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
+from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
 
 def _import_main():
@@ -52,8 +52,16 @@ def _import_main():
     re-deriving it — this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
+
+    LOCATOR axis, not dispatch. `coordinator_core.publish` is one of the engine
+    row's permanent `deny` entries (setup/publish-allowlist-declarations.yaml),
+    so it is absent from every published mirror by construction -- and
+    `require_dispatch_engine_on_path`'s ladder "reaches the published mirror"
+    (its own docstring). Resolving there made the import below unsatisfiable on
+    any box whose dispatch root is the mirror. The colocated ladder's rung 1
+    probes this file's own parents[2], landing in the checkout that carries it.
     """
-    claude_klabauter_root = require_dispatch_engine_on_path()
+    require_colocated_engine_on_path(__file__)
     from coordinator_core.publish.time_transform import main as _op_main
 
     return _op_main

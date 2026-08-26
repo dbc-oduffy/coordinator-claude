@@ -9,6 +9,7 @@ where a divergent vendored schema actually escapes the repo), but until this CLI
 existed nothing on any machine could call it — no generic op-runner lives in
 coordinator/bin/, and DoE's ceremonies invoke claude-klabauter capabilities as concrete
 executables under `coordinator/bin/` (`"${_mkb_bin}/<cli-name>"`).
+shell-doc-ok: that expansion is the generated shell forwarder's own text.
 
 Read-only op (no repo mutation, no params) — dispatched via `cc_invoke.route()`,
 never `route_mutation()` (that helper is for ops whose in-envelope exit_code/failed/

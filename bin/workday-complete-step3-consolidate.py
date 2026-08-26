@@ -317,7 +317,7 @@ def main(argv: list[str]) -> int:
 
     # Step 3.6 — push current branch, via push_outstanding() (C4b, AC8): the
     # canonical primitive the C4-registered `push.outstanding` op wraps for
-    # every cadence surface (coordinator_core.ops.ceremony.push_outstanding).
+    # every cadence surface (coordinator_core.ops.push_outstanding).
     # The plan's own anti-scope forbids new hand-rolled `git push` call
     # sites, so this delegates entirely to `push_outstanding()` rather than
     # re-implementing push-with-retry/branch_gate here the way the prior
@@ -361,7 +361,7 @@ def main(argv: list[str]) -> int:
             push_summary = "ok (force-with-lease, after history rewrite)"
         else:
             _err(f"[step3] pushing to origin/{current_branch} via push_outstanding()...")
-            from coordinator_core.ops.ceremony.push_outstanding import push_outstanding
+            from coordinator_core.ops.push_outstanding import push_outstanding
 
             outcome = push_outstanding(Path(os.getcwd()))
             for note in (

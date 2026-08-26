@@ -61,16 +61,21 @@ def _load_round_module():
     return module
 
 
-_round = _load_round_module()
-
 # The engine root is put on `sys.path` EXPLICITLY here, not inherited from
-# `_load_round_module()` above. That call does happen to leave the engine
+# `_load_round_module()` below. That call does happen to leave the engine
 # reachable — `percolate-round.py` inserts `coordinator/lib` at its own import
 # time — but depending on it made this file's bootstrap an undeclared
 # side effect of a sibling's import order: reorder or slim that sibling and
 # this import dies with `ModuleNotFoundError: coordinator_core` on the
 # published mirror, with nothing here naming the dependency. Declaring it is
 # the same seam ~175 other CLIs under this directory already use.
+#
+# MUST run before `_load_round_module()` executes below: `percolate-round.py`
+# binds `coordinator_core` at ITS OWN module level off a bare self-location
+# `sys.path` insert (no `require_dispatch_engine_on_path()` call of its own,
+# no LOCATOR-axis bootstrap) — once that exec_module() call runs, whatever
+# root it happened to bind wins, and no later `sys.path` insert here can
+# rebind an already-imported package.
 # NOTE `_BIN_DIR / "lib"`, not `_LIB_DIR` — this file's `_LIB_DIR` is
 # `coordinator/lib` (the percolate helpers), while `cc_invoke` lives in
 # `coordinator/bin/lib`. They are different directories.
@@ -80,6 +85,19 @@ if _CC_INVOKE_DIR not in sys.path:
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 require_dispatch_engine_on_path()
+# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+# what BINDS coordinator_core, and binding it HERE is the whole fix.
+# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+# nothing. Without this line the next module-level import below (a binder module
+# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+# the working tree instead of the dispatch root, and no later sys.path insert can
+# rebind an already-imported package. Removing it restores a silent wrong-tree
+# divergence that require_dispatch_engine_on_path now raises on.
+# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+# docs/research/engine-provenance-carrier-dependence.md
+import coordinator_core  # noqa: E402,F401
+
+_round = _load_round_module()
 
 from coordinator_core import publish_lane  # noqa: E402  type: ignore[import-not-found]
 
@@ -379,7 +397,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "mirror",
         help=(
-            "Mirror worktree root (X:/claude-klabauter), its bare name "
+            "Mirror worktree root (the path at machine-local key "
+            "`repos.claude_klabauter`), its bare name "
             "(claude-klabauter), or any registered target name landing in it."
         ),
     )

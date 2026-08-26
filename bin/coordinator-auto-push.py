@@ -30,6 +30,7 @@ does not add its own try/except around the call for that reason.
 
 Performance-path classification: HOT — fires on every `work/*` commit. Chain is
 git -> post-commit hook shim (sh) -> `exec "$_PY" coordinator-auto-push` (exec,
+shell-doc-ok: the quoted line is the installed sh hook's own body.
 no fork, replaces the sh process with python) -> in-process import + call of
 auto_push.main() -> auto_push.py self-detaches internally when async is wanted
 (os.fork() on POSIX / detached Popen respawn on Windows). Do NOT route this

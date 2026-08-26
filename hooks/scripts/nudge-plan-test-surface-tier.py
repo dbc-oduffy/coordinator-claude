@@ -255,10 +255,7 @@ def _classify(text: str) -> "list[Any]":
     rather than imports (that file is not a module other hooks import from;
     every consumer re-does this same seam)."""
     try:
-        from _engine_root import (  # noqa: E402
-            resolve_claude_klabauter_root,
-            place_engine_root_on_path as _place_engine_root_on_path,
-        )
+        from _engine_root import resolve_claude_klabauter_root  # noqa: E402
     except Exception:
         return []
 
@@ -278,11 +275,8 @@ def _classify(text: str) -> "list[Any]":
     # doctrine-plane-local helper. Migrated to append-ordered resolution as part of
     # C2 (see _LATE_INSERT_RATCHET's former entry for this guard in
     # coordinator/tests/test_guard_runner_contract.py).
-    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
-    # outranks site-packages. A bare append put it BEHIND an editable install of the
-    # engine, so the resolver answered the mirror and the import returned the working
-    # tree -- see _engine_root.place_engine_root_on_path.
-    _place_engine_root_on_path(engine_root)
+    if engine_root not in sys.path:
+        sys.path.append(engine_root)
 
     try:
         from coordinator_core.bash_guards.check_test_suite_invocation import (  # noqa: E402

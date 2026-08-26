@@ -88,8 +88,31 @@ from pathlib import Path
 # module.
 try:
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
-    import workday_ceremony_lib as wc  # noqa: E402
+    # Bootstrap on the DISPATCH axis BEFORE `import workday_ceremony_lib`
+    # below: that module binds `coordinator_core` at ITS OWN module level via
+    # the LOCATOR-axis `require_engine_on_path(__file__)` (see its own
+    # bootstrap) — on a conformant box the two axes can return different
+    # roots, and once a package is bound in `sys.modules` no later
+    # `sys.path` insert can rebind it. Must run first, inside this same
+    # try/except: a bootstrap failure here is exactly the class of
+    # import-time failure this crash guard exists to catch (see module
+    # docstring's Stdout/CRASH section).
     from cc_invoke import child_env, require_dispatch_engine_on_path  # noqa: E402
+
+    require_dispatch_engine_on_path()
+    # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+    # what BINDS coordinator_core, and binding it HERE is the whole fix.
+    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+    # nothing. Without this line the next module-level import below (a binder module
+    # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+    # the working tree instead of the dispatch root, and no later sys.path insert can
+    # rebind an already-imported package. Removing it restores a silent wrong-tree
+    # divergence that require_dispatch_engine_on_path now raises on.
+    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    # docs/research/engine-provenance-carrier-dependence.md
+    import coordinator_core  # noqa: E402,F401
+
+    import workday_ceremony_lib as wc  # noqa: E402
 except Exception:
     import traceback
     print("CRASH")

@@ -52,23 +52,13 @@ _HOOKS_DIR = str(Path(__file__).resolve().parent)
 if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 try:
-    from _engine_root import (  # noqa: E402
-        resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
-        place_engine_root_on_path as _place_engine_root_on_path,
-    )
+    from _engine_root import resolve_claude_klabauter_root as _resolve_claude_klabauter_root  # noqa: E402
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
     # sibling _engine_root.py (e.g. an isolated test harness, or a
     # partial deploy) must still fail-open rather than crash on import.
     def _resolve_claude_klabauter_root() -> str | None:
         return None
-
-    def _place_engine_root_on_path(root):
-        # Fallback mirrors the primitive's placement rule: never index 0 when the
-        # hooks dir holds it, never the tail where site-packages outranks us.
-        if root and root not in sys.path[:2]:
-            sys.path.insert(1 if sys.path else 0, root)
-        return root
 
 try:
     import _message_envelope as _envelope  # noqa: E402
@@ -188,11 +178,8 @@ def _resolve_goal_candidates(repo_root: str, text: str) -> list:
     # STOP-FAMILY-RUNNER-CONTRACT clause 8 (sys.path ordering): append,
     # never insert at index 0 -- the hooks dir (inserted at the top of this
     # module) must stay ahead of the sibling engine root on sys.path.
-    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
-    # outranks site-packages. A bare append put it BEHIND an editable install of the
-    # engine, so the resolver answered the mirror and the import returned the working
-    # tree -- see _engine_root.place_engine_root_on_path.
-    _place_engine_root_on_path(root)
+    if root not in sys.path:
+        sys.path.append(root)
 
     try:
         import asyncio

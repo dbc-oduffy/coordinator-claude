@@ -144,7 +144,7 @@ def main(argv: list[str]) -> int:
 
     try:
         text = hook_path.read_text(encoding="utf-8")
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         print(f"{_PROG}: could not read {hook_path}: {exc}", file=sys.stderr)
         return 1
 

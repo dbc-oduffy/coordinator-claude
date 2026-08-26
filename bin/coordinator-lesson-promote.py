@@ -97,6 +97,20 @@ if _LIB_DIR not in sys.path:
 from coordinator_registry import doe_root, _DoeUnresolvable  # noqa: E402
 from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 from cc_invoke import route as _cc_route  # noqa: E402
+
+require_dispatch_engine_on_path()
+# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+# what BINDS coordinator_core, and binding it HERE is the whole fix.
+# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+# nothing. Without this line the next module-level import below (a binder module
+# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+# the working tree instead of the dispatch root, and no later sys.path insert can
+# rebind an already-imported package. Removing it restores a silent wrong-tree
+# divergence that require_dispatch_engine_on_path now raises on.
+# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+# docs/research/engine-provenance-carrier-dependence.md
+import coordinator_core  # noqa: E402,F401
+
 import cli_shared  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 from target_wiki_canon import (  # noqa: E402

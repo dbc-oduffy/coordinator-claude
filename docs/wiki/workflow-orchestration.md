@@ -97,7 +97,7 @@ under plain `Agent` each received their own declaration minus platform variance 
 holds there, and Bash arrives unconfined. So the rewrite is a property of this vehicle, and a
 chunk that needs its declared surface intact is a reason to prefer plain dispatch. Carried over
 from plain `Agent` and therefore not vehicle-specific: `ToolSearch` and declared MCP tools are not
-received on either path (rule 3 of the dispatch-delivery decision).
+received on either path (DR-168, rule 3).
 
 ---
 

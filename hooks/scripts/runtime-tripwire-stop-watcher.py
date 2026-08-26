@@ -148,6 +148,14 @@ except Exception:
     def resolve_wiki_citation(text: str) -> str:
         return text
 
+try:
+    from _session_hub import session_id_is_real  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
+    # still fail open to the pre-gate behaviour, not crash on import.
+    def session_id_is_real(session_id: object) -> bool:
+        return bool(session_id)
+
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # Windows CreateProcess flags (no-op values on POSIX; only used when os.name == "nt").
@@ -391,6 +399,13 @@ def _main_impl() -> int:
     if not session_id:
         session_id = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
     if not session_id:
+        return 0
+    # The PID lock, the dispatch file, and every sentinel below live under
+    # `<hub>/<session_id>/`. A session id the hub gate will not accept has no
+    # lock to take and must not mint a directory trying (see `_session_hub`),
+    # so the watcher stands down the same way a live lock-holder makes it
+    # stand down -- silent, never launched.
+    if not session_id_is_real(session_id):
         return 0
 
     # --- Step 4: Per-session PID lock ---

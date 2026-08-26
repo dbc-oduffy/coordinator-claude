@@ -67,6 +67,20 @@ if _HOOKS_DIR not in sys.path:
     sys.path.insert(0, _HOOKS_DIR)
 
 from _message_envelope import CHANNEL_ADDITIONAL_CONTEXT, compose, emit  # noqa: E402
+try:
+    from _session_hub import session_id_is_real, ensure_session_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
+    # still fail open to the pre-gate behaviour, not crash on import.
+    def session_id_is_real(session_id: object) -> bool:
+        return bool(session_id)
+
+    def ensure_session_dir(session_dir: "str | os.PathLike[str]", session_id: object) -> bool:
+        try:
+            os.makedirs(os.fspath(session_dir), exist_ok=True)
+        except (OSError, TypeError, ValueError):
+            return False
+        return True
 
 # Two agent types the harness itself exempts from the CLAUDE.md corpus --
 # offering "use Explore" to a dispatch that IS Explore/Plan is meaningless,
@@ -269,7 +283,17 @@ def _claim_offer_marker(cwd: str, session_id: str) -> bool:
         if not common_dir:
             return True
         session_dir = os.path.join(common_dir, "coordinator-sessions", session_id)
-        os.makedirs(session_dir, exist_ok=True)
+        # A session id the hub gate will not accept gets no directory minted
+        # for its marker (see `_session_hub`), which leaves dedup impossible
+        # -- the same state an unresolvable marker path above lands in, and
+        # it takes the same fail-open-toward-offering exit.
+        if not session_id_is_real(session_id):
+            return True
+        # Review: coordinatorcode-reviewer -- creation call site now routes
+        # through the shared gate itself (`ensure_session_dir`), not just the
+        # upstream guard above; a False here is the same fail-open-toward-
+        # offering exit as the guard and the outer `except Exception` below.
+        ensure_session_dir(session_dir, session_id)
         marker = os.path.join(session_dir, _MARKER_NAME)
         try:
             fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY)

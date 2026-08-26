@@ -192,6 +192,12 @@ def main(_argv: "list[str] | None" = None) -> int:
     from coordinator_core.ops.fleet._common import archive_and_commit, main_worktree_root
     from coordinator_core.git.repo_root import git_common_dir
 
+    # `plan_sweep` is now SYNCHRONOUS (C2, docs/plans/2026-08-26-the-sweep-
+    # stops-paying-for-a-room-it-nev.md); `archive_and_commit` (a separate,
+    # out-of-scope module under active rewrite elsewhere -- staff-eng
+    # Finding 9) remains a coroutine, so `asyncio` stays imported here for
+    # the single `asyncio.run(...)` boundary that still drives it below.
+
     try:
         common_dir = Path(git_common_dir(cwd=str(repo_root)))
     except Exception as exc:
@@ -202,7 +208,7 @@ def main(_argv: "list[str] | None" = None) -> int:
 
     async def _sweep() -> dict:
         scan_skipped: "list[dict]" = []
-        moves, skipped = await plan_sweep(
+        moves, skipped = plan_sweep(
             worktree_root, common_dir, _CAP, scan_skipped=scan_skipped,
         )
         if not moves:

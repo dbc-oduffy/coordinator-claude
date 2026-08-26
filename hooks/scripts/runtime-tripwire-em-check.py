@@ -261,6 +261,26 @@ import threading
 import time
 from pathlib import Path
 
+# Review: coordinatorcode-reviewer -- _session_hub import moved above the
+# charset-guard/_ensure_session_cursor_dir block (below) so the wrapper is
+# never a forward reference to a name bound ~100 lines later; safe today
+# either way (both call sites fire well after module load) but this ordering
+# reads correctly on a skim too.
+_HOOKS_DIR = str(Path(__file__).resolve().parent)
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from _session_hub import ensure_session_dir as _ensure_session_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _session_hub.py must
+    # still fail open to the pre-gate behaviour, not crash on import.
+    def _ensure_session_dir(session_dir: str, session_id: object) -> bool:
+        try:
+            os.makedirs(session_dir, exist_ok=True)
+        except OSError:
+            return False
+        return True
+
 # ---------------------------------------------------------------------------
 # _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED -- PM ruling, 2026-07-31: reversible
 # stand-down of the EM-side subagent-overrun nudge (the dispatch-tracking
@@ -308,6 +328,36 @@ if os.environ.get("_COORDINATOR_TEST_FORCE_SUBAGENT_OVERRUN_TRIPWIRE") == "1":
 # from this is neutralized to empty / skipped, never used in path construction.
 # ---------------------------------------------------------------------------
 _ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_@-]+$")
+
+# ---------------------------------------------------------------------------
+# Session-hub creation gate. `_ID_CHARSET_RE` above is a path-traversal guard
+# and nothing more -- it admits `hookperf-3ee8b3f4a1d1`, `probe`, `test-sid`
+# and every other synthetic id a benchmark or probe hands a hook. This hook's
+# two per-session cursors used to create `<git common dir>/
+# coordinator-sessions/<id>/` unconditionally, so any invocation driven with a
+# made-up session id materialised a hub directory that no registrar ever
+# claimed and no reaper will ever collect. 176 such directories accumulated in
+# this repo's hub, none carrying `meta.json` -- the creator here is not the
+# thing that writes session metadata, which is why they are indistinguishable
+# from litter by inspection.
+#
+# The shape gate, its uuid4 rationale, and the reason an existence gate is the
+# wrong instrument all live in `_session_hub`, which the other hub-directory
+# creators in this tree share. This hook keeps its own named wrapper because
+# both call sites read as cursor writes, not directory creation.
+# ---------------------------------------------------------------------------
+
+
+def _ensure_session_cursor_dir(cursor_dir: str, session_id: str) -> bool:
+    """Create this session's hub directory for a per-session cursor write.
+
+    Returns True when `cursor_dir` exists and is safe to write a cursor into,
+    False when the caller must skip its cursor write entirely -- the callers'
+    baseline writes are fail-open paths, so a refusal is a silent no-op, never
+    a broken tool call.
+    """
+    return _ensure_session_dir(cursor_dir, session_id)
+
 
 # AUTO-PUSH-MID-SESSION-DETECT: matches only a genuine, exhausted-retry
 # failure row written by auto_push.py's `log_failure()` -- `[<ts>] PUSH
@@ -391,14 +441,10 @@ def _runtime_threshold_minutes(model: str) -> int:
     return opus_default
 
 
-_HOOKS_DIR = str(Path(__file__).resolve().parent)
-if _HOOKS_DIR not in sys.path:
-    sys.path.insert(0, _HOOKS_DIR)
 try:
     from _engine_root import (  # noqa: E402
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
         arm_lazy_ops as _arm_lazy_ops,
-        warn_on_engine_import_divergence as _warn_engine_divergence,
     )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
@@ -409,9 +455,6 @@ except Exception:
 
     def _arm_lazy_ops() -> None:
         return None
-
-    def _warn_engine_divergence(where: str) -> str:
-        return "unresolved"
 try:
     from _message_envelope import resolve_wiki_citation  # noqa: E402
 except Exception:
@@ -1017,8 +1060,9 @@ def _check_hooks_json_staleness(git_root: str, session_id: str, common_dir: str)
         # First check this session -- record this session's own boot-time
         # baseline. Never alarms here: a session's own snapshot cannot be
         # stale relative to itself.
+        if not _ensure_session_cursor_dir(cursor_dir, session_id):
+            return None
         try:
-            os.makedirs(cursor_dir, exist_ok=True)
             with open(cursor_path, "w", encoding="utf-8") as fh:
                 fh.write(current_hash)
         except Exception:
@@ -1165,8 +1209,9 @@ def _check_push_failures(git_root: str, session_id: str) -> str | None:
     if baseline is None:
         # First check this session -- establish baseline, no alarm (the log
         # is append-only historic state, not session-scoped).
+        if not _ensure_session_cursor_dir(cursor_dir, session_id):
+            return None
         try:
-            os.makedirs(cursor_dir, exist_ok=True)
             with open(cursor_path, "w", encoding="utf-8") as fh:
                 fh.write(str(log_size))
         except Exception:
@@ -1897,14 +1942,6 @@ def _mint_session_baton(
 
         _arm_lazy_ops()  # sys attribute, in-process only -- see comment block above
         from coordinator_core.ops.session_baton_mint import _handler
-
-        # The insert above states an intent; this checks whether it took. It is
-        # defeated whenever something earlier in THIS process did a bare
-        # `import coordinator_core` -- on a box carrying an editable install of
-        # the engine, that binds the module cache to the engine's WORKING TREE
-        # and every later insert is a no-op. Once per session, stderr only,
-        # never raises: see `_engine_root.warn_on_engine_import_divergence`.
-        _warn_engine_divergence("session-baton-mint")
 
         params: dict = {"session_id": session_id, "cwd": git_root}
         if isinstance(prompt, str):

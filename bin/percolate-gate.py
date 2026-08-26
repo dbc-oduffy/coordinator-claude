@@ -604,6 +604,17 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
 
 _PATHSPEC_BATCH_BUDGET = 6000
 
+# Both `git` calls below were unbounded, and the only thing stopping a hung
+# one from hanging a whole percolate round was the round driver's own
+# `_run(timeout=...)` around the process this file used to be spawned as.
+# `percolate-round.py` now calls these handlers in-process (one interpreter
+# for the round, not one per step), so that outer bound is gone and the bound
+# has to live where the spawn does. Sized at 60s against
+# `percolate-round.py :: _ROUND_SCAN_LEG_TIMEOUT_SECS`, the round's own budget
+# for this leg: a `git log` over a few hundred pathspecs is sub-second, so 60s
+# is a hang detector, never a work budget.
+_GIT_LEG_TIMEOUT_SECS = 60.0
+
 
 def _resolve_target_source_dir(percolate_root: Path, target: str) -> Optional[Path]:
     """Resolve a target's source dir the same way ``branch0-gate`` does.
@@ -669,7 +680,9 @@ def _git_log_batched(
     by_sha: dict = {}
     for batch in batches:
         cmd = log_cmd_base + revision_args + ["--"] + batch
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=_GIT_LEG_TIMEOUT_SECS
+        )
         if result.returncode != 0:
             # A destination with no commits yet is a legitimate "no history,
             # so no drift" — not the swallowed-error class this raise exists
@@ -808,6 +821,7 @@ def _cmd_inverse_drift(args: argparse.Namespace) -> int:
             ["git", "-C", str(dest), "rev-parse", "--verify", since_ref],
             capture_output=True,
             text=True,
+            timeout=_GIT_LEG_TIMEOUT_SECS,
         )
         if verify.returncode != 0:
             anchor_mode = "marker-stale"

@@ -81,11 +81,17 @@ import sys
 from typing import List, Optional
 
 
-def _resolve_claude_klabauter_root() -> str:
-    """Delegate to cc_invoke's battle-tested engine-root resolution ladder
-    (env var -> settings-home pointer file -> machine-local registry ->
-    coordinator_core.engine_root) rather than re-deriving it — mirrors
-    coordinator-is-meta-repo.py's _resolve_claude_klabauter_root().
+def _cc_invoke():
+    """Put `coordinator/bin/lib` on `sys.path` and hand back `cc_invoke`.
+
+    Extracted because both callers below need a name out of that module and
+    only one of them used to do the path setup: `require_dispatch_engine_on_path`
+    was imported into `_resolve_claude_klabauter_root`'s LOCAL scope and then referenced
+    from `_import_state_root`, a different function, so every call raised
+    `NameError` and this CLI could not resolve a state root at all. The
+    failure is silent at the callers that treat it as best-effort --
+    `percolate-round.py :: _resolve_central_state` maps a non-zero exit to
+    `None` and drops the peer-repo-name scan leg without saying so.
     """
     _this_dir = os.path.dirname(os.path.abspath(__file__))
     # lib/ -> coordinator/ -> coordinator/bin/lib/
@@ -93,9 +99,18 @@ def _resolve_claude_klabauter_root() -> str:
     _bin_lib_dir = os.path.join(_coordinator_root, "bin", "lib")
     if _bin_lib_dir not in sys.path:
         sys.path.insert(0, _bin_lib_dir)
-    from cc_invoke import _resolve_claude_klabauter_root as _resolve, require_dispatch_engine_on_path  # noqa: E402
+    import cc_invoke  # noqa: PLC0415 - path must be set first
 
-    return _resolve()
+    return cc_invoke
+
+
+def _resolve_claude_klabauter_root() -> str:
+    """Delegate to cc_invoke's battle-tested engine-root resolution ladder
+    (env var -> settings-home pointer file -> machine-local registry ->
+    coordinator_core.engine_root) rather than re-deriving it — mirrors
+    coordinator-is-meta-repo.py's _resolve_claude_klabauter_root().
+    """
+    return _cc_invoke()._resolve_claude_klabauter_root()
 
 
 def _import_state_root():
@@ -106,7 +121,7 @@ def _import_state_root():
     failures the CLI maps to exit code 1, distinct from the module's own
     StateRootError/CrossCuttingStateRoot business-logic failures.
     """
-    claude_klabauter_root = require_dispatch_engine_on_path()
+    claude_klabauter_root = _cc_invoke().require_dispatch_engine_on_path()
     from coordinator_core.state_root import (  # noqa: E402
         CrossCuttingStateRoot as _CrossCuttingStateRoot,
         StateRootError as _StateRootError,

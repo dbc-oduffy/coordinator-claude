@@ -175,6 +175,31 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
 if _LIB_DIR not in sys.path:
     sys.path.insert(0, _LIB_DIR)
+
+# Bootstrap on the DISPATCH axis before anything below can bind
+# `coordinator_core` on the LOCATOR axis first. `cli_shared` (imported
+# below) transitively imports `repo_identity`, which resolves and imports
+# `coordinator_core` at ITS OWN module level via the LOCATOR-axis
+# `require_engine_on_path(__file__)` — on a conformant box the two axes can
+# return different roots (see `require_dispatch_engine_on_path`'s own
+# docstring), and once a package is bound in `sys.modules` no later
+# `sys.path` insert can rebind it. Must run before `import cli_shared` /
+# `from coordinator_registry import ...` below.
+from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
+
+_CLAUDE_KLABAUTER_ROOT = require_dispatch_engine_on_path()
+# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+# what BINDS coordinator_core, and binding it HERE is the whole fix.
+# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+# nothing. Without this line the next module-level import below (a binder module
+# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+# the working tree instead of the dispatch root, and no later sys.path insert can
+# rebind an already-imported package. Removing it restores a silent wrong-tree
+# divergence that require_dispatch_engine_on_path now raises on.
+# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+# docs/research/engine-provenance-carrier-dependence.md
+import coordinator_core  # noqa: E402,F401
+
 from coordinator_registry import doe_root, _DoeUnresolvable  # noqa: E402
 
 # cli_shared.claude_klabauter_root() resolves repos.claude_klabauter (CLAUDE_KLABAUTER_ROOT env ->
@@ -217,16 +242,9 @@ from _queue_append_locator import find_cli_cmd  # noqa: E402
 # on the plan's approved `defer` grouping rather than each row's pm_approved
 # boolean — see `_select_harvest_candidates`.
 #
-# Resolved through cc_invoke's `_resolve_claude_klabauter_root` ladder before the
-# import, matching `close-out-and-stamp` and the other bin/ trampolines: this
-# script runs as a standalone executable, so `coordinator_core` is not on
-# sys.path by the time module-level imports run. Importing it directly
-# without this breaks EVERY invocation of the CLI, not just the governed
-# path — which is exactly how the test suite caught it.
-from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
-
-_CLAUDE_KLABAUTER_ROOT = require_dispatch_engine_on_path()
-
+# `coordinator_core` is already bound on the dispatch axis by the bootstrap
+# above (moved ahead of `cli_shared`/`coordinator_registry` — see the comment
+# there); this import just reaches into the now-established package.
 from coordinator_core.frontmatter.schema_validate import (  # noqa: E402
     compute_grouping_digest,
     is_governed_plan,
