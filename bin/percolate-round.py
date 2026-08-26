@@ -172,7 +172,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
@@ -729,35 +729,43 @@ def _read_fresh_round_manifest(
 
 
 _REMOVAL_SIDE_ENABLED = False
-"""The HEAD-minus-declared-payload removal side stays OFF until AC1b proves
-`declared_payload` equals the row's full payload (docs/plans/2026-08-26-a-
-refused-round-strands-its-payload-forever.md § HARD CONSTRAINT).
+"""The removal side stays OFF. Both operands the earlier gate named as
+mis-scoped are now fixed in-process (§ C1, docs/dispatch-briefs/2026-08-26-
+open-the-percolate-removal-side-without-65ff4e/C1.md, superseding docs/plans/
+2026-08-26-a-refused-round-strands-its-payload-forever.md) -- this flag
+still stays False because flipping it is an external, irreversible action on
+two mirrors this repo does not own (`coordinator-claude` --
+claude-central-em; `claude-klabauter`), which needs their assent by memo
+first, not because the derivation is still known-wrong.
 
-Why this is a gate and not a flag anyone may flip: the removal rule is
-`head_tree - declared_payload`, and BOTH operands are wider/narrower than
-the rule assumes.
+What now holds: the removal rule is `(head_tree ∩ row_scope) -
+declared_payload` (§ `_pathspec_from_manifest`), not the bare `head_tree -
+declared_payload` this docstring used to describe.
 
-`head_tree` is every path dest HEAD tracks across the WHOLE mirror -- 8643
-paths spanning all nine `claude-klabauter*` rows -- while `declared_payload`
-carries only the rows this run actually processed. A `--target`-filtered
-round, or any row `--delta` proved unchanged and skipped, therefore
-contributes nothing to `declared_payload` while its files stay in
-`head_tree`: the difference marks the entire rest of the mirror for
-deletion.
+`row_scope` fixes the width problem. `manifest.published_dest_dirs` (§
+`RoundManifest`'s fourth set) names the dest-relative directories THIS run
+actually published into; the removal side only ever considers `head_tree`
+paths beneath one of those directories, so a `--target`-filtered round or a
+`--delta`-skipped row's untouched files -- previously the entire rest of the
+mirror -- can no longer be marked for deletion by construction, not by
+scoping discipline at the call site.
 
-`declared_payload` is itself narrower than the payload. C1 sources it from
-`end_of_run_visited_by_repo_root`, fed by the post_rsync/inject sweeps,
-which walk the percolation SURFACE (`surface.iter_surface_files`, which
-takes `include_extensions`/`narrow_to_include_extensions`) -- publish.py's
-own comment calls it "what was SCANNED, not what was PUBLISHED". A binary
-or any non-transform-eligible payload file is tracked at HEAD, absent from
-the declared set, and reads as "no row declares this".
+`declared_payload` fixes the narrowness problem. It no longer stops at
+`end_of_run_visited_by_repo_root` (the percolation-surface SCAN,
+`surface.iter_surface_files`'s `include_extensions`-eligible paths only) --
+publish.py's manifest-write block now widens it, within `published_dest_
+dirs` and only there, by enumerating every path already on disk under those
+directories directly (`os.walk`-class path enumeration, no content read).
+Binary and other non-transform-eligible payload files (`door.exe`'s shape)
+are named in `declared_payload` even though the surface walk never visited
+them.
 
-Either operand alone turns this side from a fix into data loss, which is
-strictly worse than the stranding the plan exists to fix. The add/modify
-side is unaffected and ships now -- `git add` on an unchanged path is a
-no-op, never data loss. Turning this on requires the AC1b measurement AND a
-repo-root/row scoping of `head_tree`, not a one-line flip."""
+What still gates this flag: nothing left to derive -- the next step is a
+memo to the two mirrors' owners proposing the flip, evidenced by the
+zero-live-on-disk-count measurement C1's dispatch brief requires before that
+memo may be written. Do not re-derive today's measurement from scratch;
+read it off the manifests already on disk (`.percolate/round-manifest.json`
+under each mirror) instead."""
 
 
 def _dest_head_tree(repo_root: str) -> set:
@@ -854,9 +862,100 @@ def _pathspec_from_manifest(manifest: _RoundManifest, repo_root: str) -> List[st
         if rel not in head_tree or rel in diff_names:
             seen.setdefault(str(repo_root_path / rel), ("NEW", rel))
     if _REMOVAL_SIDE_ENABLED:
-        for rel in sorted(head_tree - manifest.declared_payload):
+        # § AC3, docs/dispatch-briefs/2026-08-26-open-the-percolate-removal-
+        # side-without-65ff4e/C1.md -- the removal rule is `(head_tree ∩
+        # row_scope) - declared_payload`, never a bare `head_tree -
+        # declared_payload`. `row_scope` is `manifest.published_dest_dirs`
+        # expanded to every dest-HEAD path beneath one of those directories
+        # -- a `--target`-excluded sibling row or an untouched rest-of-mirror
+        # path is in `head_tree` but never in `row_scope`, so it cannot be
+        # named for removal no matter what `declared_payload` does or does
+        # not contain. An empty `published_dest_dirs` (an old manifest with
+        # no fourth set, or a round that published nothing) yields an empty
+        # `row_scope` and therefore an empty removal set, always -- no probe,
+        # no extra spawn, filtering the same `head_tree` `_dest_head_tree`
+        # already read with one `ls-tree` call.
+        # A row whose `dest_dir` IS the mirror root renders through `rel_id`
+        # as "." (`Path.relative_to` of a path against itself), and the
+        # flat-mirror rows this system publishes are exactly that shape (§
+        # `publish.py`'s manifest-write block: "A flat-mirror row's `dest_dir`
+        # IS the mirror root -- `LICENSE` and `.gitignore` sit in
+        # `declared_payload` today"). A prefix test alone reads "." as a
+        # directory NAMED `.` and matches no dest-HEAD path at all, so the
+        # removal side would silently fire on nothing for precisely the
+        # mirrors it was built for -- the failure looks like a clean round,
+        # never like a mis-scope. Root entries scope to the whole tree, which
+        # is what publishing into the root means; `""` is accepted alongside
+        # "." so a manifest written by any other root-relative renderer reads
+        # the same.
+        row_scope_dirs = manifest.published_dest_dirs
+        scopes_whole_tree = any(d in (".", "") for d in row_scope_dirs)
+        row_scope = {
+            rel
+            for rel in head_tree
+            if scopes_whole_tree
+            or any(rel == d or rel.startswith(d + "/") for d in row_scope_dirs)
+        }
+        removal_candidates = sorted(row_scope - manifest.declared_payload)
+        _refuse_removals_present_on_disk(repo_root_path, removal_candidates)
+        for rel in removal_candidates:
             seen.setdefault(str(repo_root_path / rel), ("REMOVE", rel))
     return _filter_commit_pathspec(repo_root_path, repo_root_norm, seen, repo_root=repo_root)
+
+
+class RemovalCandidateOnDiskError(RuntimeError):
+    """A path the removal side named for deletion still exists at dest.
+
+    Raised BEFORE any pathspec is built, so nothing is committed on this path
+    -- same fail-closed ordering as `RoundVerifyFailure` and
+    `RoundIdentityLeakError`.
+    """
+
+
+def _refuse_removals_present_on_disk(dest_root: Path, candidates: Sequence[str]) -> None:
+    """AC6 -- the removal side may not delete a path that exists on disk.
+
+    Added as a CONDITION OF ASSENT by claude-central-em (2026-08-26), in their
+    words "in the code, not in the procedure", before the removal side may be
+    opened against a mirror this repo does not own.
+
+    Why this exists on top of AC2. AC2 fixes the CAUSE of the known
+    false-positive class: `declared_payload` sourced from the percolation SCAN
+    surface misses a published-but-never-scanned file, which then reads as
+    "no row declares this". Two members are known --
+    `.github/scripts/check-persona-names.py` (both mirrors; deliberately
+    excluded from the transform sweep so the release-CI checker never scrubs
+    itself) and `coordinator_core/warm/door/door.exe` (a binary in a declared
+    directory). A measured `live-undeclared == 0` is a snapshot of that class
+    at one moment; the next member is a file nobody has written yet. AC2 fixes
+    the cause, this catches the recurrence.
+
+    LOUD, NEVER SILENT. A candidate that survives `(head_tree ∩ row_scope) -
+    declared_payload` and is STILL on disk means the operands are wrong again
+    -- that is a defect report, not a path to quietly drop from the set. A
+    silent-skip version would have hidden both known witnesses rather than
+    surfacing them, which is how the mis-scope stays invisible until it
+    deletes something that mattered.
+
+    The shaping consequence, which is the point rather than a side effect:
+    with this invariant in place the pre-flight dry run is a CHECK, not a
+    load-bearing gate. An irreversible rule against a public mirror should not
+    depend on a human having run the right measurement at the right moment.
+    """
+    present = [rel for rel in candidates if (dest_root / rel).exists()]
+    if not present:
+        return
+    shown = present[:20]
+    more = len(present) - len(shown)
+    raise RemovalCandidateOnDiskError(
+        f"percolate-round: removal side named {len(present)} path(s) that still "
+        f"exist at {dest_root} -- refusing to delete any of them.\n"
+        "    A removal candidate present on disk means the operands are wrong: it "
+        "is published payload the declaration failed to name, not an orphan at "
+        "HEAD. Widen `declared_payload` (AC2) rather than deleting the file.\n"
+        + "".join(f"    ! {rel}\n" for rel in shown)
+        + (f"    ... and {more} more\n" if more else "")
+    )
 
 
 def _filter_commit_pathspec(

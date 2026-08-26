@@ -814,18 +814,70 @@ def _resolve_deliverable_id(git_dir: str, session_id: str, paths: "list | None" 
     return _resolve_deliverable_id_from_claimed_plan()
 
 
+_TRAILER_LINE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*:\s")
+_TRAILER_CONT_RE = re.compile(r"^\s")
+
+
+def _extract_trailer_block(text: str) -> list:
+    """Return the lines of ``text``'s trailing trailer block, or ``[]`` when
+    the message carries none — the hand-mirrored twin of
+    ``coordinator_core.git.commit_trailers._extract_trailer_block`` (module
+    docstring, "changed in both by hand"). git's trailer block is the LAST
+    paragraph of the message, and only counts as one when every line in it is
+    a ``Token: value`` line or a continuation line (leading whitespace)."""
+    lines = text.splitlines()
+    while lines and lines[-1].strip() == "":
+        lines.pop()
+    if not lines:
+        return []
+
+    start = None
+    for i in range(len(lines) - 1, -1, -1):
+        if lines[i].strip() == "":
+            start = i + 1
+            break
+    if start is None:
+        # No blank line anywhere: the whole message is one paragraph, which
+        # git reads as the SUBJECT, never as a trailer block -- verified
+        # against `git interpret-trailers --parse`, which returns nothing for
+        # both "Deliverable-Id: x" alone and "subj\nDeliverable-Id: x".
+        # Reporting a trailer here would re-open the very suppression this
+        # block-awareness exists to close.
+        return []
+
+    block = lines[start:]
+    if not block:
+        return []
+    for line in block:
+        if not (_TRAILER_LINE_RE.match(line) or _TRAILER_CONT_RE.match(line)):
+            return []
+    return block
+
+
 def _has_trailer_line(commit_msg_file: str, prefix: str) -> bool:
-    """Return True iff ``commit_msg_file`` already contains a line starting
-    with ``prefix`` (e.g. ``"Session-Id:"``). Any read failure is treated as
+    """Return True iff ``commit_msg_file``'s TRAILER BLOCK (see
+    ``_extract_trailer_block``) already carries a line starting with
+    ``prefix`` (e.g. ``"Session-Id:"``) — NOT merely a line starting with
+    ``prefix`` anywhere in the message. A hand-written ``Deliverable-Id:``
+    sitting in the message BODY, above a real trailing block, is prose git's
+    own parser never reads as a trailer; treating it as present suppressed
+    the one emission path (``git interpret-trailers``, below) that would have
+    placed a parseable trailer in the block, so the more carefully an author
+    hand-wrote the line the more reliably the commit landed unjoinable.
+    Spec: cross-repo/inbox/2026-08-26-project-rag-em-chunk-trailer-
+    misplacement-defeats-presence-check.md. Any read failure is treated as
     "not present" — the caller's outer try/except around the whole flow
-    already guarantees exit 0 regardless."""
+    already guarantees exit 0 regardless. Spawn-free by construction: this
+    hook is on the hot commit path and may not add an ``interpret-trailers
+    --parse`` round trip to ask what a dozen lines of regex can answer."""
     try:
         with open(commit_msg_file, encoding="utf-8") as fh:
-            for line in fh:
-                if line.startswith(prefix):
-                    return True
+            text = fh.read()
     except Exception:
         return False
+    for line in _extract_trailer_block(text):
+        if line.startswith(prefix):
+            return True
     return False
 
 

@@ -11,14 +11,25 @@ hand-run the old snapshot-rollback runbook** for anything this command covers.
 
 ## Backing script
 
-No settings-home forwarder for this script — resolve the engine root yourself: `REPO_CLAUDE_KLABAUTER`
-env override (repo-identity, stays first), then the engine-root rung — `COORDINATOR_ENGINE_ROOT`
-(the name is not
-permanent; the dual-read window closes onto a single rung)
-— then (rung 0 / Shape W, PowerShell hosts)
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter`.
-None resolving to an existing directory: stop, report "engine root unresolved — set
-REPO_CLAUDE_KLABAUTER, or run: `machine-local set repos.claude_klabauter <path>`".
+No settings-home forwarder for this script — resolve the engine root with the ratified resolver.
+Never hand-roll a precedence chain here: a second copy of the ladder is a second thing to drift.
+
+```
+"${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py"
+```
+
+- PowerShell hosts: `& $env:COORDINATOR_PYTHON "$env:CLAUDE_PLUGIN_ROOT\hooks\scripts\_engine_root.py"`
+  (`python3` when unset).
+
+It prints the resolved root on stdout and owns the whole ladder: the live-tree env overrides
+first (the manual test-and-execute carve-out), then the published engine mirror — which is the
+ordinary answer on a healthy box. **The engine root is the published mirror, not an authoring
+checkout**; an authoring tree moves under concurrent sessions, so resolving against one makes the
+engine a moving target.
+
+Empty output: stop, report "engine root unresolved" — never guess a path. (The resolver
+prints an empty line on a total miss rather than failing, so empty output IS the miss
+signal; do not wait for a non-zero exit it does not produce.)
 
 Python interpreter: `COORDINATOR_PYTHON` env override, else `python3`.
 
@@ -125,9 +136,11 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     since install.
 28. **Step Zero environment normalization** — CANNOT-REVERSE-SAFELY. `normalize-env.py` installs
     toolchains (uv, Python) and sets global `git config core.longpaths` that the operator's other
-    work may now depend on; nothing here removes them. The one file leg it backs up is reversed
-    manually with `normalize-env.py --restore <backup-file>` — the backup path is printed at
-    install time.
+    work may now depend on; nothing here removes them. It writes TWO backup shapes and
+    `normalize-env.py --restore <backup-file>` treats them differently: the `.bash_profile.coordinator-backup.<ts>`
+    leg is copied back automatically, while the `.coordinator-env-backup.<ts>` PATH/pymanager leg
+    only PRINTS the commands to run in your parent shell — you still execute those by hand.
+    Both backup paths are printed at install time.
 
 ## Uninstall boundary
 
