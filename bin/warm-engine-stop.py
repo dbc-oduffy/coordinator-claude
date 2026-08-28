@@ -98,11 +98,64 @@ from pathlib import Path
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
 
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
-from coordinator_core.warm import breadcrumb  # noqa: E402
-from coordinator_core.session.core import stable_pid_alive  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+_BOOTSTRAPPED_NAMES = ("breadcrumb", "stable_pid_alive")
+
+
+def _bootstrap_engine() -> None:
+    """Put `_REPO_ROOT` on `sys.path` -- idempotent, safe to call more than
+    once.
+
+    What moved and what did not: this mutation used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm
+    server ~50 sessions share. Only the trigger moved; the value inserted is
+    byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+
+    from coordinator_core.warm import breadcrumb
+    from coordinator_core.session.core import stable_pid_alive
+
+    _resolved = locals()
+    for _name in _BOOTSTRAPPED_NAMES:
+        if _name not in globals() and _name in _resolved:
+            globals()[_name] = _resolved[_name]
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook for `breadcrumb` / `stable_pid_alive`.
+
+    `test_breadcrumb_and_spawn.py` monkeypatches `stop_mod.breadcrumb` and
+    `stop_mod.stable_pid_alive` WITHOUT calling `main()` first, so deferring
+    those imports into `main()` as plain locals -- which is what the sweep did
+    -- left them absent from the module and broke five tests with
+    `AttributeError: module has no attribute 'breadcrumb'`. Routing them
+    through the bootstrap restores the module attribute while keeping the
+    module body inert.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _EXIT_OK = 0
 _EXIT_NO_BREADCRUMB = 2
@@ -259,6 +312,7 @@ def _terminate_pid(pid: int, *, psutil_module=None) -> bool:
 
 
 def main(argv=None) -> int:
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(
         description=(
             "Stop the warm engine server for the clone this script lives in. "

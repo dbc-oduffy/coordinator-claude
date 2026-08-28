@@ -33,26 +33,32 @@ import sys
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _QUEUE_APPEND = os.path.join(_THIS_DIR, "coordinator-queue-append.py")
 
-_LIB_DIR = os.path.join(_THIS_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-from machine_local_impl_resolve import (  # noqa: E402
-    claude_home as _mlir_claude_home,
-    machine_local_impl_path as _mlir_machine_local_impl_path,
-)
-from cc_invoke import require_engine_on_path  # noqa: E402
+def _bootstrap_imports() -> None:
+    """Bind every non-stdlib dependency at module scope, called from main()
+    so module import stays inert (C6d import-motion).
 
-# The engine root must be on sys.path before `_git_root`'s `coordinator_core`
-# import: this file is also published into the claude-klabauter mirror, where
-# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
-# this bin/ directory, not the checkout root. Without this the import resolves
-# nothing and every invocation dies inside the dedup pre-check — the failure is
-# on the critical path here, so the CLI is unusable rather than degraded. Same
-# bootstrap as coordinator/bin/record-platform-outcome (5850fb170).
-require_engine_on_path(__file__)
+    The engine root must be on sys.path before `_git_root`'s `coordinator_core`
+    import: this file is also published into the claude-klabauter mirror, where
+    coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+    this bin/ directory, not the checkout root. Without this the import resolves
+    nothing and every invocation dies inside the dedup pre-check — the failure is
+    on the critical path here, so the CLI is unusable rather than degraded. Same
+    bootstrap as coordinator/bin/record-platform-outcome (5850fb170).
+    """
+    global _mlir_claude_home, _mlir_machine_local_impl_path, coordinator_engine_root_env
 
-from coordinator_core.engine_root import coordinator_engine_root_env  # noqa: E402
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from machine_local_impl_resolve import (
+        claude_home as _mlir_claude_home,
+        machine_local_impl_path as _mlir_machine_local_impl_path,
+    )
+    from cc_invoke import require_engine_on_path
+
+    require_engine_on_path(__file__)
+
+    from coordinator_core.engine_root import coordinator_engine_root_env
+
 
 # Mirrors coordinator-queue-append._QUEUE_APPEND_OUTPUT_ROOT_ENV for test isolation.
 # When set, the dedup scan looks under <QUEUE_APPEND_OUTPUT_ROOT>/state/lessons/
@@ -267,7 +273,8 @@ def _dedup_check(new_title):
     return matches
 
 
-def main():
+def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap_imports()
     parser = argparse.ArgumentParser(
         prog="coordinator-lesson-add",
         description=(
@@ -334,7 +341,7 @@ def main():
         help="Skip the dedup pre-check and write unconditionally.",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
 
@@ -354,7 +361,7 @@ def main():
                 ' — re-run with --force to add anyway, or amend the existing entry',
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     cmd = [
         sys.executable, _QUEUE_APPEND,
@@ -382,8 +389,8 @@ def main():
         cmd,
         **no_console_passthrough_kwargs(),
     )
-    sys.exit(result.returncode)
+    return result.returncode
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

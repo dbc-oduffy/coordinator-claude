@@ -38,17 +38,15 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from entry_point_shim import ASSEMBLE_TARGETS, UnknownTargetError, run_target  # noqa: E402
 
 _USAGE_FAIL = 2
 
 
 def _parse_batch(argv: List[str]) -> List[Tuple[str, List[str]]]:
     """Split argv into (subcommand_name, subcommand_argv) groups."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from entry_point_shim import ASSEMBLE_TARGETS, UnknownTargetError
+
     batch: List[Tuple[str, List[str]]] = []
     i = 0
     n = len(argv)
@@ -68,6 +66,9 @@ def _parse_batch(argv: List[str]) -> List[Tuple[str, List[str]]]:
 
 
 def main(argv: List[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from entry_point_shim import ASSEMBLE_TARGETS, UnknownTargetError, run_target
+
     if not argv or argv[0] in ("--help", "-h", "help"):
         names = "\n  ".join(ASSEMBLE_TARGETS)
         usage = (

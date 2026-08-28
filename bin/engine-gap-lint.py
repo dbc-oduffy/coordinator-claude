@@ -29,16 +29,6 @@ import os
 import sys
 from pathlib import Path
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-
-cc_invoke.ensure_engine_on_path(__file__)
-
-from coordinator_core.fact_contract_gate.engine_gap_lint import lint_paths  # noqa: E402
-
-
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="engine-gap-lint",
@@ -49,6 +39,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
+    from coordinator_core.fact_contract_gate.engine_gap_lint import lint_paths
+
     argv = sys.argv[1:] if argv is None else argv
     args = _build_parser().parse_args(argv)
 

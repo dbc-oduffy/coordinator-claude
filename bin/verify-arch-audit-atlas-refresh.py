@@ -69,12 +69,6 @@ stdout when neither branch is satisfied.
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
-
 def _import_run_op_main():
     """Resolve the engine root, put it on sys.path, and import `run_op_main`.
 
@@ -84,13 +78,16 @@ def _import_run_op_main():
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:
@@ -102,7 +99,7 @@ def main() -> None:
             "FAIL: /architecture-audit Step 6.5 atlas-refresh gate could not run "
             "(claude-klabauter-link resolution failed) — treat as gate-not-satisfied and retry."
         )
-        sys.exit(0)
+        return 0
     except ImportError as exc:
         print(
             f"verify-arch-audit-atlas-refresh.py: coordinator_core.cli_entry not importable: {exc}",
@@ -112,10 +109,10 @@ def main() -> None:
             "FAIL: /architecture-audit Step 6.5 atlas-refresh gate could not run "
             "(claude-klabauter-link import failed) — treat as gate-not-satisfied and retry."
         )
-        sys.exit(0)
+        return 0
 
     try:
-        code = run_op_main("coordinator_core.ops.verify_arch_audit_atlas_refresh", sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.verify_arch_audit_atlas_refresh", (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             f"verify-arch-audit-atlas-refresh.py: coordinator_core.ops.verify_arch_audit_atlas_refresh not importable: {exc}",
@@ -125,10 +122,10 @@ def main() -> None:
             "FAIL: /architecture-audit Step 6.5 atlas-refresh gate could not run "
             "(claude-klabauter-link import failed) — treat as gate-not-satisfied and retry."
         )
-        sys.exit(0)
+        return 0
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

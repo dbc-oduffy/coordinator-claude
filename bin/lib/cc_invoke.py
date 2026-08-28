@@ -381,8 +381,8 @@ def _machine_local_get_in_process(key: str) -> str | None:
 # `_walk_up_to_checkout`, and the resolution constants/exceptions moved
 # alongside it because `_resolve_engine_root`'s bare-name references to them
 # bind against THAT module's globals now — imported back here so every OTHER
-# function in THIS file that also references them (route(), engine_source_root(),
-# _state1_remediation_message(), resolve_engine_root(), _machine_local_get_in_process())
+# function in THIS file that also references them (route(), resolve_engine_root(),
+# _state1_remediation_message(), _machine_local_get_in_process())
 # keeps resolving them through cc_invoke's own globals, unchanged.
 #
 # `_resolve_claude_klabauter_root = _resolve_engine_root` immediately below is a PLAIN
@@ -862,6 +862,62 @@ def require_colocated_engine_on_path(script_file: str) -> str:
     return root
 
 
+_ENGINE_SPLIT_ANNOUNCED = False
+
+
+def _announce_engine_cli_split(dispatch_root: str) -> None:
+    """Say once, on stderr, when the engine that will execute is not the tree
+    the CLI was read from.
+
+    This divergence is ORDINARY and this function does not treat it as a
+    defect: `require_dispatch_engine_on_path`'s own docstring records that on a
+    conformant box with both env vars unset the two ladders return different
+    roots by design -- dispatch reaches the published mirror, the locator axis
+    reaches the live working tree. Nothing here refuses, retries, or repoints.
+
+    It exists because the SILENCE is expensive in one specific way. When the
+    mirror lags, a fix committed to the live tree is inert through every
+    `coordinator/bin` CLI, and the failure that produces is indistinguishable
+    from the fix being wrong. Worse, the obvious diagnostic confirms the wrong
+    answer: the CLI-root resolvers all report the live working tree, truthfully,
+    about the CLI -- so an operator asking "which tree am I running" is told the
+    one that is not deciding. Measured cost, 2026-08-28: `/handoff` stayed
+    broken through this seam after its repair had landed, three runs, and two
+    sessions read it as a bad fix before anyone looked at which `apply.py` was
+    actually loaded.
+
+    Negative-spec: not a warning, not a gate, never raised -- the
+    `ProvenanceDivergenceError` below is a DIFFERENT divergence (coordinator_core
+    already bound from somewhere else, which IS a defect). Emitted at most once
+    per process, and never when the two roots agree, so a single-tree box sees
+    nothing. Any failure to emit is swallowed: a broken stderr must not take a
+    dispatch down.
+    """
+    global _ENGINE_SPLIT_ANNOUNCED
+    if _ENGINE_SPLIT_ANNOUNCED:
+        return
+    _ENGINE_SPLIT_ANNOUNCED = True
+    try:
+        cli_root = resolve_engine_root(__file__)
+        if not cli_root or not dispatch_root:
+            return
+        same = os.path.normcase(os.path.abspath(cli_root)) == os.path.normcase(
+            os.path.abspath(dispatch_root)
+        )
+        if same:
+            return
+        # Plain-quoted, never `!r`, for the same reason the divergence error
+        # below gives: on Windows `repr()` doubles every backslash, so the path
+        # an operator would paste back is not the path they were shown.
+        sys.stderr.write(
+            "engine split: CLI from '" + cli_root + "', engine from '"
+            + dispatch_root + "' -- a fix in the CLI tree does not run "
+            "until it is published\n"
+        )
+    except Exception:
+        return
+
+
 def require_dispatch_engine_on_path() -> str:
     """Resolve the DISPATCH engine root and put it on ``sys.path``, fail-loud.
 
@@ -920,20 +976,71 @@ def require_dispatch_engine_on_path() -> str:
     A ``match``, ``unimported``, or ``unresolved`` verdict is unaffected —
     this only raises on the one verdict that means "running the wrong tree".
 
+    SOURCE-TWIN CARVE-OUT (pytest-under-source-checkout case). A ``divergent``
+    verdict does not by itself mean a THIRD, unrelated tree — it is also the
+    verdict for the one EXPECTED pair this function's own docstring above
+    already documents: an already-bound ``coordinator_core`` from the SOURCE
+    checkout (e.g. bound by a repo-root ``conftest.py`` importing
+    ``coordinator_core.ops`` during ``pytest_load_initial_conftests``,
+    strictly before any test module runs) against a dispatch ``root`` that
+    correctly resolves to the PUBLISHED MIRROR of that same source checkout.
+    Both trees are legitimate; the comparison inside ``provenance_against``
+    just cannot tell "known mirror twin" from "unrelated third tree" on its
+    own, because it only compares paths, never checkout identity.
+    ``_is_source_twin`` closes exactly that gap: it resolves the LOCATOR axis
+    for THIS file (``resolve_engine_root(__file__)`` — the existing
+    self-location ladder, not a new resolver) and asks whether the
+    already-bound module's ``__file__`` sits under that locator root. When it
+    does, the two roots are the source-checkout/published-mirror pair by
+    construction, and this returns normally instead of raising.
+
     Spec backlink: docs/plans/2026-08-20-an-engine-root-is-not-named-for-the-repo.md
     (C16), and docs/reference/engine-root-env-var-routing.md for which call sites
     are on which axis.
     """
     root = _front_insert_on_path(_resolve_claude_klabauter_root())
     report = _report_provenance("require_dispatch_engine_on_path", root, "dispatch")
-    if report.verdict == PROVENANCE_DIVERGENT:
+    if report.verdict == PROVENANCE_DIVERGENT and not _is_source_twin(report):
+        # Plain-quoted, never `!r`: on Windows `repr()` doubles every backslash,
+        # so the path an operator would paste back is not the path they are shown.
         raise ProvenanceDivergenceError(
             "require_dispatch_engine_on_path: coordinator_core already bound "
-            f"from {report.imported_file!r}, diverges from dispatch root "
-            f"{report.engine_root!r}. Fix: call this before any earlier "
+            f"from '{report.imported_file}', diverges from dispatch root "
+            f"'{report.engine_root}'. Fix: call this before any earlier "
             "module-level coordinator_core-binding import."
         )
+    _announce_engine_cli_split(root)
     return root
+
+
+def _is_source_twin(report: "ProvenanceReport") -> bool:
+    """True when `report`'s already-bound `coordinator_core` (`imported_file`)
+    sits under THIS file's own locator-axis root — the source-checkout half
+    of the source-checkout/published-mirror pair `require_dispatch_engine_on_path`
+    carves out of its `divergent` raise (see that function's own SOURCE-TWIN
+    CARVE-OUT docstring section).
+
+    Uses the EXISTING locator-axis helper, `resolve_engine_root(__file__)` —
+    this file's own self-location ladder — never a new resolver: the source
+    checkout that a published dispatch mirror is a mirror OF is, by
+    definition, the checkout `cc_invoke.py` itself lives in.
+
+    Degrades to False (never raises) on any resolution failure or missing
+    `imported_file` — an unresolvable locator root is not evidence of a
+    twin, and this function's caller must still raise on a genuinely
+    divergent, unrelated third tree.
+    """
+    if not report.imported_file:
+        return False
+    try:
+        source_root = resolve_engine_root(__file__)
+    except (RuntimeError, OSError):
+        return False
+    try:
+        Path(report.imported_file).resolve().relative_to(Path(source_root).resolve())
+    except (ValueError, OSError):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------

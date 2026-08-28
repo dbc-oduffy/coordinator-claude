@@ -4,14 +4,14 @@ plan-tasks-stamp — CLI trampoline over claude-klabauter's plan.tasks.mutate 's
 verb, exposing it on PATH for the first time.
 
 Purpose: plan.tasks.mutate's stamp verb (coordinator_core/ops/
-plan_tasks_mutate.py, function `_stamp`) updates non-reserved fields on N
+plan_tasks_mutate.py, function _stamp) updates non-reserved fields on N
 task-spine rows in one atomic, all-or-nothing batch. It already has a
-trampoline for its sibling `resolve` verb (coordinator/bin/plan-tasks-
-resolve), but `stamp` itself has no invocation seam on PATH — the only way
+trampoline for its sibling resolve verb (coordinator/bin/plan-tasks-
+resolve), but stamp itself has no invocation seam on PATH — the only way
 to reach it was a hand-composed JSON-RPC blob. This trampoline is the fix.
 It holds NO domain logic of its own — every gate (non-empty updates list,
 per-row id requirement, the reserved-field refusal, schema validation) is
-enforced by `_stamp` itself.
+enforced by _stamp itself.
 
 No shebang line (POSIX-EXEC-ASSUMPTION-GUARD, 2026-07-28 PM ruling) — this
 is a bare extensionless polyglot entrypoint, invoked via its own
@@ -20,27 +20,27 @@ Python interpreter and runs this file directly) or via an explicit
 python coordinator/bin/plan-tasks-stamp ... call on POSIX. Modeled on
 coordinator/bin/plan-tasks-resolve's own bootstrap shape.
 
-What `stamp` does: given one or more --id rows and a shared set of
+What stamp does: given one or more --id rows and a shared set of
 --set key=value fields, it writes those fields onto every named row in a
 single atomic batch, then validates the whole spine before committing. It
-does not interpret what any field means — `disposition`/`disposition_ref`/
-`disposition_detail` are refused outright (D4: those three fields are
-`resolve`'s surface exclusively, and this trampoline fails fast on them
+does not interpret what any field means — disposition/disposition_ref/
+disposition_detail are refused outright (D4: those three fields are
+resolve's surface exclusively, and this trampoline fails fast on them
 locally, naming plan-tasks-resolve as the CLI covering that verb, before
 the op-side refusal would catch the same thing on a round trip).
 
-Unlike `resolve`, `stamp` carries no per-row rationale field that a shared
-value across ids could silently launder — every `--set` in a call applies
-identically to every named `--id`, and that is the whole contract, not an
+Unlike resolve, stamp carries no per-row rationale field that a shared
+value across ids could silently launder — every --set in a call applies
+identically to every named --id, and that is the whole contract, not an
 approximation of one. So repeatable --id is unrestricted here (every named
 row, one atomic batch), and this trampoline deliberately does NOT carry
-plan-tasks-resolve's `_MULTI_ID_ONLY_FOR_CODED_MESSAGE` restriction — do
+plan-tasks-resolve's _MULTI_ID_ONLY_FOR_CODED_MESSAGE restriction — do
 not add it back by analogy; the two verbs' batching semantics differ for a
 reason, not by oversight.
 
---set values are parsed with `yaml.safe_load` so `pm_approved=true` becomes
-the Python boolean `True`, not the string `"true"` — `resolve`'s legacy PM-
-approval check tests `is not True` identity, and a stringly-typed value
+--set values are parsed with yaml.safe_load so pm_approved=true becomes
+the Python boolean True, not the string "true" — resolve's legacy PM-
+approval check tests is not True identity, and a stringly-typed value
 would silently fail that check downstream. Values that do not parse as a
 YAML scalar fall back to the raw string.
 

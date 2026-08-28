@@ -1134,5 +1134,9 @@ def _main(argv: list[str] | None = None) -> int:
     return run(source, live, baseline_sha_cli=args.baseline_sha, fmt=args.format)
 
 
+def main(argv: list[str]) -> int:
+    return _main(argv[1:])
+
+
 if __name__ == "__main__":
-    sys.exit(_main())
+    sys.exit(main(sys.argv))

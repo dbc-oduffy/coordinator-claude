@@ -78,25 +78,18 @@ import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-import cc_invoke  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
 
-cc_invoke.ensure_engine_on_path(__file__)
-
-try:
-    from coordinator_core.win_portability import (
-        no_console_creationflags as _no_console_creationflags,
-    )
-except ImportError:  # engine root unresolvable — see the negative-spec block above
-
-    def _no_console_creationflags() -> dict:
+def _no_console_creationflags() -> dict:
+    try:
+        from coordinator_core.win_portability import (
+            no_console_creationflags as _impl,
+        )
+    except ImportError:  # engine root unresolvable — see the negative-spec block above
         if os.name != "nt":
             return {}
         return {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    return _impl()
 
 _SESSION_ID_ENV_TIERS = (
     "COORDINATOR_SESSION_ID",
@@ -123,6 +116,8 @@ def _resolve_repo_root() -> str | None:
     the bash oracle's `return 1` on the same failure). UNRESOLVED never
     refuses (AC4).
     """
+    from repo_identity import resolve_checked_repo_root
+
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         print(verdict["message"], file=sys.stderr)
@@ -144,6 +139,11 @@ def legacy_append_plan_session() -> None:
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
     plan_path = argv[1] if len(argv) > 1 else ""
     if plan_path and not os.path.isabs(plan_path):
         plan_path = os.path.join(os.getcwd(), plan_path)

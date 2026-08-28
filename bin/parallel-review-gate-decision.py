@@ -123,20 +123,23 @@ from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-_LIB_DIR = str(_BIN_DIR / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-from coordinator_core.contract.decision_object import (  # noqa: E402
-    build_envelope,
-    build_untrusted_gate_judgment_point,
-    emit,
-)
-from coordinator_core.contract.decision_object.judgment import build_disposition  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
-from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put the repo root on sys.path so `coordinator_core` imports resolve.
+
+    Moved out of module scope: this used to mutate sys.path on every import
+    of this file, a process global ~50 warm-server sessions share. Only the
+    trigger moved.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    _BOOTSTRAP_DONE = True
 
 #: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
@@ -167,6 +170,9 @@ _PLAN_ONLY_RE = r"^docs/plans/"
 
 
 def _run_git(args: list[str], repo_root: Path | None = None, timeout: int = _GIT_TIMEOUT_SECS):
+    _bootstrap_engine()
+    from coordinator_core.win_portability import no_console_creationflags
+
     argv = ["git"]
     if repo_root is not None:
         argv += ["-C", str(repo_root)]
@@ -254,6 +260,9 @@ def compute_gate_decision(changed_files: list[str], changed_lines: int, force: b
 
 
 def _cmd_gate(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
+    from coordinator_core.contract.decision_object import build_envelope, emit
+
     if not args.range_:
         print(f"{_PROG}: --range is required", file=sys.stderr)
         return 1
@@ -327,6 +336,10 @@ def compute_rule5_inputs(
 
 
 def _cmd_rule5_inputs(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
+    from coordinator_core.contract.decision_object import build_envelope, build_untrusted_gate_judgment_point, emit
+    from coordinator_core.contract.decision_object.judgment import build_disposition
+
     scope_shas_path = Path(args.scope_shas_file)
     seam_files_path = Path(args.seam_files_file)
     trail_dir = Path(args.review_trail_dir)
@@ -444,6 +457,9 @@ def _write_manifest_tsv(chunks: dict[str, list[str]], out_path: Path) -> None:
 
 
 def _cmd_chunk(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
+    from coordinator_core.contract.decision_object import build_envelope, emit
+
     scope_path = Path(args.scope_files_file)
     manifest_path = Path(args.seam_manifest_file)
     if not scope_path.is_file():
@@ -495,6 +511,9 @@ _RESOLVER_BRANCH_TABLE = {
 
 
 def _cmd_resolver_branch(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
+    from coordinator_core.contract.decision_object import build_envelope, emit
+
     entry = _RESOLVER_BRANCH_TABLE.get(args.resolver_exit)
     if entry is None:
         print(
@@ -557,6 +576,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv
+
     try:
         _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
     except UnsoundRawCmdlineTransport:

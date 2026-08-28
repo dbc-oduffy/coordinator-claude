@@ -79,8 +79,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-import yaml
-
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _PORTABLE_PATH = _REPO_ROOT / "setup" / "publish-targets.portable"
 _DECLARATIONS_PATH = _REPO_ROOT / "setup" / "publish-allowlist-declarations.yaml"
@@ -146,6 +144,8 @@ def _tracked_top_level_names(source_subdir: str) -> List[str]:
 
 
 def _load_declarations() -> Dict:
+    import yaml
+
     with open(_DECLARATIONS_PATH, "r", encoding="utf-8") as fh:
         data = yaml.safe_load(fh)
     if not isinstance(data, dict) or "rows" not in data:

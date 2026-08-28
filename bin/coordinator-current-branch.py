@@ -41,7 +41,8 @@ import subprocess
 import sys
 
 
-def main() -> int:
+def main(argv: "list[str] | None" = None) -> int:
+    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
     try:
         raw = subprocess.run(
             ["git", "branch", "--show-current"],

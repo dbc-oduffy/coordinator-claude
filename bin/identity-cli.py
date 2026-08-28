@@ -34,9 +34,24 @@ import sys
 _LIB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib", "session"
 )
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import identity as mod  # noqa: E402
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put coordinator/lib/session/ on sys.path so `import identity` resolves.
+
+    Moved out of module scope: this used to mutate sys.path on every import
+    of this file, a process global ~50 warm-server sessions share. Only the
+    trigger moved -- the mutation itself is unchanged.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
+    _BOOTSTRAP_DONE = True
+
 
 _SUBCOMMANDS = (
     "subcommands: resolve-subagent-identity | build-canonical-agent-id | format-ok"
@@ -51,6 +66,9 @@ def _usage(prog: str) -> int:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+    import identity as mod
+
     if not argv:
         return _usage("identity-cli")
     subcmd, rest = argv[0], argv[1:]

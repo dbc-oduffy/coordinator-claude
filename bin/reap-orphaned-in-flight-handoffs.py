@@ -58,20 +58,54 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import ensure_engine_on_path  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
-ensure_engine_on_path(__file__)
-
-from coordinator_core.ops.reap_in_flight_claims import (  # noqa: E402
-    apply_dispositions,
-    survey,
-)
-
 SELF_NAME = "reap-orphaned-in-flight-handoffs"
+
+_BOOTSTRAP_NAMES = ("resolve_checked_repo_root", "survey", "apply_dispositions")
+
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` -- lets a caller that reaches for one of
+    the bootstrap-deferred names (e.g. this file's own test suite, which
+    monkeypatches `mod.resolve_checked_repo_root`/`mod.survey`/
+    `mod.apply_dispositions` ahead of calling `mod.main()`; `pytest`'s
+    `monkeypatch.setattr` itself calls `getattr()` first to save the prior
+    value, which is what actually triggers this) run `_bootstrap_imports()`
+    lazily on first access, instead of requiring the name to already be a
+    module global at import time. Only fires when the name is NOT already
+    present in this module's `__dict__` -- once `_bootstrap_imports()` has
+    run once (via this hook or via `main()`), the plain global wins on every
+    later lookup and this function is not called again for that name."""
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_imports()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _bootstrap_imports() -> None:
+    """Import every non-stdlib dependency this module needs and bind it at
+    module scope, called from main() (C6k import-motion: module bodies stay
+    inert on both the warm door and the un-bootstrapped settings-home
+    forwarder load routes). Order is load-bearing — preserved verbatim from
+    the former module-scope sequence. Idempotent by construction: a name
+    already bound at module scope (via a prior call, or a test's own
+    `monkeypatch.setattr(mod, "resolve_checked_repo_root", ...)` ahead of
+    calling `main()`) is left alone rather than clobbered by a real import.
+    """
+    if "resolve_checked_repo_root" in globals():
+        return
+
+    global resolve_checked_repo_root, survey, apply_dispositions
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import ensure_engine_on_path
+    from repo_identity import resolve_checked_repo_root
+
+    ensure_engine_on_path(__file__)
+
+    from coordinator_core.ops.reap_in_flight_claims import (
+        apply_dispositions,
+        survey,
+    )
 
 HELP_TEXT = """\
 reap-orphaned-in-flight-handoffs — release crash-orphaned in_flight handoff
@@ -126,6 +160,7 @@ def _resolve_repo_root(explicit_root: Optional[str]) -> Optional[str]:
     (warn to stderr, proceed with the resolved root); UNRESOLVED never
     refuses. An explicit --repo-root bypasses the resolver/gate entirely
     (EXPLICIT verdict), same as every other migrated `coordinator/bin` CLI."""
+    _bootstrap_imports()
     root, verdict = resolve_checked_repo_root(explicit_root=explicit_root)
     if verdict.get("verdict") == "MISMATCH":
         sys.stderr.write(f"{SELF_NAME}: {verdict.get('message')}\n")
@@ -142,6 +177,7 @@ def _print_report(result, *, dry_run: bool) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _bootstrap_imports()
     args = list(sys.argv[1:] if argv is None else argv)
 
     cfg, terminal_rc = _parse_args(args)

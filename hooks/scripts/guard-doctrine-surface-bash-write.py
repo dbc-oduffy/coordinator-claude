@@ -135,11 +135,8 @@ the SINK:
 
      SCOPED-COMMIT WRAPPER RECOGNITION. Doctrine mandates the
      ``ceremony.scoped_git_commit`` wrapper family (``scoped-git-commit``,
-     ``coordinator-safe-commit``, ``spinoff-deliverable-and-commit``,
-     ``safe-commit-offer`` -- the fourth also commits AND pushes with no
-     confirmation step, per ``coordinator/docs/wiki/
-     scoped-safety-commits.md``, reusing ``scoped-git-commit``'s own push
-     path) over a raw ``git add -A``/``git commit`` -- but until this point
+     ``coordinator-safe-commit``, ``spinoff-deliverable-and-commit``) over a
+     raw ``git add -A``/``git commit`` -- but until this point
      existed, the carve-out above recognised only the literal ``git``
      executable by name,
      so every one of those wrappers fell through to the general deny branch
@@ -985,17 +982,25 @@ def _git_subcommand(segment: str) -> "str | None":
 #: module docstring point 7's "SCOPED-COMMIT WRAPPER RECOGNITION" prose.
 #: Deliberately exact-match only, never a substring or prefix test: a
 #: lookalike name (``my-scoped-git-commit-wrapper``) must NOT inherit the
-#: exemption. ``safe-commit-offer`` is included alongside the other three:
-#: per ``coordinator/docs/wiki/scoped-safety-commits.md`` it computes this
-#: session's safe pathspec and commits AND pushes with no confirmation step,
-#: reusing ``scoped-git-commit``'s own push path -- a committer in every
-#: sense this carve-out cares about.
+#: exemption.
+#:
+#: ``safe-commit-offer`` was a member of this set (a fixed-shape CLI that
+#: only ever committed AND pushed with no confirmation step, reusing
+#: ``scoped-git-commit``'s own push path). Its engine-plane CLI was deleted
+#: and replaced by the registered op ``session.safe_commit_offer``, dialed
+#: through the generic ``coordinator-invoke`` door alongside every other
+#: engine op. ``coordinator-invoke`` is NOT re-keyed in here to replace it:
+#: this set's safety property is basename-only recognition of a wrapper
+#: whose BEHAVIOR IS FIXED BY ITS NAME -- ``coordinator-invoke``'s behavior
+#: is chosen by its op-name argument, so basename recognition alone would
+#: exempt every op dialed through the door, not just the commit-shaped one.
+#: See ``coordinator/docs/wiki/coordinator-tripwires/
+#: guard-carve-out-keyed-on-executable-name.md``.
 _COMMIT_WRAPPER_BASENAMES = frozenset(
     {
         "scoped-git-commit",
         "coordinator-safe-commit",
         "spinoff-deliverable-and-commit",
-        "safe-commit-offer",
     }
 )
 

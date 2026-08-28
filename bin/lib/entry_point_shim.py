@@ -68,7 +68,7 @@ import importlib.util
 import inspect
 import sys
 from pathlib import Path
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 BIN_DIR = Path(__file__).resolve().parent.parent
 
@@ -302,6 +302,279 @@ def _simple_entry(name: str, dotted: str) -> Callable[[List[str]], int]:
     return _entry
 
 
+#: Mirrors `apply_base.APPLY_EXIT_PARTIAL_MUTATION` (4) without importing
+#: `coordinator_core.contract.apply_base` at cold-path module scope -- this
+#: module's other engine-mapped entries already avoid importing their
+#: target's dependency graph until an actual invocation reaches them
+#: (`_import_engine_module`), and this one value is cheap to duplicate
+#: rather than pay for.
+_APPLY_EXIT_PARTIAL_MUTATION = 4
+
+
+def _merge_assemble_is_method_not_found(exc: BaseException) -> bool:
+    """True when `exc` is `cc_invoke`'s generic `RuntimeError` wrapping a
+    JSON-RPC `-32601` (Method not found) error envelope.
+
+    No typed signal exists for this (`cc_invoke.py` converts the envelope's
+    `error` dict to a bare `RuntimeError` whose message embeds `code=-32601`,
+    with no exception subclass and no code field — verified at source,
+    `coordinator/bin/lib/cc_invoke.py` lines ~1808-1811 and ~1991-1994). This
+    predicate is the ONE named home for that fragility, mirroring the
+    identical precedent in `coordinator/bin/coordinator-safe-commit.py ::
+    _op_is_unregistered` (`"-32601" in str(exc) or "Method not found" in
+    str(exc)`), so a future engine-message rewording is one place to fix,
+    not a per-caller grep.
+
+    Narrow on purpose: method-not-found is the ONE dispatch failure that
+    says nothing ran (the seam answered, no handler matched), so falling
+    back to the cold path is safe for both merge-assemble verbs. Every
+    other `RuntimeError` out of `cc_invoke.route` — including a timeout,
+    which `is_timeout_error` already discriminates for callers that need
+    it — must NOT match this predicate, or a live-but-broken engine gets
+    silently masked instead of surfaced (DR-215 anti-scope, `route`'s own
+    docstring)."""
+    text = str(exc)
+    return "-32601" in text or "Method not found" in text
+
+
+def _merge_assemble_checked_repo_root() -> Optional[str]:
+    """Resolve the repo root `cc_invoke.route` dispatches against, via the
+    same checked resolver `coordinator/bin/lib/op_trampoline.py :: run` uses
+    for every other warm-routed CLI in this directory — never `Path.cwd()`/
+    `Path(__file__)` directly. A MISMATCH verdict is warned to stderr and
+    the resolved root used anyway (DR-277 reader convention); UNRESOLVED
+    (`None`) is returned as-is and left to the caller."""
+    lib_dir = str(BIN_DIR / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    from repo_identity import resolve_checked_repo_root  # noqa: PLC0415
+
+    repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
+    if repo_root is not None and isinstance(verdict, dict) and verdict.get("verdict") == "MISMATCH":
+        print(verdict.get("message", ""), file=sys.stderr)
+    return repo_root
+
+
+def _merge_assemble_cold_call(op: str, params: dict) -> dict:
+    """Calls `brief()`/`apply()` directly (never through
+    `coordinator/bin/merge-assemble.py`, which would recurse back into this
+    module) and reshapes the return value into the SAME envelope
+    `coordinator_core.merge_assemble.ops`'s registered adapters return —
+    `{"exit_code": ..., "decision_object": ...}` for brief,
+    `{"exit_code": ..., "report": ...}` for apply — so the caller's
+    exit-code/refusal inspection is identical on both the warm and cold
+    branches. `repo_root=None` on both calls matches today's CLI-invoked
+    behaviour exactly: each function's own `resolve_repo_root()` fallback
+    applies, the same as `merge_assemble.ops`'s adapters document for a
+    `None` (out-of-repo/unresolved) request."""
+    if op == "merge_assemble.brief":
+        mod = _import_engine_module("coordinator_core.merge_assemble")
+        result = mod.brief(
+            decisions=params.get("decisions"),
+            repo_root=None,
+            tag_prefix=params.get("tag_prefix", "v"),
+        )
+        return {"exit_code": result.exit_code, "decision_object": result.decision_object}
+    if op == "merge_assemble.apply":
+        apply_mod = _import_engine_module("coordinator_core.merge_assemble.apply")
+        exit_code, report = apply_mod.apply(
+            session_id=params.get("session_id"),
+            repo_root=None,
+            decisions=params.get("decisions"),
+            force=bool(params.get("force", False)),
+            tag_prefix=params.get("tag_prefix", "v"),
+        )
+        return {"exit_code": exit_code, "report": report}
+    raise ValueError(f"_merge_assemble_cold_call: unknown op {op!r}")
+
+
+def _merge_assemble_dispatch(op: str, params: dict, print_fn, result_key: str, *, is_apply: bool) -> int:
+    """Shared routing body for both merge-assemble verbs (AC2/AC4/AC6): routes
+    `op` through `cc_invoke.route` with `_merge_assemble_cold_call` as
+    `legacy_fn` (State-1 seam-absent trigger — owned entirely by `route`
+    itself, not re-derived here), falls back to the same cold call on a
+    pre-dispatch method-not-found, fails closed (never falls back) on every
+    other failure, and applies AC4's exit_code/refusal discrimination before
+    printing `result[result_key]` via `print_fn`.
+
+    Observability (AC8/AC9): which path served the call is logged to
+    STDERR, deliberately NOT folded into the printed result envelope —
+    C1's print functions must stay byte-identical to their pre-warm-routing
+    output, so the two CLIs' own stdout contract cannot carry this field."""
+    resolve_claude_klabauter_root = _cc_invoke_resolve_claude_klabauter_root()
+    claude_klabauter_root = resolve_claude_klabauter_root()
+    if claude_klabauter_root not in sys.path:
+        sys.path.insert(0, claude_klabauter_root)
+    lib_dir = str(BIN_DIR / "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    import cc_invoke  # noqa: PLC0415
+
+    repo_root = _merge_assemble_checked_repo_root()
+
+    served_cold = False
+
+    def _legacy_fn():
+        nonlocal served_cold
+        served_cold = True
+        return _merge_assemble_cold_call(op, params)
+
+    try:
+        result = cc_invoke.route(op, params, repo_root, _legacy_fn)
+    except RuntimeError as exc:
+        if not served_cold and _merge_assemble_is_method_not_found(exc):
+            # Pre-dispatch: the engine answered "no such op", nothing ran.
+            # Safe to fall back cold for BOTH verbs (AC6).
+            result = _merge_assemble_cold_call(op, params)
+            served_cold = True
+        elif is_apply:
+            # Post-dispatch (or undiscriminable — fail closed per AC6):
+            # never retry cold, an apply directive may already have landed.
+            #
+            # `is_timeout_error` sharpens the OPERATOR MESSAGE only; it must not
+            # gate the routing above. AC6 fails closed on every undiscriminable
+            # residual, so a timeout and an unrecognized RuntimeError take the
+            # same branch by design. What differs is what we can honestly tell
+            # the operator: a timeout carries cc_invoke's own documented
+            # guarantee that the engine was NOT stopped, so the op may well have
+            # landed in full, whereas an unclassified failure leaves even that
+            # unknown. Routing them identically while reporting them identically
+            # would discard the one discriminator the transport actually exposes.
+            if cc_invoke.is_timeout_error(exc):
+                detail = (
+                    "the op ran past its budget; the engine was NOT stopped, so "
+                    "this apply may have landed in full"
+                )
+            else:
+                detail = (
+                    "the failure could not be classified as pre- or "
+                    "post-dispatch, so it is treated as post-dispatch"
+                )
+            print(
+                f"{op}: apply transport failure after dispatch — {detail}. The "
+                f"operator may be in a partial-mutation state "
+                f"({_APPLY_EXIT_PARTIAL_MUTATION}); no cold retry: {exc}",
+                file=sys.stderr,
+            )
+            return _APPLY_EXIT_PARTIAL_MUTATION
+        else:
+            print(f"{op}: transport failure: {exc}", file=sys.stderr)
+            return _TRANSPORT_FAIL
+
+    print(f"{op}: path={'cold' if served_cold else 'warm'}", file=sys.stderr)
+
+    if not isinstance(result, dict):
+        print(f"{op}: unexpected result shape {type(result).__name__}", file=sys.stderr)
+        return _TRANSPORT_FAIL
+
+    exit_code_raw = result.get("exit_code")
+    exit_code_int: Optional[int] = None
+    exit_code_castable = False
+    if exit_code_raw is not None:
+        try:
+            exit_code_int = int(exit_code_raw)
+            exit_code_castable = True
+        except (TypeError, ValueError):
+            exit_code_castable = False
+
+    if exit_code_castable and exit_code_int != 0:
+        print_fn(result.get(result_key))
+        return exit_code_int
+
+    refusal = cc_invoke.mutation_refusal_message(op, result)
+    if refusal is not None:
+        print(refusal, file=sys.stderr)
+        return _TRANSPORT_FAIL
+
+    print_fn(result.get(result_key))
+    return exit_code_int if exit_code_castable else 0
+
+
+#: Pre-C2 behavior, kept as the fallback target for the seam-absent case
+#: where `coordinator_core.merge_assemble.cli` itself cannot be imported
+#: (root unresolvable, or resolved to a root that predates C1's cli split).
+_merge_assemble_legacy_entry = _simple_entry("merge-assemble", "coordinator_core.merge_assemble")
+
+
+def _merge_assemble_entry(argv: List[str]) -> int:
+    """Warm-routed replacement for `_simple_entry("merge-assemble", ...)`
+    (AC1-AC9). Parse/print stay C1's `coordinator_core.merge_assemble.cli`
+    leaf functions; only the compute step between them now goes through
+    `cc_invoke.route` with a cold fallback, per `_merge_assemble_dispatch`.
+
+    Usage-error handling (missing/unknown subcommand, `--help`, an argv
+    parse failure) is reproduced verbatim from the pre-change `main`/
+    `main_apply` bodies — including `main_apply`'s own distinct usage exit
+    code (`APPLY_EXIT_TRANSPORT_FAIL` == 3, not `main`'s `EXIT_USAGE` == 2)
+    — since none of that is a routing decision."""
+    prog = "merge-assemble"
+
+    def _usage_top() -> int:
+        print(f"usage: {prog} brief [--tag-prefix <prefix>]", file=sys.stderr)
+        print(
+            f"       {prog} apply [--session-id <id>] [--force] [--decisions <json>]",
+            file=sys.stderr,
+        )
+        return _USAGE_FAIL
+
+    def _usage_apply() -> int:
+        print(
+            f"usage: {prog} apply [--session-id <id>] [--force] "
+            "[--decisions <json> | --decisions-file <path>] [--tag-prefix <prefix>]",
+            file=sys.stderr,
+        )
+        return _TRANSPORT_FAIL
+
+    if not argv:
+        return _usage_top()
+
+    if argv[0] in ("--help", "-h"):
+        print(f"usage: {prog} brief [--tag-prefix <prefix>]")
+        print(f"       {prog} apply [--session-id <id>] [--force] [--decisions <json>]")
+        return 0
+
+    subcmd, rest = argv[0], argv[1:]
+
+    if subcmd not in ("brief", "apply"):
+        print(f"{prog}: unknown subcommand {subcmd!r}", file=sys.stderr)
+        return _usage_top()
+
+    try:
+        cli_mod = _import_engine_module("coordinator_core.merge_assemble.cli")
+    except (RuntimeError, ImportError):
+        # Seam-absent, PRE-DISPATCH: either CLAUDE_KLABAUTER_ROOT itself would not
+        # resolve, or it resolved to a root that has not yet been published
+        # with C1's `coordinator_core.merge_assemble.cli` split (observed:
+        # the resolved root can legitimately be a sibling publish tree that
+        # still only carries the pre-plan `coordinator_core.merge_assemble`
+        # package). Nothing has parsed argv or dispatched anything yet, so
+        # per AC6 this falls back cold for BOTH verbs — to the exact
+        # pre-warm-routing `_simple_entry` shape, which targets the package
+        # itself (not `.cli`) and always existed there.
+        return _merge_assemble_legacy_entry(argv)
+
+    if subcmd == "apply":
+        try:
+            params = cli_mod.parse_apply_argv(rest)
+        except cli_mod.UsageError as exc:
+            if exc.message is not None:
+                print(exc.message, file=sys.stderr)
+            return _usage_apply()
+        return _merge_assemble_dispatch(
+            "merge_assemble.apply", params, cli_mod.print_apply_result, "report", is_apply=True
+        )
+
+    try:
+        params = cli_mod.parse_brief_argv(rest)
+    except cli_mod.UsageError as exc:
+        if exc.message is not None:
+            print(exc.message, file=sys.stderr)
+        return _usage_top()
+    return _merge_assemble_dispatch(
+        "merge_assemble.brief", params, cli_mod.print_brief_result, "decision_object", is_apply=False
+    )
+
+
 def _backlog_grind_assemble_entry(argv: List[str]) -> int:
     """Verbatim port of backlog-grind-assemble.py's own `main(argv)` —
     subcommand routing to `coordinator_core.backlog_grind_assemble`
@@ -405,7 +678,7 @@ _ENGINE_ENTRIES: dict[str, Callable[[List[str]], int]] = {
     "backlog-grind-assemble": _backlog_grind_assemble_entry,
     "baton-assemble": _simple_entry("baton-assemble", "coordinator_core.baton_assemble"),
     "consolidate-assemble": _simple_entry("consolidate-assemble", "coordinator_core.consolidate_assemble"),
-    "merge-assemble": _simple_entry("merge-assemble", "coordinator_core.merge_assemble"),
+    "merge-assemble": _merge_assemble_entry,
     "orient-assemble": _simple_entry("orient-assemble", "coordinator_core.orient_assemble"),
     "pickup-assemble": _simple_entry("pickup-assemble", "coordinator_core.pickup_assemble"),
     "plan-assemble": _simple_entry("plan-assemble", "coordinator_core.plan_assemble"),

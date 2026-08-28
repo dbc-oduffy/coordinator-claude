@@ -76,9 +76,6 @@ import os
 import subprocess
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
 
 def _no_console_kw() -> dict:
@@ -452,7 +449,8 @@ def _resolve_repo_root() -> str:
     return os.getcwd()
 
 
-def main() -> int:
+def main(argv: "list[str] | None" = None) -> int:
+    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
     repo_root = _resolve_repo_root()
     result = _fetch_result(repo_root)
     candidates = result.get("candidates")

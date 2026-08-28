@@ -144,6 +144,10 @@ split/merge/discard by judgment before Step 5. Degrade-order detail: wiki.
    `state/debt-backlog/` is a distinct disposition (never a default sink for triage-didn't-reach
    entries): `status: deferred` with a mandatory `why_blocked` field (never `open`), via
    `coordinator-queue-append --schema debt-backlog` (per `snippets/resolve-coordinator-bin.md`).
+   **Stamp the grant this step already holds** — `pm_approved: true` (this ceremony asserting the
+   Step 5 gate fired, not a second approval act), `deferred_by: /debt-triage <session-id>`, and
+   `deferred_until: <ISO date>`. A park without an expiry is how a record drifts unread; a
+   sibling deny refuses an ungranted `deferred` write.
 
 Universal entries (Step 1) are not part of this disposition — they stay in
 `state/improvement-queue/` until routed via `/learn-lessons`.

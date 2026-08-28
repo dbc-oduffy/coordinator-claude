@@ -30,12 +30,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
-
 def _import_normalize_snippet():
     """Resolve the engine root, put it on sys.path, and import the ported function.
 
@@ -45,16 +39,19 @@ def _import_normalize_snippet():
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.text.normalize_snippet import normalize_snippet
 
     return normalize_snippet
 
 
-def main() -> None:
-    if "--help" in sys.argv[1:] or "-h" in sys.argv[1:]:
+def main(argv: "list[str] | None" = None) -> int:
+    if "--help" in (sys.argv[1:] if argv is None else argv) or "-h" in (sys.argv[1:] if argv is None else argv):
         sys.stdout.write(__doc__ or "")
-        sys.exit(0)
+        return 0
 
     text = sys.stdin.read()
     if not text:
@@ -64,23 +61,23 @@ def main() -> None:
         # success here previously read as "checked, clean" to an operator or
         # agent that forgot to pipe anything in.
         sys.stderr.write(__doc__ or "")
-        sys.exit(1)
+        return 1
 
     try:
         normalize_snippet = _import_normalize_snippet()
     except RuntimeError as exc:
         print(f"normalize-snippet: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
     except ImportError as exc:
         print(
             f"normalize-snippet: coordinator_core.text.normalize_snippet not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     result = normalize_snippet(text)
     sys.stdout.write(result)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

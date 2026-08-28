@@ -74,20 +74,76 @@ import socket
 import subprocess
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from coordinator_registry import doe_root, _DoeUnresolvable, _registry_machine_local_get  # noqa: E402
-from cc_invoke import require_engine_on_path  # noqa: E402
+_BOOTSTRAPPED_NAMES = (
+    "doe_root",
+    "_DoeUnresolvable",
+    "_registry_machine_local_get",
+    "require_engine_on_path",
+    "no_console_creationflags",
+)
 
-# The engine root must be on sys.path before any `coordinator_core` import: this
-# file is also published into the claude-klabauter mirror, where coordinator_core
-# is NOT pip-installed, so a bare import resolves nothing and the CLI dies at
-# import time. Same bootstrap as coordinator/bin/lib/workday_ceremony_lib.py
-# (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
-require_engine_on_path(__file__)
 
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind the engine on the LOCATOR axis, then everything that depends on it.
+
+    Idempotent. THE ORDER INSIDE THIS FUNCTION IS THE POINT -- it is one function
+    rather than per-use-site deferred imports precisely so the sequence cannot be
+    reordered by a later edit. The original comments are preserved verbatim below.
+
+    What moved and what did not: this sequence ran at MODULE scope until now, so
+    every import of this file mutated the `sys.path` of a warm server ~50 sessions
+    share. Only the trigger moved; the order is byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from coordinator_registry import doe_root, _DoeUnresolvable, _registry_machine_local_get
+        from cc_invoke import require_engine_on_path
+
+        # The engine root must be on sys.path before any `coordinator_core` import: this
+        # file is also published into the claude-klabauter mirror, where coordinator_core
+        # is NOT pip-installed, so a bare import resolves nothing and the CLI dies at
+        # import time. Same bootstrap as coordinator/bin/lib/workday_ceremony_lib.py
+        # (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
+        require_engine_on_path(__file__)
+
+        from coordinator_core.win_portability import no_console_creationflags
+    finally:
+        # Publish whatever bound, EVEN IF a later import raised, and NEVER
+        # overwrite a name a caller already installed (e.g. a monkeypatch).
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    # Only on a clean run: a partial bootstrap must stay retryable.
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: a consumer that imports this module rather than executing it
+    reaches these names before `main()` runs. Without this, deferring the
+    bootstrap leaves them simply absent. Only fires for names not already in
+    `__dict__`, so once bootstrapped the plain global wins.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Canonical PlatformId vocabulary — agent-install-manifest.schema.json §PlatformId,
 # platform-outcome.schema.json §platform. Mirrors the identical mapping in the C4
@@ -145,6 +201,7 @@ def _resolve_machine() -> str:
     fallback string as load-bearing; it exists purely so a live hostname probe
     failure cannot crash record emission.
     """
+    _bootstrap_engine()
     override = os.environ.get("COORDINATOR_MACHINE", "").strip()
     if override:
         return override
@@ -166,6 +223,7 @@ def _surface_root() -> str:
     DoE-owned). Delegates entirely to `coordinator_registry.doe_root()`; raises
     `_DoeUnresolvable` when neither `DOE_ROOT` nor the machine-local registry
     resolve it — callers must catch and report, not silently default to cwd."""
+    _bootstrap_engine()
     return doe_root()
 
 
@@ -176,6 +234,7 @@ def _git_rev_parse(root: str, *args: str) -> str:
     a git-identity failure means the emitted record cannot carry a trustworthy
     surface_sha/invoking_repo, so this tool must not degrade to a placeholder.
     """
+    _bootstrap_engine()
     cmd = ["git", "-C", root, "rev-parse", *args]
     try:
         result = subprocess.run(
@@ -343,6 +402,7 @@ def parse_args(argv: "list[str] | None" = None) -> argparse.Namespace:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap_engine()
     args = parse_args(argv)
     try:
         _validate_surface(args.surface)

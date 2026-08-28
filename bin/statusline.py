@@ -63,14 +63,30 @@ from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from coordinator_core.session.context_usage_sidecar import sidecar_path, write_usage  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
 _SETTINGS_PATH = _REPO_ROOT / "coordinator" / "settings.json"
 _DEBUG_ENV_VAR = "COORDINATOR_STATUSLINE_DEBUG"
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `_REPO_ROOT` on `sys.path` so the deferred `coordinator_core.*`
+    imports scattered through this file resolve. Idempotent.
+
+    What moved, and what did NOT: this single-line mutation used to run at
+    MODULE scope, which made every import of this file — including on every
+    interactive statusline render — mutate the `sys.path` of a warm server
+    ~50 sessions share. The line is preserved exactly; only the trigger
+    moved. No name is bound as a global here, so there is nothing to publish
+    and no `__getattr__` hook is needed.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    _BOOTSTRAP_DONE = True
 
 
 def _debug(message: str) -> None:
@@ -94,6 +110,9 @@ def _write_sidecar_from_payload(raw_stdin: bytes) -> None:
     blank the user's status line.
     """
     try:
+        _bootstrap_engine()
+        from coordinator_core.session.context_usage_sidecar import write_usage
+
         payload = json.loads(raw_stdin)
         session_id = payload["session_id"]
         context_window = payload["context_window"]
@@ -161,6 +180,9 @@ def _run_inner(command: list[str], raw_stdin: bytes) -> int:
     non-zero exit, exception) falls back to this script's own line rather
     than propagating a blank status line."""
     try:
+        _bootstrap_engine()
+        from coordinator_core.win_portability import no_console_creationflags
+
         result = subprocess.run(
             command,
             input=raw_stdin,
@@ -188,12 +210,16 @@ def _selftest(raw_stdin: bytes) -> int:
         print(f"statusline.py --selftest: could not resolve session_id: {exc!r}", file=sys.stderr)
         return 1
 
+    _bootstrap_engine()
+    from coordinator_core.session.context_usage_sidecar import sidecar_path
+
     _write_sidecar_from_payload(raw_stdin)
     print(str(sidecar_path(session_id)))
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[2] if __doc__ else "")
     parser.add_argument(
         "--selftest",

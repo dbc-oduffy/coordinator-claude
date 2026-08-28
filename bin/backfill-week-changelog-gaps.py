@@ -71,11 +71,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 
 def _import_runner():
     """In-process import, not an RPC invoke — a plain local file mutation.
@@ -85,44 +80,47 @@ def _import_runner():
     become a session scope-touch claim. Without that, everything this CLI
     writes is an orphan at the `scoped_git_commit` sink.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 
 
-def main() -> None:
-    argv = sys.argv[1:]
+def main(argv: "list[str] | None" = None) -> int:
+    argv = (sys.argv[1:] if argv is None else argv)
     if "-h" in argv or "--help" in argv:
         # Intercept BEFORE run_op_main -- see item 1 in the spec-backlinked
         # memo. Without this, --help was forwarded straight through as an
         # ignored positional and the backfill ran for real.
         print(__doc__)
-        sys.exit(0)
+        return 0
 
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         print(f"backfill-week-changelog-gaps.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
     except ImportError as exc:
         print(
             f"backfill-week-changelog-gaps.py: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
     try:
-        code = run_op_main("coordinator_core.ops.changelog_ops", sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.changelog_ops", (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             f"backfill-week-changelog-gaps.py: coordinator_core.ops.changelog_ops "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

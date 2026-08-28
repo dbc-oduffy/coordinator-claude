@@ -73,11 +73,6 @@ from typing import Any, Dict, List, Optional
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_LIB_DIR = os.path.join(SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from coordinator_data_root import data_root  # noqa: E402
-
 
 def _resolve_plugin_root() -> str:
     """Resolve the coordinator root sibling DATA dirs (snippets/, subagent-sandbox-
@@ -85,23 +80,20 @@ def _resolve_plugin_root() -> str:
     parent of the resolved snippets/ data dir (co-located or DoE-resident per
     `coordinator_data_root.data_root()`), since that parent IS the coordinator root
     under either layout. Mirrors `snippet-registry`'s `_resolve_plugin_root()`.
+
+    Historical: PLUGIN_ROOT used to be a bare `os.path.dirname(SCRIPT_DIR)` walk, which
+    broke once the 2026-07-22 executable-surface migration split snippets/ (DoE-resident)
+    away from this script (claude-klabauter-resident) — see coordinator_data_root.py's
+    module docstring. Resolved via the shared two-rung resolver instead of reimplementing
+    the DOE_ROOT chain here (negative-spec in that module).
     """
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:
         return env
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_data_root import data_root
+
     return str(data_root("snippets").parent)
-
-
-# Historical: PLUGIN_ROOT used to be a bare `os.path.dirname(SCRIPT_DIR)` walk, which
-# broke once the 2026-07-22 executable-surface migration split snippets/ (DoE-resident)
-# away from this script (claude-klabauter-resident) — see coordinator_data_root.py's
-# module docstring. Resolved via the shared two-rung resolver instead of reimplementing
-# the DOE_ROOT chain here (negative-spec in that module).
-PLUGIN_ROOT = _resolve_plugin_root()
-
-PEER_SCOPE_SNIPPET = os.path.join(PLUGIN_ROOT, "snippets", "peer-scope-block.md")
-PLAN_DOC_OOS_SNIPPET = os.path.join(PLUGIN_ROOT, "snippets", "plan-doc-oos-block.md")
-TEXT_ONLY_SNIPPET = os.path.join(PLUGIN_ROOT, "snippets", "text-only-recovery-preamble.md")
 
 
 def _err(msg: str) -> None:
@@ -255,6 +247,7 @@ def _derive_plan_slug(plan_path: str) -> str:
 def _provision_sidecars(
     plan_path: str,
     chunk_ids: List[str],
+    plugin_root: str,
 ) -> "tuple[str, List[str]]":
     """Derive plan-slug and provision per-chunk run-report sidecars in-process.
 
@@ -306,7 +299,7 @@ def _provision_sidecars(
         or os.environ.get("CLAUDE_CODE_SESSION_ID")
         or ""
     )
-    policy_path = os.path.join(PLUGIN_ROOT, "subagent-sandbox-policy.yaml")
+    policy_path = os.path.join(plugin_root, "subagent-sandbox-policy.yaml")
 
     for i, cid in enumerate(chunk_ids):
         # Pre-flatten the key call-site-side (DEC-6): join plan-slug and chunk-id on a
@@ -385,7 +378,12 @@ def _memory_probe() -> str:
     if not os.path.isfile(probe):
         return ""
     try:
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        # `lib` is injected by `_resolve_claude_klabauter_root_silent`, which this path
+        # does not call -- so inject here too rather than depend on call order.
+        _lib = os.path.join(SCRIPT_DIR, "lib")
+        if _lib not in sys.path:
+            sys.path.insert(0, _lib)
+        from cc_invoke import child_env  # noqa: E402
 
         proc = subprocess.run(
             [sys.executable, probe],
@@ -420,6 +418,11 @@ def _is_uint(s: str) -> bool:
 
 
 def main(argv: List[str]) -> int:
+    plugin_root = _resolve_plugin_root()
+    peer_scope_snippet = os.path.join(plugin_root, "snippets", "peer-scope-block.md")
+    plan_doc_oos_snippet = os.path.join(plugin_root, "snippets", "plan-doc-oos-block.md")
+    text_only_snippet = os.path.join(plugin_root, "snippets", "text-only-recovery-preamble.md")
+
     spec_file = ""
     plan_path = ""
 
@@ -489,20 +492,20 @@ def main(argv: List[str]) -> int:
 
     # ----- Load snippets -----
     for path, label in (
-        (PEER_SCOPE_SNIPPET, "peer-scope"),
-        (PLAN_DOC_OOS_SNIPPET, "plan-doc-oos"),
-        (TEXT_ONLY_SNIPPET, "text-only-recovery-preamble"),
+        (peer_scope_snippet, "peer-scope"),
+        (plan_doc_oos_snippet, "plan-doc-oos"),
+        (text_only_snippet, "text-only-recovery-preamble"),
     ):
         if not os.path.isfile(path):
             _err(f"fan-out-dispatch.py: ERROR — {label} snippet not found: {path}")
             return 2
     # Bash `$(cat file)` strips trailing newlines; rstrip("\n") mirrors that so the emitted
     # blocks stay byte-faithful (the emission adds exactly one trailing newline per snippet).
-    with open(PEER_SCOPE_SNIPPET, "r", encoding="utf-8") as f:
+    with open(peer_scope_snippet, "r", encoding="utf-8") as f:
         peer_scope_template = f.read().rstrip("\n")
-    with open(PLAN_DOC_OOS_SNIPPET, "r", encoding="utf-8") as f:
+    with open(plan_doc_oos_snippet, "r", encoding="utf-8") as f:
         plan_doc_oos_template = f.read().rstrip("\n")
-    with open(TEXT_ONLY_SNIPPET, "r", encoding="utf-8") as f:
+    with open(text_only_snippet, "r", encoding="utf-8") as f:
         text_only_preamble = f.read().rstrip("\n")
 
     # ----- Parse and validate spec rows (AC1) -----
@@ -739,7 +742,7 @@ def main(argv: List[str]) -> int:
     plan_slug = ""
     chunk_sidecar_paths: List[str] = ["" for _ in chunk_ids]
     if plan_path:
-        plan_slug, chunk_sidecar_paths = _provision_sidecars(plan_path, chunk_ids)
+        plan_slug, chunk_sidecar_paths = _provision_sidecars(plan_path, chunk_ids, plugin_root)
 
     # ----- Large-wave ramp reminder (soft NOTE — env → machine-local → 16) -----
     large_wave_threshold_raw = os.environ.get("LARGE_WAVE_THRESHOLD", "")

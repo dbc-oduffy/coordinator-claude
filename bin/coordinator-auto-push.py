@@ -65,12 +65,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
-
 def _import_main():
     """Resolve the engine root, put it on sys.path, and import the ported entrypoint.
 
@@ -79,32 +73,162 @@ def _import_main():
     re-deriving it -- this is a plain in-process import, not an RPC invoke, so
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
+
+    Negative-spec: `lib.cc_invoke` is imported HERE, not at module scope. This
+    file is reached both as a script (with `coordinator/bin` on `sys.path`) and
+    in-process via `runpy.run_path` from the settings-home forwarder, where it
+    is not — a module-scope import raises `ModuleNotFoundError` before `main`
+    is ever called, and the module body must stay inert for warm serving.
     """
-    claude_klabauter_root = require_dispatch_engine_on_path()
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if bin_dir not in sys.path:
+        sys.path.insert(0, bin_dir)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
     from coordinator_core.hooks.auto_push import main as _op_main
 
     return _op_main
 
 
-def main() -> None:
+def _git_dirs() -> "tuple[str, str] | None":
+    """Return ``(gitdir, common_dir)`` for the repo containing the cwd, or None.
+
+    Stdlib only, no spawn, and deliberately NOT reusable from
+    ``coordinator_core.git.git_dir.resolve_git_common_dir``: this runs on the
+    path where importing ``coordinator_core`` is the thing that just failed, so
+    reaching for the engine's own resolver would fail for the same reason it is
+    being called. Duplicated on purpose; the negative-spec is the duplication's
+    justification.
+
+    ``gitdir`` holds HEAD (per-worktree); ``common_dir`` holds the shared
+    ``push-failures.log``. They differ in a linked worktree and in a
+    ``--separate-git-dir`` clone, which is why both are returned rather than
+    one join.
+    """
+    cur = os.path.abspath(os.getcwd())
+    while True:
+        cand = os.path.join(cur, ".git")
+        if os.path.isdir(cand):
+            gitdir = cand
+            break
+        if os.path.isfile(cand):
+            try:
+                with open(cand, encoding="utf-8") as fh:
+                    head = fh.read().strip()
+            except OSError:
+                return None
+            if not head.startswith("gitdir:"):
+                return None
+            gitdir = head.split(":", 1)[1].strip()
+            if not os.path.isabs(gitdir):
+                gitdir = os.path.abspath(os.path.join(cur, gitdir))
+            break
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+    common = gitdir
+    commondir_file = os.path.join(gitdir, "commondir")
+    if os.path.isfile(commondir_file):
+        try:
+            with open(commondir_file, encoding="utf-8") as fh:
+                rel = fh.read().strip()
+        except OSError:
+            rel = ""
+        if rel:
+            common = rel if os.path.isabs(rel) else os.path.abspath(os.path.join(gitdir, rel))
+    return gitdir, common
+
+
+def _current_branch(gitdir: str) -> "str | None":
+    """Branch name off ``<gitdir>/HEAD``, or None when detached/unreadable."""
+    try:
+        with open(os.path.join(gitdir, "HEAD"), encoding="utf-8") as fh:
+            head = fh.read().strip()
+    except OSError:
+        return None
+    if not head.startswith("ref: refs/heads/"):
+        return None
+    return head[len("ref: refs/heads/") :]
+
+
+def _log_preflight_failure(err_class: str, detail: str) -> None:
+    """Append one conforming row to the git common dir's ``push-failures.log``.
+
+    This is the whole point of the function: a failure RAISED BEFORE
+    ``auto_push.main()`` runs cannot reach ``auto_push.log_failure``, so until
+    now it wrote nothing anywhere. The hook exits 0 by contract and its stderr
+    goes to a log nobody opens, which is how an engine-unresolvable
+    auto-push stayed invisible fleet-wide across two separate outages. Writing
+    the SAME file the working path writes gives this class the three readers
+    that file already has -- orientation's ``emit_auto_push_health``,
+    ``workday-start-advisory-counters push-failures``, and the DoE-side
+    Stop-time tripwire -- instead of standing up a fourth channel.
+
+    Row format is ``log_failure``'s, byte-for-byte in the fields those readers
+    parse: the ``[ISO-8601 UTC]`` stamp they window on, ``on <branch> (`` for
+    attribution, and a ``<route>/<class> after <n>`` triple. Route is
+    ``trampoline`` -- honest about where it died, and distinct from the two
+    push routes so a reader never mistakes this for a rejected push. There is
+    no forensic stderr file to point at (nothing was sent to a remote), so the
+    ``stderr=`` field is ``<none>``, not a path that would 404.
+
+    Gated to ``work/`` branches to match ``emit_auto_push_health``'s own gate:
+    off a work branch auto-push would not have pushed anyway, so a row there
+    would inflate counts that are read as "unrecovered failures".
+
+    Never raises and never blocks -- every failure mode returns quietly. The
+    commit has already landed; the worst outcome available here is losing the
+    breadcrumb, never the commit.
+    """
+    try:
+        dirs = _git_dirs()
+        if dirs is None:
+            return
+        gitdir, common_dir = dirs
+        branch = _current_branch(gitdir)
+        if branch is None or not branch.startswith("work/"):
+            return
+        from datetime import datetime, timezone
+
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        first = " ".join(detail.split())[:200] or "<empty>"
+        line = (
+            f"[{stamp}] PUSH FAILED on {branch} (trampoline/{err_class} after 1) "
+            f":: {first} :: stderr=<none>\n"
+        )
+        with open(
+            os.path.join(common_dir, "push-failures.log"), "a", encoding="utf-8", newline="\n"
+        ) as fh:
+            fh.write(line)
+    except Exception:
+        return
+
+
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
         # CLAUDE_KLABAUTER_ROOT resolution failed. Auto-push must never block a commit,
         # so this is a loud stderr note, not a nonzero exit.
         print(f"coordinator-auto-push: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(0)
+        _log_preflight_failure("claude-klabauter-unresolved", str(exc))
+        return 0
     except ImportError as exc:
         print(
             f"coordinator-auto-push: coordinator_core.hooks.auto_push not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        _log_preflight_failure("engine-unimportable", str(exc))
+        return 0
 
     # auto_push.main() always returns 0 internally (broad except + best-effort
     # log on any internal error) -- no additional try/except needed here.
-    sys.exit(op_main(sys.argv[1:]))
+    return op_main((sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -186,10 +186,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # coordinator/bin/seed-marketplace-enabledplugins.py's own coordinator_core
 # resolution). Harmless / a no-op when coordinator_core is already importable
 # (e.g. a test that loads this module after coordinator_core is on sys.path).
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-from coordinator_core.session.declared_writes import declare_write  # noqa: E402
-
 SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backlinks.toml"
 
 # RAW-CMDLINE-PRESERVATION ENTRYPOINTS (2026-08-08, caret-eating .cmd shim defect)
@@ -1112,6 +1108,10 @@ def generate(
     no-op outside an open collection, so a caller that never opens one (e.g.
     a test importing this module directly) is unaffected.
     """
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    from coordinator_core.session.declared_writes import declare_write
+
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     base = launcher_basename(name)

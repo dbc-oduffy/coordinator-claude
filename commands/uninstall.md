@@ -68,6 +68,8 @@ current behaviour. Until each leg ships, treat it as a manual-cleanup checklist 
 set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale for each: wiki
 (`uninstall-reversal-rationale`).
 
+<!-- engine-gap: field=uninstall.item_disposition producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+
 11. **Windows Defender process exclusions** — CANNOT-REVERSE-SAFELY. Roll back manually, elevated,
     per resolved toolchain path: `Remove-MpPreference -ExclusionProcess "<path>"` for each of
     `bash.exe`, `git.exe`, `sh.exe`, `python.exe`, `pythonw.exe` that was excluded (no-op if never
@@ -97,17 +99,15 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     the specific `<plugin>@<marketplace>` entry to `false` in `~/.claude/settings.local.json`.
 20. **`~/.claude/CLAUDE.md` personal-layer seed** — DELIBERATELY-NOT-REVERSED. No manual command
     offered.
-21. **`scaffold_structure` doc-structure output** — DELIBERATELY-NOT-REVERSED. No manual command
-    offered.
-22. **`coordinator-setup-state.yaml` receipt** — REVERSE via
+21. **`coordinator-setup-state.yaml` receipt** — REVERSE via
     `coordinator-setup-state clear setup_concluded`, or delete the file if it holds no other
     milestones.
-23. **Discovered-repo `repos.*` entries** — DELIBERATELY-NOT-REVERSED. Not swept by any flag.
-24. **Four project-repo writes** — REVERSE, driven by a new install-time record
+22. **Discovered-repo `repos.*` entries** — DELIBERATELY-NOT-REVERSED. Not swept by any flag.
+23. **Four project-repo writes** — REVERSE, driven by a new install-time record
     (`coordinator.installed_repos`). Interactive: offers removal of `.claude/em-context.md`, the
     `.gitignore` append (only if byte-identical), `coordinator.local.md`, the currency stamp.
     `--non-interactive`: reports, does not touch.
-25. **Git Bash fast-profile block** (Windows) — CANNOT-REVERSE-SAFELY from here: the block lives in
+24. **Git Bash fast-profile block** (Windows) — CANNOT-REVERSE-SAFELY from here: the block lives in
     Git-for-Windows' own `/etc/profile`, inside the install root, so removing it needs elevation.
     Roll back manually from an elevated terminal:
     `python "<plugin-root>\templates\bin\install-git-bash-fast-profile.py" --uninstall` — it strips

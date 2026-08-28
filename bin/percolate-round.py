@@ -176,31 +176,91 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
-
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
 _COORDINATOR_LIB = _BIN_DIR.parent / "lib"
-if str(_COORDINATOR_LIB) not in sys.path:
-    sys.path.insert(0, str(_COORDINATOR_LIB))
 
-from coordinator_core.locked_write import (  # noqa: E402  type: ignore[import-not-found]
-    LockTimeout as _RoundLockTimeout,
-    CONTENDED_LOCK_WAIT_ENV as _CONTENDED_LOCK_WAIT_ENV,
-    contended_lock_wait_secs as _round_lock_wait_secs,
-    held_lock as _round_held_lock,
+_ENGINE_BOUND_NAMES = (
+    "_RoundLockTimeout",
+    "_CONTENDED_LOCK_WAIT_ENV",
+    "_round_lock_wait_secs",
+    "_round_held_lock",
+    "_INHERITED_LOCK_ROOTS_ENV",
+    "publish_lane",
+    "_RoundManifest",
+    "_read_manifest",
+    "_default_manifest_path",
 )
-from percolate.wire_contract import (  # noqa: E402  type: ignore[import-not-found]
-    INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV,
-)
-from coordinator_core import publish_lane  # noqa: E402  type: ignore[import-not-found]
-from coordinator_core.percolate.manifest import (  # noqa: E402  type: ignore[import-not-found]
-    RoundManifest as _RoundManifest,
-    read_manifest as _read_manifest,
-)
-from coordinator_core.percolate.round import (  # noqa: E402  type: ignore[import-not-found]
-    default_manifest_path as _default_manifest_path,
-)
+
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` -- lets a caller that reaches for one of
+    `_ENGINE_BOUND_NAMES` BEFORE `main()` has run (e.g. this file's own test
+    suite and `percolate-mirror.py`, both of which monkeypatch/read these
+    names off the module ahead of calling `main()`) trigger
+    `_bootstrap_engine()` lazily on first access, instead of requiring them
+    to already be module globals at import time. Only fires when the name is
+    NOT already present in this module's `__dict__` -- once
+    `_bootstrap_engine()` has run once (via this hook or via `main()`), the
+    plain global wins on every later lookup and this function is not called
+    again for that name."""
+    if name in _ENGINE_BOUND_NAMES:
+        _bootstrap_engine()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _bootstrap_engine() -> None:
+    """Bind every `_ENGINE_BOUND_NAMES` module global. Called once, first
+    thing in `main()` (or lazily via `__getattr__` above, for a caller that
+    reaches for one of these names before `main()` runs). Idempotent:
+    re-running would rebind these to a second, independently-imported set of
+    objects (Python caches modules in `sys.modules`, so a second `import`
+    here returns the SAME objects as the first -- unlike `percolate-mirror.
+    py`'s `_load_round_module()`, which builds a fresh module object per
+    call -- but this guard is kept anyway so a caller's monkeypatch of one of
+    these globals is never silently reset by a later incidental trigger)."""
+    global _RoundLockTimeout, _CONTENDED_LOCK_WAIT_ENV, _round_lock_wait_secs
+    global _round_held_lock, _INHERITED_LOCK_ROOTS_ENV, publish_lane
+    global _RoundManifest, _read_manifest, _default_manifest_path
+
+    if "_round_held_lock" in globals():
+        return
+
+    # Moved out of module scope (was two unconditional sys.path.insert calls
+    # here): mutating sys.path on every import of this file was a process
+    # global ~50 warm-server sessions share. Only the trigger moved.
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    if str(_COORDINATOR_LIB) not in sys.path:
+        sys.path.insert(0, str(_COORDINATOR_LIB))
+
+    from coordinator_core.locked_write import (  # type: ignore[import-not-found]
+        LockTimeout as _RoundLockTimeout_,
+        CONTENDED_LOCK_WAIT_ENV as _CONTENDED_LOCK_WAIT_ENV_,
+        contended_lock_wait_secs as _round_lock_wait_secs_,
+        held_lock as _round_held_lock_,
+    )
+    from percolate.wire_contract import (  # type: ignore[import-not-found]
+        INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV_,
+    )
+    from coordinator_core import publish_lane as _publish_lane_  # type: ignore[import-not-found]
+    from coordinator_core.percolate.manifest import (  # type: ignore[import-not-found]
+        RoundManifest as _RoundManifest_,
+        read_manifest as _read_manifest_,
+    )
+    from coordinator_core.percolate.round import (  # type: ignore[import-not-found]
+        default_manifest_path as _default_manifest_path_,
+    )
+
+    _RoundLockTimeout = _RoundLockTimeout_
+    _CONTENDED_LOCK_WAIT_ENV = _CONTENDED_LOCK_WAIT_ENV_
+    _round_lock_wait_secs = _round_lock_wait_secs_
+    _round_held_lock = _round_held_lock_
+    _INHERITED_LOCK_ROOTS_ENV = _INHERITED_LOCK_ROOTS_ENV_
+    publish_lane = _publish_lane_
+    _RoundManifest = _RoundManifest_
+    _read_manifest = _read_manifest_
+    _default_manifest_path = _default_manifest_path_
+
 
 GENERATES = []  # writes only round-failure markers and pushes commits under the resolved percolate `dest` (a foreign publish-mirror repo), never a fixed claude-klabauter-tracked path
 
@@ -231,6 +291,7 @@ def _lock_busy_message(dest: str, exc: Exception) -> str:
     behaviour this message exists to stop; waiting inside one process is what
     the knob buys.
     """
+    _bootstrap_engine()
     return (
         f"dest '{dest}' is held by another round — waited "
         f"{_round_lock_wait_secs():.0f}s, nothing was written. Let it land and "
@@ -845,6 +906,7 @@ def _read_fresh_round_manifest(
     THIS caller's own `real.returncode != 0` / row-failure-text check refuse
     the round already, before this function is ever called.
     """
+    _bootstrap_engine()
     manifest_path = _default_manifest_path(repo_root, "")  # round_id is not part of the path
     try:
         mtime = manifest_path.stat().st_mtime
@@ -2208,6 +2270,7 @@ def _publish_unpushed_dest_commits(
     mirror ends up live, not that this particular run produced bytes.
 
     Returns `(pushed, refused, message)`."""
+    _bootstrap_engine()
     try:
         with _round_held_lock(
             Path(dest),
@@ -2289,6 +2352,7 @@ def _cmd_round_default(
     Spec backlink: PM ruling 2026-08-15, in-session (percolate-round.py
     dry-run-optional dispatch).
     """
+    _bootstrap_engine()
     real_stdout_path = tmp / "real-stdout.txt"
     scan_files_path = tmp / "scan-files.txt"
 
@@ -2825,6 +2889,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _bootstrap_engine()
+
     # Declare the publish lane before any argv-driven work. Historically this
     # covered every process this round spawned that could reach
     # `ceremony.scoped_git_commit` — the 2026-08-21 suspension roster turned

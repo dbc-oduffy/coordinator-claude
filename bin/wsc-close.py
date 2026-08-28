@@ -68,11 +68,6 @@ import json
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
 _REVIEW_TRAIL_FLAGS = (
     "--review-sha-range",
     "--review-reviewer",
@@ -246,6 +241,9 @@ def _cmd_archive_session(args: argparse.Namespace) -> int:
     if not args.sid:
         print("wsc-close.py archive-session: --sid required", file=sys.stderr)
         return 1
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
     try:
         require_colocated_engine_on_path(__file__)

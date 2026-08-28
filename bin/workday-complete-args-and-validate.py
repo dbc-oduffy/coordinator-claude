@@ -68,9 +68,6 @@ import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
 # Mirrors the bash originals' extraction shape:
 #   sed 's/.*--for-date[[:space:]]\{1,\}\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/'
@@ -143,8 +140,8 @@ def _current_machine() -> str:
     repos.claude_klabauter ..." remediation text intact rather than degrading
     to a bare, non-actionable ImportError.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
-
     cc_invoke.require_engine_on_path(__file__)
     from coordinator_core.machine_resolver import compute_machine
 

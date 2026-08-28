@@ -146,6 +146,10 @@ _RETIRED = (
         "nudge-unauthorized-handoff.py",
         "Its standalone PostToolUse(Write) registration was folded into postuse-advisory-dispatch.py's direct nudge_unauthorized_handoff.advisory_text() call; fully absent from current hooks.json.",
     ),
+    (
+        "sessionend-auto-commit.py",
+        "SessionEnd registration retired 2026-08-27 per PM ruling: commits are EM-initiated. See cross-repo/inbox/2026-08-27-claude-klabauter-em-retire-sessionend-auto-commit.md. Script kept, unregistered.",
+    ),
 )
 
 

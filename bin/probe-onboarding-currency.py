@@ -63,11 +63,6 @@ import os
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
 
 
 def _resolve_plugin_root() -> str | None:
@@ -93,6 +88,8 @@ def _resolve_plugin_root() -> str | None:
     override = os.environ.get("COORDINATOR_CURRENCY_PLUGIN_ROOT", "")
     if override:
         return override
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import _DoeUnresolvable, doe_root
     try:
         return os.path.join(doe_root(), "coordinator")
     except _DoeUnresolvable:
@@ -100,12 +97,14 @@ def _resolve_plugin_root() -> str | None:
 
 
 def _import_main():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.probe_onboarding_currency import main as _op_main
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     # Contract fact only the trampoline can supply — its own directory, used
     # by the engine module ONLY to auto-detect source_is_live (plugin_root is
     # resolved explicitly below, not defaulted from this).
@@ -121,7 +120,7 @@ def main() -> None:
             file=sys.stderr,
         )
         print("inconclusive(probe-infra: DoE coordinator plugin root unresolvable)")
-        sys.exit(0)
+        return 0
     os.environ["COORDINATOR_CURRENCY_PLUGIN_ROOT"] = plugin_root
 
     try:
@@ -132,7 +131,7 @@ def main() -> None:
             file=sys.stderr,
         )
         print(f"inconclusive(probe-infra: CLAUDE_KLABAUTER_ROOT resolution failed: {exc})")
-        sys.exit(0)
+        return 0
     except ImportError as exc:
         print(
             f"probe-onboarding-currency: coordinator_core.ops.probe_onboarding_currency "
@@ -143,9 +142,9 @@ def main() -> None:
             f"inconclusive(probe-infra: coordinator_core.ops.probe_onboarding_currency "
             f"not importable: {exc})"
         )
-        sys.exit(0)
-    sys.exit(op_main(sys.argv[1:]))
+        return 0
+    return op_main((sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

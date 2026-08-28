@@ -85,20 +85,31 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-from cc_invoke import require_engine_on_path  # noqa: E402
+def _require_engine_on_path() -> None:
+    """The engine root must be on sys.path before a `coordinator_core` import:
+    this file is also published into the claude-klabauter mirror, where
+    coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
+    this bin/ directory, not the checkout root. Same bootstrap as
+    coordinator/bin/coordinator-lesson-add (9b979ee5f)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_engine_on_path
 
-# The engine root must be on sys.path before the coordinator_core import
-# below: this file is also published into the claude-klabauter mirror, where
-# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
-# this bin/ directory, not the checkout root. Same bootstrap as
-# coordinator/bin/coordinator-lesson-add (9b979ee5f).
-require_engine_on_path(__file__)
+    require_engine_on_path(__file__)
 
-from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
+
+def _win_portability_flags() -> dict:
+    _require_engine_on_path()
+    from coordinator_core.win_portability import no_console_creationflags
+
+    return no_console_creationflags()
+
+
+def _win_portability_passthrough_kwargs() -> dict:
+    _require_engine_on_path()
+    from coordinator_core.win_portability import no_console_passthrough_kwargs
+
+    return no_console_passthrough_kwargs()
 
 
 def _run(
@@ -114,7 +125,7 @@ def _run(
         capture_output=True,
         text=True,
         check=check,
-        **no_console_creationflags(),
+        **_win_portability_flags(),
     )
 
 
@@ -169,7 +180,7 @@ def cmd_recovery_branch(args: argparse.Namespace) -> int:
     sync = subprocess.run(
         [sys.executable, str(sync_main)],
         cwd=str(repo_root),
-        **no_console_passthrough_kwargs(),
+        **_win_portability_passthrough_kwargs(),
     )
     if sync.returncode != 0:
         _die(
@@ -364,7 +375,7 @@ def publish_gh_release(tag: str, repo: str, notes_file: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        **no_console_creationflags(),
+        **_win_portability_flags(),
     )
     if edit.returncode == 0:
         return
@@ -378,7 +389,7 @@ def publish_gh_release(tag: str, repo: str, notes_file: Path) -> None:
         ],
         capture_output=True,
         text=True,
-        **no_console_creationflags(),
+        **_win_portability_flags(),
     )
     if create.returncode != 0:
         _die(

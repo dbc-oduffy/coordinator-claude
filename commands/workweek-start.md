@@ -69,7 +69,8 @@ so a second renderer would drift from the one every other entry path uses.
 
 **Expired plan gates.** The daily sweep reads `awaiting_gate` from *handoff* frontmatter only — a
 gate on a **plan chunk row** is read by nothing, so a chunk naming this ceremony as its expiry
-never surfaces itself. Check non-terminal plans only:
+never surfaces itself. Both plan-row spellings count: the declared `external_gate[]` the emitter
+schedules against, and the undeclared `awaiting_gate` straggler. Check non-terminal plans only:
 `python coordinator/bin/expired-plan-gates.py`. An expiry naming an action is a directive — fire
 it or record why not; one that silently rolls to next week is the failure this catches.
 

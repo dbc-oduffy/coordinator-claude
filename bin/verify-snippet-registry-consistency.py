@@ -34,12 +34,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
-
 _TRANSPORT_FAILURE_EXIT = 4
 
 
@@ -64,6 +58,8 @@ def _resolve_plugin_root() -> str:
     resolve, via the same transport-failure path as engine-root resolution
     below — this is a gate script, not a never-block hook.
     """
+    from coordinator_registry import _DoeUnresolvable, doe_root
+
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return env_root
@@ -81,12 +77,15 @@ def _resolve_plugin_root() -> str:
 
 
 def _import_main():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.snippet_sync.verify_registry_consistency import main as _op_main
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     # Review: code-reviewer — business codes 0/1/2/3 are all already spoken
     # for here (2 = "missing dep or file not found", a repo-content problem);
     # a claude-klabauter-link failure is an architecturally distinct failure mode (a
@@ -102,18 +101,18 @@ def main() -> None:
             f"verify-snippet-registry-consistency: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(_TRANSPORT_FAILURE_EXIT)
+        return _TRANSPORT_FAILURE_EXIT
     except ImportError as exc:
         print(
             "verify-snippet-registry-consistency: "
             f"coordinator_core.snippet_sync.verify_registry_consistency not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(_TRANSPORT_FAILURE_EXIT)
+        return _TRANSPORT_FAILURE_EXIT
 
     plugin_root = _resolve_plugin_root()
-    sys.exit(op_main([plugin_root] + sys.argv[1:]))
+    return op_main([plugin_root] + (sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -117,7 +117,8 @@ def advisory_line(manifest: dict | None, running_platform: str | None) -> str | 
     return None
 
 
-def main() -> int:
+def main(argv: "list[str] | None" = None) -> int:
+    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
     try:
         running_platform = _running_platform_id()
         manifest = _load_manifest(_manifest_path())

@@ -49,19 +49,18 @@ import os
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
 
 def _import_main():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.dispatch_shape_classify import main as _op_main
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
@@ -69,14 +68,14 @@ def main() -> None:
             f"classify-dispatch-shape.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        return 0
     except ImportError as exc:
         print(
             f"classify-dispatch-shape.sh: coordinator_core.ops.dispatch_shape_classify "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        return 0
 
     # DR-276: op_main takes a `script_dir=` kwarg that run_op_main's plain
     # argv-forwarding contract has no room for, so this CLI owns its own
@@ -87,9 +86,9 @@ def main() -> None:
     from coordinator_core.cli_entry import recording_declared_writes
 
     with recording_declared_writes():
-        code = op_main(sys.argv[1:], script_dir=_SCRIPT_DIR)
-    sys.exit(code)
+        code = op_main((sys.argv[1:] if argv is None else argv), script_dir=_SCRIPT_DIR)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

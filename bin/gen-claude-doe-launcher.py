@@ -41,13 +41,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_data_root import data_root  # noqa: E402
-
-
 def _default_template_dir() -> str:
     """Mirror the bash oracle's `${_script_dir}/../templates/bin` default.
 
@@ -57,6 +50,9 @@ def _default_template_dir() -> str:
     while `templates/` stayed in DoE-claude (DR-047 contract/engine split), so
     a `${script_dir}/../templates` walk no longer lands anywhere.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_data_root import data_root
+
     return os.path.join(str(data_root("templates")), "bin")
 
 
@@ -76,13 +72,16 @@ def _import_runner():
     launchers this generator writes are orphans at the `scoped_git_commit`
     sink.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
@@ -90,16 +89,16 @@ def main() -> None:
             f"gen-claude-doe-launcher.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
     except ImportError as exc:
         print(
             "gen-claude-doe-launcher.py: coordinator_core.cli_entry not importable: "
             f"{exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
-    argv = sys.argv[1:]
+    argv = (sys.argv[1:] if argv is None else argv)
     if "--template-dir" not in argv and "-h" not in argv and "--help" not in argv:
         try:
             argv = argv + ["--template-dir", _default_template_dir()]
@@ -109,7 +108,7 @@ def main() -> None:
                 f"--template-dir: {exc}",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     try:
         code = run_op_main("coordinator_core.ops.gen_claude_doe_launcher", argv)
@@ -119,10 +118,10 @@ def main() -> None:
             f"coordinator_core.ops.gen_claude_doe_launcher not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -84,9 +84,11 @@ from typing import Any, Optional, Tuple
 
 __all__ = [
     "DENY_REASON",
+    "REFUSED_REASON",
     "DIAL_COUNT_PATH_ENV",
     "FIXED_PORT",
     "ROUTING_HEADER_NAME",
+    "COOKIE_HEADER_NAME",
     "DialCounter",
     "dial_count_path",
     "make_server",
@@ -100,6 +102,28 @@ __all__ = [
 #: mistaken for each other; the caller-facing text says which happened.
 DENY_REASON = (
     "http-hook-forwarder: no live engine backend reachable -- the Bash guard did not run, "
+    "denying rather than permitting a command it never evaluated"
+)
+
+#: Reason text for the OTHER case this module must author a decision for: a backend that was
+#: reached and answered, but answered with a transport-level refusal rather than a verdict.
+#:
+#: WHY THIS IS A DENY AND NOT A RELAY, MEASURED. Relaying the raw status was this module's
+#: original behaviour and it is a guard-bypass hole: the harness FAILS OPEN on a non-2xx from a
+#: hook, and on `PreToolUse` it does so SILENTLY -- nothing surfaces in the tool result at all.
+#: Measured 2026-08-27 with a receiver answering every POST with a bare 401 registered as
+#: `PreToolUse`: the harness dialled, took the 401, and ran the tool anyway
+#: (`docs/research/evidence/2026-08-27-transport-error-fail-open/`). A transport error is NOT a
+#: verdict, and this module must never hand the harness one where a verdict was required.
+#: DIAGNOSTIC LIMIT, worth knowing before this text is trusted as a diagnosis. `cookie.read`
+#: collapses "no cookie exists" and "the cookie exists and could not be read" to `None` by
+#: design -- the engine keeps `CookieUnreadableError` for the boot paths that must NOT collapse
+#: them. So this module cannot distinguish an ungated backend from a gated one whose credential
+#: it failed to read, and under a deny storm those have entirely different diagnoses. Reading
+#: the cookie a second way to tell them apart is deliberately NOT done here: it would add a
+#: failure path to the hot path of every Bash call on the box to improve a log line.
+REFUSED_REASON = (
+    "http-hook-forwarder: engine backend refused the request -- the Bash guard did not run, "
     "denying rather than permitting a command it never evaluated"
 )
 
@@ -138,6 +162,21 @@ FIXED_PORT = 47623
 #: been exercised end-to-end yet). Chosen here as a single module constant so the registration
 #: chunk cites this name rather than inventing its own: `X-Coordinator-Clone-Root`.
 ROUTING_HEADER_NAME = "X-Coordinator-Clone-Root"
+
+#: Credential header the warm listener's cookie gate requires on every forwarded request
+#: (`coordinator_core/warm/cookie.py` `COOKIE_HEADER`; enforced in `supervisor.py`
+#: `_cookie_is_valid`, before routing, fail-closed).
+#:
+#: NOT the door key, and the two are routinely conflated. `X-Coordinator-Door-Key` is env-sourced
+#: (`COORDINATOR_DOOR_KEY`, `door_credential.py`) and interpolates into a `type: "http"`
+#: registration; THIS one is file-sourced per engine root and the harness cannot interpolate it,
+#: which is why it is attached here at forward time rather than by the registration. A third
+#: axis, the skew token, is neither -- it self-stamps and refuses with 409, not 401.
+#:
+#: Spelt as a literal rather than imported from the engine so this module keeps forwarding when
+#: `coordinator_core` is unimportable; the value is pinned against the engine by
+#: `test_http_hook_forwarder_cookie.py`.
+COOKIE_HEADER_NAME = "X-Coordinator-Cookie"
 
 #: Env var overriding where the dial counter is persisted. Exists for tests and for a second
 #: forwarder deliberately run off to one side; a deployment never sets it.
@@ -485,15 +524,20 @@ def _sup_mod() -> "Any":
     return _supervisor
 
 
-def _deny_body(hook_event_name: str) -> bytes:
-    """The one permission decision this module authors -- see module docstring's "no backend"
+def _deny_body(hook_event_name: str, reason: str = DENY_REASON) -> bytes:
+    """The permission decisions this module authors -- see module docstring's "no backend"
     property. Shape matches the measured block channel
-    (`docs/research/spike-verdicts/2026-08-19-http-hook-transport.md`)."""
+    (`docs/research/spike-verdicts/2026-08-19-http-hook-transport.md`).
+
+    TWO REASONS, ONE SHAPE. `DENY_REASON` (the default) says the backend was never reached;
+    `REFUSED_REASON` says it was reached and refused. Both are this module's own decision and
+    neither is the engine guard's verdict -- the distinction exists so a transcript reader can
+    tell which happened, exactly as `DENY_REASON`'s own note requires."""
     payload = {
         "hookSpecificOutput": {
             "hookEventName": hook_event_name,
             "permissionDecision": "deny",
-            "permissionDecisionReason": DENY_REASON,
+            "permissionDecisionReason": reason,
         }
     }
     return json.dumps(payload).encode("utf-8")
@@ -579,7 +623,9 @@ def _normalize_clone_root(raw: str) -> Optional[Path]:
     return candidate
 
 
-def _resolve_backend(clone_root_header: Optional[str]) -> Optional[Tuple[str, int, str]]:
+def _resolve_backend(
+    clone_root_header: Optional[str],
+) -> Optional[Tuple[str, int, str, Optional[str]]]:
     """Fresh discovery read for THIS request -- never cached across requests (module docstring).
 
     `clone_root_header` is the raw `ROUTING_HEADER_NAME` header value off the incoming request
@@ -589,8 +635,8 @@ def _resolve_backend(clone_root_header: Optional[str]) -> Optional[Tuple[str, in
     here, and `None` is the caller's DENY signal, same as every other "no backend" case below.
     This is the single most important branch in this module -- see CHUNK B2 brief.
 
-    Returns `(host, port, hook_path)` for a discovery record that names a plausible live
-    listener, or `None` when there is nothing to forward to: no routing key, no engine root
+    Returns `(host, port, hook_path, cookie)` for a discovery record that names a plausible
+    live listener, or `None` when there is nothing to forward to: no routing key, no engine root
     resolvable, the engine package itself unimportable, no discovery record published for the
     routed clone, or a record missing/malforming the fields a forward needs. Every one of those
     is "no backend", not "backend said no" -- the caller denies on `None`, never treats it as a
@@ -606,6 +652,7 @@ def _resolve_backend(clone_root_header: Optional[str]) -> Optional[Tuple[str, in
     if not engine_root:
         return None
     try:
+        from coordinator_core.warm import cookie as _cookie
         from coordinator_core.warm import http_listener as _http_listener
         from coordinator_core.warm import supervisor as _supervisor
     except Exception:
@@ -680,7 +727,33 @@ def _resolve_backend(clone_root_header: Optional[str]) -> Optional[Tuple[str, in
     if not isinstance(host, str) or not host:
         return None
 
-    return host, port, hook_path
+    # BEST-EFFORT, AND DELIBERATELY NOT A DENY ON ABSENCE. The listener's cookie gate
+    # (`supervisor.py` `_cookie_is_valid`) refuses an uncredentialed caller with a bare 401, so
+    # this header is required against any gated backend. But denying HERE when the cookie cannot
+    # be read would invent a new box-wide outage of exactly the shape the `ensure_listener`
+    # comment above exists to prevent -- one unreadable file and every Bash call on the machine
+    # denies, including against a backend that never wanted a cookie.
+    #
+    # The non-2xx mapping in `do_POST` is what makes that safe to skip: send the credential when
+    # we have it, and if the backend refuses for want of it, the refusal becomes an affirmative
+    # deny anyway. Fail-closed is preserved without stranding a backend that never wanted a
+    # cookie.
+    #
+    # STATE THE GUARANTEE NARROWLY. A GATED backend plus an unreadable cookie still denies
+    # box-wide -- correctly, the guard did not run -- just by way of the 401 rather than a local
+    # branch. What best-effort buys is only the ungated case. Said plainly for the one reader
+    # this comment has: someone debugging a total deny storm, seeing `REFUSED_REASON` on every
+    # call, who must NOT rule the cookie out on the strength of the sentence above.
+    #
+    # `cookie.read` is documented never to raise and to return `None` for missing/unreadable;
+    # the `except` is belt-and-braces against an engine-side regression, matching how every
+    # other engine call in this function is wrapped.
+    try:
+        cookie_value = _cookie.read(Path(engine_root))
+    except Exception:
+        cookie_value = None
+
+    return host, port, hook_path, cookie_value
 
 
 def _drain(rfile: Any, length: int) -> None:
@@ -778,9 +851,10 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 self._respond(200, _deny_body(hook_event_name))
                 return
 
-            host, port, hook_path = backend
+            host, port, hook_path, cookie_value = backend
+            hook_path = _apply_registration_op(hook_path, self.path)
             try:
-                status, resp_body = _forward(host, port, hook_path, body)
+                status, resp_body = _forward(host, port, hook_path, body, cookie_value)
             except OSError:
                 # Discovery named a backend but it could not actually be reached (refused, timed
                 # out, reset mid-response, ...) -- still the "no backend" case, not "backend said
@@ -790,7 +864,32 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 return
 
             if counter is not None:
+                # COUNTED ON EVERY ANSWER, including the refusals below. This records that the
+                # dial reached a backend, which it did; whether that backend produced a verdict
+                # is the next branch's question, not this counter's.
                 counter.record_forwarded(counted_event_name)
+
+            if not (200 <= status < 300):
+                # A TRANSPORT ERROR IS NOT A VERDICT -- and the harness FAILS OPEN on one,
+                # silently on `PreToolUse` (see `REFUSED_REASON`). Relaying the raw status here
+                # was this module's original behaviour and it is a guard-bypass hole: the guard
+                # did not run, and the harness would run the command anyway with nothing
+                # surfaced.
+                #
+                # MAPPED AS A CLASS, NOT PER-STATUS, DELIBERATELY. Today's live instance is the
+                # listener's 401 cookie gate, but a per-status fix closes one instance and
+                # leaves the shape for the next backend failure nobody enumerated. Every
+                # non-2xx lands on the same affirmative deny the unreachable-backend path
+                # already emits, so the module's contract -- an unevaluated guard DENIES -- holds
+                # for the whole class at once.
+                #
+                # 2xx ONLY IS THE WHOLE TEST. A verdict rides a 200 body; nothing else here is
+                # one. Note this deliberately catches the listener's own 409 skew refusal too:
+                # `_resolve_backend` already screens skewed records, and a 409 arriving anyway
+                # means the guard did not run, which is a deny for the same reason.
+                self._respond(200, _deny_body(hook_event_name, REFUSED_REASON))
+                return
+
             # BACKEND SAID SOMETHING -- relayed verbatim, allow included. This module authors no
             # permission decision on this path; whatever `_serve_line` returned is what the
             # harness sees.
@@ -803,7 +902,46 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
                 counter.persist()
 
 
-def _forward(host: str, port: int, hook_path: str, body: bytes) -> Tuple[int, bytes]:
+def _apply_registration_op(backend_hook_path: str, incoming_path: Optional[str]) -> str:
+    """Carry the per-registration op from the INCOMING url onto the backend path.
+
+    WHY THIS EXISTS, MEASURED 2026-08-27. Until this function, nothing in this module read
+    `self.path` at all -- the string does not otherwise appear in the file. Every `type: "http"`
+    registration, whatever url it declared, was posted to the backend's generic `hook_path` from
+    the discovery record (`/hook`), where the listener routes on `hook_event_name` instead. So a
+    registration written as `.../hook/hooks.agent_postuse_dispatch` reached a real backend and was
+    dispatched BY EVENT, and `PostToolUse` has no event-level dispatch -- the listener answers
+    "no dispatch for PostToolUse, the hook did not run". That is not a hypothesis about the
+    2026-08-26 outage; it is the same answer, reproduced by hand at the live listener.
+
+    THE BACKEND ALREADY SUPPORTS THE ROUTING; ONLY THIS SIDE WAS MISSING. Probed directly against
+    the live listener on the discovery record's own port, one payload, three paths:
+
+      /hook                                  -> "no dispatch for PostToolUse"      (event routing)
+      /hook/hooks.agent_postuse_dispatch     -> engine error -32602                (REACHED the op)
+      /hook/hooks.context_pressure_precompact-> 200, clean                         (REACHED and ran)
+
+    An op-level error is proof of arrival AT THE OP: an unrouted event returns the "no dispatch"
+    sentence instead, never an engine error code. So per-registration URL routing works end to
+    end the moment this side stops discarding the path.
+
+    NEGATIVE SPEC -- a bare or unrecognized path must change NOTHING. The op segment is taken only
+    when the incoming path has one and it looks like an op (`<namespace>.<name>`); anything else
+    falls through to the discovery record's own `hook_path` untouched. That keeps every existing
+    registration, and the hand probes above that post to a bare `/hook`, on exactly the behaviour
+    they have today. This function never invents a segment the caller did not send.
+    """
+    if not incoming_path:
+        return backend_hook_path
+    op = incoming_path.split("?", 1)[0].split("#", 1)[0].rstrip("/").rsplit("/", 1)[-1]
+    if not op or "." not in op:
+        return backend_hook_path
+    return backend_hook_path.rstrip("/") + "/" + op
+
+
+def _forward(
+    host: str, port: int, hook_path: str, body: bytes, cookie_value: Optional[str] = None
+) -> Tuple[int, bytes]:
     """POST `body` to the resolved backend and return its raw `(status, body)`.
 
     Any failure to connect, send, or read a complete response raises (`OSError` and its
@@ -812,14 +950,15 @@ def _forward(host: str, port: int, hook_path: str, body: bytes) -> Tuple[int, by
     decides a raised exception means "no backend", so this function must not itself convert a
     transport failure into a response of any kind.
     """
+    headers = {"Content-Type": "application/json", "Content-Length": str(len(body))}
+    if cookie_value:
+        # The listener's `_cookie_is_valid` refuses anything but EXACTLY ONE of these headers --
+        # zero is uncredentialed, two or more reads as smuggling -- so this assignment must stay
+        # a set, never an append onto a header that might already be present.
+        headers[COOKIE_HEADER_NAME] = cookie_value
     conn = HTTPConnection(host, port, timeout=_FORWARD_TIMEOUT_SECS)
     try:
-        conn.request(
-            "POST",
-            hook_path,
-            body=body,
-            headers={"Content-Type": "application/json", "Content-Length": str(len(body))},
-        )
+        conn.request("POST", hook_path, body=body, headers=headers)
         resp = conn.getresponse()
         data = resp.read()
         return resp.status, data

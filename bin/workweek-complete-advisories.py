@@ -64,12 +64,6 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
-
 # ---------------------------------------------------------------------------
 # tripwire-summary — Step 3.5
 # ---------------------------------------------------------------------------
@@ -212,6 +206,9 @@ def _cmd_cruft_sweep_last_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_ubt_unresolved(args: argparse.Namespace) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
     try:
         require_colocated_engine_on_path(__file__)
     except RuntimeError as exc:

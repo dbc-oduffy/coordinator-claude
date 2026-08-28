@@ -60,7 +60,14 @@ AND `archive/review-trail/**/*.json` — `/workweek-complete` moves the current 
 For each returned record, call `coordinator_core.git_ancestry.is_covered(commit, start_sha,
 end_sha)` — the single source of truth for the covered-by-range polarity — for each of the
 plan's delivery commits against the record's `sha_range`. ≥1 record covering every delivery
-commit = COVERED, else UNCOVERED. If delivery commits aren't named in frontmatter or execution
+commit = COVERED. No covering record = UNCOVERED only if delivery predates the
+trail's freeze; after it, Oracle 3 is `UNAVAILABLE`.
+
+**The corpus is frozen; absence stopped meaning anything.** `review_trail.write` is retired with
+no live writer left (claude-klabauter `ace670d8c`); DoE's newest record is `2026-08-26-211749`. Reviews land
+in the reviewer sidecar's `## Integrator Dispositions` receipt, which this oracle cannot read
+-- so a post-freeze plan returns UNCOVERED whether or not it was reviewed. Read the sidecar before
+reporting a review missing. If delivery commits aren't named in frontmatter or execution
 notes, identify them from what the plan's ACs describe.
 
 ## Bucket decision tree
@@ -68,7 +75,8 @@ notes, identify them from what the plan's ACs describe.
 | Oracle 1 | Oracle 2 | Oracle 3 | Bucket |
 |---|---|---|---|
 | `implemented`/`shipped` | artifacts exist AND tests green | ≥1 record covers delivery commits | **DELIVERED+REVIEWED** |
-| `implemented`/`shipped` | artifacts exist AND tests green | no record covers | **DELIVERED-UNREVIEWED** |
+| `implemented`/`shipped` | artifacts exist AND tests green | no record covers, delivery predates the freeze | **DELIVERED-UNREVIEWED** |
+| `implemented`/`shipped` | artifacts exist AND tests green | `UNAVAILABLE` (post-freeze) | **REVIEW-UNKNOWN** |
 | `implemented`/`shipped` | ≥1 artifact absent/wrong at HEAD, OR tests red, OR unverifiable | (any) | **PARTIAL** |
 | `in-progress`/`draft`/`reviewed` | (any) | (any) | **IN-FLIGHT** |
 | `superseded`/`abandoned`/`cancelled` | (any) | (any) | **ABANDONED** |
@@ -77,7 +85,9 @@ Tie-breaks: `implemented` with nothing independently checkable (no artifact clai
 suite) → **PARTIAL**, not DELIVERED — self-assertion alone is not delivery. `draft` with
 commit evidence of shipped work still resolves to **IN-FLIGHT** — flip the frontmatter rather
 than reclassify here. **DELIVERED-UNREVIEWED** is a real state, not an error — recommend a
-`code-reviewer` dispatch against the delivery diff, never backdoor a review claim. **ABANDONED**
+`code-reviewer` dispatch against the delivery diff, never backdoor a review claim.
+**REVIEW-UNKNOWN** never enters that queue -- the oracle is blind, not negative, and
+re-reviewing work whose receipt this skill cannot read buys nothing. **ABANDONED**
 with Oracle 2 evidence of shipped code should surface a `status: superseded` +
 `superseded_by:` flip recommendation.
 

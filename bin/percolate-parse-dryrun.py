@@ -55,24 +55,24 @@ from typing import Any, List, Optional
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
-from coordinator_core.contract.decision_object.envelope import (  # noqa: E402
-    build_envelope,
-    emit,
-    extend_exit_codes,
-)
-from coordinator_core.contract.decision_object.judgment import (  # noqa: E402
-    build_disposition,
-    build_untrusted_gate_judgment_point,
-)
+_BOOTSTRAP_DONE = False
 
-PercolateParseExitCode = extend_exit_codes(
-    "PercolateParseExitCode",
-    USAGE=2,
-    TRANSPORT_FAIL=3,
-)
+
+def _bootstrap_engine() -> None:
+    """Put the repo root on sys.path so `coordinator_core` imports resolve.
+
+    Moved out of module scope: this used to mutate sys.path on every import
+    of this file, a process global ~50 warm-server sessions share. Only the
+    trigger moved.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    _BOOTSTRAP_DONE = True
+
 
 #: Step 3's sensitive-path predicate (L214-219 / Step 2's L102-106) — same
 #: four categories in both places, kept as one constant so the two checks
@@ -187,6 +187,12 @@ def _gate_judgment_point(
         reasons.append(f"{medium_leak_count} MEDIUM content-leak hit(s)")
     if inverse_drift_count >= 1:
         reasons.append(f"{inverse_drift_count} real inverse-drift commit(s)")
+    _bootstrap_engine()
+    from coordinator_core.contract.decision_object.judgment import (
+        build_disposition,
+        build_untrusted_gate_judgment_point,
+    )
+
     evidence = "; ".join(reasons) if reasons else "no gate-fire condition met"
     return build_untrusted_gate_judgment_point(
         id="jp_step3_percolate_confirmation_gate",
@@ -203,6 +209,19 @@ def _gate_judgment_point(
 
 
 def _cmd_parse_dryrun(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
+    from coordinator_core.contract.decision_object.envelope import (
+        build_envelope,
+        emit,
+        extend_exit_codes,
+    )
+
+    PercolateParseExitCode = extend_exit_codes(
+        "PercolateParseExitCode",
+        USAGE=2,
+        TRANSPORT_FAIL=3,
+    )
+
     stdout_path = Path(args.stdout_file)
     source_dir = Path(args.source_dir)
     try:

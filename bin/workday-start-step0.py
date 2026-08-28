@@ -86,46 +86,42 @@ from pathlib import Path
 # (print/sys/traceback) already imported above — never depends on anything
 # from the imports it is guarding, which may not exist in a half-imported
 # module.
-try:
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
-    # Bootstrap on the DISPATCH axis BEFORE `import workday_ceremony_lib`
-    # below: that module binds `coordinator_core` at ITS OWN module level via
-    # the LOCATOR-axis `require_engine_on_path(__file__)` (see its own
-    # bootstrap) — on a conformant box the two axes can return different
-    # roots, and once a package is bound in `sys.modules` no later
-    # `sys.path` insert can rebind it. Must run first, inside this same
-    # try/except: a bootstrap failure here is exactly the class of
-    # import-time failure this crash guard exists to catch (see module
-    # docstring's Stdout/CRASH section).
-    from cc_invoke import child_env, require_dispatch_engine_on_path  # noqa: E402
-
-    require_dispatch_engine_on_path()
-    # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-    # what BINDS coordinator_core, and binding it HERE is the whole fix.
-    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-    # nothing. Without this line the next module-level import below (a binder module
-    # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-    # the working tree instead of the dispatch root, and no later sys.path insert can
-    # rebind an already-imported package. Removing it restores a silent wrong-tree
-    # divergence that require_dispatch_engine_on_path now raises on.
-    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-    # docs/research/engine-provenance-carrier-dependence.md
-    import coordinator_core  # noqa: E402,F401
-
-    import workday_ceremony_lib as wc  # noqa: E402
-except Exception:
-    import traceback
-    print("CRASH")
-    traceback.print_exc(file=sys.stderr)
-    sys.exit(1)
+# Bootstrap-and-bind ordering (DISPATCH axis before `import workday_ceremony_lib`)
+# now lives at the top of `main()`, wrapped by `_main_with_crash_guard` (near the
+# bottom of this file) instead of a bare module-level try/except — `main()` is
+# ALWAYS invoked through that guard (see `if __name__ == "__main__":` below), so
+# an import-time failure there is caught and reported exactly the same way (stdout
+# "CRASH", traceback on stderr, exit 1) as the module-level guard this replaced.
+# `wc` (workday_ceremony_lib) is bound as a module global by `main()` before any
+# other function in this file that reads it (`wc.git(...)`) can run.
+wc = None  # bound by main() before use; see the bootstrap block at its top.
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LIB_DIR = os.path.join(PLUGIN_ROOT, "lib")
-sys.path.insert(0, _LIB_DIR)  # for session_ensure_branch (native import, chunk E3-f)
 # STEP0_SYNC_MAIN override mirrors step3's STEP3_SYNC_MAIN seam (defaults to the real
 # path — behavior is unchanged when unset; the override exists for hermetic testing).
 _BIN_SYNC_MAIN = os.environ.get("STEP0_SYNC_MAIN") or os.path.join(PLUGIN_ROOT, "bin", "sync-main.py")
 _BIN_RECONCILE = os.path.join(PLUGIN_ROOT, "bin", "workday-start-step0-reconcile.py")
+
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `coordinator/lib` (`_LIB_DIR`, holding `session_ensure_branch`, chunk
+    E3-f) on `sys.path` -- idempotent, safe to call more than once.
+
+    What moved and what did not: this mutation used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm
+    server ~50 sessions share. Only the trigger moved; the value inserted is
+    byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if _LIB_DIR not in sys.path:
+        sys.path.insert(0, _LIB_DIR)
+    _BOOTSTRAP_DONE = True
 
 _OVERRIDE_ENV_BASE = {
     "COORDINATOR_OVERRIDE_BRANCH": "1",
@@ -146,6 +142,10 @@ def _err(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _ensure_claude_klabauter_on_path() -> None:
+    _bootstrap_engine()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
 
 
@@ -202,6 +202,7 @@ def contributor_slug_self_heal() -> None:
 
 def _exec_reconcile() -> int:
     _ensure_claude_klabauter_on_path()
+    from cc_invoke import child_env
     from coordinator_core.win_portability import no_console_creationflags
 
     result = subprocess.run(
@@ -440,6 +441,32 @@ def _rename_across_midnight(old: str, new: str) -> int:
 
 
 def main(argv: list[str]) -> int:
+    global wc
+    _bootstrap_engine()
+
+    # Bootstrap-and-bind, relocated verbatim from the former module-level
+    # try/except (see the comment above the `wc = None` module global): this
+    # whole `main()` body runs inside `_main_with_crash_guard`'s try/except,
+    # so an import-time failure here is still caught and reported as CRASH,
+    # exactly as the module-level guard it replaced.
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import child_env, require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+    # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+    # what BINDS coordinator_core, and binding it HERE is the whole fix.
+    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+    # nothing. Without this line the next import below (a binder module that
+    # resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+    # the working tree instead of the dispatch root, and no later sys.path insert can
+    # rebind an already-imported package. Removing it restores a silent wrong-tree
+    # divergence that require_dispatch_engine_on_path now raises on.
+    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    # docs/research/engine-provenance-carrier-dependence.md
+    import coordinator_core  # noqa: F401
+
+    import workday_ceremony_lib as wc
+
     # Test seams — run a single slug block and exit.
     if argv[:1] == ["--self-heal-machine-slug"]:
         machine_slug_self_heal()

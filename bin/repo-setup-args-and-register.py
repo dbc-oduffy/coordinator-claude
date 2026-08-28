@@ -72,17 +72,31 @@ import sys
 from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
-_LIB_DIR = _BIN_DIR / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
 
 _CLAUDE_KLABAUTER_ROOT = _BIN_DIR.parent.parent  # coordinator/bin/.. .. == claude-klabauter checkout root
-if str(_CLAUDE_KLABAUTER_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CLAUDE_KLABAUTER_ROOT))
 
-from coordinator_core.engine_root import coordinator_engine_root_env  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
+_BOOTSTRAP_DONE = False
 
+
+def _bootstrap_engine() -> None:
+    """Put `_CLAUDE_KLABAUTER_ROOT` on `sys.path` so the deferred `coordinator_core.*`
+    imports scattered through the `cmd_*` functions below resolve. Idempotent;
+    safe to call more than once.
+
+    What moved, and what did NOT: this single-line mutation used to run at
+    MODULE scope, which made every import of this file mutate the `sys.path`
+    of a warm server ~50 sessions share. The line is preserved exactly; only
+    the trigger moved. No name is bound as a global here (every consumer does
+    its own local `from coordinator_core... import ...` at its own call
+    site), so unlike the fuller bootstrap shape elsewhere in this repo, there
+    is nothing to publish and no `__getattr__` hook is needed.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_CLAUDE_KLABAUTER_ROOT) not in sys.path:
+        sys.path.insert(0, str(_CLAUDE_KLABAUTER_ROOT))
+    _BOOTSTRAP_DONE = True
 
 # ---------------------------------------------------------------------------
 # resolve-target-root
@@ -109,6 +123,9 @@ def extract_root_arg(arguments: str) -> str:
 
 
 def _is_git_worktree(path: str) -> bool:
+    _bootstrap_engine()
+    from coordinator_core.win_portability import no_console_creationflags
+
     try:
         result = subprocess.run(
             ["git", "-C", path, "rev-parse", "--is-inside-work-tree"],
@@ -191,6 +208,9 @@ def cmd_whoami_status(args: argparse.Namespace) -> int:
     recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
     """
+    _bootstrap_engine()
+    from coordinator_core.win_portability import no_console_creationflags
+
     python_bin = args.python or os.environ.get("COORDINATOR_PYTHON") or "python3"
     check_only = args.check_only or os.environ.get("CHECK_ONLY", "0") == "1"
 
@@ -243,6 +263,9 @@ def _resolve_claude_klabauter_root_for_exec_summary(settings_home: "str | None")
     all -- silently dark since C14 closed the dual-read window. Routed through
     the accessor rather than adding a second raw read of the new name.
     """
+    _bootstrap_engine()
+    from coordinator_core.engine_root import coordinator_engine_root_env
+
     candidate = os.environ.get("REPO_CLAUDE_KLABAUTER") or coordinator_engine_root_env(__name__)
     if candidate:
         return candidate
@@ -315,6 +338,9 @@ def cmd_resolve_exec_summary_generator(args: argparse.Namespace) -> int:
         return 1
 
     if args.run:
+        _bootstrap_engine()
+        from coordinator_core.win_portability import no_console_passthrough_kwargs
+
         python_bin = args.python or "python"
         proc = subprocess.run(
             [python_bin, resolved],
@@ -361,6 +387,7 @@ def cmd_register_repo(args: argparse.Namespace) -> int:
     `--check-only`). Exits 2 when no machine-local CLI can be resolved
     (an infra/transport failure, not a routine registry miss).
     """
+    _bootstrap_engine()
     from coordinator_core.install._shared import ml_get, ml_set, resolve_machine_local_cli
 
     path = os.path.abspath(args.path or os.getcwd())
@@ -447,6 +474,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap_engine()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

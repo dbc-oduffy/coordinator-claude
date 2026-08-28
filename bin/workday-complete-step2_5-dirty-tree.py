@@ -50,11 +50,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 
 def _import_runner():
     """Resolve the engine root, put it on sys.path, and import the run-op runner.
@@ -71,13 +66,16 @@ def _import_runner():
     writes (the `.gitignore` append) is an orphan at the `scoped_git_commit`
     sink.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
@@ -87,7 +85,7 @@ def main() -> None:
             f"workday-complete-step2_5-dirty-tree.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
     except ImportError as exc:
         # Review: code-reviewer (F2) — same dedicated transport-failure code as above.
         print(
@@ -95,11 +93,11 @@ def main() -> None:
             f"coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
 
     try:
         code = run_op_main(
-            "coordinator_core.ops.workday_complete_step2_5_dirty_tree", sys.argv[1:]
+            "coordinator_core.ops.workday_complete_step2_5_dirty_tree", (sys.argv[1:] if argv is None else argv)
         )
     except ImportError as exc:
         print(
@@ -107,10 +105,10 @@ def main() -> None:
             f"coordinator_core.ops.workday_complete_step2_5_dirty_tree not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

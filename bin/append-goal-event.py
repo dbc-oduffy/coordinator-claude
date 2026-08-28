@@ -117,19 +117,6 @@ import tempfile
 
 GENERATES = []  # writes only a NamedTemporaryFile params payload (deleted after the subprocess call) and prints to stdout — the goal.append write itself happens inside the dispatched coordinator_core.invoke subprocess, not this trampoline
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import (  # noqa: E402
-    _op_timeout_ceiling,
-    _resolve_claude_klabauter_root,
-    _timeout_exceeded_message,
-    ensure_engine_on_path,
-)
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
-ensure_engine_on_path(__file__)
-
 
 def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[str, object]:
     """Spawn coordinator_core.invoke in --bare mode and return the bare result dict.
@@ -146,6 +133,8 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
     own `_op_timeout_ceiling`/`_timeout_exceeded_message` (not re-derived here) — see
     Review note on the except-branch below.
     """
+    from cc_invoke import _op_timeout_ceiling, _resolve_claude_klabauter_root, _timeout_exceeded_message
+
     claude_klabauter_root = _resolve_claude_klabauter_root()
 
     env = dict(os.environ)
@@ -408,6 +397,8 @@ def _resolve_repo_root() -> str:
     UNRESOLVED verdict NEVER refuses (AC4) -- it just means the check could
     not run; the resolved root (or lack thereof) is still honored below.
     """
+    from repo_identity import resolve_checked_repo_root
+
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         print(verdict["message"], file=sys.stderr)
@@ -421,6 +412,11 @@ def _resolve_repo_root() -> str:
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import ensure_engine_on_path
+
+    ensure_engine_on_path(__file__)
+
     parsed = _parse_args(argv)
     if parsed["events_file"]:
         return _main_batch(parsed)

@@ -85,20 +85,6 @@ import sys
 from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
-_LIB_DIR = _BIN_DIR / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
-from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
-
-try:
-    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
-
-from coordinator_core.daily_day import local_day  # noqa: E402
-from coordinator_core.machine_resolver import compute_machine  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs  # noqa: E402
 
 _STITCH_SIDECAR_CLI = _BIN_DIR / "stitch-observer-sidecar.py"
 _STEP9_CLI = _BIN_DIR / "workday-complete-step9-append-changelog.py"
@@ -120,6 +106,9 @@ def _run(cli_path: Path, args: list[str], capture_stdout: bool = False) -> subpr
     unchanged (these CLIs all resolve paths relative to the CALLER's cwd -- the
     consumer repo, not this claude-klabauter checkout -- matching how the bash oracle
     invoked them: `python3 "${_mkb_bin}/<cli>.py" ...` with no cd)."""
+    from cc_invoke import child_env
+    from coordinator_core.win_portability import no_console_creationflags
+
     return subprocess.run(
         [sys.executable, str(cli_path), *args],
         stdout=subprocess.PIPE if capture_stdout else None,
@@ -134,6 +123,9 @@ def cmd_stitch_sidecar(args: argparse.Namespace) -> int:
     """Step 4d: stitch the Sonnet daily observer's sidecar into the canonical
     daily summary, hard-failing (never silently proceeding) on a non-zero exit
     from the sidecar stitcher."""
+    from coordinator_core.daily_day import local_day
+    from coordinator_core.machine_resolver import compute_machine
+
     machine = compute_machine()
     today = args.today or local_day()
     daily_summary = f"archive/daily-summaries/{today}-{machine}.md"
@@ -156,6 +148,8 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     block was already committed via Step 3.5 Phase B), otherwise forward to
     workday-complete-step9-append-changelog.py with RC_VALIDATE/RC_PLUGIN_SUITE
     defaulted from the environment."""
+    from coordinator_core.win_portability import no_console_passthrough_kwargs
+
     if args.only_mode:
         print(
             "[workday-complete] --only set — skipping today-scoped Step 9 "
@@ -222,6 +216,8 @@ def _dispatch_step9_row(
     """Invoke step9-dispatch for a single backfill row and return its exit
     code verbatim (RC_VALIDATE/RC_PLUGIN_SUITE defaulted, matching
     cmd_step9_dispatch's non---only-mode forward path)."""
+    from coordinator_core.win_portability import no_console_passthrough_kwargs
+
     forward = ["--for-date", date]
     if span_flag:
         forward.extend(["--commit-span", span_flag])
@@ -329,6 +325,15 @@ def cmd_backfill_dispatch_rows(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as _exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
+        return 1
+
     parser = argparse.ArgumentParser(
         prog="workday-complete-close",
         description="Late-ceremony orchestration logic for /workday-complete "

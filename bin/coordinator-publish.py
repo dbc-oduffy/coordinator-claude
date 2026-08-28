@@ -34,7 +34,18 @@ import runpy
 import sys
 from pathlib import Path
 
-if __name__ == "__main__":
+
+def main(argv: list[str]) -> int:
     _target = Path(__file__).resolve().with_name("publish.py")
-    sys.argv[0] = str(_target)
-    runpy.run_path(str(_target), run_name="__main__")
+    argv = list(argv)
+    argv[0] = str(_target)
+    sys.argv = argv
+    try:
+        runpy.run_path(str(_target), run_name="__main__")
+    except SystemExit as _exc:
+        return _exc.code if isinstance(_exc.code, int) else (0 if _exc.code is None else 1)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

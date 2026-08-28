@@ -71,16 +71,14 @@ from types import ModuleType
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
-
 
 def _no_console_kw() -> dict:
     """Lazily resolve claude_klabauter_root onto sys.path, then splat the canonical
     no-console-window kwarg. ``{}`` on any resolution failure (fail-open)."""
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_dispatch_engine_on_path
+
         claude_klabauter_root = require_dispatch_engine_on_path()
         from coordinator_core.win_portability import no_console_creationflags
 
@@ -311,6 +309,9 @@ def main(argv: list[str]) -> int:
     # (empty session_id -> "unknown"; oneline_row -> None) rather than
     # aborting the whole command.
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import _resolve_claude_klabauter_root
+
         claude_klabauter_root = _resolve_claude_klabauter_root()
     except RuntimeError:
         claude_klabauter_root = None

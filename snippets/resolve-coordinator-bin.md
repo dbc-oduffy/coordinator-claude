@@ -85,6 +85,11 @@ silently, exit 0, with a valid-looking record written. Use `--body-file` where t
 (`cross-repo-memo`); where it does not, scaffold the record and fill the body with Edit. Tripwire:
 `A-CMD-SHIM-EATS-EVERY-LINE-BUT-THE-FIRST`.
 
+**`coordinator-invoke` is the one exception to the `.cmd` sibling here — name its `.exe`.** See
+§ The door below for the cross-platform rule; on a PowerShell host the spelling is:
+
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
+
 ### Shape A — inside a multi-line ```bash fence (POSIX hosts; see rung 0 first)
 
 Invoke the forwarder by its fully-expanded absolute path, on one line — never an intermediate
@@ -107,6 +112,9 @@ Use the fully-expanded one-liner, quoted:
 
 (The `CLAUDE_HOME` rung is dropped inline for readability; the fence form keeps it.)
 
+For `coordinator-invoke` specifically, the bare extensionless path Shapes A and B already prescribe
+IS the POSIX door — see § The door. Never append an extension to it there.
+
 ### Shape C — `code-reviewer` dispatch (SPECIAL — do not use A or B)
 
 `code-reviewer`'s Bash is allowlist-confined by an engine-side guard which
@@ -125,6 +133,50 @@ dispatch prompt, e.g.:
 Describe this in skill/agent text as: the dispatching EM resolves the settings home and injects
 the literal absolute command into the reviewer's brief — the reviewer itself never sees a
 `${...}` form.
+
+### The door — `coordinator-invoke` only, and it is spelled differently per platform
+
+`coordinator-invoke` is the one CLI with a **native door** installed beside the forwarders: a small
+C client that relays one JSON-RPC frame to an already-running warm engine and prints back its
+stdout/stderr/exit code — no interpreter start, no engine import. It exists on **both** platforms
+and is first-class on both:
+
+| Host | Door binary | Transport | Measured warm vs cold |
+|---|---|---|---|
+| Windows | `coordinator-invoke.exe` | named pipe | ~15-65ms vs ~110-135ms wall |
+| macOS / Linux | `coordinator-invoke` — the **bare, extensionless** name | unix domain socket | 1.17ms vs 71.76ms process time (macOS 26.5, arm64) |
+
+**So the two shapes disagree on spelling, and that is correct, not an inconsistency to harmonize.**
+Shape W names `.exe`. Shapes A/B keep the bare extensionless settings-home path they already
+prescribe — on a POSIX host the door is installed *at that exact path*, replacing the Python
+forwarder, so a macOS/Linux fence following Shape A/B is already on the fast path and needs no
+change. **Never carry either spelling across to the other platform.** The same bare extensionless
+path is the door on POSIX and, on Windows, the co-installed POSIX forwarder, which PowerShell
+ShellExecutes as a *document*: in a pipeline it errors `Cannot run a document in the middle of a
+pipeline`, standalone it returns at once with no output and an EMPTY `$LASTEXITCODE` — a silent
+no-op. (`PATHEXT` does reach the door from a bare name, but only on a `$PATH` **lookup**; every
+shape here is path-qualified and never consults it.)
+
+**The door is a fast path, never the only path.** On any doubt — no pipe/socket, busy, malformed
+frame — it falls through to the same Python entrypoint the cold forwarder would have reached, with
+argv unchanged, and prints nothing extra. That covers a door **present and unable to reach a
+server**. It does not cover an **absent** door, and absence degrades differently on each host,
+which is the asymmetry to hold:
+
+- **Windows** — nothing answers at `coordinator-invoke.exe`, so the call fails **loud**
+  (command-not-found).
+- **POSIX** — the bare name is re-occupied by the plain-Python forwarder (the engine's door
+  uninstall re-emits it there deliberately; a best-effort door install that never landed leaves
+  `install_bin_forwarders`' copy in place), so the call **silently reverts to the cold path**. The
+  tell is latency, not an error.
+
+One platform-neutral check for either case: the door's engine-root sidecar,
+`<settings-home>/bin/door.engine-root.txt`, is written only by the door install and never
+re-created by its uninstall. No sidecar, no door. **Treat a missing door as the install defect it
+is** — take the cold path for the one call that unblocks you, then report it; never quietly adopt
+the cold spelling as standing doctrine, which is how this corpus drifted onto the cold path the
+first time. Tripwire:
+`A-DOCTRINE-SURFACE-THAT-NAMES-CMD-CONSCRIPTS-EVERY-READER-ONTO-THE-COLD-PATH`.
 
 ## CLIs with no forwarder yet (generator gap)
 

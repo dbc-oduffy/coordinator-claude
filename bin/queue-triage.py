@@ -1,14 +1,14 @@
 # Unix shebang — was generator-owned by gen-launcher-shim.py --ensure-unix; that mode was retired 2026-07-28 (POSIX-EXEC-ASSUMPTION-GUARD, PM ruling) and no longer regenerates this line.
 """
-coordinator/bin/queue-triage — one CLI fronting the three queue-triage-terminus
-ops (queue.cluster, queue.age_ping, handoff.scaffold_from_queue).
+coordinator/bin/queue-triage — one CLI fronting the queue-triage-terminus
+ops (queue.cluster, handoff.scaffold_from_queue).
 
 Purpose: extensionless entrypoint, naked Python, matching
 coordinator-queue-append's shape (same noun family, same consumer). ONE CLI
-with a `<leg>` argument (cluster | age-ping | scaffold-baton) rather than
-three near-identical scripts, each leg taking a queue-family argument — the
+with a `<leg>` argument (cluster | scaffold-baton) rather than
+near-identical scripts, each leg taking a queue-family argument — the
 sender's stated preference (docs/plans/2026-07-23-queue-triage-terminus-ops.md
-§ C7). Cluster and age-ping route via `cc_invoke.route()` (compute-only);
+§ C7). Cluster routes via `cc_invoke.route()` (compute-only);
 scaffold-baton routes via `cc_invoke.route_mutation()` (mutating, and honors
 the op's in-envelope exit_code/error refusal shape). Every leg prints the
 op's ratified response envelope as JSON to stdout unchanged — this CLI adds
@@ -16,17 +16,20 @@ no rendering, no summarization, no second copy of any envelope shape.
 
 Spec backlink: pln-queue-triage-terminus-ops-clus-043c40 § C7
 
-Op keys (do not confuse the third with `queue.scaffold_baton` — the module
+A third leg, `age-ping` (`queue.age_ping`), was deleted 2026-08-27 under the
+brightline kill bar — it cost ~425-465ms of process time per dispatch and had
+no live caller. See docs/gravestones/queue-age-ping.md.
+
+Op keys (do not confuse the second with `queue.scaffold_baton` — the module
 that registers it is `queue_scaffold_baton.py` by filename convention only;
 the op KEY is `handoff.scaffold_from_queue`, since it writes
 `state/handoffs/`, outside DR-213's queue-write carve-out):
     queue.cluster
-    queue.age_ping
     handoff.scaffold_from_queue
 
-The `<family>` positional is uniform across all three legs for CLI-shape
-symmetry. `queue.cluster` and `queue.age_ping` forward it directly into their
-params (`family` / `families=[family]`). `handoff.scaffold_from_queue` has no
+The `<family>` positional is uniform across both legs for CLI-shape
+symmetry. `queue.cluster` forwards it directly into its
+params (`family`). `handoff.scaffold_from_queue` has no
 `family` param at all — it derives family from each item's `path` — so here
 `<family>` is used ONLY to expand a bare `--entry-path` filename into its
 likely repo-relative location (`state/<family>/<filename>`); it is never
@@ -54,40 +57,99 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 
 _BIN_DIR = Path(__file__).resolve().parent
-_LIB_DIR = str(_BIN_DIR / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-from cc_invoke import (  # noqa: E402
-    RouteMutationError,
-    require_engine_on_path,
-    route,
-    route_mutation,
+_BOOTSTRAPPED_NAMES = (
+    "RouteMutationError",
+    "require_engine_on_path",
+    "route",
+    "route_mutation",
+    "_ENGINE_ROOT",
+    "ArgvFidelityError",
+    "refuse_newline_argv",
+    "resolve_body",
+    "show_toplevel",
 )
 
-# The engine root must be on sys.path before any `coordinator_core` import: this
-# file is also published into the claude-klabauter mirror, where coordinator_core
-# is NOT pip-installed, so a bare import resolves nothing and the CLI dies at
-# import time. Same bootstrap as coordinator/bin/lib/workday_ceremony_lib.py
-# (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
-_ENGINE_ROOT = str(require_engine_on_path(__file__))
 
-from coordinator_core.argv_fidelity import (  # noqa: E402
-    ArgvFidelityError,
-    refuse_newline_argv,
-    resolve_body,
-)
-from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind the engine on the LOCATOR axis, then everything that depends on it.
+
+    Idempotent. THE ORDER INSIDE THIS FUNCTION IS THE POINT -- it is one function
+    rather than per-use-site deferred imports precisely so the sequence cannot be
+    reordered by a later edit. The original comments are preserved verbatim below.
+
+    What moved and what did not: this sequence ran at MODULE scope until now, so
+    every import of this file mutated the `sys.path` of a warm server ~50 sessions
+    share. Only the trigger moved; the order is byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import (  # noqa: E402
+            RouteMutationError,
+            require_engine_on_path,
+            route,
+            route_mutation,
+        )
+
+        # The engine root must be on sys.path before any `coordinator_core` import: this
+        # file is also published into the claude-klabauter mirror, where coordinator_core
+        # is NOT pip-installed, so a bare import resolves nothing and the CLI dies at
+        # import time. Same bootstrap as coordinator/bin/lib/workday_ceremony_lib.py
+        # (landed in d2d4ec545 for the identical failure on /workday-start Step 0).
+        _ENGINE_ROOT = str(require_engine_on_path(__file__))
+
+        from coordinator_core.argv_fidelity import (  # noqa: E402
+            ArgvFidelityError,
+            refuse_newline_argv,
+            resolve_body,
+        )
+        from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
+    finally:
+        # Publish whatever bound, EVEN IF a later import raised, and NEVER
+        # overwrite a name a caller already installed (e.g. a monkeypatch).
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    # Only on a clean run: a partial bootstrap must stay retryable.
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: a consumer that imports this module rather than executing it
+    reaches these names before `main()` runs. Without this, deferring the
+    bootstrap leaves them simply absent. Only fires for names not already in
+    `__dict__`, so once bootstrapped the plain global wins.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 _OP_CLUSTER = "queue.cluster"
-_OP_AGE_PING = "queue.age_ping"
 _OP_SCAFFOLD = "handoff.scaffold_from_queue"
 
 # Review: code-reviewer — Finding 1 (P1): scaffold-baton's `family` is
 # interpolated into a filesystem path (`_entry_path_for`) with no parse-time
 # guard, unlike `entry_path` (checked for separators before use). Charset-only
-# allowlist, scoped to scaffold-baton's `family` alone — cluster/age-ping's
-# `family` never touches a filesystem path (it goes straight into op params),
+# allowlist, scoped to scaffold-baton's `family` alone — cluster's `family`
+# never touches a filesystem path (it goes straight into op params),
 # so this is not a general family-legitimacy check (that stays the op's job).
 # Mirrors coordinator-queue-append's `_validate_workstream_identifier` shape.
 _FAMILY_ARG_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -112,18 +174,20 @@ def _legacy_fn(op: str):
 
 def _resolve_repo_root(explicit: str | None) -> str | None:
     """Resolve repo_root — `--repo-root` wins; else `git rev-parse --show-toplevel`."""
+    _bootstrap_engine()
     if explicit:
         return explicit
     return show_toplevel()
 
 
 def _dispatch_read(op: str, params: dict, repo_root: str) -> tuple[Any, int]:
-    """Cluster/age-ping dispatch — route() is compute-only, bare result on success.
+    """Cluster dispatch — route() is compute-only, bare result on success.
 
     Returns (result, exit_code). Only a transport failure (RuntimeError) is
     possible here — route() never interprets an in-envelope exit_code/error
     the way route_mutation() does, by design (AC10).
     """
+    _bootstrap_engine()
     try:
         result = route(op, params, repo_root, _legacy_fn(op))
     except RuntimeError as exc:
@@ -134,6 +198,7 @@ def _dispatch_read(op: str, params: dict, repo_root: str) -> tuple[Any, int]:
 
 def _dispatch_mutation(op: str, params: dict, repo_root: str) -> tuple[Any, int]:
     """scaffold-baton dispatch — route_mutation() honors the op's in-envelope refusal shape."""
+    _bootstrap_engine()
     try:
         result = route_mutation(op, params, repo_root, _legacy_fn(op))
     except RouteMutationError as exc:
@@ -174,7 +239,7 @@ def _family_arg(value: str) -> str:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="queue-triage",
-        description="Front the queue-triage-terminus ops: cluster, age-ping, scaffold-baton.",
+        description="Front the queue-triage-terminus ops: cluster, scaffold-baton.",
         epilog=(
             "NOTE: --repo-root may appear before OR after the leg name "
             "(e.g. both `queue-triage --repo-root R cluster debt-backlog` and "
@@ -214,23 +279,6 @@ def _build_parser() -> argparse.ArgumentParser:
     p_cluster.add_argument("--where", default=None)
     p_cluster.add_argument("--since", default=None)
     p_cluster.add_argument("--limit", type=int, default=None)
-
-    p_age = sub.add_parser(
-        "age-ping",
-        parents=[_repo_root_parent],
-        help="queue.age_ping — parked entries past threshold",
-    )
-    p_age.add_argument(
-        "family", type=_family_arg, help="queue-family directory name, e.g. bug-backlog"
-    )
-    p_age.add_argument("--threshold-days", type=int, default=None)
-    p_age.add_argument(
-        "--exclude-path",
-        action="append",
-        default=None,
-        dest="exclude_paths",
-        help="repo-relative path already dispositioned this cycle (repeatable)",
-    )
 
     p_scaffold = sub.add_parser(
         "scaffold-baton",
@@ -313,15 +361,6 @@ def _build_cluster_params(args: argparse.Namespace) -> dict:
     return params
 
 
-def _build_age_ping_params(args: argparse.Namespace) -> dict:
-    params: dict[str, Any] = {"families": [args.family]}
-    if args.threshold_days is not None:
-        params["threshold_days"] = args.threshold_days
-    if args.exclude_paths is not None:
-        params["exclude_paths"] = args.exclude_paths
-    return params
-
-
 def _build_scaffold_params(args: argparse.Namespace) -> dict:
     params: dict[str, Any] = {}
     if args.entry_path:
@@ -348,6 +387,7 @@ def _build_scaffold_params(args: argparse.Namespace) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _bootstrap_engine()
     argv = sys.argv[1:] if argv is None else argv
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -359,8 +399,6 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.leg == "cluster":
         result, exit_code = _dispatch_read(_OP_CLUSTER, _build_cluster_params(args), repo_root)
-    elif args.leg == "age-ping":
-        result, exit_code = _dispatch_read(_OP_AGE_PING, _build_age_ping_params(args), repo_root)
     else:
         try:
             refuse_newline_argv(args.body, flag_name="--body")

@@ -115,6 +115,8 @@ Per wave:
 1. Mark `in_progress`, tracker-sweep the item (wiki), dispatch each to a `run_in_background`
    Sonnet executor with the spec, footprint, and the brief's
    `d-mise-executor-dispatch-prompt-template` fields.
+
+<!-- engine-gap: field=tracker_sweep.item_state producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 2. On DONE (verify via disk — DONE path + scoped `git status`; never trust idle-alone; never
    double-dispatch onto a live footprint): dispatch a Haiku verifier per item using the
    brief's `d-mise-haiku-verifier-dispatch` fields. Batch per wave; gate on all-`PASS`.

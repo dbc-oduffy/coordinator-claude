@@ -72,9 +72,30 @@ import sys
 from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
-_LIB_DIR = _BIN_DIR / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
+
+
+def _bootstrap_lib() -> None:
+    """Put `coordinator/bin/lib` on `sys.path` so `cc_invoke` is importable.
+
+    Every `from cc_invoke import ...` in this module carried the comment
+    "(path injected at module top)". No such injection existed: module scope
+    imports stdlib only. The comment described a bootstrap that is not there,
+    so each deferred import raised `ModuleNotFoundError: cc_invoke` and every
+    caller reported a transport failure instead of doing its job — including
+    `autonomous-sentinel`, which is how `/autonomous` silently declined to
+    enable itself.
+
+    Idempotent and cheap: `import lib` is the house bootstrap (same line as
+    `coordinator-harvest-deferrals.py`), and re-importing a bound module is a
+    dict lookup. Called at each deferred-import site rather than at module
+    scope on purpose — module bodies stay inert on the warm door and on the
+    un-bootstrapped settings-home forwarder load route (C6d import-motion),
+    and hoisting this would undo that.
+    """
+    if str(_BIN_DIR) not in sys.path:
+        sys.path.insert(0, str(_BIN_DIR))
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
 
 GENERATES = []  # autonomous-sentinel writes only to the platform tempdir (autonomous_sentinel.sentinel_path); other subcommands only print/shell out
 
@@ -149,7 +170,8 @@ def _cmd_rag_freshness_gate(argv: list[str]) -> int:
 
     check_rag_state = _BIN_DIR / "check-rag-state.py"
     try:
-        from cc_invoke import child_env, require_dispatch_engine_on_path  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env, require_dispatch_engine_on_path
         from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
 
         proc = subprocess.run(
@@ -221,7 +243,8 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
         return 0
 
     try:
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env
         from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
 
         proc = subprocess.run(
@@ -258,6 +281,7 @@ def _cmd_rag_staleness_survey(argv: list[str]) -> int:
 
 
 def _import_resolve_session_id():
+    _bootstrap_lib()
     from cc_invoke import require_dispatch_engine_on_path  # noqa: WPS433 (deferred, mirrors house style)
 
     require_dispatch_engine_on_path()
@@ -267,6 +291,7 @@ def _import_resolve_session_id():
 
 
 def _import_sentinel_path():
+    _bootstrap_lib()
     from cc_invoke import require_dispatch_engine_on_path  # noqa: WPS433 (deferred, mirrors house style)
 
     require_dispatch_engine_on_path()

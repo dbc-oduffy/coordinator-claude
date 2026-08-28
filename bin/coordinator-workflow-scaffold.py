@@ -90,19 +90,31 @@ import os
 import re
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import (  # noqa: E402
-    StructuralPinError,
-    cc_invoke_bare,
-    is_timeout_error,
-    none_scoped_repo_refusal,
-)
-
 GENERATES = []  # writes only to the caller-supplied --out path (or stdout when omitted) — no fixed tracked artifact
 
 _PROG = "coordinator-workflow-scaffold.py"
+
+StructuralPinError = None  # type: ignore  # bound by _bootstrap_imports()
+cc_invoke_bare = None  # type: ignore  # bound by _bootstrap_imports()
+is_timeout_error = None  # type: ignore  # bound by _bootstrap_imports()
+none_scoped_repo_refusal = None  # type: ignore  # bound by _bootstrap_imports()
+
+
+def _bootstrap_imports() -> None:
+    """Import every non-stdlib dependency this module needs and bind it at
+    module scope, called from main() (C6d import-motion: module bodies stay
+    inert on both the warm door and the un-bootstrapped settings-home
+    forwarder load routes).
+    """
+    global StructuralPinError, cc_invoke_bare, is_timeout_error, none_scoped_repo_refusal
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import (
+        StructuralPinError,
+        cc_invoke_bare,
+        is_timeout_error,
+        none_scoped_repo_refusal,
+    )
 
 
 class _TransportError(Exception):
@@ -173,6 +185,7 @@ def _usage() -> str:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_imports()
     name = ""
     title = ""
     description = ""

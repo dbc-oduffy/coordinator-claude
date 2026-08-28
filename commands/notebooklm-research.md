@@ -20,6 +20,15 @@ Team roles, timing ceilings, data contracts (`strategy.md`, `sources.md`,
 lifecycle, and why the fidelity relay doesn't apply here all live in
 `coordinator/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
 
+**Precondition — raise the teams flag first.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` defaults to
+`"0"`. Set it to `"1"` in `~/.claude/settings.json` before Step 3, and back to `"0"` when the run
+ends, badly or well. No restart is needed; the value is re-read on each spawn.
+
+**This one fails quietly if you skip it.** Step 3 spawns the first teammate *before* any task is
+created, so at `"0"` that spawn degrades into an ordinary blocking subagent that runs a full
+notebook ingest, and only the later `TaskCreate` errors — leaving a live NotebookLM notebook, a
+half-finished run, and no team. Check the flag; do not discover this from the wreckage.
+
 **Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using
 NotebookLM."
 

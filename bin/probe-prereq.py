@@ -79,19 +79,17 @@ from pathlib import Path
 from typing import List, Optional
 
 _BIN_DIR = Path(__file__).resolve().parent
-_LIB_DIR = _BIN_DIR / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
-try:
-    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
 
-from coordinator_core.install.step_zero_emit import emit_line  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+def _ensure_repo_root() -> Path:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    try:
+        return Path(require_colocated_engine_on_path(__file__))
+    except RuntimeError as _exc:
+        print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.CompletedProcess]:
@@ -106,6 +104,8 @@ def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.Compl
     it. Reason recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
     """
+    from coordinator_core.win_portability import no_console_creationflags
+
     try:
         return subprocess.run(
             argv,
@@ -172,6 +172,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _ensure_repo_root()
+    from coordinator_core.install.step_zero_emit import emit_line  # noqa: F401
+
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

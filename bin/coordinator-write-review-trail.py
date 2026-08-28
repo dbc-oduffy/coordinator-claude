@@ -68,13 +68,67 @@ import sys
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
 
-import cc_invoke  # noqa: E402  (path insert above must precede this import)
-from raw_cmdline_recovery import UnsoundRawCmdlineTransport  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
+_BOOTSTRAPPED_NAMES = ("cc_invoke", "resolve_checked_repo_root")
 
-cc_invoke.ensure_engine_on_path(__file__)
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_imports() -> None:
+    """Import every non-stdlib dependency this module needs and bind it at
+    module scope (C6d import-motion: module bodies stay inert on both the
+    warm door and the un-bootstrapped settings-home forwarder load routes).
+
+    Idempotent; safe to call more than once. The `sys.path` insert used to
+    run at MODULE scope, which made every import of this file (its own test
+    suite, in-process dispatch) mutate the `sys.path` of a warm server ~50
+    sessions share — moved inside this function, byte-for-byte the same
+    sequence, only the trigger moved.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global cc_invoke, resolve_checked_repo_root
+    try:
+        if str(_SCRIPT_DIR / "lib") not in sys.path:
+            sys.path.insert(0, str(_SCRIPT_DIR / "lib"))
+
+        import cc_invoke  # noqa: F401  (path insert above must precede this import)
+        from repo_identity import resolve_checked_repo_root
+
+        cc_invoke.ensure_engine_on_path(__file__)
+    finally:
+        # Publish whatever bound, EVEN IF a later import raised -- never
+        # overwrite a name a caller already installed (e.g. a test
+        # monkeypatching `cc_invoke` before triggering the bootstrap).
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: a consumer that imports this module rather than
+    executing it -- its own test suite, or in-process dispatch -- reaches
+    these names before `main()` runs. A `global`-bound name is
+    module-visible only after its binder has been called; this hook calls
+    it lazily on first attribute access.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_imports()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_imports()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _no_console_creationflags() -> dict:
@@ -115,6 +169,7 @@ def _resolve_repo_root() -> str:
     unresolved repo root, mirroring the fail-loud exit-1 contract this
     function already had.
     """
+    _bootstrap_imports()
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         print(verdict["message"], file=sys.stderr)
@@ -266,6 +321,7 @@ def _recover_windows_argv(argv: list[str]) -> list[str]:
     fix addresses; the writer-side half is ``review_trail_write.py``'s
     empty-range rejection).
     """
+    _bootstrap_imports()
     from raw_cmdline_recovery import recover_windows_argv
 
     return recover_windows_argv(argv, _LAUNCHER_CMD_NAME)
@@ -279,6 +335,7 @@ def _no_fallback() -> None:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_imports()
     parser = argparse.ArgumentParser(
         prog="coordinator-write-review-trail.py",
         add_help=False,  # -h left unclaimed, mirrors the bash oracle (no --help handling)
@@ -429,6 +486,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    _bootstrap_imports()
+    from raw_cmdline_recovery import UnsoundRawCmdlineTransport
+
     try:
         _argv = _recover_windows_argv(sys.argv[1:])
     except UnsoundRawCmdlineTransport:

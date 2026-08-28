@@ -1,0 +1,37 @@
+# machine-local registry — per-machine overrides stay out of git
+*.local.toml
+
+# Tracked: *.toml baselines, *.example templates, README.md
+!*.toml.example
+
+# --- Resolved values, root pointers, and snapshots ---
+# This directory is reachable from a synced ~/.claude meta-repo through a
+# symlink, so anything tracked here publishes to every peer machine. The
+# discrimination that matters: the concern BASELINES (registry/hardware/
+# unreal.toml) STAY TRACKED — their bodies are empty key declarations and their
+# headers declare them shared. It is the resolved-value and snapshot files
+# beside them that are one machine's state.
+#
+# Addon-registered concern files hold resolved absolute `location` values and
+# are rewritten by registration on each machine, so they regenerate rather than
+# needing to travel. Add one line per addon concern you register:
+# <concern>.toml
+#
+# Root pointers — one machine's repo path. Siblings of the .doe-root the
+# meta-repo's own .gitignore already anchors, and the same class. Matched by
+# shape, not by name: a pointer named after a repo this operator happens to
+# have registered must never need a new line here to stay out of git, because
+# a pointer that travels arrives as a path from the wrong OS — a Windows drive
+# letter landing on a Mac — where it resolves to nothing and the failure
+# surfaces far from here.
+.*-root
+# The resolved interpreter NAME for this box, which is not the name that
+# resolves on the next one.
+.python-interpreter
+# Boot/install sentinels carry a PID and a wall-clock stamp for one machine.
+sentinels/
+# Pre-surgery snapshots of any of the above, plus captured environment dumps
+# (a saved %PATH% is this machine's, and nothing else's).
+*.bak*
+*.pre-*
+user-path-backup-*

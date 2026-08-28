@@ -56,11 +56,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
 
 def _import_run_op_main():
     """Resolve the CO-LOCATED engine root and import the in-process runner.
@@ -82,35 +77,38 @@ def _import_run_op_main():
     (AC-axis) cross-checks every dispatch-axis trampoline against the store's
     rename table, so a third instance fails a test rather than going quiet.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
     claude_klabauter_root = require_colocated_engine_on_path(__file__)
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:
         print(f"check-claude-klabauter-doctor-sentinel.sh: engine root resolution failed: {exc}", file=sys.stderr)
-        sys.exit(0)
+        return 0
     except ImportError as exc:
         print(
             f"check-claude-klabauter-doctor-sentinel.sh: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        return 0
 
     try:
-        code = run_op_main("coordinator_core.ops.check_claude_klabauter_doctor_sentinel", sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.check_claude_klabauter_doctor_sentinel", (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             f"check-claude-klabauter-doctor-sentinel.sh: coordinator_core.ops.check_claude_klabauter_doctor_sentinel "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
-    sys.exit(code)
+        return 0
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

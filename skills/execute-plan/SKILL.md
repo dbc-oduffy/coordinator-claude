@@ -57,6 +57,8 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
 3. **Session-freshness** (skip under `/autonomous`): a same-session execution (this session
    authored/reviewed the plan) is a narrow carve-out, not the default — a fresh (picked-up)
    session is the intended path at any plan size. Detail: wiki.
+
+<!-- engine-gap: field=execute_plan.session_freshness_verdict producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 4. Resolve EM-resolvable concerns at EM altitude — not the moment to surface them to the PM. A
    concern revealing the plan isn't actually executable → Phase 1.4.
 5. Announce and continue.
@@ -115,10 +117,16 @@ wave — that gate is on another repo, not on a chunk pair, so no pair-classific
 reads the spine's `writes:`/`depends_on` and emits the ready-to-fire Workflow itself, each row's
 `gate_kind`, `write_files`, and `agentType` already resolved and non-dispatchable rows already
 filtered — not wave-map metadata for the EM to transcribe into a hand-authored script.
+
+<!-- engine-gap: field=execute_plan.gate_kind_fallback_classification producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 `NoWritesDeclaredError` means the spine is unpopulated — an authoring gap to fix in the plan, not a
+
+<!-- engine-gap: field=execute_plan.ses_fire_check producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 licence to hand-derive. Write the emitted script to a plan-relative on-disk path
 (`<plan-basename>.workflow.mjs`, next to the plan) — a disk artifact, never plan-body prose, a
 hand-authored wave map, or a chat emission of a wave table.
+
+<!-- engine-gap: field=execute_plan.wave_map_validation.violations producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 **Emit and dispatch are ONE action, and the dispatch leg is not optional.** In an interactive
 session the EM runs `python coordinator/bin/emit-dispatch-workflow.py --plan <plan-path>`, then
@@ -202,6 +210,8 @@ the same flight-recorder role; do not assume either state without checking.
 
 ## Phase 3: Execute All Tasks
 
+<!-- engine-gap: field=execute_plan.wave_boundary_gated_artifact_check producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+
 Default: execute every task in sequence without stopping to ask. Per task: write-ahead (mark
 `In progress` on disk + TaskUpdate `in_progress`) → execute (follow the plan, fix routine errors,
 move on) → mark complete (on disk + TaskUpdate `completed`) → proceed immediately, including
@@ -229,6 +239,10 @@ checks: a `disposition: coded` spine row's own `disposition_ref`, and, for a pla
 completion from a commit message, so a correct subject and a correct trailer are not, together or
 alone, evidence that any row shipped.
 
+**The `## Tasks` spine is the only row family close-out reads.** Delivery evidence is the
+falsifier delta on `prime_exit_criterion` — its verdict, not a row's ticked-or-open state, is what
+discharges the plan. Tripwire: `AN-UNTICKED-AC-CELL-CARRIES-NO-INFORMATION`.
+
 **Before any cleanup:** `coordinator-harvest-deferrals --plan "$ARGUMENTS"`, surfacing its
 `"Queued N ..."` line even on `Queued 0`. A `defer` grouping approval (or legacy
 `pm_approved: true`) is a claim of ratification the harvest selects on, not something this step
@@ -249,7 +263,35 @@ commit:**
    actually landed: `disposition_ref` is hand-written and the anti-self-attestation gate cannot
    catch a row pointing at a peer's commit, since that commit is an ancestor of `HEAD` too — a
    spine can be fully green and fully misattributed.
-3. `close-out-and-stamp "$ARGUMENTS"` — stamps `status: implemented` and commits the plan path
+3. Re-run `prime_exit_criterion.falsifier.how` against `HEAD`, paste its raw output into
+   `exit_criterion_met.falsifier_output`, and judge it against
+   `prime_exit_criterion.falsifier.expected_when_true` — never against `baseline_output`. Record
+   the verdict in `exit_criterion_met.falsifier_verdict` (`pass`/`fail`); the gate refuses the
+   stamp unless it is `pass`. A changed-but-non-matching output is still a `fail`: non-inertness
+   alone does not prove the criterion, so no separate zero-movement rule is needed — an unchanged
+   output already fails the same check. `exit_criterion_met.prose` is the signature tying that
+   verdict to the prime exit criterion, not a substitute for it. Verdict `fail` →
+   `asserted: false`, Phase-5-halted, no stamp.
+3.5. **Promote the falsifier, when it promotes.** An executable, deterministic falsifier graduates
+   into the repo's test suite: record `promoted_to: <test path>`. The shape is red-green at plan
+   altitude — the baseline already proved it fails before the work, so the promoted test arrives
+   with its red state demonstrated, which is more than most tests can say. PROMOTION IS AN
+   OUTCOME, NOT A GATE: a one-shot corpus query, a manual observation, or a measurement against a
+   live index records `promotion: not-applicable` plus a reason, and close-out accepts it. Do NOT
+   make promotability a precondition for the stamp — EMs would then choose falsifiers for their
+   filing convenience rather than for what they actually falsify, which is the vacuous-AC failure
+   wearing a new costume.
+3.6. **Adversarial criterion-only reader, M+ plans that went green first time only.** M+ per
+   `sizing_object.estimate.tshirt` (§ Proportionality; an S-lane spec-dispatch never gets this) AND
+   every wave-map chunk landed without an executor BLOCKing on this run — dispatch one reader that
+   receives only the prime exit criterion statement and `HEAD`, and answers one question: does HEAD
+   do this? Current review effort concentrates where execution stumbles; a plan that halts is
+   self-flagging, and the plan that sails is the one nobody re-reads.
+   **THE DENIAL LIST IS THE MECHANISM AND MUST BE EXPLICIT IN THE DISPATCH, not implied:** no plan
+   body, no AC table, no chunk bodies, no run reports, no reviewer sidecars. A reader who never sees
+   AC3 cannot be misled by AC3 — that is the entire value, and a well-meaning "here is the context
+   you need" destroys it.
+4. `close-out-and-stamp "$ARGUMENTS"` — stamps `status: implemented` and commits the plan path
    (full-plan-shipped), or reports remaining uncommitted chunks and skips the stamp
    (Phase-5-halted). Folding the stamp into your own commit is acceptable — state that you did.
 

@@ -91,32 +91,6 @@ def _repo_root() -> str:
     return os.path.dirname(coordinator_dir)
 
 
-# Record/derivation core lives in coordinator_core.ops.platform_outcome_records
-# (extracted verbatim, byte-for-byte behavior-equivalent — see that module's
-# docstring for the two-consumer rationale: this generator, and
-# coordinator_core.ops.validate_install_contract._check_point4). Import off
-# THIS script's own on-disk location (_repo_root()), never off a
-# caller-supplied --repo-root target — see _current_repo_sha's own historical
-# review note, now moot since this import happens at module load time here.
-_own_root = _repo_root()
-if _own_root not in sys.path:
-    sys.path.insert(0, _own_root)
-
-from coordinator_core.ops.platform_outcome_records import (  # noqa: E402
-    PLATFORM_ENUM_ORDER,
-    PLATFORM_OUTCOME_STALENESS_DAYS,
-    REQUIRED_RECORD_FIELDS,
-    current_repo_sha as _current_repo_sha,
-    derive_tested_platforms,
-    entry_point_surfaces,
-    is_stale as _is_stale,
-    iter_record_paths,
-    load_record as _load_record,
-    records_root as _records_root,
-    yaml,
-)
-
-
 def _manifest_path(repo_root: str) -> str:
     """Resolve whichever manifest layout exists under `repo_root`, preferring
     the repo's own shape. Neither exists -> raise FileNotFoundError naming
@@ -132,6 +106,31 @@ def _manifest_path(repo_root: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Record/derivation core lives in coordinator_core.ops.platform_outcome_records
+    # (extracted verbatim, byte-for-byte behavior-equivalent — see that module's
+    # docstring for the two-consumer rationale: this generator, and
+    # coordinator_core.ops.validate_install_contract._check_point4). Import off
+    # THIS script's own on-disk location (_repo_root()), never off a
+    # caller-supplied --repo-root target — see _current_repo_sha's own historical
+    # review note, now moot since this import happens at module load time here.
+    _own_root = _repo_root()
+    if _own_root not in sys.path:
+        sys.path.insert(0, _own_root)
+
+    from coordinator_core.ops.platform_outcome_records import (
+        PLATFORM_ENUM_ORDER,
+        PLATFORM_OUTCOME_STALENESS_DAYS,
+        REQUIRED_RECORD_FIELDS,
+        current_repo_sha as _current_repo_sha,
+        derive_tested_platforms,
+        entry_point_surfaces,
+        is_stale as _is_stale,
+        iter_record_paths,
+        load_record as _load_record,
+        records_root as _records_root,
+        yaml,
+    )
+
     parser = argparse.ArgumentParser(
         description="Derive tested_platforms from state/platform-outcomes/ records "
         "(dry-run by default; --write to update agent-install-manifest.json)."

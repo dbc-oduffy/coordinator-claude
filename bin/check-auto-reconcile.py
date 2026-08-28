@@ -118,11 +118,6 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import ensure_engine_on_path  # noqa: E402
-
 
 def _render(response: Any) -> List[str]:
     """Render result.surfaced[] as one '[auto-reconcile] ...' line per entry,
@@ -187,6 +182,9 @@ def _get_raw_response() -> Optional[Dict[str, Any]]:
         except Exception:
             return None
 
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import ensure_engine_on_path
+
     claude_klabauter_root = ensure_engine_on_path(__file__)
     if not claude_klabauter_root:
         return None
@@ -211,26 +209,26 @@ _USAGE = (
 )
 
 
-def main() -> None:
-    argv = sys.argv[1:]
+def main(argv: "list[str] | None" = None) -> int:
+    argv = (sys.argv[1:] if argv is None else argv)
     if argv:
         if argv[0] in ("-h", "--help"):
             print(_USAGE)
-            sys.exit(0)
+            return 0
         print(_USAGE)
-        sys.exit(2)
+        return 2
 
     response = _get_raw_response()
     if response is None:
-        sys.exit(0)
+        return 0
     try:
         lines = _render(response)
     except Exception:
-        sys.exit(0)
+        return 0
     for line in lines:
         print(line)
-    sys.exit(0)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

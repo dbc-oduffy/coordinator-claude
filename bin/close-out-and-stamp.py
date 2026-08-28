@@ -58,15 +58,13 @@ same convention as pickup-assemble/archive-stamp-cli/review-exec-auth-stamp)."""
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 _TRANSPORT_FAIL = 3
 
 
 def _import_module():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.execute_plan_assemble.close_out_and_stamp as _mod
 

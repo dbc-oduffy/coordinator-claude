@@ -43,11 +43,6 @@ import json
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
 _SESSION_ID_ENV_TIERS = (
     "COORDINATOR_SESSION_ID",
     "CLAUDE_SESSION_ID",
@@ -105,6 +100,9 @@ def _resolve_git_root() -> str | None:
     maps this to "not inside a git repo", exit 1 -- matching pre-existing
     behavior).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         print(verdict["message"], file=sys.stderr)

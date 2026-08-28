@@ -88,6 +88,8 @@ Actionable-now/awaiting-gate triage are Step -0.9 directives (`d-handoff-triage-
 since this handoff was written" from commit history — treat every `ready_to_fire` item as
 unverified rather than hand-deriving closure. Degraded pending an engine producer.
 
+<!-- engine-gap: field=handoffs.ready_to_fire_commit_closure producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+
 **1.4** `query-completions --where "created>=<30d ago>" --sort created --format json` (legacy
 fallback: `archive/completed/legacy/<YYYY-MM>.md`) — match on workstream/feature/commit-hash/
 keyword, flag likely-shipped items.
@@ -160,6 +162,8 @@ Each: named CLI, non-empty/stated-exit-code surfaces under its heading, else sil
   `coordinator/snippets/`, else defer to the weekly cadence. Read that set from Step 0's own
   output; it is not a fact this step establishes for itself.
 - **1.82** No detector CLI for CLAUDE_PLUGIN_ROOT source-guard drift — degraded, no check this cadence.
+
+<!-- engine-gap: field=plugin_root.source_guard_drift producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 - **1.85** `workday-complete-backfill-scan --lookback 7` moves to the weekly group — the 7-day
   window re-scans the same days every morning; 6 of every 7 runs are definitionally redundant.
 - **1.86** Completion Reconcile is KILLED from `/workday-start` — `workday-start-reconcile-sweep`
@@ -192,7 +196,7 @@ run together instead of as four cold starts.
 is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
 it (~150ms, synchronous — no detach or background wrapper):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
 Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
 `skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
@@ -200,10 +204,6 @@ branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-
 never hand-roll a `git push` beside it.
 
 ## Step 1.10: Addon Health Sentinels
-
-`coordinator_core.install.scaffold_structure --root "$HOME/.claude" --manifest-root
-"$CLAUDE_PLUGIN_ROOT"` moves to the weekly group — `~/.claude` structure does not drift daily; gate
-on the shared weekly marker.
 
 `coordinator-doctor-sentinel --full` (writes the sentinel, silent GREEN, brief AMBER/RED) stays
 daily. The health scan itself is a Step -0.9 `d-addon-health-*` directive — render `detail` under
@@ -221,6 +221,12 @@ same WARN shape, naming dates) — eight named CLIs, one shell invocation, each 
 a fleet-topology fact, never a health regression. No multiplexer CLI for these eight exists today;
 this is the interim shell-level batch, not a new engine CLI — do not invent one here, that surface
 is engine-owned, not this skill's to add.
+
+**Memo-outbox tracking.** `python coordinator/bin/memo-outbox-tracking-guard.py` — delivered memos
+losing their sender-side record. Exit 1 renders under `### Addon Health`. Daily, because leg 2
+fires while a phantom staged deletion is still armed. Repair a leg-1 finding, then record its sha
+in `state/memo-outbox/acknowledged-sweeps.json`. Read the module docstring before touching the leg
+order.
 
 **Boot currency dependency:** `coordinator-doctor-sentinel --full` above writes P-19's verdict to
 `~/.claude/plugins/coordinator-claude/data/doctor-last-run.json`, the only cache
@@ -268,9 +274,18 @@ project-rag-preamble` (MISMATCH/MISSING_END → **Preamble Drift**, never auto-f
 `workday-complete-backfill-scan --lookback 7` (commits-but-no-summary gap → **Daily-Wrap
 Coverage**, read-only, never auto-backfills), `check-provisional-expiry.py docs/plans` (expired
 `provisional_until:`/`revisit_by:` → ratify/extend/flip-terminal prompt, read-only, never
-auto-resolves), `coordinator_core.install.scaffold_structure --root "$HOME/.claude"
---manifest-root "$CLAUDE_PLUGIN_ROOT"` (heal `~/.claude` structure drift, idempotent,
-additive-only).
+auto-resolves).
+
+No canonical-structure scaffold runs against `~/.claude` in this group or any other. `~/.claude` is
+harness config and backup, holding no coordinator working data, and the
+`guard-repo-setup-claude-home-refusal` bash guard refuses a scaffold write targeting it.
+
+## Step 3.7: Blast Radius Advisory
+
+`tier-last-run blast-radius` — advisory only, exit 0 always. Non-empty output → `### Blast
+Radius`, one line per declared `ceremony_test_cmds` entry the current change touches (count of
+changed files under its `collection_roots` plus that tier's last-run age); silent on no hit or on
+a stale sentinel. Never blocks; never runs the tier itself.
 
 ## Step 4: Priority Alignment
 
@@ -304,7 +319,7 @@ empty.
 ### Alignment Check
 Mismatches or "all aligned" — each names tracker status + archive ship date.
 
-### Orphan Sweep / Agent Worktrees / Auto-Push Health / Addon Health / Test-Red Delta
+### Orphan Sweep / Agent Worktrees / Auto-Push Health / Addon Health / Test-Red Delta / Blast Radius
 Each section omitted unless its own step produced findings.
 
 ### Priority Suggestions

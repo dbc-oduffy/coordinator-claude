@@ -108,38 +108,8 @@ from typing import IO, Any, Callable, List, NamedTuple, Optional, Sequence
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _COORDINATOR_LIB = _REPO_ROOT / "coordinator" / "lib"
-if str(_COORDINATOR_LIB) not in sys.path:
-    sys.path.insert(0, str(_COORDINATOR_LIB))
-# percolate.targets resolves sibling modules via absolute `coordinator.lib.percolate.*`
-# imports, so the repo root must be importable too — else a bareword
-# `python coordinator/bin/publish.py` (the invocation docs + the /percolate skill now
-# point at) dies with ModuleNotFoundError before argparse runs.
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 GENERATES = []  # writes land only under a tempfile.TemporaryDirectory() synthetic fixture (dispatch_oss_gate_registry_fixture) or the resolved destination percolate root's lastsync marker (a foreign publish-mirror tree, not claude-klabauter's own tree)
-
-#: D1 fix — single source of truth shared with
-#: `percolate-round.py::_INHERITED_LOCK_ROOTS_ENV` (one wire contract
-#: between the two scripts, same as the `NEW:`/`UPDATE:`/`RENAME:`
-#: change-line tags elsewhere in this pairing). See `main`'s lock loop
-#: below for the read side.
-from percolate.wire_contract import INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV
-
-from percolate.allowlist import (  # noqa: E402
-    AllowlistError,
-    assert_allowlist_applied,
-    build_allowlisted_source,
-    check_working_data_paths,
-    get_pre_filter_paths,
-    parse_allowlist_csv,
-    split_inclusion_exclusion,
-)
-from percolate.import_closure import (  # noqa: E402
-    PACKAGE_NAME as _CLOSURE_PACKAGE_NAME,
-    find_import_closure_violations,
-)
-from percolate.phase4_audit import PercolateIdentity, parse_percolate_identity  # noqa: E402
 
 #: Filename of the engine build stamp this publisher writes into the engine
 #: row's restricted tree. Duplicated rather than imported from
@@ -164,38 +134,173 @@ _ENGINE_STAMP_FILENAME = "_engine_stamp"
 #: `coordinator/bin/tests/test_publish_engine_stamp.py`, the same mechanism
 #: that already pins `_ENGINE_STAMP_FILENAME` above.
 _ENGINE_TOUCHING_PATHS = ("coordinator_core/", "coordinator/")
-from percolate.publish_modes import (  # noqa: E402
-    PUBLISH_MODES,
-    descriptor_for,
-    mirror_like_wire_names,
-)
-from percolate.publish_sync import _is_structural_build_artifact  # noqa: E402
-from percolate.targets import (  # noqa: E402  (path setup must precede this import)
-    TargetsError,
-    load_targets,
-    raw_dest_sigil_by_name,
-    _iter_portable_rows,
-    _resolve_portable_file,
+
+
+_BOOTSTRAP_DONE = False
+
+
+_BOOTSTRAPPED_NAMES = (
+    "_INHERITED_LOCK_ROOTS_ENV",
+    "AllowlistError",
+    "assert_allowlist_applied",
+    "build_allowlisted_source",
+    "check_working_data_paths",
+    "get_pre_filter_paths",
+    "parse_allowlist_csv",
+    "split_inclusion_exclusion",
+    "_CLOSURE_PACKAGE_NAME",
+    "find_import_closure_violations",
+    "PercolateIdentity",
+    "parse_percolate_identity",
+    "PUBLISH_MODES",
+    "descriptor_for",
+    "mirror_like_wire_names",
+    "_is_structural_build_artifact",
+    "TargetsError",
+    "load_targets",
+    "raw_dest_sigil_by_name",
+    "_iter_portable_rows",
+    "_resolve_portable_file",
+    "directive_cli_arity",
+    "publish_lane",
+    "payload_parity",
+    "_resolve_git_dir",
+    "_resolve_show_toplevel",
+    "_native_resolve_git_dir",
+    "_native_resolve_git_common_dir",
 )
 
-# § chunk C4 (docs/plans/2026-08-15-bind-the-klabauter-publish-rows-into-a-
-# parity-group.md) — `directive_cli_arity` is THIS repo's own
-# `coordinator_core` module (not the resolved-engine one `PercolateEngineContext`
-# lazily imports below), so it is imported statically at module scope like
-# `percolate.*` above: `_REPO_ROOT` is already on `sys.path` (see the path
-# setup preceding the `percolate.*` imports). `argv_parity_report` itself
-# never imports or executes a target script — AST reads only — so importing
-# this module carries none of the fail-closed/engine-resolution concerns the
-# lazy `coordinator_core.percolate.*` imports below exist to guard.
-from coordinator_core import directive_cli_arity  # noqa: E402
-from coordinator_core import publish_lane  # noqa: E402
-from coordinator_core.percolate import payload_parity  # noqa: E402
-from coordinator_core.git.repo_root import git_dir as _resolve_git_dir  # noqa: E402
-from coordinator_core.git.repo_root import show_toplevel as _resolve_show_toplevel  # noqa: E402
-from coordinator_core.git.git_dir import (  # noqa: E402
-    resolve_git_dir as _native_resolve_git_dir,
-    resolve_git_common_dir as _native_resolve_git_common_dir,
-)
+
+def _bootstrap_engine() -> None:
+    """Bind `coordinator.lib` (and this repo root) on `sys.path`, then every
+    non-stdlib name this module's body used to import at MODULE scope.
+    Idempotent; safe to call more than once.
+
+    What moved, and what did NOT: this whole sequence used to run at MODULE
+    scope, which made every import of this file mutate the `sys.path` of a
+    warm server ~50 sessions share, and eagerly imported 13 non-stdlib
+    modules on every load. The order and the comments below are preserved
+    byte-for-byte; only the trigger moved.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+        if str(_COORDINATOR_LIB) not in sys.path:
+            sys.path.insert(0, str(_COORDINATOR_LIB))
+        # percolate.targets resolves sibling modules via absolute `coordinator.lib.percolate.*`
+        # imports, so the repo root must be importable too — else a bareword
+        # `python coordinator/bin/publish.py` (the invocation docs + the /percolate skill now
+        # point at) dies with ModuleNotFoundError before argparse runs.
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
+
+        #: D1 fix — single source of truth shared with
+        #: `percolate-round.py::_INHERITED_LOCK_ROOTS_ENV` (one wire contract
+        #: between the two scripts, same as the `NEW:`/`UPDATE:`/`RENAME:`
+        #: change-line tags elsewhere in this pairing). See `main`'s lock loop
+        #: below for the read side.
+        from percolate.wire_contract import INHERITED_LOCK_ROOTS_ENV as _INHERITED_LOCK_ROOTS_ENV
+
+        from percolate.allowlist import (  # noqa: E402
+            AllowlistError,
+            assert_allowlist_applied,
+            build_allowlisted_source,
+            check_working_data_paths,
+            get_pre_filter_paths,
+            parse_allowlist_csv,
+            split_inclusion_exclusion,
+        )
+        from percolate.import_closure import (  # noqa: E402
+            PACKAGE_NAME as _CLOSURE_PACKAGE_NAME,
+            find_import_closure_violations,
+        )
+        from percolate.phase4_audit import PercolateIdentity, parse_percolate_identity  # noqa: E402
+
+        from percolate.publish_modes import (  # noqa: E402
+            PUBLISH_MODES,
+            descriptor_for,
+            mirror_like_wire_names,
+        )
+        from percolate.publish_sync import _is_structural_build_artifact  # noqa: E402
+        from percolate.targets import (  # noqa: E402  (path setup must precede this import)
+            TargetsError,
+            load_targets,
+            raw_dest_sigil_by_name,
+            _iter_portable_rows,
+            _resolve_portable_file,
+        )
+
+        # § chunk C4 (docs/plans/2026-08-15-bind-the-klabauter-publish-rows-into-a-
+        # parity-group.md) — `directive_cli_arity` is THIS repo's own
+        # `coordinator_core` module (not the resolved-engine one `PercolateEngineContext`
+        # lazily imports below), so it is imported statically at module scope like
+        # `percolate.*` above: `_REPO_ROOT` is already on `sys.path` (see the path
+        # setup preceding the `percolate.*` imports). `argv_parity_report` itself
+        # never imports or executes a target script — AST reads only — so importing
+        # this module carries none of the fail-closed/engine-resolution concerns the
+        # lazy `coordinator_core.percolate.*` imports below exist to guard.
+        from coordinator_core import directive_cli_arity  # noqa: E402
+        from coordinator_core import publish_lane  # noqa: E402
+        from coordinator_core.percolate import payload_parity  # noqa: E402
+        from coordinator_core.git.repo_root import git_dir as _resolve_git_dir  # noqa: E402
+        from coordinator_core.git.repo_root import show_toplevel as _resolve_show_toplevel  # noqa: E402
+        from coordinator_core.git.git_dir import (  # noqa: E402
+            resolve_git_dir as _native_resolve_git_dir,
+            resolve_git_common_dir as _native_resolve_git_common_dir,
+        )
+
+        # Publish LAST, once every name is bound -- a publish placed mid-function
+        # silently omits everything imported after it, and the omission surfaces as a
+        # KeyError from `__getattr__` rather than as anything pointing here.
+        #
+        # NEVER overwrite a name a caller already installed: a test that monkeypatches
+        # one of these names on this module and then calls a function that triggers the
+        # bootstrap would otherwise have its patch replaced by the real resolver on
+        # the first call, and the failure reads as "the patch never applied".
+    finally:
+        # Publish whatever bound, EVEN IF a later import raised. A bootstrap that
+        # dies partway would otherwise lose the names that did bind, and the next
+        # caller sees a missing name instead of the original exception -- which is
+        # a strictly worse error than the one that actually happened.
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    # Only on a clean run: a partial bootstrap must stay retryable.
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for a bootstrapped name BEFORE `main()`
+    has run -- a test monkeypatching this module, or any consumer importing it
+    rather than executing it -- triggers `_bootstrap_engine()` lazily instead of
+    finding the name absent.
+
+    This is the piece whose absence made the first repair pass hoist these
+    imports back to module scope: deferring them alone leaves the module's own
+    API missing until `main()` runs, and a `global`-bound name is module-visible
+    only after its binder has been called. Only fires for names not already in
+    `__dict__`, so once the bootstrap has run the plain global wins.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            # The sentinel says bootstrapped, yet this name is absent: a prior
+            # partial run published some names and set nothing else. Force one
+            # re-run rather than surfacing a KeyError from the line below, which
+            # names the symptom and hides which import actually failed.
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -2603,6 +2708,7 @@ def dispatch_preswap_payload_parity_gate(
 
     Never raises -- fail-closed reporting only, same contract as
     `dispatch_preswap_function_gate`."""
+    _bootstrap_engine()
     rel_root = _dest_prefix_for(target.dest_dir)
     token_index_root = _dest_repo_root(target.dest_dir)
     try:
@@ -3452,6 +3558,7 @@ def dispatch_end_of_run_argv_parity_gate(
     exact permissive-degradation shape this gate's baseline-load path
     already refuses (see above).
     """
+    _bootstrap_engine()
     baseline_keys = _load_source_argv_parity_baseline_keys()
     if baseline_keys is None:
         print(
@@ -3788,6 +3895,7 @@ def _is_structurally_never_published(path: Path, repo_root: Path) -> bool:
     Matched against DIRECTORY segments only, never the basename: a *file*
     named `x-publish-staging-y.py` is real shipped payload, the same
     distinction `store.py` and `engine.run_parse_sweep` already draw."""
+    _bootstrap_engine()
     surface_module = _import_percolate_surface_module()
     structural_prefixes = surface_module.STRUCTURAL_NEVER_PUBLISHED_PREFIXES
     parts = path.relative_to(repo_root).parts
@@ -4457,6 +4565,7 @@ def parse_target_row(row: str) -> ResolvedTarget:
     field is simply left unread rather than silently absorbed into
     `allowlist` (as a bash `read` degrade once did), which used to fail
     downstream as a confusing bogus-allowlist-entry error far from its cause."""
+    _bootstrap_engine()
     fields = row.split("|")
     if len(fields) < 4:
         raise TargetsError(
@@ -4484,6 +4593,7 @@ def _parse_source_map(raw: str) -> "dict[str, Path]":
     dict, the shape `build_allowlisted_source`/`assert_allowlist_applied`
     consume. Empty input yields an empty dict (single-source, per the fixed
     contract's `source_map is None/empty => SINGLE-SOURCE` clause)."""
+    _bootstrap_engine()
     result: "dict[str, Path]" = {}
     if not raw:
         return result
@@ -4639,6 +4749,7 @@ def write_publish_provenance_record(
     code is untouched by design — the round publishing correctly matters
     more than this record, and a missing/stale record is read by the C2
     probe as "unknown", which is honest (AC5)."""
+    _bootstrap_engine()
     try:
         now = datetime.now(timezone.utc).isoformat()
         # Prior rows are the starting state, not a fresh dict — see the
@@ -5049,6 +5160,7 @@ def warn_machine_slug_net(
     *,
     out: IO[str] = sys.stdout,
 ) -> None:
+    _bootstrap_engine()
     if not (name.startswith("coordinator-claude") or name.startswith("deep-research-claude")):
         return
     if mode not in ("mirror", "flat-mirror"):
@@ -5163,6 +5275,7 @@ def run_pre_sync_gates(
     returns `proceed=False` (mirrors the bash `continue`) having already
     cleaned up its own temp tree.
     """
+    _bootstrap_engine()
     # `round_pinned_shas` defaults to a fresh, call-scoped dict when the
     # caller supplies none (e.g. a test exercising this function in
     # isolation) — degrades to "pin once per THIS call" rather than "pin
@@ -6075,6 +6188,7 @@ def check_publish_sync_contract(
     caller) — the three facts whose absence made the original incident's raw
     `TypeError` unreadable.
     """
+    _bootstrap_engine()
     for descriptor in PUBLISH_MODES:
         # Keyed on "has an entry point", not `is_mirror_like` (AC7):
         # `repo-cut` is NOT mirror-like but DOES have its own entry point
@@ -6278,6 +6392,7 @@ def dispatch_mirror_like(
     path shape says nothing about whether the row lands at a mirror repo's root
     or in a subdirectory the row owns outright. Deriving it here would read the
     staging path and get the answer wrong in the direction that deletes."""
+    _bootstrap_engine()
     print(f"  Mode: {target.mode} (copy + delete)", file=out)
     print("", file=out)
 
@@ -6343,6 +6458,7 @@ def dispatch_mirror_like(
 # Last-sync marker — port of setup/publish.sh (Phase 5).
 # ---------------------------------------------------------------------------
 def _is_git_repo(path: Path) -> bool:
+    _bootstrap_engine()
     if (path / ".git").is_dir():
         return True
     return _resolve_git_dir(cwd=str(path)) is not None
@@ -6386,6 +6502,7 @@ def _git_head(path: Path) -> str:
     `subprocess.run` path had for a non-zero/missing-git exit, never a
     raise.
     """
+    _bootstrap_engine()
     try:
         gitdir = _native_resolve_git_dir(path)
         head_text = (gitdir / "HEAD").read_text(encoding="utf-8").strip()
@@ -6704,6 +6821,7 @@ def _required_pathspec_for_toplevel(
     (toplevel, sha) — never one per contributing root or inject src (§
     `_tracked_paths_at_sha`).
     """
+    _bootstrap_engine()
     resolved_sha = sha if sha is not None else (_git_rev_parse(toplevel, "HEAD") or "HEAD")
     key = (str(toplevel), resolved_sha)
     cached = _REQUIRED_PATHSPEC_CACHE.get(key)
@@ -7376,6 +7494,7 @@ def delta_row_unchanged(
          unchanged, protecting a human's uncommitted work exactly as
          before.
     """
+    _bootstrap_engine()
     if not target.dest_dir.is_dir():
         return False
     record = load_delta_record(setup_dir, target.name)
@@ -8045,6 +8164,7 @@ def _engine_declaring_mirror_keys(setup_dir: Optional[Path]) -> "frozenset[str]"
     failure -- portable file missing or unreadable -- same posture as
     `_publish_mirror_key_for_repo_root` returning `None`: a config-read
     failure must never turn into a publish refusal."""
+    _bootstrap_engine()
     resolved_setup_dir = setup_dir if setup_dir is not None else (_REPO_ROOT / "setup")
     try:
         portable_file = _resolve_portable_file(resolved_setup_dir)
@@ -9523,6 +9643,7 @@ def process_target(
     timing_sink: "Optional[List[tuple[str, str, float, float]]]" = None,
     out: IO[str] = sys.stdout,
 ) -> None:
+    _bootstrap_engine()
     print(f"=== {target.name} ({target.mode}) ===", file=out)
     print(f"  Source: {target.source_dir}", file=out)
     print(f"  Target: {target.dest_dir}", file=out)
@@ -10423,6 +10544,7 @@ def _modes_in_run_from_rows(rows: Sequence[str]) -> Optional[frozenset[str]]:
     row -> check the whole table" contract. Unparseable rows are now
     tracked explicitly so they force the fallback.
     """
+    _bootstrap_engine()
     rows = list(rows)
     row_modes = {row.split("|")[1].strip() for row in rows if row.count("|") >= 1}
     has_unparseable_row = any(row.count("|") < 1 for row in rows)
@@ -10638,6 +10760,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     FAILED, and an end-of-run gate failure returned the same code (1) as a
     row failure, making the two indistinguishable from the exit code alone.
     """
+    _bootstrap_engine()
     # Declare the publish lane first, for the same reason `percolate-round.py::main`
     # does and independently of it: this driver is also reached directly (via
     # `coordinator-publish`, a no-argument mixed-dest run), where no round has declared

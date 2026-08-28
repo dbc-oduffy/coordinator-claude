@@ -90,11 +90,29 @@ import io
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-import workday_ceremony_lib as wc  # noqa: E402
-
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _INJECT_ANCHOR_PATH = os.path.join(_THIS_DIR, "workday-complete-backfill-inject-anchor.py")
+
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `coordinator/bin/lib` on `sys.path` -- idempotent, safe to call
+    more than once.
+
+    What moved and what did not: this mutation used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm
+    server ~50 sessions share. Only the trigger moved; the value inserted is
+    byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    lib_dir = os.path.join(_THIS_DIR, "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    _BOOTSTRAP_DONE = True
 
 
 def _err(msg: str) -> None:
@@ -121,6 +139,9 @@ def _load_inject_anchor_module():
 
 def resolve_full_sha(root: str, sha: str) -> str | None:
     """Full 40-char SHA for `sha` in `root`, or None if it doesn't resolve to a commit."""
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     full = wc.git_out("-C", root, "rev-parse", "--verify", f"{sha}^{{commit}}")
     return full or None
 
@@ -158,6 +179,9 @@ def compute_descendant_tip(root: str, tips: list[str]) -> str | None:
     all others (diverged branches on the same day — a true gap, not an
     A0-mechanical case).
     """
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     resolved: list[str] = []
     for t in tips:
         full = resolve_full_sha(root, t)
@@ -241,6 +265,9 @@ def _parse_gap_rows(text: str) -> "dict[str, list[str]]":
 
 
 def _cmd_run(argv: list[str]) -> int:
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     parser = argparse.ArgumentParser(
         prog="workday-complete-backfill-anchor.py run",
         description=__doc__,
@@ -320,6 +347,7 @@ def _cmd_run(argv: list[str]) -> int:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         return 0 if argv and argv[0] in ("-h", "--help") else 1

@@ -145,7 +145,7 @@ No `## Anti-scope` section → silent.
 
 ### Phase 4.6: Lens 5 — Hook Registration Liveness
 
-A plan citing a hook must be checked for whether that hook is **registered**, not merely present on disk.
+A plan citing a hook must be checked for whether it is **registered**, not merely present on disk.
 
 **Step 1.** Extract every `hooks/scripts/*.py` path cited (body prose, task-spine rows, frontmatter). None → silent.
 
@@ -221,11 +221,11 @@ Aggregate iteration ceiling (separate from the token target):
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse guard denying your tool call is a stop signal, not an obstacle to route around.
+A coordinator PreToolUse denial is a stop signal, not an obstacle to route around.
 
-**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
+**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then run, or any rewrite aimed at how the guard *reads* the command rather than what it *does*. Denied plainly is denied.
 
-**Required:** stop, and report the exact command you attempted and the guard that denied it. Do not substitute a different approach of your own once you have been denied. What happens next is the dispatching EM's call, never yours.
+**Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
 <!-- END guard-encounter-preamble -->
 
 <!-- BEGIN subagent-sandbox-preamble (synced from snippets/subagent-sandbox-preamble.md) -->

@@ -84,12 +84,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
-
 
 def _resolve_plugin_root() -> str:
     """Resolve the plugin root (coordinator/) that owns agents/*.md.
@@ -115,6 +109,8 @@ def _resolve_plugin_root() -> str:
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to an exit-0 no-op.
     """
+    from coordinator_registry import _DoeUnresolvable, doe_root
+
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_root:
         return env_root
@@ -145,48 +141,61 @@ def _import_runner():
     writes (the --fix sentinel-block insert/rewrite) is an orphan at the
     `scoped_git_commit` sink.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
+    # argv threading: this CLI reads sys.argv at depth (argparse and helpers),
+    # so the warm-call path swaps it for the duration rather than rewriting every read.
+    # NOT re-entrant: a threaded server must serialise calls into this entrypoint.
+    _prev_argv = sys.argv
+    if argv is not None:
+        sys.argv = [sys.argv[0], *argv]
     try:
-        run_op_main = _import_runner()
-    except RuntimeError as exc:
-        print(
-            f"verify-subagent-sandbox-preamble-sync.py: engine-root resolution failed: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-    except ImportError as exc:
-        print(
-            "verify-subagent-sandbox-preamble-sync.py: "
-            f"coordinator_core.cli_entry not importable: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-
-    plugin_root = _resolve_plugin_root()
-    script_dir = _resolve_script_dir()
-    mode = sys.argv[1] if len(sys.argv) > 1 else "--check"
-
-    try:
-        code = run_op_main(
-            "coordinator_core.ops.verify_subagent_sandbox_preamble_sync",
-            [plugin_root, script_dir, mode],
-        )
-    except ImportError as exc:
-        print(
-            "verify-subagent-sandbox-preamble-sync.py: "
-            f"coordinator_core.ops.verify_subagent_sandbox_preamble_sync not importable: {exc}",
-            file=sys.stderr,
-        )
-        sys.exit(3)
-
-    sys.exit(code)
+        try:
+            run_op_main = _import_runner()
+        except RuntimeError as exc:
+            print(
+                f"verify-subagent-sandbox-preamble-sync.py: engine-root resolution failed: {exc}",
+                file=sys.stderr,
+            )
+            return 3
+        except ImportError as exc:
+            print(
+                "verify-subagent-sandbox-preamble-sync.py: "
+                f"coordinator_core.cli_entry not importable: {exc}",
+                file=sys.stderr,
+            )
+            return 3
+    
+        plugin_root = _resolve_plugin_root()
+        script_dir = _resolve_script_dir()
+        mode = sys.argv[1] if len(sys.argv) > 1 else "--check"
+    
+        try:
+            code = run_op_main(
+                "coordinator_core.ops.verify_subagent_sandbox_preamble_sync",
+                [plugin_root, script_dir, mode],
+            )
+        except ImportError as exc:
+            print(
+                "verify-subagent-sandbox-preamble-sync.py: "
+                f"coordinator_core.ops.verify_subagent_sandbox_preamble_sync not importable: {exc}",
+                file=sys.stderr,
+            )
+            return 3
+    
+        return code
+    finally:
+        sys.argv = _prev_argv
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

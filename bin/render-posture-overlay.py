@@ -73,11 +73,54 @@ to DoE-claude in the 2026-07-22 executable-surface migration.
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_data_root import data_root  # noqa: E402
+_BOOTSTRAPPED_NAMES = (
+    "require_dispatch_engine_on_path",
+    "data_root",
+)
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind `require_dispatch_engine_on_path` and `data_root`.
+
+    Idempotent. Moved out of module scope: this used to mutate `sys.path`
+    (via `import lib`) on every import of this file, a process global ~50
+    warm-server sessions share. Only the trigger moved.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_dispatch_engine_on_path
+        from coordinator_data_root import data_root
+    finally:
+        # Publish whatever bound, EVEN IF a later import raised.
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: a consumer that imports this module rather than executing
+    it -- its own test suite -- reaches these names before `main()` runs."""
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _import_main():
@@ -100,6 +143,7 @@ def _import_main():
     that context manager's docstring for the `workday-complete-step9-append-
     changelog.py` precedent this follows.
     """
+    _bootstrap_engine()
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.render_posture_overlay import main as _op_main
 
@@ -107,6 +151,7 @@ def _import_main():
 
 
 def _import_recorder():
+    _bootstrap_engine()
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import recording_declared_writes
 
@@ -125,13 +170,15 @@ def _coordinator_root() -> str:
     coordinator_registry.doe_root()) — never re-derived here (see that
     module's negative-spec).
     """
+    _bootstrap_engine()
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:
         return env
     return str(data_root("templates").parent)
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap_engine()
     try:
         op_main = _import_main()
     except RuntimeError as exc:
@@ -139,14 +186,14 @@ def main() -> None:
             f"render-posture-overlay.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
     except ImportError as exc:
         print(
             f"render-posture-overlay.py: coordinator_core.ops.render_posture_overlay "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
     try:
         recording_declared_writes = _import_recorder()
@@ -155,12 +202,12 @@ def main() -> None:
             f"render-posture-overlay.py: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
     with recording_declared_writes():
-        code = op_main(sys.argv[1:], coordinator_root=_coordinator_root())
-    sys.exit(code)
+        code = op_main((sys.argv[1:] if argv is None else argv), coordinator_root=_coordinator_root())
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

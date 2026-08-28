@@ -57,16 +57,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import yaml  # PyYAML — available in coordinator venv
-
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-
-cc_invoke.ensure_engine_on_path(__file__)
-
-
 def _resolve_lessons_dir(arg: Path) -> Path:
     """Accept either a repo root or a direct path to the lessons directory."""
     if arg.is_dir() and arg.name == "lessons":
@@ -92,6 +82,8 @@ def partition(
     ARCHIVE iff scope=='universal' AND created date present AND date < cutoff.
     KEEP otherwise — conservative for missing scope, missing date, project-scoped entries.
     """
+    import yaml  # PyYAML — available in coordinator venv
+
     yaml_files = sorted(lessons_dir.glob("*.yaml"))
     archive_entries: list[tuple[Path, str]] = []
     keep_files: list[Path] = []
@@ -125,6 +117,11 @@ def partition(
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )

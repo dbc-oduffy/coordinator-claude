@@ -50,20 +50,29 @@ import os
 import subprocess
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
 
-from coordinator_core.win_portability import is_executable, no_console_creationflags  # noqa: E402
-from machine_local_impl_resolve import (  # noqa: E402
-    claude_home as _mlir_claude_home,
-    settings_home as _mlir_settings_home,
-    windows_cmd_first_candidates as _mlir_windows_cmd_first_candidates,
-)
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `_REPO_ROOT` on `sys.path` so the deferred `lib`/`coordinator_core.*`
+    imports below resolve. Idempotent; safe to call more than once.
+
+    What moved, and what did NOT: this single-line mutation used to run at
+    MODULE scope, which made every import of this file mutate the `sys.path`
+    of a warm server ~50 sessions share. The line is preserved exactly; only
+    the trigger moved. No name is bound as a global here (every consumer does
+    its own local import at its own call site), so there is nothing to
+    publish and no `__getattr__` hook is needed.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    _BOOTSTRAP_DONE = True
 
 
 def _machine_local_path_candidates() -> list[str]:
@@ -81,6 +90,14 @@ def _machine_local_path_candidates() -> list[str]:
     code-reviewer F2 — was hand-rolled here only, so the module's own
     `machine_local_bin_candidates()` silently diverged from this file).
     """
+    _bootstrap_engine()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from machine_local_impl_resolve import (
+        claude_home as _mlir_claude_home,
+        settings_home as _mlir_settings_home,
+        windows_cmd_first_candidates as _mlir_windows_cmd_first_candidates,
+    )
+
     bases = [
         os.path.join(_mlir_settings_home(), "bin", "machine-local"),
         os.path.join(_mlir_claude_home(), "bin", "machine-local"),
@@ -96,6 +113,9 @@ def _resolve_registry_value(key: str) -> str:
     silently inert" (the original Windows failure mode) becomes diagnosable
     instead of a silent empty-string skip.
     """
+    _bootstrap_engine()
+    from coordinator_core.win_portability import is_executable, no_console_creationflags
+
     ml = ""
     for cand in _machine_local_path_candidates():
         if os.path.isfile(cand) and is_executable(cand):
@@ -170,6 +190,7 @@ class _UsageError(Exception):
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
     try:
         wiki, docs_wiki, shortname = _parse_args(argv[1:])
     except _UsageError as exc:

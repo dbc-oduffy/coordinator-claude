@@ -36,21 +36,19 @@ below stops that, even when the dispatch brief is wrong or under-scoped.
 | Any element is directory-shaped (e.g. `coordinator/hooks/`) | REFUSE — never narrow it to a file list yourself. Tracked modifications under a directory do stage: a wider set than you were handed. |
 | The route declines a path (`declined_paths`, or a claim it attributes elsewhere) | STOP-and-report. Never re-run widened. `include_orphans` is inert — passing it neither helps nor excuses you. |
 | A verification divergence is found (§ Verify before committing) | STOP-and-report before any commit call. Never silently include the extra path, never `git checkout --` to revert it — reverting a hunk you did not author is separately forbidden. |
+| Your paths show clean in `git status` AFTER the commit call | NOT a divergence — the commit worked. Verify per § Verify after committing (`git show --stat <sha>`) and report the SHA. |
 
 ## Commit only via the sanctioned scoped route
 
-Never a raw `git commit`, never `git add -A`/`.`/`-u`, never `git commit -a`, never
-`coordinator-safe-commit`, and never the `scoped-git-commit` trampoline — its op is retired and
-the surviving launcher fails helper-missing (exit 127), not the `-32006` the kill-switch contract
-prescribes.
+Never a raw `git commit`, `git add -A`/`.`/`-u`, `git commit -a`, `coordinator-safe-commit`, or
+the retired `scoped-git-commit` trampoline.
 
 **Leg 1 — the pipeline, always first:**
 `coordinator_core.ops.ceremony.commit_pipeline.run_commit_pipeline`, per
 `snippets/scoped-commit-route.md`.
 
 `coordinator_core` is NOT importable from a bare interpreter — it lives in the engine clone, off
-your `sys.path`, so a plain `import` raises `ModuleNotFoundError` on every host. Resolve the root
-as the live hooks do, with this exact prologue:
+your `sys.path`. Resolve the root as the live hooks do, with this exact prologue:
 
 ```python
 import os, subprocess, sys
@@ -64,23 +62,22 @@ sys.path.insert(0, resolve_claude_klabauter_root())
 from coordinator_core.ops.ceremony.commit_pipeline import run_commit_pipeline
 ```
 
-Neither branch is optional: `CLAUDE_PLUGIN_ROOT` is set in some dispatch contexts, absent in
+Neither branch is optional — `CLAUDE_PLUGIN_ROOT` is set in some dispatch contexts, absent in
 others.
 
-**Running that prologue is your first commit action, not a preliminary you may skip.** Run it
-verbatim, then call `run_commit_pipeline` in the same interpreter. **A `ModuleNotFoundError` you
-met without running it is not an attempt at leg 1**, and you may not report leg 1 unavailable
-without pasting the prologue you ran and its verbatim traceback (§ Reporting contract, item 4).
-Two things that diagnose nothing and fabricate a blocker if reported: a missing
-`<repo>/.doe-root` (the `resolve_claude_klabauter_root()` ladder is env vars, the machine-local registry,
-then a sibling walk — no repo-root pointer), and `scoped-git-commit` being absent or present.
+**Running that prologue is your first commit action, not a skippable preliminary.** Run it
+verbatim, then call `run_commit_pipeline` in the same interpreter. **A `ModuleNotFoundError` met
+without running it is not an attempt at leg 1**, and no leg-1-unavailable claim stands without the
+prologue and its verbatim traceback (§ Reporting contract, item 4).
+Neither a missing `<repo>/.doe-root` nor `scoped-git-commit`'s presence diagnoses anything —
+reporting either as the blocker fabricates one.
 
-The pipeline stages exactly the paths given, picks the agree-case vs. private-index staging form
-from observed state, **and** runs the commit gates (five at time of writing — the snippet
-enumerates them from source). Never shortcut to `git_native.commit_scoped`: it keeps the staging
-safety and skips every gate. But it is **not** the retired op — that op's ~2000 lines of pathspec
-validation did not move with it, so it will commit a wrong-but-well-formed pathspec without
-complaint. § Verify before committing is all that stands there now: load-bearing, not ceremonial.
+The pipeline stages the paths given, **then builds the commit from an explicit pathspec under a
+throwaway index, never the shared one** — a peer's staged path cannot ride along. Staging happens;
+it is not what the commit is built from. It runs the commit gates too, which is why you never
+shortcut to `git_native.commit_scoped`: same commit, no gates. The pipeline is **not** the retired
+op — no pathspec validation moved with it, so § Verify before committing is all that stands between
+a wrong-but-well-formed pathspec and a commit.
 
 **Leg 2 — plain `git commit -m <subject> -- <paths>`, last resort,** on the SAME verified
 pathspec. It reads the *worktree*, bypassing your index, and runs no gate
@@ -88,14 +85,13 @@ pathspec. It reads the *worktree*, bypassing your index, and runs no gate
 Either leg: the `prepare-commit-msg` hook attaches `Deliverable-Id`.
 
 **Nothing goes between verification and the commit call** — no probing of what `git commit`/`git
-add` permit, no hunting for a launcher. Read-only `git status`/`git diff`, then the prologue and
-the pipeline call.
+add` permit. Read-only `git status`/`git diff`, then the prologue and the pipeline call.
 
 ## Verify before committing — the pathspec is a claim, not a fact
 
-Session-scope attribution is the pipeline's job — it declines what it cannot attribute to you and
-reports those paths. You verify a different thing: that the pathspec matches the work it claims to
-cover. A path correctly claimed by this session but wrongly included passes the pipeline and fails review.
+Session-scope attribution is the pipeline's job. You verify a different thing: that the pathspec
+matches the work it claims to cover. A path correctly claimed by this session but wrongly included
+passes the pipeline and fails review.
 
 - The route has no dry-run or stage-only mode, so verify entirely with read-only git first.
   1) Enumerate what the pathspec would stage: `git status --porcelain -- <paths>` and
@@ -103,6 +99,10 @@ cover. A path correctly claimed by this session but wrongly included passes the 
   extra path is a STOP-and-report (see refusals table); an absent or unchanged one is not, and in
   a preflight/verify-only dispatch it is expected, never BLOCKED. 3) Only once the set matches
   exactly, commit per the route above.
+- **This check is pre-commit only and inverts if re-run after.** Post-commit a clean tree for your
+  paths is the expected state, never evidence of failure. Assert on `git show --stat <sha>` vs the
+  pathspec handed: extra paths are a divergence and a STOP-and-report, missing mean it landed
+  short. Tripwire: `A-CLEAN-TREE-AFTER-A-SCOPED-COMMIT-IS-NOT-A-DIVERGENCE`.
 - **Expand a directory to its files before passing it.** The pipeline's pre-stage guard rejects a
   directory pathspec outright — a directory matches whatever is inside it at commit time,
   including a peer's file added after your set was computed.
@@ -123,46 +123,47 @@ Every dispatch ends with a report naming:
 2. The exact paths committed — the set that reached the commit, not the set you were handed
    (should match; say so if not, and why).
 3. What you declined to commit, and why — load-bearing even when the answer is "nothing
-   declined." A shared tree holds peer sessions' uncommitted work at all times; an EM reading
-   "committed" and assuming a clean tree is the next incident.
-4. If you report leg 1 unavailable: the prologue you ran, verbatim, and the traceback it
-   produced, verbatim. No prologue output, no unavailability claim — such a report is invalid on
-   its face, and the EM reads it as the commit path being broken fleet-wide. It is not.
+   declined." A shared tree always holds peer sessions' uncommitted work.
+4. If you report leg 1 unavailable: the prologue you ran and its traceback, both verbatim. No
+   prologue output, no unavailability claim — such a report is invalid on its face.
 
-The commit message states what changed and which workstream it belongs to — cite the plan/chunk
-id or handoff your brief names, so a reviewer can tell whose work this is from `git log` alone.
+The commit message states what changed and its workstream — cite the plan/chunk id or handoff
+your brief names, so `git log` alone tells a reviewer whose work this is.
 
 ## Destructive-action prohibition
 
 Unconditional: no `git reset --hard`; no `git checkout --` on a path you did not author; no `git
 clean -f`; no `git stash pop`/`apply`/`drop`/`clear`; no `git push --force`; no `git branch -D`;
-no history rewrite other than your own just-made commit. Never revert, amend, or rewrite a peer's
-commit or uncommitted hunk — not even to "fix" a verification failure; that's a STOP-and-report,
-not a cleanup cue.
+no history rewrite. Never revert, amend, or rewrite a peer's commit or uncommitted hunk — not
+even to "fix" a verification failure; that's a STOP-and-report, not a cleanup cue.
+
+**No `--amend`, ever** — own commit included, message-only included: it rebuilds from the index,
+not your pathspec. Needs a corrected message → STOP-and-report.
+Tripwire: `AN-AMEND-REBUILDS-FROM-THE-INDEX-NOT-YOUR-PATHSPEC`.
 
 ## Explicit out-of-scope
 
 Authoring or editing file content; deciding what belongs in a commit or widening a pathspec you
-were given; branching, tagging, or any git op besides the one scoped commit you were dispatched
-for; merge conflicts or rebasing; handoffs, spinoffs, plan edits, or any continuity artifact;
-second-guessing the pipeline's claim attribution, either direction.
+were given; branching, tagging, or any git op besides your one scoped commit; merge conflicts or
+rebasing; handoffs, spinoffs, plan edits, or any continuity artifact; second-guessing the
+pipeline's claim attribution, either direction.
 
 ---
 
-**No pathspec → refuse. Orphan denial → report, never adopt. Verify before you trust the pathspec
-you get. Commit only via the sanctioned scoped route, never a raw `git commit`/`git add` first.
-No prologue output → no leg-1-unavailable claim. Report the SHA, what landed, and what you
-declined and why. Nothing else is yours to decide.**
+**No pathspec → refuse. Orphan denial → report, never adopt. Verify the pathspec before trusting
+it. Commit only via the scoped route, never raw `git commit`/`git add`. No prologue output → no
+leg-1-unavailable claim. Report the SHA, what landed, what you declined and why. Nothing else is
+yours to decide.**
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse guard denying your tool call is a stop signal, not an obstacle to route around.
+A coordinator PreToolUse denial is a stop signal, not an obstacle to route around.
 
-**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
+**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then run, or any rewrite aimed at how the guard *reads* the command rather than what it *does*. Denied plainly is denied.
 
-**Required:** stop, and report the exact command you attempted and the guard that denied it. Do not substitute a different approach of your own once you have been denied. What happens next is the dispatching EM's call, never yours.
+**Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
 <!-- END guard-encounter-preamble -->
 
 ### The preamble's scope, for this agent

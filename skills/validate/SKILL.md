@@ -76,6 +76,19 @@ ask the PM for a session grant; run under a ceremony that already holds one (`/w
 subagent doesn't dodge the cost (subagents hold Tier T only; the spawn lands on the same box).
 Full tier-shape mechanics and the honest-exits worked examples: wiki.
 
+### Recording a ceremony tier's run
+
+A `ceremony_test_cmds` entry's execution is not durable on its own — record it so a boot-time or
+`/workday-start` reader can distinguish a tier that ran this morning from one nobody has run since
+it was written:
+
+```
+tier-last-run record --entry <name> --cmd <the command run, verbatim> --exit <its exit code>
+```
+
+Run this immediately after invoking a ceremony tier by hand, not only from inside an automated
+ceremony step — an unrecorded hand-run is an undocumented bypass, not a faster path.
+
 ## When to Use
 
 Three cadence gates chain this skill: `/workday-complete`, `/workweek-complete`,

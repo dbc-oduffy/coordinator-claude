@@ -1,7 +1,23 @@
-"""SessionEnd hook — unattended rescue-commit+push for whatever this session
-left uncommitted, fired without any invocation.
+"""SessionEnd hook — DEREGISTERED. Kept on disk, unregistered, so re-arming is
+one hooks.json entry rather than a rewrite.
 
-WHY THIS EXISTS: `/handoff`'s auto-commit step (`coordinator/skills/handoff/
+DEREGISTERED 2026-08-27 per PM ruling relayed by claude-klabauter-em
+(`cross-repo/inbox/2026-08-27-claude-klabauter-em-retire-sessionend-auto-commit.md`):
+"commits are for EMs and when they choose to commit". This does NOT reverse the
+2026-07-31 auto-commit pivot wholesale — that ruling still governs the CEREMONY
+callers (`skills/quick-wrap/SKILL.md`, `skills/handoff/residue/040-dirty-tree.md`),
+which dial the same `session.safe_commit_offer` engine op and are untouched,
+because an EM ran the ceremony. It narrows the pivot to exclude THIS caller: `SessionEnd` means
+`/clear`, `/quit`, logout, exit — no EM is present to choose, which is exactly why
+this hook passed no `--message`/`--groups-json`. The data-loss case it was written
+against is covered by `/workday-complete`'s dirty-tree sweep
+(`coordinator_core/ops/workday_complete_step2_5_dirty_tree.py`, engine-side), an EM-run
+daily ceremony. A future reader finding the deregistration in git history should
+read the memo, not assume an oversight.
+
+Everything below documents the mechanism as built, for the re-arming case.
+
+WHY IT WAS BUILT: `/handoff`'s auto-commit step (`coordinator/skills/handoff/
 SKILL.md` § Safe-Commit Auto-Commit) only fires when an EM remembers to run
 `/handoff`. The PM's actual complaint was sessions that FORGOT — stranded
 uncommitted paths from sessions that finished and never came back. A
@@ -11,11 +27,24 @@ finished). `SessionEnd` fires exactly once, unconditionally, when a session
 is genuinely over — the same reasoning `sessionend-archive-session.py`
 already uses for its own best-effort teardown work, mirrored here.
 
-ONE mechanism, two triggers: this hook calls the SAME `auto_commit_session`
-path the `/handoff` ceremony calls (the `safe-commit-offer` CLI, mechanical-
+ONE mechanism, two triggers: this hook (as built) called the SAME `auto_commit_session`
+path the `/handoff` ceremony called (the `safe-commit-offer` CLI, mechanical-
 grouping default — no `--message`/`--groups-json`, since there is no EM
 present at session end to author one). Never a second, drifting
 implementation of the compute-then-commit-then-push logic.
+
+DELETED SPAWN TARGET (2026-08-27): `coordinator/bin/safe-commit-offer.py` (and its
+`.cmd` sibling) was deleted from the engine plane, replaced by the registered engine
+op `session.safe_commit_offer` (scope "none", MUTATING; dialed via
+`coordinator-invoke session.safe_commit_offer '{"cwd": ..., "session_id": ..., "message":
+...}'` -- one positional JSON string, both keys required: `cwd` picks the tree,
+`session_id` establishes identity, and omitting the latter commits under whichever
+session started the warm engine. Never a
+bareword). This hook is unregistered and this module is intentionally NOT rewritten
+to call the op — the spawn code below is left as historical documentation of the CLI
+shape, per the DEREGISTERED note above. Re-arming this hook requires porting the
+subprocess call below to dial `session.safe_commit_offer` instead of resurrecting the
+deleted CLI path.
 
 Contract:
   stdin   -- SessionEnd JSON payload (session_id, reason, cwd, ...).
@@ -42,11 +71,12 @@ to prevent. This hook does not need to special-case a push failure — it is
 already not a failure from this hook's point of view.
 
 Why a subprocess shim rather than an in-process coordinator_core import
-(same reasoning as `sessionend-archive-session.py`): the auto-commit logic
-already lives behind a CLI purpose-built for this exact call —
-`coordinator/bin/safe-commit-offer.py` (engine plane) — ported there
-specifically so `/handoff` and this hook share one non-fatal-by-design
-entrypoint rather than duplicating the compute/group/commit/push sequence.
+(same reasoning as `sessionend-archive-session.py`): the auto-commit logic,
+as built, lived behind a CLI purpose-built for this exact call —
+`coordinator/bin/safe-commit-offer.py` (engine plane; deleted, see the
+DELETED SPAWN TARGET note above) — ported there specifically so `/handoff`
+and this hook could share one non-fatal-by-design entrypoint rather than
+duplicating the compute/group/commit/push sequence.
 
 No `--sid`/session_id resolved here from `CLAUDE_SESSION_ID`/pid-guessing --
 this hook never falls back to a guessed session key. No usable
@@ -66,14 +96,15 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Mirror of the "timeout" registered for this exact script's SessionEnd entry
-# in coordinator/hooks/hooks.json (the authoritative value lives there, NOT
-# here -- this is a comment-only mirror for humans tracing the budget, and is
-# NOT read at runtime). Review: coordinator:code-reviewer 604caa04 -- the
-# internal terminate/grace/kill budget below must stay comfortably under this
-# ceiling, or the harness kills the hook process itself before the soft-
-# terminate/hard-kill sequence can finish, reproducing one layer up the exact
-# "cleanup never ran" failure this sequence exists to prevent.
+# The "timeout" this script's SessionEnd entry carried while registered, kept as
+# the ceiling any re-arming registration must restore (comment-only mirror for
+# humans tracing the budget; NOT read at runtime, and with the registration
+# retired there is no live hooks.json value to mirror). Review:
+# coordinator:code-reviewer 604caa04 -- the internal terminate/grace/kill budget
+# below must stay comfortably under this ceiling, or the harness kills the hook
+# process itself before the soft-terminate/hard-kill sequence can finish,
+# reproducing one layer up the exact "cleanup never ran" failure this sequence
+# exists to prevent.
 _HOOKS_JSON_REGISTERED_TIMEOUT_SECS = 30
 
 _SUBPROCESS_TIMEOUT_SECS = 22

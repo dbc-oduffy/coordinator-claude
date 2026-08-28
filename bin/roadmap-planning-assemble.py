@@ -38,9 +38,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
 _TRANSPORT_FAIL = 3
 
@@ -66,5 +63,9 @@ def _main(argv: list[str]) -> int:
     return mod.main(argv)
 
 
+def main(argv: list[str]) -> int:
+    return _main(argv[1:])
+
+
 if __name__ == "__main__":
-    sys.exit(_main(sys.argv[1:]))
+    sys.exit(main(sys.argv))

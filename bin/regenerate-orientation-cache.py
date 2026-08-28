@@ -59,11 +59,6 @@ import os
 import sys
 from pathlib import Path
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 _VALID_INVOKERS = (
     "workday-start", "update-docs", "workstream-complete", "handoff", "quick-wrap", "sweep-boot",
 )
@@ -78,13 +73,16 @@ def _import_orientation_module():
     transport (cc_invoke()/route()) is deliberately NOT used here (same shape
     as `normalize-snippet`, per the recipe's explicit disposition for this script).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.orientation import regenerate_cache as mod
 
     return mod
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(
         prog="regenerate-orientation-cache",
         description="Regenerate state/orientation_cache.md.",
@@ -105,24 +103,24 @@ def main() -> None:
             "Requires an existing cache file; mid-session invokers only."
         ),
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.pinboard_only is not None and args.pinboard is not None:
         print("ERROR: --pinboard and --pinboard-only are mutually exclusive", file=sys.stderr)
-        sys.exit(2)
+        return 2
 
     try:
         mod = _import_orientation_module()
     except RuntimeError as exc:
         print(f"regenerate-orientation-cache: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
     except ImportError as exc:
         print(
             f"regenerate-orientation-cache: coordinator_core.orientation.regenerate_cache "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     repo_root = mod.resolve_repo_root(Path.cwd())
 
@@ -139,16 +137,16 @@ def main() -> None:
                 f"{args.invoker!r}) — ceremony invokers clear the pinboard via a full regen.",
                 file=sys.stderr,
             )
-            sys.exit(2)
+            return 2
         cache_file = mod.resolve_cache_file(repo_root)
         try:
             output = mod.patch_pinboard_only(cache_file, args.pinboard_only, check=args.check)
         except FileNotFoundError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
-            sys.exit(2)
+            return 2
         except TimeoutError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
         if args.check:
             sys.stdout.write(output)
         else:
@@ -170,11 +168,11 @@ def main() -> None:
         )
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
 
     if result["skipped"]:
         print(result["reason"], file=sys.stderr)
-        sys.exit(0)
+        return 0
 
     if args.check:
         sys.stdout.write(result["output"])
@@ -186,7 +184,8 @@ def main() -> None:
             f"(invoker={args.invoker}, tier={result['tier']})",
             file=sys.stderr,
         )
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

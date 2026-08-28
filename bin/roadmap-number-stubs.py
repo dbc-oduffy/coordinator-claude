@@ -38,12 +38,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
-
 def _import_main():
     """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
 
@@ -53,24 +47,27 @@ def _import_main():
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.roadmap.number_stubs import main as _op_main
 
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
         print(f"roadmap-number-stubs: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(3)
+        return 3
     except ImportError as exc:
         print(
             f"roadmap-number-stubs: coordinator_core.roadmap.number_stubs not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
 
     # Review: code-reviewer — F3, op_main's call was unguarded; a RuntimeError
     # escaping resolve_root() (now caught inside op_main itself, see
@@ -78,11 +75,11 @@ def main() -> None:
     # otherwise surface as a raw Python traceback here instead of a clean
     # exit-code contract.
     try:
-        sys.exit(op_main(sys.argv[1:]))
+        return op_main((sys.argv[1:] if argv is None else argv))
     except Exception as exc:  # noqa: BLE001 — last-resort trampoline guard
         print(f"roadmap-number-stubs: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

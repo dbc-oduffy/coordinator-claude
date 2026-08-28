@@ -112,19 +112,66 @@ from typing import Any, Iterable, NamedTuple
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-import cc_invoke  # noqa: E402  # pyright: ignore[reportMissingImports] — added to sys.path at runtime by the _LIB_DIR injection above, not statically resolvable
+# Bound by `_bootstrap_engine_imports()` -- keeps this module's own body
+# import-purity clean (module-scope non-stdlib import) the same way every
+# other allowlisted coordinator/bin/ CLI now does.
+#
+# THIS FILE HAS TWO ENTRY PATHS AND BOTH MUST BOOTSTRAP. `main()` is the CLI
+# path. The other is in-process: coordinator_core.workstream_complete's
+# `compute_session_shape_gate` loads this file by path and calls
+# `resolve_disposition` directly, never touching `main()`. When only `main()`
+# bootstrapped, that library path left every name below at None and
+# `/workstream-complete` died for every session with `'NoneType' object is not
+# callable` -- an error naming neither this file nor the unbound name. Any new
+# entry point added here calls `_bootstrap_engine_imports()` first; it is
+# idempotent, so calling it again costs a dict lookup.
+resolve_claim_state = None
+show_toplevel = None
+rel_id = None
+session_deliverable_ids = None
 
-cc_invoke.ensure_engine_on_path(__file__)
+# Idempotence guard for `_bootstrap_engine_imports`, deliberately a DEDICATED
+# sentinel rather than reusing one of the four names above (e.g.
+# `resolve_claim_state is not None`). A name-keyed guard couples "which name
+# the guard tests" to "which name is assigned last" invisibly — reorder the
+# four assignments below (e.g. for readability) and the guard silently starts
+# testing a name that is no longer assigned last, reintroducing the
+# partial-bind failure mode this whole function exists to close (review:
+# coordinator-code-reviewer, P2 finding on `_bootstrap_engine_imports`). This
+# flag is set in exactly one place, after all four assignments succeed, so no
+# reordering of the assignments above it can desync it from "all four are
+# bound".
+_ENGINE_IMPORTS_BOUND = False
 
-from coordinator_core.claim_state import resolve_claim_state  # noqa: E402
-from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
-from coordinator_core.wire_paths import rel_id  # noqa: E402
-from coordinator_core.workstream_complete.session_identity import (  # noqa: E402
-    session_deliverable_ids,
-)
+
+def _bootstrap_engine_imports() -> None:
+    """Bind this module's engine-side names. Idempotent by design -- every
+    entry point calls it, and re-entry after a successful bind is a no-op."""
+    global resolve_claim_state, show_toplevel, rel_id, session_deliverable_ids
+    global _ENGINE_IMPORTS_BOUND
+
+    if _ENGINE_IMPORTS_BOUND:
+        return
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
+    from coordinator_core.claim_state import resolve_claim_state as _resolve_claim_state
+    from coordinator_core.git.repo_root import show_toplevel as _show_toplevel
+    from coordinator_core.wire_paths import rel_id as _rel_id
+    from coordinator_core.workstream_complete.session_identity import (
+        session_deliverable_ids as _session_deliverable_ids,
+    )
+
+    resolve_claim_state = _resolve_claim_state
+    show_toplevel = _show_toplevel
+    rel_id = _rel_id
+    session_deliverable_ids = _session_deliverable_ids
+    _ENGINE_IMPORTS_BOUND = True
+
 
 _TRANSPORT_FAIL = 3
 _SESSION_ID_UNRESOLVED = 4
@@ -1544,6 +1591,10 @@ def resolve_disposition(repo_root: Path, sid: str) -> "DispositionResolution":
     consumers gate on it directly instead of substring-matching the
     free-text `diagnostics` below, which stay prose for a human reader and
     are never a control signal (see `DispositionResolution`)."""
+    # Library entry point: callers reach this without going through main(),
+    # so it bootstraps its own engine imports. Idempotent.
+    _bootstrap_engine_imports()
+
     diagnostics: list[str] = []
 
     override = os.environ.get("WSC_DISPOSITION", "").strip()
@@ -1887,6 +1938,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine_imports()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

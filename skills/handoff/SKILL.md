@@ -38,6 +38,12 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 > `blocked_by` resolves by `stub_id`, so inheriting without archiving duplicates a globally-unique id,
 > and archiving without inheriting strands the dependent. Cutting a `session-handoff` successor from a
 > baton silently drops that identity.
+>
+> **The archival half cannot currently run** (see § Supersession — `handoff.archive_transition` is
+> suspended), so a roadmap-baton succession cannot satisfy "both halves" through any sanctioned
+> route. Hand-stamp the predecessor `deployment_state: continued` with `continued_into:` BEFORE the
+> successor carries `stub_id` forward — an inherited id beside a predecessor still advertising it is
+> the duplicate-globally-unique-id failure above, and nothing warns.
 
 The mechanical spine — deliverable/initiative id inheritance, frontmatter scaffolding,
 `handoff_phase` stamping, tracker refresh, and (on a clean chain) predecessor archival — is

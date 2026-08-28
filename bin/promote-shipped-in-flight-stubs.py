@@ -54,11 +54,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 # SCRIPT_DIR-relative repo root — this file lives at <repo>/coordinator/bin/,
 # so its grandparent is <repo>. Matches the retired bash body's
 # `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"` +
@@ -87,6 +82,9 @@ def _import_main():
     `coordinator_core.cli_entry.recording_declared_writes`, the sanctioned
     seam for exactly this case (see that context manager's own docstring).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import recording_declared_writes
     from coordinator_core.ops.promote_shipped_in_flight_stubs import main as _op_main
@@ -94,7 +92,7 @@ def _import_main():
     return _op_main, recording_declared_writes
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     # Never-block posture (this is a best-effort /workday-start closer, not a
     # fail-loud gate): a claude-klabauter-link failure degrades to exit 0 with a loud
     # stderr diagnostic, matching the ported module's own always-exit-0
@@ -106,20 +104,20 @@ def main() -> None:
             f"promote-shipped-in-flight-stubs.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        return 0
     except ImportError as exc:
         print(
             "promote-shipped-in-flight-stubs.py: "
             f"coordinator_core.ops.promote_shipped_in_flight_stubs not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        return 0
 
     with recording_declared_writes(cwd=_DOE_REPO_ROOT):
-        code = op_main(sys.argv[1:], repo_root=_DOE_REPO_ROOT)
+        code = op_main((sys.argv[1:] if argv is None else argv), repo_root=_DOE_REPO_ROOT)
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

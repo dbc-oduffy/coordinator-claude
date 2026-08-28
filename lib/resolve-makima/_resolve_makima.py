@@ -929,22 +929,36 @@ def _run_target_in_process(target_path: str, argv: List[str], claude_klabauter_r
     parameter — this is the in-process equivalent of what ``execv``/
     ``subprocess`` would otherwise set up via the child's own process argv.
 
-    *claude_klabauter_root* is inserted at the FRONT of ``sys.path`` for the duration
-    of the call, restored (never merely popped — a target is free to mutate
-    ``sys.path`` itself) in the same ``finally`` as ``sys.argv``. Why this is
-    needed: ``run_path`` contributes only the TARGET SCRIPT's own directory
-    (``<claude_klabauter_root>/coordinator/bin``) to ``sys.path``, never the repo root
-    — unlike a normal ``python target_path`` invocation, which the POSIX leg
-    of ``exec_cli`` uses and which gets the root for free via the CLI's own
-    relative-import machinery not applying here (these targets import
-    ``coordinator_core`` as an absolute top-level package). Without this, any
-    forwarded target that does ``import coordinator_core`` at module scope
-    dies with ``ModuleNotFoundError`` before running a line of its own logic
-    — the root the caller already resolved (``resolve_claude_klabauter_root_with_class``
-    et al.) is reused here, never re-resolved. Idempotent: skipped if
-    *claude_klabauter_root* is already present, so a target that itself re-enters this
-    function (or is invoked from a process that already has the root on
-    ``sys.path``) never accumulates duplicate entries.
+    TWO entries are inserted at the FRONT of ``sys.path`` for the duration of
+    the call — *claude_klabauter_root* and the target script's OWN directory — restored
+    (never merely popped — a target is free to mutate ``sys.path`` itself) in
+    the same ``finally`` as ``sys.argv``.
+
+    Why both: ``runpy.run_path`` on a plain FILE path contributes NOTHING to
+    ``sys.path``. It prepends only for a directory or zipfile argument; a
+    ``.py`` file is executed in a throwaway namespace with ``sys.path``
+    untouched. An earlier revision of this docstring asserted the opposite —
+    that ``run_path`` supplies ``<claude_klabauter_root>/coordinator/bin`` — and that
+    false premise is why the script-dir insert was missing here. Do not
+    re-derive it: verified against CPython, a file-path ``run_path`` leaves
+    ``sys.path`` byte-identical.
+
+    So a normal ``python target_path`` invocation (the POSIX leg of
+    ``exec_cli``) gets the script's directory for free from the interpreter's
+    own startup and needs neither insert; this leg gets neither and needs
+    both. Without *claude_klabauter_root*, a target doing ``import coordinator_core`` at
+    module scope dies with ``ModuleNotFoundError`` before running a line of
+    its own logic. Without the script directory, so does every target built on
+    ``entry_point_shim`` — ``from lib.entry_point_shim import run_target``
+    resolves ``lib`` relative to ``coordinator/bin``, which nothing else puts
+    on the path (observed live: ``sizing-assemble`` on the Windows in-process
+    leg, ``No module named 'lib.entry_point_shim'``).
+
+    The root the caller already resolved (``resolve_claude_klabauter_root_with_class``
+    et al.) is reused here, never re-resolved. Idempotent per entry: an entry
+    already present is skipped, so a target that itself re-enters this
+    function (or is invoked from a process that already has either directory
+    on ``sys.path``) never accumulates duplicates.
 
     A target that calls ``sys.exit(n)`` raises ``SystemExit(n)`` through
     ``run_path`` exactly as it would run standalone; that is caught here and
@@ -965,8 +979,10 @@ def _run_target_in_process(target_path: str, argv: List[str], claude_klabauter_r
     original_path = list(sys.path)
     try:
         sys.argv = [target_path] + argv
-        if claude_klabauter_root not in sys.path:
-            sys.path.insert(0, claude_klabauter_root)
+        target_dir = os.path.dirname(os.path.abspath(target_path))
+        for entry in (target_dir, claude_klabauter_root):
+            if entry and entry not in sys.path:
+                sys.path.insert(0, entry)
         runpy.run_path(target_path, run_name="__main__")
     except SystemExit as exc:
         code = exc.code

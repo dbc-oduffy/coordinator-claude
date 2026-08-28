@@ -87,28 +87,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
-
-# Same seam `resolve_claude_klabauter_root_with_class()` uses to determine the ONE
-# engine source tree (C4, 2026-08-18) — imported directly rather than
-# re-deriving the discriminant against `engine.working_repos.*` a second
-# time (the exact duplication C4 exists to kill; see that module's
-# `_is_claude_klabauter_source_tree` docstring for why a structural comparison
-# replaced the retired per-repo exemption family).
-_RESOLVE_CLAUDE_KLABAUTER_LIB_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), "..", "lib", "resolve-claude-klabauter"
-)
-if _RESOLVE_CLAUDE_KLABAUTER_LIB_DIR not in sys.path:
-    sys.path.insert(0, _RESOLVE_CLAUDE_KLABAUTER_LIB_DIR)
-from _resolve_claude_klabauter import (  # noqa: E402
-    ClaudeKlabauterResolutionError,
-    _ml_dir as _claude_klabauter_ml_dir,
-    _resolve_claude_klabauter_root as _resolve_claude_klabauter_source_root,
-)
-
 _TRANSPORT_FAIL = 3
 
 _HELP_FLAGS = ("--help", "-h", "help")
@@ -116,6 +94,9 @@ _SUBCOMMANDS = "subcommands: run (default when no args)"
 
 
 def _import_modules():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     import coordinator_core.session.liveness as liveness_mod
     import coordinator_core.session.peer_roster as peer_roster_mod
@@ -182,7 +163,60 @@ def _build_id_to_address(peer_roster_mod, repo_path: str) -> "dict[str, str]":
     return out
 
 
+_CLAUDE_KLABAUTER_RESOLVER_NAMES = (
+    "ClaudeKlabauterResolutionError",
+    "_claude_klabauter_ml_dir",
+    "_resolve_claude_klabauter_source_root",
+)
+
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` -- lets a caller that reaches for one of
+    the `_resolve_claude_klabauter` names before `_run()` has bound them (e.g. this
+    file's own test suite, which does `monkeypatch.setattr(_cli,
+    "_resolve_claude_klabauter_source_root", ...)` ahead of calling `_cli.main()`;
+    `monkeypatch.setattr` reads the old value via `getattr()` first, which is
+    what actually triggers this) run `_bootstrap_claude_klabauter_resolver()` lazily on
+    first access, instead of requiring the name to already be a module
+    global at import time. Only fires when the name is NOT already present
+    in this module's `__dict__`."""
+    if name in _CLAUDE_KLABAUTER_RESOLVER_NAMES:
+        _bootstrap_claude_klabauter_resolver()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _bootstrap_claude_klabauter_resolver() -> None:
+    """Same seam `resolve_claude_klabauter_root_with_class()` uses to determine the ONE
+    engine source tree (C4, 2026-08-18) — imported directly rather than
+    re-deriving the discriminant against `engine.working_repos.*` a second
+    time (the exact duplication C4 exists to kill; see that module's
+    `_is_claude_klabauter_source_tree` docstring for why a structural comparison
+    replaced the retired per-repo exemption family). Bound at module scope
+    (C6k import-motion: module bodies stay inert on both the warm door and
+    the un-bootstrapped settings-home forwarder load routes). Idempotent by
+    construction -- see `__getattr__` above.
+    """
+    if "_resolve_claude_klabauter_source_root" in globals():
+        return
+
+    global ClaudeKlabauterResolutionError, _claude_klabauter_ml_dir, _resolve_claude_klabauter_source_root
+
+    _resolve_claude_klabauter_lib_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "lib", "resolve-claude-klabauter"
+    )
+    if _resolve_claude_klabauter_lib_dir not in sys.path:
+        sys.path.insert(0, _resolve_claude_klabauter_lib_dir)
+    from _resolve_claude_klabauter import (
+        ClaudeKlabauterResolutionError,
+        _ml_dir as _claude_klabauter_ml_dir,
+        _resolve_claude_klabauter_root as _resolve_claude_klabauter_source_root,
+    )
+
+
 def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:
+    _bootstrap_claude_klabauter_resolver()
+
     repos = _load_registry_prefix(machine_resolver_mod, "repos.")
 
     # The ONE path that IS the engine's own live source tree — same

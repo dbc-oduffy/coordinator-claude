@@ -73,23 +73,23 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+def _ensure_engine_on_path() -> None:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
-try:
-    _CLAUDE_KLABAUTER_ROOT = Path(require_colocated_engine_on_path(__file__))
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {exc}", file=sys.stderr)
+        sys.exit(1)
 
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
 
-try:
-    import yaml  # noqa: E402
-except ImportError:  # pragma: no cover — yaml is a standing project dependency
-    yaml = None  # type: ignore[assignment]
+def _import_yaml():
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover — yaml is a standing project dependency
+        return None
+    return yaml
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +113,7 @@ def _scan_recurring(scope: str, files: list[Path]) -> list[dict[str, Any]]:
     unreadable entries are skipped, never fatal (this is advisory hygiene).
     """
     hits: list[dict[str, Any]] = []
+    yaml = _import_yaml()
     if yaml is None:
         return hits
     for path in files:
@@ -139,6 +140,7 @@ def _scan_recurring(scope: str, files: list[Path]) -> list[dict[str, Any]]:
 
 def _cross_repo_commitments(repo_root: Path) -> dict[str, Any]:
     commitments_dir = repo_root / "state" / "cross-repo-commitments"
+    yaml = _import_yaml()
     if not commitments_dir.is_dir() or yaml is None:
         return {"present": False, "open_count": 0, "oldest_days": None}
 
@@ -265,6 +267,8 @@ def cmd_stale_stashes(repo_root: Path, threshold_days: int) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def _run_git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess:
+    from coordinator_core.win_portability import no_console_creationflags
+
     return subprocess.run(
         ["git", *args],
         cwd=str(repo_root),
@@ -364,6 +368,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _ensure_engine_on_path()
     parser = build_parser()
     args = parser.parse_args(argv)
     repo_root = Path(args.repo_root).resolve()

@@ -1,3 +1,5 @@
+# guard-not-a-hook-entrypoint: folded into preuse-bash-dispatch.py's _BASH_GUARD_REGISTRY, the
+# single PreToolUse(Bash|PowerShell) registration -- hooks.json names the dispatcher, not this file.
 """PreToolUse(Bash) hook: make a host's subagent Bash ban executable, not prose.
 
 THE DEFECT THIS CLOSES. This host bans the Bash tool for dispatched work, and that ban was

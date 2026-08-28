@@ -92,18 +92,38 @@ from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_FOR_IMPORT = _BIN_DIR.parent.parent
-if str(_REPO_ROOT_FOR_IMPORT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT_FOR_IMPORT))
 
-from coordinator_core.ops.updatedocs_gates import (  # noqa: E402
-    GateVerdict,
-    Severity,
-    _gate_distill_threshold,
-    _gate_fresh_scaffold_probe,
-    _gate_queue_prune_sweep,
-    _gate_repomap,
-    _settings_home,
-)
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `_REPO_ROOT_FOR_IMPORT` on `sys.path` so `_gates()`'s deferred
+    `coordinator_core.ops.updatedocs_gates` import resolves. Idempotent.
+
+    What moved, and what did NOT: this single-line mutation used to run at
+    MODULE scope, which made every import of this file mutate the `sys.path`
+    of a warm server ~50 sessions share. The line is preserved exactly; only
+    the trigger moved. No name is bound as a global here, so there is
+    nothing to publish and no `__getattr__` hook is needed.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT_FOR_IMPORT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT_FOR_IMPORT))
+    _BOOTSTRAP_DONE = True
+
+
+def _gates():
+    """Import and return the `updatedocs_gates` module lazily.
+
+    Keeps this file's module body pure (no coordinator_core import at
+    interpreter-load time) -- called from each `_cmd_*` function below.
+    """
+    _bootstrap_engine()
+    import coordinator_core.ops.updatedocs_gates as _mod
+
+    return _mod
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +143,9 @@ def _cmd_fresh_scaffold_probe(args: argparse.Namespace) -> int:
           "not at repo root"). Caller should proceed with the normal
           pipeline; nothing is printed for either case.
     """
-    result = _gate_fresh_scaffold_probe(Path(args.repo_root), Path(), {})
-    if result.verdict == GateVerdict.FINDING:
+    gates = _gates()
+    result = gates._gate_fresh_scaffold_probe(Path(args.repo_root), Path(), {})
+    if result.verdict == gates.GateVerdict.FINDING:
         print(
             "Nothing material to update — the repo is freshly-scaffolded (no DIRECTORY.md, "
             "no completed work, no distillable artifacts in tasks/). /coordinator:repo-setup "
@@ -158,7 +179,8 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
         "check_rag_state_cli": args.check_rag_state_cli,
         "generate_repomap_cli": args.generate_repomap_cli,
     }
-    settings_home = _settings_home(None)
+    gates = _gates()
+    settings_home = gates._settings_home(None)
     # repomap-gate resolves sibling CLIs from THIS bin/ dir, not
     # $COORDINATOR_SETTINGS_HOME/bin — override defaults directly when unset.
     if not overrides["check_rag_state_cli"]:
@@ -166,9 +188,9 @@ def _cmd_repomap_gate(args: argparse.Namespace) -> int:
     if not overrides["generate_repomap_cli"]:
         overrides["generate_repomap_cli"] = str(_BIN_DIR / "generate-repomap.py")
 
-    result = _gate_repomap(Path(args.repo_root), settings_home, overrides)
+    result = gates._gate_repomap(Path(args.repo_root), settings_home, overrides)
     print(result.summary)
-    if result.verdict == GateVerdict.FINDING:
+    if result.verdict == gates.GateVerdict.FINDING:
         return 1
     return 0
 
@@ -198,11 +220,12 @@ def _cmd_queue_prune_sweep(args: argparse.Namespace) -> int:
     # legacy leg's `prune_cli`) -- pass `_BIN_DIR`'s PARENT here, not
     # `_BIN_DIR` itself, so that internal join resolves back to this file's
     # own `bin/` dir instead of double-nesting into `bin/bin/`.
-    result = _gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR.parent, overrides)
+    gates = _gates()
+    result = gates._gate_queue_prune_sweep(Path(args.repo_root), _BIN_DIR.parent, overrides)
     print(result.summary)
     for line in result.detail.get("lines", []):
-        print(line, file=sys.stderr if result.severity == Severity.BLOCKING else sys.stdout)
-    return 1 if result.severity == Severity.BLOCKING else 0
+        print(line, file=sys.stderr if result.severity == gates.Severity.BLOCKING else sys.stdout)
+    return 1 if result.severity == gates.Severity.BLOCKING else 0
 
 
 # ---------------------------------------------------------------------------
@@ -218,9 +241,10 @@ def _cmd_distill_threshold(args: argparse.Namespace) -> int:
       1 — threshold met (GateVerdict.FINDING; caller should chain /distill).
     """
     overrides = {"log_path": args.log_path}
-    result = _gate_distill_threshold(Path(args.repo_root), Path(), overrides)
+    gates = _gates()
+    result = gates._gate_distill_threshold(Path(args.repo_root), Path(), overrides)
     print(result.summary)
-    return 1 if result.verdict == GateVerdict.FINDING else 0
+    return 1 if result.verdict == gates.GateVerdict.FINDING else 0
 
 
 def _cmd_snippet_sync_sweep_retired(_args: argparse.Namespace) -> int:
@@ -290,6 +314,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _bootstrap_engine()
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)
