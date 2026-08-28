@@ -1,11 +1,9 @@
 {
-  "round_id": "publish-074ee1c706ab4959996be6a16b29ad8e",
+  "round_id": "publish-aefe20b9e5254d9dbea23e2d64e1a07c",
   "added_or_updated": [
     "coordinator-schema-version"
   ],
-  "removed": [
-    "coordinator-schema-version"
-  ],
+  "removed": [],
   "declared_payload": [
     ".claude-plugin/marketplace.json",
     ".claude-plugin/plugin.json",
@@ -1119,6 +1117,7 @@
     "commands/workday-start.md",
     "commands/workweek-complete.md",
     "commands/workweek-start.md",
+    "coordinator-schema-version",
     "docs/evidence.md",
     "docs/install/AGENT.md",
     "docs/install/agent-install-manifest.json",
