@@ -237,6 +237,14 @@ SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backli
 # to the caret-eating defect on those two CLIs. Closed here — see
 # `test_bin_launcher_parity.py::test_raw_cmdline_entrypoints_matches_substrate_targets`
 # for the drift guard. Extend BOTH sets together, or that test goes red.
+#
+# 2026-08-28: `scoped-git-commit` dropped from BOTH sets. The CLI itself was
+# deleted at 47c78a3a5 ("drop the orphan launchers") under DR-344, but its
+# two registrations and four tests were left behind — an entry naming a
+# non-existent target renders nothing, so the residue was inert at runtime
+# and visible only as a red suite. Retiring one side alone would have
+# desynchronised the guarded pair, which is why the substrate-side comment
+# had deferred it; both sides go together here.
 # 2026-08-19 survey (docs/plans/2026-08-15-the-caret-fix-went-to-the-caller-
 # that-never-broke.md's mechanism, extended to the rest of the git-rev-taking
 # bin/ surface): `freeze-review-diff.py`, `parallel-review-gate-decision.py`,
@@ -254,7 +262,6 @@ SPEC_BACKLINK_REGISTRY = Path(__file__).resolve().parent / "launcher-spec-backli
 _RAW_CMDLINE_ENTRYPOINTS = frozenset(
     {
         "coordinator/bin/coordinator-write-review-trail.py",
-        "coordinator/bin/scoped-git-commit",
         "coordinator/bin/cross-repo-memo.py",
         "coordinator/bin/freeze-review-diff.py",
         "coordinator/bin/parallel-review-gate-decision.py",

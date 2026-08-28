@@ -590,7 +590,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             pathspec = (
                 []
                 if manifest is None
-                else _round._pathspec_from_manifest(manifest, repo_root)
+                else _round._pathspec_from_manifest(manifest, repo_root)[0]
             )
 
             if not pathspec:

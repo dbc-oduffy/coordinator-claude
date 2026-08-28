@@ -1094,7 +1094,9 @@ def _dest_head_diff_names(repo_root: str) -> set:
     return {line for line in result.stdout.splitlines() if line}
 
 
-def _pathspec_from_manifest(manifest: _RoundManifest, repo_root: str) -> List[str]:
+def _pathspec_from_manifest(
+    manifest: _RoundManifest, repo_root: str
+) -> Tuple[List[str], Dict[str, int]]:
     """Builds the commit pathspec by comparing `manifest.declared_payload`
     against DEST HEAD, in both directions, then reusing
     `_filter_commit_pathspec` UNCHANGED rather than re-deriving its three
@@ -1426,9 +1428,25 @@ def _stage_shebang_exec_bits(repo_root: "str | Path", pathspec: "list[str]") -> 
         return 0
 
 
+_FILTER_DROP_LABELS = {
+    "gitignored": "gitignored at dest",
+    "absent_deletion": "deletion-intent(s) already absent at dest",
+    "staging": "beneath a publish-staging directory",
+}
+
+
+def _no_filter_drops() -> Dict[str, int]:
+    """The all-zero drop record, so every return path of
+    `_filter_commit_pathspec` hands back the same shape and no caller has to
+    branch on `None` before it can count. Keys are fixed
+    (`_FILTER_DROP_LABELS`), never accreted at call sites: a class that is
+    counted but has no label would reach the operator as a bare number."""
+    return {name: 0 for name in _FILTER_DROP_LABELS}
+
+
 def _filter_commit_pathspec(
     dest_root: Path, dest_root_norm: str, seen: dict, *, repo_root: Optional[str] = None
-) -> List[str]:
+) -> Tuple[List[str], Dict[str, int]]:
     """Drops three benign-decline classes from the derived pathspec BEFORE it
     reaches the commit leg (`commit_pipeline.run_commit_pipeline`), so a real
     round no longer names 100+ paths
@@ -1466,11 +1484,28 @@ def _filter_commit_pathspec(
     Preserves AC7 provenance: filtering happens on the pathspec already
     derived from the real run's own reported change lines, never adding or
     substituting a `git status` survey.
+
+    RETURNS `(kept, drops)`, never the bare list. `drops` is the per-class
+    count of what this function removed, and it is returned rather than only
+    printed because an empty `kept` is otherwise indistinguishable from a row
+    that declared nothing: the caller's no-op branch read a filtered-to-empty
+    pathspec and printed "real run reported no changed files", a statement
+    about the ROW made on evidence about the FILTER. Same ruling as
+    `_round_warnings` — a stderr line above a green verdict is not a report
+    (DoE-claude memo 2026-08-26, percolate-round-passes-but-drops-every-
+    removal); the count has to reach the verdict block.
+
+    NEGATIVE SPEC — `drops` is not an error channel. Every class it counts is
+    a legitimate drop (`git check-ignore` is index-aware, so an ignored path
+    here is one `git add` would refuse without `-f`; a deletion-intent whose
+    target is already absent has nothing to express; staging scratch is not
+    payload). It exists so the round can NAME what it dropped, never so it
+    can refuse on it.
     """
     import os
 
     if not seen:
-        return []
+        return [], _no_filter_drops()
 
     entries = list(seen.items())
     # `git check-ignore` always reads and echoes POSIX, forward-slash
@@ -1567,17 +1602,22 @@ def _filter_commit_pathspec(
         else:
             kept.append(abs_path)
 
-    if gitignored_dropped or absent_deletion_dropped or staging_dropped:
+    drops = {
+        "gitignored": gitignored_dropped,
+        "absent_deletion": absent_deletion_dropped,
+        "staging": staging_dropped,
+    }
+    if any(drops.values()):
         print(
             "percolate-round: filtered "
-            f"{gitignored_dropped + absent_deletion_dropped + staging_dropped} path(s) from "
+            f"{sum(drops.values())} path(s) from "
             "commit pathspec before commit -- "
             f"{gitignored_dropped} gitignored at dest, "
             f"{absent_deletion_dropped} deletion-intent(s) already absent "
             f"at dest, {staging_dropped} beneath a publish-staging directory.",
             file=sys.stderr,
         )
-    return kept
+    return kept, drops
 
 
 def _gitignored_dest_paths(dest: str, rel_paths: List[str]) -> set:
@@ -2090,8 +2130,37 @@ def _round_refusal_reason(
     return None
 
 
+def _filter_drop_warning(drops: Dict[str, int]) -> Optional[str]:
+    """One verdict-block line naming what `_filter_commit_pathspec` removed,
+    or `None` when it removed nothing.
+
+    `_report_commit_residual` already warns when the real run's change lines
+    and the derived pathspec DIVERGE, and it is blind to this exactly when it
+    matters most: publish.py's change lines compare staging against dest's
+    WORKING TREE, so once the copy has happened the two agree and
+    `real_changes` is empty. A pathspec the filter emptied is then 0-vs-0 --
+    agreement -- and the round reports a clean no-op. Two different reasons
+    for zero, one indistinguishable verdict.
+
+    This line is therefore keyed on the FILTER's own count, never on a
+    comparison against another leg's zero.
+    """
+    if not any(drops.values()):
+        return None
+    named = ", ".join(
+        f"{drops[name]} {label}" for name, label in _FILTER_DROP_LABELS.items() if drops[name]
+    )
+    return (
+        f"{sum(drops.values())} declared path(s) were dropped from the commit "
+        f"pathspec before the commit leg saw them ({named})"
+    )
+
+
 def _round_warnings(
-    *, has_review_warnings: bool, residual_warning: Optional[str]
+    *,
+    has_review_warnings: bool,
+    residual_warning: Optional[str],
+    filter_drop_warning: Optional[str] = None,
 ) -> List[str]:
     """Every condition that makes a round less than clean, collected in ONE
     place so the verdict block can both COUNT and NAME them. The count is
@@ -2115,6 +2184,8 @@ def _round_warnings(
         warnings.append("Phase 4 audit found unacknowledged REVIEW warnings")
     if residual_warning:
         warnings.append(residual_warning)
+    if filter_drop_warning:
+        warnings.append(filter_drop_warning)
     return warnings
 
 
@@ -2597,17 +2668,45 @@ def _cmd_round_default(
                     return _EXIT_CONFIRM_REQUIRED
 
             # --- pathspec build ----------------------------------------------
-            pathspec = (
-                _pathspec_from_manifest(manifest, repo_root) if manifest is not None else []
+            pathspec, filter_drops = (
+                _pathspec_from_manifest(manifest, repo_root)
+                if manifest is not None
+                else ([], _no_filter_drops())
             )
+            filter_drop_warning = _filter_drop_warning(filter_drops)
 
             # --- Commit step -------------------------------------------------
             if not pathspec:
-                print(f"percolate-round {target} — real run reported no changed files; nothing to commit.")
-                print("")
-                print("Summary:")
-                print("  real-run:  exit 0  (no-op)")
-                print("  ci-smoke:  n/a (no changes to verify)")
+                # An empty pathspec has two causes and they are not the same
+                # round. The filter emptying it is a report about the FILTER;
+                # saying "the real run reported no changed files" there states
+                # the other cause on this cause's evidence, and it is the
+                # louder of the two -- publish.py copied the payload to dest
+                # and the round then declared there was nothing to carry.
+                #
+                # Reporting only: this does NOT refuse. `_round_warnings`'
+                # negative spec owns that call and the drops themselves are
+                # each legitimate; what was wrong was the sentence, not the
+                # outcome.
+                if filter_drop_warning:
+                    print(
+                        f"percolate-round {target} — PASS-WITH-WARNINGS: every path "
+                        "this round declared was removed by the commit-pathspec "
+                        "filter, so there was nothing to commit. This is not a "
+                        "round that declared nothing."
+                    )
+                    print("")
+                    print("Summary:")
+                    print("  real-run:  exit 0")
+                    print("  ci-smoke:  n/a (nothing reached the commit leg)")
+                    print("  warnings:  1")
+                    print(f"    - {filter_drop_warning}")
+                else:
+                    print(f"percolate-round {target} — real run reported no changed files; nothing to commit.")
+                    print("")
+                    print("Summary:")
+                    print("  real-run:  exit 0  (no-op)")
+                    print("  ci-smoke:  n/a (no changes to verify)")
                 if args.no_publish:
                     return _EXIT_OK
                 ahead = _dest_ahead_count(dest)
@@ -2770,6 +2869,7 @@ def _cmd_round_default(
             round_warnings = _round_warnings(
                 has_review_warnings=has_review_warnings,
                 residual_warning=residual_warning,
+                filter_drop_warning=filter_drop_warning,
             )
 
             verdict = "PASS"

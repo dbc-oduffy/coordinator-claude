@@ -27,24 +27,23 @@ route a ceremony commit through those launchers.
 `coordinator_core.ops.ceremony.commit_pipeline.run_commit_pipeline` is intact and is the route. But
 the retired op was not a thin wrapper over it — it was 2058 lines with a single call into the
 pipeline, and the other ~2000 were its own: `_reject_sweeping_pathspec`,
-`_reject_stale_index_paths`, `_reject_path_shaped_message`, `_expand_directory_pathspecs`,
-`_classify_uncommitted`, and the ledger/declined-paths envelope. None of that moved. **A caller who
+its stale-index, path-shaped-message and directory-expansion
+rejections, and the ledger/declined-paths envelope. None of that moved. **A caller who
 hands the pipeline a sweeping or stale pathspec will not be stopped** — verify the pathspec
 yourself before calling, and anyone rebuilding the op as a wrapper over the pipeline silently drops
 all of it. The pipeline
 is the route — its own docstring is "Run the full stage -> gate -> commit -> [push] critical
 section". It calls `git_native.commit_scoped`, which chooses between the agree-case pathspec form
-and a private-index commit by reading observed index/worktree state, **and** it runs the commit
-gates — at time of writing five: `branch_gate`, `dirty_tree_gate`, `deletion_block_gate`,
-`carry_gate`, `op_scope_coverage_gate`.
+and a private-index commit by reading observed index/worktree state, **and** it runs the commit gates.
 
-**Read them off source rather than trusting that list** — it is prose, and prose rots the way
-the op names above rotted. The gates are the `*_gate(` calls in `run_commit_pipeline`'s own
-body, in the engine at `coordinator_core/ops/ceremony/commit_pipeline.py`; that body is the
-count, and this paragraph is not.
+**Read the gates off source, never off prose** — they are the `*_gate(` calls in
+`run_commit_pipeline`'s own body, in the engine at
+`coordinator_core/ops/ceremony/commit_pipeline.py`. A list here would be a pinned constant
+standing in for a property: right the day written, silent the day a gate is added
+(`A-PINNED-CONSTANT-STANDING-IN-FOR-A-PROPERTY`).
 
 
-Calling `commit_scoped` directly gets you the staging safety and **silently skips all five**. The
+Calling `commit_scoped` directly gets you the staging safety and **silently skips every one**. The
 failure is quiet and shaped like success, so it will not announce itself: a commit that removes a
 path bypasses `deletion_block_gate`, the gate built to adjudicate exactly that. If you have a
 named reason to call `commit_scoped` anyway, invoke the gates you need in-process and **say which
@@ -57,6 +56,12 @@ silently discards your staging, which is the recurring incident this machinery e
 **So: no hand-rolled equivalent.** If you cannot dispatch, call `run_commit_pipeline` — not
 `commit_scoped`, not a reconstruction of its horn-picking, and never a bare `git commit`, which
 commits the whole shared index including a peer's staged work.
+
+**Committing by pathspec anyway? Preview with `git diff HEAD -- <paths>`** — the commit re-reads
+the worktree *at commit time*, and a peer can write into your path in between. Not
+`git diff --cached`: a pathspec commit bypasses the index, so it reads empty for the path at risk
+(measured: 7+/7- versus nothing). Knowing the rule does not replace the preview — this exists
+because a session told a file held a peer's edits committed it by pathspec minutes later.
 
 A restore of `ceremony.scoped_git_commit` is a live rebuild candidate. If it lands under the same
 name, this snippet changes and the citing bodies do not.
