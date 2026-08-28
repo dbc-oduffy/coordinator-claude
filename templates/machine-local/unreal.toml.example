@@ -1,0 +1,29 @@
+# ~/.coordinator-claude-settings/machine-local/unreal.toml  (TRACKED — shared baseline)
+#
+# Spec backlink: docs/wiki/machine-local-registry.md §5b (concern-file convention)
+#
+# Concern file for the `unreal.*` namespace.
+#
+# Ownership map (one writer per key):
+#   unreal.install_root          — project-rag-ue-addon (seeder: _seed_unreal_keys.py)
+#   unreal.lyra_root             — project-rag-ue-addon (when Lyra is discovered)
+#   unreal.engine_root           — example-game-workbench-repo (its install/setup)
+#   unreal.engine_corpus_dir     — example-game-workbench-repo
+#   unreal.uproject_path         — example-game-workbench-repo
+#   unreal.editor_exe            — example-game-workbench-repo
+#   unreal.screenshot_dir        — example-game-workbench-repo
+#
+# All actual values live in `unreal.local.toml` (gitignored, per-machine).
+# This baseline carries the schema declaration only; do NOT pre-declare keys
+# with empty strings here — an empty baseline value would mask "not provisioned
+# yet" as "provisioned to empty" at the GET layer.
+
+schema = 1
+
+# Place machine-specific values in unreal.local.toml using the natural TOML
+# table form. The values below are illustrative samples -- substitute your
+# own machine's actual location:
+#
+#   [unreal]
+#   install_root = 'E:/dev/UnrealEngine'    # TOML literal string — no escape processing <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+#   lyra_root    = 'E:/dev/LyraStarterGame'    <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->

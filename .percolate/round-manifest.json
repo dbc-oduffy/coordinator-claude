@@ -1,9 +1,7 @@
 {
-  "round_id": "publish-4f15ee9c3e7f482b9beccc8f3da216e2",
+  "round_id": "publish-1fd8b3026b3f46a0b63bad98036d8db4",
   "added_or_updated": [
-    "templates/machine-local/registry.local.toml.example",
-    "templates/machine-local/registry.toml.example",
-    "templates/machine-local/unreal.toml.example"
+    "templates/machine-local/.gitignore"
   ],
   "removed": [],
   "declared_payload": [

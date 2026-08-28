@@ -1,0 +1,278 @@
+# ~/.coordinator-claude-settings/machine-local/registry.toml  (TRACKED — shared baseline)
+#
+# Spec backlink: docs/plans/2026-05-19-machine-local-registry.md §4.2
+#
+# HAND-EDIT CAUTION — this file is git-tracked and shared across machines.
+# Do NOT add machine-specific absolute paths here; they belong in registry.local.toml.
+# Use `machine-local set <key> <value>` for per-machine values (writes to .local.toml).
+# Direct edits to this file should be key DECLARATIONS (empty string values) or
+# values that are truly identical on every machine you work from.
+# If an EM or executor told you to add a path here, that is a bug — file it.
+#
+# Copy this file to registry.toml and fill in values for your machine.
+# Values that differ per-machine go in registry.local.toml (gitignored).
+# Single-machine operators can put all values here and skip the .local layer.
+
+# Schema version. Bump on breaking key/format changes; readers warn on unknown.
+schema = 1
+
+# ---------------------------------------------------------------------------
+# Cross-repo discovery — PRIMARY USE CASE.
+#
+# Key DECLARATIONS go here (tracked). Per-machine VALUES go in registry.local.toml.
+# Single-machine operators can put values here directly and skip the .local layer.
+#
+# These keys replace the sibling-layout convention (../<sibling-repo>/) for
+# triangular or multi-drive setups where a single shared parent folder is not
+# feasible. See docs/wiki/machine-local-registry.md for the preference order.
+# ---------------------------------------------------------------------------
+# NOTE: there is deliberately no "repos.coordinator_claude" declaration here.
+# The OSS publish mirror is not a working tree, so it is not a repos.* entry —
+# its path lives at "publish.mirrors.coordinator_claude.path" below. Declaring
+# it under repos.* makes every repos.* enumerator (cross-repo memo routing
+# included) offer the publish mirror as a memo destination.
+"repos.example-sim-repo"               = ""
+"repos.project_rag"            = ""
+"repos.project_rag_ue_addon"   = ""
+"repos.example_game_workbench_repo" = ""
+# Additional sibling repos (declare what you use; leave others empty if you
+# don't have them on this machine):
+"repos.example_repo"             = ""
+"repos.example_stats_repo"             = ""
+"repos.experiments"            = ""
+# tasks/2026-07-14-install-dogfood-friction.md § F8 — on-disk sibling repos
+# registered during the 2026-07-14 cold-install dogfood that had no tracked
+# baseline declaration (each trips check-machine-local-regeneratability.py
+# Check 2 once classified below without a matching declaration here).
+"repos.example-os-repo"                   = ""
+"repos.example_league_data_repo"           = ""
+"repos.claude_klabauter"             = ""
+"repos.example_cockpit_repo"            = ""
+"repos.project_rag_template_addon" = ""
+# Review: code-reviewer (Finding 7) — repos.example_store_repo and
+# repos.example_market_data_repo are real on-disk sibling repos found and
+# registered during this same 2026-07-14 cold-install dogfood session, but
+# fall outside the § F8 spec's enumerated list above. EM-confirmed
+# intentional (discovered on-disk during the scan, beyond the enumerated
+# list).
+"repos.example_store_repo"               = ""
+"repos.example_market_data_repo"        = ""
+
+# The published coordinator-engine mirror (claude-klabauter), NOT the
+# engine-source working tree — see `engine.working_repos.*` below for that.
+# Written at install time by that mirror's OWN installer
+# (`scripts/setup.py::register_claude_klabauter_root()` in the engine-source repo,
+# commit 5080edc48d3f) when it identifies the current checkout as a
+# published mirror rather than the engine-source tree — never hand-set.
+# Consumed by `coordinator/hooks/scripts/_engine_root.py::_resolve_published_engine()`.
+# Deliberately no accompanying ref/sha key — see that function's docstring
+# for why a stored value nothing compares against is a liability, not a
+# convenience; the sha is read live via `git rev-parse` when one is needed.
+"repos.claude_klabauter"           = ""
+
+# ---------------------------------------------------------------------------
+# Engine working-repo discriminant — NOT the same thing as `repos.*` above.
+#
+# `engine.working_repos.*` answers a narrower question than sibling-repo
+# discovery: "does THIS repo work ON the coordinator engine (klabauter),
+# such that it must execute the live claude-klabauter checkout instead of the
+# published engine artifact?" A repo whose root matches one of these paths
+# is engine-working; every other repo (including every entry under `repos.*`
+# above) is an engine CONSUMER and resolves the published engine normally.
+#
+# Why not `repos.*`? `repos.*` is the sibling-repo DISCOVERY set — "what
+# repos exist on this machine that scripts/agents may need to find" — and it
+# is deliberately broad (19 keys on the reference machine, most of them
+# consumer repos the published engine exists to serve). Only 2 of those are
+# engine-working (claude_klabauter, doe_claude). Treating `repos.*` membership
+# as the engine-working discriminant conflates "known sibling" with "works on
+# the engine itself" — see docs/wiki/coordinator-tripwires.md for the
+# concrete incident this caused.
+#
+# Each key is written by that repo's OWN installer at install time (it knows
+# its own root) — never hand-set here. Declarations only below.
+# ---------------------------------------------------------------------------
+"engine.working_repos.claude_klabauter" = ""
+"engine.working_repos.doe_claude"     = ""
+
+# ---------------------------------------------------------------------------
+# Cockpit emission — device-singular operator identity.
+#
+# These are per-machine values the installer cannot supply; set them via:
+#   machine-local set cockpit.meta_repo_slug   "myowner/my-meta-repo"
+# Real values go in registry.local.toml (gitignored). Do NOT commit them here
+# — committing real values re-introduces the identity leak and breaks OSS
+# distribution. Unset (empty) ⇒ cockpit emit fails loud with remediation.
+# ---------------------------------------------------------------------------
+# The operator's meta-repo in owner/repo form (e.g. "myowner/my-meta-repo").
+"cockpit.meta_repo_slug"   = ""
+
+# ---------------------------------------------------------------------------
+# Vendor / engine roots — place here ONLY if no concern file is loaded.
+#
+# If `unreal` is listed in `concerns` below, put unreal.* keys in unreal.toml
+# instead. The unreal namespace is owned exclusively by the concern file when
+# loaded — duplicating keys here causes confusing silent-shadowing.
+#
+# Uncomment if you are NOT using a concern file for these namespaces:
+# "cuda.toolkit_root" = ""
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# publish.py target registry (migrated from the legacy publish-targets.sh).
+#
+# Array of pipe-separated rows, same grammar as setup/publish-targets.portable:
+#
+#   "<name>|<mode>|<dest-sigil>|<source_subdir>|<dest_subdir>[|<native_slugs>…]"
+#
+# Field 3 is the DESTINATION, field 4 the source — not the other way round.
+# The dest is a sigil, never an absolute path, so a row stays machine-agnostic:
+#
+#   publish-mirror:<key>  → resolved via publish.mirrors.<key>.path (OSS mirrors)
+#   repo:<key>            → resolved via repos.<key> (working repos)
+#
+# Source paths are meta-repo-relative, or a plugin-source:<key>[/subpath] sigil.
+# An empty dest_subdir (trailing | then nothing) means the dest repo ROOT.
+#
+# mode is mirror | flat-mirror | manifest. Prefer mirror/flat-mirror: both run
+# an orphan sweep that deletes what the source no longer has. `manifest` has no
+# equivalent, so content dropped from a manifest lingers at the destination
+# forever — on a published mirror that means it stays public indefinitely, with
+# no guard reporting anything. See setup/publish-targets.portable for the full
+# negative-spec before authoring a manifest row.
+#
+# native_slugs (optional 6th field): comma-separated list of marketplace
+# slugs that are EXPECTED in this target's content. publish.py's personal-
+# data audit treats these as expected matches instead of REVIEW hits. Use
+# for publish targets whose published content naturally mentions another
+# marketplace identity (e.g. a target shipping a marketplace-flavored plugin
+# where the marketplace slug is part of the public identity).
+#
+# Uncomment and populate when you're ready to migrate from publish-targets.sh.
+# Leaving this key absent (commented out) lets _load_targets fall through to
+# the publish-targets.sh deprecation fallback.  Setting it to [] (empty array)
+# is treated the same as absent — both fall through.
+#
+# Review: code-reviewer (F8) — empty-array default was misleading; operator
+# copying the example as-is would get a silent empty-array path with no targets.
+# "publish.targets" = []
+# "publish.targets" = [
+#   "coordinator-claude|mirror|publish-mirror:coordinator_claude|plugin-source:coordinator-claude|",
+#   "example-wiki|flat-mirror|publish-mirror:example_mirror|plugin-source:example-plugin/docs/wiki|docs/wiki",
+#   "example-sibling|mirror|repo:example_sibling|plugins/example-plugin|plugins|your-marketplace-slug",
+# ]
+
+# Publish-mirror DEST roots. Portable publish.targets rows carry
+# "publish-mirror:<key>" in field 3 and resolve through these keys, which is why
+# no absolute publish path appears in a tracked row. Per-machine value goes in
+# registry.local.toml:
+#   machine-local set publish.mirrors.coordinator_claude.path /abs/path/to/coordinator-claude
+"publish.mirrors.coordinator_claude.path" = ""
+
+# ---------------------------------------------------------------------------
+# Concern files.
+#
+# List concern names here so the reader knows to load them. When a concern is
+# listed, that concern's namespace (e.g. "unreal.*") is owned exclusively by
+# the concern file. Keys with the concern's prefix in registry.toml emit a
+# warning and are ignored — the concern file wins.
+#
+# Only add a concern file for surfaces large enough to warrant isolation
+# (>5 keys, or version-multiplexed values like Unreal 5.4/5.5/5.6).
+# For simpler cases, inline the keys directly above.
+#
+# Uncomment and extend as needed:
+# concerns = ["unreal", "cuda"]
+concerns = ["project_rag", "unreal"]
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Regeneratability classification — machine-readable via tomllib.
+#
+# NOTE: This MUST appear after all top-level scalar keys (schema, repos.*, concerns,
+# publish.targets etc.) because in TOML, keys written after a [table] header are
+# scoped to that table, not the document root. Placement here (after all flat keys)
+# is load-bearing — do not move above the concerns= line.
+#
+# Every coordinator-owned key must be classified here. Three values:
+#
+#   idempotent-regeneratable         — An idempotent installer/script can re-derive the value
+#                                      with no human input and no state loss (e.g., coordinator.python
+#                                      is rewritten by the coordinator venv install step
+#                                      (coordinator_core.install.ensure_venv)).
+#   session-accumulated-must-survive-crash — The value encodes the operator's machine layout and
+#                                      cannot be recovered from code alone. Loss = manual re-entry.
+#                                      All repos.* keys are in this class, EXCEPT a key written
+#                                      by that repo's own installer at its own install time
+#                                      (currently repos.claude_klabauter; see the
+#                                      [regeneratability] table below for the live list).
+#   ephemeral                        — Transient; safe to lose on restart.
+#
+# This is a REAL TOML TABLE (not a comment convention). `tomllib` reads it;
+# bin/check-machine-local-regeneratability.py queries it. Do NOT use inline
+# `# regeneratability:` comments — tomllib discards comments on load.
+#
+# See docs/wiki/machine-local-registry.md § 13 for the full classification rationale.
+# ---------------------------------------------------------------------------
+[regeneratability]
+"coordinator.machine_slug"     = "idempotent-regeneratable"
+"coordinator.contributor_slug" = "idempotent-regeneratable"
+"coordinator.python"           = "idempotent-regeneratable"
+"plugin.mirrors"               = "idempotent-regeneratable"
+"publish.targets"              = "idempotent-regeneratable"
+"publish.mirrors.coordinator_claude.path" = "session-accumulated-must-survive-crash"
+"repos.example-sim-repo"               = "session-accumulated-must-survive-crash"
+"repos.project_rag"            = "session-accumulated-must-survive-crash"
+"repos.project_rag_ue_addon"   = "session-accumulated-must-survive-crash"
+"repos.example_game_workbench_repo" = "session-accumulated-must-survive-crash"
+"repos.example_repo"             = "session-accumulated-must-survive-crash"
+"repos.example_stats_repo"             = "session-accumulated-must-survive-crash"
+"repos.experiments"            = "session-accumulated-must-survive-crash"
+"cockpit.meta_repo_slug"       = "session-accumulated-must-survive-crash"
+# tasks/2026-07-14-install-dogfood-friction.md § F8 — classes for repos.*
+# keys registered during the 2026-07-14 cold-install dogfood (see matching
+# declarations above). All repos.* keys are session-accumulated-must-survive-crash
+# by definition (§13): they encode this operator's machine layout, not
+# something an idempotent script can re-derive.
+"repos.example-os-repo"                   = "session-accumulated-must-survive-crash"
+"repos.example_league_data_repo"           = "session-accumulated-must-survive-crash"
+"repos.claude_klabauter"             = "session-accumulated-must-survive-crash"
+"repos.example_cockpit_repo"            = "session-accumulated-must-survive-crash"
+"repos.project_rag_template_addon" = "session-accumulated-must-survive-crash"
+# Review: code-reviewer (Finding 7) — repos.example_store_repo and
+# repos.example_market_data_repo, discovered on-disk beyond the § F8 enumerated
+# list (see matching declaration-block comment above); EM-confirmed
+# intentional. Same class as every other repos.* key by definition (§13),
+# except a key written by that repo's own installer at its own install time
+# (see repos.claude_klabauter below).
+"repos.example_store_repo"               = "session-accumulated-must-survive-crash"
+"repos.example_market_data_repo"        = "session-accumulated-must-survive-crash"
+# engine.working_repos.* — idempotent-regeneratable, unlike repos.* above. A
+# repos.* value encodes the OPERATOR's knowledge of another repo's on-disk
+# layout and cannot be re-derived from code; an engine.working_repos.* value
+# self-heals because the writer is that repo's OWN root-resolution, re-run with
+# no human input and no state loss. Both members have such a writer:
+# claude_klabauter: register_claude_klabauter_root() at install time (scripts/setup.py).
+# doe_claude: coordinator/hooks/scripts/session-start-register-doe-claude-root.py,
+# SessionStart-time (async, idempotent, guarded by the repo-root
+# .coordinator-dev-repo sentinel).
+# Evidence: DR-132 § Consequences and its SUPERSEDED-IN-PART note.
+"engine.working_repos.claude_klabauter" = "idempotent-regeneratable"
+"engine.working_repos.doe_claude"     = "idempotent-regeneratable"
+# engine.working_repos — FAMILY/prefix entry, not a per-slug key (distinct
+# from the two dotted keys above). The exact-string matcher this table backs
+# has only a plugin.mirrors prefix exception today; a prefix-family match arm
+# for engine.working_repos on the CONSUMER side is claude-klabauter's plane
+# (per their own memo) and is deliberately not implemented here.
+# forward-declared, INERT until claude-klabauter's consumer-side prefix arm
+# ships — nothing reaches this row today, since no canonical key is the bare
+# string "engine.working_repos".
+# Review: code-reviewer-ad6a8345 — Finding 1: row read as already-consumed
+# classification; labeled forward-declared/inert per its own suggested fix.
+"engine.working_repos" = "idempotent-regeneratable"
+# repos.claude_klabauter — idempotent-regeneratable, same reasoning class as
+# engine.working_repos.* above (installer-written, self-known root), NOT
+# session-accumulated like every other repos.* key: the published mirror's
+# own installer re-derives this value with no human input and no state loss
+# on every reinstall.
+"repos.claude_klabauter"              = "idempotent-regeneratable"
