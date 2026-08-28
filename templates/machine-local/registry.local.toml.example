@@ -1,0 +1,47 @@
+# ~/.coordinator-claude-settings/machine-local/registry.local.toml  (GITIGNORED — per-machine overrides)
+#
+# Spec backlink: docs/plans/2026-05-19-machine-local-registry.md §4.2
+#
+# HAND-EDIT CAUTION — values set here must be reproduced independently on every
+# machine you work from. They are NOT committed and will NOT transfer automatically.
+# Prefer `machine-local set <key> <value>` over editing by hand — it is atomic,
+# idempotent, and safe to re-run.  Installers and setup scripts MUST call
+# `machine-local set` rather than writing to this file directly — direct writes are
+# fragile, not reproduced on reinstall, and may be clobbered by concurrent sessions.
+#
+# This file holds your machine's actual values for keys DECLARED in registry.toml.
+# It is gitignored — never committed. Each machine has its own copy.
+#
+# On a Windows machine, repos.project_rag might be "X:/project-rag" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+# On a Mac, the same key might be "~/work/project-rag".
+# Same key, different machine value, no merge conflicts.
+#
+# Single-machine operators: skip this file entirely and put values in registry.toml.
+# The .local layer is opt-in for multi-machine setups.
+
+schema = 1
+
+# ---------------------------------------------------------------------------
+# Per-machine repo paths.
+# Uncomment and set the paths that exist on THIS machine. The Windows-shaped
+# values below are illustrative samples -- substitute your own machine's
+# actual location.
+# ---------------------------------------------------------------------------
+# "repos.project_rag"            = "X:/project-rag" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+# "repos.project_rag_ue_addon"   = "X:/project-rag-ue-addon" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+# "repos.example_game_workbench_repo" = "X:/example-game-workbench-repo" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+
+# ---------------------------------------------------------------------------
+# Per-machine publish-mirror roots. A publish mirror is an outward-only push
+# destination, never a working tree, which is why it is not a repos.* key —
+# keeping the namespaces apart is what stops the publish tooling from ever
+# resolving a working repo as a destination and clobbering it.
+# ---------------------------------------------------------------------------
+# "publish.mirrors.coordinator_claude.path" = "X:/coordinator-claude" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->
+
+# ---------------------------------------------------------------------------
+# Per-machine vendor / engine roots (if not using concern files). The path
+# below is an illustrative sample -- substitute your own machine's actual
+# location.
+# ---------------------------------------------------------------------------
+# "cuda.toolkit_root" = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v12.4" <!-- foreign-path-ok: illustrative sample value for this per-machine example file, not a real machine path -->

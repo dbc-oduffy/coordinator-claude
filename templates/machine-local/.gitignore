@@ -1,8 +1,15 @@
 # machine-local registry — per-machine overrides stay out of git
 *.local.toml
 
-# Tracked: *.toml baselines, *.example templates, README.md
-!*.toml.example
+# Tracked: *.toml baselines, *.example templates, README.md. No negation is
+# needed to keep them: `*.local.toml` matches a name ENDING in `.local.toml`,
+# which no `*.toml.example` ever does. The `!*.toml.example` line that used to
+# sit here un-ignored nothing, and cost three files their place in the OSS
+# publish -- the percolate commit stages in-process rather than via `git add`
+# and skipped every untracked path under this negation, so registry.toml.example,
+# registry.local.toml.example and unreal.toml.example landed on disk in the
+# mirror and were never committed. hardware.toml.example survived only because
+# it was already tracked. Do not reintroduce it.
 
 # --- Resolved values, root pointers, and snapshots ---
 # This directory is reachable from a synced ~/.claude meta-repo through a
