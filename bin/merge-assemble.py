@@ -30,10 +30,34 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from entry_point_shim import run_target  # noqa: E402
+
+def main(argv: list[str] | None = None) -> int:
+    """Warm-loadable entry point for the native door (DR-347 Ruling 2).
+
+    The door hardlinks itself under this CLI's basename, resolves that name via
+    `door.c :: get_own_directory`, and hands it to `invoke.from_argv` as
+    `params.entrypoint`; the server then calls THIS function in-process inside
+    the already-warm server rather than paying a fresh cmd.exe shim plus a fresh
+    Python interpreter per call. The property this removes is a cold interpreter
+    start ahead of warmth -- an unenrolled forwarder pays that cost before any
+    dispatch decision, against DR-347's ~60ms warm-reach bar; see the enrolment
+    commit/plan for the measured before/after on any given box, since those
+    numbers are box-specific and stale-by-default.
+
+    Returns an int rather than calling `sys.exit`, because a hard exit inside
+    the shared server process would take down a server ~50 concurrent sessions
+    are using -- one of the properties `warm_entrypoint_allowlist.json` is the
+    fail-closed gate on. All argument interpretation stays in `run_target`;
+    this adds no second grammar (DR-347 Ruling 2's negative-spec)."""
+    # `argv is None` is unreachable via both real call sites (the door always
+    # passes an explicit list; `__main__` below passes sys.argv[1:] explicitly)
+    # -- kept only so a direct `main()` call (e.g. from a REPL or test) doesn't
+    # need to thread sys.argv itself.
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from entry_point_shim import run_target
+
+    return run_target("merge-assemble", list(sys.argv[1:] if argv is None else argv))
+
 
 if __name__ == "__main__":
-    sys.exit(run_target("merge-assemble", sys.argv[1:]))
+    sys.exit(main(sys.argv[1:]))

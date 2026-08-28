@@ -83,13 +83,6 @@ there is no --fix mode, since the correct fix is always
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
-
-
 def _plugin_root() -> str:
     """Resolve the plugin root (coordinator/) that owns dist/publish-repo-{toplevel,docs}/.
 
@@ -120,6 +113,9 @@ def _plugin_root() -> str:
     distinct from the op's own 0/1/2 business codes, matching this
     trampoline's existing engine-root-resolution-failure convention below.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import _DoeUnresolvable, doe_root
+
     env_val = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env_val:
         return env_val
@@ -144,13 +140,16 @@ def _import_run_op_main():
     `declare_write` becomes a session scope-touch claim instead of an
     unclaimed orphan at the `scoped_git_commit` sink.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     os.environ.setdefault("CLAUDE_PLUGIN_ROOT", _plugin_root())
     try:
         run_op_main = _import_run_op_main()
@@ -159,24 +158,24 @@ def main() -> None:
             f"verify-dist-publish-repo-sync.py: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
     except ImportError as exc:
         print(
             f"verify-dist-publish-repo-sync.py: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
     try:
-        code = run_op_main("coordinator_core.ops.verify_dist_publish_repo_sync", sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.verify_dist_publish_repo_sync", (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             "verify-dist-publish-repo-sync.py: "
             f"coordinator_core.ops.verify_dist_publish_repo_sync not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
-    sys.exit(code)
+        return 3
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

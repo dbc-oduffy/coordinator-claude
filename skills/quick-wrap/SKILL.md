@@ -71,19 +71,35 @@ touch-list (minus anything a live peer also claims) and commits — publishing i
 cadence checkpoint below, not part of this call:
 
 <!-- VERBATIM -->
-On a PowerShell host, use the `.cmd` sibling through the call operator (Shape W) instead of the
-`${...}` POSIX-shell form — ladder and shapes: `snippets/resolve-coordinator-bin.md`. POSIX-host
-form (Shape A) resolves `safe-commit-offer`.
+On a PowerShell host, invoke the `coordinator-invoke.exe` door by absolute path through the call
+operator (Shape W, `snippets/resolve-coordinator-bin.md` § The door):
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" session.safe_commit_offer '{"cwd":"<repo-root>","session_id":"<this session's id>"}'`
+
+POSIX-host form (Shape A/B) dials the same op through the bare `coordinator-invoke` door.
+
+**Pass `session_id` explicitly — the op refuses without it.** Scope is "none", so identity is
+never taken from the environment, and `cwd` does not supply it either: `cwd` selects which tree is
+scanned, nothing more. With no explicit `params.session_id` and no carried identity on the wire the
+op returns `caller identity could not be established`, rather than falling back to the environment
+of whoever spawned the warm server and committing one session's paths under another's claim. Both
+params are required in practice: `cwd` for the tree, `session_id` for the identity.
+
+**Payload is one positional JSON string, not `k=v`** — `cwd=<repo> message="<subject>"` does not
+parse. **Never pass `--repo`**: this op is scope "none" and refuses it (`-32603`), unlike the
+`push.outstanding` call just below. Add `"dry_run": true` to preview; omit it to commit.
 
 **Do not ask whether to commit** — being asked was itself the defect, by explicit PM ruling. Run
-it, report what landed. `--message "<subject>"` for one group, `--groups-json <file>` for several.
-A path outside the computed safe pathspec is silently dropped, never caller-widened.
+it, report what the op's `rendered` field says landed. `"message": "<subject>"` for one group, the
+`groups` param (inline list of `{"paths": [...], "message": "..."}` objects) for several — mutually
+exclusive with `message`. A path outside the computed safe pathspec is silently dropped, never
+caller-widened.
 
 **Push checkpoint — `push.outstanding`.** The safe-commit mechanism does not publish; push runs
 on a cadence, and `/quick-wrap` is one of its named checkpoints. Once the commit has landed, call
 the primitive once and block on it (~150ms, synchronous — no detach or background wrapper):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
 Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
 `skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
@@ -104,6 +120,9 @@ never hand-roll a `git push` beside it.
   full-plan-shipped close-out — read the sizing status back to confirm it landed, never edit the
   field directly.
   `[[the-deliverable-cascade-has-never-written-a-terminal-status]]`
+- A plan this session executed whose `exit_criterion_met` is absent blocks the close — no
+  directive can compute this. `asserted: false` is a legitimate, first-class outcome and does not
+  block; it routes to `/handoff` or a Phase-5 halt instead.
 - **The chain-root baton this session claimed and finished** (the only kind test 3 admits): stamp
   `deployment_state: shipped` + `shipped_in: <this session's commit>`; `status` stays `claimed`
   (the schema enum admits only `open`/`claimed`). Same first-hand-observer ground as the
@@ -128,8 +147,8 @@ never hand-roll a `git push` beside it.
 Nothing to close is an ordinary outcome — say so and move on.
 
 **3. Refresh.** `regenerate-orientation-cache` — batch into the same shell call as step 1's
-`safe-commit-offer` when step 2 needed no separate CLI invocation of its own (no dirty-tree/queue
-CLI ran between them); keep it a separate call only when step 2 actually ran one.
+`session.safe_commit_offer` dial when step 2 needed no separate CLI invocation of its own (no
+dirty-tree/queue CLI ran between them); keep it a separate call only when step 2 actually ran one.
 
 **4. Report.** Three lines: what landed (commit SHA), what you closed, what's deliberately open.
 Five for `scope_mode: spec-dispatch`: add the `code-reviewer` verdict + integration commit, and

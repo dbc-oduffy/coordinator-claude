@@ -32,17 +32,16 @@ import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-from cc_invoke import _resolve_claude_klabauter_root, child_env  # noqa: E402
 
 
 def _no_console_kw() -> dict:
     """Windows: suppresses the console popup a subprocess.run(...) would
     otherwise trigger under the headless Claude Code Bash-tool parent.
     Splat-ready; empty dict elsewhere / on any resolution failure."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+    from cc_invoke import _resolve_claude_klabauter_root
+
     return cc_invoke._no_console_kw(_resolve_claude_klabauter_root())
 
 
@@ -54,6 +53,10 @@ def _no_console_passthrough_kw() -> dict:
     process's, so its output is lost. See
     `cc_invoke._no_console_passthrough_kw` for the mechanism.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+    from cc_invoke import _resolve_claude_klabauter_root
+
     return cc_invoke._no_console_passthrough_kw(_resolve_claude_klabauter_root())
 
 
@@ -101,6 +104,8 @@ def _cruft_sweep_log_path(state_root_script: str) -> str:
     WARN pointer. Falls back to a bare filename on any resolution failure —
     the WARN is advisory, never a gate, so a broken resolver must not raise.
     """
+    from cc_invoke import child_env
+
     try:
         result = subprocess.run(
             [sys.executable, state_root_script, "--central"],

@@ -79,11 +79,6 @@ Prior bash implementation: see git log (coordinator/bin/coordinator-fold-executi
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 
 def _import_main():
     """Resolve the engine root, put it on sys.path, and import the ported CLI entry.
@@ -95,27 +90,30 @@ def _import_main():
     deliberately NOT used here (variant-#1 direct-import trampoline — see
     tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.fold_execution_record import main as _op_main
 
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
         print(f"coordinator-fold-execution-record: engine-root resolution failed: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
     except ImportError as exc:
         print(
             f"coordinator-fold-execution-record: coordinator_core.ops.fold_execution_record not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
-    sys.exit(op_main(sys.argv[1:]))
+    return op_main((sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

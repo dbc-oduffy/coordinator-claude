@@ -117,17 +117,25 @@ import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-import cc_invoke  # noqa: E402
+def _bootstrap_imports() -> None:
+    """Import every non-stdlib dependency this module needs and bind it at
+    module scope, called from main() (C6k import-motion: module bodies stay
+    inert on both the warm door and the un-bootstrapped settings-home
+    forwarder load routes). Order is load-bearing — preserved verbatim from
+    the former module-scope sequence.
+    """
+    global cc_invoke, claude_klabauter_root, _DoeUnresolvable, doe_root
+    global no_console_creationflags
 
-cc_invoke.ensure_engine_on_path(__file__)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
 
-from cli_shared import claude_klabauter_root  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+    cc_invoke.ensure_engine_on_path(__file__)
+
+    from cli_shared import claude_klabauter_root
+    from coordinator_registry import _DoeUnresolvable, doe_root
+    from coordinator_core.win_portability import no_console_creationflags
 
 _EMITTER_MODULE = "coordinator_core.contract.cockpit_schema.emit_schema"
 _RELEASE_TAG = "cockpit-contract-release"
@@ -365,6 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     nothing else about this neighbourhood). Reason recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
     """
+    _bootstrap_imports()
     parser = argparse.ArgumentParser(description="Regenerate the canonical cockpit-contract schema.")
     parser.add_argument(
         "--advance-ref",

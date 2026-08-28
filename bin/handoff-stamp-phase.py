@@ -88,10 +88,6 @@ import subprocess
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
 
 PROG = "handoff-stamp-phase.py"
 
@@ -102,6 +98,9 @@ def _no_console_kw() -> dict:
     splat the canonical no-console-window kwarg. ``{}`` on any resolution/
     import failure (fail-open)."""
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
         if cc_invoke.ensure_engine_on_path(__file__) is None:
             return {}
         from coordinator_core.win_portability import no_console_creationflags
@@ -136,6 +135,9 @@ def _resolve_repo_root(handoff_path: str) -> str | None:
     (see module docstring).
     """
     handoff_abs = os.path.abspath(handoff_path)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     if cc_invoke.ensure_engine_on_path(__file__) is None:
         return None
     from coordinator_core.git.repo_root import show_toplevel
@@ -144,6 +146,9 @@ def _resolve_repo_root(handoff_path: str) -> str | None:
 
 
 def cmd_stamp_phase(handoff_path: str, phase: str, plan_path: str | None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     repo_root = _resolve_repo_root(handoff_path)
     if not repo_root:
         print(

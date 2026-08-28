@@ -66,11 +66,6 @@ import re
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
 _COMMAND_KEY_RE = re.compile(r"^([A-Za-z0-9_]+):\s?(.*)$")
 _EXEMPT_KEY = "argv_only_exempt"
 
@@ -80,6 +75,9 @@ def _import_deps():
     API. Raises RuntimeError (root resolution) or ImportError (module
     missing) — both caught by `main()` and turned into exit code 3.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
     require_colocated_engine_on_path(__file__)
 
     from coordinator_core.ceremony_config.argv_only import check_argv_only

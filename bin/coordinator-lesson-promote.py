@@ -91,34 +91,6 @@ import sys
 import uuid
 
 _LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from coordinator_registry import doe_root, _DoeUnresolvable  # noqa: E402
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from cc_invoke import route as _cc_route  # noqa: E402
-
-require_dispatch_engine_on_path()
-# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-# what BINDS coordinator_core, and binding it HERE is the whole fix.
-# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-# nothing. Without this line the next module-level import below (a binder module
-# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-# the working tree instead of the dispatch root, and no later sys.path insert can
-# rebind an already-imported package. Removing it restores a silent wrong-tree
-# divergence that require_dispatch_engine_on_path now raises on.
-# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-# docs/research/engine-provenance-carrier-dependence.md
-import coordinator_core  # noqa: E402,F401
-
-import cli_shared  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-from target_wiki_canon import (  # noqa: E402
-    WIKI_TARGETING_CHANGE_KINDS as _WIKI_TARGETING_CHANGE_KINDS,
-    normalize_target_wiki as _normalize_target_wiki,
-    TARGET_WIKI_UNKNOWN as _TARGET_WIKI_UNKNOWN,
-    TARGET_WIKI_PREFIX as _TARGET_WIKI_PREFIX,
-)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -146,24 +118,161 @@ _WIKI_ROOT_ENV = "LESSON_PROMOTE_WIKI_ROOT"
 # negative-spec: a skipped write is never exit 0).
 _EXIT_DOE_UNRESOLVABLE = 3
 
-# Env var overrides for test isolation. Canonical spellings now live in
-# bin/lib/cli_shared.py (T2-g2a consolidation) — aliased here so existing
-# doc/error-message references in this file don't need a rename.
-_MACHINE_LOCAL_IMPL_ENV = cli_shared.MACHINE_LOCAL_IMPL_ENV
-
-# Env var for CLAUDE_HOME override (mirrors cross-repo-memo pattern).
-_CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
-
-# Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
-# idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
-# Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
-_CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
-
 # Env var for DOE_ROOT override — mirrors CLAUDE_KLABAUTER_ROOT §4b idempotency gate.
-# Honoured by coordinator_registry.doe_root() (imported above) — kept here as a
-# local constant for documentation and error-message reference.
+# Honoured by coordinator_registry.doe_root() (bound by _bootstrap_imports()) —
+# kept here as a local constant for documentation and error-message reference.
 # Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
 _DOE_ROOT_ENV = "DOE_ROOT"
+
+
+_BOOTSTRAPPED_NAMES = (
+    "doe_root",
+    "_DoeUnresolvable",
+    "require_dispatch_engine_on_path",
+    "_cc_route",
+    "cli_shared",
+    "resolve_checked_repo_root",
+    "_WIKI_TARGETING_CHANGE_KINDS",
+    "_normalize_target_wiki",
+    "_TARGET_WIKI_UNKNOWN",
+    "_TARGET_WIKI_PREFIX",
+    "_MACHINE_LOCAL_IMPL_ENV",
+    "_CLAUDE_HOME_ENV",
+    "_CLAUDE_KLABAUTER_ROOT_ENV",
+    "_claude_home",
+    "_claude_klabauter_root",
+    "_machine_local_impl",
+    "_resolve_python",
+    "_machine_local_get",
+    "_machine_local_repos_keys",
+    "_resolve_from_repo",
+)
+
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind the engine on the DISPATCH axis, then everything downstream of it.
+
+    Idempotent. THE ORDER INSIDE THIS FUNCTION IS THE POINT, which is why it is
+    one function rather than deferred imports at each use site: the original
+    module-scope sequence is preserved below byte-for-byte, comments included.
+
+    What moved is the trigger, not the order. This ran at MODULE scope until now,
+    so every import of this file mutated the `sys.path` of a warm server ~50
+    sessions share -- the AC20 impurity this plan exists to remove.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from coordinator_registry import doe_root, _DoeUnresolvable
+        from cc_invoke import require_dispatch_engine_on_path
+        from cc_invoke import route as _cc_route
+
+        require_dispatch_engine_on_path()
+        # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+        # what BINDS coordinator_core, and binding it HERE is the whole fix.
+        # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+        # nothing. Without this line the next module-level import below (a binder module
+        # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+        # the working tree instead of the dispatch root, and no later sys.path insert can
+        # rebind an already-imported package. Removing it restores a silent wrong-tree
+        # divergence that require_dispatch_engine_on_path now raises on.
+        # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+        # docs/research/engine-provenance-carrier-dependence.md
+        import coordinator_core
+
+        import cli_shared
+        from repo_identity import resolve_checked_repo_root
+        from target_wiki_canon import (
+            WIKI_TARGETING_CHANGE_KINDS as _WIKI_TARGETING_CHANGE_KINDS,
+            normalize_target_wiki as _normalize_target_wiki,
+            TARGET_WIKI_UNKNOWN as _TARGET_WIKI_UNKNOWN,
+            TARGET_WIKI_PREFIX as _TARGET_WIKI_PREFIX,
+        )
+
+        # Env var overrides for test isolation. Canonical spellings now live in
+        # bin/lib/cli_shared.py (T2-g2a consolidation) — aliased here so existing
+        # doc/error-message references in this file don't need a rename.
+        _MACHINE_LOCAL_IMPL_ENV = cli_shared.MACHINE_LOCAL_IMPL_ENV
+
+        # Env var for CLAUDE_HOME override (mirrors cross-repo-memo pattern).
+        _CLAUDE_HOME_ENV = cli_shared.CLAUDE_HOME_ENV
+
+        # Env var for CLAUDE_KLABAUTER_ROOT override — mirrors coordinator-claude-klabauter-root.sh §4b
+        # idempotency gate. Set to the claude-klabauter repo root to bypass machine-local resolution.
+        # Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
+        _CLAUDE_KLABAUTER_ROOT_ENV = cli_shared.CLAUDE_KLABAUTER_ROOT_ENV
+
+        # _claude_home / _claude_klabauter_root / _machine_local_impl / _resolve_python /
+        # _machine_local_get / _machine_local_repos_keys: extracted to
+        # bin/lib/cli_shared.py (T2-g2a consolidation, ~150 LoC dup with
+        # coordinator-queue-append). Thin aliases preserve the pre-consolidation
+        # call sites below without a mass rename.
+        _claude_home = cli_shared.claude_home
+        _claude_klabauter_root = cli_shared.claude_klabauter_root
+        _machine_local_impl = cli_shared.machine_local_impl
+        _resolve_python = cli_shared.resolve_python
+        _machine_local_get = cli_shared.machine_local_get
+        _machine_local_repos_keys = cli_shared.machine_local_repos_keys
+
+        # _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a
+        # consolidation) — same cwd git-root -> machine-local reverse-lookup ->
+        # doe_claude -> unregistered -> "unknown-sender-em" ladder, byte-identical
+        # to the pre-consolidation body.
+        _resolve_from_repo = cli_shared.resolve_from_repo
+
+        # Publish LAST, once every name is bound; a publish placed mid-function
+        # silently omits everything imported after it. NEVER overwrite a name a
+        # caller already installed -- a test monkeypatching `doe_root` on this module
+        # before triggering the bootstrap would otherwise see its patch replaced by
+        # the real resolver, and the failure would read as "the patch never applied".
+    finally:
+        # Publish whatever bound, EVEN IF a later import raised. A bootstrap that
+        # dies partway would otherwise lose the names that did bind, and the next
+        # caller sees a missing name instead of the original exception -- which is
+        # a strictly worse error than the one that actually happened.
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    # Only on a clean run: a partial bootstrap must stay retryable.
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: consumers that import this module rather than execute it --
+    its own test suite, and `workstream_complete.apply._load_cli_module`'s
+    in-process dispatch -- read these names before `main()` runs. Deferring the
+    bootstrap without this leaves them simply absent, which is what forced an
+    earlier repair pass to hoist the whole block back to module scope.
+
+    Note this hook covers module-ATTRIBUTE access only. A sibling function in
+    THIS module reading the same name as a global does not route through it, so
+    every such function calls `_bootstrap_engine()` itself.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            # The sentinel says bootstrapped, yet this name is absent: a prior
+            # partial run published some names and set nothing else. Force one
+            # re-run rather than surfacing a KeyError from the line below, which
+            # names the symptom and hides which import actually failed.
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _claude_klabauter_resolution_error_class() -> type[Exception] | None:
@@ -230,6 +339,7 @@ def _describe_schema_node(schema_name: str) -> dict:
     Raises RuntimeError on any route()/transport failure or "unknown schema"
     op-level error — caller (main()) catches this and exits 1.
     """
+    _bootstrap_engine()
     def _no_legacy() -> dict:
         raise RuntimeError(
             f"coordinator-lesson-promote: schema-cli.js was deleted (480ad8f8) — "
@@ -254,13 +364,8 @@ def _describe_schema_node(schema_name: str) -> dict:
 # _machine_local_get / _machine_local_repos_keys / _current_repo_root: extracted
 # to bin/lib/cli_shared.py (T2-g2a consolidation, ~150 LoC dup with
 # coordinator-queue-append). Thin aliases preserve the pre-consolidation call
-# sites below without a mass rename.
-_claude_home = cli_shared.claude_home
-_claude_klabauter_root = cli_shared.claude_klabauter_root
-_machine_local_impl = cli_shared.machine_local_impl
-_resolve_python = cli_shared.resolve_python
-_machine_local_get = cli_shared.machine_local_get
-_machine_local_repos_keys = cli_shared.machine_local_repos_keys
+# sites below without a mass rename — bound in _bootstrap_imports() (C6d
+# import-motion).
 
 
 def _current_repo_root() -> str | None:
@@ -275,6 +380,7 @@ def _current_repo_root() -> str | None:
     root (identity attribution, not a destructive action), matching
     `cli_shared.resolve_from_repo`'s disposition under DR-277.
     """
+    _bootstrap_engine()
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict.get("verdict") == "MISMATCH":
         print(
@@ -286,7 +392,7 @@ def _current_repo_root() -> str | None:
 # _resolve_from_repo: extracted to bin/lib/cli_shared.py (T2-g2a consolidation) —
 # same cwd git-root -> machine-local reverse-lookup -> doe_claude -> unregistered
 # -> "unknown-sender-em" ladder, byte-identical to the pre-consolidation body.
-_resolve_from_repo = cli_shared.resolve_from_repo
+# Bound in _bootstrap_imports() (C6d import-motion).
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +414,7 @@ def _outbox_root() -> str:
 
     Spec backlink: docs/plans/2026-07-06-gate2-w23-state-seam-caller-switch.md § C1
     """
+    _bootstrap_engine()
     override = os.environ.get(_OUTBOX_ROOT_ENV)
     if override:
         return override
@@ -333,6 +440,7 @@ def _wiki_inventory_dir() -> str:
     Raises _DoeUnresolvable (from coordinator_registry.doe_root()) when the DoE root
     cannot be resolved and no env override is present.
     """
+    _bootstrap_engine()
     override = os.environ.get(_WIKI_ROOT_ENV)
     if override:
         return override
@@ -347,6 +455,7 @@ def _list_central_wiki_targets(wiki_dir: str) -> frozenset[str]:
     graceful-skip case (contrast the DoE-root-unresolvable case, which IS a
     graceful-skip via _DoeUnresolvable).
     """
+    _bootstrap_engine()
     if not os.path.isdir(wiki_dir):
         raise RuntimeError(f"central wiki directory not found: {wiki_dir!r}")
     return frozenset(
@@ -382,6 +491,7 @@ def _validate_target_wiki(
     as the write-skip case, because the inventory this check needs lives under the
     same DoE root the write does.
     """
+    _bootstrap_engine()
     if normalized_target_wiki == _TARGET_WIKI_UNKNOWN or allow_new_wiki:
         return None
 
@@ -448,6 +558,7 @@ def _write_path_excl(out_path: str, content: str) -> str:
 
     Spec backlink: F1/F2 legacy-fallback silent-overwrite collision guard (chunk C1).
     """
+    _bootstrap_engine()
     return cli_shared.write_path_excl(
         out_path, content, caller_name="coordinator-lesson-promote"
     )
@@ -670,6 +781,7 @@ def _build_parser(change_kind_values: tuple[str, ...]) -> argparse.ArgumentParse
 
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns exit code."""
+    _bootstrap_engine()
     # Derive the valid change_kind enum from the lessons-outbox schema at runtime
     # via the native "schema.describe" op (schema='lessons-outbox').
     # Fails loud (non-zero exit + stderr) if the schema cannot be loaded.

@@ -121,9 +121,7 @@ _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 # the repo root via the same cc_invoke helper the sibling CLIs use and put it
 # on sys.path, so `coordinator_core.session.tier_u_gate` (R3+R4 shape gate)
 # imports cleanly regardless of the caller's own cwd/sys.path.
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
+import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
 
 try:

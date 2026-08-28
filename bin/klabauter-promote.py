@@ -102,15 +102,17 @@ def _load_percolate_push_module():
     return module
 
 
-_percolate_push = _load_percolate_push_module()
+_percolate_push_cache: dict = {}
 
-_run = _percolate_push._run
-_resolve_percolate_root = _percolate_push._resolve_percolate_root
-_resolve_dest = _percolate_push._resolve_dest
-_check_dest_state = _percolate_push._check_dest_state
-_round_failure_marker_path = _percolate_push._round_failure_marker_path
-_check_round_failure_marker = _percolate_push._check_round_failure_marker
-_resolve_default_branch = _percolate_push._resolve_default_branch
+
+def _percolate_push():
+    """Lazily load, and cache, `coordinator/bin/percolate-push.py` — module
+    body must stay inert at import, so this replaces the former module-scope
+    `_load_percolate_push_module()` call."""
+    if "mod" not in _percolate_push_cache:
+        _percolate_push_cache["mod"] = _load_percolate_push_module()
+    return _percolate_push_cache["mod"]
+
 
 _CANDIDATE_BRANCH = "candidate"
 
@@ -129,7 +131,7 @@ def _check_fast_forward(dest: str, candidate_branch: str, main_branch: str) -> O
     being read as "not an ancestor" or "is an ancestor" by guesswork.
     """
     main_ref = f"refs/remotes/origin/{main_branch}"
-    result = _run(
+    result = _percolate_push()._run(
         ["git", "-C", dest, "merge-base", "--is-ancestor", main_ref, "HEAD"]
     )
     if result.returncode == 0:
@@ -205,7 +207,7 @@ def _check_cross_machine_observed(dest: str, target: str) -> Optional[str]:
     NEGATIVE SPEC: does not accept an operator assertion flag, and fails
     CLOSED (refuses) on any git error rather than guessing the age.
     """
-    result = _run(
+    result = _percolate_push()._run(
         ["git", "-C", dest, "log", "-1", "--format=%cI", _CANDIDATE_BRANCH]
     )
     if result.returncode != 0:
@@ -263,11 +265,11 @@ def _evaluate_promotion_bar(
     Returns the list of refusal messages (empty when all four pass)."""
     refusals: List[str] = []
 
-    dest_refusal, _has_commits, branch_head = _check_dest_state(dest)
+    dest_refusal, _has_commits, branch_head = _percolate_push()._check_dest_state(dest)
     if dest_refusal:
         refusals.append(f"klabauter-promote: predicate 1 (clean dest) FAILED —\n{dest_refusal}")
 
-    marker_refusal = _check_round_failure_marker(target, percolate_root)
+    marker_refusal = _percolate_push()._check_round_failure_marker(target, percolate_root)
     if marker_refusal:
         refusals.append(f"klabauter-promote: predicate 2 (no round-failure marker) FAILED —\n{marker_refusal}")
 
@@ -296,15 +298,15 @@ def _evaluate_promotion_bar(
 def _cmd_promote(args: argparse.Namespace) -> int:
     target = args.target
 
-    percolate_root = _resolve_percolate_root(args.percolate_root)
+    percolate_root = _percolate_push()._resolve_percolate_root(args.percolate_root)
     if percolate_root is None:
         return _EXIT_USAGE
 
-    dest = _resolve_dest(target, percolate_root)
+    dest = _percolate_push()._resolve_dest(target, percolate_root)
     if dest is None:
         return _EXIT_USAGE
 
-    main_branch, default_branch_refusal = _resolve_default_branch(dest)
+    main_branch, default_branch_refusal = _percolate_push()._resolve_default_branch(dest)
     if default_branch_refusal:
         print(default_branch_refusal, file=sys.stderr)
         return _EXIT_FAIL
@@ -334,7 +336,7 @@ def _cmd_promote(args: argparse.Namespace) -> int:
         return _EXIT_OK
 
     push_refspec = f"{_CANDIDATE_BRANCH}:{main_branch}"
-    result = _run(
+    result = _percolate_push()._run(
         ["git", "-C", dest, "push", "origin", "--ff-only", push_refspec],
         capture_output=False,
     )

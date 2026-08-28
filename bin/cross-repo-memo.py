@@ -127,33 +127,10 @@ GENERATES = []  # writes ONE dirty memo into the RECEIVER's (sibling) repo tree 
 # outright, no stub) — only the leaf helpers draft/compose still use survive
 # below.
 # ---------------------------------------------------------------------------
-_MC_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _MC_LIB_DIR not in sys.path:
-    sys.path.insert(0, _MC_LIB_DIR)
-from memo_compose import (  # noqa: E402 (late import after sys.path manipulation)
-    _yaml_quote,
-    _SUMMARY_MAX_CHARS,
-)
-from coordinator_registry import (  # noqa: E402 (late import after sys.path manipulation)
-    CENTRAL_RECEIVER_IDS as _CENTRAL_RECEIVER_IDS,
-    REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES,
-    RECEIVER_EM_ALIASES,
-    _central_canonical_id,
-    _same_path,
-    em_id_for_root,
-    repo_key_to_em_id,
-)
-import cc_invoke  # noqa: E402 (late import after sys.path manipulation)
-from machine_local_impl_resolve import (  # noqa: E402 (late import after sys.path manipulation)
-    machine_local_impl_path as _mlir_machine_local_impl_path,
-    registry_get as _mlir_registry_get,
-)
-from raw_cmdline_recovery import (  # noqa: E402
-    RAW_CMDLINE_FILE_ENV,
-    UnsoundRawCmdlineTransport,
-    recover_windows_argv,
-    spawn_shape_prefix,
-)
+# Non-stdlib imports (lib/memo_compose/coordinator_registry/cc_invoke/
+# machine_local_impl_resolve/raw_cmdline_recovery) are no longer bound at
+# module scope — each function below that needs one does its own local
+# import, so this file carries no module-scope non-stdlib import.
 
 # Review: staff-eng (Finding 1) — cross-repo-memo.py is a member of both
 # gen-launcher-shim.py's _RAW_CMDLINE_ENTRYPOINTS and substrate.py's
@@ -198,6 +175,9 @@ def _raw_cmdline_ledger_root() -> str:
 
     Backlink: state/audits/2026-08-21-transform-resolved-writer-inventory.md
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from machine_local_impl_resolve import registry_get as _mlir_registry_get
+
     try:
         source_root = (_mlir_registry_get("engine.source_root") or "").strip()
     except Exception:
@@ -209,11 +189,15 @@ def _raw_cmdline_ledger_root() -> str:
     )
 
 
-_RAW_CMDLINE_LEDGER_PATH = os.path.join(
-    _raw_cmdline_ledger_root(),
-    "state",
-    "raw-cmdline-transport-ledger.jsonl",
-)
+def _raw_cmdline_ledger_path() -> str:
+    """Lazy replacement for the former module-load-time `_RAW_CMDLINE_LEDGER_PATH`
+    constant — computed on demand so this file carries no non-stdlib import at
+    module scope (`_raw_cmdline_ledger_root()` needs `machine_local_impl_resolve`)."""
+    return os.path.join(
+        _raw_cmdline_ledger_root(),
+        "state",
+        "raw-cmdline-transport-ledger.jsonl",
+    )
 
 
 def _peek_raw_cmdline_capture() -> "str | None":
@@ -225,6 +209,9 @@ def _peek_raw_cmdline_capture() -> "str | None":
     `raw_cmdline_recovery.UnsoundRawCmdlineTransport`'s own docstring). Never
     raises; any failure here must not affect the real recovery path below.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from raw_cmdline_recovery import RAW_CMDLINE_FILE_ENV
+
     raw_file = os.environ.get(RAW_CMDLINE_FILE_ENV)
     if not raw_file:
         return None
@@ -269,6 +256,10 @@ def _record_unsound_raw_cmdline_transport(
     critically, no language implying the operation was stopped, because it
     was not.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from raw_cmdline_recovery import spawn_shape_prefix
+
+    ledger_path = _raw_cmdline_ledger_path()
     classification = (str(exc).split(":", 1)[0].strip()) or "UNKNOWN"
     # Review: coordinator:code-reviewer (9245562b, P2) -- persist only the
     # spawn-shape prefix, never the raw payload; see docstring above.
@@ -276,7 +267,7 @@ def _record_unsound_raw_cmdline_transport(
     print(
         "%s: warning: raw cmdline transport for this invocation could not be "
         "vouched for (%s) -- proceeding on possibly-mangled argv. Recorded to "
-        "%s." % (entrypoint, classification, _RAW_CMDLINE_LEDGER_PATH),
+        "%s." % (entrypoint, classification, ledger_path),
         file=sys.stderr,
     )
     row = {
@@ -286,10 +277,10 @@ def _record_unsound_raw_cmdline_transport(
         "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
     }
     try:
-        os.makedirs(os.path.dirname(_RAW_CMDLINE_LEDGER_PATH), exist_ok=True)
+        os.makedirs(os.path.dirname(ledger_path), exist_ok=True)
         line = (json.dumps(row, sort_keys=True) + "\n").encode("utf-8")
         fd = os.open(
-            _RAW_CMDLINE_LEDGER_PATH, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644
+            ledger_path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644
         )
         try:
             os.write(fd, line)
@@ -346,6 +337,9 @@ _TOPIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*$")
 
 def _is_central_receiver(receiver_em_id: str) -> bool:
     """True when receiver_em_id (case/whitespace-normalised) names the central coordinator."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import CENTRAL_RECEIVER_IDS as _CENTRAL_RECEIVER_IDS
+
     return receiver_em_id.strip().lower() in _CENTRAL_RECEIVER_IDS
 
 
@@ -421,9 +415,11 @@ _PUBLISH_TARGET_OWNERS_CACHE: dict[str, str] | None = None
 # side) — a future editor should not treat this as DoE-private.
 # ---------------------------------------------------------------------------
 
-_DOE_CANONICAL_REDIRECT_OWNER = _central_canonical_id()
-# _DOE_CANONICAL_REDIRECT_ALIASES imported above (aliased from REDIRECT_ALIASES)
-# from coordinator_registry.
+# _DOE_CANONICAL_REDIRECT_OWNER was a module-load-time `_central_canonical_id()`
+# call; now computed on demand (see `_publish_target_owner` / `_render_receiver_listing`,
+# which call `_central_canonical_id()` directly) since no non-stdlib import may
+# run at module scope. _DOE_CANONICAL_REDIRECT_ALIASES is bound locally by each
+# function that needs it (see coordinator_registry.REDIRECT_ALIASES).
 
 
 def _machine_local_mirror_keys() -> "list[str] | None":
@@ -606,6 +602,9 @@ def _is_publish_target_em(receiver_em_id: str) -> bool:
     invariant of machine-local config (see the constant's comment above), so a
     fresh clone with no publish.mirrors.* configured still rejects these ids.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES
+
     normalized = _normalize_receiver_id(receiver_em_id)
     return (
         normalized in _DOE_CANONICAL_REDIRECT_ALIASES
@@ -630,9 +629,15 @@ def _publish_target_owner(receiver_em_id: str) -> str | None:
     Schema-derived (C4): falls back to _get_publish_target_owners() — same source
     as _is_publish_target_em so the is-guarded-then-owner-call pattern is safe.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import (
+        REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES,
+        _central_canonical_id,
+    )
+
     normalized = _normalize_receiver_id(receiver_em_id)
     if normalized in _DOE_CANONICAL_REDIRECT_ALIASES:
-        return _DOE_CANONICAL_REDIRECT_OWNER
+        return _central_canonical_id()
     return _get_publish_target_owners().get(normalized)
 
 
@@ -646,6 +651,9 @@ def _redirect_kind(receiver_em_id: str) -> str | None:
     Returns "publish" when it's a schema-derived publish.mirrors.* alias.
     Returns None when neither (callers should not be asking in that case).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import REDIRECT_ALIASES as _DOE_CANONICAL_REDIRECT_ALIASES
+
     normalized = _normalize_receiver_id(receiver_em_id)
     if normalized in _DOE_CANONICAL_REDIRECT_ALIASES:
         return "home"
@@ -701,6 +709,9 @@ def _receiver_repo_key(receiver_em_id: str) -> str:
     not exist in the registry — the caller resolves it via machine-local and
     hard-errors when absent (single-surface model).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import RECEIVER_EM_ALIASES
+
     shortname = receiver_em_id[:-3] if receiver_em_id.endswith("-em") else receiver_em_id
     # code-review F12: guard against an empty shortname after stripping '-em'
     # (e.g. receiver_em_id == "-em" alone). Empty shortname → 'repos.' is degenerate;
@@ -765,6 +776,9 @@ def _machine_local_impl() -> str:
     machine_local_impl_resolve.machine_local_impl_path() (shared resolver —
     review: code-reviewer F3, was a hand-rolled duplicate of that ladder).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from machine_local_impl_resolve import machine_local_impl_path as _mlir_machine_local_impl_path
+
     return _mlir_machine_local_impl_path("MACHINE_LOCAL_IMPL")
 
 
@@ -984,6 +998,9 @@ def _known_receiver_ids() -> list[str]:
     diagnostic hint text, not a receiver-validity verdict, so a degraded hint
     is acceptable as long as it doesn't masquerade as an authoritative list.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import _central_canonical_id, repo_key_to_em_id
+
     # Review: code-reviewer — F3: filter repos.doe_claude from sibling scan; post-flip
     # repo_key_to_em_id("repos.doe_claude") → the canonical central id (via _central_canonical_id()), already prepended.
     repo_keys = _machine_local_repos_keys()
@@ -1029,6 +1046,9 @@ def _render_receiver_listing(candidates: list) -> str:
 
     Spec backlink: pln-memo-tool-rebuild-claude-klabauter-owns--bd5745 § C2, AC2.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import _central_canonical_id, repo_key_to_em_id
+
     receivers = [c for c in candidates if c.get("kind") == "receiver"]
     mirrors = [c for c in candidates if c.get("kind") == "publish_mirror"]
     home_aliases = [c for c in candidates if c.get("kind") == "canonical_home_alias"]
@@ -1091,10 +1111,10 @@ def _render_receiver_listing(candidates: list) -> str:
     lines.append("")
     lines.append(
         "  DoE-canonical home aliases (NOT directly addressable — always redirect "
-        f"to {_DOE_CANONICAL_REDIRECT_OWNER}):"
+        f"to {cid}):"
     )
     for a in home_aliases:
-        lines.append(f"    {a.get('alias')}   → redirects to {_DOE_CANONICAL_REDIRECT_OWNER}")
+        lines.append(f"    {a.get('alias')}   → redirects to {cid}")
     lines.append("")
     lines.append(
         "Note: publish-target mirrors are outward OSS distribution mirrors (e.g. "
@@ -1102,8 +1122,8 @@ def _render_receiver_listing(candidates: list) -> str:
         "rejected, and the rejection names the owner. DoE-canonical home aliases "
         "(listed above, when the manifest has promoted them) are a separate case: "
         "they're not distribution mirrors at all, just the same central surface "
-        f"as {_DOE_CANONICAL_REDIRECT_OWNER} under a different name. Route any concern "
-        f"about either kind to the owner named above (→ {_DOE_CANONICAL_REDIRECT_OWNER})."
+        f"as {cid} under a different name. Route any concern "
+        f"about either kind to the owner named above (→ {cid})."
     )
     return "\n".join(lines)
 
@@ -1240,6 +1260,9 @@ def _resolve_receiver_path(receiver_em_id: str) -> tuple[str | None, bool]:
 def _current_repo_root() -> str | None:
     """The git repo root of the cwd this CLI was invoked from — the sender's
     repo. Returns None when cwd is not inside a git repo or git is unavailable."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     cc_invoke.ensure_engine_on_path(__file__)
     from coordinator_core.git.repo_root import show_toplevel
 
@@ -1325,6 +1348,9 @@ def _resolve_receiver_via_parent_scan(receiver_em_id: str) -> "tuple[str | None,
     (2026-07-17, cross-repo-memo resilience feature — no standalone plan file).
     """
     sender_root = _current_repo_root()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import RECEIVER_EM_ALIASES
+
     if sender_root is None:
         return None, "none", []
     parent = os.path.dirname(sender_root)
@@ -1469,6 +1495,9 @@ def _sender_em_id() -> str:
     Central identity anchored on repos.doe_claude (not ~/.claude) — see
     coordinator_registry.em_id_for_root for resolution order.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import em_id_for_root
+
     root = _current_repo_root()
     # _machine_local_repos_keys() returns None on registry-read failure — treat
     # as empty here (best-effort identity derivation, not correctness-critical
@@ -1534,6 +1563,9 @@ def _warn_if_unregistered_sender() -> None:
     repo, just not yet in the registry, so blocking would punish a legitimate
     fresh-clone sender.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import _same_path, em_id_for_root
+
     root = _current_repo_root()
     if root is None:
         return
@@ -1576,6 +1608,9 @@ def _check_summary_over_cap(summary: str | None) -> str | None:
     Returns the stderr diagnostic string when `summary` exceeds
     `_SUMMARY_MAX_CHARS`, else None (pass).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from memo_compose import _SUMMARY_MAX_CHARS
+
     if summary is not None and len(summary) > _SUMMARY_MAX_CHARS:
         return (
             f"cross-repo-memo: --summary is {len(summary)} chars, cap is "
@@ -2284,6 +2319,8 @@ def _cmd_draft(args: argparse.Namespace) -> int:
     reaches classification). See the inline comment at the `rejection_class`
     read below for the full mapping and rationale.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
     topic = args.topic
     to = args.to
     title = args.title
@@ -2654,6 +2691,8 @@ def _cmd_list(args: argparse.Namespace) -> int:
     Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
                    /private/tmp/.../scratchpad/six-verb-cutover-map.md § #4 list
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
     sender_root = _current_repo_root()
     if sender_root is None:
         print(
@@ -2767,6 +2806,8 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
     commit (state/memo-outbox/ is a corpus other sessions read live), so the
     caller commits the batch it chose to move.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
     sender_root = _current_repo_root()
     if sender_root is None:
         print(
@@ -2895,6 +2936,8 @@ def _cmd_send(args: argparse.Namespace) -> int:
 
     Spec backlink: docs/plans/2026-08-25-memo-send-three-writes-and-one-commit-th.md § C3
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
     topic = args.topic
 
     if not _TOPIC_SLUG_RE.fullmatch(topic):
@@ -2950,6 +2993,22 @@ def _cmd_send(args: argparse.Namespace) -> int:
     receiver_side_path = acted_item.get("id")
     if receiver_side_path:
         print(f"Receiver-side: {os.path.abspath(receiver_side_path)}")
+    if acted_item.get("sender_unattributed"):
+        # Not a failure: the memo IS delivered. But it carries no sender, so
+        # the receiver cannot reply to it by message and the only route back
+        # is this repo's name. Said here because nothing downstream reads the
+        # sentinel -- see memo_send.py's `sender_unattributed` note for the
+        # three-day silent run this exists to prevent recurring.
+        print(
+            "cross-repo-memo send: delivered WITHOUT a sender id -- this memo "
+            "cannot be replied to by message.",
+            file=sys.stderr,
+        )
+        print(
+            "  cause: no session id resolved at send time (engine env and "
+            "caller both unresolved).",
+            file=sys.stderr,
+        )
     if not acted_item.get("sender_committed", True):
         # Never "abort" -- the receiver's tree already has the memo durably
         # committed by this point (ordering guarantee in memo_send.py's
@@ -3042,6 +3101,8 @@ def _cmd_compose(args: argparse.Namespace) -> int:
     Spec backlink: docs/plans/2026-06-15-cross-repo-memo-draft-lifecycle.md § C3
                    /private/tmp/.../scratchpad/six-verb-cutover-map.md § #6 compose
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
     topic = args.topic
     open_flag = getattr(args, "open", False)
 
@@ -3273,6 +3334,8 @@ def _build_combined_parser(for_help: bool = False) -> argparse.ArgumentParser:
     legacy send path and does not come back; DR-210: draft-then-send is the
     only workflow).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from memo_compose import _SUMMARY_MAX_CHARS
     description = textwrap.dedent("""\
         cross-repo-memo — manage outbound cross-repo memo drafts between EM working trees.
 
@@ -3505,6 +3568,8 @@ def main(argv: list[str] | None = None) -> int:
     took effect, at install time, when it can still be repaired — the layer
     that actually owns this property.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
     if argv is None:
         argv = sys.argv[1:]
 
@@ -3757,6 +3822,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv
+
     _raw_capture = _peek_raw_cmdline_capture()
     try:
         _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)

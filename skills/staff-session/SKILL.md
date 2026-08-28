@@ -7,14 +7,9 @@ argument-hint: "--mode plan|review --tier standard|full [--members \"the Staff E
 
 # Staff Session — Agent Teams Planning and Review Driver
 
-The EM scopes the work, selects the team, spawns all teammates, and is **freed**. The team works
-autonomously:
-- **Debaters** (2-5, Opus, persona agents) — read input independently, research the codebase, form
-  positions, debate peers via messaging, converge, write position documents, send DONE to
-  synthesizer.
-- **the Director of Engineering / Synthesizer** (1, Opus, `coordinator:eng-director`) — blocked until all debaters
-  complete, then reads all positions and writes the final output through their
-  ambition-calibrated lens, representing all positions fairly.
+The EM scopes the work, selects the team, spawns all teammates, and is **freed**; the team then
+debates and synthesizes autonomously. Roles, models and counts: `pipelines/staff-session/
+team-protocol.md` § Team Roles — read there, don't re-derive.
 
 **Lightweight tier falls through to single-reviewer dispatch via `/review` (plan) or
 `/review-code` (code) — no team created.**
@@ -48,7 +43,9 @@ Announce: "Running `/staff-session --mode {mode} --tier {tier}` on '{topic}'."
 `/review-code` (code artifacts) with the specified member (default `the Staff Engineer`). Announce and
 **STOP — the rest of this command does not execute.**
 
-**`standard`/`full`:** continue to Step 3.
+**`standard`/`full`:** forms a team — raise `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` to `"1"` now
+(re-read per spawn, no restart) and lower it when the run ends, however it ends: left raised, every
+named `Agent` call anywhere becomes a teammate that returns no result. Continue to Step 3.
 
 ## Step 3 — Scope (EM Direct)
 

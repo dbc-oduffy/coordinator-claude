@@ -236,6 +236,70 @@ if (-not $__cdlCloneRootPresent) { $env:COORDINATOR_CLONE_ROOT = (Split-Path -Pa
 $__cdlProbeCanaryPresent = Test-Path -LiteralPath Env:\COORDINATOR_PROBE_CANARY
 $__cdlProbeCanaryPrior = if ($__cdlProbeCanaryPresent) { $env:COORDINATOR_PROBE_CANARY } else { $null }
 if (-not $__cdlProbeCanaryPresent) { $env:COORDINATOR_PROBE_CANARY = '1' }
+
+# Export the front door's shared CREDENTIAL. `front_door._Handler.do_POST`
+# reads it off the X-Coordinator-Door-Key header and SHORT-CIRCUITS to
+# `credential_absent` before it resolves a route or consults its own key --
+# there is no "no key configured, therefore allow" path -- so a session that
+# launches without this exported answers every http-registered hook with
+# `unroutable_response`'s loud did-not-run shape and the op never runs.
+#
+# WHY THIS LEG NEEDS ITS OWN COPY: the POSIX chain gets the key from
+# claude-doe.py's `os.environ.setdefault` immediately before ITS launch call.
+# This launcher never reaches that line -- same reason as the kite above: it
+# invokes the wrapper only with --print-plugin-dir, which returns well above
+# the setdefault and exits with its environment, and the native spawn below is
+# the direct-child invariant. So the export has to happen here.
+#
+# READ-OR-MINT, NOT READ-ONLY: nothing else mints on this platform.
+# `_FrontDoorContext._boot_credential` only ever calls `read_secret()`, and
+# `ensure_secret()`'s sole caller is the POSIX leg this chain does not run --
+# so a read-only export would leave a Windows box permanently keyless. Path,
+# byte count and atomic-replace shape are claude-doe.py's verbatim, because a
+# second spelling of the same secret is a second secret.
+#
+# NO python3 HOP: the resolution call above is the one hop this launcher's
+# negative spec allows, and this runs natively rather than spending another.
+#
+# NEVER BLOCK A LAUNCH on the credential -- claude-doe.py's own posture. A
+# throw here would cost the operator their session to protect a hook.
+$__cdlDoorKeyPresent = Test-Path -LiteralPath Env:\COORDINATOR_DOOR_KEY
+$__cdlDoorKeyPrior = if ($__cdlDoorKeyPresent) { $env:COORDINATOR_DOOR_KEY } else { $null }
+if (-not $__cdlDoorKeyPresent) {
+    try {
+        $__cdlKeyBase = $env:XDG_CACHE_HOME
+        if (-not $__cdlKeyBase) { $__cdlKeyBase = $env:LOCALAPPDATA }
+        if (-not $__cdlKeyBase) { $__cdlKeyBase = Join-Path $HOME '.cache' }
+        $__cdlKeyDir = Join-Path (Join-Path $__cdlKeyBase 'coordinator') 'warm'
+        $__cdlKeyPath = Join-Path $__cdlKeyDir 'door-key'
+        $__cdlKey = ''
+        if (Test-Path -LiteralPath $__cdlKeyPath) {
+            $__cdlKey = (Get-Content -LiteralPath $__cdlKeyPath -Raw -ErrorAction Stop).Trim()
+        }
+        if (-not $__cdlKey) {
+            # 32 bytes -> 64 hex chars, matching secrets.token_hex(32). RNGCryptoServiceProvider
+            # is obsolete in .NET Core; RandomNumberGenerator::GetBytes is the current spelling.
+            $__cdlBytes = [byte[]]::new(32)
+            [System.Security.Cryptography.RandomNumberGenerator]::Fill($__cdlBytes)
+            $__cdlKey = -join ($__cdlBytes | ForEach-Object { $_.ToString('x2') })
+            New-Item -ItemType Directory -Force -Path $__cdlKeyDir -ErrorAction Stop | Out-Null
+            $__cdlKeyTmp = $__cdlKeyPath + '.tmp'
+            # No trailing newline and no BOM: `read_secret()` strips, but
+            # `credential_from_headers` compares the header byte-for-byte, and a
+            # BOM would travel in the header and never match.
+            [System.IO.File]::WriteAllText($__cdlKeyTmp, $__cdlKey, [System.Text.UTF8Encoding]::new($false))
+            # 3-arg Move is the os.replace equivalent -- overwrites in one step,
+            # so a concurrent reader never sees a partial value. Concurrent mints
+            # race benignly: last writer wins and the loser's session simply reads
+            # as unauthenticated at its next fire.
+            [System.IO.File]::Move($__cdlKeyTmp, $__cdlKeyPath, $true)
+        }
+        if ($__cdlKey) { $env:COORDINATOR_DOOR_KEY = $__cdlKey }
+    } catch {
+        # Swallowed deliberately: a keyless session still launches and still
+        # works for everything but http-registered hooks, which answer loudly.
+    }
+}
 try {
     & $claudeExe --plugin-dir $pluginDir @passthru
 } finally {
@@ -253,6 +317,11 @@ try {
         $env:COORDINATOR_PROBE_CANARY = $__cdlProbeCanaryPrior
     } else {
         Remove-Item -LiteralPath Env:\COORDINATOR_PROBE_CANARY -ErrorAction SilentlyContinue
+    }
+    if ($__cdlDoorKeyPresent) {
+        $env:COORDINATOR_DOOR_KEY = $__cdlDoorKeyPrior
+    } else {
+        Remove-Item -LiteralPath Env:\COORDINATOR_DOOR_KEY -ErrorAction SilentlyContinue
     }
 }
 exit $LASTEXITCODE

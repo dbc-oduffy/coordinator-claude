@@ -305,11 +305,17 @@ When mid-execution drift blocks an executor (the substrate on disk differs from 
 **Every plan MUST start with this header:**
 
 ```markdown
+---
+prime_exit_criterion:
+  statement: >-
+    One falsifiable sentence naming what is true of the TREE when this plan has
+    delivered — outcome-shaped, never a paraphrase of the task list.
+  derived_from: state/sizings/<file>.yaml (or <goal_id>#kr-N) — a LINK, not a self-declaration
+---
+
 # [Feature Name] Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use /execute-plan to implement this plan task-by-task.
-
-**Goal:** [One sentence describing what this builds]
 
 **Status:** Pending review
 
@@ -319,14 +325,9 @@ When mid-execution drift blocks an executor (the substrate on disk differs from 
 
 **Tech Stack:** [Key technologies/libraries]
 
-## Acceptance Criteria
+## Prime Exit Criterion
 
-<!-- Optional. Plans may carry an AC table as a reviewer's design lens.
-     Use simple prose form: ID | Criterion | Status -->
-
-| ID | Criterion | Status |
-|----|-----------|--------|
-| AC-1 | [Testable criterion] | ☐ |
+[One falsifiable sentence naming what is true of the tree when this plan has delivered.]
 
 ## Non-Goals
 
@@ -337,8 +338,9 @@ When mid-execution drift blocks an executor (the substrate on disk differs from 
 
 **Why these fields are required:**
 - **Scope mode** routes review depth and the evidence bar. Reviewers and `/merge-to-main` read it.
-- **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it." AC tables are optional; when present they serve as the reviewer's design lens (see § Acceptance Criteria (optional) below).
+- **Acceptance criteria** are what reviewers check against and what the ship verdict scores. Without them, "done" reduces to "the agent says it implemented it." A criterion that must be discharged is a spine row (see § Machine-Parseable Task Spine below); everything else is carried by the prime exit criterion and its falsifier (see § Prime Exit Criterion below).
 - **Non-goals** are the most-skipped field and the single highest source of scope drift. Spend 30 seconds on them.
+- **Prime exit criterion** is the one thing this replaces "AC-by-AC discharge" as evidence for: see § Prime Exit Criterion below.
 
 The `Status:` field is **EM-owned** and is part of the write-ahead protocol — it gets updated at every phase transition (review, enrichment, execution) so that crashed sessions leave unambiguous state. This is unchanged.
 
@@ -352,9 +354,118 @@ The `Status:` field is **EM-owned** and is part of the write-ahead protocol — 
 
 **Do not author a `## Deviations` audit table.** Forecast-vs-shipped reconciliation happens entirely via `(was: <plan-forecast>)` ALLOWLIST annotations in the Decisions Made / API Contracts sections (the load-bearing surface for `/distill` Phase 1 `[SUPERSEDED]` classification). `/workstream-complete`'s `plan-vs-reality-reconcile` judgment point corrects ALLOWLIST sections in place. A plan carrying a `## Deviations` table is handled by `/distill`, which drops it as `[EPHEMERAL]`.
 
-## Acceptance Criteria (optional)
+## Prime Exit Criterion
 
-Plans MAY carry an `## Acceptance Criteria` table as a reviewer's design lens, in prose `ID | Criterion | Status` form. It is not required and is not mechanically gated — the table helps reviewers check that criteria are testable and complete, but no automated gate enforces it.
+Every plan states, in `prime_exit_criterion.statement`, the one falsifiable claim about the TREE
+that the plan exists to make true — not a description of the work, an outcome the tree will
+exhibit once the work has landed.
+
+- **It is a falsifiable claim about the TREE, using the goal plane's own outcome/output test.**
+  `statement` passes `goal.schema.json`'s `key_results[].kind` test verbatim — `outcome` (a
+  measurable change in behaviour or state) vs `output` (a deliverable/artifact produced) — never a
+  parallel phrasing invented for this field.
+- **Provenance is a LINK, not a self-declaration.** `derived_from` points at the sizing object this
+  plan was routed from (`state/sizings/<id>.yaml`) or a key result it serves, as
+  `<goal_id>#kr-<kr-id>` (goal `id` + `key_results[].id`, never an array index) — something a
+  reader can open and compare against `statement`. **The link must RESOLVE — a `derived_from`
+  naming a sizing object or KR that does not exist is a refusal, not a formatting slip.** The
+  schema constrains the string's shape only; a dangling link is indistinguishable from a good one
+  at parse time, and its failure mode is a false green. A missing link obliges one PM confirmation
+  question, never concocted provenance. Linking is a pointer, not a merge: never mandatory (most
+  plans serve no KR), never a falsifier retrofit onto the KR, and one KR may span several plans.
+- **The baseline falsifier is run BEFORE the task spine is authored, and MUST come out red.** A
+  baseline that passes is itself a stop: the prime exit criterion is mis-stated, the work is
+  already done, or the falsifier does not measure the criterion. All three are worth catching at
+  plan time, never discovered at close-out.
+- **Spine-row discharge is evidence about clauses, never about the prime exit criterion.** A
+  criterion that must be discharged is a task-spine row (§ Machine-Parseable Task Spine above) and
+  verifies one operative claim; only the falsifier's re-run against `HEAD` at close-out speaks to
+  whether the plan did the thing it was named for.
+- **The falsifier states its own pass condition; close-out judges against it, not against
+  `baseline_output`.** `falsifier.expected_when_true` names what `how` yields when the criterion is
+  TRUE. `exit_criterion_met.falsifier_verdict` (`pass`/`fail`) records whether the re-run matches
+  it, and the gate refuses the stamp unless it does. A changed-but-not-matching output is still
+  false, differently — mere non-inertness cannot prove the criterion; an unchanged output already
+  fails the same check, so it needs no rule of its own.
+
+**Preflight asks a sufficiency question too, not just a shape one.** Even a well-formed prime exit
+criterion with a red baseline can be sized wrong: a spine every chunk of which executes perfectly
+may still not close the distance from baseline to target. Plan preflight's Check 4 estimates that
+distance in the falsifier's own units and returns `sufficient` / `insufficient` / `cannot-tell` —
+`insufficient` and `cannot-tell` route the plan back through `plan⇄sizing` rather than passing as a
+noted finding. This is distinct from divergence (a spine that executes cleanly but never moves the
+falsifier at all); sufficiency is the right-direction-wrong-size failure, divergence is the
+right-size-wrong-direction one. Expect the question at preflight, not just at close-out.
+
+**What this replaces.** The falsifier IS the plan's primary acceptance criterion: an EM who writes
+a prime exit criterion and accepts a falsifier's red baseline has *done* the acceptance-criteria
+work, in a form that cannot be vacuously true, instead of writing prose criteria and discovering at
+close-out that they were satisfiable by inert code. A criterion that must be discharged is a
+task-spine row and inherits the spine's five-value `disposition` vocabulary and the close-out gate;
+everything else the plan asserts is carried by the prime exit criterion and its falsifier delta —
+there is no third row family for either to fall back on.
+
+**`falsifier.how` is legitimately multi-leg.** A plan can hold several acceptance facts under one
+prime exit criterion; `falsifier.how` is not restricted to a single probe. Give each fact its own
+leg in the same script and let `expected_when_true` state the combined pass condition. Worked
+specimen: this section's own retirement plan ran a three-leg falsifier — leg 1 probed a fresh
+scaffold's output for the retired heading, leg 2 grepped this file for the retired teaching, leg 3
+grepped the plan-route corpus for the retired teaching — as one `falsifier.how`, not three plans or
+a checklist. Every acceptance fact a plan holds must be a leg of that single falsifier or a spine
+row with a real disposition; a fact that is neither is a fact the plan is not actually asserting.
+This is the axis on which the retired AC table was not useless — an author with several acceptance
+facts reaches for the falsifier's multiple legs, not a new checklist.
+
+**A plan whose `derived_from` names a KR emits a KR-suggestion at close-out, into the existing
+plane — not a new one.** When `exit_criterion_met.asserted` is set on a plan whose
+`prime_exit_criterion.derived_from` is a `<goal_id>#kr-<kr-id>` reference, the EM writes one
+`state/kr-suggestions/<date>-<slug>.yaml` record (`kr-suggestion.schema.json`) rather than editing
+the goal artifact directly — that write stays the confirming human's, per DR-130's
+never-auto-apply invariant. Use the schema's own fields, nothing invented: `provenance`
+(`producing_system`, `source_ref` = the close-out sha, `recorded_at`) carries the plan's own
+promoted-test path in `source_ref`; `rationale` is prose for the confirming human, never raw
+falsifier output; `expected_current_status` records the KR status the EM believed live, so a stale
+suggestion is detectable; `from_repo` names the originating repo when the plan is here but the KR
+lives in a sibling. No plan is required to serve a KR, and this never gates close-out.
+
+## Gated Exit Criteria (Fleet Brightlines)
+
+`gated_exit_criteria` is a top-level frontmatter list, sibling to `prime_exit_criterion`, that
+discharges the fleet brightlines — `work-proportionate-to-question`, `multi-os-first-class`
+(macOS/Windows/Linux), `no-single-machine-assumptions` (no hardcoded paths), and
+`work-vs-question-ratio` — as a machine-readable field on
+the plan artifact the executor holds, not prose remembered from a doctrine page (the brightline
+rule's prior sole home: `CLAUDE.md` and the global `~/.claude/CLAUDE.md` — not the similarly-named
+review-partition brightline in `coordinator/skills/workstream-complete/SKILL.md`, an unrelated
+rule that happens to share the word). Every plan scaffolds all four rows from
+`coordinator/templates/plans/plan.md.tmpl`; do not delete a row because it seems inapplicable —
+narrow its `statement` instead. `plan.schema.json` requires all four slugs to be present when
+`gated_exit_criteria` is set, so this is schema-gated, not convention-only.
+
+`work-vs-question-ratio` is narrower than `work-proportionate-to-question` by design: discharge it
+by naming, per function or corpus-scale value introduced, the bounded question it answers. See
+`coordinator/docs/wiki/coordinator-tripwires/waste-is-gated-at-authoring-not-caught-at-review.md`.
+
+Each row is `{brightline, statement, met}`:
+
+- **`brightline`** is one of the fixed slugs scaffolded in the template — do not rename or add
+  slugs ad hoc; a fourth brightline (or a reviewer-facing variant) gets its own plan chunk, not a
+  freehand row here.
+- **`statement`** is authored at plan-write time: what evidence at close-out would show this
+  brightline held for THIS plan's delivered work — the same falsifiable-sentence discipline as
+  `prime_exit_criterion.statement`, scoped to one brightline instead of the whole plan.
+- **`met`** starts `false` and is flipped only by the session writing `exit_criterion_met`. An
+  unmet brightline blocks `implemented` the same way an unresolved AC would.
+
+**Deliberately NOT one repeated `prime_exit_criterion`-shaped object per brightline.** A full
+falsifier (`how`/`baseline_output`/`baseline_ref`/`expected_when_true`) per brightline is
+per-item git-spawn amplification for a check that is almost always a direct read (grep for a
+hardcoded path, check CI ran on three OSes) — `gated_exit_criteria` stays a light three-field row,
+`prime_exit_criterion.falsifier` stays the one-per-plan heavy instrument. **Deliberately NOT an
+`## Acceptance Criteria` table row either** — that table is optional, reviewer-facing prose, never
+mechanically gated (see the comment above the AC table in the template); a brightline that landed
+there would be present but not gated, which is the exact failure mode this field exists to close.
+See `coordinator/docs/wiki/coordinator-tripwires/brightlines-are-gated-not-remembered.md`.
 
 ## Machine-Parseable Task Spine
 
@@ -415,7 +526,7 @@ that sign-off lives on the plan document itself, as a `grouping_approvals` block
 `do` / `defer` / `ruled_out` — not on the individual row. `plan-coverage-checker` is a
 **report-only** surface: it surfaces an unratified cut to a plan author at review time, but it
 does not itself gate anything closed. The hard enforcement — the check that actually refuses to
-treat a row as authorized-closed — lives in the claude-klabauter frontmatter layer
+treat a row as authorized-closed — lives in the engine's frontmatter layer
 (`schema_validate.py`'s `check_plan_tasks_grouping_approval`) together with the write-guard pair
 that blocks a plan-body edit from mutating its own approval state. Only a grouping carrying
 `status: approved`, a non-empty `pm_utterance`, and a digest that matches a fresh recomputation
@@ -604,7 +715,7 @@ That checker is **report-only**, on both the legacy and governed paths: it surfa
 plan author at review time, it does not itself withhold authorization. On a governed plan the
 actual gate is the `defer` grouping's `grouping_approvals` block (§ Grouping Approvals above) —
 `status: approved` with a matching `pm_utterance` and a fresh membership digest — enforced by the
-Claude-klabauter frontmatter layer, not by an EM's own judgment that a cut was reasonable. See
+engine's frontmatter layer, not by an EM's own judgment that a cut was reasonable. See
 `## Branch C — Compose the plan body` in `coordinator/skills/plan/SKILL.md` (the "soon = now" deferral row
 and the YAGNI row) for the authoring-time version of this same discipline, and `## Branch A` in
 the same skill for the triage-time scoping check this section extends.
@@ -698,7 +809,7 @@ Spike acceptance criteria must target the actual wire path being verified — no
 
 **Failure shape:** spike AC is "registration succeeds." The executor verifies that the module is registered (a static lookup passes). But registration ≠ functional initialization — the registered module may still fail to initialize at runtime (missing deps, incorrect boot order, missing env bindings). The spike returns green on registration; the runtime surface returns broken.
 
-**Rule:** for any spike whose goal is "does X work end-to-end," the pass-condition must exercise the runtime wire path, not just the structural registration. Ask: "could this AC pass even if the runtime path is completely broken?" If yes, the AC is measuring the wrong thing.
+**Rule:** for any spike whose goal is "does X work end-to-end," the pass-condition must exercise the runtime wire path, not just the structural registration. Ask: "could this AC pass even if the runtime path is completely broken?" If yes, the AC is measuring the wrong thing. The same question catches a second, filter-shaped instance of it: an AC phrased "only when", "accept a candidate when", or "is rejected unless" states a necessary condition over a candidate already in hand — it never says where candidates come from, so it is satisfiable by inert code that filters a pool the real runtime path never populates.
 
 **Examples of weak ACs replaced with strong ones:**
 
@@ -707,6 +818,7 @@ Spike acceptance criteria must target the actual wire path being verified — no
 | "Module is registered in the plugin registry" | "Module successfully initializes: boot log shows INIT_OK line for this module" |
 | "Build succeeds with the new include" | "Integration test exercises the new include path end-to-end: at least one functional call reaches the new code" |
 | "Config key is present in settings.json" | "App reads the config key and applies it: observed behavior change matches the config value" |
+| "Resolves a candidate ONLY WHEN its module equals the resolved source module AND its name equals the original imported name" (a predicate over a candidate pool already in hand) | "The candidate pool itself is built by original-imported-name lookup, not by alias-keyed lookup filtered afterward: an aliased import resolves to its true definition end-to-end" |
 
 ## Spike Verdicts on Temporal Properties Must State the Observation Window Against the Failure Timescale
 
@@ -1055,9 +1167,20 @@ A plan brief that instructs mass-rename of vocabulary tokens (e.g. "rename `foo`
 
 ## Vacuous-True Acceptance Criteria Is Not a Pass
 
-An acceptance criterion that turns out vacuously true at close (the condition is always satisfied regardless of the code's behavior — e.g. "the function returns a non-None value" when the type annotation already guarantees that) is not a pass — it's a stub-quality finding. When a close reveals an AC is vacuous, re-anchor it to the moved seam (what is the real behavioral contract?), replace the vacuous criterion with one that would actually fail if the implementation were wrong, or surface it explicitly as a stub-quality gap for the plan author to resolve. Marking it PASS and moving on hides incomplete specification.
+A prime exit criterion, or a spine row's discharge evidence, that turns out vacuously true at close
+(the condition is always satisfied regardless of the code's behavior — e.g. "the function returns a
+non-None value" when the type annotation already guarantees that) is not a pass — it's a
+stub-quality finding. The failure generalises past the AC table this section used to gate: a prime
+exit criterion satisfiable BEFORE the work starts is the same defect, caught by the baseline
+falsifier's mandatory-red rule (§ Prime Exit Criterion above) rather than discovered at close.
+This plan's own first-draft criterion (§ Prime exit criterion) is a worked example — the baseline
+falsifier caught it red before any spine row was authored. When a close reveals a criterion is
+vacuous, re-anchor it to the moved seam (what is the real behavioral contract?), replace it with one
+that would actually fail if the implementation were wrong, or surface it explicitly as a
+stub-quality gap for the plan author to resolve. Marking it PASS and moving on hides incomplete
+specification.
 
-**AC that only tests the field-present case gives false consumer-proof — the negative-spec must cover absent-as-no-distortion.** An acceptance criterion that exercises only the populated/literal-field-set path ("consumer reads field X and renders it") proves nothing about the case the consumer hits more often: the field *absent*. A consumer can pass the field-present AC and still distort, crash, or mis-default when the field is missing. For any AC gating consumer behavior on an optional field, the plan's negative-spec block MUST add an explicit absent-case criterion (field missing ⇒ consumer produces the no-distortion default), not just the present-case one. This is the negative-spec twin of the vacuous-true finding above.
+**A criterion that only tests the field-present case gives false consumer-proof — the negative-spec must cover absent-as-no-distortion.** A criterion that exercises only the populated/literal-field-set path ("consumer reads field X and renders it") proves nothing about the case the consumer hits more often: the field *absent*. A criterion can pass the field-present case and still distort, crash, or mis-default when the field is missing. For any spine row or falsifier leg gating consumer behavior on an optional field, the plan's negative-spec block MUST add an explicit absent-case criterion (field missing ⇒ consumer produces the no-distortion default), not just the present-case one. This is the negative-spec twin of the vacuous-true finding above.
 
 ## Threshold-Table Reachability — Test the Floor Before Shipping
 

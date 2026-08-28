@@ -38,8 +38,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import yaml  # PyYAML — available in coordinator venv
-
 
 def derive_cutoff(runs_dir: Path) -> str | None:
     """Scan `<runs_dir>/learn-lessons-20*/` for dirs carrying a `COMPLETE` sentinel.
@@ -103,6 +101,8 @@ def find_strip_orphans(records: list[dict], strip_list: list[dict]) -> list[str]
 
 
 def _cmd_check_strip_orphans(args: argparse.Namespace) -> int:
+    import yaml  # PyYAML — available in coordinator venv
+
     try:
         records_doc = yaml.safe_load(args.records.read_text(encoding="utf-8")) or {}
     except FileNotFoundError:

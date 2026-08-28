@@ -144,18 +144,54 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-
-cc_invoke.ensure_engine_on_path(__file__)
-
-from coordinator_core.engine_root import coordinator_engine_root_env  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
 _PROG = "reap-integrated-review-findings.sh"
+
+_BOOTSTRAP_NAMES = (
+    "cc_invoke",
+    "coordinator_engine_root_env",
+    "no_console_creationflags",
+    "resolve_checked_repo_root",
+)
+
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` -- lets a caller that reaches for one of
+    the bootstrap-deferred names (e.g. this file's own test suite, which
+    monkeypatches `_mod.cc_invoke` ahead of calling `_mod.main()`) trigger
+    `_bootstrap_imports()` lazily on first access, instead of requiring the
+    name to already be a module global at import time. Only fires when the
+    name is NOT already present in this module's `__dict__` -- once
+    `_bootstrap_imports()` has run once (via this hook or via `main()`), the
+    plain global wins on every later lookup and this function is not called
+    again for that name."""
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_imports()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _bootstrap_imports() -> None:
+    """Import every non-stdlib dependency this module needs and bind it at
+    module scope, called from main() (C6k import-motion: module bodies stay
+    inert on both the warm door and the un-bootstrapped settings-home
+    forwarder load routes). Order is load-bearing — preserved verbatim from
+    the former module-scope sequence. Idempotent by construction (see the
+    `__getattr__` hook above, which may trigger this ahead of `main()`).
+    """
+    if "cc_invoke" in globals():
+        return
+
+    global cc_invoke, coordinator_engine_root_env, no_console_creationflags
+    global resolve_checked_repo_root
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
+    from coordinator_core.engine_root import coordinator_engine_root_env
+    from coordinator_core.win_portability import no_console_creationflags
+    from repo_identity import resolve_checked_repo_root
 
 # --summary sample size (F8 — a 64KB single-line JSON dump of 334 verbose
 # candidate rows is engine-friendly but EM-hostile at a PM dry-run gate,
@@ -234,6 +270,7 @@ def _reap_integrated_legacy(
     summary: bool = False,
     summary_limit: int = _DEFAULT_SUMMARY_LIMIT,
 ) -> int:
+    _bootstrap_imports()
     # -------------------------------------------------------------------
     # Repo root / findings dir resolution — cwd-scope guard: only operate
     # on the repo that actually contains state/review-trail/findings/. Not-
@@ -409,6 +446,7 @@ def _reap_seam_present() -> Tuple[bool, str]:
     separate check of it here would only ever screen a value the transport's
     own resolution (``cc_invoke``'s rung 1) already ignores.
     """
+    _bootstrap_imports()
     if os.environ.get("COORDINATOR_FORCE_LEGACY", "") == "1":
         return False, ""
     _override = coordinator_engine_root_env(__name__) or ""
@@ -471,6 +509,7 @@ def _reap_native(
     summary: bool = False,
     summary_limit: int = _DEFAULT_SUMMARY_LIMIT,
 ) -> int:
+    _bootstrap_imports()
     # No `claude_klabauter_root` parameter: C28 dropped the reserved `_claude_klabauter_root=` kwarg from
     # the cc_invoke call below, which was its only reader, and a parameter nothing
     # reads is a standing invitation to re-wire the transport through it. The engine
@@ -588,6 +627,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: List[str]) -> int:
+    _bootstrap_imports()
     parser = _build_arg_parser()
     # argparse handles --help itself (prints usage, exits 0) and unknown
     # arguments (prints an error, exits 2) — both were F8 gaps in the

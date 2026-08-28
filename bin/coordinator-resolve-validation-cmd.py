@@ -103,16 +103,34 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-# coordinator_core is co-located in this same repo (claude-klabauter) -- resolvable
-# only from the repo root, which is NOT on sys.path when this file is run
-# directly (its own dir is) or loaded via importlib.util.spec_from_file_location
-# by a sibling script (e.g. workday-complete-step1-validate.py). Bootstrap it so
-# the import below doesn't raise ModuleNotFoundError in either shape.
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
 
-from coordinator_core.win_portability import is_executable  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put the repo root on ``sys.path`` before ``coordinator_core`` is
+    imported.
+
+    coordinator_core is co-located in this same repo (claude-klabauter) --
+    resolvable only from the repo root, which is NOT on sys.path when this
+    file is run directly (its own dir is) or loaded via
+    importlib.util.spec_from_file_location by a sibling script (e.g.
+    workday-complete-step1-validate.py). Bootstrap it so the import in
+    `_venv_interp` doesn't raise ModuleNotFoundError in either shape.
+
+    Idempotent; safe to call more than once. Moved out of module scope
+    (2026-08-28) -- unconditionally mutating `sys.path` at import time made
+    every import of this file mutate the `sys.path` of a warm server ~50
+    sessions share. Only the trigger moved; the effect is byte-for-byte the
+    same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    _BOOTSTRAP_DONE = True
 
 _METACHAR_RE = re.compile(r"\$\(|`|; ")
 _ESCAPED_QUOTE_RE = re.compile(r"\\[\"']")
@@ -182,6 +200,9 @@ def _venv_interp(repo_root: str | None) -> str | None:
     """
     if not repo_root:
         return None
+    _bootstrap_engine()
+    from coordinator_core.win_portability import is_executable
+
     for rel in ("bin/python", "Scripts/python.exe"):
         cand = os.path.join(repo_root, ".venv", *rel.split("/"))
         if os.path.isfile(cand) and is_executable(cand):
@@ -530,6 +551,7 @@ def main(argv: list[str]) -> int:
     # `workday-complete-reconcile.py`'s identical comment) — `mode =
     # argv[0]` below already treated index 0 as real data, so no internal
     # change to this function's argument handling was needed, only the name.
+    _bootstrap_engine()
     if not argv:
         print("usage: coordinator_resolve_validation_cmd.py --fast|--full [repo_root] | --read-key <repo_root> <key>", file=sys.stderr)
         return 1

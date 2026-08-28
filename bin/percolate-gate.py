@@ -153,9 +153,27 @@ _LIB_DIR = _BIN_DIR.parent / "lib"
 # blocking credential gate. Failure was invisible to `--help`, which argparse
 # serves without ever entering a subcommand body.
 _REPO_ROOT = _BIN_DIR.parent.parent
-for _rung in (_LIB_DIR, _REPO_ROOT):
-    if str(_rung) not in sys.path:
-        sys.path.insert(0, str(_rung))
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put lib/ (short-form `percolate.*` imports) and the repo root (the
+    absolute-form imports those modules use between themselves) on sys.path.
+
+    Moved out of module scope: this used to mutate sys.path on every import
+    of this file, a process global ~50 warm-server sessions share. Only the
+    trigger moved; both rungs remain load-bearing (see the comment this
+    replaced, preserved above the original assignment).
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    for _rung in (_LIB_DIR, _REPO_ROOT):
+        if str(_rung) not in sys.path:
+            sys.path.insert(0, str(_rung))
+    _BOOTSTRAP_DONE = True
+
 
 _PUBLISH_PY = _BIN_DIR / "publish.py"
 
@@ -298,6 +316,7 @@ def _missing_target_entry_guidance(target: str, all_rows: List[List[str]]) -> Li
 
 
 def _cmd_branch0_gate(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
     from percolate.targets import TargetsError, load_targets  # noqa: E402
 
     setup_dir = Path(args.percolate_root) / "setup"
@@ -451,6 +470,7 @@ def _target_declares_registry_codename_guard(percolate_root: Optional[Path], tar
     if not store_path.is_file():
         return False
 
+    _bootstrap_engine()
     import yaml
 
     from coordinator_core.percolate.store import resolve_target  # noqa: E402
@@ -475,6 +495,7 @@ def _target_declares_registry_codename_guard(percolate_root: Optional[Path], tar
 
 
 def _cmd_scan_secrets(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
     files = _load_file_list(Path(args.files))
 
     high_hits: List[Tuple[Path, int, str]] = []
@@ -625,6 +646,7 @@ def _resolve_target_source_dir(percolate_root: Path, target: str) -> Optional[Pa
     works when the caller remembers an argument is the failure mode this
     resolution exists to remove.
     """
+    _bootstrap_engine()
     try:
         from percolate.targets import TargetsError, load_targets  # noqa: E402
     except ImportError:
@@ -944,6 +966,7 @@ def _cmd_crlf_diff(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _cmd_resolve_root(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
     from coordinator_core.percolate.runtime_root import (  # noqa: E402
         coordinator_percolate_runtime_root_explained,
     )
@@ -966,6 +989,7 @@ def _cmd_resolve_root(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _cmd_list_targets(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
     from percolate.targets import TargetsError, load_targets  # noqa: E402
 
     setup_dir = Path(args.percolate_root) / "setup"

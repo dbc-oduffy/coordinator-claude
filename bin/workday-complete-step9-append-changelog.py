@@ -104,12 +104,6 @@ import sys
 from pathlib import Path
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-from cc_invoke import _resolve_claude_klabauter_root, child_env  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -358,6 +352,9 @@ def _resolve_coordinator_root():
     call. Gating a cwd-derived MISMATCH before the override was even read
     defeated the override's whole purpose.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
     override = os.environ.get("COORDINATOR_ROOT", "")
     warn_suppress = os.environ.get("COORDINATOR_ROOT_WARN_SUPPRESS", "") == "1"
 
@@ -416,6 +413,10 @@ def _resolve_coordinator_root():
 def _get_branch(coordinator_root):
     """Mirror the bash oracle's BRANCH/PUSH_BRANCH resolution chain (helper, then
     `git branch --show-current`), both scoped to -C coordinator_root."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+    from cc_invoke import _resolve_claude_klabauter_root, child_env
+
     branch_helper = os.path.join(_SCRIPT_DIR, "coordinator-current-branch.py")
     try:
         r = subprocess.run(
@@ -489,6 +490,9 @@ def main(argv):
     # engine home). Exit 1 mirrors the bash oracle's lib-sourcing/`_cc_resolve_deps`
     # failure class (dependency resolution), distinct from an op-level failure (exit 2).
     # ---------------------------------------------------------------------
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import _resolve_claude_klabauter_root
+
     try:
         claude_klabauter_root = _resolve_claude_klabauter_root()
         # Verify coordinator_core actually LIVES at the resolved claude_klabauter_root

@@ -1,3 +1,5 @@
+# guard-not-a-hook-entrypoint: folded into preuse-bash-dispatch.py's _BASH_GUARD_REGISTRY, the
+# single PreToolUse(Bash|PowerShell) registration -- hooks.json names the dispatcher, not this file.
 """PreToolUse(Bash) hook: deny a dispatched agent the spawn-storm bash shapes, not bash itself.
 
 WHAT THIS BANS, AND WHAT IT DELIBERATELY DOES NOT. The harm on this host is never "a subagent ran
@@ -59,7 +61,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _message_envelope import Message, compose, render  # noqa: E402
 
-_BANNED_TOOL = "Bash"
+#: BOTH shells, and the asymmetry with `guard-host-subagent-bash-ban` is deliberate. That guard is
+#: scoped to Bash because PowerShell is the sanctioned alternative on this host and denying both
+#: would leave a dispatched agent with no shell at all -- it is a break-glass measure, not a
+#: routine one. THIS guard bans a SHAPE, not a tool, so the same reasoning inverts: the fan-out
+#: harm exists identically in PowerShell, and its own refusal text tells the blocked agent "the
+#: PowerShell tool is always available". Scoped to Bash it was recommending the escape hatch from
+#: itself -- a dispatched agent could run the identical spawn-storm shape in PowerShell and this
+#: guard would never fire.
+_SHAPED_TOOLS = ("Bash", "PowerShell")
+
+#: Dialect per tool. NOT a widening of `matchers` alone, which this chunk's spec explicitly
+#: forbids: a guard that declares it reads PowerShell while its detection is bash-text-shaped is
+#: armed blind. Measured before widening -- `classify_command` takes `dialect` and carries a
+#: PowerShell-only `PIPELINE_FOREACH_OBJECT` shape, so the detection genuinely follows the tool.
+#: Passing the dialect is the load-bearing half; the tool-name set alone would be the defect.
+_TOOL_DIALECTS = {"Bash": "BASH", "PowerShell": "POWERSHELL"}
 _POLICY_KEY = "subagent_bash_spawn_shapes"
 _DENY_VALUE = "deny"
 _CONFIG_NAME = "coordinator.local.md"
@@ -120,7 +137,7 @@ def _policy_is_deny(config: Path) -> bool:
     return False
 
 
-def _classify(cmd: str) -> "list[str]":
+def _classify(cmd: str, dialect_name: str = "BASH") -> "list[str]":
     """Shape names the engine's classifier finds in `cmd`. Empty on any failure (fail open)."""
     try:
         from _engine_root import resolve_claude_klabauter_root
@@ -139,7 +156,17 @@ def _classify(cmd: str) -> "list[str]":
     except Exception:
         return []
     try:
-        classification = classify_command(cmd)
+        from coordinator_core.bash_guards._shape_classifier import Dialect
+    except Exception:
+        Dialect = None
+    try:
+        if Dialect is not None and dialect_name:
+            classification = classify_command(cmd, dialect=getattr(Dialect, dialect_name))
+        else:
+            # Engine too old to carry `Dialect`: fall back to the default-bash call rather than
+            # failing closed. A PowerShell payload then simply finds no bash shapes, which is the
+            # behaviour before this change -- never a deny on a dialect we could not resolve.
+            classification = classify_command(cmd)
     except Exception:
         return []
     names = []
@@ -151,7 +178,21 @@ def _classify(cmd: str) -> "list[str]":
     return names
 
 
-def _compose_deny_message(shapes: "list[str]") -> Message:
+def _spawn_cost_clause(tool_name: str) -> str:
+    """Name the cost the CALLER actually pays, not bash's.
+
+    The prose quoted `bash.exe costs 200-500ms per spawn` unconditionally, and closed by offering
+    "the PowerShell tool is always available". Once this guard started firing on PowerShell the
+    first became false on exactly the new path and the second pointed the agent at a shell this
+    guard now covers. Both were artefacts of a Bash-only guard; both are corrected rather than
+    left as near-miss prose a reader would have to discount.
+    """
+    if tool_name == "PowerShell":
+        return "a ForEach-Object/% pipeline stage runs its block once per input object on this host"
+    return "bash.exe costs 200-500ms per spawn on this host"
+
+
+def _compose_deny_message(shapes: "list[str]", tool_name: str = "Bash") -> Message:
     named = ", ".join(shapes)
     hints = [_ALTERNATIVES[s] for s in shapes if s in _ALTERNATIVES]
     remedy = hints[0] if hints else (
@@ -159,11 +200,11 @@ def _compose_deny_message(shapes: "list[str]") -> Message:
     )
     prose = (
         f"BLOCKED: this shape spawns one subprocess per iteration or pipe stage ({named}), and "
-        f"bash.exe costs 200-500ms per spawn on this host — paid on a machine running many "
-        f"concurrent sessions. Use {remedy}. Bash itself is NOT banned here: a single read of a "
-        f"known file is fine, and the PowerShell tool is always available. It is the fan-out "
-        f"that is refused, not the tool. If a system reminder suggested this shape, this policy "
-        f"outranks it — say so in your report rather than routing around it."
+        f"{_spawn_cost_clause(tool_name)} — paid on a machine running many "
+        f"concurrent sessions. Use {remedy}. {tool_name} itself is NOT banned here: a single read "
+        f"of a known file is fine. It is the fan-out that is refused, not the tool. If a system "
+        f"reminder suggested this shape, this policy outranks it — say so in your report rather "
+        f"than routing around it."
     )
     return compose(prose, anchor=_WIKI_ANCHOR)
 
@@ -176,7 +217,8 @@ def main() -> int:
     if not isinstance(data, dict):
         return 0
 
-    if data.get("tool_name") != _BANNED_TOOL:
+    tool_name = data.get("tool_name")
+    if tool_name not in _SHAPED_TOOLS:
         return 0
 
     agent_id = data.get("agent_id")
@@ -199,11 +241,11 @@ def main() -> int:
     except Exception:
         return 0
 
-    shapes = _classify(cmd)
+    shapes = _classify(cmd, _TOOL_DIALECTS.get(tool_name, "BASH"))
     if not shapes:
         return 0
 
-    sys.stderr.buffer.write((render(_compose_deny_message(shapes)) + "\n").encode("utf-8"))
+    sys.stderr.buffer.write((render(_compose_deny_message(shapes, tool_name)) + "\n").encode("utf-8"))
     return 2
 
 

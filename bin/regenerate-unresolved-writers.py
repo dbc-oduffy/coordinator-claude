@@ -57,11 +57,6 @@ import json
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = REPO_ROOT / "state" / "generator-provenance" / "unresolved-writers.json"
 DEFAULT_TARGET_DESC = (
@@ -241,6 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         # in `recording_declared_writes()` with an explicit `declare_write()`
         # at the write site, per cli_entry's documented carve-out for a CLI
         # that owns its own body (see gen-launcher-shim.py's `main()`).
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_dispatch_engine_on_path
+
         require_dispatch_engine_on_path()
         from coordinator_core.cli_entry import recording_declared_writes
         from coordinator_core.session.declared_writes import declare_write

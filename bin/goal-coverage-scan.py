@@ -64,17 +64,6 @@ import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-# Review: code-reviewer -- Finding 1, 2026-07-22. Hoisted to module level
-# (was a per-call import inside _query_records) so a genuine import failure
-# (missing records_query.py, wrong _LIB_DIR, a transitive import error) fails
-# loudly and legibly once at process start, rather than escaping as a raw
-# unhandled traceback mid-scan on an arbitrary call -- the per-call import sat
-# outside _query_records' try/except, so it bypassed the documented
-# warn-to-stderr/continue-scanning contract for that one failure mode.
-from records_query import query_records  # noqa: E402  (sys.path-dependent)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -169,6 +158,9 @@ def _query_records(record_type, where_expr):
     degraded" thread that signal through. Callers that don't care (e.g. goal
     enumeration) just read ["records"].
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from records_query import query_records
+
     try:
         raw = query_records(record_type, where_expr, format_="json")
         parsed = json.loads(raw) if raw else []

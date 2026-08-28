@@ -66,9 +66,6 @@ import time
 from pathlib import Path
 
 _SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
-_LIB_DIR = _SCRIPT_DIR / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
 
 _SETUP_ERROR = 2
 

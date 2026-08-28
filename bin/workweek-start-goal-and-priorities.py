@@ -50,11 +50,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-try:
-    import yaml
-except ImportError:  # pragma: no cover - venv-resident dep, see install-surface-completeness.md
-    yaml = None
-
 _HERE = Path(__file__).resolve().parent
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -99,7 +94,16 @@ def _no_console_passthrough_kw() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _require_yaml() -> None:
+def _import_yaml():
+    try:
+        import yaml
+    except ImportError:  # pragma: no cover - venv-resident dep, see install-surface-completeness.md
+        return None
+    return yaml
+
+
+def _require_yaml():
+    yaml = _import_yaml()
     if yaml is None:
         print(
             "workweek-start-goal-and-priorities.py: PyYAML is not importable "
@@ -107,6 +111,7 @@ def _require_yaml() -> None:
             file=sys.stderr,
         )
         sys.exit(2)
+    return yaml
 
 
 def _slug_from_title(title: str) -> str:
@@ -231,7 +236,7 @@ def _fill_goal_placeholders(path: Path, iso_week: str, objective_prose: str) -> 
 
 
 def _read_objective(path: Path) -> str:
-    _require_yaml()
+    yaml = _require_yaml()
     with path.open(encoding="utf-8") as fh:
         doc = yaml.safe_load(fh)
     return (doc or {}).get("objective", "") or ""
@@ -339,7 +344,7 @@ def cmd_emit_goal_event(args: argparse.Namespace) -> int:
     Review: A-F13 (workweek-start.md) — absolute/repo-relative path required;
     /workweek-start runs from arbitrary cwd.
     """
-    _require_yaml()
+    yaml = _require_yaml()
     goal_path = Path(args.goal)
     with goal_path.open(encoding="utf-8") as fh:
         doc = yaml.safe_load(fh)

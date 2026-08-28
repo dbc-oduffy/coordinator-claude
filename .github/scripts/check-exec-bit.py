@@ -9,8 +9,10 @@ A clean clone on any Unix machine (including OSS marketplace users) then install
 non-functional scripts — the failure is silent because Windows callers use `bash <script>`
 directly, bypassing the mode bit.
 
-This validator queries the committed index mode AND blob content via `git ls-files --stage`
-(NOT on-disk stat), which is the authoritative record of what a `git clone` will deliver.
+This validator queries the mode AND blob content committed at HEAD via `git ls-tree -r HEAD`
+(NOT on-disk stat, and NOT the index), because HEAD is what a `git clone` delivers. The index
+is not: a mode can sit staged there indefinitely without ever reaching a commit, and reading
+it would pass the validator on a fix that never landed.
 The shebang check reads from the git object store (via `git cat-file --batch`), not from
 the working tree — this ensures the validator catches drift even when the working-tree copy
 differs from the index, and works correctly in CI environments with sparse checkouts.
@@ -78,13 +80,53 @@ def get_repo_root(override: str | None = None) -> str:
     return result.stdout.strip()
 
 
-def get_staged_entries(repo_root: str) -> list[tuple[str, str, str]]:
-    """Return [(mode, object_hash, path)] for all files tracked in the index.
+def get_committed_entries(repo_root: str) -> list[tuple[str, str, str]]:
+    """Return [(mode, object_hash, path)] for every blob committed at HEAD.
 
-    Uses git ls-files --stage to read committed index mode and blob hash —
-    NOT on-disk stat. Mode-blindness on Windows is exactly the failure this
-    validator exists to catch; on-disk stat would silently miss it.
+    Reads HEAD, not the index. The two differ exactly when a mode has been
+    staged and not yet committed, and in that window the index reports the
+    mode the author intended while HEAD — the thing a `git clone` actually
+    delivers — still carries the old one. Reading the index there certifies a
+    fix that never landed: a strictly worse outcome than the honest failure,
+    because the run goes green and the offending file ships anyway. Observed
+    on the OSS publish mirror 2026-08-26, where a publish round staged 100755
+    for a path its pathspec-scoped commit could not carry, this validator
+    passed on the staged mode, and the pushed HEAD kept 100644.
+
+    On-disk stat is not an option either, for the reason in the module
+    docstring: mode-blindness on Windows is the failure this exists to catch.
+
+    Falls back to the index on an unborn HEAD (a repo with no commits), where
+    there is nothing committed to read and the index is the only record.
     """
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "HEAD"],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    if result.returncode != 0:
+        return _get_index_entries(repo_root)
+
+    entries = []
+    for line in result.stdout.splitlines():
+        # Format: <mode> SP <type> SP <object> TAB <path>
+        parts = line.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        meta = parts[0].split()
+        if len(meta) < 3:
+            continue
+        mode, obj_type, obj_hash = meta[0], meta[1], meta[2]
+        # Submodules appear as `commit` entries with no blob to read.
+        if obj_type != "blob":
+            continue
+        entries.append((mode, obj_hash, parts[1]))
+    return entries
+
+
+def _get_index_entries(repo_root: str) -> list[tuple[str, str, str]]:
+    """Index-mode fallback for an unborn HEAD — see `get_committed_entries`."""
     result = subprocess.run(
         ["git", "ls-files", "--stage"],
         capture_output=True,
@@ -187,7 +229,7 @@ def main() -> int:
     args = parser.parse_args()
 
     repo_root = get_repo_root(args.repo_root)
-    entries = get_staged_entries(repo_root)
+    entries = get_committed_entries(repo_root)
 
     # Collect all 100644 entries to check for shebangs
     candidates = [(mode, obj_hash, path) for mode, obj_hash, path in entries if mode == "100644"]

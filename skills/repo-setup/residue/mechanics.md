@@ -70,7 +70,8 @@ written by their owning skill on first use — except `state/orientation_cache.m
 has real day-1 content once Phase 2 answers exist.
 
 **`.gitignore`.** Ensure the canonical block (settings.local.json, scratch/, per-session
-sentinels, ceremony/coverage transients, project-rag corpus artifacts) is present — create if
+sentinels, ceremony/coverage transients, `.project-rag-corpus-artifacts/` and
+`.project-rag-corpus-store/`) is present — create if
 absent, append only the missing lines under one header if partially present, skip silently if
 complete. If ceremony/coverage transients are already tracked, `git rm --cached` them after adding
 the ignore rule. Warn if `.claude/` (not just `settings.local.json`) is blanket-ignored, if tracked
@@ -132,13 +133,22 @@ per-lane policy default; the skeleton write itself is unconditional.
 **Guard-regression tripwire tests** (ALWAYS, idempotent, never offered — the class of failure is
 invisible until it causes an outage). Destination is derived from the repo's own `fast_test_cmd`
 path argument (`<that-path>/guards/`), never hardcoded to `tests/guards/` — a guard pytest never
-collects is no guard at all. Copy, no-clobber, four templates from
+collects is no guard at all. Copy, no-clobber, every ALWAYS template from
 `<coordinator-plugin-root>/tests/templates/`: `test_machine_local_state_tracked.py`,
 `test_foreign_platform_paths.py`, `test_registry_toml_machine_paths.py` (conditional on a tracked
 `registry.toml`), `test_guard_wiring_completeness.py` (conditional on a `hooks/hooks.json`
-surface). Each resolves its own repo root via `_tripwire_root.resolve_repo_root()` (copy that
-sibling alongside). After copying, verify the guards are actually collected by the repo's own
-`fast_test_cmd` — don't trust the path derivation blindly.
+surface), `test_every_test_tree_is_collected.py`, `test_no_absolute_path_literals.py`,
+`test_gitattributes_line_ending_coverage.py`. Each resolves its own repo root via
+`_tripwire_root.resolve_repo_root()` (copy that sibling alongside). After copying, verify the
+guards are actually collected by the repo's own `fast_test_cmd` — don't trust the path derivation
+blindly.
+
+`test_every_test_tree_is_collected.py` is what makes that verification standing rather than
+one-shot: it reads the repo's own `fast_test_cmd`/`full_test_cmd`/`ceremony_test_cmds[].
+collection_roots` live out of `coordinator.local.md` and fails on any test module on disk that
+no tier collects — the tree added six months after setup, not just the guards seeded here. It
+skips clean where a repo has no `coordinator.local.md` or declares no roots, so it is safe to
+seed unconditionally.
 
 **Widened spawn tripwire — `.py`/`.ps1`, ALWAYS, not offered.** Closes the gap the `.sh`-only
 console-subprocess tripwire (below, offered) leaves for repos without `coordinator_core`. Copy

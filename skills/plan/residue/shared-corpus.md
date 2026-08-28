@@ -67,8 +67,8 @@ disposition detail — never a silent drop, never a row the author approves them
 not authorized until the PM approves the grouping it lands in. Enforcement lives at write time,
 in the row's own closure gate, not in a checker's after-the-fact report.
 
-- _Acceptance criteria testable + time framed for agents, not humans?_
-  → Each AC is a binary pass/fail check. Agent-scoped time annotations are fine ("this dispatch runs ~90s"); reject human-sprint framing ("two-week effort", "Q3 milestone").
+- _Spine rows and the prime exit criterion testable + time framed for agents, not humans?_
+  → Each spine row and the prime exit criterion's falsifier leg is a binary pass/fail check. Agent-scoped time annotations are fine ("this dispatch runs ~90s"); reject human-sprint framing ("two-week effort", "Q3 milestone").
 
 - _A "we'll add X later" / scope-trim / YAGNI argument is in the draft?_ → **Always surface to PM**, never EM-unilateral. YAGNI is a product call.
 - _A "soon = now" deferral candidate?_ (an item deferred because the EM thinks it lower-priority than the headline work)

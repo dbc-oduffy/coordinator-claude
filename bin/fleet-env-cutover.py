@@ -33,29 +33,13 @@ import sys
 from pathlib import Path
 
 _BIN_DIR = Path(__file__).resolve().parent
-_LIB_DIR = _BIN_DIR / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
-try:
-    require_colocated_engine_on_path(__file__)
-except RuntimeError as exc:
-    print(f"fleet-env-cutover.py: could not locate the claude-klabauter engine: {exc}", file=sys.stderr)
-    sys.exit(1)
-
-from coordinator_core.install import junction  # noqa: E402
-from coordinator_core.install.fleet_env import (  # noqa: E402
-    FleetEnvCutoverBlocked,
-    FleetEnvError,
-    _cutover_to_junction_layout,
-    resolve_environment_root,
-)
 
 _RETRY_EXHAUSTED = 2
 
 
 def _report_check(env_root: Path) -> int:
+    from coordinator_core.install import junction
+
     if junction.is_junction(env_root):
         target = junction.junction_target(env_root)
         print(f"fleet-env-cutover.py: {env_root} is already a junction -> {target}")
@@ -71,6 +55,22 @@ def _report_check(env_root: Path) -> int:
 
 
 def main(argv: "list[str] | None" = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as exc:
+        print(f"fleet-env-cutover.py: could not locate the claude-klabauter engine: {exc}", file=sys.stderr)
+        return 1
+
+    from coordinator_core.install.fleet_env import (
+        FleetEnvCutoverBlocked,
+        FleetEnvError,
+        _cutover_to_junction_layout,
+        resolve_environment_root,
+    )
+
     parser = argparse.ArgumentParser(
         prog="fleet-env-cutover.py",
         description=(

@@ -56,8 +56,26 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
-import workday_ceremony_lib as wc  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `coordinator/bin/lib` on `sys.path` -- idempotent, safe to call
+    more than once.
+
+    What moved and what did not: this mutation used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm
+    server ~50 sessions share. Only the trigger moved; the value inserted is
+    byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    lib_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    _BOOTSTRAP_DONE = True
+
 
 # Generator-provenance declaration (generator_provenance.py).
 # _rewrite_anchor/_inject_anchor rewrite whichever
@@ -181,6 +199,9 @@ def _inject_anchor(target_file: str, full_sha: str, machine: str, today: str) ->
 
 
 def _derive_machine(root: str, full_sha: str, machine_arg: str) -> str:
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     if machine_arg:
         return machine_arg
     # git for-each-ref --contains <sha> over work/ heads and origin/work/ remotes.
@@ -254,6 +275,9 @@ def _bullet_count(target_file: str) -> int:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     if len(argv) < 3:
         _err(f"Usage: {os.path.basename(sys.argv[0])} <ROOT> <DATE> <DESCENDANT_TIP_SHA> [TODAY] [MACHINE]")
         return 1

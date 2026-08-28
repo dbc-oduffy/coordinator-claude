@@ -68,23 +68,57 @@ import os
 import sys
 from pathlib import Path
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-from cc_invoke import route  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
+_BOOTSTRAP_NAMES = ("load_family_records", "route", "cc_invoke")
 
-# coordinator_core is co-located in this same repo (the engine plane) --
-# resolvable only from the repo root, which is not on sys.path when this
-# file is run directly (only its own dir and lib/ are). coordinator_core.ops
-# registers ops lazily, unconditionally, so the queue_family import below
-# never pays coordinator_core.ops's eager op-registration sweep it does not
-# need (it only wants the read seam).
-_REPO_ROOT = str(Path(__file__).resolve().parent.parent.parent)
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-from coordinator_core.ops.queue_family import load_family_records  # noqa: E402
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` -- lets a caller that reaches for
+    `load_family_records` / `route` / `cc_invoke` before `main()` has run
+    (e.g. this file's own test suite, which does `mod.load_family_records =
+    fake_load_records` / `mod.route = fake_route` ahead of calling
+    `mod.main()`; plain attribute assignment reads the old value first via
+    `getattr()`, which is what actually triggers this) run
+    `_bootstrap_imports()` lazily on first access, instead of requiring the
+    name to already be a module global at import time. Only fires when the
+    name is NOT already present in this module's `__dict__` -- once
+    `_bootstrap_imports()` has run once (via this hook or via `main()`), the
+    plain global wins on every later lookup and this function is not called
+    again for that name."""
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_imports()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _bootstrap_imports() -> None:
+    """Import cc_invoke/repo_identity/queue_family, ensuring the engine root
+    is on sys.path first, and bind every dependency at module scope (C6k
+    import-motion: module bodies stay inert on both the warm door and the
+    un-bootstrapped settings-home forwarder load routes). Idempotent by
+    construction: a name already bound at module scope (via a prior call, or
+    a test's own `mod.load_family_records = fake_load_records` ahead of
+    calling `main()`) is left alone rather than clobbered by a real import.
+
+    coordinator_core is co-located in this same repo (the engine plane) --
+    resolvable only from the repo root, which is not on sys.path when this
+    file is run directly (only its own dir and lib/ are). coordinator_core.ops
+    registers ops lazily, unconditionally, so the queue_family import below
+    never pays coordinator_core.ops's eager op-registration sweep it does not
+    need (it only wants the read seam).
+    """
+    if "load_family_records" in globals():
+        return
+
+    global load_family_records, route, cc_invoke
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+    from cc_invoke import route
+
+    _repo_root = str(Path(__file__).resolve().parent.parent.parent)
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+    from coordinator_core.ops.queue_family import load_family_records
 
 
 def _no_fallback() -> None:
@@ -101,6 +135,9 @@ def _resolve_repo_root() -> str:
     refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
     preserving this script's pre-existing best-effort behavior.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         print(verdict["message"], file=sys.stderr)
@@ -108,6 +145,8 @@ def _resolve_repo_root() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _bootstrap_imports()
+
     argv = sys.argv[1:] if argv is None else argv
     dry_run_only = False
     explicit_repo_root: str | None = None

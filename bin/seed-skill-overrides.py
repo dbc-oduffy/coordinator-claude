@@ -91,7 +91,7 @@ def _atomic_write(settings_path: pathlib.Path, data: dict) -> None:
         raise
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     parser = argparse.ArgumentParser(
         description="Idempotently seed bundled-skill skillOverrides into settings.json."
     )
@@ -106,7 +106,7 @@ def main() -> None:
         action="store_true",
         help="Print the would-seed delta to stdout and exit 0; write nothing.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     settings_path = _resolve_settings_path()
     s = _load_settings(settings_path)
@@ -121,7 +121,7 @@ def main() -> None:
             " Repair settings.json.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     if args.check_only:
         would_seed = [n for n in names if n not in overrides]
@@ -131,7 +131,7 @@ def main() -> None:
             print(f"skill_overrides: would seed {', '.join(would_seed)} (check-only)")
         else:
             print("skill_overrides: would seed (none) (check-only)")
-        sys.exit(0)
+        return 0
 
     # Merge — direct assignment inside `not in` guard; setdefault is redundant here
     # (Review: code-reviewer F7 — setdefault after confirming absence is misleading).
@@ -152,7 +152,8 @@ def main() -> None:
         print(f"skill_overrides: seeded {', '.join(newly_added)}")
     else:
         print("skill_overrides: already-present")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

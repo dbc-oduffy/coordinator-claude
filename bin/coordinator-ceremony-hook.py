@@ -124,10 +124,6 @@ import sys
 _PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _RVC_PATH = os.path.join(_PLUGIN_ROOT, "bin", "coordinator-resolve-validation-cmd.py")
 
-_LIB_DIR = os.path.join(_PLUGIN_ROOT, "bin", "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
 _KNOWN_CEREMONIES = (
     "workday-start",
     "workday-complete",
@@ -159,6 +155,7 @@ def main(argv: list[str]) -> int:
     # Guarded import (AC13) — see module docstring § "Guarded import". Do not
     # re-flatten this back to an unguarded import.
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         import cc_invoke
         from win_argv import win_safe_shlex_split
 

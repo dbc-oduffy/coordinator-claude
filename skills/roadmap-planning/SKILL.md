@@ -96,6 +96,8 @@ final-approved`.
    mint the id (`bin/mint-deliverable-id --stub-id "<slug>-<N>"` → `deliverable_id:`), fill the rest
    from Step 2.1.5's numbering output. **Read `residue/stub-frontmatter-schema-and-field-notes.md`
    first.**
+
+<!-- engine-gap: field=roadmap_planning.stub_body_section_completeness producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 2.1a. **Carry the size forward — pass `--sizing-object <the object that routed this roadmap>`.** A
    stub minted without it reads as unsized downstream and `plan` trampolines it back to the lobby,
    re-litigating a size this roadmap already made: 2.1.6 assigns every stub its own `loe:`, and the
@@ -133,6 +135,8 @@ final-approved`.
 2.5. `pm-gates.md` — one row per stub whose `blocking_notes`/`gate_dependency` carries a
    product-coupled signal (`PM `-prefix, named stakeholder, decision/approval/policy/scope/
    user-facing language). Template + detection rule: wiki.
+
+<!-- engine-gap: field=roadmap_planning.pm_gate_keyword_detection producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 2.6–2.7. Phase 2 close (Shape W, `snippets/resolve-coordinator-bin.md`):
    `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.cmd" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the

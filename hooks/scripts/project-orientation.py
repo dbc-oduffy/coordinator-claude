@@ -999,12 +999,17 @@ def local_install_surface_banner(repo_root: Optional[str]) -> None:
         )
 
 
-# Refresh window for the P-19 verdict cache (`doctor-last-run.json`'s `ran_at`), hours.
-# Matches the existing staleness convention for this exact sentinel-JSON shape
-# (`docs/wiki/addon-health-sentinel.md`: "stale sentinels (>24h since ran_at)") rather than
-# inventing a second threshold for the same artifact family. P-19 refreshes daily under
-# `/workday-start` Step 1.10, so a cache within this window reflects that day's run.
-_INSTALL_CURRENCY_STALE_HOURS = 24
+# Shared refresh window for this sentinel-JSON banner family, hours. Originally named for the
+# install-currency (P-19) banner alone; `tier_currency_banner` (plan
+# `2026-08-27-cadence-gate-feedback-loop.md`, C2) reuses the SAME threshold deliberately rather
+# than inventing a second staleness convention (that plan's Anti-scope) -- both banners read a
+# `ran_at`-bearing sentinel and both are daily-cadence artifacts, so one concern-neutral constant
+# is correct, not coincidental reuse. `docs/wiki/addon-health-sentinel.md`: "stale sentinels
+# (>24h since ran_at)". P-19 refreshes daily under `/workday-start` Step 1.10, so a cache within
+# this window reflects that day's run.
+_CURRENCY_BANNER_STALE_HOURS = 24
+# Back-compat alias: `test_currency_banner.py` (a sibling test file outside this dispatch's file
+# scope) still reads the old name. Remove once that test is updated to the new name.
 
 
 def install_currency_banner(repo_root: Optional[str]) -> None:
@@ -1028,7 +1033,7 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
       - `advisory_notes` carries a `P-19: `-prefixed entry -> echoed VERBATIM as the rendered
         line. Not re-parsed, not reformatted -- echoing satisfies A1 without parsing prose out of
         a summary string, which the plan (C2 body) forbids outright.
-      - the verdict cache is older than `_INSTALL_CURRENCY_STALE_HOURS`, or `ran_at`/the file
+      - the verdict cache is older than `_CURRENCY_BANNER_STALE_HOURS`, or `ran_at`/the file
         itself fails to parse -> rendered as `stale-unknown`, in those words, naming how old the
         cache is (or that it is unparseable) and that `/workday-start` refreshes it. NEVER
         rendered as `current` and NEVER rendered as `behind` -- a stale or missing verdict
@@ -1122,10 +1127,10 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
         )
         return
 
-    if age_hours >= _INSTALL_CURRENCY_STALE_HOURS:
+    if age_hours >= _CURRENCY_BANNER_STALE_HOURS:
         _w(
             f"── Install currency: stale-unknown ({age_hours:.0f}h old, refresh window is "
-            f"{_INSTALL_CURRENCY_STALE_HOURS}h) — /workday-start refreshes it ──\n"
+            f"{_CURRENCY_BANNER_STALE_HOURS}h) — /workday-start refreshes it ──\n"
         )
         return
 
@@ -1153,6 +1158,152 @@ def install_currency_banner(repo_root: Optional[str]) -> None:
         _w(f"── {p19_line} ──\n")
     # else: a fresh cache with no P-19 line is current/offline/source_is_live -- all three are
     # one indistinguishable silence at this artifact (P19-SILENT-TRIBRANCH). Render nothing.
+
+
+def _load_tier_last_run_module():
+    """Import `coordinator/bin/tier-last-run.py` by file path and return the loaded module.
+
+    Hyphenated filename, so `import tier-last-run` is not valid Python — this mirrors the
+    existing dynamic-import pattern in this file (`_resolve_claude_klabauter_root_native`) but uses
+    `importlib.util.spec_from_file_location` since the target isn't an identifier-safe module
+    name. Reuses C1's `_load_local_doctrine`/`_ceremony_entries` rather than authoring a second
+    `coordinator.local.md` parser (plan C2 amendment). Module scope in `tier-last-run.py` is
+    inert — only stdlib/PyYAML imports and constant definitions run at import time, no
+    subprocess spawn — so `exec_module` here costs nothing beyond the parse it performs. Returns
+    `None` on any failure (missing file, import error), never raises: this is a boot-path helper
+    and every caller here fails open on `None`.
+    """
+    try:
+        import importlib.util
+
+        module_path = Path(__file__).resolve().parent.parent.parent / "bin" / "tier-last-run.py"
+        spec = importlib.util.spec_from_file_location("_tier_last_run_c2", module_path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def tier_currency_banner(repo_root: Optional[str]) -> None:
+    """Print one line per declared `ceremony_test_cmds` entry naming its last-run age.
+
+    Modelled directly on `install_currency_banner` above: same env gate
+    (`COORDINATOR_CURRENCY_STATUS_OFF`), same "read the source once, reuse the parsed object for
+    every branch" contract, same zero-subprocess boot-path mandate (module docstring, AC4).
+    AC4 (as amended) bounds this at exactly two reads total, each performed once and reused
+    across every entry rendered: one `Path.read_text()` + `json.loads()` of
+    `state/tier-last-run.json` (`_STATE_RELATIVE` in `tier-last-run.py`), and at most one parse
+    of `coordinator.local.md`'s frontmatter via the imported `_load_local_doctrine`/
+    `_ceremony_entries` (C1's parser, reused rather than duplicated). Neither grows with the
+    number of declared entries.
+
+    Three-way render per declared entry (AC2, AC3):
+      - recorded and `ran_at` within `_CURRENCY_BANNER_STALE_HOURS` -> the entry name and its
+        age, e.g. `hook-tests: last ran 6h ago`.
+      - recorded but older than the threshold, or `ran_at` unparseable -> `stale`, naming the age
+        or that the timestamp is unparseable. Never rendered as current.
+      - the entry has no key in the sentinel at all, OR the sentinel file itself is missing or
+        unparseable -> the literal word `unknown`, naming that no run has been recorded and
+        which command records one. NEVER `current`, NEVER green, NEVER silent.
+
+    Per-entry absence is load-bearing (plan C2 body): a declared entry with no key in the
+    sentinel renders `unknown` on its own line beside an already-fresh sibling — the loop below
+    is over DECLARED entries, not over the sentinel's own keys, so a second tier entry can never
+    silently inherit the first one's freshness by simply not being mentioned.
+
+    NEGATIVE SPEC — a collapsed denominator is never silent. Two outcomes look alike from here
+    and must not render alike: "this repo declares no ceremony tier" (no `coordinator.local.md`,
+    no `ceremony_test_cmds` key, or an explicit `[]`) is a real answer and renders nothing; but a
+    doctrine file that EXISTS and cannot be parsed, or a `tier-last-run.py` that will not import,
+    resolves the entry roster to zero for a reason that is a defect, and that renders loudly on
+    stderr. Silence there would make this banner tell the exact lie it exists to prevent — the
+    same shape as its own `unknown` case, one level up: zero declared entries because we could
+    not look is not zero declared entries. The earlier version of this function failed open on
+    both, reasoning that a broken doctrine file is "another surface's job to diagnose"; that is
+    the rationalisation, not an exception. Corpus-backed checks assert their corpus resolved
+    before reporting on it.
+    """
+    if os.environ.get("COORDINATOR_CURRENCY_STATUS_OFF"):
+        return
+
+    root = Path(repo_root).resolve() if repo_root else Path.cwd()
+    doctrine_path = root / "coordinator.local.md"
+
+    module = _load_tier_last_run_module()
+    if module is None:
+        if doctrine_path.exists():
+            sys.stderr.write(
+                "── tier currency: UNRESOLVABLE — coordinator.local.md is present but "
+                "coordinator/bin/tier-last-run.py could not be imported, so no tier's currency "
+                "can be reported. This is not 'no tiers declared'. ──\n"
+            )
+        return
+
+    try:
+        entries = module._ceremony_entries(root)
+    except Exception as exc:
+        # Only a doctrine file that EXISTS and will not parse is an anchor collapse. Its absence
+        # is a legitimate "no ceremony tier here" and stays silent, same as an explicit `[]`.
+        if doctrine_path.exists():
+            sys.stderr.write(
+                f"── tier currency: UNRESOLVABLE — {doctrine_path.name} is present but its "
+                f"ceremony_test_cmds could not be read ({type(exc).__name__}: {exc}). No tier's "
+                f"currency can be reported, and this is NOT the same as declaring none. ──\n"
+            )
+        return
+    if not entries:
+        return
+
+    # Reuse C1's own `_load_state` rather than re-deriving read/parse/type-check inline (nit): a
+    # corrupt sentinel at boot then produces the same stderr diagnostic as one hit via
+    # `tier-last-run read`, instead of silently becoming `{}` with no trace. Same single
+    # `Path.read_text()` + `json.loads()` this banner already performed inline, so the AC4
+    # bounded-read contract (exactly one sentinel read) is unaffected.
+    state_path = root / "state" / "tier-last-run.json"
+    state = module._load_state(state_path)
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not name:
+            continue
+
+        record = state.get(name)
+        if not isinstance(record, dict) or "ran_at" not in record:
+            _w(
+                f"── {name}: unknown — no run recorded; "
+                f"`tier-last-run record --entry {name} ...` records one ──\n"
+            )
+            continue
+
+        ran_at_raw = record.get("ran_at")
+        age_hours: Optional[float] = None
+        if isinstance(ran_at_raw, str) and ran_at_raw:
+            try:
+                ran_at_dt = datetime.strptime(ran_at_raw, module._ISO_FORMAT)
+                if ran_at_dt.tzinfo is None:
+                    ran_at_dt = ran_at_dt.replace(tzinfo=timezone.utc)
+                age_hours = (datetime.now(timezone.utc) - ran_at_dt).total_seconds() / 3600.0
+            except Exception:
+                age_hours = None
+
+        if age_hours is None:
+            _w(f"── {name}: stale (ran_at unparseable) — record a fresh run to clear ──\n")
+            continue
+
+        human_age = module._format_age(ran_at_raw)
+        if age_hours < 0 or age_hours >= _CURRENCY_BANNER_STALE_HOURS:
+            _w(
+                f"── {name}: stale ({human_age}, refresh window is "
+                f"{_CURRENCY_BANNER_STALE_HOURS}h) ──\n"
+            )
+            continue
+
+        _w(f"── {name}: last ran {human_age} ──\n")
 
 
 def engine_resolution_banner() -> None:
@@ -2268,6 +2419,10 @@ def main(argv: list) -> int:
             install_currency_banner(repo_root)
         except Exception:
             pass
+        try:
+            tier_currency_banner(repo_root)
+        except Exception:
+            pass
 
         try:
             if handle_cache_present_boot(cache, cache_text=cache_text):
@@ -2317,6 +2472,10 @@ def main(argv: list) -> int:
         pass
     try:
         install_currency_banner(repo_root)
+    except Exception:
+        pass
+    try:
+        tier_currency_banner(repo_root)
     except Exception:
         pass
 

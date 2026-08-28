@@ -116,7 +116,8 @@ def _heading(path: str) -> str:
     return re.sub(r"^#* *", "", first.rstrip("\n"))
 
 
-def main() -> int:
+def main(argv: "list[str] | None" = None) -> int:
+    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
     # Resolve repo root via the checked resolver. READER (AC10): a MISMATCH
     # verdict is warned to stderr and the resolved root used anyway (DR-277);
     # UNRESOLVED never refuses either (AC4).

@@ -1,11 +1,11 @@
 # Deletion-List Hygiene
 
-Phase 3d emits a structured YAML manifest (`schema_version: 1`, `deletions:` key). Consume the YAML directly — do NOT parse the prose Markdown table (if present) and do NOT use column-extraction tools like `awk -F'|'` to extract paths from it. The prose table is a derived PM-readable view; the YAML is the source of truth.
+Phase 3d emits a structured YAML manifest (`schema_version: 2`, `deletions:` and `deletion_groups:` keys). Consume the YAML directly — do NOT parse the prose Markdown table (if present) and do NOT use column-extraction tools like `awk -F'|'` to extract paths from it. The prose table is a derived PM-readable view; the YAML is the source of truth.
 
 ## Required procedure
 
-1. **Read the YAML manifest** from the Phase 3d scratch file. The manifest begins with `schema_version: 1` and contains a `deletions:` list.
-2. **Filter by disposition.** Extract entries where `disposition: DELETE`. Entries with `disposition: SKIP` or `disposition: PRESERVE` are not candidates for deletion.
+1. **Read the YAML manifest** from the Phase 3d scratch file. Current manifests begin with `schema_version: 2` and carry a `deletions:` list plus an optional `deletion_groups:` list — expand the latter against the cited scout file to reach the full delete set. A `schema_version: 1` manifest carries `deletions:` only and consumes as flat with no groups to expand; both are valid input and neither is a reason to abort.
+2. **Filter by disposition.** Extract entries where `disposition: DELETE`. Entries with `disposition: SEND_BACK`, `disposition: BLOCKED`, or `disposition: PRESERVE` are not candidates for deletion.
 3. **Per-row validation.** Each `artifact_path` value must parse as a single relative path (no spaces, no commas, no bracket syntax). Any entry that fails parse → abort and report the row to the EM.
 4. **Fail closed on count mismatch.** Count of `DELETE` entries from YAML must equal the count of paths you intend to pass to `git rm`. Mismatch = abort.
 

@@ -65,7 +65,7 @@ def _resolve_sha(source: Path, sha_arg: str | None) -> str:
     return sha
 
 
-def _main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Write a 40-hex source-HEAD SHA into <path>/version.txt.",
     )
@@ -87,4 +87,4 @@ def _main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(_main())
+    sys.exit(main(sys.argv))

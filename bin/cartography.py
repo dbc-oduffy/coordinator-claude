@@ -86,15 +86,6 @@ import json
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import (  # noqa: E402
-    cc_invoke_bare,
-    none_scoped_repo_refusal,
-    require_colocated_engine_on_path,
-)
-
 
 def _cartography_ops() -> list[str]:
     """Return every registered `cartography.*` op name, sorted.
@@ -103,6 +94,9 @@ def _cartography_ops() -> list[str]:
     call rather than caching a copy in this module — the whole point is that
     a newly-added op is visible here with zero edits to this file.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
     require_colocated_engine_on_path(__file__)
     from coordinator_core.ops._registry_map import OP_MODULE_MAP
 
@@ -201,6 +195,8 @@ def main(argv: list[str]) -> int:
         # cwd=claude_klabauter_root, so a caller-computed root is discarded before
         # transmission regardless of how it was obtained. Refuse loud
         # instead of resolving/validating a value nothing downstream reads.
+        from cc_invoke import none_scoped_repo_refusal
+
         print(none_scoped_repo_refusal("cartography", "cartography.*"), file=sys.stderr)
         return 1
 
@@ -230,6 +226,8 @@ def main(argv: list[str]) -> int:
         # Every cartography.* op is scope "none" — cc_invoke_bare's
         # _should_pass_repo() gate suppresses forwarding --repo for it, so
         # this empty string is never read; see the --repo refusal above.
+        from cc_invoke import cc_invoke_bare
+
         result = cc_invoke_bare(op, params, "")
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)

@@ -18,15 +18,19 @@ Usage:
 """
 from __future__ import annotations
 
-import os
 import sys
 
-_BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-from coordinator_safe_name import main  # noqa: E402
+def main(argv: list[str]) -> int:
+    import os
+
+    _bin_dir = os.path.dirname(os.path.abspath(__file__))  # noqa: F841
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_safe_name import main as _sub_main
+
+    return _sub_main(argv)
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

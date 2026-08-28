@@ -116,10 +116,6 @@ import sys
 from pathlib import Path
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
 
 PROG = "handoff-archive-transition.py"
 
@@ -130,6 +126,9 @@ def _no_console_kw() -> dict:
     splat the canonical no-console-window kwarg. ``{}`` on any resolution/
     import failure (fail-open)."""
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
         if cc_invoke.ensure_engine_on_path(__file__) is None:
             return {}
         from coordinator_core.win_portability import no_console_creationflags
@@ -159,6 +158,9 @@ def _resolve_repo_root(handoff_path: str) -> str | None:
     """
     handoff_abs = os.path.abspath(handoff_path)
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+
         if cc_invoke.ensure_engine_on_path(__file__) is None:
             return None
         from coordinator_core.git.repo_root import show_toplevel
@@ -292,6 +294,9 @@ def cmd_chain(
     an envelope key (`archived`) that `handoff.archive_transition` has
     never populated for any mode.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     if not os.path.isfile(handoff_path):
         # Negative-spec (C1): a missing predecessor file is NOT treated as a
         # verified prior archival. The async sweep beating this call there is
@@ -454,6 +459,9 @@ def cmd_supersede(handoff_path: str, continued_into: str | None, exclude: list[s
     retained" would silently reintroduce the exact half-state (predecessor
     left at `deployment_state: in_flight` / `pickup_ready: true` while a
     successor also claims to be live work) the reported incident was about."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     if not (continued_into and continued_into.strip()):
         print(
             "supersede: mode 'supersede' requires a non-empty --continued-into "

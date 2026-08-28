@@ -65,13 +65,6 @@ import os
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_data_root import data_root  # noqa: E402
-
-_PLUGIN_ROOT = os.environ.get("CLAUDE_PLUGIN_ROOT") or str(data_root("snippets").parent)
 
 
 # DR-276: routed through `coordinator_core.cli_entry.run_op_main` rather than a
@@ -94,35 +87,40 @@ def _import_run_op_main():
     rung-1 short-circuit and never needs its own fallback ladder in the normal
     call shape.
     """
-    os.environ.setdefault("CLAUDE_PLUGIN_ROOT", _PLUGIN_ROOT)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+    from coordinator_data_root import data_root
+
+    plugin_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or str(data_root("snippets").parent)
+    os.environ.setdefault("CLAUDE_PLUGIN_ROOT", plugin_root)
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:
         print(f"fan-out-integrator.py: engine-root resolution failed: {exc}", file=sys.stderr)
-        sys.exit(3)
+        return 3
     except ImportError as exc:
         print(
             f"fan-out-integrator.py: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
+        return 3
 
     try:
-        code = run_op_main("coordinator_core.ops.fan_out_integrator", sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.fan_out_integrator", (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             f"fan-out-integrator.py: coordinator_core.ops.fan_out_integrator not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(3)
-    sys.exit(code)
+        return 3
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

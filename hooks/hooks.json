@@ -95,24 +95,6 @@
             ]
           }
         ]
-      },
-      {
-        "_comment": "Unattended rescue-commit+push for whatever a session left uncommitted -- fires with no invocation, for the quick-fix session too small to warrant a closure ceremony (the case /handoff's own auto-commit step never reaches, because nothing invokes it). Calls the SAME safe-commit-offer CLI /handoff uses -- one mechanism, two triggers, so they cannot drift. Fails silently in every direction: a session ending is the worst moment to raise, and a commit that lands but does not push still survives.",
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3",
-            "timeout": 30,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionend-auto-commit.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
-            ]
-          }
-        ]
       }
     ],
     "SubagentStart": [
@@ -387,7 +369,7 @@
         ]
       },
       {
-        "_comment": "POSTTOOLUSE-AGENT-DISPATCH FAN-IN (W0, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) -- folds the two former standalone PostToolUse|Agent registrations (agent-completion-log.py, track-dispatched-agents.py's PostToolUse enrich leg) into the single engine op `hooks.agent_postuse_dispatch` (published mirror HEAD 6bcbb8b7), fronted by this thin plumbing shim (postuse-agent-dispatch.py). 3 registrations -> 2 on this matcher. ADDITIVE, NOT A MIGRATION: both agent-completion-log.py and track-dispatched-agents.py stay registered elsewhere (track-dispatched-agents.py's SubagentStart leg, above) and keep their own direct callers/op literals unchanged -- only the PostToolUse|Agent registration surface moves. runtime-tripwire-em-check.py is NOT folded here -- its two ops return domain results, not hook envelopes, and it composes its own advisory prose; folding it would be a DR-047 crossing (W3), not this chunk's scope. W1b (docs/dispatch-briefs/2026-08-25-route-the-bash-guard-onto-the-native-htt/W1b.md) -- the postuse-agent-dispatch.py leg below moves to type: \"http\", the only fan-in registration that names exactly one engine op (census, same brief). PostToolUse is in _HTTP_DELIVERED_EVENTS (proven-delivered), the op resolves per _KNOWN_ENGINE_OPS, and (PostToolUse, postuse-agent-dispatch.py) is already classified recoverable in _RECOVERABLE_REGISTRATIONS (union of its two folded legs). The runtime-tripwire-em-check.py leg stays type: \"command\" -- it fans out to 3 ops, which the http transport cannot express (op_for_path resolves exactly one op per URL).",
+        "_comment": "POSTTOOLUSE-AGENT-DISPATCH FAN-IN (W0, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) -- folds the two former standalone PostToolUse|Agent registrations (agent-completion-log.py, track-dispatched-agents.py's PostToolUse enrich leg) into the single engine op `hooks.agent_postuse_dispatch` (published mirror HEAD 6bcbb8b7). 3 registrations -> 2 on this matcher. ADDITIVE, NOT A MIGRATION: both agent-completion-log.py and track-dispatched-agents.py stay registered elsewhere (track-dispatched-agents.py's SubagentStart leg, above) and keep their own direct callers/op literals unchanged -- only the PostToolUse|Agent registration surface moves. runtime-tripwire-em-check.py is NOT folded here -- its two ops return domain results, not hook envelopes, and it composes its own advisory prose; folding it would be a DR-047 crossing (W3), not this chunk's scope. W1b (docs/dispatch-briefs/2026-08-25-route-the-bash-guard-onto-the-native-htt/W1b.md, re-landed behind W1c) -- the postuse-agent-dispatch.py leg below is now type: \"http\", the only fan-in registration that names exactly one engine op (census, same brief). PostToolUse is in _HTTP_DELIVERED_EVENTS (proven-delivered), the op resolves per _KNOWN_ENGINE_OPS, and (PostToolUse, postuse-agent-dispatch.py) is classified recoverable in _RECOVERABLE_REGISTRATIONS (union of its two folded legs) -- both folded legs are reconstructable per DR-warm-hook-miss-policy.md (W2): agent_completion_log is logging-only and track_dispatched_agents reconciles from its own SubagentStart twin below, which STAYS type \"command\" and is unaffected by this flip -- a miss here costs nothing durable, the SubagentStart leg already wrote the dispatch record and the next successful warm call (or that same twin) reconciles it. FIRST ATTEMPT (488cdabff) SHIPPED WITHOUT THE DOOR-KEY HEADER AND WAS REVERTED (a62b1db43): the front door authenticates before it resolves a route (front_door.py:1273-1276, credential_absent on a headerless fire), so the header below is not optional plumbing -- omitting it reproduces that exact silent-refusal bug. W1c (both Windows launcher templates) now exports COORDINATOR_DOOR_KEY, so the interpolation resolves. The old bootstrap `command` key is dropped (a type: \"http\" registration never executes it), but `args` is deliberately KEPT beside the new `url` -- test_hooks_json_http_fail_open_boundary.py's `_script_of` keys a registration by script basename when `args` names one, precisely so a transport flip does not silently detach the classification tables (`_RECOVERABLE_REGISTRATIONS`'s existing `(\"PostToolUse\", \"postuse-agent-dispatch.py\")` entry, added in 8f6756dc8) from the registration they authorize; dropping `args` here would re-key this entry to `http:<url>` and fail test_classification_tables_name_only_live_registrations for no reason. The runtime-tripwire-em-check.py leg stays type: \"command\" -- it fans out to 3 ops, which the http transport cannot express (op_for_path resolves exactly one op per URL).",
         "matcher": "Agent",
         "hooks": [
           {
@@ -472,8 +454,8 @@
   },
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "ac3990af7287a096d75731bc497179797edbe1ec",
-    "generated_at": "2026-08-19T12:45:27Z",
+    "generated_from_sha": "c86a7359ace52725ef3a2b72c52e314e1f8e9a1b",
+    "generated_at": "2026-08-27T13:15:23Z",
     "generated_from_dirty_tree": true,
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
@@ -646,6 +628,15 @@
               "Edit",
               "MultiEdit",
               "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_duplicate_decision_record_id",
+            "script": "write_guards/block_duplicate_decision_record_id.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
             ]
           },
           {
@@ -971,6 +962,15 @@
             ]
           },
           {
+            "id": "nudge_unmarked_spawning_test",
+            "script": "write_guards/nudge_unmarked_spawning_test.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit"
+            ]
+          },
+          {
             "id": "nudge_windows_subprocess_popup",
             "script": "write_guards/nudge_windows_subprocess_popup.py",
             "tool_names": [
@@ -1049,42 +1049,48 @@
             "id": "no-verify",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "destructive-git-orphan",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "destructive-rm",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "destructive-git-clean",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "destructive-git-revert",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "blanket-git-add",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1098,7 +1104,8 @@
             "id": "block-worktree-creation",
             "script": "bash_guards/block_worktree_creation.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1129,14 +1136,16 @@
             "id": "block-stash-destruction",
             "script": "bash_guards/block_stash_destruction.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "block-subagent-stash-creation",
             "script": "bash_guards/block_subagent_stash_creation.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1151,14 +1160,16 @@
             "id": "block-subagent-destructive-action",
             "script": "bash_guards/block_subagent_destructive_action.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "block-subagent-commit",
             "script": "bash_guards/block_subagent_commit.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1173,28 +1184,32 @@
             "id": "block-subagent-grant-acquisition",
             "script": "bash_guards/block_subagent_grant_acquisition.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "block-subagent-guard-grant",
             "script": "bash_guards/block_subagent_guard_grant.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "destructive-git-revert-advisory",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "block-dev-repo-sentinel-removal-advisory",
             "script": "bash_guards/block_dev_repo_sentinel_removal.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1224,21 +1239,24 @@
             "id": "reap-stale-git-lock",
             "script": "bash_guards/guard_reap_stale_git_lock.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "git-no-optional-locks",
             "script": "bash_guards/guard_no_optional_locks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "validate-commit",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1253,7 +1271,8 @@
             "id": "probe-spray",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1293,6 +1312,13 @@
             ]
           },
           {
+            "id": "heredoc-repo-write-advise",
+            "script": "bash_guards/dispatch_checks.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
             "id": "git-commit-safe-commit-advise",
             "script": "bash_guards/dispatch_checks.py",
             "tool_names": [
@@ -1311,7 +1337,8 @@
             "id": "head-tail-plumbing-rewrite",
             "script": "bash_guards/guard_head_tail_rewrite.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1356,14 +1383,16 @@
             "id": "block-noncanonical-branch-creation",
             "script": "bash_guards/block_noncanonical_branch_creation.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
             "id": "block-subagent-plan-body-bash-write",
             "script": "bash_guards/block_subagent_plan_body_bash_write.py",
             "tool_names": [
-              "Bash"
+              "Bash",
+              "PowerShell"
             ]
           },
           {
@@ -1452,6 +1481,11 @@
         "matcher": "startup|resume|clear|compact|fork",
         "guards": [
           {
+            "id": "sessionstart_warm_start",
+            "script": "scripts/sessionstart-warm-start.py",
+            "tool_names": []
+          },
+          {
             "id": "session_start_register_doe_claude_root",
             "script": "scripts/session-start-register-doe-claude-root.py",
             "tool_names": []
@@ -1493,16 +1527,35 @@
             "tool_names": []
           }
         ]
+      },
+      "scripts/preuse-agent-dispatch.py": {
+        "script": "scripts/preuse-agent-dispatch.py",
+        "matcher": "Agent",
+        "guards": [
+          {
+            "id": "block_dispatch_suite_invocation",
+            "script": "scripts/block-dispatch-suite-invocation.py",
+            "tool_names": []
+          },
+          {
+            "id": "block_unenumerated_agent_type",
+            "script": "scripts/block-unenumerated-agent-type.py",
+            "tool_names": []
+          },
+          {
+            "id": "guard_review_integrator_sidecar_intake",
+            "script": "scripts/guard-review-integrator-sidecar-intake.py",
+            "tool_names": []
+          },
+          {
+            "id": "enforce_agent_dispatch_mode",
+            "script": "scripts/enforce-agent-dispatch-mode.py",
+            "tool_names": []
+          }
+        ]
       }
     },
     "direct": [
-      {
-        "id": "agent-completion-log.py",
-        "script": "scripts/agent-completion-log.py",
-        "tool_names": [
-          "Agent"
-        ]
-      },
       {
         "id": "block-dispatch-suite-invocation.py",
         "script": "scripts/block-dispatch-suite-invocation.py",
@@ -1553,8 +1606,8 @@
         ]
       },
       {
-        "id": "preuse-agent-dispatch.py",
-        "script": "scripts/preuse-agent-dispatch.py",
+        "id": "postuse-agent-dispatch.py",
+        "script": "scripts/postuse-agent-dispatch.py",
         "tool_names": [
           "Agent"
         ]
@@ -1569,11 +1622,6 @@
       {
         "id": "sessionend-archive-session.py",
         "script": "scripts/sessionend-archive-session.py",
-        "tool_names": []
-      },
-      {
-        "id": "sessionend-auto-commit.py",
-        "script": "scripts/sessionend-auto-commit.py",
         "tool_names": []
       },
       {
@@ -1599,9 +1647,7 @@
       {
         "id": "track-dispatched-agents.py",
         "script": "scripts/track-dispatched-agents.py",
-        "tool_names": [
-          "Agent"
-        ]
+        "tool_names": []
       },
       {
         "id": "watchdog-undischarged-next-move.py",
@@ -1637,6 +1683,11 @@
         "id": "nudge-unauthorized-handoff.py",
         "script": "scripts/nudge-unauthorized-handoff.py",
         "reason": "Its standalone PostToolUse(Write) registration was folded into postuse-advisory-dispatch.py's direct nudge_unauthorized_handoff.advisory_text() call; fully absent from current hooks.json."
+      },
+      {
+        "id": "sessionend-auto-commit.py",
+        "script": "scripts/sessionend-auto-commit.py",
+        "reason": "SessionEnd registration retired 2026-08-27 per PM ruling: commits are EM-initiated. See cross-repo/inbox/2026-08-27-claude-klabauter-em-retire-sessionend-auto-commit.md. Script kept, unregistered."
       }
     ]
   }

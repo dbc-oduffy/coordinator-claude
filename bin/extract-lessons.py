@@ -41,8 +41,6 @@ import re
 import sys
 from pathlib import Path
 
-import yaml  # PyYAML — available in coordinator venv
-
 GENERATES = []  # writes only to the caller-supplied -o/--out path (or stdout when omitted) — no fixed tracked artifact
 
 
@@ -74,6 +72,8 @@ def extract(lessons_dir: Path, shortname: str, since: str | None) -> tuple[list[
 
     Negative-spec: do NOT read state/lessons.md — that path has been superseded.
     """
+    import yaml  # PyYAML — available in coordinator venv
+
     yaml_files = sorted(lessons_dir.glob("*.yaml"))
     records: list[dict] = []
     stats = {

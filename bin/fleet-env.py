@@ -51,11 +51,6 @@ import argparse
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-
 _FLEET_ENV_ROOT_KEY = "fleet_env.root"
 
 _USAGE_FAIL = 2
@@ -77,6 +72,9 @@ def resolve_fleet_env_root() -> "str | None":
     of its own. A caller wanting a working fallback location for the absent
     case uses `coordinator_core/install/fleet_env_resolve.py` (C5).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     return cc_invoke._machine_local_get(_FLEET_ENV_ROOT_KEY)
 
 

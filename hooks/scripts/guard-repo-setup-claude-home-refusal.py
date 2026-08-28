@@ -1,3 +1,5 @@
+# guard-not-a-hook-entrypoint: folded into preuse-bash-dispatch.py's _BASH_GUARD_REGISTRY, the
+# single PreToolUse(Bash|PowerShell) registration -- hooks.json names the dispatcher, not this file.
 """PreToolUse(Bash|PowerShell) hook: make the repo-setup precondition
 "never target ~/.claude" an executable refusal, not prose.
 
@@ -40,6 +42,13 @@ follows NTFS junctions on Windows since Python 3.8, unlike
 ``os.path.islink()`` -- ``~/.claude/machine-local`` is one such junction and
 must never be mistaken for "not a link, so not worth resolving") before
 comparison.
+
+NEGATIVE-SPEC -- ``--dry-run`` is exempt. The scaffold CLI's dry run prints
+its plan and writes nothing, so there is no write to refuse; the
+`coordinator-doctor` P-12 probe reads Claude Home's structure through exactly
+that flag and was being denied as though it were a write. Dropping the flag
+denies the command again, which is the whole safety argument -- this is a
+no-write exemption, not an escape hatch.
 
 CLAUDE HOME RESOLUTION -- never ``os.path.expanduser`` naively, which
 ignores a monkeypatched ``HOME`` in a way that has clobbered a real
@@ -129,6 +138,15 @@ _SCAFFOLD_MECHANISM_MARKERS = (
 #: single- or double-quoted value. Mirrors SKILL.md's own documented flag
 #: pair (``--root``, alias ``--target``).
 _ROOT_FLAG_RE = re.compile(r"--(?:root|target)(?:=|\s+)(\"[^\"]*\"|'[^']*'|\S+)")
+
+#: ``--dry-run`` is the scaffold CLI's own no-write mode: it prints the
+#: ``create``/``skip (exists)`` plan and touches nothing. This guard exists to
+#: keep a WRITE off Claude Home, so a dry run has nothing to refuse -- and the
+#: `coordinator-doctor` P-12 probe reads Claude Home's structure through exactly
+#: that flag. Denying it turned a read-only health probe into a refusal.
+#: NEGATIVE-SPEC: this is a no-write exemption, never a bypass -- drop the flag
+#: and the write is denied again, which is the whole of its safety argument.
+_DRY_RUN_RE = re.compile(r"(?:^|\s)--dry-run(?:[=\s]|$)")
 
 #: A leading ``cd <path> &&``/``cd <path> ;`` or PowerShell
 #: ``Set-Location``/``sl`` (optionally ``-Path``) prefix -- see module
@@ -253,6 +271,9 @@ def is_denied_repo_setup_claude_home(
     Home."""
     if not _names_scaffold_mechanism(cmd):
         return False
+
+    if _DRY_RUN_RE.search(cmd):
+        return False  # no-write mode -- nothing to refuse; see _DRY_RUN_RE
 
     claude_home = _resolve_claude_home(env)
     if not claude_home:

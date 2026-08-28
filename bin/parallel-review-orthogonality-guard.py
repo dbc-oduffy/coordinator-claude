@@ -75,22 +75,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from cc_invoke import require_engine_on_path  # noqa: E402
-
-# The engine root must be on sys.path before the coordinator_core import
-# below: this file is also published into the claude-klabauter mirror, where
-# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
-# this bin/ directory, not the checkout root. Same bootstrap as
-# coordinator/bin/coordinator-lesson-add (9b979ee5f).
-require_engine_on_path(__file__)
-
-from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
-from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv  # noqa: E402
 
 _PROG = "parallel-review-orthogonality-guard.py"
 _BIN_DIR = Path(__file__).resolve().parent
@@ -111,6 +95,13 @@ _FREEZE_CLI = _BIN_DIR / "freeze-review-diff.py"
 _STATIC_REFUSAL = "Lens-orthogonality assertion failed; refusing to dispatch."
 _CHUNK_REFUSAL = "Chunk partitions are not disjoint by file-scope; refusing to dispatch."
 
+#: The verify CLI's own terminal line for a failing STATIC check. `--chunk-manifest`
+#: runs the static check FIRST and short-circuits on it (that CLI's § RUNTIME), so
+#: mode alone does not identify which check refused — keying the refusal on the mode
+#: told an operator their partitions overlapped when the manifest table was simply
+#: missing, and the manifest was never opened.
+_STATIC_FAILURE_MARKER = "Lens-orthogonality (static) check failed."
+
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess:
     """
@@ -120,6 +111,12 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess:
     down with it. Reason recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_engine_on_path
+
+    require_engine_on_path(__file__)
+    from coordinator_core.win_portability import no_console_creationflags
+
     return subprocess.run(
         [sys.executable, *argv],
         capture_output=True,
@@ -142,12 +139,19 @@ def _cmd_guard(args: argparse.Namespace) -> int:
     if proc.returncode == 0:
         return 0
 
-    refusal = _CHUNK_REFUSAL if args.chunk_manifest else _STATIC_REFUSAL
+    static_failed = _STATIC_FAILURE_MARKER in (proc.stdout or "") + (proc.stderr or "")
+    refusal = _STATIC_REFUSAL if static_failed or not args.chunk_manifest else _CHUNK_REFUSAL
     print(refusal, file=sys.stderr)
     return 1
 
 
 def _cmd_snapshot(args: argparse.Namespace) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_engine_on_path
+
+    require_engine_on_path(__file__)
+    from coordinator_core.git.repo_root import show_toplevel
+
     ts = args.ts or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     weekly_slice_id = f"{args.slice_prefix}-{ts}"
 
@@ -231,6 +235,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv
+
     try:
         _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
     except UnsoundRawCmdlineTransport:

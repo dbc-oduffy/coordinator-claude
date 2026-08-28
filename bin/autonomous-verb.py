@@ -26,18 +26,21 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
-try:
-    require_colocated_engine_on_path(__file__)
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
+def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
-from coordinator_core.workday_complete.autonomous_verb import main  # noqa: E402
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as _exc:
+        print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
+        return 1
+
+    from coordinator_core.workday_complete.autonomous_verb import main as _sub_main
+
+    return _sub_main(argv[1:])
+
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(sys.argv))

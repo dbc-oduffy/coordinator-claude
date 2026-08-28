@@ -54,12 +54,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
-
 
 def _no_console_creationflags() -> dict:
     """Resolve the engine root onto `sys.path` before importing `coordinator_core`
@@ -82,6 +76,7 @@ def _no_console_creationflags() -> dict:
     cosmetic, and this reaper must not fail on any path.
     """
     try:
+        _bootstrap_imports()
         claude_klabauter_root = _resolve_claude_klabauter_root()
         if claude_klabauter_root and claude_klabauter_root not in sys.path:
             sys.path.insert(0, claude_klabauter_root)
@@ -102,6 +97,7 @@ def _resolve_repo_root(argv: list[str]) -> str | None:
     if argv:
         return argv[0]
     try:
+        _bootstrap_imports()
         claude_klabauter_root = _resolve_claude_klabauter_root()
         if claude_klabauter_root and claude_klabauter_root not in sys.path:
             sys.path.insert(0, claude_klabauter_root)
@@ -112,7 +108,46 @@ def _resolve_repo_root(argv: list[str]) -> str | None:
         return None
 
 
+_BOOTSTRAP_NAMES = ("cc_invoke", "_resolve_claude_klabauter_root")
+
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` -- lets a caller that reaches for
+    `cc_invoke` / `_resolve_claude_klabauter_root` before `main()` has run (e.g. this
+    file's own test suite, which reads `mod.cc_invoke.route` ahead of calling
+    `mod.main()`) trigger `_bootstrap_imports()` lazily on first access,
+    instead of requiring the name to already be a module global at import
+    time. Only fires when the name is NOT already present in this module's
+    `__dict__` -- once `_bootstrap_imports()` has run once (via this hook or
+    via `main()`), the plain global wins on every later lookup and this
+    function is not called again for that name."""
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_imports()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def _bootstrap_imports() -> None:
+    """Import every non-stdlib dependency this module needs and bind it at
+    module scope, called from main() (C6k import-motion: module bodies stay
+    inert on both the warm door and the un-bootstrapped settings-home
+    forwarder load routes). Idempotent by construction: a name already bound
+    at module scope (via a prior call, or a test that reaches for
+    `mod.cc_invoke` ahead of calling `main()`) is left alone rather than
+    clobbered by a real import.
+    """
+    if "cc_invoke" in globals():
+        return
+
+    global cc_invoke, _resolve_claude_klabauter_root
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+    from cc_invoke import _resolve_claude_klabauter_root
+
+
 def main(argv: list[str] | None = None) -> int:
+    _bootstrap_imports()
     argv = sys.argv[1:] if argv is None else argv
     repo_root = _resolve_repo_root(argv)
     if repo_root is None:

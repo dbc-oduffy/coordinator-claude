@@ -53,17 +53,20 @@ _COORDINATOR_STATE_ROOT_PY = os.path.join(LIB_DIR, "coordinator-state-root.py")
 # _COORDINATOR_STATE_ROOT_PY above, which resolve a different lib/ tree.
 _BIN_LIB_DIR = os.path.join(SCRIPT_DIR, "lib")
 
-# Engine-root bootstrap: `_resolve_initiatives_dir` below (reached from
-# `create`/`attach`, function-scoped, not module scope) imports
-# `coordinator_core.win_portability`. Without this, the import dies with
-# ModuleNotFoundError on the mirror (coordinator_core not pip-installed).
-if _BIN_LIB_DIR not in sys.path:
-    sys.path.insert(0, _BIN_LIB_DIR)
-import cc_invoke  # noqa: E402
-
-cc_invoke.ensure_engine_on_path(__file__)
-
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _bootstrap_imports() -> None:
+    """Engine-root bootstrap: `_resolve_initiatives_dir` below (reached from
+    `create`/`attach`) imports `coordinator_core.win_portability`. Without
+    this, the import dies with ModuleNotFoundError on the mirror
+    (coordinator_core not pip-installed). Called from main() so module import
+    never touches sys.path (C6d import-motion).
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
 
 
 # ── Central-seam resolution ────────────────────────────────────────────────────
@@ -610,8 +613,6 @@ def _cmd_list_unattached(args: list[str]) -> int:
         print(f"  Supported: {', '.join(_LIST_UNATTACHED_FORMATS)}", file=sys.stderr)
         return 1
 
-    if _BIN_LIB_DIR not in sys.path:
-        sys.path.insert(0, _BIN_LIB_DIR)
     try:
         from records_query import query_records
     except ImportError as exc:
@@ -644,6 +645,7 @@ def _cmd_list_unattached(args: list[str]) -> int:
 
 # ── Main dispatch ──────────────────────────────────────────────────────────────
 def main(argv: list[str]) -> int:
+    _bootstrap_imports()
     if not argv:
         _usage()
         return 1

@@ -71,11 +71,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import StructuralPinError, cc_invoke_bare  # noqa: E402
-
 GENERATES = []  # writes only to the caller-supplied --out path (or stdout when omitted) — no fixed tracked artifact
 
 _PROG = "coordinator-compute-layer-scaffold.py"
@@ -101,6 +96,9 @@ def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
     its single RuntimeError-shaped failure surface into this script's own
     _TransportError (exit 3) vs _OpError (exit 2) exit-code contract.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import StructuralPinError, cc_invoke_bare
+
     try:
         return cc_invoke_bare(op, params, repo_root)
     except StructuralPinError as exc:

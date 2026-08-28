@@ -67,11 +67,6 @@ import json
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-
 
 def _no_legacy() -> None:
     """State-1 fallback — the engine-repo control-plane seam is absent on disk.
@@ -121,6 +116,9 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     argv = sys.argv[1:] if argv is None else argv
     parsed = _parse_args(argv)
     repo_root = parsed["repo_root"]

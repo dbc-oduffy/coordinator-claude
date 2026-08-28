@@ -316,7 +316,7 @@ at completion (best-effort).
 is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
 it (~150ms, synchronous — no detach or background wrapper):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.cmd" push.outstanding '{}' --repo "<repo-root>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
 
 Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
 `skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the

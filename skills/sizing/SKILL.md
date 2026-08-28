@@ -63,11 +63,12 @@ whiteboard length; never a slice of `intent`.
 **`status`.** An XS routes to dispatch and has no plan: stamp it `shipped` yourself the moment the
 work lands, citing the commit. S and above route into a plan, where `deliverable.cascade_terminal`
 owns the terminal stamp: never pre-empt it, and never hand-stamp instead of triggering it. **Then
-read the field back.** The cascade has never acted — `acted` is empty in every ceremony record in
-both repos — so a sizing left at `routed` under a landed plan is the expected outcome, not a sign
-the work is unfinished. Still non-terminal after the trigger: hand-write it, citing the landing
-commits and this rule inline. Trigger, read back, hand-write — all three, every time, until the
-cascade writes. Tripwire: `THE-DELIVERABLE-CASCADE-HAS-NEVER-WRITTEN-A-TERMINAL-STATUS`.
+read `status` back** — that is the field the cascade writes, and the only one that answers whether
+it fired. It usually has: a sizing still `routed` under a landed plan is a finding, not the
+expected outcome. Hand-write ONLY on a status that did not advance, citing the landing commits and
+this rule inline. Never hand-write on one that did — that races a live writer and loses unsafely.
+Do not read `acted`: it belongs to a different op and is empty either way. Tripwire:
+`ACTED-IS-BLIND-TO-THE-DELIVERABLE-CASCADE`.
 
 **5. `post_size_prompt_pending` (M+) — ask once, in the PM's register, and stop:** *"Looks like an
 X — go with that, split it, cut it, what's up?"* Never a closed fork. Record the answer in

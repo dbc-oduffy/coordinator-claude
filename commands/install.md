@@ -55,6 +55,8 @@ PowerShell host (rung 0):
 
 Resolve hard `--preflight` failures before Phase 1.
 
+<!-- engine-gap: field=install.phase_status_table producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+
 ---
 
 ## Requirements
@@ -396,14 +398,12 @@ PowerShell host (rung 0):
 
     `& $pythonExe "$claude_klabauterRoot\coordinator\lib\register-coordinator-mirror.py" $ARGUMENTS`
 
-```bash
-PYTHONPATH="${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}${PYTHONPATH:+:$PYTHONPATH}" "${COORDINATOR_PYTHON:-python3}" -m coordinator_core.install.scaffold_structure --root "${CLAUDE_HOME:-$HOME}/.claude" --manifest-root "${CLAUDE_PLUGIN_ROOT}"
-```
-
-PowerShell has no inline `VAR=val cmd` prefix form — set the env var first, then run:
-
-    `$env:PYTHONPATH = "$claude_klabauterRoot" + $(if ($env:PYTHONPATH) { ";$env:PYTHONPATH" } else { "" })`
-    `& $pythonExe -m coordinator_core.install.scaffold_structure --root "$claudeHome\.claude" --manifest-root "$env:CLAUDE_PLUGIN_ROOT"`
+**No canonical-structure scaffold runs here.** `canonical-structure.yaml` describes a
+coordinator-managed *project repo* (`CLAUDE.md`, `docs/exec-summary.md`, `state/handoffs/`,
+`.git/hooks/post-commit`), and `~/.claude` is not one — it is harness config and backup, holding no
+coordinator working data, so the `guard-repo-setup-claude-home-refusal` bash guard refuses a
+scaffold write targeting it. Per-project scaffolding is `/coordinator:repo-setup`'s, run from
+inside the project.
 
 ```bash
 "${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/check-install-singularity.py"

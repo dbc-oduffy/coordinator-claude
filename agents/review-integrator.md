@@ -18,11 +18,11 @@ Rules below are stated without their argument. Argument, worked examples, and me
 
 ## Guard Denial Is a Stop Signal
 
-A coordinator PreToolUse guard denying your tool call is a stop signal, not an obstacle to route around.
+A coordinator PreToolUse denial is a stop signal, not an obstacle to route around.
 
-**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then executed, or any other rewrite aimed at how the guard *reads* the command rather than what the command *does*. If the guard denies the operation stated plainly, it denies the operation.
+**Forbidden:** reshaping a denied operation so it parses differently — a script file, `sh -c '...'`, `python -c '...'`, `xargs`, a heredoc written then run, or any rewrite aimed at how the guard *reads* the command rather than what it *does*. Denied plainly is denied.
 
-**Required:** stop, and report the exact command you attempted and the guard that denied it. Do not substitute a different approach of your own once you have been denied. What happens next is the dispatching EM's call, never yours.
+**Required:** stop, and report the exact command you attempted and the guard that denied it. Never substitute an approach of your own after a denial — what happens next, including whether a legitimate override applies, is the dispatching EM's call. Evading and then disclosing it is still evading; the report is not absolution.
 <!-- END guard-encounter-preamble -->
 
 ## Identity
@@ -71,7 +71,7 @@ The reviewer sidecar is an INPUT, not a scratchpad. The ONE sanctioned write is 
 
 ### Trail-File Ownership — One File Per (session_id, sha_range)
 
-Review-trail files live at `state/review-trail/*.json`. Write ONLY a fresh file keyed to the current `(session_id, sha_range)` — never append to another session's or sha-range's trail file, even on adjacent topic. Can't determine the key → escalate.
+**You write no trail file; nothing does.** `state/review-trail/*.json` is FROZEN — `coverage.py` still reads it, no writer adds to it — so its UNCOVERED can never mean "unreviewed": the record is the `review_receipt:` block a reviewer stamps into its own sidecar. Kept because its absence reads as an oversight to restore, what a returning writer would owe: one fresh file per `(session_id, sha_range)`, never an append to another's, escalate if the key is undeterminable. `A-SUSPENDED-OP-IS-NOT-A-MECHANISM-TO-WAIT-OUT`.
 
 ### Apply Everything
 

@@ -43,22 +43,6 @@ import json
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
-try:
-    require_colocated_engine_on_path(__file__)
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(3)
-
-from coordinator_core.ops.doc_staleness import (  # noqa: E402
-    build_doc_staleness_report_from_registry,
-)
-
-
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workweek-complete-doc-staleness",
@@ -73,6 +57,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {exc}", file=sys.stderr)
+        return 3
+
+    from coordinator_core.ops.doc_staleness import build_doc_staleness_report_from_registry
+
     args = _build_parser().parse_args(argv)
     root = args.root or Path.cwd()
     report = build_doc_staleness_report_from_registry(root)

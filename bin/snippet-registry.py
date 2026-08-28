@@ -37,34 +37,33 @@ from pathlib import Path
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 # machine_local_resolve.py imports from the coordinator_core package
 # (win_portability) at module level -- that package is resolvable only from
 # the repo root, not from _LIB_DIR, so it must be on sys.path too or the
 # import below raises ModuleNotFoundError every time this CLI runs as a
 # subprocess (which is how every real caller invokes it).
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
 
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
+_BOOTSTRAP_DONE = False
 
-require_dispatch_engine_on_path()
-# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-# what BINDS coordinator_core, and binding it HERE is the whole fix.
-# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-# nothing. Without this line the next module-level import below (a binder module
-# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-# the working tree instead of the dispatch root, and no later sys.path insert can
-# rebind an already-imported package. Removing it restores a silent wrong-tree
-# divergence that require_dispatch_engine_on_path now raises on.
-# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-# docs/research/engine-provenance-carrier-dependence.md
-import coordinator_core  # noqa: E402,F401
 
-from coordinator_data_root import data_root  # noqa: E402
-from machine_local_resolve import resolve_machine_local_bin  # noqa: E402
+def _bootstrap_engine() -> None:
+    """Put `_REPO_ROOT` on `sys.path` so `machine_local_resolve.py`'s own
+    module-level `coordinator_core.win_portability` import resolves.
+    Idempotent.
+
+    What moved, and what did NOT: this single-line mutation used to run at
+    MODULE scope, which made every import of this file mutate the `sys.path`
+    of a warm server ~50 sessions share. The line is preserved exactly; only
+    the trigger moved. No name is bound as a global here, so there is
+    nothing to publish and no `__getattr__` hook is needed.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    _BOOTSTRAP_DONE = True
 
 
 def _resolve_plugin_root() -> Path:
@@ -74,14 +73,36 @@ def _resolve_plugin_root() -> Path:
     `coordinator_data_root.data_root()`), since that parent IS the coordinator
     root under either layout.
     """
+    _bootstrap_engine()
+    from coordinator_data_root import data_root
+
     env = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if env:
         return Path(env)
     return data_root("snippets").parent
 
 
-def main() -> None:
-    args = sys.argv[1:]
+def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap_engine()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+    # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
+    # what BINDS coordinator_core, and binding it HERE is the whole fix.
+    # require_dispatch_engine_on_path() above only mutates sys.path -- it imports
+    # nothing. Without this line the next import below (a binder module
+    # that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
+    # the working tree instead of the dispatch root, and no later sys.path insert can
+    # rebind an already-imported package. Removing it restores a silent wrong-tree
+    # divergence that require_dispatch_engine_on_path now raises on.
+    # Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    # docs/research/engine-provenance-carrier-dependence.md
+    import coordinator_core  # noqa: F401
+
+    from machine_local_resolve import resolve_machine_local_bin
+
+    args = (sys.argv[1:] if argv is None else argv)
     subcommand = args[0] if args else ""
 
     if subcommand in ("--help", "-h"):
@@ -89,7 +110,7 @@ def main() -> None:
         print("  list-snippets")
         print("  list-consumers <snippet-name>")
         print("  list-for <consumer-path>")
-        sys.exit(0)
+        return 0
 
     claude_klabauter_root = require_dispatch_engine_on_path()
     try:
@@ -99,7 +120,7 @@ def main() -> None:
             f"snippet-registry: coordinator_core.snippet_sync.registry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
     plugin_root = _resolve_plugin_root()
@@ -110,24 +131,24 @@ def main() -> None:
         data = reg.load_registry(registry_toml)
     except reg.RegistryError as exc:
         print(str(exc), file=sys.stderr)
-        sys.exit(exc.exit_code)
+        return exc.exit_code
 
     if subcommand == "list-snippets":
         for name in reg.list_snippets(data):
             print(name)
-        sys.exit(0)
+        return 0
 
     if subcommand == "list-consumers":
         if len(args) < 2:
             print("Usage: snippet-registry list-consumers <snippet-name>", file=sys.stderr)
-            sys.exit(1)
+            return 1
         try:
             consumers = reg.resolve_consumers(
                 data, args[1], plugin_root, machine_local_bin=machine_local_bin
             )
         except reg.RegistryError as exc:
             print(str(exc), file=sys.stderr)
-            sys.exit(exc.exit_code)
+            return exc.exit_code
         # `resolve_consumers()` intentionally returns native-separator paths
         # (internal Path/os.path reopen-and-compare surface, confirmed by the
         # 2026-08-07 separator-cluster pass which reverted a same-shape fix
@@ -136,27 +157,27 @@ def main() -> None:
         # verify-snippet-sync's `--list` fix.
         for path in consumers:
             print(str(path).replace(os.sep, "/"))
-        sys.exit(0)
+        return 0
 
     if subcommand == "list-for":
         if len(args) < 2:
             print("Usage: snippet-registry list-for <consumer-path>", file=sys.stderr)
-            sys.exit(1)
+            return 1
         for name in reg.list_for(data, args[1], plugin_root, machine_local_bin=machine_local_bin):
             print(name)
-        sys.exit(0)
+        return 0
 
     if subcommand == "":
         print("Usage: snippet-registry <subcommand> [args]", file=sys.stderr)
         print("  list-snippets", file=sys.stderr)
         print("  list-consumers <snippet-name>", file=sys.stderr)
         print("  list-for <consumer-path>", file=sys.stderr)
-        sys.exit(1)
+        return 1
 
     print(f"ERROR: snippet-registry: unknown subcommand '{subcommand}'", file=sys.stderr)
     print("  Known subcommands: list-snippets, list-consumers, list-for", file=sys.stderr)
-    sys.exit(1)
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

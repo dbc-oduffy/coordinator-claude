@@ -62,11 +62,6 @@ import os
 import sys
 from pathlib import Path
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 
 def _import_module():
     """Resolve the engine root, put it on sys.path, and import the ported op
@@ -83,6 +78,9 @@ def _import_module():
     resolution of the source-of-truth checkout, so it is returned rather than
     re-resolved a second time via a separate ladder call.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.plugin_health import forwarder_drift as _op_module
 
@@ -260,7 +258,7 @@ def _check_content_axis(fd_module, claude_klabauter_root: str) -> "tuple[list, b
     return lines, bool(drifted)
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         claude_klabauter_root, op_module = _import_module()
     except RuntimeError as exc:
@@ -268,16 +266,16 @@ def main() -> None:
         # Unresolvable engine root is a clean skip for this probe, not a
         # failure (see forwarder_drift.py's own resolution-ladder contract) —
         # never fail the calling ceremony.
-        sys.exit(0)
+        return 0
     except ImportError as exc:
         print(
             f"check-forwarder-drift.py: coordinator_core.plugin_health.forwarder_drift "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(0)
+        return 0
 
-    rc = op_module.main(sys.argv[1:])
+    rc = op_module.main((sys.argv[1:] if argv is None else argv))
 
     for line in _check_content_axis(op_module, claude_klabauter_root)[0]:
         print(line)
@@ -285,8 +283,8 @@ def main() -> None:
     # AC7: the CONTENT axis never changes the CLI's exit code — see
     # _check_content_axis's docstring and this module's own docstring
     # ("Exit codes:" block).
-    sys.exit(rc)
+    return rc
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

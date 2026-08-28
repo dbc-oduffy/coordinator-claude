@@ -105,10 +105,9 @@ LANGUAGE_LABELS = {
     "java": "Java",
 }
 
-_EXT_TO_LANGUAGE = {}
-for _lang, _exts in LANGUAGES.items():
-    for _ext in _exts:
-        _EXT_TO_LANGUAGE[_ext] = _lang
+_EXT_TO_LANGUAGE = {
+    _ext: _lang for _lang in LANGUAGES for _ext in LANGUAGES[_lang]
+}
 
 # Skipped regardless of .gitignore — vendored/generated content that would
 # otherwise dominate the census and edge-extraction on a huge repo.

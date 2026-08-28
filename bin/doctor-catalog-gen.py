@@ -44,10 +44,6 @@ from pathlib import Path
 # insertion) so this module resolves its `coordinator_data_root` sibling
 # import regardless of caller cwd.
 _LIB_DIR = Path(__file__).resolve().parent / "lib"
-if str(_LIB_DIR) not in sys.path:
-    sys.path.insert(0, str(_LIB_DIR))
-
-from coordinator_data_root import data_root  # noqa: E402
 
 GENERATES = []  # --write targets coordinator-doctor.md at the resolved wiki path, which resolves to DoE-claude's coordinator/docs/wiki/ tree (this repo has no coordinator/docs/) — a cross-repo write, never into claude-klabauter's own tree (see module docstring "Cross-repo write note")
 
@@ -74,6 +70,9 @@ def _wiki_path() -> Path:
     override = os.environ.get("DOCTOR_WIKI_PATH")
     if override:
         return Path(override)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_data_root import data_root
+
     return data_root("docs") / "wiki" / "coordinator-doctor.md"
 
 

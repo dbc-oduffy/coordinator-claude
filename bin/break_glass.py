@@ -49,16 +49,33 @@ GENERATES = []  # writes only ~/.claude/settings.json, its .settings-last-good.*
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BIN_DIR.parent.parent  # coordinator/bin -> coordinator -> repo root
-if str(_REPO_ROOT) not in sys.path:
-    # Self-resolve the repo root so `coordinator_core` imports work when this
-    # file is invoked as a bare script (`python3 break_glass.py`, exactly how
-    # break-glass.cmd's Tier 0 wrapper execs it) rather than via `python3 -m`
-    # or from a cwd already at the repo root. Without this, every reused
-    # coordinator_core import below silently degrades to its UNKNOWN
-    # fallback for the WRONG reason (module not on sys.path, not a real
-    # engine failure) on the exact invocation path an operator double-
-    # clicking break-glass.cmd actually takes.
-    sys.path.insert(0, str(_REPO_ROOT))
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Self-resolve the repo root onto `sys.path` so `coordinator_core`
+    imports work when this file is invoked as a bare script
+    (`python3 break_glass.py`, exactly how break-glass.cmd's Tier 0 wrapper
+    execs it) rather than via `python3 -m` or from a cwd already at the
+    repo root. Without this, every reused coordinator_core import below
+    silently degrades to its UNKNOWN fallback for the WRONG reason (module
+    not on sys.path, not a real engine failure) on the exact invocation path
+    an operator double-clicking break-glass.cmd actually takes.
+
+    Idempotent; safe to call more than once. Moved out of module scope
+    (2026-08-28) -- unconditionally mutating `sys.path` at import time made
+    every import of this file (its own test suite, in-process dispatch)
+    mutate the `sys.path` of a warm server ~50 sessions share. Called at the
+    top of every sibling function that performs a `coordinator_core`-rooted
+    deferred import, and of `main()`, rather than left to run once at import.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT))
+    _BOOTSTRAP_DONE = True
 
 STATUS_OK = "OK"
 STATUS_WARN = "WARN"
@@ -82,6 +99,7 @@ def _declare_write_best_effort(path: "Path | str") -> None:
     own scope-touch claim, never corrupt the repair result already returned
     to the caller.
     """
+    _bootstrap_engine()
     try:
         from coordinator_core.session.declared_writes import declare_write
     except Exception:  # noqa: BLE001 — defensive, see module docstring
@@ -173,6 +191,7 @@ def check_settings_json(
     so a live run always classifies against the machine it is actually
     running on; only tests pin a platform explicitly.
     """
+    _bootstrap_engine()
     path = settings_path or (config_dir / "settings.json")
     if not path.is_file():
         return Finding(
@@ -228,6 +247,7 @@ def repair_settings_json(
     Idempotent (AC-5): re-checks `check_settings_json` itself first and
     no-ops if already OK.
     """
+    _bootstrap_engine()
     finding = diagnose or check_settings_json(config_dir, settings_path)
     if finding.status == STATUS_OK:
         return RepairOutcome("settings.json", applied=False, detail="already OK, no repair needed")
@@ -448,6 +468,7 @@ def check_defender_exclusions(is_windows: Optional[bool] = None, timeout: float 
     skipped). On Windows, shells to `powershell.exe -Command "Get-MpPreference
     | Select ExclusionProcess"`; timeout so a hung PowerShell cannot hang
     break-glass itself (AC-7/"Critical details")."""
+    _bootstrap_engine()
     windows = os.name == "nt" if is_windows is None else is_windows
     if not windows:
         return Finding("defender-exclusions", STATUS_UNKNOWN, "not Windows — Defender check does not apply", None)
@@ -529,6 +550,7 @@ def check_registry_pollution() -> Finding:
     (`registry.local.toml`, the untracked/local file — `registry.toml` is
     checked too but reported separately, never auto-repaired, since it may
     be the tracked file) for values shaped like a tmp-path leak."""
+    _bootstrap_engine()
     try:
         from coordinator_core.machine_resolver import registry_dir, load_flat_registry_file
     except Exception as exc:  # noqa: BLE001
@@ -560,6 +582,7 @@ def repair_registry_pollution(diagnose: Optional[Finding] = None) -> RepairOutco
     """Peer-safe repair (AC-4): strips offending keys from the LOCAL
     `registry.local.toml` only — `registry.toml` (potentially tracked/
     shared) is never touched by this repair, listed in the report instead."""
+    _bootstrap_engine()
     finding = diagnose or check_registry_pollution()
     if finding.status == STATUS_OK:
         return RepairOutcome("registry-pollution", applied=False, detail="no pollution found, no repair needed")
@@ -732,6 +755,7 @@ def _exit_code(findings: List[Finding], repairs: List[RepairOutcome]) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(prog="break_glass.py", description=__doc__.splitlines()[0])
     parser.add_argument("--config-dir", default=None, help="Override the ~/.claude-analog config dir (tests).")
     parser.add_argument("--settings", default=None, help="Override the settings.json path directly (tests).")

@@ -210,28 +210,42 @@ from pathlib import Path
 from typing import Optional
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
-# `_registry_machine_local_get` is the only reader this lib exposes for an
-# arbitrary registry key, and the allowlist-rot check needs exactly one class
-# of them (`plugin.mirrors.<key>.source_path`) to resolve a `plugin-source:`
-# source root. Imported rather than reimplemented: it already carries the
-# sys.executable-not-PATH resolution and the Windows CREATE_NO_WINDOW guard
-# that a local re-roll of `machine-local get` would drop.
-from coordinator_registry import (  # noqa: E402
-    _DoeUnresolvable,
-    _registry_machine_local_get,
-    doe_root,
-)
 
 _TARGETS_RELATIVE = Path("setup") / "publish-targets.portable"
 
 _SOURCE_SUBDIR_FIELD = 3
 _ALLOWLIST_FIELD = 6
 _SOURCE_MAP_FIELD = 7
+
+
+def require_colocated_engine_on_path(script_file: str) -> str:
+    """Module-scope indirection over `cc_invoke.require_colocated_engine_on_path`.
+
+    A thin wrapper, not a re-export: keeping the real import out of module
+    scope (deferred inside this function body) is what keeps this file's
+    module body inert for warm-serve purposes, while still giving the test
+    suite a `vpts.require_colocated_engine_on_path` module attribute it can
+    `monkeypatch.setattr` — `_resolve_live_targets_path` below calls this
+    module-level name (not a locally re-imported one), so a monkeypatched
+    override is honored.
+    """
+    from cc_invoke import require_colocated_engine_on_path as _impl
+
+    return _impl(script_file)
+
+
+def _registry_machine_local_get(key: str):
+    """Module-scope indirection over `coordinator_registry._registry_machine_local_get`.
+
+    Same rationale as `require_colocated_engine_on_path` above: the real
+    import is deferred inside this function body (module body stays inert),
+    while `_resolve_row_source_root` calls this module-level name so
+    `monkeypatch.setattr(vpts, "_registry_machine_local_get", ...)` still
+    takes effect.
+    """
+    from coordinator_registry import _registry_machine_local_get as _impl
+
+    return _impl(key)
 
 # Rows relocated into this repo from DoE-claude by
 # docs/plans/2026-08-03-klabauter-rows-relocate-into-claude-klabauter.md (chunks
@@ -277,6 +291,8 @@ def _doe_tracked_path() -> Path:
     with a diagnostic if doe_root() cannot resolve — a gate script must not
     silently degrade to comparing nothing.
     """
+    from coordinator_registry import _DoeUnresolvable, doe_root
+
     try:
         root = doe_root()
     except _DoeUnresolvable as exc:
@@ -626,6 +642,8 @@ def _report_rot_findings(rot_findings: list[str]) -> None:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv:
         print(

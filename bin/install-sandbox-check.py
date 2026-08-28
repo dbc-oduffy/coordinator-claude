@@ -64,12 +64,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_registry import _DoeUnresolvable, doe_root  # noqa: E402
-
 _TRANSPORT_FAILURE_RC = 3
 
 
@@ -92,6 +86,9 @@ def _resolve_coordinator_root() -> str:
     resolve — this is a gate script, not a never-block hook, so an
     unresolvable DoE root must not degrade to a silent no-op default.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_registry import _DoeUnresolvable, doe_root
+
     try:
         root = doe_root()
     except _DoeUnresolvable as exc:
@@ -107,12 +104,15 @@ def _resolve_coordinator_root() -> str:
 
 
 def _import_main():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.install.sandbox_check import main as _op_main
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
@@ -123,10 +123,10 @@ def main() -> None:
             "repos.claude_klabauter machine-local registry key, then re-run.",
             file=sys.stderr,
         )
-        sys.exit(_TRANSPORT_FAILURE_RC)
+        return _TRANSPORT_FAILURE_RC
     except ImportError as exc:
         print(f"install-sandbox-check: coordinator_core.install.sandbox_check not importable: {exc}", file=sys.stderr)
-        sys.exit(_TRANSPORT_FAILURE_RC)
+        return _TRANSPORT_FAILURE_RC
 
     # Resolve the default COORDINATOR_ROOT via doe_root() (see
     # _resolve_coordinator_root() docstring) — the claude-klabauter module cannot do
@@ -135,7 +135,7 @@ def main() -> None:
     # not inside the DoE clone, so dirname(script_dir) no longer points at
     # the tree that owns templates/. An explicit --coordinator-root on argv
     # still wins verbatim and skips this resolution entirely.
-    argv = list(sys.argv[1:])
+    argv = list((sys.argv[1:] if argv is None else argv))
     # Review: code-reviewer (nit, Finding 8) — startswith("--coordinator-root")
     # also matched an unrelated future flag such as --coordinator-root-verbose
     # or --coordinator-rootfoo, wrongly treating it as an already-supplied
@@ -145,8 +145,8 @@ def main() -> None:
         coordinator_root = _resolve_coordinator_root()
         argv = ["--coordinator-root", coordinator_root] + argv
 
-    sys.exit(op_main(argv))
+    return op_main(argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

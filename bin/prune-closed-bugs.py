@@ -51,13 +51,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-from cc_invoke import RouteMutationError, is_timeout_error, route_mutation  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
 
 def _no_fallback() -> None:
     raise RuntimeError(
@@ -73,6 +66,9 @@ def _resolve_repo_root() -> str:
     refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
     preserving this script's pre-existing best-effort behavior.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         print(verdict["message"], file=sys.stderr)
@@ -80,6 +76,10 @@ def _resolve_repo_root() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+    from cc_invoke import RouteMutationError, is_timeout_error, route_mutation
+
     argv = sys.argv[1:] if argv is None else argv
     dry_run_only = False
     explicit_repo_root: str | None = None

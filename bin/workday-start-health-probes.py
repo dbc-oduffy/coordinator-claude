@@ -199,24 +199,21 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # resolvable only from the repo root, which is not on sys.path when this
 # file is run directly (only its own dir is).
 _REPO_ROOT = os.path.dirname(os.path.dirname(_SCRIPT_DIR))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
-
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from coordinator_core.machine_resolver import registry_get  # noqa: E402
-from coordinator_core.win_portability import is_executable, no_console_creationflags  # noqa: E402
-from cli_shared import machine_local_impl, resolve_python  # noqa: E402
-
 _RESOLVE_CLAUDE_KLABAUTER_DIR = os.path.join(_REPO_ROOT, "coordinator", "lib", "resolve-claude-klabauter")
-if _RESOLVE_CLAUDE_KLABAUTER_DIR not in sys.path:
-    sys.path.insert(0, _RESOLVE_CLAUDE_KLABAUTER_DIR)
-
-import _resolve_claude_klabauter  # noqa: E402
 
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _ensure_repo_root_on_path() -> None:
+    """Per-call sys.path setup for this file's own coordinator_core /
+    _resolve_claude_klabauter / cli_shared imports -- called from each function that
+    needs one of them, never at module scope (a per-call insert still
+    mutates the sys.path ~50 concurrent sessions share, only later than a
+    module-scope insert would)."""
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    if _RESOLVE_CLAUDE_KLABAUTER_DIR not in sys.path:
+        sys.path.insert(0, _RESOLVE_CLAUDE_KLABAUTER_DIR)
 
 _WORKING_REPO_REGISTRY_KEY = "engine.working_repos.claude_klabauter"
 _SETUP_PY_PATH = os.path.join(_REPO_ROOT, "scripts", "setup.py")
@@ -280,6 +277,9 @@ def _paths_match(registered: str, expected: str) -> bool:
 
 
 def cmd_observer_sidecar_scan(argv: list[str]) -> int:
+    _ensure_repo_root_on_path()
+    from coordinator_core.win_portability import no_console_creationflags
+
     scan_dir = "archive/daily-summaries"
     i = 0
     while i < len(argv):
@@ -322,6 +322,9 @@ def cmd_observer_sidecar_scan(argv: list[str]) -> int:
 
 
 def cmd_claude_klabauter_bin_sentinel(argv: list[str]) -> int:
+    _ensure_repo_root_on_path()
+    from coordinator_core.win_portability import is_executable
+
     del argv  # no flags accepted
     mkb_bin = _SCRIPT_DIR
     sentinel = os.path.join(mkb_bin, "archive-stamp-cli.py")
@@ -344,6 +347,9 @@ def cmd_claude_klabauter_bin_sentinel(argv: list[str]) -> int:
 
 
 def cmd_ceremony_hook(argv: list[str]) -> int:
+    _ensure_repo_root_on_path()
+    from coordinator_core.win_portability import no_console_creationflags
+
     if not argv:
         print("usage: workday-start-health-probes.py ceremony-hook <ceremony-name>", file=sys.stderr)
         return 2
@@ -398,6 +404,11 @@ def cmd_mis_channelled_box(argv: list[str]) -> int:
     channel. See module docstring's "mis-channelled-box" entry for the full
     contract (never raises, zero-spawn, non-blocking WARN on mismatch)."""
     del argv  # no flags accepted
+    _ensure_repo_root_on_path()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import _resolve_claude_klabauter
+    from cli_shared import resolve_python
+
     try:
         root, resolution_class = _resolve_claude_klabauter.resolve_claude_klabauter_root_with_class()
     except Exception:  # noqa: BLE001 — a health probe must never itself raise/block the boot path
@@ -467,6 +478,12 @@ def cmd_working_repo_registration(argv: list[str]) -> int:
     assembler calls only the bare form — see
     `coordinator_core/orient_assemble/readers_health_reaper.py`).
     """
+    _ensure_repo_root_on_path()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from coordinator_core.machine_resolver import registry_get
+    from coordinator_core.win_portability import no_console_creationflags
+    from cli_shared import machine_local_impl, resolve_python
+
     fix = False
     for arg in argv:
         if arg == "--fix":

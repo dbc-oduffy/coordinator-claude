@@ -36,7 +36,7 @@ in path] into wiki documents."
 | Canonical plan/spec, **RIPE only** | Harvest → wiki/DR, log in `state/distillation-log.md` |
 | Enriched stubs, reviewer outputs, integrator triage, docs-checker reports | Delete — recoverable via git |
 | Wiki entries | Write/update, provenance frontmatter |
-| Archived handoffs | Extract → delete once eligibility guards pass |
+| Archived handoffs | **Not a cohort** — never harvested, never deleted here; bounded outlier scan only (pruning is `/update-docs` Phase 8b) |
 | Batons | Exhaust, never harvest — see § Baton fate below |
 
 ---
@@ -47,8 +47,9 @@ Batons are a plan's exhaust, never a harvest source — plans are what get wikif
 (unpromoted `.git/coordinator-sessions/<sid>/baton.json`) is deleted on a distillation run. A
 written baton (continuation, execution, spinoff) survives as cross-reference, keyed on
 `deliverable_id`, for an agent working its joined plan — read for how hard delivery actually was
-and which items resisted re-derivation — and is deleted with that plan's handoff archive once
-the plan is wiki-ified or pruned. No baton carries a fate field and no EM decides one. Deletion
+and which items resisted re-derivation — and is deleted with that plan once the plan is
+wiki-ified or pruned — keyed on the plan's own disposition, never on the handoff archive. No
+baton carries a fate field and no EM decides one. Deletion
 mechanism: engine-plane, requested at
 `state/memo-outbox/2026-08-21-baton-fate-and-lineage-ruling.md` (C7); rationale and worked detail:
 `distill-residue` wiki page.
@@ -82,11 +83,16 @@ list — HARD guards only. A dispositioning agent (Phase 3d) MUST NOT invent add
 retain-reasons. Conservatism is opt-in via `--no-delete` (skips disposal entirely for the run),
 not the default posture. Rationale and worked evidence: `distill-residue` wiki page.
 
-**A handoff is eligible for delete in Phase 5 ONLY if all four guards pass:**
-1. **Extraction-artifact present.** A DR or wiki entry cites it via `archived_handoff:`
-   provenance, OR it is empirically content-free. A `~/.claude` memory pointer does NOT satisfy
-   this — durable capture is in-repo only (`docs/decisions/`, `docs/wiki/`,
-   `state/cross-repo-commitments/`, a canonical plan/spec).
+**Archived handoffs are never delete-eligible here.** Handoffs are not a distillation cohort —
+`/distill` neither harvests nor deletes any `archive/handoffs/**` path, and the former four-guard
+handoff eligibility list is retired with the cohort. Archived-handoff pruning is owned by
+`/update-docs` Phase 8b (`pipelines/update-docs/artifact-pruning.md`).
+
+The four guards below survive as the memo eligibility base:
+1. **Extraction-artifact present.** A DR or wiki entry cites it via provenance, OR it is
+   empirically content-free. A `~/.claude` memory pointer does NOT satisfy this — durable capture
+   is in-repo only (`docs/decisions/`, `docs/wiki/`, `state/cross-repo-commitments/`, a canonical
+   plan/spec).
 2. **`shipped_in:` present.** Missing → surface to PM, do not delete.
 3. **Active-reference check.** No live citation across `docs/`, `tasks/`, `archive/specs/`,
    plugin sources (provenance-marker tombstones excluded).
@@ -96,7 +102,7 @@ not the default posture. Rationale and worked evidence: `distill-residue` wiki p
 retargeted to `cross_repo_memo:` provenance and `status: actioned`, plus):
 5. **Commitment-closure gate.** Blocked while a linked `state/cross-repo-commitments` entry is
    `status: open` (our record only), OR the memo's disposition is `accepted`/`partial` with an
-   absent/unverifiable `realized_by`. Blocked ⇒ surface to PM, retain — never silently skip.
+   absent/unverifiable `realized_by`. Blocked ⇒ BLOCKED — never silently skip.
 
 These guards gate eligibility *judgment* (dispatch-eligible at Phase 3d) — the resulting deletion
 at Phase 5 is EM-only.

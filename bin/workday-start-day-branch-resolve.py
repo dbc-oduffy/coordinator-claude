@@ -120,17 +120,15 @@ from pathlib import Path
 # outside the tracked repo tree; span-assert is read-only.
 GENERATES = []
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path, child_env  # noqa: E402
-
 _GIT_TIMEOUT = 10
 
 
 def _ensure_claude_klabauter_on_path() -> str:
     """Resolve+push this checkout's own root onto sys.path (self-colocated —
     this file lives at coordinator/bin/ inside the claude-klabauter checkout itself)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
     return require_colocated_engine_on_path(__file__)
 
 
@@ -165,6 +163,9 @@ def _run_reap_sessions() -> str:
     """Invoke the co-located reap-sessions.py and return its stripped stdout
     ("" on any failure — best-effort, mirrors the bash fragment's `2>/dev/null`
     discard of stderr and its non-zero-exit-continues contract)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import child_env
+
     reap_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reap-sessions.py")
     try:
         result = subprocess.run(

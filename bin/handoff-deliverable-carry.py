@@ -97,11 +97,6 @@ import argparse
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path  # noqa: E402
-
 _TRANSPORT_FAIL = 3
 _DROPPED_JOIN_FAIL = 4
 _DIVERGENT_JOIN_FAIL = 5
@@ -112,20 +107,13 @@ _DIVERGENT_JOIN_FAIL = 5
 # are real, directly callable module attributes for in-process callers —
 # matching how the cascade's own home module exposes them. Any resolution
 # failure is stashed rather than raised here, so the CLI's tidy transport-
-# failure reporting in main() (exit 3, no traceback) is unchanged.
+# failure reporting in main() (exit 3, no traceback) is unchanged. The
+# actual import now runs lazily inside `_import_ops()` (called from `main()`)
+# — these module-level names are placeholders until that call fills them in.
 _IMPORT_ERROR: Exception | None = None
-try:
-    _claude_klabauter_root = require_dispatch_engine_on_path()
-    from coordinator_core.ops.deliverable_carry import (
-        DivergentDeliverableIdError,
-        DroppedDeliverableJoinError,
-        resolve_deliverable_and_initiative,
-    )
-except (RuntimeError, ImportError) as _exc:
-    _IMPORT_ERROR = _exc
-    DivergentDeliverableIdError = RuntimeError
-    DroppedDeliverableJoinError = RuntimeError
-    resolve_deliverable_and_initiative = None
+DivergentDeliverableIdError = RuntimeError
+DroppedDeliverableJoinError = RuntimeError
+resolve_deliverable_and_initiative = None
 
 
 def _import_ops():
@@ -138,6 +126,25 @@ def _import_ops():
     NOT used here (same convention as archive-stamp-cli, read-frontmatter-field.py,
     mint-deliverable-id.py).
     """
+    global _IMPORT_ERROR, DivergentDeliverableIdError, DroppedDeliverableJoinError
+    global resolve_deliverable_and_initiative
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    try:
+        _claude_klabauter_root = require_dispatch_engine_on_path()
+        from coordinator_core.ops.deliverable_carry import (
+            DivergentDeliverableIdError as _DivergentDeliverableIdError,
+            DroppedDeliverableJoinError as _DroppedDeliverableJoinError,
+            resolve_deliverable_and_initiative as _resolve_deliverable_and_initiative,
+        )
+        DivergentDeliverableIdError = _DivergentDeliverableIdError
+        DroppedDeliverableJoinError = _DroppedDeliverableJoinError
+        resolve_deliverable_and_initiative = _resolve_deliverable_and_initiative
+    except (RuntimeError, ImportError) as _exc:
+        _IMPORT_ERROR = _exc
+
     if _IMPORT_ERROR is not None:
         raise _IMPORT_ERROR
     claude_klabauter_root = require_dispatch_engine_on_path()

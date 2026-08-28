@@ -58,9 +58,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
 # Guarded, unlike reap-sessions.py's identical bare import, and for the same
 # reason `main` below catches Exception rather than RuntimeError: this module is
@@ -71,16 +68,20 @@ if _LIB_DIR not in sys.path:
 # `main`'s own handler could never see it -- the "exit 0 on every path"
 # contract in this module's docstring would be defeated by its own import
 # line. reap-sessions.py is safe bare only because it runs as its own
-# subprocess under a fail-open hook.
-try:
-    import cc_invoke  # noqa: E402
-    from cc_invoke import _resolve_claude_klabauter_root  # noqa: E402
+# subprocess under a fail-open hook. The import itself now runs inside
+# `_try_import_cc_invoke`, called from `main` -- `load_cli_module` never
+# executes it at module-load time, only `main` does, and `main` still guards
+# it with the identical try/except, so the "exit 0 on every path" contract is
+# unchanged.
+def _try_import_cc_invoke():
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        import cc_invoke
+        from cc_invoke import _resolve_claude_klabauter_root
 
-    _IMPORT_ERROR: Exception | None = None
-except Exception as _exc:  # noqa: BLE001 -- see comment above
-    cc_invoke = None  # type: ignore[assignment]
-    _resolve_claude_klabauter_root = None  # type: ignore[assignment]
-    _IMPORT_ERROR = _exc
+        return cc_invoke, _resolve_claude_klabauter_root, None
+    except Exception as _exc:  # noqa: BLE001 -- see comment above
+        return None, None, _exc
 
 
 def _no_fallback() -> None:
@@ -89,11 +90,11 @@ def _no_fallback() -> None:
     )
 
 
-def _resolve_repo_root(argv: list[str]) -> str | None:
+def _resolve_repo_root(argv: list[str], resolve_claude_klabauter_root) -> str | None:
     if argv:
         return argv[0]
     try:
-        claude_klabauter_root = _resolve_claude_klabauter_root()
+        claude_klabauter_root = resolve_claude_klabauter_root()
         if claude_klabauter_root and claude_klabauter_root not in sys.path:
             sys.path.insert(0, claude_klabauter_root)
         from coordinator_core.git.repo_root import show_toplevel
@@ -105,16 +106,17 @@ def _resolve_repo_root(argv: list[str]) -> str | None:
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if _IMPORT_ERROR is not None:
+    cc_invoke, _resolve_claude_klabauter_root, _import_error = _try_import_cc_invoke()
+    if _import_error is not None:
         # cc_invoke is None here -- without this branch, cc_invoke.route(...)
         # below would raise AttributeError, caught by the broad except and
         # still exiting 0, but reporting the wrong failure to the operator.
         print(
-            f"reap-claims-for-repos.py: cc_invoke import failed -- continuing (best-effort): {_IMPORT_ERROR}",
+            f"reap-claims-for-repos.py: cc_invoke import failed -- continuing (best-effort): {_import_error}",
             file=sys.stderr,
         )
         return 0
-    repo_root = _resolve_repo_root(argv)
+    repo_root = _resolve_repo_root(argv, _resolve_claude_klabauter_root)
     if repo_root is None:
         print("reap-claims-for-repos.py: cannot resolve git repo root", file=sys.stderr)
         return 0  # best-effort: never block ceremony completion

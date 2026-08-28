@@ -47,19 +47,22 @@ import json
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+def _bootstrap_repo_root() -> Path:
+    """Bootstrap coordinator/bin/lib onto sys.path and resolve the engine root.
 
-try:
-    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
+    Moved out of module scope (was a module-load-time `import lib` + engine-root
+    resolution) so this file carries no non-stdlib import at module scope —
+    the sys.path mutation and engine-root resolution now happen at call time,
+    same failure/exit behavior preserved.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
-from coordinator_core.distill import delete_guard as _delete_guard
-from coordinator_core.distill.delete_guard import DeleteCandidate, evaluate_candidate
+    try:
+        return Path(require_colocated_engine_on_path(__file__))
+    except RuntimeError as _exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _sha_shaped_realized_by_values(candidate_paths: list[Path]) -> set[str]:
@@ -74,6 +77,8 @@ def _sha_shaped_realized_by_values(candidate_paths: list[Path]) -> set[str]:
     resolved as a SHA) — `evaluate_candidate` re-reads the file itself during
     the real evaluation pass below and is the sole source of truth for
     outcomes; this function only feeds the batch-warm cache."""
+    from coordinator_core.distill import delete_guard as _delete_guard
+
     shas: set[str] = set()
     for path in candidate_paths:
         try:
@@ -95,6 +100,10 @@ def _sha_shaped_realized_by_values(candidate_paths: list[Path]) -> set[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    repo_root_default = _bootstrap_repo_root()
+    from coordinator_core.distill import delete_guard as _delete_guard
+    from coordinator_core.distill.delete_guard import DeleteCandidate, evaluate_candidate
+
     parser = argparse.ArgumentParser(
         description="Run the mechanical delete-safety guards against one or more candidates."
     )
@@ -102,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--repo-root",
         type=str,
-        default=str(_REPO_ROOT),
+        default=str(repo_root_default),
         help="Repo root for active-reference scope, commitment-closure, and git resolution (default: this repo).",
     )
     parser.add_argument(

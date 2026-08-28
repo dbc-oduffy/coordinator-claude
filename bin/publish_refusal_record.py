@@ -127,3 +127,23 @@ def record_publish_swap_refusal(
     print(f"Remediation: python -m json.tool {record_path}", file=sys.stderr)
 
     return record_path
+
+
+def main(argv: list[str]) -> int:
+    """This module is a library — `record_publish_swap_refusal` is called
+    only from `publish.py`'s own `except` handlers (§ CALL SITES above), and
+    ships no standalone CLI behavior of its own. This entrypoint exists so
+    the name resolves on the warm door like every other allowlisted
+    `coordinator/bin` name; it has nothing to route to and always reports a
+    usage error."""
+    print(
+        "publish_refusal_record: library module, no standalone CLI — "
+        "invoked only via record_publish_swap_refusal() from publish.py's "
+        "own except handlers.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

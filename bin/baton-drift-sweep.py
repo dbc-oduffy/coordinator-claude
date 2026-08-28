@@ -38,37 +38,79 @@ import os
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
-require_dispatch_engine_on_path()
-# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-# what BINDS coordinator_core, and binding it HERE is the whole fix.
-# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-# nothing. Without this line the next module-level import below (a binder module
-# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-# the working tree instead of the dispatch root, and no later sys.path insert can
-# rebind an already-imported package. Removing it restores a silent wrong-tree
-# divergence that require_dispatch_engine_on_path now raises on.
-# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-# docs/research/engine-provenance-carrier-dependence.md
-import coordinator_core  # noqa: E402,F401
-
-from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _USAGE = "Usage: baton-drift-sweep.py (no arguments)"
 
 
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind `coordinator_core` on the DISPATCH axis, then the LOCATOR-axis
+    binder that depends on it. Idempotent; safe to call more than once.
+
+    ORDER INSIDE THIS FUNCTION IS LOAD-BEARING and is the whole reason it is one
+    function rather than four deferred imports at their use sites.
+    `require_dispatch_engine_on_path()` only mutates `sys.path` -- it imports
+    nothing -- so `import coordinator_core` must follow it and must precede
+    `repo_identity`, which resolves and imports `coordinator_core` at ITS own
+    module level on the LOCATOR axis. On a conformant box the two axes can return
+    different roots, and once a package is bound in `sys.modules` no later
+    `sys.path` insert can rebind it: get this order wrong and `coordinator_core`
+    silently binds off the working tree instead of the dispatch root.
+    Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    docs/research/engine-provenance-carrier-dependence.md
+
+    What moved, and what did NOT: this sequence used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm server
+    ~50 sessions share. The order is preserved exactly; only the trigger moved.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global require_dispatch_engine_on_path, resolve_checked_repo_root
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path as _require
+
+    _require()
+    import coordinator_core  # noqa: F401 — LOAD-BEARING: binds the package, see above
+
+    from repo_identity import resolve_checked_repo_root as _resolve
+
+    require_dispatch_engine_on_path = _require
+    resolve_checked_repo_root = _resolve
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for a bootstrapped name BEFORE `main()`
+    has run -- a test monkeypatching this module, or any consumer importing it
+    rather than executing it -- triggers `_bootstrap_engine()` lazily instead of
+    finding the name absent.
+
+    This is the piece whose absence made the first repair pass hoist these
+    imports back to module scope: deferring them alone leaves the module's own
+    API missing until `main()` runs, and a `global`-bound name is module-visible
+    only after its binder has been called. Only fires for names not already in
+    `__dict__`, so once the bootstrap has run the plain global wins.
+    """
+    if name in ("require_dispatch_engine_on_path", "resolve_checked_repo_root"):
+        _bootstrap_engine()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _import_baton_drift_sweep():
-    claude_klabauter_root = require_dispatch_engine_on_path()
+    _bootstrap_engine()
+    require_dispatch_engine_on_path()
     from coordinator_core.ops.baton_drift_sweep import baton_drift_sweep as _sweep
     return _sweep
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+
     args = argv[1:]
     if args:
         print("baton-drift-sweep.py: expected no arguments", file=sys.stderr)

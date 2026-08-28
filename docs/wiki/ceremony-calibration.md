@@ -137,7 +137,7 @@ detection) reports zero unresolvable contradictions, Opus is never dispatched.
 correctness risk — when Opus handles cross-reference assembly AND dedup AND deletion manifest in
 one context window, it drops edge cases at the seam between tasks.
 
-**Distill rubric carve-out — delete-default for archived handoffs and cross-repo memos.** The `/distill` trim+archive rubric (allowlist stays in place, denylist archives to `archive/`) applies to canonical specs and evergreen docs. Exception: archived handoffs (`archive/handoffs/`) and cross-repo memos (`cross-repo/`) are DELETED-after-extraction by default — their value is fully captured in the distillation output, and retention in `archive/` compounds file-count without benefit. This carve-out does NOT apply to decision records, plans, or research outputs, which follow the trim+archive default.
+**Distill rubric carve-out — delete-default for cross-repo memos.** The `/distill` trim+archive rubric (allowlist stays in place, denylist archives to `archive/`) applies to canonical specs and evergreen docs. Exception: cross-repo memos (`cross-repo/`) are DELETED-after-extraction by default — their value is fully captured in the distillation output, and retention in `archive/` compounds file-count without benefit. Archived handoffs are **outside every distillation cohort** — `/distill` neither harvests nor deletes them; their pruning is `/update-docs` Phase 8b. This carve-out does NOT apply to decision records, plans, or research outputs, which follow the trim+archive default.
 
 ## Daily-ceremony gate discipline
 
@@ -248,7 +248,7 @@ are the four *session terminators* — the canonical term for this set
 (`coordinator/commands/workday-complete.md:101`). A ceremony is a session terminator if it ends a
 session and carries a dirty-tree gate — the criterion is *engaging* the dirty tree at session
 close, not the specific stop/prompt shape the other three use. `quick-wrap` earns membership via
-its Step 1 `safe-commit-offer` call, which computes and commits the session's safe pathspec: the
+its Step 1 `session.safe_commit_offer` dial, which computes and commits the session's safe pathspec: the
 mechanism differs (auto-commit vs. stop/prompt-then-proceed), but the tree state it acts on and
 the point in the session it acts at are the same — it engages whatever is dirty in the session's
 own touch-list at close, exactly where the other three terminators' gates fire. That shared

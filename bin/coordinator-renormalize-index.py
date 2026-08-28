@@ -57,11 +57,6 @@ declares none; routing it is a baseline-shrink, not a behavior change).
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 
 def _import_run_op_main():
     """Resolve the engine root, put it on sys.path, and import `run_op_main`.
@@ -73,36 +68,39 @@ def _import_run_op_main():
     NOT used here (variant-#1 direct-import trampoline — see
     tasks/2026-07-16-clean-slate-recon/r1-doe-port-template.md § 1).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_run_op_main()
     except RuntimeError as exc:
         print(f"coordinator-renormalize-index: engine-root resolution failed: {exc}", file=sys.stderr)
-        sys.exit(2)
+        return 2
     except ImportError as exc:
         print(
             f"coordinator-renormalize-index: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
     try:
-        code = run_op_main("coordinator_core.ops.renormalize_index", sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.renormalize_index", (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             f"coordinator-renormalize-index: coordinator_core.ops.renormalize_index not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(2)
+        return 2
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

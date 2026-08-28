@@ -64,12 +64,6 @@ import json
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-import cc_invoke  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
 
 def _no_legacy() -> None:
     """State-1 fallback — the engine-repo control-plane seam is absent on disk.
@@ -87,6 +81,9 @@ def _resolve_repo_root() -> str:
     migrated `_resolve_repo_root`. READER (AC10): a MISMATCH verdict is
     warned to stderr and the resolved root used anyway (DR-277); UNRESOLVED
     never refuses either (AC4)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
     repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if repo_root is None:
         print(
@@ -150,6 +147,9 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     argv = sys.argv[1:] if argv is None else argv
     params = _parse_args(argv)
     repo_root = _resolve_repo_root()

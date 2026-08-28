@@ -44,20 +44,24 @@ wrapper is argv passthrough only, never a reimplementation of the compute.
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
-try:
-    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(3)
+def main(argv: list[str]) -> int:
+    from pathlib import Path
 
-from coordinator_core.workweek_complete.brief import main  # noqa: E402
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {exc}", file=sys.stderr)
+        return 3
+
+    from coordinator_core.workweek_complete.brief import main as _brief_main
+
+    return _brief_main(argv[1:])
+
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    sys.exit(main(sys.argv))

@@ -54,10 +54,27 @@ from typing import Optional
 
 _BIN_DIR = Path(__file__).resolve().parent
 _REPO_ROOT_GUESS = _BIN_DIR.parent.parent
-if str(_REPO_ROOT_GUESS) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT_GUESS))
 
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `_REPO_ROOT_GUESS` on `sys.path` so `_git`'s deferred
+    `coordinator_core.win_portability` import resolves. Idempotent.
+
+    What moved, and what did NOT: this single-line mutation used to run at
+    MODULE scope, which made every import of this file mutate the `sys.path`
+    of a warm server ~50 sessions share. The line is preserved exactly; only
+    the trigger moved. No name is bound as a global here, so there is
+    nothing to publish and no `__getattr__` hook is needed.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_REPO_ROOT_GUESS) not in sys.path:
+        sys.path.insert(0, str(_REPO_ROOT_GUESS))
+    _BOOTSTRAP_DONE = True
+
 
 GENERATES = []  # operates against `--repo-root`, an explicit arbitrary flag (never a fixed claude-klabauter path — see module docstring "must not be run against a sibling repo's tree")
 
@@ -67,6 +84,9 @@ def _git(repo_root: Path, *args: str) -> subprocess.CompletedProcess:
     # otherwise flash, paired with stdin=DEVNULL (CREATE_NO_WINDOW alone hangs
     # on Windows when stdin is inherited/invalid) — matches this repo's other
     # git subprocess call sites (coordinator_core/ops/review_trail_write.py).
+    _bootstrap_engine()
+    from coordinator_core.win_portability import no_console_creationflags
+
     return subprocess.run(
         ["git", "-C", str(repo_root), *args],
         capture_output=True,
@@ -202,6 +222,7 @@ def _iter_record_files(review_trail_dir: Path) -> list[Path]:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--repo-root", required=True,

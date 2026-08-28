@@ -76,20 +76,18 @@ import subprocess
 import sys
 from typing import Optional
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
-from cc_invoke import require_engine_on_path  # noqa: E402
+def _bootstrap_engine() -> None:
+    """The engine root must be on sys.path before a `coordinator_core`
+    import runs: this file is also published into the claude-klabauter
+    mirror, where `coordinator_core` is NOT pip-installed and the
+    interpreter's `sys.path[0]` is this bin/ directory, not the checkout
+    root. Same bootstrap as coordinator/bin/coordinator-lesson-add
+    (9b979ee5f)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_engine_on_path
 
-# The engine root must be on sys.path before the coordinator_core import
-# below: this file is also published into the claude-klabauter mirror, where
-# coordinator_core is NOT pip-installed and the interpreter's sys.path[0] is
-# this bin/ directory, not the checkout root. Same bootstrap as
-# coordinator/bin/coordinator-lesson-add (9b979ee5f).
-_ENGINE_ROOT = require_engine_on_path(__file__)
-
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
+    require_engine_on_path(__file__)
 
 
 def _bounded(secs: float, cmd: list[str]) -> Optional[str]:
@@ -100,6 +98,8 @@ def _bounded(secs: float, cmd: list[str]) -> Optional[str]:
     TimeoutExpired, caught below and folded into the same "no signal on this
     axis" None return every other failure mode on this probe leg produces.
     """
+    from coordinator_core.win_portability import no_console_creationflags
+
     try:
         result = subprocess.run(
             cmd,
@@ -193,6 +193,8 @@ def _ram_from_windows() -> tuple[Optional[int], Optional[int]]:
 def _ram_from_macos() -> tuple[Optional[int], Optional[int]]:
     import shutil
 
+    from coordinator_core.win_portability import no_console_creationflags
+
     if not shutil.which("sysctl") or not shutil.which("vm_stat"):
         return None, None
     try:
@@ -282,6 +284,8 @@ def _fmt(v: Optional[int]) -> str:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+
     args = argv[1:]
     human = False
     if args:

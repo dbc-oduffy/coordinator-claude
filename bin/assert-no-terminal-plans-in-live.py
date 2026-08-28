@@ -35,8 +35,6 @@ import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
 
 # records.query defaults --limit 50. Claude-klabauter has ~158 terminal plans, so a
 # per-status cap of 50 would make this assert see only a subset — a latent
@@ -46,6 +44,7 @@ _TERMINAL_PLAN_QUERY_LIMIT = 100000
 
 
 def _query_terminal_paths() -> list[str]:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from records_query import query_records  # noqa: E402  (sys.path-dependent)
 
     paths: list[str] = []

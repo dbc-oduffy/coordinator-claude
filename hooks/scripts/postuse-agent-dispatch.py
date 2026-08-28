@@ -2,7 +2,7 @@
 """PostToolUse(Agent) naked-Python fan-in dispatcher.
 
 W0 (docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md) --
-folds the two DoE `PostToolUse|Agent` registrations that used to spawn their
+folds the two local `PostToolUse|Agent` registrations that used to spawn their
 own interpreter each (agent-completion-log.py, track-dispatched-agents.py's
 PostToolUse enrich leg) into ONE `python3` hook entry, calling the ENGINE-side
 fan-in op `coordinator_core.hooks.agent_postuse_dispatch` (published mirror

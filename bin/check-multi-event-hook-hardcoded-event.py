@@ -77,11 +77,6 @@ PROG = "check-multi-event-hook-hardcoded-event.py"
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 COORDINATOR_DIR = os.path.dirname(BIN_DIR)
 
-_LIB_DIR = os.path.join(BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-
 def _default_hooks_json() -> str:
     """Resolve the default hooks.json path via `coordinator_data_root.data_root()`'s
     co-located/DoE-resident two-rung chain, not a bare `__file__`-relative walk.

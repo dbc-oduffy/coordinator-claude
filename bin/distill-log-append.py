@@ -55,18 +55,20 @@ import json
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
+def _bootstrap_engine() -> None:
+    """Bootstrap coordinator/bin/lib onto sys.path and resolve the engine root.
 
-try:
-    require_colocated_engine_on_path(__file__)
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
+    Moved out of module scope so this file carries no non-stdlib import at
+    module scope — same failure/exit behavior preserved.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
-from coordinator_core.distill.log_append import append_row, append_rows  # noqa: E402
+    try:
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as _exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def _load_batch_rows(batch_arg: str, default_run_id: str | None) -> list[dict[str, str]]:
@@ -95,6 +97,9 @@ def _load_batch_rows(batch_arg: str, default_run_id: str | None) -> list[dict[st
 
 
 def main(argv: list[str] | None = None) -> int:
+    _bootstrap_engine()
+    from coordinator_core.distill.log_append import append_row, append_rows
+
     parser = argparse.ArgumentParser(
         description=(
             "Append canonical row(s) to a distillation log via the claude-klabauter writer. "

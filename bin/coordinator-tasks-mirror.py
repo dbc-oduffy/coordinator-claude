@@ -60,12 +60,6 @@ import re
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-import cc_invoke  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
 def _resolve_session_id(cwd: str) -> str:
@@ -74,6 +68,9 @@ def _resolve_session_id(cwd: str) -> str:
     Raises RuntimeError on engine-root/import failure (caller maps to exit 1,
     matching the bash oracle's fail-loud coordinator-root-unresolved path).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     cc_invoke.require_engine_on_path(__file__)
     from coordinator_core.session.core import resolve_session_id as _resolve
 
@@ -89,6 +86,9 @@ def _resolve_repo_root() -> tuple[str | None, str | None]:
     (DR-277 carve-out: prevents a write into a foreign tree). UNRESOLVED
     never refuses (DR-277, AC4).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
         return None, verdict["message"]

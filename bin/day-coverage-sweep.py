@@ -52,39 +52,50 @@ import re
 import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
-require_dispatch_engine_on_path()
-# LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
-# what BINDS coordinator_core, and binding it HERE is the whole fix.
-# require_dispatch_engine_on_path() above only mutates sys.path -- it imports
-# nothing. Without this line the next module-level import below (a binder module
-# that resolves on the LOCATOR axis) wins the race and binds coordinator_core off
-# the working tree instead of the dispatch root, and no later sys.path insert can
-# rebind an already-imported package. Removing it restores a silent wrong-tree
-# divergence that require_dispatch_engine_on_path now raises on.
-# Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
-# docs/research/engine-provenance-carrier-dependence.md
-import coordinator_core  # noqa: E402,F401
-
-from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 _DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 _USAGE = "Usage: day-coverage-sweep.py <YYYY-MM-DD>"
 
 
+def _bootstrap_engine():
+    """Bootstrap coordinator/bin/lib onto sys.path and bind coordinator_core.
+
+    Moved out of module scope (was a module-load-time sequence) so this file
+    carries no non-stdlib import at module scope. Ordering is preserved: this
+    is called as the first action of `main()`, before any other import can
+    race to bind `coordinator_core` off the wrong tree.
+
+    LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: the
+    `require_dispatch_engine_on_path()` call only mutates sys.path -- it
+    imports nothing. Without the subsequent `import coordinator_core`, the
+    next import below it (a binder module that resolves on the LOCATOR axis)
+    wins the race and binds coordinator_core off the working tree instead of
+    the dispatch root, and no later sys.path insert can rebind an
+    already-imported package. Removing it restores a silent wrong-tree
+    divergence that require_dispatch_engine_on_path now raises on.
+    Why: docs/plans/2026-08-26-the-seam-reports-what-it-got.md C9,
+    docs/research/engine-provenance-carrier-dependence.md
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+    import coordinator_core  # noqa: F401
+
+
 def _import_day_coverage_sweep():
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.completion_ops import day_coverage_sweep as _sweep
     return _sweep
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+    from repo_identity import resolve_checked_repo_root
+
     args = argv[1:]
     if len(args) != 1:
         print("day-coverage-sweep.py: expected exactly one <YYYY-MM-DD> argument", file=sys.stderr)

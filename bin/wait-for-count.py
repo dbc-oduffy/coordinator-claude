@@ -85,10 +85,6 @@ from pathlib import Path
 from typing import Callable, Optional
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent  # coordinator/bin -> coordinator -> repo root
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from coordinator_core.composition_budget import FLEET_AGGREGATE_ELAPSED_BUDGET  # noqa: E402
 
 _UNARMED_FLEET_BUDGET_FALLBACK_SEC: float = 1200.0
 """Ceiling used when the fleet budget is disarmed (`FLEET_AGGREGATE_ELAPSED_BUDGET
@@ -97,16 +93,68 @@ composition instrument must not silently unbound this waiter: "no ceiling on the
 composition" is a decision about telemetry, not a licence for one process to
 block forever."""
 
-MAX_TIMEOUT_SEC: float = (
-    FLEET_AGGREGATE_ELAPSED_BUDGET
-    if FLEET_AGGREGATE_ELAPSED_BUDGET is not None
-    else _UNARMED_FLEET_BUDGET_FALLBACK_SEC
-)
-"""Hard ceiling on --timeout-sec — see module docstring "Timeout ceiling"."""
-
 MAX_POLL_INTERVAL_SEC: float = 60.0
 """Hard ceiling on --poll-interval-sec — see module docstring "Timeout
 ceiling"."""
+
+
+_BOOTSTRAPPED_NAMES = ("FLEET_AGGREGATE_ELAPSED_BUDGET", "MAX_TIMEOUT_SEC")
+
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind `_REPO_ROOT` onto `sys.path`, then import the fleet-aggregate
+    ceiling and derive `MAX_TIMEOUT_SEC` from it. Idempotent.
+
+    What moved and what did not: this sequence used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm
+    server ~50 sessions share. Only the trigger moved; the derivation is
+    byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global FLEET_AGGREGATE_ELAPSED_BUDGET, MAX_TIMEOUT_SEC
+    try:
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
+
+        from coordinator_core.composition_budget import FLEET_AGGREGATE_ELAPSED_BUDGET as _budget
+
+        FLEET_AGGREGATE_ELAPSED_BUDGET = _budget
+        MAX_TIMEOUT_SEC = (
+            _budget if _budget is not None else _UNARMED_FLEET_BUDGET_FALLBACK_SEC
+        )
+        """Hard ceiling on --timeout-sec — see module docstring "Timeout ceiling"."""
+    finally:
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for `MAX_TIMEOUT_SEC` /
+    `FLEET_AGGREGATE_ELAPSED_BUDGET` before `main()` has run -- this module's
+    own test suite reads `mod.MAX_TIMEOUT_SEC` directly -- triggers
+    `_bootstrap_engine()` lazily instead of finding the name absent."""
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def clamp_dials(timeout_sec: float, poll_interval_sec: float) -> tuple[float, float]:
@@ -116,6 +164,7 @@ def clamp_dials(timeout_sec: float, poll_interval_sec: float) -> tuple[float, fl
     and `main` (which reports the budget in its TIMEOUT line) can call it without
     the value being reduced twice.
     """
+    _bootstrap_engine()
     return (
         min(float(timeout_sec), MAX_TIMEOUT_SEC),
         min(float(poll_interval_sec), MAX_POLL_INTERVAL_SEC),
@@ -160,6 +209,7 @@ def wait_for_count(
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(
         prog="wait-for-count",
         description="Block until a directory's matching-entry count reaches a "
@@ -184,6 +234,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    _bootstrap_engine()
     args = _build_parser().parse_args(argv)
     dir_path = Path(args.dir)
     timeout_sec, poll_interval_sec = clamp_dials(args.timeout_sec, args.poll_interval_sec)

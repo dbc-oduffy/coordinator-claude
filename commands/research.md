@@ -27,10 +27,17 @@ auto-detection.
 > self-throttles indistinguishably from a platform gate. For more, `/spinoff` the question set
 > into chunks across sessions rather than authoring an over-cap harness.
 
-## Agent Teams Note
+## Agent Teams Note — raise the flag, then lower it
 
-Teams form implicitly when the first teammate spawns (requires
-`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`). No `TeamCreate` tool, no restart gate.
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` sits at `"0"` by default, and this pipeline does not run
+there. **Set it to `"1"` in `~/.claude/settings.json` before Step 4, and back to `"0"` when the
+run ends** — including when it ends badly. No restart: the value is re-read on each spawn.
+
+Teams then form implicitly when the first teammate spawns. No `TeamCreate` tool.
+
+**Why it goes back down.** At `"1"`, *every* named `Agent` call becomes a teammate, and a teammate
+returns no result to its caller — only an idle notice. Leaving it raised silently breaks every
+unrelated dispatch in this session and in any session started after. The flag is a loan.
 
 ## Step 1: Parse Arguments
 

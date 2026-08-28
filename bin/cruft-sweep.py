@@ -199,11 +199,6 @@ from typing import List, Optional
 # imports of the already-native, tested claude-klabauter peers. Retires all three
 # sourced/subprocess bash dependencies this script previously carried.
 # ---------------------------------------------------------------------------
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 # ---------------------------------------------------------------------------
 # coordinator/lib/ (distinct from coordinator/bin/lib/ above — the two lib
 # dirs are NOT the same tree, see the module header's chunk-boundary notes)
@@ -216,35 +211,33 @@ from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 _COORDINATOR_LIB_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "lib"
 )
-if _COORDINATOR_LIB_DIR not in sys.path:
-    sys.path.insert(0, _COORDINATOR_LIB_DIR)
-from settings_home import settings_home as _coordinator_settings_home  # noqa: E402
 
-try:
-    _CLAUDE_KLABAUTER_ROOT = require_dispatch_engine_on_path()
-except RuntimeError as _exc:
-    sys.stderr.write(
-        f"cruft-sweep: cannot resolve the engine root for native coordinator_core "
-        f"import: {_exc}\n"
-    )
-    sys.exit(1)
 
-from coordinator_core.state_root import (  # noqa: E402
-    StateRootError,
-    coordinator_state_root,
-)
-from coordinator_core.trusted_root_guard import (  # noqa: E402
-    coordinator_trusted_root_guard_or_exit,
-)
-from coordinator_core.resolve_coordinator_clone import (  # noqa: E402
-    ResolveCoordinatorCloneError,
-    resolve_content_root,
-)
-from coordinator_core.win_portability import no_console_creationflags  # noqa: E402
-from coordinator_core.machine_resolver import (  # noqa: E402
-    merged_flat_registry as _merged_flat_registry,
-    registry_get as _machine_registry_get,
-)
+def _bootstrap_engine() -> None:
+    """Bootstrap coordinator/bin/lib and coordinator/lib onto sys.path and
+    resolve the engine root.
+
+    Moved out of module scope (was a module-load-time sequence) so this file
+    carries no non-stdlib import at module scope. Called as the first action
+    of `main()`, before any function below imports a coordinator_core
+    submodule.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    if _COORDINATOR_LIB_DIR not in sys.path:
+        sys.path.insert(0, _COORDINATOR_LIB_DIR)
+
+    try:
+        require_dispatch_engine_on_path()
+    except RuntimeError as _exc:
+        sys.stderr.write(
+            f"cruft-sweep: cannot resolve the engine root for native coordinator_core "
+            f"import: {_exc}\n"
+        )
+        sys.exit(1)
+
+
 # Phases A-D (2026-07-28 collapse — see CHUNK BOUNDARY addendum below) now
 # import their sweep logic directly from coordinator_core.ops.cruft_sweep,
 # the same way Phase E already did — this file no longer carries private
@@ -254,16 +247,6 @@ from coordinator_core.machine_resolver import (  # noqa: E402
 # the grand-total banner, and the run-marker log row remain trampoline-owned
 # (see that module's own docstring negative-spec for the authoritative list
 # of what it does NOT own).
-from coordinator_core.ops.cruft_sweep import (  # noqa: E402
-    build_uuid_blocklist,
-    sweep_empty_toplevel_dirs,
-    sweep_harness,
-    sweep_orphans,
-    sweep_scratch,
-    sweep_subagent_sandbox_files,
-)
-from coordinator_core.session.declared_writes import declare_write  # noqa: E402
-from coordinator_core.cli_entry import recording_declared_writes  # noqa: E402
 
 SELF_NAME = "cruft-sweep"
 
@@ -288,6 +271,8 @@ def _state_root_or_empty(*, central: bool = False) -> str:
     `_reject_rootless_defaults` can name the ACTUAL cause. The empty-string
     return is the oracle-faithful part; discarding the diagnosis was never
     load-bearing."""
+    from coordinator_core.state_root import StateRootError, coordinator_state_root
+
     try:
         root = coordinator_state_root(central=central)
         _STATE_ROOT_FAILURES.pop(central, None)
@@ -359,6 +344,12 @@ def _resolve_and_guard_content_root() -> None:
     when that primary resolver fails and this falls back to reading the raw
     `.doe-root` pointer file directly. Exits 1 (mirroring the bash oracle's
     literal `exit 1`) if neither path resolves a usable content root."""
+    from coordinator_core.resolve_coordinator_clone import (
+        ResolveCoordinatorCloneError,
+        resolve_content_root,
+    )
+    from coordinator_core.trusted_root_guard import coordinator_trusted_root_guard_or_exit
+
     content_root = ""
     try:
         content_root = resolve_content_root()
@@ -652,6 +643,8 @@ def _apply_machine_local_days_override(cfg: SweepConfig) -> None:
     untouched — see `registry_get`'s own docstring). Keeps the `^[0-9]+$`
     guard the CLI round-trip enforced — falls through silently (cfg.days
     unchanged) on any absence/non-digit value."""
+    from coordinator_core.machine_resolver import registry_get as _machine_registry_get
+
     value = _machine_registry_get("cruft_sweep.harness_retention_days")
     if value:
         value = value.strip()
@@ -722,6 +715,8 @@ def _sweep_harness(cfg: "SweepConfig", totals: "Totals") -> None:
     D2): an unreadable handoff file narrows the protected UUID set to a lower
     bound, and applying a destructive sweep against a narrowed protected set
     is exactly the silent-data-loss shape this guard exists to prevent."""
+    from coordinator_core.ops.cruft_sweep import build_uuid_blocklist, sweep_harness
+
     handoffs_dir = _handoffs_dir_from_glob(cfg.handoffs_glob)
     blocklist, complete = build_uuid_blocklist(handoffs_dir)
     if not complete and cfg.apply:
@@ -746,6 +741,8 @@ def _sweep_harness(cfg: "SweepConfig", totals: "Totals") -> None:
 def _sweep_scratch(cfg: "SweepConfig", totals: "Totals") -> None:
     """Phase B wrapper: resolve repo_root, delegate to
     coordinator_core.ops.cruft_sweep.sweep_scratch."""
+    from coordinator_core.ops.cruft_sweep import sweep_scratch
+
     repo_root = Path(_resolve_repo_root(cfg))
     log_path = Path(cfg.log_path) if cfg.log_path else None
     scratch_bytes, scratch_items = sweep_scratch(
@@ -761,6 +758,8 @@ def _sweep_subagent_sandbox_files(cfg: "SweepConfig", totals: "Totals") -> None:
     """File-level 24h-floor reap wrapper: resolve repo_root, delegate to
     coordinator_core.ops.cruft_sweep.sweep_subagent_sandbox_files. NOT folded
     into the grand-total banner (see Totals' own field comment)."""
+    from coordinator_core.ops.cruft_sweep import sweep_subagent_sandbox_files
+
     repo_root = Path(_resolve_repo_root(cfg))
     log_path = Path(cfg.log_path) if cfg.log_path else None
     sandbox_bytes, sandbox_items = sweep_subagent_sandbox_files(
@@ -779,6 +778,8 @@ def _get_parent_whitelist() -> set:
     Trampoline-owned per the engine's negative-spec (does NOT read/write the
     machine-local parent_whitelist TOML array itself — this resolves it and
     passes the resolved list in)."""
+    from settings_home import settings_home as _coordinator_settings_home
+
     registry_path = os.path.join(
         _coordinator_settings_home(), "machine-local", "registry.local.toml"
     )
@@ -819,6 +820,8 @@ def _default_parent_roots() -> List[str]:
     Trampoline-owned per the engine's negative-spec (does NOT implement
     --parent-root default-derivation itself — this resolves parent_roots and
     passes the resolved list in)."""
+    from coordinator_core.machine_resolver import merged_flat_registry as _merged_flat_registry
+
     flat = _merged_flat_registry()
 
     seen: set = set()
@@ -841,6 +844,9 @@ def _sweep_orphans(cfg: "SweepConfig", totals: "Totals") -> None:
     then delegate to coordinator_core.ops.cruft_sweep.sweep_orphans (which
     performs the C3 install-baton-rendezvous forward-guard itself when
     settings_home is given)."""
+    from coordinator_core.ops.cruft_sweep import sweep_orphans
+    from settings_home import settings_home as _coordinator_settings_home
+
     roots = [Path(p) for p in cfg.parent_roots] if cfg.parent_roots else [
         Path(p) for p in _default_parent_roots()
     ]
@@ -875,6 +881,8 @@ def _sweep_empty_dirs(cfg: "SweepConfig", totals: "Totals") -> None:
     not git-ignored. Fails closed (no deletions) when the resolved repo root
     is not inside a git work tree or git is unavailable. Sets
     totals.empty_dirs_bytes/totals.empty_dirs_items."""
+    from coordinator_core.ops.cruft_sweep import sweep_empty_toplevel_dirs
+
     repo_root = Path(_resolve_repo_root(cfg))
     log_path = Path(cfg.log_path) if cfg.log_path else None
 
@@ -941,12 +949,17 @@ def _write_run_marker(cfg: "SweepConfig", totals: "Totals", total_bytes: int) ->
                 f"| {ts} | run-marker | {total_bytes} bytes | "
                 f"{total_items} items |\n"
             )
+        from coordinator_core.session.declared_writes import declare_write
+
         declare_write(cfg.log_path)
     except OSError:
         pass
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _bootstrap_engine()
+    from coordinator_core.cli_entry import recording_declared_writes
+
     args = list(sys.argv[1:] if argv is None else argv)
 
     _resolve_and_guard_content_root()

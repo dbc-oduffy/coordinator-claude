@@ -55,28 +55,6 @@ import os
 import sys
 from pathlib import Path
 
-import yaml  # PyYAML — available in coordinator venv
-
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-from target_wiki_canon import canonical_target_wiki_for_kind  # noqa: E402
-
-# `assert-empty` reuses the SAME peer-root enumeration `learn-lessons-roots.py` uses,
-# imported directly rather than re-derived — hand-rolling a second registry-walk here
-# would be exactly the kind of drift (two enumerations quietly diverging) this detector
-# exists to catch. Resolved via the colocated-checkout ladder (this script lives inside
-# the claude-klabauter tree itself), same pattern as the distill-*.py CLIs.
-try:
-    _REPO_ROOT = Path(require_colocated_engine_on_path(__file__))
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
-
-from coordinator_core.ops.learn_lessons_roots import resolve_roots  # noqa: E402
-
 REQUIRED_FIELDS = ("id", "created", "from_repo", "title", "body", "change_kind", "target_wiki")
 
 
@@ -88,6 +66,8 @@ def read_peer_outbox(peer_path: Path) -> tuple[list[dict], list[str]]:
     """Glob `<peer_path>/state/lessons-outbox/*.yaml` (excluding `drained/`), parse each
     per the schema, and return (entries, warnings). Entries missing a required field are
     reported as warnings and excluded, not silently dropped."""
+    import yaml  # PyYAML — available in coordinator venv
+
     outbox_dir = peer_path / "state" / "lessons-outbox"
     entries: list[dict] = []
     warnings: list[str] = []
@@ -144,6 +124,9 @@ def _canonical_target_wiki(target_wiki: str, change_kind: str) -> str:
     raw value as the dedupe key (no false-merge risk — SKILL.md paths never collapse),
     while wiki-targeting kinds now compose with the promote CLI's own canonical form
     instead of disagreeing with it."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from target_wiki_canon import canonical_target_wiki_for_kind
+
     return canonical_target_wiki_for_kind(target_wiki, change_kind)
 
 
@@ -196,6 +179,23 @@ def dedup_entries(entries: list[dict]) -> tuple[list[dict], list[dict]]:
 # assert-empty — verify the one-root invariant (detector, not drainer)
 # ---------------------------------------------------------------------------
 
+def _resolve_roots():
+    """`assert-empty` reuses the SAME peer-root enumeration `learn-lessons-roots.py`
+    uses, imported directly rather than re-derived — hand-rolling a second
+    registry-walk here would be exactly the kind of drift (two enumerations
+    quietly diverging) this detector exists to catch. Resolved via the
+    colocated-checkout ladder (this script lives inside the claude-klabauter tree
+    itself), same pattern as the distill-*.py CLIs. May raise `RuntimeError`
+    if the engine root cannot be resolved — the caller (main()) handles that."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+    from coordinator_core.ops.learn_lessons_roots import resolve_roots
+
+    return resolve_roots()
+
+
 def assert_empty(this_repo_root: Path) -> dict:
     """Detector for the incident this subcommand exists to close: `state/lessons-outbox/`
     was silently split across two repos for six weeks because DoE's drain reads a single
@@ -229,7 +229,7 @@ def assert_empty(this_repo_root: Path) -> dict:
     non_empty: list[dict] = []
     seen_resolved: set = set()
 
-    for raw_root in resolve_roots():
+    for raw_root in _resolve_roots():
         peer_path = Path(raw_root)
         try:
             peer_resolved = peer_path.resolve()
@@ -311,7 +311,11 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.cmd == "assert-empty":
-        result = assert_empty(args.this_repo_root)
+        try:
+            result = assert_empty(args.this_repo_root)
+        except RuntimeError as exc:
+            print(f"{Path(__file__).name}: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
+            return 1
         print(json.dumps(result, indent=2))
         # DELIBERATE DIVERGENCE from `learn-lessons-roots.py`'s exit-0-always convention,
         # despite sitting one directory over and enumerating the same peer roots: that

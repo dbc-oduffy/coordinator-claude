@@ -151,19 +151,12 @@ since the guard MESSAGE is engine-owned under the same DR-047 split as the
 guard logic. Until ``evaluate_payload_json`` declares ``resolution_class``,
 the keyword is not passed and behavior is byte-for-byte identical to today.
 
-Provenance injection (2026-08-16, C2, F6/AC20): this dispatcher now resolves
-via ``resolve_claude_klabauter_root_with_provenance`` (the three-value seam) and
-forwards ``provenance`` alongside ``resolution_class``, under the SAME
-``inspect.signature`` feature-detect idiom -- inert until the engine plane
-declares the ``provenance`` keyword, same byte-for-byte-identical-until-then
-guarantee as ``resolution_class`` and ``policy_file`` above. This is the
-second observability surface for the provenance seam: the boot banner
-(``project-orientation.py::engine_resolution_banner``) is per-*session*, so a
-hook running under an inherited ``CLAUDE_KLABAUTER_ROOT``/``REPO_CLAUDE_KLABAUTER``
-override in an unrelated repo renders no banner at all -- but the override
-still leaks per-*process* through ``child_env()`` to every subprocess this
-dispatcher's engine call spawns, and THAT leak is what this per-call
-forwarding makes observable to the engine plane.
+This dispatcher resolves via ``resolve_claude_klabauter_root_with_provenance`` (the
+three-value seam) for ``resolution_class``; the third value, ``provenance``,
+is resolved but not forwarded -- ``evaluate_payload_json`` declares no
+``provenance`` keyword, so there is no feature-detect arm for it here (unlike
+``resolution_class`` and ``policy_file`` above). If the engine plane later
+wants this value forwarded, that is a fresh ask, not a revival of dead code.
 """
 
 from __future__ import annotations
@@ -287,6 +280,13 @@ _BASH_GUARD_REGISTRY: "Tuple[_BashGuard, ...]" = (
     # command text, this one on caller identity. Last because it is the newest, not because it is
     # the weakest.
     _BashGuard("guard_host_subagent_bash_ban", "guard-host-subagent-bash-ban.py",
+               _pre_host_bash_ban),
+    # Shape-scoped successor to the entry above: same subagent cohort, but it denies the
+    # spawn-storm shapes rather than the tool. Gated on its own separate host opt-in
+    # (`subagent_bash_spawn_shapes: deny`) and inert without it, so registering both is not a
+    # double policy -- a host picks one, neither, or, deliberately, each for its own reason.
+    _BashGuard("guard_host_subagent_bash_spawn_shapes",
+               "guard-host-subagent-bash-spawn-shapes.py",
                _pre_host_bash_ban),
 )
 
@@ -455,7 +455,7 @@ def main() -> int:
     if folded_rc is not None:
         return folded_rc
 
-    root, resolution_class, provenance = _resolve_engine()
+    root, resolution_class, _provenance = _resolve_engine()
     if not root:
         return 0  # fail-open ALLOW — engine unresolvable on this machine
 
@@ -482,19 +482,15 @@ def main() -> int:
         _params = inspect.signature(evaluate_payload_json).parameters
         accepts_policy_file = "policy_file" in _params
         accepts_resolution_class = "resolution_class" in _params
-        accepts_provenance = "provenance" in _params
     except (TypeError, ValueError):
         accepts_policy_file = False
         accepts_resolution_class = False
-        accepts_provenance = False
 
     kwargs = {}
     if accepts_policy_file:
         kwargs["policy_file"] = str(policy_file)
     if accepts_resolution_class:
         kwargs["resolution_class"] = resolution_class
-    if accepts_provenance:
-        kwargs["provenance"] = provenance
 
     try:
         out = evaluate_payload_json(raw, **kwargs)

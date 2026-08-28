@@ -26,6 +26,8 @@ No `state/health-ledger.md` and no `docs/architecture/systems-index.md` → stop
 select the highest-priority system in the ledger — selection signals and worked calibration: wiki
 (no engine scorer exists yet). Report: _"Rotation target: [system]. Rationale: [why]."_
 
+<!-- engine-gap: field=rotation.target producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
+
 ---
 
 ## Step 2: Review Existing Debt
@@ -58,6 +60,8 @@ Check the target's **live** file count (not the atlas count — systems grow); s
 direct Opus domain-reviewer dispatch, larger ones need Haiku→Sonnet pre-digestion first or the
 reviewer overloads. Threshold, dispatch procedure, prompt sources, and multi-reviewer criteria:
 wiki.
+
+<!-- engine-gap: field=dispatch.review_tier producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 <!--
 This audit's Haiku→Sonnet pre-digestion (Step 3, >10-file path) dispatches the SAME Phase-1/1R and
@@ -126,6 +130,8 @@ Update the system's row (grade, status, audit date, open-issue counts) and the *
 audit`** date only — never `Last full audit`. Calculate and update `Next rotation target` if
 present. **Stage, do not commit** (`git add state/health-ledger.md`) — the commit lands only after
 the Step 6.5 gate PASSes, so the clock never advances against a stale atlas.
+
+<!-- engine-gap: field=rotation.next_target producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 
 ---
 

@@ -84,13 +84,15 @@
 # --- routing half: this file is now a thin shim over entry_point_shim.run_target ---
 from __future__ import annotations
 
-import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from entry_point_shim import run_target  # noqa: E402
+
+def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from entry_point_shim import run_target
+
+    return run_target("backlog-grind-assemble", argv[1:])
+
 
 if __name__ == "__main__":
-    sys.exit(run_target("backlog-grind-assemble", sys.argv[1:]))
+    sys.exit(main(sys.argv))

@@ -184,21 +184,27 @@ from pathlib import Path
 
 _PROG = "freeze-review-diff.py"
 _SCRIPT_DIR = Path(__file__).resolve().parent
-
 _CLAUDE_KLABAUTER_REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(_CLAUDE_KLABAUTER_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_CLAUDE_KLABAUTER_REPO_ROOT))
 
-_LIB_DIR = str(_SCRIPT_DIR / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
+_BOOTSTRAP_DONE = False
 
-from coordinator_core.cli_entry import recording_declared_writes  # noqa: E402
-from coordinator_core.ops.review_freeze_diff import (  # noqa: E402
-    _validate_slice_id,
-    freeze_diff,
-)
-from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv  # noqa: E402
+
+def _bootstrap_engine() -> None:
+    """Put the claude-klabauter repo root on ``sys.path`` before ``coordinator_core``
+    is imported.
+
+    Idempotent; safe to call more than once. Moved out of module scope
+    (2026-08-28) -- unconditionally mutating `sys.path` at import time made
+    every import of this file mutate the `sys.path` of a warm server ~50
+    sessions share. Only the trigger moved; the effect is byte-for-byte the
+    same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if str(_CLAUDE_KLABAUTER_REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(_CLAUDE_KLABAUTER_REPO_ROOT))
+    _BOOTSTRAP_DONE = True
 
 #: The .cmd launcher's own basename — used by `recover_windows_argv` to locate
 #: where this invocation's own arguments begin within the raw `%CMDCMDLINE%`
@@ -220,6 +226,7 @@ def _resolve_repo_root(explicit: str) -> Path | None:
     idiom used across this tree's other standalone bin/*.py entrypoints)."""
     if explicit:
         return Path(explicit)
+    _bootstrap_engine()
     from coordinator_core.git.repo_root import show_toplevel
 
     root = show_toplevel(os.getcwd())
@@ -327,6 +334,10 @@ def _open_pending_trail_record(
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+    from coordinator_core.cli_entry import recording_declared_writes
+    from coordinator_core.ops.review_freeze_diff import _validate_slice_id, freeze_diff
+
     parser = argparse.ArgumentParser(prog=_PROG, add_help=False)
     parser.add_argument("--range", dest="range_", default="")
     parser.add_argument("--slice-id", dest="slice_id", default="")
@@ -412,6 +423,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv
+
     try:
         _argv = recover_windows_argv(sys.argv[1:], _LAUNCHER_CMD_NAME)
     except UnsoundRawCmdlineTransport:

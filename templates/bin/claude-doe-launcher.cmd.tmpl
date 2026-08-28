@@ -280,6 +280,53 @@ rem deliberately simulating a veto with an empty canary cannot do it through
 rem this leg -- it reads as absent and gets '1'. That operator wants the .ps1
 rem launcher, which honours the empty string.
 if not defined COORDINATOR_PROBE_CANARY set "COORDINATOR_PROBE_CANARY=1"
+
+rem Export the front door's shared CREDENTIAL -- see the .ps1 launcher's block,
+rem which is the primary surface, for the full rationale. Short version:
+rem `front_door._Handler.do_POST` short-circuits to `credential_absent` BEFORE
+rem it resolves a route or consults its own key, so a session launched without
+rem this answers every http-registered hook with a loud did-not-run and the op
+rem never runs. This leg needs its own copy for the same reason as the kite and
+rem the clone root: the interactive path spawns claude natively and never
+rem reaches claude-doe.py's own `os.environ.setdefault`.
+rem
+rem READ-OR-MINT: nothing else mints on this platform --
+rem `_FrontDoorContext._boot_credential` only ever READS, and `ensure_secret()`'s
+rem sole caller is the POSIX leg this chain does not run.
+rem
+rem THE PYTHON HOP IS GATED ON ABSENCE, and that is the whole design here. The
+rem steady state -- key already minted -- reads the file with `set /p` and spawns
+rem nothing. Only a first-ever launch pays an interpreter, because cmd.exe has no
+rem cryptographic randomness: %RANDOM% is a 15-bit LCG seeded from the clock and
+rem is NOT acceptable for a credential. Do not "simplify" this to %RANDOM%.
+rem
+rem Path, byte count and atomic-replace shape are claude-doe.py's verbatim: a
+rem second spelling of the same secret is a second secret.
+rem
+rem `setlocal` at the top scopes the assignment to this process, so no restore is
+rem needed here (unlike the .ps1, which runs in the operator's shell).
+rem
+rem NEVER BLOCK A LAUNCH on the credential -- claude-doe.py's own posture. Every
+rem failure below leaves the variable unset and falls through to the spawn.
+if not defined COORDINATOR_DOOR_KEY (
+  set "CDL_KEYBASE=!XDG_CACHE_HOME!"
+  if not defined CDL_KEYBASE set "CDL_KEYBASE=!LOCALAPPDATA!"
+  if not defined CDL_KEYBASE set "CDL_KEYBASE=!USERPROFILE!\.cache"
+  set "CDL_KEYPATH=!CDL_KEYBASE!\coordinator\warm\door-key"
+  if exist "!CDL_KEYPATH!" (
+    rem `set /p` reads the first line and strips the trailing CRLF; the file is
+    rem written with no trailing newline, so this is the whole value.
+    set "CDL_DOORKEY="
+    set /p CDL_DOORKEY=<"!CDL_KEYPATH!"
+  ) else (
+    rem Mint via python3 -- the same secrets.token_hex(32) + 0600 + os.replace
+    rem shape claude-doe.py uses, printing nothing so a failure stays silent.
+    python3 -c "import os,secrets,sys;p=sys.argv[1];d=os.path.dirname(p);os.makedirs(d,exist_ok=True);k=secrets.token_hex(32);t=p+'.tmp';fd=os.open(t,os.O_CREAT|os.O_WRONLY|os.O_TRUNC,0o600);os.write(fd,k.encode());os.close(fd);os.replace(t,p)" "!CDL_KEYPATH!" 2>nul
+    set "CDL_DOORKEY="
+    if exist "!CDL_KEYPATH!" set /p CDL_DOORKEY=<"!CDL_KEYPATH!"
+  )
+  if defined CDL_DOORKEY set "COORDINATOR_DOOR_KEY=!CDL_DOORKEY!"
+)
 claude --plugin-dir "%PLUGINDIR%"!PASSTHRU!
 exit /b %ERRORLEVEL%
 

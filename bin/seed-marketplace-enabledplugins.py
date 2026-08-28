@@ -101,34 +101,6 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 
-if sys.version_info < (3, 11):
-    print(
-        "seed-marketplace-enabledplugins: requires Python 3.11+ for stdlib"
-        " tomllib; upgrade Python.",
-        file=sys.stderr,
-    )
-    sys.exit(1)
-
-import tomllib  # stdlib, 3.11+
-
-# coordinator_core is engine-owned (this repo), not on sys.path by default for
-# a coordinator/bin script (DoE-side) — resolve this script's own co-located
-# engine root (self-location-first, never a machine-local registry lookup for
-# a checkout this script already lives inside) rather than importing
-# coordinator_core.machine_resolver/_machine_local in-process, per this
-# module's existing negative-spec above (dual-identity anti-pattern).
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
-
-_CLAUDE_KLABAUTER_ROOT = require_colocated_engine_on_path(__file__)
-from coordinator_core.install.write_surface import (  # noqa: E402
-    ShapedClause,
-    WriteSurfaceDeclaration,
-    WriteSurfaceEntry,
-)
-
 # Marketplace name never seeded as an enabledPlugins key — the inline install
 # loads coordinator live via --plugin-dir, so it has no marketplace entry to
 # enable. See module docstring "No coordinator self-entry" above.
@@ -158,63 +130,160 @@ which also derives both the D1 enabledPlugins keys and the D4 marketplace-
 registration entries in one walk). Both functions run every time; neither
 alone is the whole mechanism."""
 
-WRITE_SURFACE = WriteSurfaceDeclaration(
-    writer_id="seed-marketplace-enabledplugins",
-    # Review: coordinator:code-reviewer — bare filename, not a fake dotted
-    # path: `write_surface_manifest._dotted_module_path` returns None for
-    # any hyphenated segment and falls back to file-location loading, so
-    # this is never a real importable path; matches the sibling convention
-    # in setup-github-auth-1password.py.
-    source_module="seed-marketplace-enabledplugins",
-    clauses=(
-        # D1a: settings.local.json["enabledPlugins"][<plugin>@<marketplace>].
-        # A merge into a config file this writer does not own outright — an
-        # existing true/false anywhere always wins (see module docstring) —
-        # never an overwrite of the whole file or the whole key.
-        ShapedClause(
-            discovered_by=_DISCOVERED_BY,
-            entry_template=WriteSurfaceEntry(
-                kind="structured-file-key",
-                path=_SETTINGS_LOCAL_FILENAME,
-                key=f"{_ENABLED_PLUGINS_KEY}.<plugin>@<marketplace>",
-            ),
-        ),
-        # D1b/D4a: settings.local.json["extraKnownMarketplaces"][<marketplace>].
-        # Same file as above, DIFFERENT key — kept as its own clause so a
-        # precise uninstall can distinguish the two keys within one file.
-        ShapedClause(
-            discovered_by=_DISCOVERED_BY,
-            entry_template=WriteSurfaceEntry(
-                kind="structured-file-key",
-                path=_SETTINGS_LOCAL_FILENAME,
-                key=f"{_EXTRA_KNOWN_MARKETPLACES_KEY}.<marketplace>",
-            ),
-        ),
-        # D4b: known_marketplaces.json's own top-level entries, keyed by
-        # marketplace name — a DIFFERENT FILE from the two clauses above,
-        # fed by the same discovery chain (the Director of Engineering F1's co-scoping: D1 and D4
-        # share one present-sibling walk, not one write target).
-        ShapedClause(
-            discovered_by=_DISCOVERED_BY,
-            entry_template=WriteSurfaceEntry(
-                kind="structured-file-key",
-                path=_KNOWN_MARKETPLACES_FILENAME,
-                key="<marketplace>",
-            ),
-        ),
-    ),
+_BOOTSTRAPPED_NAMES = (
+    "tomllib",
+    "require_colocated_engine_on_path",
+    "_CLAUDE_KLABAUTER_ROOT",
+    "ShapedClause",
+    "WriteSurfaceDeclaration",
+    "WriteSurfaceEntry",
+    "WRITE_SURFACE",
 )
-"""Which `<plugin>@<marketplace>` keys and `<marketplace>` registrations get
-seeded is entirely machine-dependent (whatever `_DISCOVERED_BY`'s chain finds
-checked out on THIS box) — never enumerate today's observed plugin/
-marketplace names here (see module docstring D1/D4 sections). All three
-entries are merges into a config file this writer does not own outright
-(`structured-file-key`, not `file-path`): `enabledPlugins`/
-`extraKnownMarketplaces` merge into one shared `settings.local.json` under
-two distinct keys, and `known_marketplaces.json`'s top-level entries merge
-into a second, separate file. Modelled as three clauses (one per file/key
-pair) rather than one collapsed clause so an uninstall can still tell "this
-key in this file" apart from its file/key-sharing siblings."""
+
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Bind stdlib `tomllib` (version-gated), the co-located engine root, and
+    the write-surface declaration classes -- ORDER PRESERVED BYTE-FOR-BYTE
+    from the original module-scope sequence. Idempotent.
+
+    What moved, and what did NOT: this whole sequence used to run at MODULE
+    scope -- the version-gate's `sys.exit(1)`, the `sys.path` mutation inside
+    `require_colocated_engine_on_path`, and the `WRITE_SURFACE` construction
+    (itself an impure call target under this repo's own warm-serve
+    classifier) -- which made every import of this file both mutate the
+    `sys.path` of a warm server ~50 sessions share AND risk exiting the whole
+    process on an old interpreter. Only the trigger moved; the sequence and
+    its order are exactly as before.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global tomllib, require_colocated_engine_on_path, _CLAUDE_KLABAUTER_ROOT
+    global ShapedClause, WriteSurfaceDeclaration, WriteSurfaceEntry, WRITE_SURFACE
+    try:
+        if sys.version_info < (3, 11):
+            print(
+                "seed-marketplace-enabledplugins: requires Python 3.11+ for stdlib"
+                " tomllib; upgrade Python.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        import tomllib as _tomllib  # stdlib, 3.11+
+
+        # coordinator_core is engine-owned (this repo), not on sys.path by default
+        # for a coordinator/bin script (DoE-side) — resolve this script's own
+        # co-located engine root (self-location-first, never a machine-local
+        # registry lookup for a checkout this script already lives inside)
+        # rather than importing coordinator_core.machine_resolver/_machine_local
+        # in-process, per this module's existing negative-spec above
+        # (dual-identity anti-pattern).
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_colocated_engine_on_path as _require
+
+        _claude_klabauter_root = _require(__file__)
+        from coordinator_core.install.write_surface import (
+            ShapedClause as _ShapedClause,
+            WriteSurfaceDeclaration as _WriteSurfaceDeclaration,
+            WriteSurfaceEntry as _WriteSurfaceEntry,
+        )
+
+        _write_surface = _WriteSurfaceDeclaration(
+            writer_id="seed-marketplace-enabledplugins",
+            # Review: coordinator:code-reviewer — bare filename, not a fake dotted
+            # path: `write_surface_manifest._dotted_module_path` returns None for
+            # any hyphenated segment and falls back to file-location loading, so
+            # this is never a real importable path; matches the sibling convention
+            # in setup-github-auth-1password.py.
+            source_module="seed-marketplace-enabledplugins",
+            clauses=(
+                # D1a: settings.local.json["enabledPlugins"][<plugin>@<marketplace>].
+                # A merge into a config file this writer does not own outright — an
+                # existing true/false anywhere always wins (see module docstring) —
+                # never an overwrite of the whole file or the whole key.
+                _ShapedClause(
+                    discovered_by=_DISCOVERED_BY,
+                    entry_template=_WriteSurfaceEntry(
+                        kind="structured-file-key",
+                        path=_SETTINGS_LOCAL_FILENAME,
+                        key=f"{_ENABLED_PLUGINS_KEY}.<plugin>@<marketplace>",
+                    ),
+                ),
+                # D1b/D4a: settings.local.json["extraKnownMarketplaces"][<marketplace>].
+                # Same file as above, DIFFERENT key — kept as its own clause so a
+                # precise uninstall can distinguish the two keys within one file.
+                _ShapedClause(
+                    discovered_by=_DISCOVERED_BY,
+                    entry_template=_WriteSurfaceEntry(
+                        kind="structured-file-key",
+                        path=_SETTINGS_LOCAL_FILENAME,
+                        key=f"{_EXTRA_KNOWN_MARKETPLACES_KEY}.<marketplace>",
+                    ),
+                ),
+                # D4b: known_marketplaces.json's own top-level entries, keyed by
+                # marketplace name — a DIFFERENT FILE from the two clauses above,
+                # fed by the same discovery chain (the Director of Engineering F1's co-scoping: D1 and D4
+                # share one present-sibling walk, not one write target).
+                _ShapedClause(
+                    discovered_by=_DISCOVERED_BY,
+                    entry_template=_WriteSurfaceEntry(
+                        kind="structured-file-key",
+                        path=_KNOWN_MARKETPLACES_FILENAME,
+                        key="<marketplace>",
+                    ),
+                ),
+            ),
+        )
+        """Which `<plugin>@<marketplace>` keys and `<marketplace>` registrations
+        get seeded is entirely machine-dependent (whatever `_DISCOVERED_BY`'s
+        chain finds checked out on THIS box) — never enumerate today's observed
+        plugin/marketplace names here (see module docstring D1/D4 sections). All
+        three entries are merges into a config file this writer does not own
+        outright (`structured-file-key`, not `file-path`): `enabledPlugins`/
+        `extraKnownMarketplaces` merge into one shared `settings.local.json`
+        under two distinct keys, and `known_marketplaces.json`'s top-level
+        entries merge into a second, separate file. Modelled as three clauses
+        (one per file/key pair) rather than one collapsed clause so an uninstall
+        can still tell "this key in this file" apart from its file/key-sharing
+        siblings."""
+
+        tomllib = _tomllib
+        require_colocated_engine_on_path = _require
+        _CLAUDE_KLABAUTER_ROOT = _claude_klabauter_root
+        ShapedClause = _ShapedClause
+        WriteSurfaceDeclaration = _WriteSurfaceDeclaration
+        WriteSurfaceEntry = _WriteSurfaceEntry
+        WRITE_SURFACE = _write_surface
+    finally:
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook: a consumer that imports this module rather than executing
+    it -- an installer scanning `WRITE_SURFACE`, or this module's own test
+    suite -- reaches these names before `main()` runs. Without this, deferring
+    the bootstrap leaves them simply absent."""
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +418,7 @@ def _read_repos_registry(registry_dir: pathlib.Path) -> dict[str, str]:
     reimplements the same registry.local.toml-before-registry.toml,
     empty-is-a-miss contract inline instead.
     """
+    _bootstrap_engine()
     merged: dict[str, str] = {}
     for fname in ("registry.toml", "registry.local.toml"):  # tracked first; .local wins on collision
         path = registry_dir / fname
@@ -725,7 +795,8 @@ def _check_only_requested(args: argparse.Namespace) -> bool:
     return env_val in ("1", "true", "yes")
 
 
-def main() -> int:
+def main(argv: "list[str] | None" = None) -> int:
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(
         description=(
             "Idempotently seed enabledPlugins[<plugin>@<marketplace>] = true"
@@ -775,7 +846,7 @@ def main() -> int:
         action="store_true",
         help="Compute and report what would be seeded; write nothing.",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     local_path = _resolve_settings_local_path(args.settings_path)
     committed_path = _resolve_committed_settings_path(

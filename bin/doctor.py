@@ -34,28 +34,30 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_LIB_DIR = str(Path(__file__).resolve().parent / "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_colocated_engine_on_path  # noqa: E402
 
-try:
-    require_colocated_engine_on_path(__file__)
-except RuntimeError as _exc:
-    print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
-    sys.exit(1)
+def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
 
-# DR-276: routed through coordinator_core.cli_entry.run_op_main rather than a
-# plain `from coordinator_core.ops.doctor import main` + direct call, so the
-# paths the op declares (--fix's hooks.json rewrite) become a session
-# scope-touch claim. Without that, everything this CLI writes is an orphan
-# at the `scoped_git_commit` sink.
-from coordinator_core.cli_entry import run_op_main  # noqa: E402
-
-if __name__ == "__main__":
     try:
-        _code = run_op_main("coordinator_core.ops.doctor", sys.argv[1:])
+        require_colocated_engine_on_path(__file__)
+    except RuntimeError as _exc:
+        print(f"{Path(__file__).name}: engine-root resolution failed: {_exc}", file=sys.stderr)
+        return 1
+
+    # DR-276: routed through coordinator_core.cli_entry.run_op_main rather than a
+    # plain `from coordinator_core.ops.doctor import main` + direct call, so the
+    # paths the op declares (--fix's hooks.json rewrite) become a session
+    # scope-touch claim. Without that, everything this CLI writes is an orphan
+    # at the `scoped_git_commit` sink.
+    from coordinator_core.cli_entry import run_op_main
+
+    try:
+        return run_op_main("coordinator_core.ops.doctor", argv[1:])
     except ImportError as _exc:
         print(f"{Path(__file__).name}: coordinator_core.ops.doctor not importable: {_exc}", file=sys.stderr)
-        sys.exit(1)
-    sys.exit(_code)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

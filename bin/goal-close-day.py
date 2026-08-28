@@ -50,14 +50,6 @@ import json
 import os
 import sys
 
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke, mutation_refusal_message  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
-
-
 def _parse_args(argv: list[str]) -> dict:
     decisions_raw = ""
 
@@ -94,6 +86,10 @@ def _parse_args(argv: list[str]) -> dict:
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import cc_invoke, mutation_refusal_message
+    from repo_identity import resolve_checked_repo_root
+
     parsed = _parse_args(argv)
 
     cwd_repo_root, verdict = resolve_checked_repo_root(explicit_root=None)

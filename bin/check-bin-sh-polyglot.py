@@ -69,11 +69,6 @@ import os
 import subprocess
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 # The verbatim trampoline string every polyglot-class member must contain.
 TRAMPOLINE = (
     '\'\'\'\'exec "$(command -v python3 || command -v python || command -v py)" '
@@ -132,6 +127,9 @@ def _show_toplevel(bin_dir: str) -> str:
         # below cannot succeed without this. RuntimeError joins the except
         # tuple because an unresolvable root must degrade to the git spawn
         # below exactly as an absent module already does.
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from cc_invoke import require_dispatch_engine_on_path
+
         require_dispatch_engine_on_path()
         from coordinator_core.git.repo_root import show_toplevel
 

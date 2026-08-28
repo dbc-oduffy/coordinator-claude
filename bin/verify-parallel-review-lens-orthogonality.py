@@ -68,11 +68,6 @@ does not modify files, dispatch agents, or commit.
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 _PROG = "verify-parallel-review-lens-orthogonality.py"
 _EXIT_TRANSPORT_FAILURE = 2  # dedicated — never collides with the op's business codes (0/1)
 
@@ -86,27 +81,30 @@ def _import_main():
     cc_invoke's subprocess-spawn transport (cc_invoke()/route()) is
     deliberately NOT used here.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.verify_parallel_review_lens_orthogonality import main as _op_main
 
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
         print(f"{_PROG}: engine-root resolution failed: {exc}", file=sys.stderr)
-        sys.exit(_EXIT_TRANSPORT_FAILURE)
+        return _EXIT_TRANSPORT_FAILURE
     except ImportError as exc:
         print(
             f"{_PROG}: coordinator_core.ops.verify_parallel_review_lens_orthogonality not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(_EXIT_TRANSPORT_FAILURE)
+        return _EXIT_TRANSPORT_FAILURE
 
-    sys.exit(op_main(sys.argv[1:]))
+    return op_main((sys.argv[1:] if argv is None else argv))
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

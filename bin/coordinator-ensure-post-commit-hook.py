@@ -22,22 +22,43 @@ import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 _LIB_DIR = os.path.join(_BIN_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-# git_hook_install.py imports from the coordinator_core package (win_portability,
-# py_probe_sh) at module level -- that package is resolvable only from the repo
-# root, not from _LIB_DIR, so it must be on sys.path too or the import below
-# raises ModuleNotFoundError every time this entrypoint runs as a subprocess
-# (which is how it is invoked from session-init and from the test suite).
 _REPO_ROOT = os.path.dirname(os.path.dirname(_BIN_DIR))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
 
-from git_hook_install import ensure_post_commit_hook  # noqa: E402
+_BOOTSTRAP_DONE = False
 
 
-def main() -> int:
+def _bootstrap_engine() -> None:
+    """Put the repo root on ``sys.path`` before ``git_hook_install`` is
+    imported.
+
+    git_hook_install.py imports from the coordinator_core package
+    (win_portability, py_probe_sh) at module level -- that package is
+    resolvable only from the repo root, not from _LIB_DIR, so it must be on
+    sys.path too or the import below raises ModuleNotFoundError every time
+    this entrypoint runs as a subprocess (which is how it is invoked from
+    session-init and from the test suite).
+
+    Idempotent; safe to call more than once. Moved out of module scope
+    (2026-08-28) -- unconditionally mutating `sys.path` at import time made
+    every import of this file mutate the `sys.path` of a warm server ~50
+    sessions share. Only the trigger moved; the effect is byte-for-byte the
+    same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    _BOOTSTRAP_DONE = True
+
+
+def main(argv: "list[str] | None" = None) -> int:
+    del argv  # this CLI takes no arguments; argv accepted for the warm-call contract
     try:
+        _bootstrap_engine()
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from git_hook_install import ensure_post_commit_hook
+
         return ensure_post_commit_hook(_BIN_DIR)
     except Exception as exc:  # never block a session start
         print(f"coordinator-ensure-post-commit-hook: {exc}", file=sys.stderr)

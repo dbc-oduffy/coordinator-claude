@@ -45,12 +45,6 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-from coordinator_data_root import data_root  # noqa: E402
-
 
 def _resolve_plugin_root() -> str:
     """The coordinator root containing the live schemas/ dir.
@@ -64,6 +58,8 @@ def _resolve_plugin_root() -> str:
     schemas/ dir, matching what `coordinator_core.ops.verify_schema_registry_sync
     .run()` expects as its `plugin_root` argument (`plugin_root / "schemas"`).
     """
+    from coordinator_data_root import data_root
+
     return str(data_root("schemas").parent)
 
 
@@ -81,13 +77,16 @@ def _resolve_run_op_main():
     print), so this changes nothing behaviorally, but keeps every operator
     CLI on the one recording seam uniformly.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _resolve_run_op_main()
     except RuntimeError as exc:
@@ -95,13 +94,13 @@ def main() -> None:
             f"verify-schema-registry-sync: engine-root resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
     except ImportError as exc:
         print(
             f"verify-schema-registry-sync: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     try:
         plugin_root = _resolve_plugin_root()
@@ -110,20 +109,20 @@ def main() -> None:
             f"verify-schema-registry-sync: schemas dir resolution failed: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     try:
-        code = run_op_main("coordinator_core.ops.verify_schema_registry_sync", [plugin_root] + sys.argv[1:])
+        code = run_op_main("coordinator_core.ops.verify_schema_registry_sync", [plugin_root] + (sys.argv[1:] if argv is None else argv))
     except ImportError as exc:
         print(
             f"verify-schema-registry-sync: coordinator_core.ops.verify_schema_registry_sync "
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

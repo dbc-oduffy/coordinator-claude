@@ -27,11 +27,6 @@ Spec backlink: coordinator_core/ops/append_integrator_dispositions.py module doc
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 EXIT_TRANSPORT_FAILURE = 3
 
 
@@ -44,28 +39,31 @@ def _import_runner():
     a session scope-touch claim. Without that, everything this CLI writes is an
     orphan at the `scoped_git_commit` sink.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.cli_entry import run_op_main
 
     return run_op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         run_op_main = _import_runner()
     except RuntimeError as exc:
         print(f"append-integrator-dispositions.py: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(EXIT_TRANSPORT_FAILURE)
+        return EXIT_TRANSPORT_FAILURE
     except ImportError as exc:
         print(
             f"append-integrator-dispositions.py: coordinator_core.cli_entry not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(EXIT_TRANSPORT_FAILURE)
+        return EXIT_TRANSPORT_FAILURE
 
     try:
         code = run_op_main(
-            "coordinator_core.ops.append_integrator_dispositions", sys.argv[1:]
+            "coordinator_core.ops.append_integrator_dispositions", (sys.argv[1:] if argv is None else argv)
         )
     except ImportError as exc:
         print(
@@ -73,10 +71,10 @@ def main() -> None:
             f"not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(EXIT_TRANSPORT_FAILURE)
+        return EXIT_TRANSPORT_FAILURE
 
-    sys.exit(code)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

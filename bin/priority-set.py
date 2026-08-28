@@ -58,11 +58,6 @@ import os
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import cc_invoke, mutation_refusal_message  # noqa: E402
-from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 MAX_TIMEOUT_SECS: float = 2.0
 """Ceiling on --timeout, mirroring coordinator_core.ops.priority_set's
@@ -177,6 +172,10 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
 
 
 def main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import cc_invoke, mutation_refusal_message
+    from repo_identity import resolve_checked_repo_root
+
     params = _parse_args(argv)
 
     # DR-277 (accepted): the cwd identity gate that used to sit here refused

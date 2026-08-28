@@ -53,16 +53,52 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Locate the shared module via realpath (always the true bin/lib, survives symlinked
-# invocation) but compute PLUGIN_ROOT from the non-resolved __file__ so the lib-discovery
-# path is fakeable by a symlinked entrypoint (test9 relies on this to force exit 5).
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib"))
-import workday_ceremony_lib as wc  # noqa: E402
-from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path, child_env  # noqa: E402
-
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BIN_SYNC_MAIN = os.environ.get("STEP3_SYNC_MAIN") or os.path.join(PLUGIN_ROOT, "bin", "sync-main.py")
 _BIN_CURRENT_BRANCH = os.path.join(PLUGIN_ROOT, "bin", "coordinator-current-branch.py")
+
+
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Put `coordinator/bin/lib` on `sys.path` -- idempotent, safe to call
+    more than once.
+
+    Locate the shared module via realpath (always the true bin/lib, survives
+    symlinked invocation) -- PLUGIN_ROOT above stays computed from the
+    non-resolved `__file__` so the lib-discovery path is fakeable by a
+    symlinked entrypoint (test9 relies on this to force exit 5).
+
+    What moved and what did not: this mutation used to run at MODULE scope,
+    which made every import of this file mutate the `sys.path` of a warm
+    server ~50 sessions share. Only the trigger moved; the value inserted is
+    byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    lib_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "lib")
+    if lib_dir not in sys.path:
+        sys.path.insert(0, lib_dir)
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 module `__getattr__` — lazily resolves `wc` (`workday_ceremony_lib`)
+    on attribute access rather than a module-scope import statement, so the
+    module body stays inert for warm-serve purposes while `mod.wc` (and
+    `monkeypatch.setattr(mod.wc, "git", ...)` against the SAME cached
+    `sys.modules` singleton every in-function `import workday_ceremony_lib as wc`
+    also binds to) still resolves for the test suite.
+    """
+    if name == "wc":
+        _bootstrap_engine()
+        import workday_ceremony_lib
+
+        return workday_ceremony_lib
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _HELP = """Usage: workday-complete-step3-consolidate.py [--no-push] [--dry-run]
 
@@ -83,6 +119,9 @@ def _err(msg: str) -> None:
 
 def _git_stream(*args: str) -> int:
     """Run `git <args>`, forwarding stdout+stderr to our stderr; return exit code."""
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     proc = wc.git(*args)
     if proc.stdout:
         sys.stderr.write(proc.stdout)
@@ -94,6 +133,9 @@ def _git_stream(*args: str) -> int:
 
 def _compute_machine() -> str:
     """Native cs_compute_machine equivalent — coordinator_core.machine_resolver.compute_machine."""
+    _bootstrap_engine()
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.machine_resolver import compute_machine
     return compute_machine()
@@ -105,6 +147,9 @@ def _parse_branch_span(branch: str) -> str | None:
     Returns 'start end' (space-joined) or None on parse failure, matching the retired
     bash bridge's stdout shape so downstream .split() call sites are unchanged.
     """
+    _bootstrap_engine()
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.daily_branch import parse_branch_span
     span = parse_branch_span(branch)
@@ -126,6 +171,9 @@ def _branch_covers_today(branch: str, today: str) -> bool:
 def _matching_work_branches(list_args: list[str], machine: str) -> list[str]:
     """Run `git branch <list_args>`, filter to work/<machine>/ lines (case-insensitive),
     return the stripped branch names."""
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+
     proc = wc.git(*(["branch"] + list_args))
     if proc.returncode != 0:
         return []
@@ -141,6 +189,10 @@ def _matching_work_branches(list_args: list[str], machine: str) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
+    _bootstrap_engine()
+    import workday_ceremony_lib as wc
+    from cc_invoke import require_dispatch_engine_on_path, child_env
+
     no_push = False
     dry_run = False
     i = 0

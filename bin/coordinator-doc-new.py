@@ -126,24 +126,6 @@ import tempfile
 # Shared memo composer — bin/lib/memo_compose.py (example-initiative tc-0 C4)
 # ---------------------------------------------------------------------------
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from memo_compose import (  # noqa: E402
-    compose_memo as _memo_compose,  # Review: code-reviewer S3-F3 — use compose_memo (full-doc composer) instead of compose_frontmatter + manual concat
-    _today,
-    _yaml_quote,
-    _SUMMARY_MAX_CHARS,
-)
-from machine_local_impl_resolve import (  # noqa: E402
-    claude_home as _mlir_claude_home,
-    settings_home as _mlir_settings_home,
-)
-from dr_allocator import (  # noqa: E402
-    allocate_dr_number as _allocate_dr_number,
-    assert_dr_id_unique as _assert_dr_id_unique,
-    DrAllocatorError as _DrAllocatorError,
-)
 
 # ---------------------------------------------------------------------------
 # Engine seam — claude-klabauter checkout on sys.path
@@ -203,56 +185,196 @@ def _ensure_engine_on_path() -> str | None:
     return _CLAUDE_KLABAUTER_ROOT_RESOLVED
 
 
-_ensure_engine_on_path()
+_BOOTSTRAP_DONE = False
 
-# Canonical Session Ledger block — owned by coordinator_core.session_ledger (the
-# package that also parses it, session_ledger.aggregate_chain_loe). Best-effort
-# import matching _ensure_engine_on_path()'s documented graceful-skip convention:
-# an unresolvable engine must not hard-fail every doc type (memo, plan, decision,
-# sidecar, ...), only the six ledger-owing scaffolders that actually need this
-# constant — those fail loudly at the point of use instead (see
-# _require_session_ledger_block below).
-# Review: code-reviewer 49e8b242 P1 — bare module-level import broke --help and
-# every non-ledger-owing doc type on an unresolvable engine; this restores the
-# file's own fail-open convention while keeping the six ledger-owing scaffolders
-# loud on the same failure.
-# Spec backlink: pln-ledger-owing-handoff-kinds-emi-648818 § C2
-try:
-    from coordinator_core.session_ledger import SESSION_LEDGER_BLOCK_LINES  # noqa: E402
-except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
-    SESSION_LEDGER_BLOCK_LINES = None
 
-# `canonical_kind` — the ONE canonical legacy<->target `kind` aliasing
-# function (coordinator_core.frontmatter.baton_class), routed through here
-# instead of a local literal --type alias table so this CLI stays covered by
-# `coordinator_core/tests/test_baton_class_is_the_only_membership_set.py`'s
-# single-owner rule. Same best-effort degrade-to-None posture as
-# SESSION_LEDGER_BLOCK_LINES above: an unresolvable engine costs the legacy
-# --type spellings' normalization (they fail the known-type gate below
-# instead, same as any other unrecognized --type), not a crash on every
-# other doc type.
-try:
-    from coordinator_core.frontmatter.baton_class import canonical_kind as _canonical_kind  # noqa: E402
-except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
-    _canonical_kind = None
+# Every name bound by `_bootstrap_engine()` below, published into module
+# globals on first successful/partial bootstrap. `SESSION_LEDGER_BLOCK_LINES`
+# and `_SESSION_LEDGER_BLOCK` are both here even though only the latter is
+# read elsewhere in this file — kept alongside its source so a future reader
+# does not have to cross-reference the bootstrap body to find where the
+# derived constant comes from.
+_BOOTSTRAPPED_NAMES = (
+    "lib",
+    "_memo_compose",
+    "_today",
+    "_yaml_quote",
+    "_SUMMARY_MAX_CHARS",
+    "_mlir_claude_home",
+    "_mlir_settings_home",
+    "_allocate_dr_number",
+    "_assert_dr_id_unique",
+    "_DrAllocatorError",
+    "SESSION_LEDGER_BLOCK_LINES",
+    "_SESSION_LEDGER_BLOCK",
+    "_canonical_kind",
+    "_derive_readiness",
+    "_KNOWN_TYPES",
+    "_DOC_TYPES",
+    "_SIDECAR_TYPES",
+    "_SIDECAR_SUFFIXES",
+    "_QUEUE_TYPES",
+    "_REPO_KEY_ALIASES",
+    "_em_id_for_root",
+)
 
-# `derive_readiness` — the ONE readiness-deriving predicate set (C1,
-# docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md).
-# --gated-open (C3 below) feeds it a scaffold-time `blocked_by` guess — the
-# flag DECLARES THE BLOCKER, it does not hardcode the readiness trio itself;
-# C1 derives deployment_state/pickup_ready from that declared blocker. The
-# no-flag (`blocked_by: []`) path also routes through this same function so
-# there is exactly one place that decides readiness — not a hardcoded literal
-# duplicating C1's empty-blocked_by rule. Same best-effort degrade-to-None
-# posture as the two imports above: an unresolvable engine costs --gated-open
-# specifically (it fails loud at the point of use, see _scaffold_handoff) and
-# falls back to the pre-C1 hardcoded ready_to_fire default for the no-flag
-# path (no engine dependency for the byte-identical majority case), not every
-# other doc type.
-try:
-    from coordinator_core.reconcile.gate_eval import derive_readiness as _derive_readiness  # noqa: E402
-except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
-    _derive_readiness = None
+
+def _bootstrap_engine() -> None:
+    """Run this file's module-scope non-stdlib imports and engine-path
+    mutation on first use instead of at import time.
+
+    ORDER INSIDE THIS FUNCTION IS THE ORIGINAL MODULE-SCOPE SEQUENCE,
+    byte-for-byte (comments included) -- only the trigger moved. Importing
+    `lib` first bootstraps `coordinator/bin/lib` onto `sys.path` so the three
+    sibling-module imports that follow (`memo_compose`, `machine_local_impl_
+    resolve`, `dr_allocator`) resolve; `_ensure_engine_on_path()` then puts
+    the claude-klabauter checkout on `sys.path` before the three best-effort
+    `coordinator_core` imports and the `coordinator_registry` import that
+    close out the sequence. What moved, and what did NOT: this whole
+    sequence used to run at MODULE scope, which made every import of this
+    file mutate the `sys.path` and import state of a warm server ~50
+    sessions share. Idempotent; safe to call more than once.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+        from memo_compose import (  # noqa: E402
+            compose_memo as _memo_compose,  # Review: code-reviewer S3-F3 — use compose_memo (full-doc composer) instead of compose_frontmatter + manual concat
+            _today,
+            _yaml_quote,
+            _SUMMARY_MAX_CHARS,
+        )
+        from machine_local_impl_resolve import (  # noqa: E402
+            claude_home as _mlir_claude_home,
+            settings_home as _mlir_settings_home,
+        )
+        from dr_allocator import (  # noqa: E402
+            allocate_dr_number as _allocate_dr_number,
+            assert_dr_id_unique as _assert_dr_id_unique,
+            DrAllocatorError as _DrAllocatorError,
+        )
+
+        _ensure_engine_on_path()
+
+        # Canonical Session Ledger block — owned by coordinator_core.session_ledger (the
+        # package that also parses it, session_ledger.aggregate_chain_loe). Best-effort
+        # import matching _ensure_engine_on_path()'s documented graceful-skip convention:
+        # an unresolvable engine must not hard-fail every doc type (memo, plan, decision,
+        # sidecar, ...), only the six ledger-owing scaffolders that actually need this
+        # constant — those fail loudly at the point of use instead (see
+        # _require_session_ledger_block below).
+        # Review: code-reviewer 49e8b242 P1 — bare module-level import broke --help and
+        # every non-ledger-owing doc type on an unresolvable engine; this restores the
+        # file's own fail-open convention while keeping the six ledger-owing scaffolders
+        # loud on the same failure.
+        # Spec backlink: pln-ledger-owing-handoff-kinds-emi-648818 § C2
+        try:
+            from coordinator_core.session_ledger import SESSION_LEDGER_BLOCK_LINES  # noqa: E402
+        except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
+            SESSION_LEDGER_BLOCK_LINES = None
+
+        # `canonical_kind` — the ONE canonical legacy<->target `kind` aliasing
+        # function (coordinator_core.frontmatter.baton_class), routed through here
+        # instead of a local literal --type alias table so this CLI stays covered by
+        # `coordinator_core/tests/test_baton_class_is_the_only_membership_set.py`'s
+        # single-owner rule. Same best-effort degrade-to-None posture as
+        # SESSION_LEDGER_BLOCK_LINES above: an unresolvable engine costs the legacy
+        # --type spellings' normalization (they fail the known-type gate below
+        # instead, same as any other unrecognized --type), not a crash on every
+        # other doc type.
+        try:
+            from coordinator_core.frontmatter.baton_class import canonical_kind as _canonical_kind  # noqa: E402
+        except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
+            _canonical_kind = None
+
+        # `derive_readiness` — the ONE readiness-deriving predicate set (C1,
+        # docs/plans/2026-08-19-gate-notes-are-advisory-blocked-by-derives-readiness.md).
+        # --gated-open (C3 below) feeds it a scaffold-time `blocked_by` guess — the
+        # flag DECLARES THE BLOCKER, it does not hardcode the readiness trio itself;
+        # C1 derives deployment_state/pickup_ready from that declared blocker. The
+        # no-flag (`blocked_by: []`) path also routes through this same function so
+        # there is exactly one place that decides readiness — not a hardcoded literal
+        # duplicating C1's empty-blocked_by rule. Same best-effort degrade-to-None
+        # posture as the two imports above: an unresolvable engine costs --gated-open
+        # specifically (it fails loud at the point of use, see _scaffold_handoff) and
+        # falls back to the pre-C1 hardcoded ready_to_fire default for the no-flag
+        # path (no engine dependency for the byte-identical majority case), not every
+        # other doc type.
+        try:
+            from coordinator_core.reconcile.gate_eval import derive_readiness as _derive_readiness  # noqa: E402
+        except ImportError:  # noqa: BLE001 -- best-effort import; unresolvable engine degrades to None
+            _derive_readiness = None
+
+        # Type registries — derived from schemas/coordinator-registry.manifest.json via bin/lib/coordinator_registry.py.
+        # Do not add literal type lists here; update the manifest instead.
+        from coordinator_registry import (  # noqa: E402
+            KNOWN_TYPES as _KNOWN_TYPES,
+            DOC_TYPES as _DOC_TYPES,                 # raw docTypes tuple — offerable/excludeReason for the non-scaffoldable guard
+            SIDECAR_TYPES as _SIDECAR_TYPES,
+            SIDECAR_SUFFIXES as _SIDECAR_SUFFIXES,  # review F3 — replaces local _SIDECAR_SUFFIX dict
+            QUEUE_TYPES as _QUEUE_TYPES,
+            REPO_ALIASES as _REPO_KEY_ALIASES,
+            em_id_for_root as _em_id_for_root,      # C2b — shared resolver; no home param
+        )  # Review: code-reviewer — F2: removed dead import repo_key_to_em_id; only _em_id_for_root is called here
+
+        # --type run-report — LOCAL shim, not yet manifest-registered.
+        #
+        # coordinator-registry.manifest.json's docTypes/kindOfferOverride entries for
+        # "run-report" (replacing "flight-recorder") are C8a's write-target in the
+        # subagent-run-report-subsume plan (schema/registry retirement chunk, gated on
+        # this chunk (C4) + C2/C5 landing first). Until C8a lands, "run-report" is
+        # unknown to the manifest-derived _KNOWN_TYPES import above, so it is unioned
+        # in locally here — a minimal, additive shim scoped to THIS file only. C8a's
+        # manifest edit will make this shim redundant (harmless to keep; the union is
+        # idempotent), not conflicting — do not pre-empt C8a's surface from here.
+        #
+        # Spec backlink: docs/plans/2026-07-13-subagent-run-report-subsume.md § C4, C8a
+        _KNOWN_TYPES = _KNOWN_TYPES | frozenset({"run-report"})
+
+        # Canonical Session Ledger block, shared verbatim by every handoff-family scaffolder
+        # (_scaffold_handoff/_scaffold_recovery/_scaffold_spinoff/_scaffold_roadmap_baton/
+        # _scaffold_roadmap_seed/_scaffold_goal_seed). session_ledger.aggregate_chain_loe sums this
+        # block's rows; the comment's one-line grammar MUST stay the format parse_session_ledgers
+        # reads (_ONELINE_RE) — do not fork this literal per-kind, that duplication is the defect
+        # this constant exists to close.
+        # Owned by coordinator_core.session_ledger (the parser's own package) — imported here,
+        # not re-typed, so emitter and parser cannot drift independently.
+        # Spec backlink: pln-ledger-owing-handoff-kinds-emi-648818 § C1/C2
+        _SESSION_LEDGER_BLOCK: list[str] | None = SESSION_LEDGER_BLOCK_LINES
+    finally:
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook for the names `_bootstrap_engine()` publishes.
+
+    Several sibling functions and at least one test monkeypatch this module's
+    attributes (e.g. `_today`, `_KNOWN_TYPES`) before `main()` has ever run, so
+    deferring these imports into `main()` alone would leave them absent from
+    the module. Routing attribute access through the bootstrap keeps the
+    module body inert while still satisfying a caller that reaches for a
+    bootstrapped name directly.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _no_console_creationflags() -> dict:
@@ -300,29 +422,9 @@ def _no_console_passthrough_kwargs() -> dict:
 
 # Type registries — derived from schemas/coordinator-registry.manifest.json via bin/lib/coordinator_registry.py.
 # Do not add literal type lists here; update the manifest instead.
-from coordinator_registry import (  # noqa: E402
-    KNOWN_TYPES as _KNOWN_TYPES,
-    DOC_TYPES as _DOC_TYPES,                 # raw docTypes tuple — offerable/excludeReason for the non-scaffoldable guard
-    SIDECAR_TYPES as _SIDECAR_TYPES,
-    SIDECAR_SUFFIXES as _SIDECAR_SUFFIXES,  # review F3 — replaces local _SIDECAR_SUFFIX dict
-    QUEUE_TYPES as _QUEUE_TYPES,
-    REPO_ALIASES as _REPO_KEY_ALIASES,
-    em_id_for_root as _em_id_for_root,      # C2b — shared resolver; no home param
-)  # Review: code-reviewer — F2: removed dead import repo_key_to_em_id; only _em_id_for_root is called here
-
-# --type run-report — LOCAL shim, not yet manifest-registered.
-#
-# coordinator-registry.manifest.json's docTypes/kindOfferOverride entries for
-# "run-report" (replacing "flight-recorder") are C8a's write-target in the
-# subagent-run-report-subsume plan (schema/registry retirement chunk, gated on
-# this chunk (C4) + C2/C5 landing first). Until C8a lands, "run-report" is
-# unknown to the manifest-derived _KNOWN_TYPES import above, so it is unioned
-# in locally here — a minimal, additive shim scoped to THIS file only. C8a's
-# manifest edit will make this shim redundant (harmless to keep; the union is
-# idempotent), not conflicting — do not pre-empt C8a's surface from here.
-#
-# Spec backlink: docs/plans/2026-07-13-subagent-run-report-subsume.md § C4, C8a
-_KNOWN_TYPES = _KNOWN_TYPES | frozenset({"run-report"})
+# `_KNOWN_TYPES`/`_DOC_TYPES`/`_SIDECAR_TYPES`/`_SIDECAR_SUFFIXES`/`_QUEUE_TYPES`/
+# `_REPO_KEY_ALIASES`/`_em_id_for_root` (including the local run-report union) are
+# bootstrapped in `_bootstrap_engine()` above, not imported at module scope.
 
 # subagent-sidecar formerly carried a LOCAL shim here identical in shape to
 # the run-report one above (docs/plans/2026-07-24-canonical-resolution-
@@ -488,6 +590,7 @@ def _claude_home() -> str:
 
     Delegates to machine_local_impl_resolve.claude_home() (shared resolver).
     """
+    _bootstrap_engine()
     return _mlir_claude_home()
 
 
@@ -511,6 +614,7 @@ def _machine_local_impl() -> str:
     validation above — falls back to the retired compat mirror only when the
     settings-home candidate is absent on disk.
     """
+    _bootstrap_engine()
     override = os.environ.get("MACHINE_LOCAL_IMPL")
     if override:
         if os.path.isabs(override) and override.endswith(".py") and os.path.isfile(override):
@@ -1067,6 +1171,7 @@ def _mint_plan_id(slug: str) -> str:
 
 def _resolve_from_repo() -> str:
     """Identify the from_repo for the scaffolded document from cwd context."""
+    _bootstrap_engine()
     root = _current_repo_root()
     paths_dict = _machine_local_dump_repos()
     # Ensure repos.doe_claude is present so the central-identity path-match in
@@ -1884,7 +1989,8 @@ def _validate_category(value: str) -> None:
 # Owned by coordinator_core.session_ledger (the parser's own package) — imported here,
 # not re-typed, so emitter and parser cannot drift independently.
 # Spec backlink: pln-ledger-owing-handoff-kinds-emi-648818 § C1/C2
-_SESSION_LEDGER_BLOCK: list[str] | None = SESSION_LEDGER_BLOCK_LINES
+# `_SESSION_LEDGER_BLOCK` is bootstrapped in `_bootstrap_engine()` above, not
+# assigned at module scope.
 
 
 def _require_session_ledger_block() -> list[str]:
@@ -1898,6 +2004,7 @@ def _require_session_ledger_block() -> list[str]:
     close. Non-ledger-owing doc types never call this and are unaffected by
     an absent engine.
     """
+    _bootstrap_engine()
     if _SESSION_LEDGER_BLOCK is None:
         print(
             "error: cannot scaffold this doc type — coordinator_core.session_ledger "
@@ -2072,6 +2179,7 @@ def _scaffold_handoff(
     Negative-spec: does NOT generate body prose — placeholder comments only.
     The EM authors the body; the scaffolder provides the shape.
     """
+    _bootstrap_engine()
     today = _today()
     # Placeholder summary: ≤140 chars, non-empty — satisfies the post-cutoff cross-field rule.
     placeholder_summary = f"PLACEHOLDER — replace with one-line session summary (≤140 chars)"
@@ -2383,6 +2491,7 @@ def _scaffold_recovery(
     frontmatter is written — defaults to 'infra' unchanged when not supplied.
     Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
     """
+    _bootstrap_engine()
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line recovery summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
@@ -2553,6 +2662,7 @@ def _scaffold_spinoff(
     frontmatter is written — defaults to 'infra' unchanged when not supplied.
     Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
     """
+    _bootstrap_engine()
     today = _today()
     placeholder_summary = f"PLACEHOLDER — replace with one-line spinoff summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
@@ -2725,6 +2835,7 @@ def _scaffold_roadmap_baton(
     handoff_id: str | None = None,
     gate_dependency: str | None = None,
     sizing_object: str | None = None,
+    blocks: list[str] | None = None,
 ) -> str:
     """Generate validator-clean roadmap-baton frontmatter + canonical section skeleton.
 
@@ -2734,7 +2845,29 @@ def _scaffold_roadmap_baton(
     gate_dependency (deprecated), blocked_by, or blocking_notes; category/summary
     required post-2026-05-29).
 
-    Graph field placeholders (sprint, wave, cost, blocks, blocked_by, scope) are
+    `blocks` (--blocks, repeatable) is the ONE graph field that is carried rather
+    than stubbed, because it is the one a continuation SILENTLY LOSES. A roadmap
+    baton picked up mid-flight mints a successor under the same `stub_id`; the
+    successor got `blocks: []` from the placeholder list below while the whole
+    down-graph still pointed at that `stub_id`, so every dependent's
+    `blocks`/`blocked_by` symmetry check read the edge as severed and
+    `reconcile.gate_eval._has_asymmetry` reported a symmetric graph as a data
+    defect. Losing an edge on continuation is not a placeholder to fill in later —
+    nothing tells the author it went missing. Carried through VERBATIM, never
+    resolved, deduped, or validated here: the caller (baton_assemble's
+    `_resolved_predecessor_roadmap_identity`) reads the predecessor's own authored
+    list and this scaffolder emits exactly what it is handed, on the same
+    carry-through terms as `--deliverable-ids`/`--additional-predecessor`. Omitted
+    → `blocks: []`, byte-identical to every caller that does not pass it.
+
+    Still NOT carried, named rather than silently dropped: `blocked_by`, `sprint`,
+    `wave`. `blocked_by` is deliberately excluded — it is DERIVED readiness state
+    (`--gated-open` owns it, and `_derive_readiness` reads it), so inheriting a
+    predecessor's gates would re-park a successor on blockers that may have since
+    cleared. `sprint`/`wave` are topo-sort outputs owned by
+    `bin/roadmap-number-stubs`, not lineage.
+
+    Graph field placeholders (sprint, wave, cost, blocked_by, scope) are
     best-effort stubs — the author fills them via Edit after the topo sort via
     bin/roadmap-number-stubs (skills/roadmap-planning/SKILL.md § Step 2.1.5).
     gate_dependency is the deprecated single-string gate field (C2); when not
@@ -2773,6 +2906,7 @@ def _scaffold_roadmap_baton(
     frontmatter is written — defaults to 'roadmap' unchanged when not supplied.
     Spec backlink: cross-repo/inbox/2026-07-23-example-cockpit-repo-em-coordinator-doc-new-category-no-validation.md
     """
+    _bootstrap_engine()
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line stub summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
@@ -2799,7 +2933,14 @@ def _scaffold_roadmap_baton(
         "wave: 1    # fill from roadmap-number-stubs topo output (Step 2.1.5)",
         "cost: T1   # T0 trivial | T1 small (<1h) | T2 medium (1-4h) | T3 multi-day",
         "deployment_state: awaiting_gate",
-        "blocks: []",
+    ]
+    _blocks = [b.strip() for b in (blocks or []) if isinstance(b, str) and b.strip()]
+    if _blocks:
+        lines.append("blocks:")
+        lines.extend(f"  - {_yaml_quote(_entry)}" for _entry in _blocks)
+    else:
+        lines.append("blocks: []")
+    lines += [
         "blocked_by: []",
         "scope:",
         "  - PLACEHOLDER  # replace with in-scope pathspecs (git pathspec syntax)",
@@ -2944,6 +3085,7 @@ def _scaffold_goal_seed(
     invocation context not audited by this fix, so resolve-or-degrade is applied
     as a strict improvement without a new failure mode.
     """
+    _bootstrap_engine()
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line vision-slice summary (≤140 chars)"
     _category = category if category else "infra"
@@ -3103,6 +3245,7 @@ def _scaffold_roadmap_seed(
     as a strict improvement without a new failure mode. `workstream` stays a
     hand-typed placeholder (operator-chosen roadmap slug), unaffected by this fix.
     """
+    _bootstrap_engine()
     today = _today()
     placeholder_summary = "PLACEHOLDER — replace with one-line capability-arc summary (≤140 chars)"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
@@ -3212,6 +3355,7 @@ def _scaffold_memo(title: str, to: str, topic: str, from_id: str) -> str:
     Negative-spec: does NOT route, deliver, or apply claim-locks. This is a
     LOCAL skeleton only. All delivery surfaces stay in bin/cross-repo-memo.
     """
+    _bootstrap_engine()
     placeholder_body = (
         "<!-- Replace with the memo body. -->\n"
         "<!-- Send when ready: cross-repo-memo send {topic}   (drafted to {to}) -->\n".format(
@@ -3249,8 +3393,17 @@ def _scaffold_plan(
 
     Produces a conformant plan against schemas/plan.yaml: required title/created/
     author/status:draft + commented skeleton of promoted optional keys + the
-    canonical four-section body (## Problem / ## Acceptance Criteria /
-    ## Anti-scope / ## Out of scope as DISTINCT sections per D2).
+    canonical three-section body (## Problem / ## Anti-scope / ## Out of scope
+    as DISTINCT sections per D2).
+
+    Negative-spec: no `## Acceptance Criteria` heading is emitted. The AC table
+    is a retired row family (forward-only, PM ruling 2026-08-27, DoE-claude
+    pln-collapse-the-ac-checkbox-table-c53bbc): a criterion that must be
+    discharged is a `## Tasks` spine row, where `close_out_and_stamp`'s
+    `spine_fully_resolved` gate and `d-harvest-deferrals` actually reach it;
+    everything else rides `prime_exit_criterion`'s falsifier delta. Existing
+    plans keep their tables as paper trail -- do NOT reintroduce the heading
+    here to match them.
 
     plan_id is minted fresh (pln-<slug>-<6hex>) — always present, never null (D3).
     deliverable_id is auto-inherited from DELIVERABLE_ID env var or minted fresh
@@ -3275,6 +3428,7 @@ def _scaffold_plan(
     Spec backlink: pln-plan-sizing-citation-gate-scaf-45eaed § AC2
     Spec backlink: docs/plans/2026-08-21-engine-half-of-the-roadmap-sprint-spine-split.md § C7
     """
+    _bootstrap_engine()
     today = _today()
     _pid = _yaml_quote(plan_id) if plan_id else "null"
     _dlv = _yaml_quote(deliverable_id) if deliverable_id else "null"
@@ -3330,6 +3484,17 @@ def _scaffold_plan(
         "# scope:",
         "#   - path/or/item/one",
         "#   - path/or/item/two",
+        "# prime_exit_criterion:              # falsifier block — read-side owed only at",
+        "#                                     # estimate.tshirt M/L/XL; scaffold time can't",
+        "#                                     # know that, so this stays commented, not a",
+        "#                                     # live stub (schema 2.8.0, plan.schema.json)",
+        "#   statement:                       # one falsifiable sentence",
+        "#   derived_from:                    # state/sizings/<id>.yaml OR <goal_id>#kr-<kr-id>",
+        "#   falsifier:",
+        "#     how:",
+        "#     baseline_output:",
+        "#     baseline_ref:",
+        "#     expected_when_true:             # NEW in 2.8.0 — do not omit",
         "---",
         "",
         f"# {title}",
@@ -3337,10 +3502,6 @@ def _scaffold_plan(
         "## Problem",
         "",
         "<!-- State the problem this plan solves. -->",
-        "",
-        "## Acceptance Criteria",
-        "",
-        "<!-- Checklist or table the EM gates completion against. -->",
         "",
         "## Anti-scope",
         "",
@@ -3500,6 +3661,7 @@ def _mutate_sizing_reverse_edge(old_text: str, plan_repo_rel_path: str) -> str:
     on that branch. `insert_fm_field_raw` (added to the primitives module,
     mirroring `replace_fm_field_raw`) closes the gap.
     """
+    _bootstrap_engine()
     from coordinator_core.frontmatter.primitives import (  # noqa: PLC0415
         insert_fm_field_raw,
         read_fm_field_unquoted,
@@ -3633,6 +3795,7 @@ def _scaffold_decision(title: str, dr_id: str) -> str:
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-1-records-consolidation.md § C5, D3, D4
     Spec backlink: cross-repo/inbox/2026-07-20-example-game-repo-em-dr-number-allocator-collision.md
     """
+    _bootstrap_engine()
     today = _today()
     lines = [
         "---",
@@ -3689,6 +3852,7 @@ def _scaffold_audit_record(title: str, system: str) -> str:
 
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-3-expressive-audit-canonical-shape.md § C2, D1, D3
     """
+    _bootstrap_engine()
     today = _today()
     # run_id placeholder: YYYY-MM-DD-HHhMM (reviewer replaces with the actual run timestamp).
     run_id_placeholder = f"{today}-HHhMM"
@@ -3759,6 +3923,7 @@ def _scaffold_problem_set(title: str) -> str:
 
     Spec backlink: docs/plans/2026-06-29-cli-scaffold-deterministic-docs.md § C3a
     """
+    _bootstrap_engine()
     today = _today()
     lines = [
         "---",
@@ -3827,6 +3992,7 @@ def _scaffold_completion(
     Spec backlink: docs/plans/2026-06-29-cli-scaffold-deterministic-docs.md § C3b
     Spec backlink (completion_id): docs/plans/2026-07-08-lifecycle-vocab-c2-durable-links-rollup.md § C1
     """
+    _bootstrap_engine()
     today = _today()
     lines = [
         "---",
@@ -3889,6 +4055,7 @@ def _scaffold_health_status(title: str) -> str:
     Negative-spec: does NOT conflate status (LIFECYCLE) with health (POSTURE) — see schema
     description field for the canonical two-axis semantics.
     """
+    _bootstrap_engine()
     today = _today()
     lines = [
         "---",
@@ -3954,6 +4121,7 @@ def _scaffold_goal(title: str) -> str:
     fences — the entire file IS the YAML document (whole-document-yaml
     match_mode). Fabricates NO goal content beyond structural placeholders.
     """
+    _bootstrap_engine()
     today = _today()
     slug = _slug_from_title(title)
     goal_id = f"goal-{slug}"
@@ -4027,6 +4195,7 @@ def _scaffold_sizing(title: str, deliverable_id: str | None = None) -> str:
     accepted by default. Both fields are required-and-nullable in the schema,
     so both must be emitted here even when null.
     """
+    _bootstrap_engine()
     intent_placeholder = title if title else "PLACEHOLDER — replace with the PM's ask, verbatim"
     lines = [
         "schema: sizing-object",
@@ -4078,6 +4247,7 @@ def _scaffold_strategic_self_description(title: str) -> str:
     Negative-spec: does NOT invent competitor/version-highlight content, does NOT emit a
     `schema:` marker key (additionalProperties:false forbids it), does NOT omit `hero_asset`.
     """
+    _bootstrap_engine()
     repo_name = title.strip() if title and title.strip() else "PLACEHOLDER-repo"
     lines = [
         "repo_identity:",
@@ -4120,6 +4290,7 @@ def _scaffold_research_synthesis(title: str) -> str:
     Negative-spec: does NOT emit body prose — section headers + HTML comments only.
     The research-synthesizer authors the body; the scaffolder provides the shape.
     """
+    _bootstrap_engine()
     today = _today()
     lines = [
         "---",
@@ -4245,6 +4416,7 @@ def _scaffold_run_report(
     discriminator, read via field presence downstream, not via this sentinel (the Staff Engineer
     Finding 0 / AC1c, carried forward from flight-recorder).
     """
+    _bootstrap_engine()
     _agent_type = agent_type or "executor"
     lines = [
         "---",
@@ -4429,6 +4601,7 @@ def _scaffold_subagent_sidecar(
 
     Spec backlink: docs/plans/2026-07-24-canonical-resolution-engine.md § W2-B3, R7 Addendum
     """
+    _bootstrap_engine()
     _agent_type = agent_type or "executor"
     lines = [
         "---",
@@ -4483,6 +4656,7 @@ def _scaffold_sidecar(doc_type: str, plan_stem: str) -> str:
 
     Spec backlink: docs/plans/2026-06-25-example-initiative-tc-1-records-consolidation.md § C5, D5
     """
+    _bootstrap_engine()
     today = _today()
     plan_path = f"docs/plans/{plan_stem}.md"
 
@@ -4798,6 +4972,7 @@ def _default_output_path(
                          via _sanitize_session_segment(); slice_id from --slice; SLUG from
                          _slug_from_scope(scope))
     """
+    _bootstrap_engine()
     today = _today()
     if doc_type in ("handoff", "spinoff", "recovery", "goal-seed", "roadmap-seed"):
         slug = _slug_from_title(title)
@@ -4870,6 +5045,7 @@ def _default_output_path(
 
 def _build_parser() -> argparse.ArgumentParser:
     """Build the argument parser for coordinator-doc-new."""
+    _bootstrap_engine()
     parser = argparse.ArgumentParser(
         prog="coordinator-doc-new",
         description=(
@@ -5418,6 +5594,24 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
             "Defaults to placeholder-stub-1 when omitted."
         ),
     )
+    parser.add_argument(
+        "--blocks",
+        dest="blocks",
+        action="append",
+        default=None,
+        metavar="STUB_ID",
+        help=(
+            "(roadmap-baton) Repeatable, one blocked stub_id per occurrence — NOT "
+            "comma-joined (same rationale as --deliverable-ids: a comma-split "
+            "re-introduces the quoting seam the .cmd launcher mangles). Carried as-is "
+            "verbatim: never resolved, deduped, or validated here. Exists so a "
+            "CONTINUATION does not silently drop the down-edges its predecessor "
+            "authored — a successor minted under the same stub_id with blocks: [] "
+            "reads to every gate check as a severed graph, which is what the "
+            "blocks/blocked_by asymmetry surface then reports as a data defect. "
+            "Omitted -> blocks: [], byte-identical to callers that do not pass it."
+        ),
+    )
 
     # Goal-seed / roadmap-seed fields.
     parser.add_argument(
@@ -5456,14 +5650,15 @@ Spec backlink (workflow): pln-workflow-skeleton-stamper-maki-adab0d
 # Main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     """Entry point for coordinator-doc-new CLI."""
     # A4 — Early delegation for queue and lesson types.
-    # MUST run before parser.parse_args() because queue-type flags (--body, --risk,
+    # MUST run before parser.parse_args(argv) because queue-type flags (--body, --risk,
     # --severity, --change-kind, etc.) are not known to this parser — argparse would
     # reject them with "unrecognized arguments" before we could route to the delegate.
     # Both delegation functions call sys.exit() so control does not return here.
     # Spec backlink: docs/plans/2026-06-25-example-initiative-tc-4-fleet-machinery-contract-emit.md § A4
+    _bootstrap_engine()
     _early_type = _peek_doc_type()
     if _early_type in _QUEUE_TYPES:
         _delegate_to_queue_append(_early_type)  # calls sys.exit() — does not return
@@ -5473,7 +5668,7 @@ def main() -> None:
         _delegate_to_workflow_scaffold()  # calls sys.exit() — does not return
 
     parser = _build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     doc_type = args.doc_type
 
@@ -5522,7 +5717,7 @@ def main() -> None:
             f"Known types: {known}.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     # Resolve title default.
     title = args.title
@@ -5574,10 +5769,10 @@ def main() -> None:
     if doc_type == "memo":
         if not args.to:
             print("error: --to is required for --type memo.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         if not args.topic:
             print("error: --topic is required for --type memo.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         # Security: guard --to with the same slug allowlist as --topic.
         # The --to value is interpolated into an HTML comment in the memo scaffold body
         # (<!-- Send when ready: ... --to {to} ... -->); a value containing '-->'
@@ -5589,7 +5784,7 @@ def main() -> None:
                 "Use lowercase alphanumeric + dashes, starting with alphanum.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         topic_slug = args.topic
         if not _SLUG_RE.match(topic_slug):
             print(
@@ -5597,7 +5792,7 @@ def main() -> None:
                 "Use lowercase alphanumeric + dashes, starting with alphanum.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Validate sidecar-specific required fields.
     if doc_type in _SIDECAR_TYPES:
@@ -5606,7 +5801,7 @@ def main() -> None:
                 f"error: --plan <stem> is required for --type {doc_type}.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         # Review: code-reviewer slice-B F1 — parse-time allowlist guard: reject stems containing
         # path separators, dots, colons, newlines or any char outside [a-z0-9-].
         # Prevents path traversal (../../evil) and YAML-breaking values (:, newline).
@@ -5619,17 +5814,17 @@ def main() -> None:
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Validate run-report-specific required fields (doc_type is already normalized
     # from the flight-recorder alias by this point — see main()'s alias check above).
     if doc_type == "run-report":
         if not args.plan:
             print("error: --plan <path> is required for --type run-report.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         if not args.chunk:
             print("error: --chunk <id> is required for --type run-report.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         # Review: code-reviewer item-5 F1 — parse-time slug guard on --chunk mirrors the --plan guard for
         # sidecar types. Closes path-injection: without this, `--chunk ../../../x` reaches
         # os.path.join("tasks", plan_slug, "flight", f"{cid}.md") carrying the raw traversal.
@@ -5642,7 +5837,7 @@ def main() -> None:
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         # --out is REQUIRED for run-report — the retired tasks/<plan-slug>/flight/<chunk-id>.md
         # default-path guess was removed (DEC-3 subsume, docs/plans/2026-07-13-subagent-run-
         # report-subsume.md § C4 defect3). The universal sidecar now lives under
@@ -5654,7 +5849,7 @@ def main() -> None:
                 _missing_out_message("run-report (and its --type flight-recorder alias)"),
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Validate subagent-sidecar-specific required fields — mirrors the
     # run-report validation block above (same slug-guard rationale: --plan
@@ -5663,10 +5858,10 @@ def main() -> None:
     if doc_type == "subagent-sidecar":
         if not args.plan:
             print("error: --plan <path> is required for --type subagent-sidecar.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         if not args.chunk:
             print("error: --chunk <id> is required for --type subagent-sidecar.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         if not _SLUG_RE.match(args.chunk):
             print(
                 f"error: --chunk '{args.chunk}' is not a valid chunk id. "
@@ -5674,19 +5869,19 @@ def main() -> None:
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         # --out is REQUIRED — the live sidecar path is computed by
         # coordinator_core.dispatch.provision at spawn time, exactly the same
         # rationale as --type run-report's --out requirement above.
         if not args.out:
             print(_missing_out_message("subagent-sidecar"), file=sys.stderr)
-            sys.exit(1)
+            return 1
 
     # Validate audit-record-specific required fields.
     if doc_type == "audit-record":
         if not args.system:
             print("error: --system <name> is required for --type audit-record.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         # Guard --system with the slug allowlist — same rationale as --plan for sidecars.
         # System name is embedded in the YAML frontmatter system: field and the output filename;
         # non-slug characters (dots, colons, slashes, newlines) would break both surfaces.
@@ -5697,7 +5892,7 @@ def main() -> None:
                 "Path separators, dots, colons, and other metacharacters are not allowed.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Validate completion-specific fields.
     if doc_type == "completion":
@@ -5707,7 +5902,7 @@ def main() -> None:
                 f"Must be one of: {', '.join(_COMPLETION_NATURE_ENUM)}.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         # Review: code-reviewer — F3: --chain is YAML-interpolated; guard with _SLUG_RE like other slug args.
         if args.chain and not _SLUG_RE.match(args.chain):
             print(
@@ -5715,7 +5910,7 @@ def main() -> None:
                 "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$).",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Validate plan-specific --sizing-object / --no-sizing-object: the write-time
     # half of the plan sizing-citation gate. A supplied path that does not resolve
@@ -5741,7 +5936,7 @@ def main() -> None:
                 "with --no-sizing-object, not both.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         if not args.sizing_object and not args.no_sizing_object:
             print(
                 f"error: --type {doc_type} requires an explicit sizing answer — "
@@ -5751,7 +5946,7 @@ def main() -> None:
                 "this record genuinely has none.",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         if args.sizing_object:
             _sizing_repo_root = _current_repo_root() or "."
             _sizing_abs_path = os.path.join(_sizing_repo_root, args.sizing_object)
@@ -5762,16 +5957,16 @@ def main() -> None:
                     "first via coordinator:sizing, then re-run with the resolved path.",
                     file=sys.stderr,
                 )
-                sys.exit(1)
+                return 1
 
     # Validate review-findings-specific required fields.
     if doc_type == "review-findings":
         if not args.slice_id:
             print("error: --slice <id> is required for --type review-findings.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         if not args.scope:
             print("error: --scope <comma-paths> is required for --type review-findings.", file=sys.stderr)
-            sys.exit(1)
+            return 1
         # review F8 — paths are expected (separators, dots fine) but markdown metacharacters
         # in the heading/Scope: line produce structurally odd sidecar markdown; block the
         # most obvious injection vectors while leaving path syntax unrestricted.
@@ -5782,14 +5977,14 @@ def main() -> None:
                 f"(newline, carriage-return, backtick, or markdown comment close).",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         if not _SLICE_RE.match(args.slice_id):
             print(
                 f"error: --slice '{args.slice_id}' is not a valid slice id. "
                 "Use alphanumeric + dashes only (^[a-zA-Z0-9][a-zA-Z0-9-]*$).",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Validate roadmap-baton-specific fields.
     if doc_type == "roadmap-baton":
@@ -5799,14 +5994,14 @@ def main() -> None:
                 "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$).",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
         if args.stub_id and not _SLUG_RE.match(args.stub_id):
             print(
                 f"error: --stub-id '{args.stub_id}' is not a valid slug. "
                 "Use lowercase alphanumeric + dashes only (^[a-z0-9][a-z0-9-]*$).",
                 file=sys.stderr,
             )
-            sys.exit(1)
+            return 1
 
     # Resolve branch (for handoff/spinoff/plan).
     branch = args.branch if args.branch else _current_branch()
@@ -6127,7 +6322,7 @@ def main() -> None:
             _assert_dr_id_unique(_decisions_dir, _resolved_dr_id)
         except _DrAllocatorError as exc:
             print(f"error: {exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
 
     # Kind-gate the fan-in down-edge. Mirrors --predecessor's own handoff-only
     # contract (schema rule A3a-3 _cf_spinoff_predecessor_none makes the spinoff
@@ -6146,7 +6341,7 @@ def main() -> None:
             "carries a predecessor edge at all.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     # --summary/--gated-open are handoff-scoped, same posture as
     # --additional-predecessor above: refused fail-loud for every other
@@ -6171,7 +6366,7 @@ def main() -> None:
             "handoff-only fields.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     # --deliverable-ids/--plan-ids are handoff-scoped plural carriers (C1),
     # same posture as --additional-predecessor/--summary above: refused
@@ -6188,7 +6383,7 @@ def main() -> None:
             "--deliverable-ids and --plan-ids are handoff-only fields.",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     # Generate scaffold content.
     if doc_type == "handoff":
@@ -6247,6 +6442,7 @@ def main() -> None:
             handoff_id=_resolved_handoff_id,
             gate_dependency=args.gate_dependency,
             sizing_object=("null" if args.no_sizing_object else args.sizing_object),
+            blocks=args.blocks,
         )
     elif doc_type == "goal-seed":
         _goals_list = [g.strip() for g in args.goals.split(",") if g.strip()] if args.goals else None
@@ -6377,7 +6573,7 @@ def main() -> None:
                 f"via coordinator-doc-new (neverManuallyScaffoldable: true). {_reason}",
                 file=sys.stderr,
             )
-            sys.exit(2)
+            return 2
         raise AssertionError(f"unreachable doc_type: {doc_type!r}")
 
     # Resolve output path.
@@ -6521,7 +6717,7 @@ def main() -> None:
             )
         except _MutateAbort as _abort_exc:
             print(f"error: {_abort_exc}", file=sys.stderr)
-            sys.exit(1)
+            return 1
 
     # Write the scaffolded file.
     #
@@ -6633,7 +6829,8 @@ def main() -> None:
         )
     else:
         print(out_path)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

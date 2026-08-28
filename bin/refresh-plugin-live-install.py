@@ -107,6 +107,33 @@ def _uv_or_die():
     return _resolved_uv() or "uv"
 
 
+def _bootstrap_lib() -> None:
+    """Put ``coordinator/bin/lib`` on ``sys.path`` so ``cc_invoke`` is importable.
+
+    Twelve ``from cc_invoke import`` sites in this module carried the comment
+    "(path injected at module top)". No such injection existed: module scope
+    imports stdlib only. The single ``import lib`` line lived INSIDE
+    ``_no_console_kwargs``, wrapped in a bare ``except``, so every other site
+    worked or raised ``ModuleNotFoundError: cc_invoke`` purely on call order --
+    and ``_no_console_kwargs`` swallows its own failure, so the bootstrap could
+    silently not happen. Measured: importing this module and calling
+    ``_import_registry_deps`` first raises; calling ``_no_console_kwargs``
+    first makes the same call succeed.
+
+    Same shape as ``misc-session-and-guards.py`` (d2fe25b14), where it made
+    ``/autonomous`` silently decline to enable itself on every session.
+
+    Idempotent and cheap: ``import lib`` is the house bootstrap, and
+    re-importing a bound module is a dict lookup. Called at each deferred-import
+    site rather than at module scope on purpose -- module bodies stay inert on
+    the un-bootstrapped forwarder load route, and hoisting this would undo that.
+    """
+    bin_dir = os.path.dirname(os.path.abspath(__file__))
+    if bin_dir not in sys.path:
+        sys.path.insert(0, bin_dir)
+    import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
+
+
 def _no_console_kwargs() -> dict:
     """Deferred coordinator_core import — matches this file's engine-root
     bootstrap posture (see ``_import_registry_deps``) so ``--help``/usage
@@ -117,6 +144,7 @@ def _no_console_kwargs() -> dict:
     never turn a quiet spawn into a visible console window.
     """
     try:
+        _bootstrap_lib()
         from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path
 
         claude_klabauter_root = require_dispatch_engine_on_path()
@@ -170,12 +198,6 @@ def eprint(*args, **kwargs) -> None:
 # resolution cost.
 # ---------------------------------------------------------------------------
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-from win_argv import win_safe_shlex_split  # noqa: E402
-
 
 def _import_registry_deps():
     """Resolve the engine root and import ``coordinator_core.machine_resolver`` —
@@ -191,6 +213,7 @@ def _import_registry_deps():
     ``machine_local_dir()``. That second resolver is what created the
     split-brain documented in ``_read_registry`` — do not reintroduce it here.
     """
+    _bootstrap_lib()
     from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
     require_dispatch_engine_on_path()
@@ -314,6 +337,8 @@ def _parse_argv_command(
     ``shlex.split`` failure (e.g. unbalanced quotes) or an empty/unresolvable
     first token.
     """
+    from win_argv import win_safe_shlex_split
+
     try:
         argv = win_safe_shlex_split(cmd_str)
     except ValueError as exc:
@@ -1026,7 +1051,8 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
             f"{PROG}: WARNING: COORDINATOR_REFRESH_VENV_INSTALL_CMD override active "
             "— skipping real editable install"
         )
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         install_tool = "seam-override"
         env = child_env({"SIL_SOURCE": str(sil_source_path), "SIL_VENV_PY": str(venv_py)})
@@ -1058,7 +1084,8 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
             return 1
         rc = result.returncode
     elif _resolved_uv() is not None:
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         install_tool = "uv"
         result = subprocess.run(
@@ -1067,7 +1094,8 @@ def _handle_source_is_live_venv(plugin: str, sil_source: str, sil_dist: str, ref
         )
         rc = result.returncode
     elif venv_py.exists():
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         install_tool = "pip"
         result = subprocess.run(
@@ -1284,7 +1312,8 @@ def _handle_copy_install(
     drift_probe = Path(__file__).resolve().parent / "check-plugin-drift.py"
     post_flight_clean = True
     if drift_probe.exists():
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         env = child_env({"MACHINE_LOCAL_REGISTRY_DIR": str(registry_local.parent)})
         r = subprocess.run(
@@ -1423,7 +1452,8 @@ def _handle_editable_sibling_venv(
             install_tool = "pip"
         else:
             print(f"{PROG}: [editable_sibling_venv] [venv-leg] uv not on PATH — bootstrapping via pip install uv (180s timeout)")
-            from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+            _bootstrap_lib()
+            from cc_invoke import child_env  # noqa: E402
 
             # Inherited stdio, no creationflags: network-bound bootstrap the operator
             # watches live. CREATE_NO_WINDOW + inherited stdio silently kills the
@@ -1445,7 +1475,8 @@ def _handle_editable_sibling_venv(
         )
         # Inherited stdio, no creationflags on both branches below: network-bound
         # editable install the operator watches live (see bootstrap comment above).
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         if install_tool == "uv":
             r = subprocess.run(
@@ -1484,7 +1515,8 @@ def _handle_editable_sibling_venv(
     drift_probe = Path(__file__).resolve().parent / "check-plugin-drift.py"
     post_flight_clean = True
     if drift_probe.exists():
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         env = child_env({"CURRENT_PYPROJECT_HASH_OVERRIDE": current_hash})
         r = subprocess.run(
@@ -1537,7 +1569,8 @@ def _handle_default(
     # Step: drift probe / working-tree cleanliness check.
     clean_tree_ok = True
     if drift_probe.exists():
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         r = subprocess.run(
             [sys.executable, str(drift_probe), plugin, "--check-clean-only"],
@@ -1658,7 +1691,8 @@ def _handle_default(
         else:
             # No bare pip fallback — bypasses [tool.uv.sources] and PEP 440 local pins.
             print(f"{PROG}: [venv-leg] uv not on PATH — bootstrapping via pip install uv (180s timeout)")
-            from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+            _bootstrap_lib()
+            from cc_invoke import child_env  # noqa: E402
 
             # Inherited stdio, no creationflags: network-bound bootstrap the operator
             # watches live. CREATE_NO_WINDOW + inherited stdio silently kills the
@@ -1678,7 +1712,8 @@ def _handle_default(
         print(f"{PROG}: [venv-leg] running {install_tool} pip install -e . (python: {venv_python})")
         # Inherited stdio, no creationflags on both branches below: network-bound
         # editable install the operator watches live (see bootstrap comment above).
-        from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+        _bootstrap_lib()
+        from cc_invoke import child_env  # noqa: E402
 
         if install_tool == "uv":
             r = subprocess.run(
@@ -1711,7 +1746,8 @@ def _handle_default(
         eprint(f"  Run: refresh-plugin-live-install.py {plugin}  (plain refresh to converge)")
     else:
         if drift_probe.exists():
-            from cc_invoke import child_env  # noqa: E402 (path injected at module top)
+            _bootstrap_lib()
+            from cc_invoke import child_env  # noqa: E402
 
             env = child_env({"CURRENT_PYPROJECT_HASH_OVERRIDE": current_hash})
             r = subprocess.run(

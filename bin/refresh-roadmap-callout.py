@@ -29,30 +29,28 @@ from __future__ import annotations
 import os
 import sys
 
-_LIB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
-
 
 def _import_main():
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.ops.refresh_roadmap_callout import main as _op_main
     return _op_main
 
 
-def main() -> None:
+def main(argv: "list[str] | None" = None) -> int:
     try:
         op_main = _import_main()
     except RuntimeError as exc:
         print(f"refresh-roadmap-callout.sh: CLAUDE_KLABAUTER_ROOT resolution failed: {exc}", file=sys.stderr)
-        sys.exit(1)
+        return 1
     except ImportError as exc:
         print(
             f"refresh-roadmap-callout.sh: coordinator_core.ops.refresh_roadmap_callout not importable: {exc}",
             file=sys.stderr,
         )
-        sys.exit(1)
+        return 1
 
     # DR-276: op_main takes a `self_commit=` kwarg that run_op_main's plain
     # argv-forwarding contract has no room for, so this CLI owns its own
@@ -63,9 +61,9 @@ def main() -> None:
     from coordinator_core.cli_entry import recording_declared_writes
 
     with recording_declared_writes():
-        code = op_main(sys.argv[1:], self_commit=True)
-    sys.exit(code)
+        code = op_main((sys.argv[1:] if argv is None else argv), self_commit=True)
+    return code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

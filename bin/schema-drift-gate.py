@@ -42,11 +42,6 @@ import os
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
-if _LIB_DIR not in sys.path:
-    sys.path.insert(0, _LIB_DIR)
-
-import cc_invoke  # noqa: E402  (sys.path mutated above)
 
 _OP = "schema.drift_gate"
 
@@ -60,6 +55,9 @@ def _legacy_fn() -> "NoReturn":  # type: ignore[name-defined]
 
 
 def main(argv: list[str] | None = None) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] in ("--help", "-h"):
         print("usage: schema-drift-gate")
