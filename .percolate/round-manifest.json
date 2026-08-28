@@ -1,7 +1,9 @@
 {
-  "round_id": "publish-aefe20b9e5254d9dbea23e2d64e1a07c",
+  "round_id": "publish-4f15ee9c3e7f482b9beccc8f3da216e2",
   "added_or_updated": [
-    "coordinator-schema-version"
+    "templates/machine-local/registry.local.toml.example",
+    "templates/machine-local/registry.toml.example",
+    "templates/machine-local/unreal.toml.example"
   ],
   "removed": [],
   "declared_payload": [
