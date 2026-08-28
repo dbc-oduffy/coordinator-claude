@@ -274,17 +274,45 @@ RESOLUTION_UNRESOLVED = "unresolved"
 # naming the publisher when it misses. Publishing FROM the published copy is
 # not a thing that can work, so there is no second root to try.
 #
+# MEMBERSHIP RULE — publish-DENIED, not percolate-importing. The percolate
+# family above is the loudest instance of the class, never its definition.
+# The rule is: a ``coordinator/bin/*.py`` name on the
+# ``claude-klabauter-coordinator-bin`` row's ``deny`` list in
+# ``setup/publish-allowlist-declarations.yaml`` is never published at all, so
+# a session diverted to the mirror finds no target under EITHER spelling and
+# dies at C13's fail-loud 127 naming a root that could never have carried it.
+# That remediation cannot be acted on: the file is not missing from a broken
+# install, it is absent by declaration. Five names were publisher-only by that
+# rule while the earlier import-token reading admitted only the percolate
+# five — ``check-persona-slug-leak``, ``coordinator-validate-local-config``,
+# ``engine-gap-lint``, ``percolate-push`` and ``publish-time-transform-py``
+# each shipped a forwarder that diverted and died. Deny is the CAUSE; the
+# percolate import is one symptom of it.
+#
+# Do NOT read the mirror on disk to decide membership. The mirror is a build
+# artifact and may be any vintage; the declarations yaml is the authoring
+# input that decides what a round ships, and it is the same answer on a box
+# with no mirror at all.
+#
 # Hand-maintained here because this module is installed standalone into a
 # bare ``bin/`` with only the stdlib importable (see the module docstring) —
-# it cannot import the engine to derive the set. Drift is caught instead by
+# it cannot read the declarations yaml or import the engine to derive the set.
+# Drift is caught instead by
 # ``coordinator_core/install/test_resolve_claude_klabauter_publisher_only.py``, which
-# re-derives the set from ``coordinator/bin/``'s actual imports and fails
-# when the two disagree.
+# re-derives the set from that ``deny`` list and fails when the two disagree,
+# in BOTH directions. That guard is what makes the next omission impossible
+# rather than merely unlikely: adding a bin CLI to ``deny`` without adding it
+# here turns the suite red.
 PUBLISHER_ONLY_TARGETS = frozenset({
-    "publish.py",
+    "check-persona-slug-leak.py",
     "coordinator-publish.py",
+    "coordinator-validate-local-config.py",
+    "engine-gap-lint.py",
     "percolate-gate.py",
+    "percolate-push.py",
     "percolate-round.py",
+    "publish-time-transform-py.py",
+    "publish.py",
     "verify-publish-targets-portable-sync.py",
 })
 
@@ -1004,23 +1032,27 @@ def _resolve_publisher_root() -> str:
     Single-tier on purpose — ``_resolve_claude_klabauter_root``'s registry-then-sentinel
     ladder only, never ``resolve_claude_klabauter_root_with_class``'s published-engine
     rung. See ``PUBLISHER_ONLY_TARGETS`` for why the published engine is not a
-    legitimate answer for these targets at all: it is the publish
-    DESTINATION, and the percolate engine these drivers dispatch against is
-    publisher-side only, so a divert there produces a target that exists,
-    passes every structural check, and then dies on an unsatisfiable import.
+    legitimate answer for these targets at all: they are denied by the publish
+    allowlist, so the mirror carries neither the target file nor (for the
+    percolate family) the engine modules it dispatches against.
 
     Re-raises ``_resolve_claude_klabauter_root``'s miss with publisher-specific
     remediation. The generic message names ``repos.claude_klabauter`` as a
     third way to satisfy the resolution — true for every other target, and
-    exactly the wrong advice here."""
+    exactly the wrong advice here.
+
+    Says "does not ship in the mirror", never "runs the percolate engine":
+    only half the set does, and a reader told the wrong reason checks the
+    wrong thing. ``engine-gap-lint`` and ``check-persona-slug-leak`` import
+    no percolate module at all; they are here because publish DENIES them."""
     ml_dir = _ml_dir()
     try:
         return _resolve_claude_klabauter_root(ml_dir)
     except ClaudeKlabauterResolutionError as exc:
         raise ClaudeKlabauterResolutionError(
             str(exc).rstrip("\n")
-            + "\n  NOTE: this is a publisher-only CLI — it runs the percolate engine, "
-            "which ships only in the live claude-klabauter checkout. The published "
+            + "\n  NOTE: this is a publisher-only CLI — the publish allowlist denies "
+            "it, so it exists only in the live claude-klabauter checkout. The published "
             "engine mirror (repos.claude_klabauter) is the publish DESTINATION and "
             "cannot satisfy it; set repos.claude_klabauter.\n"
         ) from exc
