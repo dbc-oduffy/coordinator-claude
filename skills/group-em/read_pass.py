@@ -9,28 +9,13 @@ candidate roster for a human to look at. It is the composition point named in
 this stub's own frontmatter -- gem-11's reader meets `claude agents --json`
 under one presentation surface.
 
-CARRIER SWAP (baton `gem-11` AC6, `docs/decisions/DR-group-em-read-pass-carrier.md`,
-amended by `docs/decisions/DR-group-em-roster-excludes-mid-work-peers.md`).
-This module read `coordinator/lib/peer_next_move_state.py` (Arm B, the
-Stop-seam obligation ledger) until the arm choice closed in favour of Arm A,
-`coordinator/lib/receiver_state_reader.py` over `receiver-state.json`. Arm B
-answered "does this peer owe a next move the fleet already knows about"; Arm A
-answers "is this peer producing or paused, and why" -- a different question,
-not a finer or coarser cut of the same one. The `TOLD_AND_NOT_DONE` /
-`OWES_NEXT_MOVE` read ended with that deletion; see the DR's "What the swap
-gives up". What this module preserves across the swap is the *property* Arm
-B's candidate set had -- a peer mid-work is never presented. That is a single
-rule honoured identically on both legs: a `PRODUCING` verdict, however it was
+The reader is preferred per peer; the fallback leg fires only on the
+reader's `UNAVAILABLE` verdict. A `PRODUCING` verdict, however it was
 reached, is never a candidate; only `PAUSED` (reader) or `PAUSED:turn-ended`
-(fallback) is. See `docs/decisions/DR-group-em-roster-excludes-mid-work-peers.md`
-for why the fallback leg previously disagreed with the reader leg on this and
-how that was closed. The reader is preferred per peer, and the fallback leg
-now fires only on the reader's `UNAVAILABLE` verdict (the carrier said
-nothing at all -- no file, unreadable, bad `schema_version`, or stale past
-the window). A ladder `UNKNOWN` is a real classification outcome -- the
-ladder saw the session and modelled it -- and terminates as `UNKNOWN`
-directly; it is never re-guessed by the weaker fallback ladder into a
-paused-like state (AC6). This is per peer, never gated once repo-globally.
+(fallback) is -- the same rule on both legs. See
+`docs/decisions/DR-group-em-read-pass-carrier.md` (which carrier this module
+reads) and `docs/decisions/DR-group-em-roster-excludes-mid-work-peers.md`
+(the candidate-predicate ruling) for the record of how each was decided.
 
 NEGATIVE SPEC -- what this module deliberately does NOT do:
 
@@ -62,8 +47,8 @@ CLASSIFICATION LADDER (see `## Specification` items 1-4 and AC1/AC3/AC6 in the
 gem-13 stub for the source measurements and the binding contract):
 
 - The reader (`gem-11`) is tried first, per peer. Only when it reports
-  `UNKNOWN` or `UNAVAILABLE` for THIS peer does the fallback leg run at all --
-  see the "per-peer, not repo-global" note on `classify_peer` below.
+  `UNAVAILABLE` for THIS peer does the fallback leg run at all -- see the
+  "per-peer, not repo-global" note on `classify_peer` below.
 - `busy` is a strong positive signal on its own: precision 470/472 = 99.58%,
   recall 470/491 = 95.72% over the full capture. Mapped straight to
   `STATE_PRODUCING`, never a candidate -- no transcript read needed. A
@@ -116,29 +101,6 @@ STATE_PAUSED = "PAUSED"
 #: Neither the reader, nor the status leg, nor the transcript tail could
 #: place this peer. First-class and expected -- never a paused-like guess.
 STATE_UNKNOWN = "UNKNOWN"
-
-#: Reader outcomes that make a peer a presentable candidate. A `PAUSED`
-#: verdict is the one property carried over from the losing arm's candidate
-#: set (a peer mid-work is never presented), re-expressed in the ladder's own
-#: vocabulary -- see the module docstring's § CARRIER SWAP. `PRODUCING` is
-#: deliberately excluded: it is a real, positive verdict, but not a candidate.
-#: This is the SAME rule `FALLBACK_CANDIDATE_STATES` below honours on the
-#: other leg -- a mid-work peer is never a candidate, on either leg. See
-#: `docs/decisions/DR-group-em-roster-excludes-mid-work-peers.md`.
-READER_CANDIDATE_STATES = frozenset({"PAUSED"})
-
-#: Reader outcomes with no verdict for this peer -- the fallback leg runs
-#: only here. `UNAVAILABLE` is the carrier saying nothing at all (no file,
-#: unreadable, bad schema, or stale past the window). A ladder `UNKNOWN` is
-#: NOT included: it is a real classification outcome (the ladder saw the
-#: session and modelled it) and terminates as `UNKNOWN` directly, never
-#: re-guessed by the weaker fallback ladder (AC6; AC1 per the amending DR).
-READER_NO_VERDICT_STATES = frozenset({rsr.VERDICT_UNAVAILABLE})
-
-#: Fallback states that make a peer a presentable candidate. `STATE_PRODUCING`
-#: is deliberately excluded here too -- see `READER_CANDIDATE_STATES` above.
-#: Only `STATE_TURN_ENDED` is a candidate on this leg.
-FALLBACK_CANDIDATE_STATES = frozenset({STATE_TURN_ENDED})
 
 _CLAUDE_AGENTS_CMD = ["claude", "agents", "--json"]
 
@@ -215,7 +177,7 @@ def enumerate_repo_peers(
     return peers
 
 
-def transcript_path_for(session_id: str, cwd: str, home: Optional[str] = None) -> str:
+def transcript_path_for(session_id: str, cwd: str) -> str:
     """The on-disk transcript path the harness itself writes to for a peer.
 
     Convention observed under `~/.claude/projects/<encoded-cwd>/<session_id>.jsonl`:
@@ -223,8 +185,7 @@ def transcript_path_for(session_id: str, cwd: str, home: Optional[str] = None) -
     Not a public contract -- if this ever drifts, `read_transcript_tail`
     fails closed (missing file) to `STATE_UNKNOWN`, never a crash.
     """
-    home = home if home is not None else os.path.expanduser("~")
-    projects_root = os.path.join(home, ".claude", "projects")
+    projects_root = os.path.join(os.path.expanduser("~"), ".claude", "projects")
     encoded_cwd = _PATH_SEP_RE.sub("-", cwd)
     return os.path.join(projects_root, encoded_cwd, f"{session_id}.jsonl")
 
@@ -239,14 +200,6 @@ def read_transcript_tail(
     Never reads a whole transcript (see module negative spec). Returns `[]`
     on any I/O failure -- a missing or unreadable transcript is `UNKNOWN`
     upstream, never an exception.
-
-    Boundary invariant: when the read window starts mid-file, the byte
-    immediately before the window is checked. If that byte is itself a
-    newline, the window starts on a genuine line boundary and the first
-    parsed line is a complete record, kept as-is. If it is not a newline,
-    the window starts inside a line already emitted in full above the
-    window; that leading fragment is unparseable and is dropped before the
-    `max_lines` cut, never treated as a complete record.
     """
     try:
         size = os.path.getsize(path)
@@ -255,20 +208,14 @@ def read_transcript_tail(
     if size <= 0:
         return []
     read_size = min(size, max_bytes)
-    boundary_on_newline = False
     try:
         with open(path, "rb") as handle:
-            if size > read_size:
-                handle.seek(-(read_size + 1), os.SEEK_END)
-                boundary_on_newline = handle.read(1) == b"\n"
-                handle.seek(-read_size, os.SEEK_END)
+            handle.seek(-read_size, os.SEEK_END)
             raw = handle.read()
     except OSError:
         return []
     text = raw.decode("utf-8", errors="ignore")
     lines = [line for line in text.splitlines() if line.strip()]
-    if size > read_size and lines and not boundary_on_newline:
-        lines = lines[1:]
     return lines[-max_lines:]
 
 
@@ -302,19 +249,24 @@ def classify_transcript_tail(lines: list[str]) -> str:
 def classify_fallback_status(
     status: Any,
     tail_lines: Optional[list[str]] = None,
-) -> str:
+) -> tuple[str, str]:
     """Map a raw harness `status` string (plus, for `idle`, a transcript
-    tail) to the fallback ladder.
+    tail) to the fallback ladder's `(state, reason)`.
 
     Reads `status` and the injected tail only -- never `state`/`waitingFor`
     (background-agent-only, see module docstring) and never a CPU-delta
     (Resolution 1 clause 4).
     """
     if status == "busy":
-        return STATE_PRODUCING
+        return STATE_PRODUCING, "status-busy"
     if status == "idle":
-        return classify_transcript_tail(tail_lines or [])
-    return STATE_UNKNOWN
+        tail_state = classify_transcript_tail(tail_lines or [])
+        if tail_state == STATE_PRODUCING:
+            return STATE_PRODUCING, "tail-live-activity"
+        if tail_state == STATE_TURN_ENDED:
+            return STATE_PAUSED, "tail-turn-duration"
+        return STATE_UNKNOWN, "tail-unresolved"
+    return STATE_UNKNOWN, "unrecognized-status"
 
 
 def classify_peer(
@@ -325,10 +277,10 @@ def classify_peer(
 ) -> dict[str, Any]:
     """One peer in, one verdict out -- the preference check itself.
 
-    Calls `gem-11`'s reader first. Only when that reader reports `UNKNOWN` or
-    `UNAVAILABLE` for THIS peer (no verdict to give -- see
-    `READER_NO_VERDICT_STATES`) does this fall back to the `claude agents
-    --json` status leg -- deliberately per-peer, not gated once on any
+    Calls `gem-11`'s reader first. Only when that reader reports
+    `UNAVAILABLE` for THIS peer (no verdict to give) does this fall back to
+    the `claude agents --json` status leg -- deliberately per-peer, not
+    gated once on any
     repo-wide carrier-presence check: the carrier tree can exist repo-wide
     while most individual peers still have no record of their own, and must
     still fall through.
@@ -347,13 +299,13 @@ def classify_peer(
         }
 
     reader_verdict = rsr.read_receiver_state(repo_root, session_id, now=now)
-    if reader_verdict["verdict"] not in READER_NO_VERDICT_STATES:
+    if reader_verdict["verdict"] != rsr.VERDICT_UNAVAILABLE:
         return {
             "session_id": session_id,
             "source": "reader",
             "state": reader_verdict["verdict"],
             "reason": reader_verdict["reason"],
-            "candidate": reader_verdict["verdict"] in READER_CANDIDATE_STATES,
+            "candidate": reader_verdict["verdict"] == STATE_PAUSED,
         }
 
     status = peer.get("status")
@@ -365,23 +317,14 @@ def classify_peer(
         else:
             tail_lines = read_transcript_tail(transcript_path_for(session_id, cwd))
 
-    fallback_state = classify_fallback_status(status, tail_lines)
-    if fallback_state == STATE_PRODUCING:
-        state, reason = STATE_PRODUCING, (
-            "status-busy" if status == "busy" else "tail-live-activity"
-        )
-    elif fallback_state == STATE_TURN_ENDED:
-        state, reason = STATE_PAUSED, "tail-turn-duration"
-    else:
-        state = STATE_UNKNOWN
-        reason = "tail-unresolved" if status == "idle" else "unrecognized-status"
+    state, reason = classify_fallback_status(status, tail_lines)
 
     return {
         "session_id": session_id,
         "source": "fallback",
         "state": state,
         "reason": reason,
-        "candidate": fallback_state in FALLBACK_CANDIDATE_STATES,
+        "candidate": state == STATE_PAUSED,
     }
 
 

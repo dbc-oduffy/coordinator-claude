@@ -1,7 +1,7 @@
 ---
 name: group-em
 description: "PM-GATED. Monitor peer sessions in this repo, never plan or author on their behalf."
-allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent"]
+allowed-tools: ["Read", "Bash", "Glob", "Grep", "Agent", "SendMessage"]
 argument-hint: "[no arguments — invoke to start monitoring this repo's peer sessions]"
 ---
 
@@ -47,6 +47,14 @@ directories, not in a scratch file, not in a sentinel. Every fact this skill act
 live, every time, from the tools available at invocation (`Read`, `Bash`, `Glob`, `Grep` against
 this repo's own working state).
 
+**One carve-out, by name: the send log.** `send_pass.record_offer` appends to
+`state/subagent-share/<this-session-id>/group-em-send-log.jsonl` — a record of **this session's own
+offers**, which is what the per-peer cooldown throttles against. It is not a peer fact: no peer
+state, address, or reachability is written, and nothing about a peer is read back out of it. It
+follows the existing per-session bookkeeping convention beside
+`advisory-fire-counts.jsonl`, and it is session-scoped, so a new Group EM starts with an empty
+cooldown — the same lifetime the DACI ruling above gives the Driver role.
+
 ## DACI is a frame, not a registry
 
 A `/group-em` session invoked by the PM in a repo **is** that repo's Driver for the sessions it
@@ -72,13 +80,21 @@ no existing coordinator skill/command/agent, and no hit anywhere under
 § "The outstanding collision check"). This citation is the record of that discharge; nothing above
 re-runs it.
 
-## Open design question — not resolved here
+## Gating granularity — entry AND per send, resolved by `gem-14`
 
-Whether PM-gating belongs at skill **entry** (this file's prefix convention) or at the **send**
-itself (a later nudge/message to a peer session) is left open. A read-only pass that only observes
-peer state is harmless regardless of gating granularity; the send is where an
-`ask-before-external-action`-shaped question actually lives. That granularity call belongs to
-whoever specifies the send path, not to this container.
+Both, at different strengths, and the send gate is the load-bearing one.
+
+**Entry stays PM-gated** by this file's prefix convention, unchanged — that gate is about who may
+put a session into this mode at all.
+
+**The send is gated separately, per send, and entry-gating never satisfies it.** A read-only pass
+is harmless whatever the entry gate says; the send is where the
+`ask-before-external-action`-shaped question actually lives, and it is where the PM's own bar
+applies: *is this worth tapping the busy engineer on the shoulder and saying "stop what you're
+doing and listen to me"* — an interrupt is justified by its **cost to the receiver**, never by the
+sender's convenience or the topic's importance. Because that bar is receiver-relative it must be
+re-asked for every message; one clearance at invocation cannot stand in for it, and receiver state
+goes stale on the minute scale in any case.
 
 ## Read pass (gem-13)
 
@@ -91,6 +107,51 @@ own session, never writes or sends anything, and never adjudicates whether a pau
 "shouldn't" be paused — see that file's module docstring for the full ladder and the measured
 reader/fallback split. The send/nudge mechanism that later plugs into this roster is `gem-14`,
 gated separately.
+
+## Send pass (gem-14)
+
+`send_pass.py`, beside this file, takes `read_pass.build_candidate_roster`'s output and emits **one
+digest per invocation** (`build_send_digest`). It selects and throttles; **it does not send.** There
+is no per-peer entry point, so the per-peer-per-tick firehose is unreachable from the API, not
+merely discouraged.
+
+**The roster is not the population.** `receiver-state.json` is written at the peer's Stop seam, so
+nearly every classifiable peer reads `PAUSED` (8 of 10 measured, against a read pass sized for ~6 of
+30). The send pass narrows by intersecting the verdict with an **undischarged obligation** in the
+peer's own next-move ledger — opened and closed only by concrete PostToolUse observations, never by
+elapsed time. A peer with no ledger is ineligible: absence of evidence is never a trigger. An empty
+digest is the expected steady state. Rationale and measurements:
+`docs/decisions/DR-group-em-send-narrows-on-the-obligation-ledger.md`.
+
+**Procedure, per invocation:**
+
+1. Build the roster, then the digest. Re-read both immediately before acting — the stale-read
+   discipline above governs here too.
+2. Present it. `suppressed` says why each roster peer was held; `truncated` means the rate ceiling
+   bit and the rest were held, not dropped.
+3. **For each entry you intend to message, declare both gates in prose before sending.** Entries
+   arrive with `gate1`/`gate2` unset and no code resolves them:
+   - **GATE 1 (message).** Is the shared contract itself the unknown, needing round-trips — or is
+     this a settled ask? Converging on the shape of an ask is coupled; MAKING the ask is not. A
+     settled ask is a memo.
+   - **GATE 2 (receiver).** Is this cheaper to them now than later — blocked and waiting, about to
+     ship something this would change, or an agreed synchronous window? **GATE 2 has no
+     instrument.** `peer_roster.status` is negative-spec'd (1465 s stale measured, unbounded to
+     6.9 h), and the obligation ledger answers a different question. GATE 2 rests on what you
+     already know about that peer, never on anything you read this turn.
+   - **Either gate unclear → the memo channel.** Not a degraded mode. The named anti-pattern is
+     sending live *because the channel is open*.
+4. Send, then `record_offer(...)`. Record it even when you decide against sending — the cooldown is
+   on the offer, so a peer you considered and passed on does not resurface every tick.
+
+**A `PAUSED:away` peer is never offered**, by name and by allow-list. (`away` was unobserved in the
+2026-08-30 window, so that exclusion is structural and untested against live `away` traffic.)
+
+**The digest never claims a peer is stuck**, or that it "shouldn't" be paused — that population is
+unmeasurable by PM ruling. An undischarged obligation says the peer resolved a next move and has not
+invoked it. Nothing more. And grade your own accuracy with suspicion: a supervisor's instrument is
+measurably wrong in its own favour, and a Group EM has no outside party with standing to contradict
+its read. Tripwire: `A-PAUSED-ROSTER-IS-NOT-A-NUDGE-LIST`.
 
 ## Delegated approve-for-execution procedure
 
@@ -126,8 +187,11 @@ Do not read the judge dispatch below as a send capability against a peer session
 
 ## Anti-scope
 
-- This skill does not implement the send/nudge mechanism to a peer session — that is a later
-  addition to this body, built once its own PM gate clears.
+- This skill does not **auto-send** to a peer session. `send_pass.py` selects and throttles a
+  nudge population; it holds no transport and messages nobody. Every send is an explicit per-send
+  act under § Send pass (gem-14), with both gates declared. Building an unattended sender, a loop
+  that messages each digest entry without a per-send gate declaration, or any `Stop`-registered
+  trigger, is out of scope and re-derives the stood-down watcher.
 - This skill does not implement the read-pass ladder or receiver-state consumption logic that
   supplies the peer-state facts this body's stale-read discipline governs — that is supplied by a
   separate stub and integrated here by reference, not merged into this file.
