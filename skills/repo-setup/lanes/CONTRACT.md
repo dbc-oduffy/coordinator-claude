@@ -14,7 +14,7 @@ contract_version: "1.0.0"
 A lane is a **pre-answered round-trip set**, not a preset. Presetting only the easy judgment
 points and leaving a `round_trip` point to be prompted diverges silently from the interactive
 path in exactly the cases nobody tests — see the tripwire
-`coordinator/docs/wiki/coordinator-tripwires/a-lane-is-not-a-preset.md` (C8). Every lane file in
+`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/a-lane-is-not-a-preset.md` (C8). Every lane file in
 this directory MUST answer all six `round_trip` census rows, land each as a tier-1 `directives[]`
 entry (never a tier-2 `judgment_points[]` entry carrying only a `recommendation` — an unattended
 consumer halts on any `judgment_points` entry regardless of a recommendation), and declare a

@@ -13,6 +13,6 @@ order: 3
 | Other external library APIs | EM judgment — run if cost is justified; skip silently if not. |
 | Pure prose / in-repo-only references / no cited external APIs | Skip `docs-checker`. |
 
-When dispatching `docs-checker` (Mandatory or EM-judgment rows above): it is auto-provisioned its sidecar at spawn (`state/plan-sidecars/<plan-stem>.<lens>.md`, computed by claude-klabauter's `provision_report` — no manual pre-scaffold). Dispatch it; it writes findings to its provisioned path and returns the pointer.
+`docs-checker` is auto-provisioned its sidecar at spawn, same as Check 1's — no manual pre-scaffold. Dispatch it; it writes findings there and returns the pointer.
 
-_See `docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._
+_See `${CLAUDE_PLUGIN_ROOT}/docs/wiki/docs-checker-pre-review.md` for full rows and sidecar consumption pattern._

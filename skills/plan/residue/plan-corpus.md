@@ -36,7 +36,7 @@ _Condition: substrate verified. The four PM doctrinal lenses bind here — this 
   call at dispatch time, default a background Workflow. *"Do not fan this out"* / *"EM-sequenced,
   chunk at a time"* will be overridden, so write the real constraint instead: a shared write target
   is a `depends_on` edge on the spine, a Workflow-inexpressible shape is a named carve-out
-  (`docs/wiki/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
+  (`${CLAUDE_PLUGIN_ROOT}/docs/wiki/workflow-orchestration.md`). Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 - _Wave shape depends on something this plan has not established ("do X, then decide")?_
   → That is a **spike chunk before execution**, not a licence to grind chunk-at-a-time. An
   unresolved decision left in the body bounces at `/execute-plan` Phase 1.4 anyway.

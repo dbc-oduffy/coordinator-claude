@@ -376,7 +376,7 @@ def _resolve_claude_klabauter_bin_sh(bin_dir: str, script_name: str) -> Optional
 # APPLIED`, distinct from post-commit's) -- an already-installed
 # prepare-commit-msg hook from generation 6 has no sentinel line at all and
 # must be recognized as stale for the same reason generation 5 was.
-_HOOK_GEN_STAMP = 8
+_HOOK_GEN_STAMP = 10
 
 
 def _hook_gen_stamp_line() -> str:
@@ -479,8 +479,8 @@ def _shim_body(
     )
     claude_klabauter_cand = _resolve_claude_klabauter_bin_sh(bin_dir, script_name) if bin_dir else None
     claude_klabauter_probe = (
-        f'[ -f "$SCRIPT" ] || SCRIPT="{claude_klabauter_cand}"\n'
-        f'[ -f "$SCRIPT" ] || SCRIPT="{claude_klabauter_cand}.py"\n'
+        f'_have_py "$SCRIPT" || SCRIPT="{claude_klabauter_cand}"\n'
+        f'_have_py "$SCRIPT" || SCRIPT="{claude_klabauter_cand}.py"\n'
         if claude_klabauter_cand
         else ""
     )
@@ -505,7 +505,9 @@ def _shim_body(
         "# Skips Microsoft Store App Execution Alias stubs under WindowsApps (case-\n"
         "# insensitive) -- shared with coordinator_core.ops's two precommit-hook\n"
         "# installers; see coordinator_core.py_probe_sh's module docstring.\n"
-        "# Each SCRIPT rung probes the extensionless name, then <name>.py, so an\n"
+        "# An installed <name>.exe forwarder is exec'd DIRECTLY, before the\n"
+        "# interpreter chain. Each remaining rung probes the extensionless name via\n"
+        "# _have_py (never [ -f ] -- see its comment), then <name>.py, so an\n"
         "# already-installed hook survives a bin/ rename without reinstalling.\n"
         f"{_hook_gen_stamp_line()}\n"
         f"{skip_guard}"
@@ -514,22 +516,60 @@ def _shim_body(
         '[ -n "$_PY" ] || { echo "[coordinator] WARNING: hook installed but no '
         'python3/python/py interpreter found on PATH — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; exit 0; }\n'
+        # WINDOWS TRAP, and the reason `[ -f ]` is not used below. Under git's
+        # MSYS `sh`, EVERY stat predicate resolves a `.exe` sibling: with only
+        # `foo.exe` on disk, `[ -f foo ]`, `-e`, `-s`, `-r`, `-x`, `ls foo` and
+        # even `[ foo -ef foo.exe ]` all succeed for the bare name `foo`
+        # (measured 2026-08-29). A rung guarded by `[ -f ]` therefore CLAIMS the
+        # extensionless settings-home path exists the moment door_install
+        # replaces those scripts with `.exe` forwarders -- the chain
+        # short-circuits on a path that is not a Python file, never reaches the
+        # working rungs below it, and `exec "$_PY" "$SCRIPT"` dies with
+        # "can't open file". That broke prepare-commit-msg and post-commit in
+        # every repo on a box after an install run; the repos that kept working
+        # did so only because their FIRST rung happened to be a real `.py`.
+        # `_have_py` is the same stat test plus the one discriminator that
+        # survives: `-ef` is TRUE for `foo` vs `foo.exe` exactly when the bare
+        # name IS the forwarder, and FALSE for a genuine extensionless script
+        # (whose `.exe` does not exist). Never replace this with `[ -f ]`.
+        '_have_py() { [ -f "$1" ] && ! [ "$1" -ef "$1.exe" ]; }\n'
+        # An installed `.exe` forwarder is the INTENDED post-install artifact.
+        # Running it through an interpreter is a category error, so exec it
+        # directly and never enter the interpreter chain at all.
+        f'_fwd="{settings_home_script}.exe"\n'
+        '[ -f "$_fwd" ] && exec "$_fwd" "$@"\n'
         f'SCRIPT="{settings_home_script}"\n'
-        f'[ -f "$SCRIPT" ] || SCRIPT="{coord_bin_sh}/{script_name}"\n'
-        f'[ -f "$SCRIPT" ] || SCRIPT="{coord_bin_sh}/{script_name}.py"\n'
-        '[ -f "$SCRIPT" ] || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
+        f'_have_py "$SCRIPT" || SCRIPT="{coord_bin_sh}/{script_name}"\n'
+        f'_have_py "$SCRIPT" || SCRIPT="{coord_bin_sh}/{script_name}.py"\n'
+        '_have_py "$SCRIPT" || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
         'cat "' + _DOE_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
-        f'[ -n "$_dr" ] && [ -f "$_dr/coordinator/bin/{script_name}" ] && '
+        f'[ -n "$_dr" ] && _have_py "$_dr/coordinator/bin/{script_name}" && '
         f'SCRIPT="$_dr/coordinator/bin/{script_name}"; '
-        f'[ -n "$_dr" ] && [ ! -f "$SCRIPT" ] && [ -f "$_dr/coordinator/bin/{script_name}.py" ] && '
+        f'[ -n "$_dr" ] && ! _have_py "$SCRIPT" && _have_py "$_dr/coordinator/bin/{script_name}.py" && '
         f'SCRIPT="$_dr/coordinator/bin/{script_name}.py"; }}\n'
         f"{claude_klabauter_probe}"
-        f'[ -f "$SCRIPT" ] || SCRIPT="{fallback}"\n'
-        f'[ -f "$SCRIPT" ] || SCRIPT="{fallback}.py"\n'
-        '[ -f "$SCRIPT" ] || { echo "[coordinator] WARNING: hook installed but '
+        f'_have_py "$SCRIPT" || SCRIPT="{fallback}"\n'
+        f'_have_py "$SCRIPT" || SCRIPT="{fallback}.py"\n'
+        '_have_py "$SCRIPT" || { echo "[coordinator] WARNING: hook installed but '
         f'{script_name} not found (looked in settings-home forwarder, baked path, '
         '.doe-root, machine-local repos.claude_klabauter, and marketplace) — commits '
         'are NOT being auto-pushed / annotated by this hook" 1>&2; exit 0; }\n'
+        # Every rung above tests $SCRIPT with `[ -f ]` under git's MSYS `sh`,
+        # which resolves a POSIX-absolute path like /c/Users/... happily. The
+        # invoke line then hands that same string to a NATIVE python.exe, which
+        # has no /c mount and reads a leading slash as repo-relative, so the
+        # settings-home rung can pass its own existence test and still exec a
+        # path rooted at the repo drive. The two halves disagree only when
+        # $HOME or $COORDINATOR_SETTINGS_HOME is itself POSIX-style, i.e. when a
+        # ceremony CLI is launched from Git Bash rather than PowerShell, which
+        # is why hook-annotated commits work all day and then fail inside
+        # `baton-assemble apply`.
+        # Pure parameter expansion, never `cygpath` in a subshell: this runs on
+        # every commit, and a spawn here is a DR-344 cost the hook must not pay.
+        # /c/Users/... -> C:/Users/... ; the MSYS single-letter drive form is the
+        # only shape $HOME or $COORDINATOR_SETTINGS_HOME ever takes here.
+        'case "$SCRIPT" in /?/*) _sd="${SCRIPT#/}"; '
+        'SCRIPT="${_sd%%/*}:/${_sd#*/}" ;; esac\n'
         f"{invoke_line}\n"
     )
 
@@ -547,6 +587,13 @@ def _append_block(
 
     Same engine-repo-bin self-heal candidate + loud-exhaustion stderr warning as
     `_shim_body` — see that function's docstring.
+
+    Carries `_shim_body`'s `.exe` discipline in full, and defines its own
+    `_have_py` rather than borrowing one: this text is appended into somebody
+    else's hook, where nothing above it is ours, so every helper it calls must
+    be emitted here. The forwarder is RUN, never `exec`'d, for the reason named
+    above. See `_shim_body`'s WINDOWS TRAP comment for the MSYS `.exe`-sibling
+    mechanism both emitters guard against.
 
     The returned text starts with the START marker (`# === {header} ===`,
     from `_append_markers`) but deliberately does NOT append the `|| true`
@@ -572,34 +619,45 @@ def _append_block(
     )
     claude_klabauter_cand = _resolve_claude_klabauter_bin_sh(bin_dir, script_name) if bin_dir else None
     claude_klabauter_probe = (
-        f'[ -f "$_T" ] || _T="{claude_klabauter_cand}"; [ -f "$_T" ] || _T="{claude_klabauter_cand}.py"; '
+        f'_have_py "$_T" || _T="{claude_klabauter_cand}"; _have_py "$_T" || _T="{claude_klabauter_cand}.py"; '
         if claude_klabauter_cand
         else ""
     )
     start_marker, _end_marker = _append_markers(header)
     return (
         f"\n{start_marker}\n"
-        "{ " + baked_python_lines("_PY") + "\n"
+        # `_have_py`, not `[ -f ]`, on every rung below — see `_shim_body`'s
+        # WINDOWS TRAP comment for the MSYS `.exe`-sibling mechanism. Emitted
+        # here rather than shared: an append block lands inside a foreign hook
+        # and can assume nothing defined above it.
+        '{ _have_py() { [ -f "$1" ] && ! [ "$1" -ef "$1.exe" ]; }\n'
+        # An installed `.exe` forwarder is the intended post-install artifact,
+        # so run it and skip the interpreter chain entirely — resolving one
+        # costs nothing once the answer is already on disk. RUN, not `exec`:
+        # see this function's docstring for why `exec` is forbidden here.
+        f'_fwd="{settings_home_script}.exe"\n'
+        'if [ -f "$_fwd" ]; then "$_fwd" "$@"; else\n'
+        + baked_python_lines("_PY") + "\n"
         f'_T="{settings_home_script}"; '
-        f'[ -f "$_T" ] || _T="{coord_bin_sh}/{script_name}"; '
-        f'[ -f "$_T" ] || _T="{coord_bin_sh}/{script_name}.py"; '
-        '[ -f "$_T" ] || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
+        f'_have_py "$_T" || _T="{coord_bin_sh}/{script_name}"; '
+        f'_have_py "$_T" || _T="{coord_bin_sh}/{script_name}.py"; '
+        '_have_py "$_T" || { _dr="$(cat "' + _DOE_ROOT_DURABLE_SH + '" 2>/dev/null || '
         'cat "' + _DOE_ROOT_LEGACY_SH + '" 2>/dev/null)"; '
-        f'[ -n "$_dr" ] && [ -f "$_dr/coordinator/bin/{script_name}" ] && '
+        f'[ -n "$_dr" ] && _have_py "$_dr/coordinator/bin/{script_name}" && '
         f'_T="$_dr/coordinator/bin/{script_name}"; '
-        f'[ -n "$_dr" ] && [ ! -f "$_T" ] && [ -f "$_dr/coordinator/bin/{script_name}.py" ] && '
+        f'[ -n "$_dr" ] && ! _have_py "$_T" && _have_py "$_dr/coordinator/bin/{script_name}.py" && '
         f'_T="$_dr/coordinator/bin/{script_name}.py"; }}; '
         f"{claude_klabauter_probe}"
-        f'[ -f "$_T" ] || _T="{fallback}"; '
-        f'[ -f "$_T" ] || _T="{fallback}.py"; '
-        f'[ -f "$_T" ] || echo "[coordinator] WARNING: hook installed but {script_name} '
+        f'_have_py "$_T" || _T="{fallback}"; '
+        f'_have_py "$_T" || _T="{fallback}.py"; '
+        f'_have_py "$_T" || echo "[coordinator] WARNING: hook installed but {script_name} '
         'not found (looked in settings-home forwarder, baked path, .doe-root, '
         'machine-local repos.claude_klabauter, and marketplace) — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; '
         '[ -n "$_PY" ] || echo "[coordinator] WARNING: hook installed but no '
         'python3/python/py interpreter found on PATH — commits are NOT being '
         'auto-pushed / annotated by this hook" 1>&2; '
-        f'[ -n "$_PY" ] && [ -f "$_T" ] && {invoke_expr}; }}'
+        f'[ -n "$_PY" ] && _have_py "$_T" && {invoke_expr}; fi; }}'
     )
 
 

@@ -29,6 +29,6 @@ Name the delta in the re-dispatch brief ("amendment touched §X and the slate ta
 scope your check to those"). A full re-run is correct only when the amendment was
 structural enough that the prior pass's coverage fails to hold.
 
-Both checks below fire independently — a plan can be non-trivial AND cite C++/UE APIs, in which case both workers run.
+Both checks below fire independently — a non-trivial plan that also cites C++/UE APIs runs both workers.
 
 **Phase walk (`--surface plan`).** Walks Phase 2.5 → 2.7 → (2.7b ∥ 2.7d) → 2.7c → 2.8, then dispatch, then Phase 3.5 → 3.7 → 4 → 5.

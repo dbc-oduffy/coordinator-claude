@@ -29,7 +29,7 @@ The sibling failure is skipping the dispatch entirely: a slice returns `verdict:
 
 **Tells.** *"nothing to apply"*, *"no integrator warranted for this slice"*, *"the reviewer already dispositioned it."* Same family as `skills/pickup/SKILL.md`'s stealth-skip tells. Reported upward as a considered choice it reads as rigour, which is the defer/hedge reflex wearing rigour's clothes. Tripwire: `REVIEWER-SELF-DISPOSITION-IS-NOT-CLOSURE`.
 
-Named from a live five-slice review, reported by `claude-klabauter-em`, where the skip produced the right answer by luck — the re-dispatched integrator returned `verified-no-action` with cited evidence, matching the EM's guess. A skipped step that happens to be right is the case doctrine must catch; the wrong-answer case reports itself.
+Named from a live five-slice review, reported by a sibling plane's EM, where the skip produced the right answer by luck — the re-dispatched integrator returned `verified-no-action` with cited evidence, matching the EM's guess. A skipped step that happens to be right is the case doctrine must catch; the wrong-answer case reports itself.
 
 ## Integrator unavailable — the named exit
 
@@ -291,7 +291,7 @@ implicit in the raw output.
 ## review-integrator.md § Intake precondition — EM remedies
 
 Relocated from the agent body's intake hard-stop paragraph (C2 of
-`docs/plans/2026-08-14-trim-review-integrator-agent-payload.md`) — the pinned two-sentence hard
+the integrator-payload trim) — the pinned two-sentence hard
 stop itself stays in the agent body verbatim; this is the EM-facing remedy mechanics that don't
 need to occupy every integrator dispatch's context.
 
@@ -304,7 +304,7 @@ for the reviewer's own self-scaffold path, not an EM substitute for a missing re
 
 ## review-integrator.md § Shared-Tree Stash Discipline
 
-Relocated from the agent body (C2 of `docs/plans/2026-08-14-trim-review-integrator-agent-payload.md`)
+Relocated from the agent body (the integrator-payload trim)
 — the agent body keeps the rule and the guard citations (`block_subagent_stash_creation.py:134`,
 `block_stash_destruction.py:139`), this is the incident rationale.
 
@@ -316,7 +316,7 @@ showed scoped discipline alone was insufficient.
 
 ## review-integrator.md § How to write the block
 
-Relocated from the agent body (C2 of `docs/plans/2026-08-14-trim-review-integrator-agent-payload.md`)
+Relocated from the agent body (the integrator-payload trim)
 — the agent body keeps the shape reference (heading, fenced YAML with the six buckets, optional
 Rationale subsection, the sixth-bucket-renders-only-when-used rule); this is the full worked
 example.

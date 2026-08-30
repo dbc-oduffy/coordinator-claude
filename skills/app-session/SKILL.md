@@ -36,21 +36,21 @@ ops and prints that op's own result object verbatim as JSON.
   Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W).
   Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
-  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" census --key <target>`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.exe" census --key <target>`
 
-  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" census`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.exe" census`
 
 - **launch** -- starts a target per its `app_session` config and records that it is running, so a
   later `census` or `teardown` call can find it. Fails loudly on a launch error -- this verb's
   failures propagate rather than being swallowed.
 
-  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" launch --key <target>`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.exe" launch --key <target>`
 
 - **teardown** -- stops a previously launched target and clears its recorded state. Matches the
   specific command line it launched rather than a blanket process kill, because this machine
   routinely runs concurrent sessions against the same runtimes (wiki).
 
-  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.cmd" teardown --key <target>`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\app-session.exe" teardown --key <target>`
 
 `<target>` is the `app_session` mapping key (`desktop` above). `--repo-root <path>` is accepted on
 every verb but normally omitted -- it defaults to the git toplevel. Exit code 0 covers both a real

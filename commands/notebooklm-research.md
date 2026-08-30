@@ -18,7 +18,7 @@ topic; source material needing transcription or NotebookLM's cross-source citati
 Team roles, timing ceilings, data contracts (`strategy.md`, `sources.md`,
 `{letter}-claims.json`, `{letter}-summary.md`), failure handling, the coverage-auditor
 lifecycle, and why the fidelity relay doesn't apply here all live in
-`coordinator/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
+`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
 
 **Precondition — raise the teams flag first.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` defaults to
 `"0"`. Set it to `"1"` in `~/.claude/settings.json` before Step 3, and back to `"0"` when the run
@@ -102,17 +102,17 @@ the coverage auditor's sidecar exists (team-protocol.md § Coverage-Auditor Life
 an advisory file if present. Emit the durable claims pair (you write it, not the sweep — take
 `--ran-at` and the pipeline token from the sweep's completion message, never derive them):
 
-Shape W (`coordinator/snippets/resolve-coordinator-bin.md`). PowerShell has no native stdin
-redirect operator, so the `.cmd` forwarder is invoked through `cmd /c` for the `<` redirect only —
-the forwarder still runs directly by absolute path, no bareword resolution involved:
+Shape W (`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`). PowerShell has no native stdin
+redirect operator, so the `.exe` launcher is invoked through `cmd /c` for the `<` redirect only —
+the launcher still runs directly by absolute path, no bareword resolution involved:
 
 ```powershell
-cmd /c "\"$env:COORDINATOR_SETTINGS_HOME\bin\claims-emit.cmd\" --producer notebooklm-research --out {output-path-base} --ran-at {ran_at from sweep's completion message} --pipeline notebooklm < \"{scratch-dir}/merged-claims.json\""
+cmd /c "\"$env:COORDINATOR_SETTINGS_HOME\bin\claims-emit.exe\" --producer notebooklm-research --out {output-path-base} --ran-at {ran_at from sweep's completion message} --pipeline notebooklm < \"{scratch-dir}/merged-claims.json\""
 ```
 
 **6b — Coverage auditor.** Dispatch it as a plain (non-teammate) `Agent(...)` — never a named
 team member, to preserve the 7-teammate ceiling. Build the prompt from
-`coordinator/pipelines/deep-research/coverage-auditor-prompt-template.md`'s Pipeline D input
+`${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/coverage-auditor-prompt-template.md`'s Pipeline D input
 block (`[SYNTHESIS_PATH]`, `[RUN_STEM]`, `[SCRATCH_DIR]`). Wait for `DONE: {sidecar-path}`.
 
 **6c — Notebook cleanup.** If `--cleanup`: read each `{letter}-summary.md`'s `notebook_id`

@@ -190,6 +190,14 @@ Frontmatter is governed by the § Phase 3 contract — do not hand-author it. Fi
 
 [One bullet per SILENT:] Claim #N — [topic]: no prior art in any corpus.
 
+**That SILENT is structurally blind in one specific way.** None of the seven corpora is a kill
+ledger, and a sibling repo's ruling reaches a wiki here only after someone writes it up — so recall
+is weakest against the freshest decision, which is exactly the one most likely to invalidate the
+plan in hand. When a claim names an executable surface by its exact spelling (a CLI, an op, a
+ceremony step) and comes back SILENT, say so in the bullet and name the owning repo's kill ledger
+as unchecked — grounding the name in the invoking code's own refusal path is the EM's move, not
+yours. Tripwire: `A-LENS-CHECKS-THE-CITATION-RESOLVES-NOT-THAT-THE-FILE-DOES-THE-THING`.
+
 ### Platform capability — consume, don't rebuild (plan mode only)
 
 [Omit in research mode. If `fleet_capability_index:` not supplied: "Fleet capability index not supplied — Platform-capability bucket skipped (non-blocking)."]

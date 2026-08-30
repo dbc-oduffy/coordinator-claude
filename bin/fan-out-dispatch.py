@@ -96,6 +96,25 @@ def _resolve_plugin_root() -> str:
     return str(data_root("snippets").parent)
 
 
+# Module ATTRIBUTE, restored as a lazy one. `PLUGIN_ROOT` was a module-scope
+# constant (`PLUGIN_ROOT = _resolve_plugin_root()`) until c992b99f7 deferred this
+# module's body to keep it inert on the warm-serve path. That call is not an
+# inert body statement, so it could not stay -- but external readers of
+# `fan_out_dispatch.PLUGIN_ROOT` were never considered, and
+# `provision-sidecar.py` is one: it died with `module has no attribute
+# PLUGIN_ROOT`, taking every review-dispatch sidecar with it.
+#
+# PEP 562 resolves both constraints at once: the body stays inert because
+# nothing runs at import, and the attribute exists again because the lookup is
+# what triggers the resolve. Not cached -- `_resolve_plugin_root` reads
+# CLAUDE_PLUGIN_ROOT, and a cached value would pin the first reader's
+# environment for the life of a warm process shared by ~50 sessions.
+def __getattr__(name: str) -> str:
+    if name == "PLUGIN_ROOT":
+        return _resolve_plugin_root()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _err(msg: str) -> None:
     print(msg, file=sys.stderr)
 
@@ -379,10 +398,14 @@ def _memory_probe() -> str:
         return ""
     try:
         # `lib` is injected by `_resolve_claude_klabauter_root_silent`, which this path
-        # does not call -- so inject here too rather than depend on call order.
-        _lib = os.path.join(SCRIPT_DIR, "lib")
-        if _lib not in sys.path:
-            sys.path.insert(0, _lib)
+        # does not call -- so bootstrap here too rather than depend on call
+        # order. `import lib` (coordinator/bin/lib/__init__.py is the ONE
+        # place that directory is put on sys.path), not a per-file
+        # sys.path.insert -- the latter was a genuinely NEW per-file insert
+        # introduced during the 2026-08 lazy-bootstrap sweep (Finding 6,
+        # 2026-08-29 review-finding sweep), the one case in this file's slice
+        # without a matching deletion elsewhere.
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import child_env  # noqa: E402
 
         proc = subprocess.run(

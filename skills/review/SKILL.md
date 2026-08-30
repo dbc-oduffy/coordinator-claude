@@ -57,6 +57,25 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 
 **Pre-flight sidecars are consumed alongside the plan**, never inserted into that chain; two Sonnet pre-flights gate before an Opus reviewer, and `plan-coverage-checker` has no EM opt-out.
 
+**Angelique (apm) trigger — size-gated, plan-review-only.** They are wired into the `full` review
+tier's final stage (`contract/review-roster-fragment.json`), sequenced last — after
+`code-reviewer`/the Staff Engineer and after the Director of Engineering (`eng-director`) — since their ELI5-and-challenge pass makes
+most sense against a plan the technical and DoE-altitude passes have already shaped. They have no
+`review-signals.json` entry: they are SIZE-gated on the plan's own `sizing_object` (frontmatter
+citation -> `estimate.tshirt`), not subject-matter-signal-gated, so they are reachable purely via the
+roster's tier walk. **They never gate:** their `blocking_verdicts` entry is `null`, identical to
+`coordinator:docs-checker` — they challenge, they do not block.
+
+**Accepted deviation — fires at XL only, not "L or XL."** The tier walk's consumer bucketing
+(`XS/S -> lightweight`, `M/L -> standard`, `XL/XXL -> full`, `coordinator/tests/
+test_review_roster_fragment.py:56`) lives in the sizing-consumer's dispatch-emit engine, outside
+this repo, and cannot express "L" without also catching every M plan (50/177 sizings on disk,
+28%) — a standing PM ruling forbids firing their below L. Putting them in `full` therefore fires them
+at XL only (the XXL half of `full` is moot: XXL routes to roadmap planning at the sizing lobby,
+zero XXL sizings on disk today). The L gap (25/177 sizings, 14%) is a tracked follow-up needing a
+finer size seam in that engine — see `state/improvement-queue/` — never a second threshold
+surface here.
+
 ---
 
 ## Branch B — Incoming
@@ -64,18 +83,15 @@ Reviewer selection (routing-table match, tier precedence, effort) is a signal-lo
 _A reviewer has returned output. The integrator applies; the EM checks whether anything should
 come back out._
 
-**The double-check is a disagreement scan, not a re-adjudication.** By the time findings reach the
-EM they have been filtered at the reviewer, routed by the integrator's own AUTO-FIX/ASK table, and
-given an explicit disposition in its triage table — every suggestion has already been checked once.
-Re-judging each one repeats work the pipeline did. Read the applied diff and the integrator's
-escalations, and revert what you disagree with; a finding you would have applied anyway needs no
-ceremony. The classification below is where the integrator's escalations land, not a per-finding
-gate the EM walks.
+**The double-check is a disagreement scan, not a re-adjudication.** Findings reaching the EM have
+already been filtered at the reviewer and dispositioned by the integrator, so re-judging each one
+repeats the pipeline's work. Read the applied diff and the integrator's escalations, and revert
+what you disagree with. The classification below is where escalations land, not a per-finding gate
+the EM walks.
 
-**Integration is not measured by count.** "Every nitpick must land" is not the bar — enforcing it
-turns a correctness pipeline into a completeness ritual, and an EM required to integrate polish it
-disagrees with routes around the gate instead. Severity and the integrator's confidence floor do
-the filtering; disagreeing with a nit and reverting it is a correct outcome, not a skipped step.
+**Integration is not measured by count.** "Every nitpick must land" is not the bar — severity and
+the integrator's confidence floor do the filtering, and reverting a nit you disagree with is a
+correct outcome, not a skipped step.
 
 **Forbidden:** defer-to-later, capture-for-backlog, time-estimate-as-rationale. Any of these → surface to PM, the EM does not decide to defer. Reverting a finding you disagree with is none of those — it is a disposition, and it belongs in the triage record with its reason.
 

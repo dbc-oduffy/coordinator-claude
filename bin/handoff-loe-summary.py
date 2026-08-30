@@ -98,6 +98,60 @@ _FALLBACK_LOE = {
 }
 
 
+_BOOTSTRAP_DONE = False
+
+_BOOTSTRAPPED_NAMES = ("_resolve_claude_klabauter_root",)
+
+
+def _bootstrap_claude_klabauter_root_resolver() -> None:
+    """Bind `cc_invoke._resolve_claude_klabauter_root` as a module-level global,
+    idempotent; safe to call more than once.
+
+    `main()` calls this and then reads the bare global `_resolve_claude_klabauter_root`
+    rather than doing its own local `from cc_invoke import _resolve_claude_klabauter_root`
+    -- a local import would create a name scoped to `main()`'s own frame,
+    shadowing (and defeating) a test's `mock.patch.object(module,
+    "_resolve_claude_klabauter_root", ...)` on the module object itself."""
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global _resolve_claude_klabauter_root
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import _resolve_claude_klabauter_root as _resolve
+
+    _resolve_claude_klabauter_root = _resolve
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reading `_resolve_claude_klabauter_root` off this
+    module BEFORE `main()` has run -- a test calling `_mod._resolve_claude_klabauter_root()`
+    directly, or monkeypatching it -- gets the real function lazily instead
+    of an AttributeError.
+
+    NEGATIVE SPEC -- the forced re-run is not belt-and-braces.
+    `_bootstrap_claude_klabauter_root_resolver()` short-circuits on `_BOOTSTRAP_DONE`,
+    so a name that leaves `__dict__` AFTER the bootstrap has run is never
+    rebound by a plain call. `mock.patch.object` does exactly that: it reads
+    the name through this hook (so the value is not in `__dict__` at enter),
+    sets its mock, and on exit `delattr`s rather than restoring -- then
+    probes `hasattr`, which lands here with the flag already set. Without
+    the reset that probe raises KeyError instead of returning the name."""
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_claude_klabauter_root_resolver()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_claude_klabauter_root_resolver()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _load_session_loe_module() -> ModuleType:
     """Load the co-located coordinator-session-loe.py by file path (its
     hyphenated filename precludes `import coordinator_session_loe`) and
@@ -309,9 +363,7 @@ def main(argv: list[str]) -> int:
     # (empty session_id -> "unknown"; oneline_row -> None) rather than
     # aborting the whole command.
     try:
-        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-        from cc_invoke import _resolve_claude_klabauter_root
-
+        _bootstrap_claude_klabauter_root_resolver()
         claude_klabauter_root = _resolve_claude_klabauter_root()
     except RuntimeError:
         claude_klabauter_root = None

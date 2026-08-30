@@ -12,44 +12,53 @@ If `/coordinator:install` already resolves, skip to Step Zero. COLD machine (not
 
 Every fence below resolves the same ladder, not restated per step: `COORDINATOR_PYTHON` (interpreter); `REPO_CLAUDE_KLABAUTER` (repo-identity override, stays first); then the engine-root rung itself — `COORDINATOR_ENGINE_ROOT` preferred, `CLAUDE_KLABAUTER_ROOT` as its live fallback during the open dual-read window (neither name is permanent; the window closes onto a single rung); and `COORDINATOR_SETTINGS_HOME`. All unset: resolve the registry first, then reuse the result for the rest of the run.
 
-**PowerShell hosts (rung 0, Shape W — `coordinator/snippets/resolve-coordinator-bin.md`).** `${...}` POSIX expansion is not runnable at all here. Every fence below ships a paired ```powershell block, one command per fence (a resolver has no scope across a fence boundary, so re-derive per fence):
+**PowerShell hosts (rung 0, Shape W — `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`).** `${...}` POSIX expansion is not runnable at all here. Every fence below ships a paired ```powershell block, one command per fence. **Assign these two ONCE per shell session, before the fences — not per fence.** The PowerShell fences below consume them by name and show no inline assignment; if you are running each fence in a fresh shell, re-run both assignments in it first, and stop if either comes back empty rather than letting an empty root concatenate into a path:
 - `$pythonExe` = `$env:COORDINATOR_PYTHON`, else `python3` (real interpreter, guaranteed by Phase 3's install step).
-- `$claude_klabauterRoot` = `$env:REPO_CLAUDE_KLABAUTER` (repo-identity override), else `$env:COORDINATOR_ENGINE_ROOT` (the engine-root name), else `& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter`.
+- `$engineRoot` = `& $pythonExe "$env:CLAUDE_PLUGIN_ROOT\hooks\scripts\_engine_root.py"` — the ratified resolver. It owns the whole ladder, including the `REPO_CLAUDE_KLABAUTER`/`COORDINATOR_ENGINE_ROOT` live-tree overrides, and lands on the **published engine mirror**. Never re-derive that order by hand.
+- `$authoringRoot` = `& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter` — used ONLY by the three `coordinator\scripts\` fences below, whose targets the published mirror does not carry. Everything else uses `$engineRoot`.
 - `$claudeHome` = `$env:CLAUDE_HOME ?? $HOME`.
 
-**POSIX hosts (macOS/Linux).** The `${...}`-forwarder fences below are the canonical form. All unset: resolve the registry first, `export REPO_CLAUDE_KLABAUTER="$(machine-local get repos.claude_klabauter)"`, before running any fence below.
+**POSIX hosts (macOS/Linux).** The `${...}`-forwarder fences below are self-contained by default: each assigns `ENGINE_ROOT`/`AUTHORING_ROOT` only if not already set (`${VAR:-$(...)}`), then dereferences it through `${...:?}` — a fence run alone in a fresh shell still resolves and stops on failure with a named message, exactly as before. **Preamble (optional, ~14 spawns → 2 per install run on a shared machine): export both once per shell session before running any fence**, and every fence below reuses the exported value instead of re-resolving it:
+```bash
+export ENGINE_ROOT="$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")"
+export AUTHORING_ROOT="$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" get repos.claude_klabauter)"
+```
+Two roots are in play and they are not interchangeable: fences targeting `coordinator/lib/`, `coordinator/bin/`, or `coordinator_core` want `ENGINE_ROOT` (the **published engine mirror**); the three `coordinator/scripts/` fences want `AUTHORING_ROOT` (`repos.claude_klabauter`, since the mirror does not ship that directory). **Do not `export REPO_CLAUDE_KLABAUTER` to make a fence resolve** — it is a live-tree override (rung 0, the manual test-and-execute carve-out), so exporting it routinely runs the engine from a checkout that moves under concurrent sessions.
 
 ## Step Zero — preflight and env-normalization
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/chain-walk.py" --preflight
+AUTHORING_ROOT="${AUTHORING_ROOT:-$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" get repos.claude_klabauter)}"
+"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?repos.claude_klabauter unregistered — machine-local set repos.claude_klabauter <path>}/coordinator/scripts/chain-walk.py" --preflight
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\scripts\chain-walk.py" --preflight`
+    `& $pythonExe "$authoringRoot\coordinator\scripts\chain-walk.py" --preflight`
 
 `scripts/setup.py` is a deprecated shim forwarding to this file — call `chain-walk.py` directly. Needs `repos.claude_klabauter` registered first (`machine-local set repos.claude_klabauter <path>`). `python` probe hard-fails the install; `clone_auth` blocks unless `--accept-no-git-auth` or resolved interactively (`gh auth login`); rest advisory. `--non-interactive` + no auth + no `--accept-no-git-auth`: fail-loud. `--check-only`: report only. Full probe table and PowerShell-5.1-fallback note: wiki.
 
 Preview first:
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/normalize-env.py" --dry-run
+AUTHORING_ROOT="${AUTHORING_ROOT:-$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" get repos.claude_klabauter)}"
+"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?repos.claude_klabauter unregistered — machine-local set repos.claude_klabauter <path>}/coordinator/scripts/normalize-env.py" --dry-run
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\scripts\normalize-env.py" --dry-run`
+    `& $pythonExe "$authoringRoot\coordinator\scripts\normalize-env.py" --dry-run`
 
 Then apply — consent-gated per mutation:
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/scripts/normalize-env.py" --yes
+AUTHORING_ROOT="${AUTHORING_ROOT:-$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" get repos.claude_klabauter)}"
+"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?repos.claude_klabauter unregistered — machine-local set repos.claude_klabauter <path>}/coordinator/scripts/normalize-env.py" --yes
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\scripts\normalize-env.py" --yes`
+    `& $pythonExe "$authoringRoot\coordinator\scripts\normalize-env.py" --yes`
 
 `--check-only`: no mutating flag.
 
@@ -65,16 +74,18 @@ Resolve hard `--preflight` failures before Phase 1.
 - git, Python 3, jq.
 - uv (Pipeline D), scc (optional), PowerShell 7+ / Windows Terminal (default-on, not hard blockers).
 - Engine repo cloned AND `repos.claude_klabauter` registered (hard, not auto-discovered): `machine-local set repos.claude_klabauter <path>`. Private repo — maintainer grants access on request.
+- **Sequence, exactly:** (1) clone the engine repo and register `repos.claude_klabauter` — a clone, not an install; (2) run this coordinator install; (3) restart Claude Code; (4) only then run the engine repo's own installer. Steps 1 and 2 read as circular only if "clone" and "install" are conflated — they are not the same step, and the engine's installer legitimately depends on coordinator already being installed.
 
 ## Structural fork
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/detect-existing-claude-home.py"
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/detect-existing-claude-home.py"
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\detect-existing-claude-home.py"`
+    `& $pythonExe "$engineRoot\coordinator\lib\detect-existing-claude-home.py"`
 
 Emits `state=<pristine|used-vanilla|configured>`. `configured`: surface "existing setup — merge is yours"; else proceed with no/light note. Never clobbers `CLAUDE.md`/`settings.json`/registry regardless of state (wiki).
 
@@ -106,9 +117,11 @@ Exit 1: surface the printed remediation verbatim (WARN, not a hard blocker).
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-configure-git.cmd"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-configure-git.exe"`
 
 Sets `gc.autoDetach false`/`core.checkStat minimal`; idempotent; skip under `--check-only`.
+**Cwd repo only** — it takes no repo argument. Every other registered worktree is reached by the
+Phase 3 git-perf-config fleet sweep (Step 3.5a.1c), not by this call.
 
 If the operator git-tracks `~/.claude`:
 
@@ -118,11 +131,11 @@ If the operator git-tracks `~/.claude`:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-meta-repo-precommit-hook.cmd" "$HOME\.claude"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-meta-repo-precommit-hook.exe" "$HOME\.claude"`
 
 No-ops if not a git repo. Under `--check-only`, don't run it — report gate-marker presence instead.
 
-Git-LFS: if the binary is present, `git lfs install`; else advisory per-platform remediation (wiki).
+Git-LFS: report presence only — never `git lfs install` (no flags) against a coordinator-hooked repo: it refuses to overwrite coordinator's own committed hooks and only offers `--force`, which would clobber them, so a per-repo hook install is permanently a no-op here and must not be attempted. Binary present: offer `git lfs install --skip-repo` (global filter config only, never touches repo hooks). Binary absent: advisory per-platform remediation (wiki). Always report which branch ran — never silent.
 
 **Agent Teams.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` unset, not `--check-only`: offer to add `"env": {"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"}` to `~/.claude/settings.json`.
 
@@ -166,7 +179,7 @@ Read `~/.claude/coordinator-identity.yaml`. `operator_name` present: use it. Abs
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\write-identity-file.cmd" --claude-home "$claudeHome" --operator-name "$OPERATOR_NAME"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\write-identity-file.exe" --claude-home "$claudeHome" --operator-name "$OPERATOR_NAME"`
 
 Skip under `--check-only`.
 
@@ -176,7 +189,7 @@ Skip under `--check-only`.
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-template.cmd" "$env:CLAUDE_PLUGIN_ROOT\templates\CLAUDE.md.tmpl" -o "$claudeHome\.claude\CLAUDE.md" --guard-sentinel "coordinator:claude-md-seed:v1" "PM_NAME=$OPERATOR_NAME"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-template.exe" "$env:CLAUDE_PLUGIN_ROOT\templates\CLAUDE.md.tmpl" -o "$claudeHome\.claude\CLAUDE.md" --guard-sentinel "coordinator:claude-md-seed:v1" "PM_NAME=$OPERATOR_NAME"`
 
 Never-clobber is the `--guard-sentinel` flag's own contract (exit 3 = hand-authored file preserved, skip). No `--check-only` flag on the primitive — skip the call there instead.
 
@@ -193,7 +206,7 @@ git rev-parse --show-toplevel 2>/dev/null
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\bin\coordinator-resolve-validation-cmd.py" --read-key ($_EM_CONTEXT_REPO_ROOT ?? $PWD) engagement_posture`
+    `& $pythonExe "$engineRoot\coordinator\bin\coordinator-resolve-validation-cmd.py" --read-key ($_EM_CONTEXT_REPO_ROOT ?? $PWD) engagement_posture`
 
 Differs from the identity-file value: fail-loud, don't write the overlay. Empty output (repo has no posture set): not a difference — proceed, treat as absent.
 
@@ -205,7 +218,7 @@ Persist the posture to the identity file:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\write-identity-file.cmd" --claude-home "$claudeHome" --operator-name "$OPERATOR_NAME" --engagement-posture "$ENGAGEMENT_POSTURE"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\write-identity-file.exe" --claude-home "$claudeHome" --operator-name "$OPERATOR_NAME" --engagement-posture "$ENGAGEMENT_POSTURE"`
 
 Render the overlay:
 
@@ -215,7 +228,7 @@ Render the overlay:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-posture-overlay.cmd" "$ENGAGEMENT_POSTURE" "$_EM_CONTEXT_REPO_ROOT\.claude\em-context.md"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\render-posture-overlay.exe" "$ENGAGEMENT_POSTURE" "$_EM_CONTEXT_REPO_ROOT\.claude\em-context.md"`
 
 `--check-only`: append `--check-only` to the overlay call, writes nothing. Fail-loud if `_EM_CONTEXT_REPO_ROOT` is empty (must run inside a git repo).
 
@@ -241,36 +254,39 @@ PowerShell host (rung 0):
 Skip under `--check-only`. A repo onboarded later re-renders this overlay via `repo-setup` from the persisted value (wiki).
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/discover-working-repos.py"
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/discover-working-repos.py"
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\discover-working-repos.py"`
+    `& $pythonExe "$engineRoot\coordinator\lib\discover-working-repos.py"`
 
-→ `WORKING_REPOS` (Tier A/B; Tier C asks if empty and interactive). Persist at `~/.claude/working-repos.yaml`. `--check-only`: read-only, no write, no Tier C.
+→ `WORKING_REPOS` (Tier A/B; Tier C asks if empty and interactive). **No file is persisted here** — `discover-working-repos.py` only prints candidate paths to stdout; nothing under this skill writes `~/.claude/working-repos.yaml`. The step below (`register-discovered-repos.py`) is the actual persistence: only-if-absent registration of each candidate into the machine-local `repos.*` registry, not a YAML manifest. `--check-only`: read-only, no write, no Tier C.
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/register-discovered-repos.py" ${ARGUMENTS}
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/register-discovered-repos.py" ${ARGUMENTS}
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\register-discovered-repos.py" $ARGUMENTS`
+    `& $pythonExe "$engineRoot\coordinator\lib\register-discovered-repos.py" $ARGUMENTS`
 
-Only-if-absent, tier-gated to what discovery qualified.
+Only-if-absent, tier-gated to what discovery qualified. Registers into the machine-local `repos.*` registry — this, not a `~/.claude/working-repos.yaml` file, is the actual persistence for `WORKING_REPOS`.
 
 ## Phase 3 — Machine-local registry substrate
 
 Idempotent throughout; skip mutations under `--check-only`; never overwrite an existing `registry.toml`/`registry.local.toml`. `install-substrate.py`, `register-coordinator-mirror.py`, and `check-install-singularity.py` below derive their plugin root from their own on-disk location — since they live in the engine repo, that resolution is wrong; set `CLAUDE_PLUGIN_ROOT` explicitly (the harness-provided value from line 116's `render-template` fence) before calling any of the three.
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/install-substrate.py"
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/install-substrate.py"
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\install-substrate.py"`
+    `& $pythonExe "$engineRoot\coordinator\lib\install-substrate.py"`
 
 Writes the settings-home forwarders themselves (not one itself). Also builds the coordinator venv and ensures `claude` CLI's dir is on shell PATH. Re-run this exact call to repair a broken venv.
 
@@ -280,7 +296,7 @@ Writes the settings-home forwarders themselves (not one itself). Also builds the
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-health-run.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-health-run.exe" $ARGUMENTS`
 
 Runs `bin/install-health/*.sh`, each self-gating; aggregates failures without aborting on first.
 
@@ -288,6 +304,7 @@ Windows Defender process-exclusion offer (Windows-only, admin-gated, `[y/N]` def
 
 Optional interactive seed prompt (declinable, skipped if a registry file already exists): offers to seed the standard `repos.*` keys and machine/contributor slugs via `machine-local set`.
 
+<!-- INSTALL-DOE-ONLY:BEGIN -->
 **Doctrine-plane clone and launch surface** (idempotent, one command per artifact):
 
 ```bash
@@ -296,7 +313,7 @@ Optional interactive seed prompt (declinable, skipped if a registry file already
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\ensure-doe-clone.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\ensure-doe-clone.exe" $ARGUMENTS`
 
 Resolves target from `repos.doe_claude`/`REPO_DOE_CLAUDE`; interactive asks if unresolved; `--non-interactive` with neither: fail-loud, as does an unresolved `DOE_CLONE` post-prompt.
 
@@ -306,7 +323,7 @@ Resolves target from `repos.doe_claude`/`REPO_DOE_CLAUDE`; interactive asks if u
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-doe-root-pointer.cmd" $ARGUMENTS --graceful-skip-unresolved`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-doe-root-pointer.exe" $ARGUMENTS --graceful-skip-unresolved`
 
 Then the shim itself:
 
@@ -316,7 +333,7 @@ Then the shim itself:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.cmd" $ARGUMENTS --graceful-skip-unresolved`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.exe" $ARGUMENTS --graceful-skip-unresolved`
 
 Windows-only, additionally (skip on macOS/Linux):
 
@@ -328,7 +345,7 @@ PowerShell 7+ profile:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.cmd" --shell powershell --rc "$HOME\Documents\PowerShell\profile.ps1" --template "$DOE_CLONE\coordinator\templates\shell\claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.exe" --shell powershell --rc "$HOME\Documents\PowerShell\profile.ps1" --template "$DOE_CLONE\coordinator\templates\shell\claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved`
 
 Windows PowerShell 5.1 profile:
 
@@ -338,7 +355,7 @@ Windows PowerShell 5.1 profile:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.cmd" --shell powershell --rc "$HOME\Documents\WindowsPowerShell\profile.ps1" --template "$DOE_CLONE\coordinator\templates\shell\claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-claude-doe-shim.exe" --shell powershell --rc "$HOME\Documents\WindowsPowerShell\profile.ps1" --template "$DOE_CLONE\coordinator\templates\shell\claude-doe-shim.ps1.tmpl" --graceful-skip-unresolved`
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/install-claude-doe-wrapper" ${ARGUMENTS}
@@ -346,7 +363,21 @@ PowerShell host (rung 0):
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-claude-doe-wrapper.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-claude-doe-wrapper.exe" $ARGUMENTS`
+
+**§ canonical launch trinity.** The three calls above write the maximalist launch surface as one
+coordinated unit, all derived from `repos.doe_claude` as single source of truth — each has a
+matching removal leg on the uninstall side (#4/#6/#10):
+
+1. `.doe-root` pointer (`gen-doe-root-pointer`) — cold-readable bootstrap cache of the
+   doctrine-plane repo root.
+2. `claude-doe` wrapper (`install-claude-doe-wrapper`) — the exec target under the local bin dir;
+   regenerates the settings.json hook block and execs `claude` with the doctrine plugin dir.
+3. `claude()` shell shim (`gen-claude-doe-shim`) — shadows bare `claude` so the operator doesn't
+   need to set env manually; resolves the `.doe-root` pointer.
+
+Enumerated together as the audit anchor the uninstall lockstep cross-checks against — a live-disk
+survey alone is a structural blind spot on a box where a given member was never installed.
 
 Graceful no-op if the engine repo isn't checked out:
 
@@ -356,7 +387,7 @@ Graceful no-op if the engine repo isn't checked out:
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-shell-init-guard-seam.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\install-shell-init-guard-seam.exe" $ARGUMENTS`
 
 **Windows dogfood shape — verify the launch shape after rendering, not before.** The launchers and
 the `claude` shim are only correct if the interactive `claude.exe` ends up a DIRECT child of the
@@ -365,6 +396,7 @@ mitigation is disabling the shim, which strips the plugin from every session. Ru
 `python -m pytest coordinator/tests/test_dogfood_launch_shape.py` from the DoE clone — it reads the
 rendered artifacts these two calls just wrote and walks the real Win32 process tree to prove
 parentage. Self-skips off the dogfood shape.
+<!-- INSTALL-DOE-ONLY:END -->
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/gen-settings-hooks" ${ARGUMENTS}
@@ -372,7 +404,7 @@ parentage. Self-skips off the dogfood shape.
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-settings-hooks.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\gen-settings-hooks.exe" $ARGUMENTS`
 
 Restart Claude Code once — seeded SessionStart hooks do not fire mid-session.
 
@@ -382,36 +414,41 @@ Restart Claude Code once — seeded SessionStart hooks do not fire mid-session.
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\seed-marketplace-enabledplugins.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\seed-marketplace-enabledplugins.exe" $ARGUMENTS`
 
 Merge-never-clobber against `settings.json` ∪ `settings.local.json`; only `true` is ever written.
 
 `~/.claude/plugins/` stays thin under this shape (pointer/config only, no plugin-source byte-copy) automatically — no separate mutation, verified by the singularity gate below.
 
-**Required verification, not a subagent step.** `bin/install-sandbox-check.py`'s filesystem tier runs automated; its running-in-Claude-Code tier (live skill/hook resolution via `--plugin-dir`) CANNOT run inside a subagent — the EM or PM must run `claude-doe --dry-run` then launch `claude --plugin-dir <sandbox>/coordinator` interactively before declaring the install surface complete. Windows: the bare `claude-doe` isn't PowerShell/cmd-invocable — run `claude-doe.cmd --dry-run` (cmd.exe) or `claude-doe.ps1 --dry-run` (PowerShell) instead; both intercept `--dry-run` themselves and never forward it to `claude`.
+**Required verification, not a subagent step.** `bin/install-sandbox-check.py`'s filesystem tier runs automated; its running-in-Claude-Code tier (live skill/hook resolution via `--plugin-dir`) CANNOT run inside a subagent — the EM or PM must launch `claude --plugin-dir <sandbox>/coordinator` interactively before declaring the install surface complete.
+<!-- INSTALL-DOE-ONLY:BEGIN -->
+On the doctrine-plane clone shape above, run `claude-doe --dry-run` first. Windows: the bare `claude-doe` isn't PowerShell/cmd-invocable — run `claude-doe.cmd --dry-run` (cmd.exe) or `claude-doe.ps1 --dry-run` (PowerShell) instead; both intercept `--dry-run` themselves and never forward it to `claude`.
+<!-- INSTALL-DOE-ONLY:END -->
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/register-coordinator-mirror.py" ${ARGUMENTS}
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/register-coordinator-mirror.py" ${ARGUMENTS}
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\register-coordinator-mirror.py" $ARGUMENTS`
+    `& $pythonExe "$engineRoot\coordinator\lib\register-coordinator-mirror.py" $ARGUMENTS`
 
 **No canonical-structure scaffold runs here.** `canonical-structure.yaml` describes a
 coordinator-managed *project repo* (`CLAUDE.md`, `docs/exec-summary.md`, `state/handoffs/`,
 `.git/hooks/post-commit`), and `~/.claude` is not one — it is harness config and backup, holding no
 coordinator working data, so the `guard-repo-setup-claude-home-refusal` bash guard refuses a
 scaffold write targeting it. Per-project scaffolding is `/coordinator:repo-setup`'s, run from
-inside the project.
+inside the project. Report this step as guard-blocked/no-op rather than running it.
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/check-install-singularity.py"
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/check-install-singularity.py"
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\check-install-singularity.py"`
+    `& $pythonExe "$engineRoot\coordinator\lib\check-install-singularity.py"`
 
 Verifies exactly one canonical coordinator tree; non-zero exit is a genuine accidental split — print remediation. Exempt: an explicitly-exported `COORDINATOR_CLONE`/`COORDINATOR_ROOT` dev override.
 
@@ -423,7 +460,7 @@ Writes the fan-out soft-threshold (`--check-only` as sole arg for a dry report):
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\capture-fan-out-threshold.cmd"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\capture-fan-out-threshold.exe"`
 
 Closes the `/plugin` marketplace-corruption window before the operator's first new session:
 
@@ -433,11 +470,11 @@ Closes the `/plugin` marketplace-corruption window before the operator's first n
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\run-platform-localize.cmd" $ARGUMENTS`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\run-platform-localize.exe" $ARGUMENTS`
 
 ## Phase 4 — Meta-repo doctrine
 
-`git -C ~/.claude rev-parse --show-toplevel`. Not a repo, interactive, not `--check-only`: offer to `git init ~/.claude` + starter `.gitignore` + initial commit — never creates a remote or pushes. Is a repo: probe `.gitignore` coverage of `coordinator-setup-state.yaml`/`settings.json`/`bin/`/`machine-local/`/`.claude/`, offer to append missing entries and `git rm --cached` anything already tracked despite the new rule. Anchor the last two (`/machine-local/`, `/.claude/`) — a tracked `machine-local/` is re-materialised as a real directory on every checkout, which permanently blocks Phase 3's settings-home migration from reaching its terminal symlink and ships one box's resolved pointers to every peer machine.
+`git -C ~/.claude rev-parse --show-toplevel`. Not a repo, interactive, not `--check-only`: offer to `git init ~/.claude` + starter `.gitignore` (derived from `templates/dotgitignore.tmpl` at that moment) + initial commit — never creates a remote or pushes. Is a repo: run `coordinator/bin/check-gitignore-template-drift.py` --apply — it owns deriving the live-`.gitignore`-vs-`templates/dotgitignore.tmpl` diff and applying it, on both this install run and its own recurring ceremony-gate cadence. **This call is the ONLY delivery path an existing install has** for a template rule added after `git init` laid the starter file down, since that starter file is never re-applied outside this gate. **Derive the list from the template; never hardcode one here** — a fixed enumeration has to be extended by whoever next edits the template, which is a rule discharged by memory, and memory is what failed: the box that AUTHORS the template was measured nine rules behind it, including the shape-matched credential rules (`*-token-key`, `*-token.json`, `*.pem`) that exist so a plugin installed later is covered the day it first writes a key — deriving from `templates/dotgitignore.tmpl` propagates every future rule with nothing to remember. Then `git rm --cached` anything already tracked despite a newly-added rule. Two entries the gate's diff surfaces are not plain appends and need naming here: Probe the auto-memory re-inclusion too (`projects/**` plus its three `!` lines): an operator whose `.gitignore` carries a bare `projects/` is silently discarding the auto-memory store the workstream-complete drain gate empties to zero at every close. **This one entry is REPLACE, not append — appending is inert.** Delete the existing bare `projects/` line and write the four-line chain in its place: git does not descend into an excluded directory, so a chain appended BELOW a surviving `projects/` is never reached and stages nothing, which is the exact silent failure the probe is here to repair. Every existing install is in that state by construction. Then `git add` the store — an ignore FIX does not retroactively track what was never committed. Warn the operator that the store becomes committed content: it is model-authored prose about their work, so it wants a read-through before any remote is added. Full policy and rationale: `docs/wiki/claude-home-tracking-policy.md`. Anchor the last two (`/machine-local`, `/.claude/`) — a tracked `machine-local` is re-materialised as a real directory on every checkout, which permanently blocks Phase 3's settings-home migration from reaching its terminal symlink and ships one box's resolved pointers to every peer machine. Write `/machine-local` with NO trailing slash: `dir/` matches only a real directory, so the slashed form walks past the symlink the path becomes once that migration completes — the rule reads as present and matches nothing.
 
 ## Phase 5 — Project-local
 
@@ -452,12 +489,13 @@ fast_test_cmd: "<your-project-fast-test-command>"  # optional, single command on
 ```
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:-$HOME/claude-klabauter}}/coordinator/lib/coordinator_currency.py" write "$PWD" "${CLAUDE_PLUGIN_ROOT}"
+ENGINE_ROOT="${ENGINE_ROOT:-$("${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py")}"
+"${COORDINATOR_PYTHON:-python3}" "${ENGINE_ROOT:?engine root unresolved — the resolver prints an empty line on a total miss; see § Backing script}/coordinator/lib/coordinator_currency.py" write "$PWD" "${CLAUDE_PLUGIN_ROOT}"
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\lib\coordinator_currency.py" write "$PWD" "$env:CLAUDE_PLUGIN_ROOT"`
+    `& $pythonExe "$engineRoot\coordinator\lib\coordinator_currency.py" write "$PWD" "$env:CLAUDE_PLUGIN_ROOT"`
 
 ## Phase 6 — Optional
 
@@ -466,12 +504,13 @@ PowerShell host (rung 0):
 **GitHub Auth via 1Password.** Opt-in, `--non-interactive` skips silently.
 
 ```bash
-"${COORDINATOR_PYTHON:-python3}" "${REPO_CLAUDE_KLABAUTER:-${COORDINATOR_ENGINE_ROOT:?engine repo root unresolved — register repos.claude_klabauter}}/coordinator/scripts/setup-github-auth-1password.py" --check
+AUTHORING_ROOT="${AUTHORING_ROOT:-$("${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/machine-local" get repos.claude_klabauter)}"
+"${COORDINATOR_PYTHON:-python3}" "${AUTHORING_ROOT:?repos.claude_klabauter unregistered — machine-local set repos.claude_klabauter <path>}/coordinator/scripts/setup-github-auth-1password.py" --check
 ```
 
 PowerShell host (rung 0):
 
-    `& $pythonExe "$claude_klabauterRoot\coordinator\scripts\setup-github-auth-1password.py" --check`
+    `& $pythonExe "$authoringRoot\coordinator\scripts\setup-github-auth-1password.py" --check`
 
 `--check-only` uses `--check`; interactive on Y runs the same command without `--check` (offers each change individually, backs up `~/.ssh/config`).
 
@@ -499,9 +538,9 @@ removes the block silently.
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.cmd" record setup_concluded`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.exe" record setup_concluded`
 
-Present a status table, one row per check above plus `orientation` (`PENDING` default). Not `--check-only`: offer a guided walkthrough (three movements — Orient, make `~/.claude/CLAUDE.md` yours, test-drive on a real repo; text: wiki):
+Present a status table, one row per check above plus `orientation` (`PENDING` default). Status vocabulary: `RAN` | `SKIPPED` (mode-gated, e.g. `--check-only`) | `DISABLED` (a deliberate operator opt-out marker, e.g. `~/.claude/.coordinator-hooks-disabled` — distinct from a failure) | `INHERITED` (the step's target already held the right value before this run, rather than being freshly written by it — never collapse this into a bare pass: presence is not provenance, and a crashed writer that left a correct pre-existing value must read differently from one that actually ran). Not `--check-only`: offer a guided walkthrough (four movements — Orient, make `~/.claude/CLAUDE.md` yours, test-drive on a real repo, onboard their first project via `/coordinator:repo-setup` or `/coordinator:new-project`; text: wiki):
 
 ```bash
 "${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-setup-state" record orientation_started
@@ -509,8 +548,8 @@ Present a status table, one row per check above plus `orientation` (`PENDING` de
 
 PowerShell host (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.cmd" record orientation_started`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-setup-state.exe" record orientation_started`
 
-Record `orientation_completed` at the end. Standing sign-off note and the `/coordinator:repo-setup` bootstrap offer (when `working-repos.yaml` has N>0): wiki.
+Record `orientation_completed` at the end. Standing sign-off note and the `/coordinator:repo-setup` bootstrap offer (gated on `repos.*` having ≥1 newly-registered entry from this run, not a `working-repos.yaml` file — none is written): wiki.
 
 **Terminal-message gate.** Never present unconditional success language while `orientation` is `PENDING` — foreground "restart, then say 'walk me through the coordinator'" until `orientation_completed` is recorded (exact phrasing: wiki).

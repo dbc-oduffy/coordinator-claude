@@ -275,6 +275,11 @@ def _cmd_run(argv: list[str]) -> int:
     parser.add_argument("root")
     parser.add_argument("--today", default=None, help="Override 'today' (YYYY-MM-DD); defaults to local today.")
     parser.add_argument("--no-commit", action="store_true", help="Skip the batched git add+commit of injected files.")
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="Treat empty gap-row stdin as a gapless window rather than a usage error.",
+    )
     args = parser.parse_args(argv)
 
     if not os.path.isdir(args.root):
@@ -284,6 +289,18 @@ def _cmd_run(argv: list[str]) -> int:
     today = args.today or datetime.date.today().strftime("%Y-%m-%d")
 
     gap_text = sys.stdin.read()
+    if not gap_text.strip() and not args.allow_empty:
+        # Same silent-success shape as backfill-dispatch-rows: no rows meant an
+        # empty loop and a clean exit 0 with nothing anchored. The scan prints
+        # nothing for a gapless window, so this seam cannot tell that from
+        # stdin never having been wired — the caller can, and says so.
+        print(
+            "ERROR: backfill-anchor run: no gap rows on stdin. Pipe "
+            "workday-complete-backfill-scan's output in, or pass --allow-empty "
+            "if a gapless window is the expected result.",
+            file=sys.stderr,
+        )
+        return 1
     grouped = _parse_gap_rows(gap_text)
 
     inject_mod = _load_inject_anchor_module()

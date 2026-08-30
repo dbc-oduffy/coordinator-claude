@@ -49,20 +49,32 @@ _BOOTSTRAP_DONE = False
 
 def _bootstrap_engine() -> None:
     """Put `_REPO_ROOT` on `sys.path` so `machine_local_resolve.py`'s own
-    module-level `coordinator_core.win_portability` import resolves.
+    module-level `coordinator_core.win_portability` import resolves, AND
+    bootstrap `coordinator/bin/lib` onto `sys.path` via `import lib`.
     Idempotent.
 
-    What moved, and what did NOT: this single-line mutation used to run at
-    MODULE scope, which made every import of this file mutate the `sys.path`
-    of a warm server ~50 sessions share. The line is preserved exactly; only
-    the trigger moved. No name is bound as a global here, so there is
-    nothing to publish and no `__getattr__` hook is needed.
+    What moved, and what did NOT: the `_REPO_ROOT` single-line mutation used
+    to run at MODULE scope, which made every import of this file mutate the
+    `sys.path` of a warm server ~50 sessions share. That line is preserved
+    exactly; only the trigger moved.
+
+    The `import lib` call is NOT that carried-over mutation -- it is a fix
+    folded in here (2026-08-29 review-finding sweep, Finding 4). This
+    function used to insert `_REPO_ROOT` only, which reads as protection for
+    `_resolve_plugin_root()`'s `from coordinator_data_root import data_root`
+    below while providing none: `coordinator_data_root` lives under
+    `coordinator/bin/lib/`, not the repo root, so that import resolved only
+    because `main()`'s own later `import lib` call happened to run first on
+    every real invocation path. A mid-module entry into
+    `_resolve_plugin_root()` that never reaches `main()` raised
+    `ModuleNotFoundError` on `coordinator_data_root`.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
     if _REPO_ROOT not in sys.path:
         sys.path.insert(0, _REPO_ROOT)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     _BOOTSTRAP_DONE = True
 
 

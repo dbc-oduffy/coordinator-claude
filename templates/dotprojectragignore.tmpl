@@ -24,6 +24,17 @@
 # that surfaces an archived baton over its live successor is a wrong answer.
 archive/**
 
+# The rule above is root-anchored and only prunes the top-level tree, missing
+# every nested `archive/` directory elsewhere in the repo — the same terminal-
+# and-superseded rationale applies at any depth. Named individually rather than
+# via a recursive `**/archive/**`, so this list only prunes the nested archive
+# trees this repo actually has, not any future directory that happens to be
+# named "archive" for an unrelated reason.
+docs/research/archive/**
+coordinator/archive/**
+coordinator/cockpit-contract/conformance/inputs/archive/**
+cross-repo/archive/**
+
 # Per-dispatch ephemera: agent sidecars and review diffs. In an active repo this
 # is the single largest tree by file count, and it answers nothing the plan,
 # decision, or lesson it was produced for does not answer better and more

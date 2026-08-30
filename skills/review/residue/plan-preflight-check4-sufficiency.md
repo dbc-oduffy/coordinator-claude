@@ -12,12 +12,10 @@ written and perfectly, does the falsifier go green? The baseline makes it answer
 measured start and a stated target, so estimate the distance the spine closes against the distance
 the prime exit criterion demands.
 
-**This is a different failure from divergence.** Divergence (see
-`docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`, `pln-route-c-…`) is right
-size, wrong direction — every AC passes and the falsifier still doesn't move. Sufficiency is right
-direction, wrong size — the spine moves the falsifier the way it should, just not far enough. The
-falsifier alone catches insufficiency only at close-out, after the whole execution is paid for; this
-check exists to catch it before authoring the spine.
+**Distinct from divergence** (`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/a-green-plan-is-not-a-delivered-plan.md`):
+divergence is right size, wrong direction — every AC passes and the falsifier still doesn't move.
+Sufficiency is right direction, wrong size. The falsifier alone catches insufficiency only at
+close-out, after the execution is paid for; this check catches it before the spine is authored.
 
 Verdict is one of `sufficient` / `insufficient` / `cannot-tell` — always stated, never omitted.
 
@@ -28,8 +26,7 @@ Verdict is one of `sufficient` / `insufficient` / `cannot-tell` — always state
 | `cannot-tell` | Itself a finding: a plan whose delivered magnitude cannot be reasoned about before execution is a plan nobody can steer. |
 
 **Routing is the point.** `insufficient` and `cannot-tell` are RE-PLAN triggers, not findings to
-note and pass. Resizing upward via the `plan⇄sizing` return edge is natural and unremarkable —
-never a failure, and equally never the default: most plans are sized about right, and a check that
-routinely returns `insufficient` is a reviewer inflating sizes rather than estimating them.
-Narrowing the prime exit criterion to fit the spine is forbidden — that is the vacuous AC one
-altitude up.
+note and pass. Resizing upward via the `plan⇄sizing` return edge is unremarkable — never a failure,
+and never the default either: a check that routinely returns `insufficient` is a reviewer inflating
+sizes rather than estimating them. Narrowing the prime exit criterion to fit the spine is
+forbidden — that is the vacuous AC one altitude up.

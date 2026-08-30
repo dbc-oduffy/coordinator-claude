@@ -67,7 +67,7 @@ STOP those clusters, never substitute web scouts, surface to PM. Other clusters 
 1.5.0. Assess research depth (EM judgment, PM-authorized) — `residue/research-depth-assessment.md`
    before dispatching scouts; `/research` is PM-gated, never EM-auto-invoked.
 1.5.1. Dispatch one scout per KEEP/MERGE-target cluster (cap 8 concurrent), brief =
-   `coordinator/snippets/internet-research-scout.md` + cluster scope → `research-corpus/<topic-
+   `${CLAUDE_PLUGIN_ROOT}/snippets/internet-research-scout.md` + cluster scope → `research-corpus/<topic-
    slug>.md`, ≥2KB. Exceptions (per-project material, measurement-derived corpus): wiki.
 1.5.2. Author `OVERVIEW.md`, one section per KEEP cluster, headed by NAME never number (wiki:
    why); each section cites its research-corpus file and carries `### Contested` (required, even
@@ -92,7 +92,7 @@ final-approved`.
 **Entry:** OVERVIEW `status: final-approved`, Phase 1.5 exit checked — else STOP, return to Phase 1.5.
 
 2.1. Scaffold each stub (Shape W, `snippets/resolve-coordinator-bin.md`):
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type roadmap-baton --title "<title>" --roadmap-id <run-id> --stub-id <slug>-<N> --out state/handoffs/<date>_<HHMMSS>_roadmap-<slug>-<N>.md`,
    mint the id (`bin/mint-deliverable-id --stub-id "<slug>-<N>"` → `deliverable_id:`), fill the rest
    from Step 2.1.5's numbering output. **Read `residue/stub-frontmatter-schema-and-field-notes.md`
    first.**
@@ -107,7 +107,7 @@ final-approved`.
    `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
 2.1.5. Number stubs in dependency order before writing any — run (Shape W,
    `snippets/resolve-coordinator-bin.md`)
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\roadmap-number-stubs.cmd" <edges-file>`
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\roadmap-number-stubs.exe" <edges-file>`
    and transcribe its `N`/`sprint`/`wave` output verbatim (multi-sprint boundary assignment is hand
    judgment it doesn't resolve). Covers only DECLARED edges. Format + the dependency-order
    invariant it enforces: wiki.
@@ -138,7 +138,7 @@ final-approved`.
 
 <!-- engine-gap: field=roadmap_planning.pm_gate_keyword_detection producer=unknown memo=2026-08-27-claude-klabauter-em-doe-unmarked-obligations-and-four-lost-markers.md -->
 2.6–2.7. Phase 2 close (Shape W, `snippets/resolve-coordinator-bin.md`):
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.cmd" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\audit-roadmap.exe" <run-id>` — one gate, five audits (stub-coverage, `ready_to_fire`
    uniqueness, pm-gates cross-reference, dependency-order). Exit 1 blocks close and names the
    offender. `kind: roadmap-baton` frontmatter is also `bin/lint-frontmatter`-clean.
 2.8. Sequential reviews — same altitude rule and sidecar contract as Step 1.5.5. Domain reviewer

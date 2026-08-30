@@ -58,6 +58,7 @@ def _resolve_plugin_root() -> str:
     resolve, via the same transport-failure path as engine-root resolution
     below — this is a gate script, not a never-block hook.
     """
+    _bootstrap_engine()
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")
@@ -76,11 +77,22 @@ def _resolve_plugin_root() -> str:
     return os.path.join(root, "coordinator")
 
 
-def _import_main():
+def _bootstrap_engine() -> str:
+    """Put coordinator/bin/lib and the resolved claude-klabauter engine on sys.path.
+
+    Order is load-bearing: `import lib` first (so `cc_invoke` is importable),
+    then `require_dispatch_engine_on_path()` to resolve and bind the engine
+    root. Every function in this file that imports a `lib/`-dir module or
+    `coordinator_core.*` calls this first.
+    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path
 
-    claude_klabauter_root = require_dispatch_engine_on_path()
+    return require_dispatch_engine_on_path()
+
+
+def _import_main():
+    _bootstrap_engine()
     from coordinator_core.snippet_sync.verify_registry_consistency import main as _op_main
     return _op_main
 

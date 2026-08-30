@@ -47,7 +47,7 @@ Surface a needed merge to the EM instead of doing it.
 `setup-verify` invocation on this page, never the `${...}` POSIX-shell form shown. Ladder and
 shapes: `snippets/resolve-coordinator-bin.md`.
 
-Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" layout --plugin-root "<PLUGIN_ROOT>"` (Shape W; ladder and POSIX shapes: `snippets/resolve-coordinator-bin.md`).
+Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" layout --plugin-root "<PLUGIN_ROOT>"` (Shape W; ladder and POSIX shapes: `snippets/resolve-coordinator-bin.md`).
 Prints `Layout: <flat|nested>` and `Manifest path: <path>`; exits 1 with a "Manifest not found"
 remediation if `docs/install/agent-install-manifest.json` is absent under the resolved repo root.
 Surface an exit-1 error verbatim.
@@ -70,7 +70,7 @@ Disk-resident, for diamond-DAG and cycle detection across recursive subagent dis
 `<settings-home>/coordinator-claude/chain-walk-<session-id>.json`, where `<settings-home>` is
 resolved per `snippets/resolve-coordinator-bin.md` (Shape W on PowerShell hosts).
 
-Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" visited-init` (Shape W)
+Run `& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" visited-init` (Shape W)
 — generates a session id, prunes `chain-walk-*.json` files older than 60 minutes, writes the new
 file with an empty `visited` array, prints `Session ID:` and `Visited-set:`.
 
@@ -86,14 +86,8 @@ Python is pre-verified (hard exit if absent — the sole hard gate on this path)
 **Never the deprecated `setup.py` forwarder.**
 
 This calls `_co_run_prereq_gate post-consumer`, which emits one dep row (the engine, hard) and the
-prereq probe rows (git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs):
-
-| Probe | Severity |
-|---|---|
-| python | hard (sole hard gate) |
-| gh, node, git | advisory (demoted from hard) |
-| clone_auth | advisory (demoted from semi-hard) |
-| everything else | advisory |
+prereq probe rows (git, python, uv, gh, node, pwsh, ue, clone_auth, longpaths, git_lfs) at the
+severities the Step 5 terminal report shows below.
 
 Advisory failures print `[WARN]` to stderr and do not block exit 0. A missing/broken engine
 dependency triggers the [FAIL] hard-fail path — exit 1 (`--preflight`/`--check`) or consent-gate
@@ -105,7 +99,7 @@ serviced before any dep-walking and do not trigger the override check.
 
 **Override flags** — both must be passed TOGETHER: `--skip-dep-check` and
 `--accept-missing-deps-risk`. Validate via
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-override-flags -- $args`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-override-flags -- $args`
 (Shape W)
 — exits 93 when exactly one is present, 0 otherwise (printing which path applies). Passing only
 one degrades most mutating coordinator operations (no bash fallback under the big-bang cutover);
@@ -191,7 +185,7 @@ Run via Bash. Resolve `PLUGIN_ROOT` per-probe if not already in scope (each prob
 self-contained). Rationale for probe ordering and design: wiki.
 
 **Probe 0 — Plugin reachable.**
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-plugin-registered --plugin coordinator --marketplace coordinator-claude --marketplace-source dbc-oduffy/coordinator-claude --plugin-dir "<PLUGIN_ROOT>"`
 (Shape W).
 Asserts reachability (marketplace registration OR live `--plugin-dir` resolution — `PASS
 (live-resolved)` when a manifest plus commands or hooks are present at that path), not mere
@@ -199,7 +193,7 @@ enablement membership. Runs before Probe 1 deliberately. **Never restart-gated**
 configured-but-broken on FAIL.
 
 **Probe 1 — Plugin enabled in settings.json.**
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-settings-membership --plugin-dir "<PLUGIN_ROOT>"`
 (Shape W; optional `--settings <path>`, default `~/.claude/settings.json`).
 Pass the same `<PLUGIN_ROOT>` Probe 0 got — omitting `--plugin-dir` FAILs a live-resolved install.
 `PASS`/exit 0, `[WARN]`/exit 0 if settings.json missing/unparseable, `FAIL`/exit 1 otherwise. A
@@ -211,7 +205,7 @@ Probe 1 degrades to `[WARN]`/exit 0 — absence from enabledPlugins is that shap
 never a configured-but-broken install.
 
 **Probe 2 — Hooks registered and live on disk.**
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-hooks --plugin-root "<PLUGIN_ROOT>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-hooks --plugin-root "<PLUGIN_ROOT>"`
 (Shape W).
 Parses `<PLUGIN_ROOT>/hooks/hooks.json`, verifies each coordinator-owned hook path exists on disk
 (named lookup, not a blanket file count). `PASS`/exit 0, `FAIL` (lists missing paths)/exit 1,
@@ -221,7 +215,7 @@ restart-gated-expected.
 
 **Probe 3 — Skill discovery preconditions.**
 Use this skill itself as the representative: `<PLUGIN_ROOT>/skills/setup/SKILL.md`.
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.cmd" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\setup-verify.exe" check-skill-description --skill-file "<PLUGIN_ROOT>/skills/setup/SKILL.md"`
 (Shape W).
 `PASS`/exit 0, `FAIL` (missing file, no frontmatter, no/empty `description:`)/exit 1. Missing or
 unparseable skill file is always configured-but-broken — never restart-gated. Probe 1's WARN

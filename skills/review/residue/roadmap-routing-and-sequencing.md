@@ -40,5 +40,5 @@ review does not re-litigate which clusters became stubs.
 - A reviewer dispatched before round 1 reviews a shape the PM has not accepted, and their
   findings are spent on an artifact about to change underneath them.
 
-_See `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch — `/staff-session`
+_See `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Dispatch — `/staff-session`
 is PM-gated; ask first._

@@ -66,7 +66,12 @@ FANIN_DISPATCHERS = {
     "stop-dispatch.py": "Stop",
     "preuse-write-dispatch.py": "PreToolUse",
     "postuse-stop-family-dispatch.py": "PostToolUse",
-    "preuse-bash-dispatch.py": "PreToolUse",
+    # `preuse-bash-dispatch.py` is deliberately absent from BOTH this map and
+    # `_CARRIER_SOURCES`, and the two must stay in step: it is a PreToolUse
+    # dispatcher, but it fans nothing in any more -- its guards live in the
+    # engine's chain. Listing it here without a `_CARRIER_SOURCES` entry raises
+    # "not an enrolled fan-in carrier" from `carried_guards`; adding one back
+    # would reinstate the deleted fold. See that dict's own note.
     "preuse-agent-dispatch.py": "PreToolUse",
 }
 
@@ -127,9 +132,13 @@ _CARRIER_SOURCES: "dict[str, tuple[str, str, Callable]]" = {
     "sessionstart-async-dispatch.py": ("sessionstart-async-dispatch.py", "REGISTRY", _rows_direct),
     "stop-dispatch.py": ("stop-dispatch.py", "REGISTRY", _rows_direct),
     "preuse-agent-dispatch.py": ("preuse-agent-dispatch.py", "REGISTRY", _rows_direct),
-    # `_BASH_GUARD_REGISTRY` is underscore-private and stays that way here --
-    # see the module docstring's "out of scope for this chunk" note.
-    "preuse-bash-dispatch.py": ("preuse-bash-dispatch.py", "_BASH_GUARD_REGISTRY", _rows_direct),
+    # `preuse-bash-dispatch.py` is DELIBERATELY ABSENT and must not be re-added: it carries no
+    # guard registry any more. Its four folded guards were rehomed into the control-plane
+    # engine's own guard chain, which evaluates them on every transport, and the dispatcher
+    # became a pure relay. A carrier entry here would resolve `_BASH_GUARD_REGISTRY` on a module
+    # that no longer defines it and raise, and re-adding one to "fix" that would be reinstating
+    # the fold this deletion removed. The guard SCRIPTS remain on disk and independently
+    # invocable; their deregistration reasons are in `baselines/hook-registration-roster.json`.
     "preuse-write-dispatch.py": ("_guard_runner.py", "REAL_GUARD_REGISTRY", _rows_via_module_path),
     "postuse-stop-family-dispatch.py": (
         "_stop_family_runner.py", "REAL_STOP_FAMILY_REGISTRY", _rows_via_module_path,

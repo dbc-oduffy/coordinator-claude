@@ -276,6 +276,7 @@ def primary_consumed_handoff_scan(repo_root: Path, sid: str) -> PrimaryScanResul
     conflict is reported to the caller so the disposition can decline to
     rest on it; reaping it belongs to the claim-hygiene surface, not to a
     session-shape detector."""
+    _bootstrap_engine_imports()
     handoffs_dir = repo_root / "state" / "handoffs"
     if not handoffs_dir.is_dir():
         return PrimaryScanResult([], [])

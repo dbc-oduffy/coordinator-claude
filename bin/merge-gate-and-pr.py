@@ -126,10 +126,8 @@ def cmd_pr_body(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 _COVERAGE_GATE_ADVISORY_NOTE = (
-    "enforced server-side: a push to main without a green `coverage-gate` "
-    "status is refused by GH013 before the ref moves. Land it through a "
-    "branch and a review record. The ruleset is deletable by any holder of "
-    "the repo PAT, so this stops the accidental push, not a deliberate one."
+    "not enforced at the git-push layer: a raw `git push origin main` still "
+    "reaches the remote unchecked."
 )
 
 

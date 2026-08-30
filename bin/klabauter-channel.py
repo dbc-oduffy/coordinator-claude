@@ -79,9 +79,14 @@ _RESOLVE_CLAUDE_KLABAUTER_DIR = _REPO_ROOT / "coordinator" / "lib" / "resolve-cl
 
 _BOOTSTRAP_DONE = False
 
+_BOOTSTRAPPED_NAMES = ("cli_shared", "_resolve_claude_klabauter", "registry_get", "same_path", "_expected_local_branch")
+
 
 def _bootstrap_engine() -> None:
-    """Put lib/, resolve-claude-klabauter/, this dir, and the repo root on sys.path.
+    """Put lib/, resolve-claude-klabauter/, this dir, and the repo root on sys.path,
+    then bind the deferred module-level names every sibling function reads
+    as a global (`cli_shared`, `_resolve_claude_klabauter`, `registry_get`,
+    `same_path`, `_expected_local_branch`).
 
     Moved out of module scope: this used to mutate sys.path on every import
     of this file, a process global ~50 warm-server sessions share. Only the
@@ -102,7 +107,45 @@ def _bootstrap_engine() -> None:
             sys.path.insert(0, _p)
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
+
+    global cli_shared, _resolve_claude_klabauter, registry_get, same_path, _expected_local_branch
+    import cli_shared
+    import _resolve_claude_klabauter
+    from coordinator_core.machine_resolver import registry_get
+    from coordinator_core.win_portability import same_path
+    from publish import _expected_local_branch
+
     _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for a deferred name (a test
+    monkeypatching `_mod.cli_shared`/`_mod._resolve_claude_klabauter`/etc before
+    `main()` has run, or any consumer importing rather than executing this
+    module) triggers `_bootstrap_engine()` lazily instead of finding the
+    name absent.
+
+    NEGATIVE SPEC -- the forced re-run is not belt-and-braces. `_bootstrap_engine()`
+    short-circuits on `_BOOTSTRAP_DONE`, so a name that leaves `__dict__` AFTER the
+    bootstrap has run is never rebound by a plain call. `mock.patch.object` does
+    exactly that: it reads the name through this hook (so the value is not in
+    `__dict__` at enter), sets its mock, and on exit `delattr`s rather than
+    restoring -- then probes `hasattr`, which lands here with the flag already set.
+    Without the reset that probe raises KeyError instead of returning the name.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 _EXIT_OK = 0
@@ -127,8 +170,6 @@ def _run(cmd, **kwargs) -> subprocess.CompletedProcess:
 def _resolve_tree() -> Optional[str]:
     """`repos.claude_klabauter`, or `None` if unset."""
     _bootstrap_engine()
-    import cli_shared
-
     return cli_shared.machine_local_get(_REPOS_KEY)
 
 
@@ -182,9 +223,6 @@ def _is_publish_mirror(tree: str) -> bool:
     # an added process spawn for no reason (machine load norm:
     # docs/wiki/machine-load-norm.md).
     _bootstrap_engine()
-    from coordinator_core.machine_resolver import registry_get
-    from coordinator_core.win_portability import same_path
-
     mirror_path = registry_get(_PUBLISH_MIRROR_PATH_KEY)
     if not mirror_path:
         return False
@@ -195,9 +233,6 @@ def _declared_track_ref_branch() -> Optional[str]:
     """The local branch `_expected_local_branch` derives from the declared
     `publish.mirrors.claude_klabauter.track_ref`, or `None` if undeclared."""
     _bootstrap_engine()
-    from publish import _expected_local_branch  # noqa: PLC0415 -- see Finding 3 below
-    from coordinator_core.machine_resolver import registry_get
-
     track_ref = registry_get(_TRACK_REF_KEY)
     if not track_ref:
         return None
@@ -206,8 +241,6 @@ def _declared_track_ref_branch() -> Optional[str]:
 
 def _cmd_report(args: argparse.Namespace) -> int:
     _bootstrap_engine()
-    import _resolve_claude_klabauter
-
     tree = _resolve_tree()
     declared = _resolve_claude_klabauter.resolve_engine_target()
 
@@ -337,8 +370,6 @@ def _cmd_set(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     _bootstrap_engine()
-    import _resolve_claude_klabauter
-
     parser = argparse.ArgumentParser(
         prog="klabauter-channel",
         description=(

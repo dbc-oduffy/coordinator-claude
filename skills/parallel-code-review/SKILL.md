@@ -14,7 +14,7 @@ The /workweek-complete pre-merge code-review gate. Snapshots the week's diff aga
 `origin/main`, dispatches N `code-reviewer-weekly` chunk reviewers over the narrowed
 code-semantics scope plus 3 mechanical specialists (security, deps, tests) over the full diff —
 all in parallel — synthesizes into BLOCKED/WARN/OK, halts or proceeds before release notes.
-Enforcement surface for `coordinator/snippets/em-operating-doctrine.md` § How to Review What Came
+Enforcement surface for `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Review What Came
 Back. The Staff Engineer is not in this gate — that advisory Layer-2 architecture pass runs separately at
 `/workweek-complete` Step 7.5 (rationale: wiki).
 
@@ -128,6 +128,20 @@ Reviewers never commit. A chunk reviewer's footprint on return is exactly its on
 `chunk-<k>.md` — anything else is a contract violation to revert.
 <!-- engine-gap: field=chunks[k].footprint producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
 
+## Lens-Domain Manifest
+
+Machine-readable form of the four lenses above. `verify-parallel-review-lens-orthogonality`
+parses this table, not the prose — it asserts every reviewer's agent file exists, that no two
+reviewers claim the same lens domain, and that at least four rows are present. The guard fails
+closed: with this table absent or short, every parallel-review dispatch is refused.
+
+| Reviewer | Lens domain |
+|---|---|
+| `agents/code-reviewer-weekly.md` | code semantics |
+| `agents/security-audit-worker.md` | source security |
+| `agents/dep-cve-auditor.md` | dependency CVEs |
+| `agents/test-evidence-parser.md` | test evidence |
+
 ---
 
 ## Synthesizer Pre-Flight and Dispatch
@@ -137,7 +151,7 @@ doc-only week) must exist and be >1KB before the synthesizer runs. A failing/mis
 `lens_coverage[<reviewer>]: failed_disk_read`, degrade to WARN, never "no findings = no issues."
 
 **Quota-exhausted dispatch.** Scan each returned slice against
-`coordinator/snippets/quota-self-detect-preamble.md`'s pattern set before synthesizer dispatch — a
+`${CLAUDE_PLUGIN_ROOT}/snippets/quota-self-detect-preamble.md`'s pattern set before synthesizer dispatch — a
 match (or the `QUOTA-EXHAUSTED-DISPATCH:` envelope) is failed-needing-re-dispatch, excluded from
 synthesis. Wait-and-re-dispatch or escalate partial coverage to the PM; the gate holds until
 resolved.

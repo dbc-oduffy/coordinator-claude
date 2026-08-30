@@ -102,16 +102,92 @@ def _load_percolate_push_module():
     return module
 
 
-_percolate_push_cache: dict = {}
+_BOOTSTRAPPED_NAMES = (
+    "_percolate_push",
+    "_run",
+    "_resolve_percolate_root",
+    "_resolve_dest",
+    "_check_dest_state",
+    "_round_failure_marker_path",
+    "_check_round_failure_marker",
+    "_resolve_default_branch",
+)
 
 
-def _percolate_push():
-    """Lazily load, and cache, `coordinator/bin/percolate-push.py` — module
-    body must stay inert at import, so this replaces the former module-scope
-    `_load_percolate_push_module()` call."""
-    if "mod" not in _percolate_push_cache:
-        _percolate_push_cache["mod"] = _load_percolate_push_module()
-    return _percolate_push_cache["mod"]
+_BOOTSTRAP_DONE = False
+
+
+def _bootstrap_engine() -> None:
+    """Load `percolate-push.py` and re-publish its reused helpers as module
+    attributes of THIS module -- byte-for-byte the former module-scope
+    sequence, only the trigger moved.
+
+    What moved and what did not: `_percolate_push = _load_percolate_push_module()`
+    plus the six attribute pulls below it used to run at MODULE scope, which
+    made every import of this file execute `percolate-push.py`'s body on a
+    warm server ~50 sessions share. Only the trigger moved; the value bound
+    for each name is byte-for-byte the same.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    try:
+        _percolate_push = _load_percolate_push_module()
+
+        _run = _percolate_push._run
+        _resolve_percolate_root = _percolate_push._resolve_percolate_root
+        _resolve_dest = _percolate_push._resolve_dest
+        _check_dest_state = _percolate_push._check_dest_state
+        _round_failure_marker_path = _percolate_push._round_failure_marker_path
+        _check_round_failure_marker = _percolate_push._check_round_failure_marker
+        _resolve_default_branch = _percolate_push._resolve_default_branch
+
+        # Publish LAST, once every name is bound -- a publish placed mid-function
+        # silently omits everything imported after it, and the omission surfaces
+        # as a KeyError from `__getattr__` rather than as anything pointing here.
+        #
+        # NEVER overwrite a name a caller already installed: a test that
+        # monkeypatches one of these names and then calls a function that
+        # triggers the bootstrap would otherwise have its patch replaced by the
+        # real resolver on the first call, and the failure reads as "the patch
+        # never applied".
+    finally:
+        _resolved = locals()
+        for _name in _BOOTSTRAPPED_NAMES:
+            if _name not in globals() and _name in _resolved:
+                globals()[_name] = _resolved[_name]
+
+    # Only on a clean run: a partial bootstrap must stay retryable.
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook for the reused `percolate-push.py` helpers.
+
+    `test_klabauter_promote.py` reaches `_mod._percolate_push`,
+    `_mod._resolve_dest`, `_mod._check_dest_state`,
+    `_mod._round_failure_marker_path`, and `_mod._resolve_default_branch` as
+    plain module attributes WITHOUT calling `main()` first (see e.g.
+    `test_reused_helpers_are_the_same_objects_as_percolate_push` and the
+    `monkeypatch.setattr(_mod._percolate_push.subprocess, "run", spy)` calls).
+    Deferring the load into a function -- which is what the sweep did -- left
+    those names simply absent from the module and broke every such test.
+    Routing them through the bootstrap restores the module attribute while
+    keeping the module body inert.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r} after bootstrap"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 _CANDIDATE_BRANCH = "candidate"
@@ -130,8 +206,9 @@ def _check_fast_forward(dest: str, candidate_branch: str, main_branch: str) -> O
     real error — unknown ref, corrupt repo, etc.) refuses rather than
     being read as "not an ancestor" or "is an ancestor" by guesswork.
     """
+    _bootstrap_engine()
     main_ref = f"refs/remotes/origin/{main_branch}"
-    result = _percolate_push()._run(
+    result = _run(
         ["git", "-C", dest, "merge-base", "--is-ancestor", main_ref, "HEAD"]
     )
     if result.returncode == 0:
@@ -207,7 +284,8 @@ def _check_cross_machine_observed(dest: str, target: str) -> Optional[str]:
     NEGATIVE SPEC: does not accept an operator assertion flag, and fails
     CLOSED (refuses) on any git error rather than guessing the age.
     """
-    result = _percolate_push()._run(
+    _bootstrap_engine()
+    result = _run(
         ["git", "-C", dest, "log", "-1", "--format=%cI", _CANDIDATE_BRANCH]
     )
     if result.returncode != 0:
@@ -263,13 +341,14 @@ def _evaluate_promotion_bar(
     so predicate 3 is skipped rather than evaluated against a possibly-wrong
     ref; it will surface on the next run once predicate 1 is fixed.
     Returns the list of refusal messages (empty when all four pass)."""
+    _bootstrap_engine()
     refusals: List[str] = []
 
-    dest_refusal, _has_commits, branch_head = _percolate_push()._check_dest_state(dest)
+    dest_refusal, _has_commits, branch_head = _check_dest_state(dest)
     if dest_refusal:
         refusals.append(f"klabauter-promote: predicate 1 (clean dest) FAILED —\n{dest_refusal}")
 
-    marker_refusal = _percolate_push()._check_round_failure_marker(target, percolate_root)
+    marker_refusal = _check_round_failure_marker(target, percolate_root)
     if marker_refusal:
         refusals.append(f"klabauter-promote: predicate 2 (no round-failure marker) FAILED —\n{marker_refusal}")
 
@@ -296,17 +375,18 @@ def _evaluate_promotion_bar(
 
 
 def _cmd_promote(args: argparse.Namespace) -> int:
+    _bootstrap_engine()
     target = args.target
 
-    percolate_root = _percolate_push()._resolve_percolate_root(args.percolate_root)
+    percolate_root = _resolve_percolate_root(args.percolate_root)
     if percolate_root is None:
         return _EXIT_USAGE
 
-    dest = _percolate_push()._resolve_dest(target, percolate_root)
+    dest = _resolve_dest(target, percolate_root)
     if dest is None:
         return _EXIT_USAGE
 
-    main_branch, default_branch_refusal = _percolate_push()._resolve_default_branch(dest)
+    main_branch, default_branch_refusal = _resolve_default_branch(dest)
     if default_branch_refusal:
         print(default_branch_refusal, file=sys.stderr)
         return _EXIT_FAIL
@@ -336,7 +416,7 @@ def _cmd_promote(args: argparse.Namespace) -> int:
         return _EXIT_OK
 
     push_refspec = f"{_CANDIDATE_BRANCH}:{main_branch}"
-    result = _percolate_push()._run(
+    result = _run(
         ["git", "-C", dest, "push", "origin", "--ff-only", push_refspec],
         capture_output=False,
     )
@@ -380,6 +460,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _bootstrap_engine()
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

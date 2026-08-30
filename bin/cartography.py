@@ -86,6 +86,27 @@ import json
 import sys
 from pathlib import Path
 
+cc_invoke_bare = None  # type: ignore  # bound by _bootstrap_cc_invoke_bare()
+
+
+def _bootstrap_cc_invoke_bare() -> None:
+    """Import `cc_invoke_bare` and bind it at module scope, called from
+    `main()` (module body stays inert on both the warm door and the
+    un-bootstrapped settings-home forwarder load routes).
+
+    Guarded on the current value of `cc_invoke_bare` itself, rather than a
+    separate `_BOOTSTRAP_DONE` flag, so a caller's `mod.cc_invoke_bare =
+    stub` monkeypatch set BEFORE the first `main()` call (the shape every
+    `coordinator/bin/tests/` fixture here uses) is never clobbered by a
+    same-process bootstrap that runs after it.
+    """
+    global cc_invoke_bare
+    if cc_invoke_bare is not None:
+        return
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import cc_invoke_bare
+
 
 def _cartography_ops() -> list[str]:
     """Return every registered `cartography.*` op name, sorted.
@@ -226,7 +247,7 @@ def main(argv: list[str]) -> int:
         # Every cartography.* op is scope "none" — cc_invoke_bare's
         # _should_pass_repo() gate suppresses forwarding --repo for it, so
         # this empty string is never read; see the --repo refusal above.
-        from cc_invoke import cc_invoke_bare
+        _bootstrap_cc_invoke_bare()
 
         result = cc_invoke_bare(op, params, "")
     except RuntimeError as exc:

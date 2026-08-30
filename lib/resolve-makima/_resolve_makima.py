@@ -384,6 +384,155 @@ def _reset_skew_advisory() -> None:
     _skew_advisory_emitted = False
 
 
+# --- C3b: the currency verdict this door READS and never computes -----------
+#
+# The advisory above reports a CONFIGURATION (you ran the mirror, not your
+# tree) and deliberately not a vintage. That left the harm unaddressed: a
+# session against a stale mirror produces work that silently does not take
+# effect, which is what this plan's own authoring burned six cross-session
+# messages on.
+#
+# WHY THIS DOOR MAY NOT COMPUTE IT. `warm.skew.publish_lag` costs 15.6ms of
+# process time / 99.3ms wall (measured k=5, 2026-08-28) and two git spawns,
+# and this module is on the interpreter floor of EVERY coordinator invocation
+# on a box carrying 50-70 concurrent sessions. It is also forbidden to import
+# `coordinator_core` at all. So the verdict is computed by the post-commit
+# path -- which runs on the event that invalidates it and already pays for git
+# -- and read here for 0.078ms (measured k=200).
+#
+# TWO POPULATIONS, TWO ANSWERS, AND THEY ARE DIFFERENT AXES:
+#
+#   Box WITH a claude-klabauter checkout: "N commits behind" is computable, and the
+#   cache carries it. The key is (source HEAD sha, engine stamp text); a
+#   verdict whose key does not match what this door observes is ABSENT, never
+#   a lower-confidence answer.
+#
+#   Box WITHOUT one -- the population that diverts in the first place: the
+#   commit count is not computable by ANYTHING here. `publish_lag` resolves
+#   the stamp sha against the source history, and that sha is not present in
+#   the mirror's own history (`git cat-file` rc=128, measured 2026-08-28). The
+#   only vintage fact that population holds is when the round ran, which
+#   publish emits as `_engine_published_at`.
+#
+# NEGATIVE SPEC -- AN AGE IS NOT A WEAK STALENESS MEASURE, IT IS A DIFFERENT
+# QUESTION, and the two come apart in BOTH directions: a mirror published
+# three days ago is current if nothing engine-touching landed since, and one
+# published five minutes ago can be six commits behind. So the published-at
+# line MUST say which axis it is on. A signal that gets read as the other axis
+# is the failure this whole plan exists to remove.
+#
+# NEGATIVE SPEC -- do NOT read the timestamp off the stamp file's mtime, and
+# do NOT fold it into `_engine_stamp`. mtime does not survive a copy, rsync,
+# clone or archive extract -- every one of which is how a mirror arrives on a
+# checkout-free box. And `skew.read_engine_stamp_sha` silently returns a
+# CORRUPT sha for both an inline and a second-line extension of the stamp
+# (measured), which takes the currency signal dark rather than wrong.
+_CURRENCY_CACHE_RELATIVE_PARTS = ("coordinator", "engine-currency.json")
+
+#: Sibling of `_engine_stamp`, written by the percolate round
+#: (`percolate.rewrite_basename.emit_published_at`). A SIBLING, never a second
+#: line in the stamp -- see this section's second negative spec.
+_PUBLISHED_AT_RELATIVE_PARTS = ("coordinator_core", "_engine_published_at")
+
+
+def _currency_cache_path() -> Optional[Path]:
+    """Standalone twin of `warm.skew.currency_cache_path` -- this module
+    cannot import it (see the module docstring's stdlib-only rule), so the two
+    are synchronised by hand and asserted equal by
+    `coordinator_core/install/test_resolve_claude_klabauter_currency_signal.py`."""
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if not local:
+        return None
+    return Path(local).joinpath(*_CURRENCY_CACHE_RELATIVE_PARTS)
+
+
+def _source_head_sha(source_root: str) -> Optional[str]:
+    """Standalone twin of `warm.skew.source_head_sha` -- the source tree's
+    HEAD sha read straight off `.git`, no subprocess. Never raises; `None`
+    means "no key", which means "no verdict"."""
+    try:
+        git_dir = Path(source_root) / ".git"
+        raw = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if not raw.startswith("ref: "):
+            return raw or None
+        ref = raw[5:].strip()
+        try:
+            return (git_dir / ref).read_text(encoding="utf-8").strip() or None
+        except OSError:
+            pass
+        for line in (git_dir / "packed-refs").read_text(encoding="utf-8").splitlines():
+            if line.endswith(" " + ref):
+                return line.split()[0]
+        return None
+    except Exception:
+        return None
+
+
+def _cached_commits_behind(published: str, live: Optional[str]) -> Optional[int]:
+    """The cached commit count, iff its key still matches what this door
+    observes right now. `None` for every other outcome -- no cache, no live
+    tree to key against, a key that has moved, or a malformed payload -- and a
+    key mismatch is deliberately indistinguishable from an absent cache here.
+    Never raises."""
+    if not live:
+        return None
+    path = _currency_cache_path()
+    if path is None:
+        return None
+    try:
+        import json
+
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        key = payload.get("key") or {}
+        if key.get("source_head") != _source_head_sha(live):
+            return None
+        stamp = Path(published).joinpath(*_ENGINE_STAMP_RELATIVE_PARTS)
+        if key.get("engine_stamp") != stamp.read_text(encoding="utf-8").strip():
+            return None
+        behind = payload.get("engine_commits_behind")
+        return behind if isinstance(behind, int) and behind > 0 else None
+    except Exception:
+        return None
+
+
+def _published_at(published: str) -> Optional[str]:
+    """The round's own timestamp as publish committed it, or `None`. An absent
+    or unreadable file is UNKNOWN -- never an error, and never a zero. Every
+    mirror published before this file existed carries none."""
+    try:
+        raw = Path(published).joinpath(*_PUBLISHED_AT_RELATIVE_PARTS).read_text(
+            encoding="utf-8"
+        ).strip()
+        return raw or None
+    except Exception:
+        return None
+
+
+def _currency_line(published: str, live: Optional[str]) -> Optional[str]:
+    """The one line this door adds about the mirror's vintage, or `None` when
+    it holds no vintage fact at all. Silence is the correct degradation and
+    the ordinary one."""
+    behind = _cached_commits_behind(published, live)
+    if behind is not None:
+        return (
+            f"        behind  {behind} commit(s) touching engine code — "
+            "publish: python coordinator/bin/percolate-round.py claude-klabauter\n"
+        )
+    if live is not None:
+        # A box holding the source history is the population for which the
+        # COUNT is the answer. No cache yet means no verdict yet, and silence
+        # is the right degradation — falling through to the age here would put
+        # "what landed since is not knowable" on a box where it is knowable
+        # and may well be zero. Two axes, and this is the seam between them.
+        return None
+    at = _published_at(published)
+    if at:
+        # Says its axis in its own words. "published at T" is a fact this box
+        # can hold; "stale" is not a claim it can make.
+        return f"        published  {at} (an age — what landed since is not knowable here)\n"
+    return None
+
+
 def _maybe_emit_skew_advisory(ml_dir: Path, published: str) -> None:
     """Emit the engine/edit skew advisory (stderr, once per process) iff
     ``repos.claude_klabauter`` ALSO resolves to an existing directory
@@ -399,23 +548,38 @@ def _maybe_emit_skew_advisory(ml_dir: Path, published: str) -> None:
     if _env_flag_set(CLAUDE_KLABAUTER_SKEW_ADVISORY_QUIET_VAR):
         return
     try:
-        live = _resolve_claude_klabauter_root(ml_dir)
+        live: Optional[str] = _resolve_claude_klabauter_root(ml_dir)
     except ClaudeKlabauterResolutionError:
-        return
+        live = None
     except Exception:
+        live = None
+
+    # C3b: the vintage line, computed by the post-commit path and only read
+    # here. Resolved BEFORE the early return below, because the configuration
+    # note needs a live tree to compare against and the vintage does not — a
+    # box with no claude-klabauter checkout is exactly the population that diverts, and
+    # returning silently there is what left it with no signal at all.
+    currency = _currency_line(published, live)
+    if live is None and currency is None:
         return
+
     _skew_advisory_emitted = True
     # Shape, not decoration: the consequence leads, and the two paths are
     # aligned so the reader compares them at a glance instead of parsing them
     # out of prose. No silencing tail — the reader set VERBOSE to get here and
     # knows how to unset it. The registry key name is deliberately NOT here:
     # implementation detail for a reader of this module, not of this notice.
-    sys.stderr.write(
-        "note: ran the published engine, not your working tree — "
-        "edits to the tree do not affect this CLI.\n"
-        f"        ran   {published}\n"
-        f"        tree  {live}\n"
-    )
+    if live is not None:
+        sys.stderr.write(
+            "note: ran the published engine, not your working tree — "
+            "edits to the tree do not affect this CLI.\n"
+            f"        ran   {published}\n"
+            f"        tree  {live}\n"
+        )
+    elif currency is not None:
+        sys.stderr.write(f"note: ran the published engine at {published}.\n")
+    if currency is not None:
+        sys.stderr.write(currency)
 
 
 def _flatten_registry(data: dict, _prefix: str = "") -> dict:
@@ -1058,6 +1222,78 @@ def _resolve_publisher_root() -> str:
         ) from exc
 
 
+#: Basename of the src->dst map publish emits into `coordinator/bin/` of the
+#: published tree (`percolate.rewrite_basename.PUBLISHED_NAME_MAP_BASENAME`).
+#: Hardcoded rather than imported for the same reason the whole module is
+#: stdlib-only: this file is installed standalone into a bare `bin/` with no
+#: package context, and an engine import on the exec path costs ~75ms before
+#: any work happens. Deliberately NOT dot-prefixed -- `round.py`'s
+#: `_smack_copy_in` skips every top-level dotfile when copying staging into
+#: the destination, so a dotted name never reaches the mirror at all.
+PUBLISHED_NAME_MAP_BASENAME = "published-name-map.json"
+
+
+def resolve_target_path(bin_dir: str, target: str) -> str:
+    """The path `exec_cli` should run for *target* under an already-resolved
+    *bin_dir*, consulting publish's rename map when the asked-for name misses.
+
+    WHY THIS EXISTS. Publish applies an identity transform to filenames:
+    `check-claude-klabauter-doctor-sentinel.sh` ships as
+    `check-claude-klabauter-doctor-sentinel.py`. The installed forwarder body
+    is `exec_cli("check-claude-klabauter-doctor-sentinel.sh")` -- verbatim, the claude-klabauter
+    spelling -- so on a box diverted to the published engine the target is
+    absent under the only name asked for, and the run dies at C13's fail-loud
+    127 naming a root that does, in fact, contain the program. The transform
+    renamed the file; nothing renamed what the forwarder asks for.
+
+    The mapping cannot be inferred. Three of the four live renames look like a
+    `claude-klabauter` -> `claude-klabauter` token rewrite, but
+    `probe-cwd-project-rag-relevance.py` ships as
+    `probe-cwd-example-retrieval-repo-relevance.py`, which is derivable from
+    nothing. One counter-example makes inference wrong for the whole set
+    rather than incomplete on one member, so the map is SHIPPED by the process
+    that performs the rename and merely read here.
+
+    Negative-spec, in order of how easily each would be got wrong:
+
+    - Callers must invoke this ONLY for `RESOLUTION_RESOLVED_ENGINE`. A
+      live-tree miss is a genuinely broken checkout and must keep failing
+      loudly per C13; a rename map has no business rescuing it, and there is
+      no map in a live tree to read anyway.
+    - This does NOT widen `PUBLISHER_ONLY_TARGETS` and must never be made to.
+      The publisher-only class and the renamed class share a symptom and take
+      INVERSE repairs: publisher-only targets exist nowhere but the live tree,
+      so pinning them there is right; renamed targets ship and work and are
+      merely misaddressed, so pinning them live-tree-only would break them on
+      every box without a checkout -- the population that currently has them
+      working.
+    - Returns the ORIGINAL path when anything is missing or unreadable: no
+      map, unparseable map, name absent from it, or a mapped name that is not
+      on disk. The caller then fails exactly as it does today. An absent map
+      means "no mapping known", never an error -- most mirrors carry no map
+      until a round has run since it was introduced.
+    - Reads the map only on the MISS path. A target that resolves under its
+      own name never opens this file, so the ordinary case pays nothing.
+    """
+    map_path = bin_dir + "/" + PUBLISHED_NAME_MAP_BASENAME
+    original = bin_dir + "/" + target
+    try:
+        import json
+        with open(map_path, "r", encoding="utf-8") as fh:
+            mapping = json.load(fh)
+        if not isinstance(mapping, dict):
+            return original
+        published = mapping.get(target)
+        if not published and not target.endswith(".py"):
+            published = mapping.get(target + ".py")
+        if not isinstance(published, str) or not published:
+            return original
+        candidate = bin_dir + "/" + published
+        return candidate if os.path.isfile(candidate) else original
+    except Exception:
+        return original
+
+
 def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
     """Resolve ``<claude-klabauter-root>/coordinator/bin/<target>`` and run it,
     forwarding *argv* (defaults to ``sys.argv[1:]``).
@@ -1178,6 +1414,8 @@ def exec_cli(target: str, argv: Optional[List[str]] = None) -> None:
         suffixed = target_path + ".py"
         if os.path.isfile(suffixed):
             target_path = suffixed
+    if not os.path.isfile(target_path) and resolution_class == RESOLUTION_RESOLVED_ENGINE:
+        target_path = resolve_target_path(bin_dir, target)
     target_claude_klabauter_root = claude_klabauter_root
 
     # Hoisted above the os.name branch (Review: code-reviewer F4 — was

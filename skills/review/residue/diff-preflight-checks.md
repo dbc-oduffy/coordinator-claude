@@ -19,7 +19,7 @@ Three independent pre-flight checks beyond the diff freeze. Each fires or skips 
 - _Code cites C++ or Unreal Engine APIs?_
   → `docs-checker` is auto-provisioned its `assessment`-typed sidecar at spawn (`state/subagent-share/<session>/<provision_key>.md`) — no manual pre-scaffold. Dispatch it; it writes findings to its provisioned path and returns the pointer.
   → Mandatory dispatch of `docs-checker`. Other external APIs are EM judgment; in-repo-only skips.
-  _See `docs/wiki/docs-checker-pre-review.md` for the full row table._
+  _See `${CLAUDE_PLUGIN_ROOT}/docs/wiki/docs-checker-pre-review.md` for the full row table._
 
 **Check 3 — Test evidence (test-evidence-parser)**
 

@@ -72,7 +72,12 @@ def __getattr__(name: str):
     again for that name."""
     if name in ("_round", "publish_lane"):
         _bootstrap_engine()
-        return globals()[name]
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -101,9 +106,7 @@ def _bootstrap_engine() -> None:
     `coordinator/lib` (the percolate helpers), while `cc_invoke` lives in
     `coordinator/bin/lib`. They are different directories.
     """
-    global _round, publish_lane
-
-    if "_round" in globals():
+    if all(n in globals() for n in ("_round", "publish_lane")):
         # Already bootstrapped (via `main()` or a prior `__getattr__` hit) --
         # re-running would call `_load_round_module()` again and rebind
         # `_round` to a BRAND NEW module object (`importlib.util.module_
@@ -128,11 +131,15 @@ def _bootstrap_engine() -> None:
     # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
-    _round = _load_round_module()
+    _round_ = _load_round_module()
 
-    from coordinator_core import publish_lane as _publish_lane  # type: ignore[import-not-found]
+    from coordinator_core import publish_lane as _publish_lane_  # type: ignore[import-not-found]
 
-    publish_lane = _publish_lane
+    for _name, _value in (
+        ("_round", _round_),
+        ("publish_lane", _publish_lane_),
+    ):
+        globals().setdefault(_name, _value)
 
 
 def _mirror_groups(percolate_root: str) -> Dict[str, List[str]]:
@@ -147,6 +154,7 @@ def _mirror_groups(percolate_root: str) -> Dict[str, List[str]]:
     (`<mirror>`, `<mirror>/bin`, `<mirror>/coordinator/lib`) resolve to the
     same root and so group together, which is exactly the set one publish
     invocation and one lock must cover."""
+    _bootstrap_engine()
     from percolate.targets import TargetsError, load_targets  # noqa: E402
 
     setup_dir = Path(percolate_root) / "setup"
@@ -241,6 +249,7 @@ def _run_gate_legs(
     row the whole run's list on an "over-inclusive is safe" reading; that is
     wrong in this direction, and the failure is recorded at the call site.
     """
+    _bootstrap_engine()
     # Per-row stdout, keyed by that row's own reported `Target:` line. Each
     # row's scan list must come from ITS OWN chunk: `scan-secrets` is
     # target-scoped (peer-repo pattern, `registry_codenames` guard), so feeding
@@ -631,28 +640,37 @@ def main(argv: Optional[List[str]] = None) -> int:
             # kill, and invisible because the tests above it never got past
             # "nothing to commit". Routed onto the same in-process seam
             # percolate-round's own commit leg uses (§ C6, 2026-08-25).
-            import uuid  # noqa: PLC0415 - lazy, matching percolate-round's own commit leg
-            from coordinator_core.ops.ceremony import commit_pipeline  # noqa: PLC0415
+            # C3 (docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-
+            # pipeline-can-go.md): repointed off the killed
+            # `commit_pipeline.run_commit_pipeline` onto the sanctioned
+            # zero-spawn shape, `coordinator_core.git.commit.commit_paths`.
+            from functools import partial  # noqa: PLC0415
 
-            pipeline_result = commit_pipeline.run_commit_pipeline(
-                repo_root,
-                session_id=f"percolate-mirror-{uuid.uuid4().hex}",
-                subject=subject,
-                stage_paths=pathspec,
-                caller_paths=set(pathspec),
-                push_mode=commit_pipeline.PUSH_MODE_NEVER,
+            from coordinator_core.git.commit import (  # noqa: PLC0415
+                CommitRefused,
+                FilterUnsupported,
+                commit_paths,
+                hash_worktree_blobs_via_spawn,
             )
-            committed = (
-                pipeline_result.committed_sha is not None or pipeline_result.sha_unverified
+            from coordinator_core.ops.ceremony.commit_message import (  # noqa: PLC0415
+                compose_message,
             )
-            if not committed:
+
+            try:
+                outcome = commit_paths(
+                    repo_root,
+                    pathspec,
+                    compose_message(subject=subject),
+                    blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
+                )
+            except (CommitRefused, FilterUnsupported) as exc:
                 _round._print_step_failure(
-                    "commit (ceremony.commit)",
-                    ["run_commit_pipeline"],
-                    pipeline_result.reason or "commit did not land",
+                    "commit (ceremony.commit_v2)",
+                    ["commit_paths"],
+                    str(exc),
                 )
                 return _round._EXIT_FAIL
-            sha = pipeline_result.committed_sha or "(sha unverified)"
+            sha = outcome.sha
             print(f"percolate-mirror {mirror_root} — commit {sha[:12]}")
 
             if args.no_publish:

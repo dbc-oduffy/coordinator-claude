@@ -28,28 +28,14 @@ one of the subcommands below with an already-resolved path argument):
         the log is pipe-delimited; a naive `awk '{print $1}'` returns "|" not
         the timestamp, so this parser field-splits on "|" first).
 
-    ubt-unresolved <repo-root>
-        Step 4c (UBT Pending-Record Merge Gate) — list `*.ubt-compile.pending.json`
-        records in `state/review-trail/` with no `.resolved.json` sibling.
-        Oracle fence: workweek-complete.md:1331-1333. Delegates to the
-        ALREADY-PORTED `coordinator_core.ops.scan_unresolved_ubt_records`
-        (2026-07-22 ops-buildout wave) rather than re-implementing the pairing
-        scan — see that module's docstring for the marker-pairing convention.
-        (Divergence from the bash oracle: that module scans recursively via
-        `Path.rglob`, a strict superset of the oracle's `find -maxdepth 1`.)
-
 Negative-spec:
     - Does NOT resolve the engine root via the machine-local registry / .doe-root
       ladder, and does NOT probe `repos.claude_klabauter` — the DoE ceremony
       fence still owns that resolution (resolve-claude-klabauter-bin) and hands this
-      CLI already-resolved path arguments. `resolve_colocated_claude_klabauter_root` is
-      used only to put coordinator_core (THIS repo's own package) on
-      sys.path for the ubt-unresolved subcommand's delegated call.
+      CLI already-resolved path arguments.
     - Does NOT write, mutate, or delete any file — every subcommand is a
       read-only advisory scan; the caller ceremony decides whether/how to
       surface a triage trigger.
-    - Does NOT re-implement `coordinator_core.ops.scan_unresolved_ubt_records`'s
-      pending/resolved pairing scan — imports and calls it directly.
 
 Spec backlink: DoE-claude coordinator/commands/workweek-complete.md
     (Step 3.5, Step 4, Cruft-sweep verification, Step 4c — see per-subcommand

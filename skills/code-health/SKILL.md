@@ -24,7 +24,7 @@ Failure Modes).
 Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W).
 Ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.cmd" --where "created=<YYYY-MM-DD>" --format json`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --where "created=<YYYY-MM-DD>" --format json`
 
 Extract file paths / subsystem names from `title`, `description`, `files`. No entries for today:
 read `state/health-ledger.md`'s `Last daily check:` date, fall back to
@@ -59,7 +59,7 @@ interacting files or new abstractions go to Step 5 instead. No findings: skip to
 
 ## Step 5: Debt Backlog
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-queue-append.cmd" --schema debt-backlog`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-queue-append.exe" --schema debt-backlog`
 
 One YAML file per finding under `state/debt-backlog/`. Required: `title`, `body` (block scalar:
 observation, structural gap, context), `source: daily-health/code-reviewer/{date}`, `risk`,
@@ -83,7 +83,7 @@ wiki page for this skill until one lands.
 
 ## Step 7: Health Summary
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type health-status --title "Health Summary"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type health-status --title "Health Summary"`
 
 Via Edit, fill `health:` (`HEALTHY|WATCH|ACTION|CRITICAL`), `summary:` (one-line), and body
 sections `## Systems Graded`, `## Findings Summary`, `## Action Items for Next Session`. Worked

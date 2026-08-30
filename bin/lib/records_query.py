@@ -137,11 +137,17 @@ from cc_invoke import route_mutation  # noqa: E402
 from repo_identity import resolve_checked_repo_root  # noqa: E402
 
 
-def _resolve_repo_root() -> str:
+def _resolve_repo_root(explicit_root: str | None = None) -> str:
     """Resolve the CALLER's repo root via the checked resolver
     (`repo_identity.resolve_checked_repo_root`) — route_mutation's third
     positional is `repo_root` (the caller's repo), never claude-klabauter's own
     checkout — see cc_invoke.py's route()/route_mutation() docstrings.
+
+    `explicit_root` threads straight through to
+    `resolve_checked_repo_root(explicit_root=...)` — the fleet's one checked
+    resolver (EXPLICIT / MISMATCH / UNRESOLVED). Default `None` preserves
+    every existing caller's resolution byte-for-byte (C7(a), 2026-08-29
+    director-review correction — see the dispatch brief for this chunk).
 
     Classification: READER (AC10). On MISMATCH — positive evidence the cwd
     names a DIFFERENT real repo than the harness anchor — warn to stderr and
@@ -152,7 +158,7 @@ def _resolve_repo_root() -> str:
     git root at all, ...) NEVER refuses either — falls back to os.getcwd()
     exactly as the predecessor's git-failure branch did.
     """
-    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    root, verdict = resolve_checked_repo_root(explicit_root=explicit_root)
     if verdict.get("verdict") == "MISMATCH":
         print(verdict.get("message", "records_query: repo-identity MISMATCH"), file=sys.stderr)
     if root:
@@ -180,8 +186,15 @@ def query_records(
     sort: str | None = None,
     since: str | None = None,
     older_than: str | None = None,
+    explicit_root: str | None = None,
 ) -> str:
     """Query records via the native records.query op; return formatted output.
+
+    `explicit_root` forwards to `_resolve_repo_root(explicit_root=...)` and
+    from there to `resolve_checked_repo_root(explicit_root=...)` — the same
+    keyword and the same fleet-wide checked resolver used by C1's callers.
+    Default `None` preserves every existing caller's repo-root resolution
+    exactly (C7(a) correction, 2026-08-29).
 
     Mirrors the retired cc_records_query State-2 parse contract exactly:
       format=paths: newline-joined string; empty -> "" (0 lines, not a bare
@@ -226,7 +239,7 @@ def query_records(
             "pick one."
         )
 
-    repo_root = _resolve_repo_root()
+    repo_root = _resolve_repo_root(explicit_root=explicit_root)
     params: dict[str, object] = {"format": format_}
     if unattached:
         params["unattached"] = True

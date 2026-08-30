@@ -80,11 +80,13 @@ import uuid
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 __all__ = [
     "DENY_REASON",
     "REFUSED_REASON",
+    "UNREACHABLE_REASON",
+    "VETOED_ENV_REASON",
     "DIAL_COUNT_PATH_ENV",
     "FIXED_PORT",
     "ROUTING_HEADER_NAME",
@@ -127,15 +129,54 @@ REFUSED_REASON = (
     "denying rather than permitting a command it never evaluated"
 )
 
+#: Reason text for the third deny this module authors: the override channel was DECLARED and then
+#: VETOED (`_env_from_request_headers` found an `httpHookAllowedEnvVars` setting vetoing the
+#: registration's own `allowedEnvVars`). Its own branch because it has NOTHING to do with backend
+#: reachability and fires against a live, healthy, unskewed backend -- a caller told the backend
+#: was unreachable will probe the listener, read the discovery record, and test skew, and every
+#: one of those steps is wasted. A deny whose stated cause is false costs more than a silent one,
+#: because it is acted upon.
+VETOED_ENV_REASON = (
+    "http-hook-forwarder: the env override channel was declared but vetoed by an "
+    "httpHookAllowedEnvVars setting -- the Bash guard did not run, denying rather than "
+    "forwarding an emptied env that every guard would read as 'no override requested'. "
+    "The backend is not implicated; do not go looking at it"
+)
+
+#: Discovery resolved a backend and it could not be reached -- distinct from `DENY_REASON`'s
+#: "nothing resolved at all". A stale record pointing at a dead process denies exactly like an
+#: absent one, but the two want different first moves: this one names the address that failed.
+UNREACHABLE_REASON = (
+    "http-hook-forwarder: discovery named an engine backend but it could not be reached "
+    "(refused, timed out, or reset mid-response) -- the Bash guard did not run, denying rather "
+    "than permitting a command it never evaluated. The discovery record may be stale"
+)
+
 #: Same cap `http_listener.py` applies to its own POST bodies -- a hook event is a small JSON
 #: object, and anything larger here is malformed or hostile before it reaches this module's own
 #: (tiny) parsing.
 MAX_BODY_BYTES = 1 << 20
 
-#: How long a forward attempt may take before this module treats the backend as unreachable and
+#: How long the CONNECT leg may take before this module treats the backend as unreachable and
 #: denies. Small: the backend is loopback-local and, per the 2026-08-19 spike, sub-millisecond
 #: when it is actually up. This bound exists for the down case, not the up one.
-_FORWARD_TIMEOUT_SECS = 2.0
+_FORWARD_CONNECT_TIMEOUT_SECS = 2.0
+
+#: How long the backend may spend RESPONDING once the socket is established. Deliberately an
+#: order of magnitude above the connect bound, and above the engine's own per-op dispatch budget
+#: (30 s at the time of writing), because this leg measures guard EXECUTION, not transport.
+#:
+#: WHY THE TWO LEGS CANNOT SHARE ONE NUMBER. `HTTPConnection(timeout=N)` applies N to the socket
+#: for its whole lifetime -- connect, send, AND response read -- so a single small value caps how
+#: long the engine may take to *evaluate a guard*, and a `socket.timeout` on that read is an
+#: `OSError` that lands in `do_POST`'s unreachable branch. A live backend still legitimately
+#: serving an expensive guard (a commit guard's cwd-sensitive git reads plus a delegate spawn, on
+#: a large index under fleet load) is then reported as no-backend and the command is denied.
+#: Reachability must never be adjudicated on a call the backend is still answering.
+#:
+#: Sized ABOVE the engine's own budget on purpose: the engine is the component that owns giving
+#: up on a slow op, and it already does. This module's job is to not pre-empt that decision.
+_FORWARD_READ_TIMEOUT_SECS = 45.0
 
 #: The one fixed, machine-global loopback port this module ever binds or dials -- named here so
 #: exactly one place in the tree commits the number (module docstring, "WHAT THIS MODULE DOES
@@ -756,6 +797,178 @@ def _resolve_backend(
     return host, port, hook_path, cookie_value
 
 
+def _compute_plugin_root(clone_root: Path) -> Optional[Path]:
+    """Pick the plugin root under `clone_root`, probing for the `snippets/` ARTIFACT, never for
+    bare directory existence.
+
+    Two on-disk shapes, same two `provision_report.resolve_plugin_root`'s own rung 2 probes: a
+    dev clone nests plugin content under `coordinator/` (`<clone_root>/coordinator`); a
+    marketplace/OSS-mirror clone holds it directly (`<clone_root>`). Checked in that order. A
+    bare `is_dir()` probe would return the first candidate that merely EXISTS -- on this fleet's
+    dev-clone install that is a real directory holding only `bin`, composing empty contract
+    blocks everywhere (see `resolve_plugin_root`'s own docstring). Probing for `snippets/`
+    avoids that trap.
+    """
+    for candidate in (clone_root / "coordinator", clone_root):
+        try:
+            if (candidate / "snippets").is_dir():
+                return candidate
+        except OSError:
+            continue
+    return None
+
+
+#: The engine's own override-channel header names (`warm/hook_http.py`). Mirrored here as
+#: literals rather than imported: this module must stay importable with no `coordinator_core`
+#: on the path. A divergence is caught by the DoE-side registration coverage test, which reads
+#: the same names out of `hooks.json`.
+_ENV_HEADER_PREFIX = "x-coordinator-env-"
+_ENV_CHANNEL_HEADER = "x-coordinator-env-channel"
+_ENV_CANARY_HEADER = "x-coordinator-env-canary"
+
+#: Exactly `hook_http.FORWARDED_ENV_PREFIXES`. A caller's environment is not forwarded
+#: wholesale; only these four prefixes are guard-relevant, and widening this tuple puts
+#: unrelated session state on the wire.
+_FORWARDED_ENV_PREFIXES = (
+    "COORDINATOR_ALLOW_",
+    "COORDINATOR_OVERRIDE_",
+    "COORDINATOR_PROBE_",
+    "COORDINATOR_SCOPE_",
+)
+
+
+def _env_from_request_headers(headers) -> Tuple[Dict[str, str], Optional[str]]:
+    """The caller's forwardable environment, read off THIS request's headers.
+
+    WHY THE FORWARDER HAS TO DO THIS AT ALL -- the defect this closes. `_forward` builds a
+    fresh header dict (Content-Type, Content-Length, cookie) and sends only that, so EVERY
+    inbound `X-Coordinator-Env-*` header dies here. The engine's listener reads the override
+    channel off request headers (`supervisor.py`, `hook_http.env_from_headers`), which works
+    when the harness dials it directly and cannot work through this hop. Registering the Bash
+    matcher as `type: "http"` without this makes every `COORDINATOR_OVERRIDE_*` /
+    `COORDINATOR_ALLOW_*` silently inert -- measured, not theorised: with the flip live and 40
+    override headers correctly declared, `COORDINATOR_OVERRIDE_NO_VERIFY=1` still denied, while
+    the same override in `payload["env"]` allowed.
+
+    Returns `(env, disarm_reason)`, mirroring `hook_http.env_from_headers`. A non-None
+    `disarm_reason` means the channel is DECLARED BUT VETOED and the caller must refuse to
+    report a verdict rather than forward an empty env -- an emptied override reads to the guard
+    as "no override requested", which is the PERMISSIVE direction.
+
+    The channel/canary pair is the mechanism and neither half is optional: the static channel
+    header says the registration declares the channel at all (absent means an old-style
+    registration -- `({}, None)`, today's behaviour, not a fault); the interpolated canary
+    detects an `httpHookAllowedEnvVars` SETTING vetoing the registration's own `allowedEnvVars`,
+    which empties every override header and is otherwise indistinguishable from a caller who set
+    nothing.
+    """
+    lowered = {k.lower(): v for k, v in headers.items()}
+
+    if not (lowered.get(_ENV_CHANNEL_HEADER) or "").strip():
+        return {}, None
+
+    if not (lowered.get(_ENV_CANARY_HEADER) or "").strip():
+        return {}, (
+            "override channel declared but the canary header interpolated empty -- an "
+            "httpHookAllowedEnvVars setting is vetoing this registration's allowedEnvVars, "
+            "so no caller override reached the guard"
+        )
+
+    reserved = {_ENV_CHANNEL_HEADER, _ENV_CANARY_HEADER}
+    out = {}
+    for key, value in lowered.items():
+        if not key.startswith(_ENV_HEADER_PREFIX) or key in reserved or value == "":
+            continue
+        name = key[len(_ENV_HEADER_PREFIX):].upper()
+        if any(name.startswith(prefix) for prefix in _FORWARDED_ENV_PREFIXES):
+            out[name] = value
+    return out, None
+
+
+def _with_injected_env(body: bytes, env: Dict[str, str]) -> bytes:
+    """Put `env` onto `body` so it survives this hop, or hand `body` back unchanged.
+
+    Same shape and the same conservatism as `_with_injected_plugin_root`: the engine's
+    `payload_from_event` reads `event["env"]`, and its listener only overwrites that key when
+    request headers carried an override channel -- which, through this forwarder, they never do.
+    So a body-carried `env` is what reaches the guards.
+
+    Returns `body` untouched when there is nothing to add, when it does not parse as a JSON
+    object, or when it already carries an `env` mapping -- this function is a fallback author,
+    never an authority over a caller-supplied value.
+    """
+    if not env:
+        return body
+    try:
+        parsed = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(parsed, dict) or isinstance(parsed.get("env"), dict):
+        return body
+    parsed["env"] = env
+    try:
+        out = json.dumps(parsed).encode("utf-8")
+    except (TypeError, ValueError):
+        return body
+    return body if len(out) > MAX_BODY_BYTES else out
+
+
+def _with_injected_plugin_root(body: bytes, clone_root_header: Optional[str]) -> bytes:
+    """Inject a `plugin_root` this forwarder computed onto `body`, or hand `body` back byte-for-
+    byte unchanged when it should not.
+
+    WHY THIS EXISTS. The engine expects `plugin_root` as a body field the FORWARDER computes,
+    never the resident engine itself -- the engine's own caller-context fallback reads this
+    process's ambient environment, frozen to whichever session booted it, which is exactly the
+    per-session hazard this plan exists to close. This function is the caller-side half: it has
+    access to the per-request routing header the engine never sees.
+
+    DEGRADE TO TODAY'S BEHAVIOUR, NEVER TO A WRONG VALUE. Every failure mode below returns
+    `body` untouched, so a miss here falls through to the engine's existing fallback ladder --
+    the current, non-regressed behaviour -- rather than injecting a value that could point the
+    governed-surfaces manifest read at the wrong clone:
+
+      - no routing header, or a blank one
+      - `body` does not parse as a JSON object
+      - `body` already carries a non-empty `plugin_root` -- this function is a fallback author,
+        never an authority that overrides a caller-supplied value
+      - the header does not normalize to a real clone root (`_normalize_clone_root`)
+      - neither on-disk candidate under that clone root carries `snippets/`
+      - the re-serialized body would exceed `MAX_BODY_BYTES`
+
+    Reuses the ALREADY-NORMALIZED clone root the same way `_resolve_backend` does; never re-reads
+    this process's own `os.environ` for it -- this forwarder is itself a long-lived resident, so
+    its environment is no more the caller's than the engine's is.
+    """
+    if not clone_root_header or not clone_root_header.strip():
+        return body
+    try:
+        obj = json.loads(body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return body
+    if not isinstance(obj, dict):
+        return body
+    existing = obj.get("plugin_root")
+    if isinstance(existing, str) and existing.strip():
+        return body
+
+    clone_root = _normalize_clone_root(clone_root_header)
+    if clone_root is None:
+        return body
+    plugin_root = _compute_plugin_root(clone_root)
+    if plugin_root is None:
+        return body
+
+    obj["plugin_root"] = str(plugin_root)
+    try:
+        new_body = json.dumps(obj).encode("utf-8")
+    except (TypeError, ValueError):
+        return body
+    if len(new_body) > MAX_BODY_BYTES:
+        return body
+    return new_body
+
+
 def _drain(rfile: Any, length: int) -> None:
     """Discard `length` bytes without buffering them all in memory -- mirrors
     `http_listener._Handler.do_POST`'s own oversized-body handling, and for the same reason:
@@ -853,14 +1066,24 @@ class _ForwarderHandler(BaseHTTPRequestHandler):
 
             host, port, hook_path, cookie_value = backend
             hook_path = _apply_registration_op(hook_path, self.path)
+            header_env, env_disarm = _env_from_request_headers(self.headers)
+            if env_disarm is not None:
+                # A DECLARED-BUT-VETOED CHANNEL IS AN UNRUN GUARD, NOT A CLEAN ONE -- the same
+                # call the engine's own listener makes. Forwarding with an emptied env would
+                # have every guard read "no override requested" and decide in the permissive
+                # direction, so refuse the verdict instead.
+                self._respond(200, _deny_body(hook_event_name, VETOED_ENV_REASON))
+                return
+            body_to_forward = _with_injected_plugin_root(body, clone_root_header)
+            body_to_forward = _with_injected_env(body_to_forward, header_env)
             try:
-                status, resp_body = _forward(host, port, hook_path, body, cookie_value)
+                status, resp_body = _forward(host, port, hook_path, body_to_forward, cookie_value)
             except OSError:
                 # Discovery named a backend but it could not actually be reached (refused, timed
                 # out, reset mid-response, ...) -- still the "no backend" case, not "backend said
                 # no". A stale record pointing at a dead process must deny exactly like an absent
-                # one.
-                self._respond(200, _deny_body(hook_event_name))
+                # one -- same decision, different first move, so a different reason string.
+                self._respond(200, _deny_body(hook_event_name, UNREACHABLE_REASON))
                 return
 
             if counter is not None:
@@ -956,8 +1179,16 @@ def _forward(
         # zero is uncredentialed, two or more reads as smuggling -- so this assignment must stay
         # a set, never an append onto a header that might already be present.
         headers[COOKIE_HEADER_NAME] = cookie_value
-    conn = HTTPConnection(host, port, timeout=_FORWARD_TIMEOUT_SECS)
+    conn = HTTPConnection(host, port, timeout=_FORWARD_CONNECT_TIMEOUT_SECS)
     try:
+        # CONNECT UNDER THE SHORT BOUND, READ UNDER THE LONG ONE. `connect()` is called
+        # explicitly rather than left to `request()` so the socket exists before the deadline is
+        # widened; re-arming it afterwards is what stops the read leg inheriting the down-case
+        # bound (see `_FORWARD_READ_TIMEOUT_SECS`). `conn.sock` is None only if `connect()`
+        # raised, which this function deliberately does not catch.
+        conn.connect()
+        if conn.sock is not None:
+            conn.sock.settimeout(_FORWARD_READ_TIMEOUT_SECS)
         conn.request("POST", hook_path, body=body, headers=headers)
         resp = conn.getresponse()
         data = resp.read()

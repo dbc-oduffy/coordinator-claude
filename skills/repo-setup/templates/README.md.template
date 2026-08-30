@@ -5,7 +5,7 @@ Central entry point for all project documentation. Maintained by `/update-docs`.
 ---
 
 ## Wikis and Guides
-→ **[`docs/wiki/DIRECTORY_GUIDE.md`](guides/DIRECTORY_GUIDE.md)** — full guide index
+→ **[`docs/wiki/DIRECTORY_GUIDE.md`](docs/wiki/DIRECTORY_GUIDE.md)** — full guide index
 _No guides yet. Created by `/distill` as knowledge accumulates._
 
 ---

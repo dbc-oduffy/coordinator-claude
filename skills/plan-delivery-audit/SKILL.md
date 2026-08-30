@@ -44,7 +44,7 @@ artifacts, Oracle 2(a) is unverifiable — treat the plan conservatively (see ti
 
 (b) *Project test suite* — not on the implicit-grant ceremony list; gate via (shape per
 `snippets/resolve-coordinator-bin.md`; PowerShell shown)
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.cmd" check`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" check`
 the way `coordinator:validate` does. Granted: run the project's `fast_test_cmd` at HEAD once for
 the whole batch — a failing suite is independent falsifying evidence even when artifacts check
 out. Ungranted: report Oracle 2(b) as skipped-pending-grant; never substitute a hand-rolled
@@ -55,7 +55,7 @@ AND `archive/review-trail/**/*.json` — `/workweek-complete` moves the current 
 `archive/review-trail/<week>/` on every reset, so a live-only glob under-counts. Read via
 (shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\list-review-trail-records.cmd"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\list-review-trail-records.exe"`
 
 For each returned record, call `coordinator_core.git_ancestry.is_covered(commit, start_sha,
 end_sha)` — the single source of truth for the covered-by-range polarity — for each of the

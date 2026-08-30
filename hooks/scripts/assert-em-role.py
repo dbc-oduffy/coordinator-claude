@@ -16,17 +16,23 @@ em-operating-doctrine.md` (EM-only)) was rewritten into role-neutral
 system terms as part of the computed-skills frontage work, so it no
 longer itself tells the reader "you are the EM". `snippets/agent-role-em.md`
 is the single source of truth for that assertion — this hook's only
-responsibility is delivering it into the main session's context via the
-SessionStart `additionalContext` channel, unconditionally, every session.
+responsibility is delivering it into the main session's context via its
+SessionStart stdout, unconditionally, every session. There is no
+`additionalContext` channel in play here -- this hook writes raw bytes to
+stdout (see `_w()` below), which the harness folds into session context by
+its own SessionStart stdout convention, not by any structured
+`hookSpecificOutput.additionalContext` field.
 
 Delivery is by an ORDERED MANIFEST of EM-only snippets (`_EM_SNIPPET_MANIFEST`
-below), not a single hardcoded path — `agent-role-em.md` stays the terse
-~2.1 KB role assertion it is named for; a second manifest entry,
-`em-operating-doctrine.md`, carries fuller EM-addressed operating doctrine
-that does not belong crammed into the role-assertion file (growing
-`agent-role-em.md` itself would mislead by its own name). Snippets are
-concatenated in manifest order into one `additionalContext` emission. The
-manifest is the extension point for future EM-only channels — add an entry
+below), not a single hardcoded path — `agent-role-em.md` is the resident
+role-assertion core, budgeted under the 2KB-First Rule
+(`coordinator/docs/wiki/doctrine-channel-purposes.md:175`). Fuller
+EM-addressed operating doctrine (`em-operating-doctrine.md`) is deliberately
+NOT a manifest entry: it fires at a moment that names itself (the EM's own
+first dispatch), so it is read via the resident core's trigger-named pointer
+rather than paid for on every boot. Snippets are concatenated in manifest
+order into this hook's stdout emission. The manifest is the extension point
+for future EM-only channels that must be resident at boot — add an entry
 here, not a second hook.
 
 Manifest entries resolve against one of two roots, named per entry:
@@ -70,8 +76,8 @@ on a machine this was never authored on.
 
 Contract: SessionStart hooks MUST exit 0 unconditionally (harness contract,
 same as project-orientation.py). A missing manifest entry degrades to a
-loud, visible per-entry error banner emitted as additionalContext (so the
-gap is diagnosable in-session) rather than a silent empty emission or a
+loud, visible per-entry error banner emitted on the same stdout channel (so
+the gap is diagnosable in-session) rather than a silent empty emission or a
 non-zero exit that could wedge session boot -- the OTHER manifest entries
 still deliver; one missing snippet must not silently swallow the rest.
 """
@@ -104,7 +110,6 @@ _ROOT_REPO = "REPO"
 
 _EM_SNIPPET_MANIFEST = [
     (_ROOT_PLUGIN, "agent-role-em.md"),
-    (_ROOT_PLUGIN, "em-operating-doctrine.md"),
     (_ROOT_REPO, ".claude/em-context.md"),
 ]
 
@@ -112,8 +117,22 @@ _EM_SNIPPET_MANIFEST = [
 # the channel as a dumping ground rather than as the narrow EM-only surface
 # it is for. Oversize content is still delivered in full -- silently
 # truncating a repo's doctrine would be worse than the bloat -- but it
-# banners so the growth is visible to the session it is costing.
-_REPO_SNIPPET_SOFT_CAP_BYTES = 32_768
+# banners so the growth is visible to the session it is costing. 815 B is
+# this leg's budgeted share of the whole-payload delivered-bytes ceiling
+# (coordinator/tests/baselines/em-payload-budget.json, legs.em_context),
+# not an arbitrary round number -- see the oversize banner below for the
+# ceiling this guards. It covers the RENDERED file: the largest posture
+# anchor plus the 66 B coordinator:posture managed-anchor wrapper that
+# render-posture-overlay adds. The earlier 200 B share assumed this slot
+# stayed near-empty, which was true only in the plugin's own checkout --
+# every real install rendered a full posture template here. The gate that
+# holds it now is coordinator/tests/test_em_payload_install_ceiling.py,
+# which measures the template on disk rather than this tree's instance.
+# 815 B, not 850 -- re-derived after the default anchor was cut to an
+# override-slot pointer (it no longer re-states the coordinator:posture
+# managed block the operator already gets from installed CLAUDE.md), which
+# leaves substrate-free.md (749 B) the largest anchor: 749 + 66 = 815.
+_REPO_SNIPPET_SOFT_CAP_BYTES = 815
 
 
 def _consumer_repo_root(payload: dict) -> Path | None:
@@ -288,12 +307,9 @@ def _compute_contention(repo_root: Path | None, session_id: str | None, timeout:
 
 
 _PEER_READ_POINTER = (
-    "assert-em-role: {repo_count} other session(s) registered in this repo, "
-    "{box_count} on this machine -- existence only, never what they are doing. "
-    "Peer-read: session-liveness-cli resolves; artifact_owner is a capability "
-    "with no fresh-install command line. A count "
-    "is not a stand-down signal and not permission to send -- weigh the "
-    "sync-vs-async gate before sending.\n\n"
+    "assert-em-role: {repo_count} peer session(s) in this repo, {box_count} "
+    "on this machine -- existence only. A count is not a stand-down signal "
+    "and not permission to send.\n\n"
 )
 
 
@@ -335,9 +351,11 @@ def _compose_oversize_repo_banner(rel_path: str, byte_len: int) -> str:
     Extracted as a pure function for the same reason as
     `_compose_missing_snippet_banner` above."""
     return (
-        f"assert-em-role: {rel_path} is {byte_len}B, over the "
-        f"{_REPO_SNIPPET_SOFT_CAP_BYTES}B soft cap. Delivered anyway -- "
-        f"consider a wiki for content this large.\n\n"
+        f"assert-em-role: {rel_path} is {byte_len}B, over its "
+        f"{_REPO_SNIPPET_SOFT_CAP_BYTES}B share of the 1,700B delivered-"
+        f"bytes ceiling (doctrine-channel-purposes.md:175, The 2KB-First "
+        f"Rule). Delivered anyway -- consider a wiki for content this "
+        f"large.\n\n"
     )
 
 

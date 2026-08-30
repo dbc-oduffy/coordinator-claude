@@ -85,10 +85,62 @@ def _parse_args(argv: list[str]) -> dict:
     return {"decisions": decisions}
 
 
-def main(argv: list[str]) -> int:
+_BOOTSTRAP_NAMES = ("cc_invoke", "mutation_refusal_message", "resolve_checked_repo_root")
+
+
+def _bootstrap_imports() -> None:
+    """Bind every non-stdlib dependency this door needs at module scope
+    (C6k import-motion: the module body stays inert on both the warm door
+    and the un-bootstrapped settings-home forwarder load routes). Idempotent
+    by construction: a name already bound (via a prior call, or a test
+    reaching for `mod.cc_invoke` ahead of calling `main()`) is left alone
+    rather than clobbered by a real import.
+    """
+    if all(n in globals() for n in _BOOTSTRAP_NAMES):
+        return
+
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import cc_invoke, mutation_refusal_message
-    from repo_identity import resolve_checked_repo_root
+    from cc_invoke import cc_invoke as _cc_invoke, mutation_refusal_message as _mrm
+    from repo_identity import resolve_checked_repo_root as _rccr
+
+    for _name, _value in (
+        ("cc_invoke", _cc_invoke),
+        ("mutation_refusal_message", _mrm),
+        ("resolve_checked_repo_root", _rccr),
+    ):
+        globals().setdefault(_name, _value)
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for a bootstrapped name (`cc_invoke`,
+    `mutation_refusal_message`, `resolve_checked_repo_root`) before `main()`
+    has run -- this file's own test suite patches these as module attributes
+    ahead of calling `mod.main()` -- triggers `_bootstrap_imports()` lazily
+    rather than finding the name absent.
+
+    NEGATIVE SPEC -- the bootstrap guard checks ALL of `_BOOTSTRAP_NAMES`,
+    not a single sentinel: a caller's `mock.patch.object` of just one
+    bootstrapped name (e.g. `cc_invoke`) leaves the others unbound, and the
+    all-names guard makes `_bootstrap_imports()` re-run. The re-run publishes
+    each freshly-imported name via `globals().setdefault(...)`, so it binds
+    exactly the still-missing names and leaves the caller's patched name
+    untouched -- it does NOT rebind every name in `_BOOTSTRAP_NAMES`. No
+    pop/restore snapshot is needed because a partially-bound state is never
+    mistaken for a fully-bound one.
+    """
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_imports()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def main(argv: list[str]) -> int:
+    _bootstrap_imports()
 
     parsed = _parse_args(argv)
 

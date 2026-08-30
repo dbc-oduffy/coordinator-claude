@@ -163,6 +163,7 @@ def _resolve_doe_root() -> str:
     (sys.exit(2)) on an unresolvable root, keeping this function's existing
     exit-2 contract with callers.
     """
+    _bootstrap_imports()
     try:
         root = doe_root()
     except _DoeUnresolvable as exc:
@@ -214,6 +215,7 @@ def _schema_dir_dirty(doe_root: str, out_dir: str) -> bool:
     tag must never advance while the schema dir is dirty, since that would
     land the tag on the commit BEFORE the regenerated schema.
     """
+    _bootstrap_imports()
     rel_out_dir = os.path.relpath(out_dir, doe_root)
     try:
         result = subprocess.run(
@@ -248,6 +250,7 @@ def _schema_differs_from_tag(doe_root: str, out_dir: str) -> bool:
     git failure and is fatal (sys.exit(2)) rather than silently treated as
     either outcome.
     """
+    _bootstrap_imports()
     rel_out_dir = os.path.relpath(out_dir, doe_root)
     try:
         tag_check = subprocess.run(
@@ -336,6 +339,7 @@ def _advance_release_tag(doe_root: str, out_dir: str) -> None:
     `v*` release tags only; this ref is a separate seam DoE owns). Fails loud
     on any git error; never swallowed.
     """
+    _bootstrap_imports()
     version = _read_contract_version(out_dir)
     message = f"{_RELEASE_TAG} -> CONTRACT_VERSION {version}"
     try:

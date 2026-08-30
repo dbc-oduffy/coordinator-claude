@@ -8,7 +8,7 @@ order: 40
 ## Dirty-Tree Case-(c) Disposition
 
 The assembler's `j-dirty-tree-case-c` judgment point surfaces the fact (uncommitted paths) — computed by `coordinator_core.ops.dirty_tree_gate` (`dirty-tree-gate.py`), runnable directly before the terminating commit via (Shape W,
-`snippets/resolve-coordinator-bin.md`) `& "$env:COORDINATOR_SETTINGS_HOME\bin\dirty-tree-gate.cmd" --terminator handoff`; attribution is yours. Classify every dirty path as (a) yours, (b) a named concurrent owner's, or (c) unattributable — and never terminate with a case-(c) path still dirty and unnamed. For a genuine (c):
+`snippets/resolve-coordinator-bin.md`) `& "$env:COORDINATOR_SETTINGS_HOME\bin\dirty-tree-gate.exe" --terminator handoff`; attribution is yours. Classify every dirty path as (a) yours, (b) a named concurrent owner's, or (c) unattributable — and never terminate with a case-(c) path still dirty and unnamed. For a genuine (c):
 
 1. **Commit with provenance** if the change is coherent and you can attribute it.
 2. **Stash with provenance** if it is incoherent or risky to commit — name the stash so the next session can find and adjudicate it.

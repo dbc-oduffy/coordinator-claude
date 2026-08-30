@@ -34,15 +34,29 @@ import sys
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-def _no_console_kw() -> dict:
-    """Windows: suppresses the console popup a subprocess.run(...) would
-    otherwise trigger under the headless Claude Code Bash-tool parent.
-    Splat-ready; empty dict elsewhere / on any resolution failure."""
+def _bootstrap_engine() -> str:
+    """Put coordinator/bin/lib onto sys.path and resolve the claude-klabauter root.
+
+    Order is load-bearing: `import lib` first (so `cc_invoke` is importable),
+    then resolve the claude-klabauter root via `cc_invoke._resolve_claude_klabauter_root`. Every
+    function in this file that imports `cc_invoke` or a name from it calls
+    this first.
+    """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     import cc_invoke
     from cc_invoke import _resolve_claude_klabauter_root
 
-    return cc_invoke._no_console_kw(_resolve_claude_klabauter_root())
+    return _resolve_claude_klabauter_root()
+
+
+def _no_console_kw() -> dict:
+    """Windows: suppresses the console popup a subprocess.run(...) would
+    otherwise trigger under the headless Claude Code Bash-tool parent.
+    Splat-ready; empty dict elsewhere / on any resolution failure."""
+    claude_klabauter_root = _bootstrap_engine()
+    import cc_invoke
+
+    return cc_invoke._no_console_kw(claude_klabauter_root)
 
 
 def _no_console_passthrough_kw() -> dict:
@@ -53,11 +67,10 @@ def _no_console_passthrough_kw() -> dict:
     process's, so its output is lost. See
     `cc_invoke._no_console_passthrough_kw` for the mechanism.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    claude_klabauter_root = _bootstrap_engine()
     import cc_invoke
-    from cc_invoke import _resolve_claude_klabauter_root
 
-    return cc_invoke._no_console_passthrough_kw(_resolve_claude_klabauter_root())
+    return cc_invoke._no_console_passthrough_kw(claude_klabauter_root)
 
 
 # ---------------------------------------------------------------------------
@@ -104,6 +117,7 @@ def _cruft_sweep_log_path(state_root_script: str) -> str:
     WARN pointer. Falls back to a bare filename on any resolution failure —
     the WARN is advisory, never a gate, so a broken resolver must not raise.
     """
+    _bootstrap_engine()
     from cc_invoke import child_env
 
     try:

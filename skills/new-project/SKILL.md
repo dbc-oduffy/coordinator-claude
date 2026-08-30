@@ -41,7 +41,7 @@ minimal `README.md`, and for `next-app` runs the boot smoke (`pnpm install` + `p
 
 Shape W (rung 0) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\new-project-scaffold.cmd" --name "<name>" --parent "<parent>" --template "<template>"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\new-project-scaffold.exe" --name "<name>" --parent "<parent>" --template "<template>"`
 
 A template that does not boot is a **failed scaffold** — report it, don't work around it.
 <!-- engine-gap: field=new_project.scaffold.file_manifest producer=unknown memo=2026-08-14-doe-claude-em-three-cut-obligations-from-the-corpus-grind.md -->
@@ -50,7 +50,7 @@ A template that does not boot is a **failed scaffold** — report it, don't work
 cwd-scoped to where it started, not the new project — Phase 4's onboarding needs the Bash-tool
 cwd moved first. `cd` in its own Bash call (never a compound `cd &&`), then assert:
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\assert-cwd.cmd" "<new-dir-abs>"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\assert-cwd.exe" "<new-dir-abs>"`
 (Shape W)
 
 **4 — Delegate onboarding to `coordinator:repo-setup`** against the new dir — it produces the

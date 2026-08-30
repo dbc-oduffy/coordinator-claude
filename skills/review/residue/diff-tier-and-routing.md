@@ -24,4 +24,4 @@ order: 30
 - _PM has explicitly waived review on a non-trivial change?_ ("ship it", "skip review", "straight to merge")
   → Exit; this skill does not run. Log the waiver in commit message or PR description: `review: skipped per PM direction YYYY-MM-DD` (greppable).
 
-_See `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch — `/staff-session` is PM-gated; ask first._
+_See `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Dispatch — `/staff-session` is PM-gated; ask first._

@@ -101,11 +101,25 @@ _CEREMONY_HOOK_CLI = _BIN_DIR / "coordinator-ceremony-hook.py"
 _STEP9_ROW_DISPATCH_TIMEOUT_SECS = 120
 
 
+def _bootstrap_engine() -> None:
+    """Put `coordinator/bin/lib` on `sys.path` and resolve the co-located
+    engine root -- the same two-step sequence `main()` runs before
+    dispatching any subcommand. Called again, idempotently, from each
+    function below that does its own deferred `coordinator_core`/`cc_invoke`
+    import, so an in-process caller that reaches one of them directly
+    (bypassing `main()`) is not left with an un-bootstrapped `sys.path`."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+
+
 def _run(cli_path: Path, args: list[str], capture_stdout: bool = False) -> subprocess.CompletedProcess:
     """Invoke a sibling coordinator/bin CLI with the current interpreter, cwd
     unchanged (these CLIs all resolve paths relative to the CALLER's cwd -- the
     consumer repo, not this claude-klabauter checkout -- matching how the bash oracle
     invoked them: `python3 "${_mkb_bin}/<cli>.py" ...` with no cd)."""
+    _bootstrap_engine()
     from cc_invoke import child_env
     from coordinator_core.win_portability import no_console_creationflags
 
@@ -123,6 +137,7 @@ def cmd_stitch_sidecar(args: argparse.Namespace) -> int:
     """Step 4d: stitch the Sonnet daily observer's sidecar into the canonical
     daily summary, hard-failing (never silently proceeding) on a non-zero exit
     from the sidecar stitcher."""
+    _bootstrap_engine()
     from coordinator_core.daily_day import local_day
     from coordinator_core.machine_resolver import compute_machine
 
@@ -148,6 +163,7 @@ def cmd_step9_dispatch(args: argparse.Namespace) -> int:
     block was already committed via Step 3.5 Phase B), otherwise forward to
     workday-complete-step9-append-changelog.py with RC_VALIDATE/RC_PLUGIN_SUITE
     defaulted from the environment."""
+    _bootstrap_engine()
     from coordinator_core.win_portability import no_console_passthrough_kwargs
 
     if args.only_mode:
@@ -216,6 +232,7 @@ def _dispatch_step9_row(
     """Invoke step9-dispatch for a single backfill row and return its exit
     code verbatim (RC_VALIDATE/RC_PLUGIN_SUITE defaulted, matching
     cmd_step9_dispatch's non---only-mode forward path)."""
+    _bootstrap_engine()
     from coordinator_core.win_portability import no_console_passthrough_kwargs
 
     forward = ["--for-date", date]
@@ -259,6 +276,22 @@ def cmd_backfill_dispatch_rows(args: argparse.Namespace) -> int:
     --only-mode skip rules this ports from workday-complete.md's Phase B
     paragraph."""
     raw = sys.stdin.read()
+    if not raw.strip() and not args.allow_empty:
+        # The defect this command was reported for: empty stdin produced zero
+        # rows, the dispatch loop never ran, and it returned 0 — a clean
+        # success in the ceremony report while nothing had been written. The
+        # scan emits NOTHING for a gapless window, so "" cannot be told from
+        # "stdin was never wired" at this seam. `--allow-empty` moves that
+        # discrimination to the caller: apply passes it because `stdin_from`
+        # has already proved the producer landed, so empty genuinely means no
+        # gaps. A hand or mis-wired invocation without it fails loud instead.
+        print(
+            "ERROR: backfill-dispatch-rows: no gap rows on stdin. Pipe "
+            "workday-complete-backfill-scan's output in, or pass --allow-empty "
+            "if a gapless window is the expected result.",
+            file=sys.stderr,
+        )
+        return 1
     rows: list[tuple[str, str, str]] = []
     for line in raw.splitlines():
         if not line.strip():
@@ -364,6 +397,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Step 3.5 Phase B: dispatch step9 across gap rows read from stdin.",
     )
     p_backfill.add_argument("--for-date", default=None)
+    p_backfill.add_argument("--allow-empty", action="store_true")
     p_backfill.add_argument("--only-mode", action="store_true")
     p_backfill.add_argument("--scope-summary", default=None)
     p_backfill.add_argument("--no-push", action="store_true")

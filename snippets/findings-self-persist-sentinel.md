@@ -53,7 +53,9 @@ a fresh path -- the harness permits it. `Write` would create a new file and is b
 Edit fails loudly -- the correct failure mode.
 
 **Do not fall back to a Bash heredoc/redirect for this Edit, even when Bash is available to
-you.** A Bash payload that persists findings quoting a governed doctrine surface's filename in
+you.** (`Write` on the sidecar you have already read is equivalent and equally acceptable — the
+constraint is on the Bash route, never on which file-tool you reach for.) A Bash payload that
+persists findings quoting a governed doctrine surface's filename in
 its own prose (e.g. a finding *about* `coordinator/snippets/em-operating-doctrine.md`) can be
 denied by `guard-doctrine-surface-bash-write.py` as a false positive: that hook cannot tell "a
 governed filename appears as prose inside the content you are writing" from "a governed

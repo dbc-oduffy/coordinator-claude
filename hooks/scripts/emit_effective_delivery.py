@@ -598,9 +598,68 @@ def build_carrier_stop_family(matchers_by_tail: Dict[str, Set[str]]) -> Dict[str
     }
 
 
-def build_carrier_bash_dispatch(matchers_by_tail: Dict[str, Set[str]]) -> Dict[str, Any]:
-    carrier_tail = tail_key(_CARRIER_RAW_TOKENS["bash_dispatch"])
-    carrier_matcher_tokens = matchers_by_tail.get(carrier_tail, set())
+#: The bash carrier's registered transport after the rehome. `_walk_registrations`
+#: partitions `args` arrays, and an `http` registration HAS no `args` -- so the
+#: carrier that actually delivers the bash guards is structurally invisible to that
+#: walk. Resolving it needs its own reader, keyed on the registration's URL.
+_BASH_CARRIER_HTTP_URL = "http://127.0.0.1:47623/hook"
+
+
+def _http_matchers_for_url(doc: Dict[str, Any], url: str) -> Set[str]:
+    """Every hook-block matcher registered `type: "http"` against `url`.
+
+    The `args`-shaped sibling of `_walk_registrations`, and deliberately narrow: it
+    keys on the URL rather than promoting every http registration into the manifest,
+    because only one of them is a guard CARRIER and the rest are ordinary ops.
+    """
+    out: Set[str] = set()
+    hooks = doc.get("hooks")
+    if not isinstance(hooks, dict):
+        return out
+    for _event_name, entries in hooks.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            matcher = entry.get("matcher", "")
+            if not isinstance(matcher, str):
+                matcher = ""
+            hook_list = entry.get("hooks", [])
+            if not isinstance(hook_list, list):
+                continue
+            for hook in hook_list:
+                if isinstance(hook, dict) and hook.get("type") == "http" and hook.get("url") == url:
+                    out.add(matcher)
+    return out
+
+
+def build_carrier_bash_dispatch(
+    matchers_by_tail: Dict[str, Set[str]], doc: Dict[str, Any]
+) -> Dict[str, Any]:
+    # THE CARRIER KEY FOLLOWS THE TRANSPORT, and both shapes are read rather than
+    # one assumed. Registered `type: "command"`, the carrier is the dispatch script
+    # and the key is its tail; registered `type: "http"`, the script is unregistered
+    # and unreachable, and the key names the transport instead -- keying a live
+    # manifest on a script nothing dials is the "stale is worse than absent" state
+    # this module exists to prevent. Exactly one of the two must resolve: neither
+    # means the guards are undelivered, both means two carriers claim the same
+    # guards, and either way the correct move is to fail closed rather than pick.
+    script_tail = tail_key(_CARRIER_RAW_TOKENS["bash_dispatch"])
+    command_matchers = matchers_by_tail.get(script_tail, set())
+    http_matchers = _http_matchers_for_url(doc, _BASH_CARRIER_HTTP_URL)
+    if command_matchers and http_matchers:
+        raise EmitterError(
+            f"bash_dispatch is registered on BOTH transports -- command "
+            f"{sorted(command_matchers)} and http {sorted(http_matchers)}. Two "
+            "carriers would deliver the same guard roster; deregister one"
+        )
+    if http_matchers:
+        carrier_tail = "http:" + _BASH_CARRIER_HTTP_URL
+        carrier_matcher_tokens = http_matchers
+    else:
+        carrier_tail = script_tail
+        carrier_matcher_tokens = command_matchers
     if len(carrier_matcher_tokens) != 1:
         raise EmitterError(
             f"bash_dispatch carrier ({carrier_tail}) matcher is not singular in "
@@ -823,7 +882,7 @@ def build_block_with_doc() -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     carrier_write_dispatch = build_carrier_write_dispatch(matchers_by_tail)
     carrier_stop_family = build_carrier_stop_family(matchers_by_tail)
-    carrier_bash_dispatch = build_carrier_bash_dispatch(matchers_by_tail)
+    carrier_bash_dispatch = build_carrier_bash_dispatch(matchers_by_tail, doc)
     carrier_advisory_dispatch = build_carrier_advisory_dispatch(matchers_by_tail)
 
     carrier_list = [

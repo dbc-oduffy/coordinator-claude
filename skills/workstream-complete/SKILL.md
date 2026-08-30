@@ -9,7 +9,7 @@ argument-hint: "[optional context]"
 
 Close out a finished vein of work. No handoff — this is for work that's *done*.
 
-> **Mutual exclusion with `/handoff`.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP, use `/handoff`. Two workstreams (one done, one live) → end each separately, naming which. Exception: a named review scale this session can't run+integrate → the trampoline, § Review. → coordinator CLAUDE.md § Handoff Lineage.
+> **Mutual exclusion with `/handoff`.** This caps a workstream; `/handoff` passes one on. In-flight work → STOP, use `/handoff`. Two workstreams (one done, one live) → end each separately, naming which. Exception: the review-owed-close class (`coordinator/skills/handoff/SKILL.md` § Step 0, trigger 4) → the trampoline, § Review. → coordinator CLAUDE.md § Handoff Lineage.
 
 This ceremony is computed end to end — session-shape, plan reconciliation, lessons, completion-entry, memo lifecycle, scratch self-clean, orientation refresh, and commit-tail ship as `directives[]` naming a CLI; what cannot be resolved ships as `judgment_points[]`. Never recompute by hand what a field already answers.
 
@@ -62,7 +62,11 @@ Returns (`artifact`/`preflight`/`gates`/`directives`/`judgment_points`/`decision
 
 **Review — 8 class-3 survivors, no mechanical rule for any:** `review-partition-strategy`, `reviewer-count-on-oracle-disagreement` (tier A is a hard stop), `shared-schema-touch-check`, `governing-spec-identification`, `finding-tradeoff-escalation-check`, `shallow-row3-waive-check`, `review-dispatch-vehicle-choice` (hand-dispatch — a Workflow `agent()` spawn skips the sidecar-provisioning hook), `quota-retry-vs-escalate`.
 
-**Scale:** doc-only/no-executor/<50 LOC single file → None; executor dispatched, or >50 LOC, or shared-schema touched → `code-reviewer`. `gates['review_scale']` carries measured `gross_loc`/`commit_count`/`surface_count`; a `decisions` override beats the measurement only for a stated reason. **Brightline is mandatory, not advisory:** ≥500 gross LOC, OR ≥5 commits, OR ≥4 surfaces forces partitioned. Owns review for the whole chain including upstream `/mise-en-place` work — its clean verifiers never justify a lower scale. **Chain-end** → same rule over the range `resolve_mid_chain_review_scope` resolves, never hand-derived.
+**Scale:** doc-only/no-executor/<50 LOC single file → None; executor dispatched, or >50 LOC, or shared-schema touched → `code-reviewer`. **`gates['review_scale']` carries measured `gross_loc`/`commit_count`/`surface_count` only when it resolves** — when `resolved: true`, consume it and never hand-derive; a `decisions` override beats the measurement only for a stated reason. **When it returns `resolved: false`** (all three unresolved, no `commit_slices`), the gate ships nothing to read and the EM measures directly — this is not "no measurement owed," it is "the gate didn't do it for you." **Brightline is mandatory, not advisory:** ≥500 gross LOC, OR ≥5 commits, OR ≥4 surfaces forces partitioned. Owns review for the whole chain including upstream `/mise-en-place` work — its clean verifiers never justify a lower scale. **Chain-end** → same rule over the range `resolve_mid_chain_review_scope` resolves, never hand-derived.
+
+**Kira (`coordinator:overengineering-reviewer`) is dispatched on every close — a PM ruling, and unlike the L+ trigger below, explicitly NOT gated on the cited sizing-object's `estimate.tshirt`; do not add a threshold here "for symmetry" with that trigger.** They are a second lens over the Scale ladder above, never a replacement for it — a close whose Scale resolves to `None` (doc-only/no-executor/<50 LOC single file) still dispatches them. Because reviews are sequential and never parallel (`coordinator/skills/review/SKILL.md` § A.3), they run after any Scale-selected `code-reviewer` and its `review-integrator` have completed — lens 1's findings are integrated before lens 2 is dispatched. Their verdict routes normally through `review-integrator`, except on `rebuild_recommended: true`, which takes the Rebuild-verdict routing rule above — see that rule rather than restating it here. If their volume proves too noisy in practice, that is a finding to bring to the PM, not a threshold to add here.
+
+**Hand-measuring the brightline: sum per-owned-commit diffs, never a range across the oldest..newest span.** This is the same discipline `:86` below states for `sha_range` — write one per-slice record per commit (`<sha>~1..<sha>`, `~1` never `^`: cmd.exe eats a literal `^` in argv on Windows) — extended here to the brightline measurement itself, not a new rule. A range across the full span silently counts every peer commit landed in that window on a shared branch; this is the specimen's own error: measuring `oldest..newest` returned 33,246 gross LOC where summing this session's owned commits (`<sha>~1..<sha>` each) returned 16,037 — the peer-commit inflation this repo's own lessons corpus already names as a confirmed, recurring shared-branch failure mode (`state/lessons/2026-07-29-a-commit-range-is-not-a-scope-on-a-shared-branch.yaml`), not a novel rule invented here. **When `partition_mandatory` is true and `commit_slices` is empty:** derive the slices from the per-owned-commit list this summation already produced — the summation and the slicing are the same walk, not two separate ones.
 
 **L+ code-quality trigger — a separate derivation, not a parameter on Scale's measurement.** Scale
 (above) keys off *measured* `gross_loc`/`commit_count`/`surface_count` — what the diff turned out to
@@ -75,7 +79,7 @@ one — it would duplicate `estimate.tshirt` with no synchronization and create 
 that drift. Fires at `L` or `XL`. Do not reach for Scale's measured computation to answer this
 question — it answers a different one.
 
-**The trampoline — under low context, hand the ceremony to a fresh session rather than cap with the review unrun.** Once a scale is named you owe it; if context can't run+integrate, exit via `/handoff` (successor runs-review-then-caps), naming the context signal. `/handoff`'s NO-tests carve this case out.
+**The trampoline — under low context, hand the ceremony to a fresh session rather than cap with the review unrun.** Once a scale is named you owe it; when the review-owed-close class (`coordinator/skills/handoff/SKILL.md` § Step 0, trigger 4) fires, exit via `/handoff` (successor runs-review-then-caps), naming which member of the class fires. `/handoff`'s NO-tests carve this case out.
 
 **Capping with the review unrun is forbidden; `verdict: pending` is not the escape hatch.** Tells to trampoline instead: "the next session can review this"; `reviewer: waived` pairing a non-`waived` verdict; a range narrowed to one commit because the honest range was refused; "mandatory" reasoned as advisory. Tripwire: `PARTITION-MANDATORY`.
 
@@ -112,6 +116,16 @@ workstream-complete-assemble apply --decisions-file <path>   # json map of judgm
 2. **Nothing** — the review record landed when the reviewer stamped its sidecar receipt. Confirm
    `gates.review_receipt.blocks` is `false` and name any missing integrator receipt in the summary.
 
+**The terminal stamp is gated engine-side, and a blocked stamp is not a failed one.**
+`d-stamp-plan-implemented` carries three empty-`resolves` judgment points on its `depends_on` —
+`jp-open-spine-rows-block-stamp` (unwaived `open` rows, or `indeterminate`),
+`jp-landed-reconciliation-block-stamp` (plan `landed` with unticked ACs), and
+`jp-review-receipt-block-stamp`. An unresolved one lands in `report["blocked"]` under
+`HALTED_AT_JUDGMENT`, **not** `report["failed"]` — so a close exits non-failing with no stamp.
+`waived_open_spine_row_ids` clears leg 1's `applicable` arm only, never `indeterminate`. Do not
+build a doctrine gate beside these; report the incomplete and resolve the leg. Tripwire:
+`AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
+
 `apply` prints diagnostics on every non-zero exit — read them, don't memorize codes. Exit `2` (`DIRECTIVE_FAILED`) means nothing landed; exit `4` (`PARTIAL_MUTATION`) means some landed and some failed. A client-side timeout is not a failure signal. In every case reconcile against actual commit state before re-running.
 
 Push runs on a cadence, not on this commit. `push_status: "cadence-pending"` is success — nothing is in flight and nothing needs re-checking; the branch publishes at the next named checkpoint (`/pickup`, `/quick-wrap`, `/workday-start`, the workday/workweek close ceremonies). `push_status: "pushed"` is equally success; `"deferred"` still reads as success where an older engine emits it, and there alone the confirm-via-`git branch -r --contains <sha>` guidance applies. Never `git push` to "fix" an apparent delay. Confirm the canonical string against `commit_pipeline.py`'s `PUSH_STATUS_*` block if it looks unfamiliar.
@@ -136,7 +150,23 @@ A residual discovered mid-execution never counts in the harvest — `Queued 0` r
 
 ## Final Summary
 
-**Report by exception.** One line always; everything else only when *not* clean.
+**Report by exception.** One line always; everything else only when *not* clean. When this
+session holds the Group EM role, the report additionally follows
+`coordinator/snippets/group-em-output-contract.md` — one emission form only (a decision awaiting
+the PM), offers and self-labelled-optional asks excluded, filtered at source not appended at the
+end.
+
+**A baton shipping here can newly close its whole chain.** Run
+`coordinator/bin/baton-chain-closure.py signal <this-handoff-path>` after this ceremony's own
+close — it re-derives chain closure from disk (never a remembered duty) and emits nothing unless
+this baton's whole chain, not this baton alone, has resolved. Silence is the common case. Any
+output it prints already conforms to `group-em-output-contract.md`; do not re-shape it, and do
+not run `chains` here — that verb enumerates the corpus and is diagnostic, never PM-facing.
+
+**A leg parked as blocked on a sibling repo carries its exchange, or it is not parked.** Check the
+three conjuncts in `coordinator/snippets/cross-repo-block-exchange.md` — declared, addressed,
+answered — and name the one that failed, never the repo. Tripwire:
+`A-SENT-MEMO-IS-NOT-AN-EXCHANGE`.
 
 ```
 ## Session Complete

@@ -103,7 +103,7 @@
     "floor_prerequisite_ids": ["git", "claude_code"],
     "install_root_drivable": true
   },
-  "tested_platforms": ["macos", "linux"],
+  "tested_platforms": ["linux"],
   "present_platforms": ["macos", "linux", "windows"],
   "configurable_locations": [
     {

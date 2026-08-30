@@ -43,14 +43,27 @@ step 2 stamps its terminal disposition.
 engine-applied, not an EM procedure. Report gross and novel counts in step 4 when the carve-out is
 what drops the session under the line.
 
-### The named route — scoped review, then wrap
+### The named routes past test 2
 
-Test 2 failing means a review is owed, not that this ceremony is wrong: (1) dispatch a reviewer
-scoped to the risk surface — `Skill(coordinator:review-code)` diff-shaped, or a direct
-`coordinator:code-reviewer` when scope is narrow; (2) integrate findings via the review-integrator,
-applied never ratified back as a list; (3) run the checklist below, verdict in step 4. The only
-route past test 2. **Unlocks nothing else** — test 1, 3, or 4 failing still routes to its named
-sibling regardless of review outcome.
+Test 2 failing means a review is owed, not that this ceremony is wrong. Two routes exist; the
+first is the default and the second requires a named class member.
+
+**1. Scoped review, then wrap (the default).** (1) dispatch a reviewer scoped to the risk
+surface — `Skill(coordinator:review-code)` diff-shaped, or a direct `coordinator:code-reviewer`
+when scope is narrow; (2) integrate findings via the review-integrator, applied never ratified
+back as a list; (3) run the checklist below, verdict in step 4.
+
+**2. Successor-runs-review handoff — only when the owed review is genuinely un-runnable in this
+session.** The class member that fires must be named per `coordinator/skills/handoff/SKILL.md`
+§ Step 0 trigger 4; that trigger's own discharge (name the blocker and the event that clears it
+in the successor's remit) governs, not a local restatement here. This route terminates in
+`/handoff`, never in `/execute-plan`'s Phase-5 halt (`coordinator/skills/execute-plan/SKILL.md`
+§ Phase 5 — that halt is native to that skill, evidence-gated to scope-explosion, and does not
+itself terminate). Route 1 stays the default: reach for route 2 only when a named class member
+actually fires, never as a lighter-weight substitute for dispatching a reviewer.
+
+**Unlocks nothing else** — test 1, 3, or 4 failing still routes to its named sibling regardless
+of review outcome.
 
 **A lesson is not a disqualifier** — capture through the `lesson` CLI, then wrap.
 
@@ -122,7 +135,8 @@ never hand-roll a `git push` beside it.
   `[[the-deliverable-cascade-has-never-written-a-terminal-status]]`
 - A plan this session executed whose `exit_criterion_met` is absent blocks the close — no
   directive can compute this. `asserted: false` is a legitimate, first-class outcome and does not
-  block; it routes to `/handoff` or a Phase-5 halt instead.
+  block; it routes to `/handoff` or a Phase-5 halt instead (`coordinator/skills/execute-plan/SKILL.md`
+  § Phase 5).
 - **The chain-root baton this session claimed and finished** (the only kind test 3 admits): stamp
   `deployment_state: shipped` + `shipped_in: <this session's commit>`; `status` stays `claimed`
   (the schema enum admits only `open`/`claimed`). Same first-hand-observer ground as the

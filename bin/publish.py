@@ -150,6 +150,10 @@ _BOOTSTRAPPED_NAMES = (
     "split_inclusion_exclusion",
     "_CLOSURE_PACKAGE_NAME",
     "find_import_closure_violations",
+    "run_assembled_mirror_gate",
+    "format_assembled_mirror_gate_refusal",
+    "find_modules_missing_tests",
+    "format_test_coverage_warning",
     "PercolateIdentity",
     "parse_percolate_identity",
     "PUBLISH_MODES",
@@ -214,6 +218,12 @@ def _bootstrap_engine() -> None:
         from percolate.import_closure import (  # noqa: E402
             PACKAGE_NAME as _CLOSURE_PACKAGE_NAME,
             find_import_closure_violations,
+        )
+        from percolate.assembled_mirror_gate import (  # noqa: E402
+            find_modules_missing_tests,
+            format_refusal as format_assembled_mirror_gate_refusal,
+            format_test_coverage_warning,
+            run_assembled_mirror_gate,
         )
         from percolate.phase4_audit import PercolateIdentity, parse_percolate_identity  # noqa: E402
 
@@ -3672,6 +3682,232 @@ def dispatch_end_of_run_argv_parity_gate(
     return ok
 
 
+_ASSEMBLED_MIRROR_GATE_DECLARATIONS_PATH = _REPO_ROOT / "setup" / "publish-allowlist-declarations.yaml"
+"""Same file the allowlist `deny`/`include_root` declarations already live
+in (§ that file's own module docstring) — this gate's exemption ledger is a
+second, independently-keyed top-level section of it
+(`assembled_mirror_gate_exemptions`), not a new file: one declared-input
+home for publish-time acceptance decisions, matching the parent plan's own
+framing that a deny-a-module/deny-its-tests convention already lived in
+this file as unenforced prose before this gate existed to check it."""
+
+
+def _load_assembled_mirror_gate_exemptions(
+    path: "Optional[Path]" = None,
+) -> "dict[str, str]":
+    """Read the declared-exemption ledger for `dispatch_end_of_run_
+    assembled_mirror_gate`: `{name: reason}`, keyed by a PUBLISH TARGET row
+    name (any row contributing to a failing repo root — see that gate's own
+    docstring for why a repo root, not a row, is what the gate itself
+    checks). Missing file, missing key, or a malformed entry degrades to
+    `{}` (no declared exemptions) rather than raising -- an unreadable
+    ledger must never silently exempt a row; it must fall through to the
+    gate's own fail-closed refusal instead, the same asymmetry `import_
+    closure.py`'s own `_unguarded_import_nodes` documents for itself.
+
+    Shape, per entry: `{name: <str>, reason: <str, non-empty>}`. A row
+    named more than once keeps its LAST reason (last-write-wins, same as a
+    human editing a list by hand would expect) rather than raising on a
+    duplicate — this is a declared-debt ledger, not a schema-validated
+    contract.
+    """
+    target_path = path or _ASSEMBLED_MIRROR_GATE_DECLARATIONS_PATH
+    if not target_path.is_file():
+        return {}
+    try:
+        import yaml  # noqa: PLC0415 - lazy, this call site is the only user of yaml in this scope
+
+        with target_path.open("r", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+    except Exception:  # noqa: BLE001 - unreadable/malformed ledger must not exempt anything
+        return {}
+
+    entries = raw.get("assembled_mirror_gate_exemptions") or []
+    if not isinstance(entries, list):
+        return {}
+
+    exemptions: "dict[str, str]" = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        reason = entry.get("reason")
+        if isinstance(name, str) and name and isinstance(reason, str) and reason:
+            exemptions[name] = reason
+    return exemptions
+
+
+def dispatch_end_of_run_assembled_mirror_gate(
+    repo_roots: "List[Path]",
+    *,
+    rows_by_repo_root: "dict[Path, List[ResolvedTarget]]",
+    target_filtered: bool,
+    out: IO[str] = sys.stdout,
+) -> bool:
+    """END-OF-RUN leg (docs/plans/2026-08-28-a-dropped-module-must-not-
+    leave-its-test-behind.md, chunk C3): wires C2's `run_assembled_mirror_
+    gate` (`coordinator/lib/percolate/assembled_mirror_gate.py`) into the
+    driver, once per distinct destination repo root, over the SAME
+    `deduped_roots` / `rows_by_repo_root` shape every sibling end-of-run leg
+    in this module already uses (`dispatch_end_of_run_argv_parity_gate`,
+    `dispatch_end_of_run_identity_check`, `dispatch_end_of_run_function_
+    gate`) — see this file's own C4 (docs/plans/2026-08-15-bind-the-
+    klabauter-publish-rows-into-a-parity-group.md) precedent for why a
+    per-mirror question is answered once per assembled repo root rather
+    than once per row.
+
+    WIRING POSITION — chosen over the chunk body's literal text, recorded
+    here per the EM ruling requiring the choice named in the commit
+    message: the chunk body says "call it from `run_pre_sync_gates`, in
+    the same position as `assert_allowlist_applied`". That position is
+    PRE-SYNC, on a SINGLE row's restricted source tree — the EM ruling
+    (2026-08-28, this chunk's brief) already forecloses gating pre-
+    transform bytes as reproducing the exact adjacent-question defect this
+    plan exists to kill, and requires either (a) materializing the content-
+    transform sweep over a copy of the restricted tree at that same
+    pre-sync position, or (b) — if the sweep is not callable as a function
+    over an arbitrary tree — falling back to wiring the gate at the
+    destination after sync but before the row is finalized/pushed.
+
+    (a) is not available: the content-transform sweep is `engine_claude_klabauter.
+    run_percolate(..., phase="post_rsync", ...)`, a JSON-RPC dispatch
+    against a resolved `percolate-store.yaml` section, `dest_prefix`, and
+    `sync_changed_paths` — not a standalone function over an arbitrary
+    directory. It is also inherently PER-ROW: each row's own restricted
+    tree is a fragment of the assembled mirror (`staging_dir` is "NOT a
+    repo root -- it is `target.dest_dir`'s own subtree in isolation", §
+    `dispatch_preswap_function_gate`'s own docstring), so even a
+    successfully materialized per-row copy could not answer the per-MIRROR
+    question C2 exists to ask — the same structural gap the parent plan's
+    Problem section names as the reason C1's per-row closure gate missed
+    every orphan: "a per-row gate cannot answer a per-mirror question
+    however much it is widened."
+
+    (b) is what this function implements, using the SAME "destination
+    after sync, before the row is finalized/pushed" seam this module
+    already built for exactly this shape: `deduped_roots` / `rows_by_
+    repo_root`, the destination working tree AFTER every row has synced,
+    checked here as one of the "four/five legs [that] always run" before
+    `main()` decides whether to report the round clean — publishing (git
+    add/commit/push of the destination) is a LATER, separate step this
+    driver does not itself perform, so a refusal here still costs
+    finalization, never merely a log line after the fact.
+
+    EXEMPTIONS — `dispatch_end_of_run_assembled_mirror_gate` itself never
+    reads the exemption ledger; its caller resolves `{name: reason}` via
+    `_load_assembled_mirror_gate_exemptions` and passes it in as `out`-
+    directed context is not the shape needed here, so lookups happen right
+    below: for a FAILING `repo_root`, this function checks whether ANY row
+    named in `rows_by_repo_root[repo_root]` (§ same dict every sibling leg
+    already receives) has a declared exemption entry. A repo root can be
+    reached by more than one publish target row (docs/reference,
+    coordinator_core, coordinator/bin, ... all sharing one destination
+    checkout) — declaring the exemption against any ONE of them is
+    sufficient, since the exemption is debt against the ASSEMBLED tree,
+    not against a particular row's contribution to it. A match WARNS
+    (prints the declared reason, does not fail this repo root); no match
+    is the FATAL post-condition the chunk body specifies -- "like `assert_
+    allowlist_applied`'s: no override flag" -- surfaced here as `ok=False`
+    for that repo root, same reporting contract (never raises) as every
+    other end-of-run leg in this module.
+
+    Never called under `--dry-run`, same as `dispatch_end_of_run_argv_
+    parity_gate`: a preview run mutates no destination for this gate to
+    meaningfully collect against. `target_filtered` is accepted for call-
+    site symmetry with the other end-of-run legs (same signature shape);
+    this gate is FAIL-HARD unconditionally, same choice and same reasoning
+    as `dispatch_end_of_run_argv_parity_gate`'s own docstring: a `--target`
+    subset publish is exactly the invocation shape most likely to leave the
+    assembled tree skewed, never an excuse to stop checking it.
+
+    Returns True iff every repo root's collection either passes cleanly or
+    is covered by a declared exemption; False iff any repo root's
+    collection errors/times out/finds an unexpected shape with no matching
+    exemption, or `repo_root` is not a directory. Never raises."""
+    _bootstrap_engine()
+    exemptions = _load_assembled_mirror_gate_exemptions()
+
+    ok = True
+    for repo_root in repo_roots:
+        if not repo_root.is_dir():
+            print(
+                "  Error: end-of-run assembled-mirror gate expected a destination "
+                f"repo root at {repo_root} but it is not a directory -- failing "
+                "hard rather than silently skipping an unassembled destination.",
+                file=sys.stderr,
+            )
+            ok = False
+            continue
+
+        result = run_assembled_mirror_gate(repo_root)
+        # C6's inverse pass, on the same assembled tree the gate just walked:
+        # a shipped subject whose tests stayed home. WARN only — plenty of
+        # modules legitimately have no test, and a hard gate here would be
+        # un-landable. Reported before the pass/refuse branch so the count
+        # and its denominator survive a refusing round too, which is when
+        # the delta between runs is most worth reading.
+        # Source roots: every row's own source_dir that contributes to this
+        # assembled repo_root (a destination can be fed by more than one row,
+        # per this function's own docstring above) — the ground truth for
+        # "did this subject's test exist at all" that keeps a never-had-a-
+        # test module out of the WARN (see find_modules_missing_tests).
+        #
+        # Code review (2026-08-30, P2): `rows_by_repo_root.get(repo_root, [])`
+        # can legitimately be empty for a `repo_root` this function still
+        # walks (e.g. reached only via a row keyed under a different dict
+        # entry). `source_roots or [repo_root]` used to fall back to
+        # comparing the assembled mirror against ITSELF — silently
+        # reinstating the exact source-vs-mirror conflation this gate's own
+        # docstring (and `find_modules_missing_tests`'s) says it exists to
+        # kill, with nothing in the printed line distinguishing a real
+        # comparison from a self-comparison. A leg that cannot compute its
+        # denominator abstains out loud instead: no source rows means no
+        # ground truth for "did this subject's test exist at all", so the
+        # coverage leg is skipped for this repo root and says why, rather
+        # than emitting a WARN count it cannot stand behind.
+        source_roots = [row.source_dir for row in rows_by_repo_root.get(repo_root, [])]
+        if source_roots:
+            coverage = find_modules_missing_tests(repo_root, source_roots)
+            print(format_test_coverage_warning(coverage), file=out)
+        else:
+            print(
+                f"  assembled-mirror-gate coverage leg: SKIPPED for {repo_root} — "
+                "no source row is keyed to this repo root, so there is no source "
+                "tree to compare shipped modules against (never a self-comparison).",
+                file=out,
+            )
+        if result.passed:
+            print(
+                f"  assembled-mirror-gate: OK — {repo_root} collected "
+                f"{result.collected_count} test(s) cleanly ({result.elapsed_s:.2f}s).",
+                file=out,
+            )
+            continue
+
+        row_names = [row.name for row in rows_by_repo_root.get(repo_root, [])]
+        exempted_reason = next((exemptions[name] for name in row_names if name in exemptions), None)
+        if exempted_reason is not None:
+            print(
+                f"  Warning: assembled-mirror-gate REFUSED for {repo_root} but a "
+                f"declared exemption covers it -- {exempted_reason}",
+                file=out,
+            )
+            print(format_assembled_mirror_gate_refusal(result), file=out)
+            continue
+
+        print(
+            f"  Error: end-of-run assembled-mirror gate FAILED for {repo_root} -- "
+            "no declared exemption in "
+            f"{_ASSEMBLED_MIRROR_GATE_DECLARATIONS_PATH} covers any of this root's "
+            f"rows ({row_names!r}).",
+            file=sys.stderr,
+        )
+        print(format_assembled_mirror_gate_refusal(result), file=sys.stderr)
+        ok = False
+
+    return ok
+
+
 def _argv_parity_pairing_origin(repo_root: Path, rel_module: str) -> str:
     """Best-effort tag for a failing pairing's `module` path, distinguishing
     a file this run's git-tracked source content is expected to have
@@ -5438,11 +5674,21 @@ def run_pre_sync_gates(
         # this to non-package rows needs a cross-row resolver that knows
         # which OTHER row carries `coordinator_core`, which this gate
         # deliberately does not have.
-        closure_violations = (
+        closure_examined, closure_violations = (
             find_import_closure_violations(restricted_tmp_src)
             if target.source_dir.name == _CLOSURE_PACKAGE_NAME
-            else []
+            else (0, [])
         )
+        if target.source_dir.name == _CLOSURE_PACKAGE_NAME:
+            # Report the denominator, always, including on the clean path:
+            # "0 violations over 0 files examined" and "0 over 2131" are the
+            # same output without it, so a gate that silently examined
+            # nothing reads exactly like a gate that passed.
+            print(
+                f"  Import-closure gate: {len(closure_violations)} violation(s) "
+                f"over {closure_examined} file(s) examined.",
+                file=out,
+            )
         if closure_violations:
             print(
                 f"  Error: {len(closure_violations)} import-closure violation(s) in "
@@ -7647,7 +7893,7 @@ def _parse_porcelain_z(stdout: str) -> "List[str]":
 def _dirty_paths_under(repo_root: Path, scope_dirs: Sequence[Path]) -> Optional["List[str]"]:
     """Enumerate every dirty path beneath `scope_dirs` as repo-root-relative
     FILE paths — the commit pathspec `_commit_published_dests` hands
-    `commit_pipeline.run_commit_pipeline` as its `stage_paths`.
+    `coordinator_core.git.commit.commit_paths`.
 
     Derived from `git status`, NOT from this run's own `changed_files_sink`/
     `visited_files_sink` accumulators, because those record what the sync
@@ -7762,35 +8008,6 @@ def _normalize_dest_exec_bits(repo_root: Path, scope_dirs: Sequence[Path]) -> "L
     return offenders
 
 
-def _commit_failure_detail(result) -> list:
-    """Render everything `run_commit_pipeline` already classified about a failed
-    commit into operator-readable lines.
-
-    Purpose: publish runs on the COLD path by construction -- percolate replaces
-    the engine it would otherwise be served by, so there is no resident engine to
-    interrogate after the fact and the process exits at the end of the round.
-    Whatever this returns is the ONLY evidence the failure will ever leave. A
-    caller that prints the headline alone destroys it, which is what shipped
-    before 2e9b573ff and what left three identical unreadable runs on 2026-08-26.
-
-    Negative-spec, learned the hard way at ed0cbe0ef and again just after: do
-    NOT re-read `result.deletion_gate` / `.dirty_gate` / `.carry_gate` /
-    `.op_scope_gate` or `result.commit.stderr` here. `run_commit_pipeline`
-    (`coordinator_core/ops/ceremony/commit_pipeline.py`) already folds every one
-    of those into `PipelineResult.diagnostics` before returning -- the three
-    gate outcomes via their own `.diagnostics`, `dirty_gate` via a rendered
-    "dirty-tree gate: unattributable paths: ..." line, a failed stage's own
-    `.failed` entries, and the commit step's stderr, all unconditionally.
-    Re-reading the gate slots here prints the same evidence twice on the one
-    artifact a failed cold publish leaves.
-    """
-    detail = []
-    if result.reason:
-        detail.append(f"reason={result.reason}")
-    detail.extend(result.diagnostics)
-    return detail
-
-
 def _commit_published_dests(
     published_dest_dirs_by_repo_root: "dict[Path, set[Path]]",
     *,
@@ -7832,12 +8049,16 @@ def _commit_published_dests(
     percolation should end in a commit and then suggest publishing with
     another button press").
 
-    Calls `run_commit_pipeline` in-process rather than spawning the
-    `scoped-git-commit` CLI over it. Same mechanism, same agree-case /
-    private-index discriminator (SC-DR-015) — the CLI is a trampoline over
-    this exact function — but one fewer Python interpreter start per
-    destination, and no per-item process amplification inside this loop
-    (`coordinator_core/tests/test_no_unbatched_per_item_git_spawn.py`).
+    Calls `coordinator_core.git.commit.commit_paths` in-process (`ceremony.
+    commit_v2`'s own in-process call, mirrored here rather than round-tripped
+    through the op registry -- this driver already runs in-process) --
+    repointed off the killed `run_commit_pipeline` (C4, docs/plans/2026-08-29-
+    the-push-subsystem-leaves-and-then-the-pipeline-can-go.md), the same
+    shape `execute_plan_assemble.close_out_and_stamp` and `ops.session.
+    safe_commit_offer` were repointed onto by the same plan. No push leg at
+    all: this loop never owned a synchronous push, publication stays a
+    separate deliberate act per this function's own "COMMIT, NOT PUBLISH"
+    section above.
 
     Negative-spec: NOT called under `--dry-run`, NOT called when any row
     failed, and NOT called when an end-of-run gate failed — a gate failure
@@ -7850,9 +8071,14 @@ def _commit_published_dests(
     commit -> CI-smoke -> push sequence (DR-301) and moving the commit ahead
     of its CI smoke would reorder that contract.
     """
-    import uuid  # noqa: PLC0415 - lazy, keeps this driver's import cost off every run
+    from functools import partial  # noqa: PLC0415 - lazy, keeps this driver's import cost off every run
 
-    from coordinator_core.ops.ceremony import commit_pipeline  # noqa: PLC0415
+    from coordinator_core.git.commit import (  # noqa: PLC0415
+        CommitRefused,
+        FilterUnsupported,
+        commit_paths,
+        hash_worktree_blobs_via_spawn,
+    )
 
     all_ok = True
     for repo_root, scope_dirs in published_dest_dirs_by_repo_root.items():
@@ -7883,43 +8109,36 @@ def _commit_published_dests(
             continue
         rows = ", ".join(succeeded_row_names) if succeeded_row_names else "no named rows"
         subject = f"percolate: sync {len(paths)} path(s) to {repo_root.name} ({rows})"
-        result = commit_pipeline.run_commit_pipeline(
-            repo_root,
-            # Private per-invocation nonce, never an attribution — the same
-            # shape `ceremony.scoped_git_commit` mints for its own call
-            # (`scoped-git-commit-<uuid4>`); this parameter is unread by the
-            # pipeline and exists only to key its own reconcile probe.
-            session_id=f"publish-percolate-{uuid.uuid4().hex}",
-            subject=subject,
-            stage_paths=paths,
-            # Load-bearing, not decorative: `explicit_stage` derives its
-            # `StageOutcome.deletion_paths` from the CALLER's own pathspec,
-            # and without this a path the sync deleted is silently dropped
-            # from the commit set (`ceremony.scoped_git_commit`'s 2026-08-04
-            # defect A/B, whose own call site passes exactly this). Measured
-            # here before the fix: a deleted file stayed `D` in the mirror
-            # after a "successful" commit — i.e. still dirty, which is the
-            # whole failure this step exists to end.
-            caller_paths=set(paths),
-            # § COMMIT, NOT PUBLISH above. Not `"sync"`, and not the
-            # default `"none"` either: `"none"` leaves the `post-commit` hook armed
-            # (there it is the only publisher there is), which would put a
-            # percolation's push back on the hook's branch policy — the
-            # incidental protection this mode exists to replace.
-            push_mode=commit_pipeline.PUSH_MODE_NEVER,
-        )
-        if result.commit_failed:
-            detail = _commit_failure_detail(result)
+        # `deleted_paths` split out explicitly: `commit_paths` reads a
+        # present path's bytes off the worktree, so a path the sync deleted
+        # must go through its `deleted_paths` kwarg instead of `paths` --
+        # the same accounting `run_commit_pipeline`'s own `stage_paths`
+        # auto-classification used to do internally (`ceremony.
+        # scoped_git_commit`'s 2026-08-04 defect A/B, whose own call site
+        # passes exactly this). Measured here before that fix: a deleted
+        # file stayed `D` in the mirror after a "successful" commit -- i.e.
+        # still dirty, which is the whole failure this step exists to end.
+        present_paths = [p for p in paths if (repo_root / p).exists()]
+        deleted_paths = [p for p in paths if p not in present_paths]
+        try:
+            outcome = commit_paths(
+                repo_root,
+                present_paths,
+                subject,
+                deleted_paths=deleted_paths,
+                blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
+            )
+        except (CommitRefused, FilterUnsupported) as exc:
             print(
                 f"publish.py: commit of '{repo_root}' failed — the published "
                 "bytes ARE on disk but are not committed; reconcile by hand "
                 "before the next round."
-                + ("\n  " + "\n  ".join(detail) if detail else ""),
+                f"\n  {exc}",
                 file=sys.stderr,
             )
             all_ok = False
             continue
-        sha = result.committed_sha or "(sha unverified)"
+        sha = outcome.sha
         print(f"  {repo_root}: committed {len(paths)} path(s) as {sha[:12]}.")
         # No `integrity_breach` branch here any more, and its absence is the
         # contract rather than an omission: `PUSH_MODE_NEVER` returns
@@ -7933,6 +8152,41 @@ def _commit_published_dests(
         # naming the base row. A second notice in this loop printed the same
         # command twice per round — observed live 2026-08-21.
     return all_ok
+
+
+def should_warn_unresolved_rename_exemption(
+    *,
+    dry_run: bool,
+    renamed_file_names: "frozenset[str] | None",
+    mode_descriptor: object,
+    declares_basename_rename: bool,
+) -> bool:
+    """Whether a dry-run row owes the `Rename exemption: UNRESOLVED` banner.
+
+    Pure decision, extracted from `process_target` so the condition is
+    testable without standing up a git work tree and spawning a publish
+    (`coordinator/tests/test_publish_rename_banner_covers_flat_mirror.py`).
+
+    Fires when ALL hold: this is a PREVIEW (a real run resolves the exemption
+    or refuses outright, so the banner would be a lie there); the exemption
+    did NOT resolve (`renamed_file_names is None`); the mode is mirror-like
+    (`manifest`/`repo-cut` print no sync preview, so there are no REMOVE lines
+    to explain); and the row ACTUALLY declares a `basename_rename`.
+
+    NEGATIVE SPEC -- deliberately NOT keyed on
+    `mode_descriptor.accepts_renamed_dir_names`, which is what this predicate
+    replaced and what made the banner unreachable for `flat-mirror`. That flag
+    answers "does this mode's entry point take `renamed_dir_names`?", not
+    "can this row's preview print a misleading REMOVE?" -- and `flat-mirror`
+    answers False to the first and True to the second, which is precisely the
+    gap. Keyed on the row's own declaration rather than the mode so a
+    flat-mirror row with no rename map stays silent.
+    """
+    if not dry_run or renamed_file_names is not None:
+        return False
+    if mode_descriptor is None or not getattr(mode_descriptor, "is_mirror_like", False):
+        return False
+    return bool(declares_basename_rename)
 
 
 def _ensure_dest_ready(target: ResolvedTarget, totals: RunTotals, *, out: IO[str] = sys.stdout) -> bool:
@@ -10015,11 +10269,50 @@ def process_target(
                 # every call site (outer AND inner).
                 except (ImportError, OSError, ValueError, RuntimeError):
                     renamed_dir_names = None
+            # A row that DECLARES a `basename_rename` previews its published
+            # rename targets as REMOVE whenever the exemption did not resolve --
+            # and that is true for every mirror-like mode, not only the ones
+            # carrying `accepts_renamed_dir_names`. `flat-mirror` never enters
+            # the exemption block above (its descriptor is
+            # `accepts_renamed_dir_names=False` and `sync_flat_mirror` sweeps its
+            # top-level files unconditionally), so `renamed_file_names` is
+            # unconditionally None for it -- which gated this banner OFF for
+            # exactly the rows that most need it. Measured on
+            # `claude-klabauter-docs-install`, a flat-mirror row whose store
+            # section declares `klabauter-agent-install-manifest.json ->
+            # agent-install-manifest.json`: the preview prints `REMOVE:
+            # agent-install-manifest.json (not in source)` for a file that IS in
+            # source under its pre-rename name, with no banner to say so.
+            # Keyed on the row's OWN declaration rather than on the mode flag so
+            # a flat-mirror row with no rename map stays silent instead of
+            # paying a banner it has no REMOVE lines to explain.
+            declares_basename_rename = False
             if (
                 dry_run
                 and renamed_file_names is None
                 and mode_descriptor is not None
-                and mode_descriptor.accepts_renamed_dir_names
+                and mode_descriptor.is_mirror_like
+            ):
+                try:
+                    _resolve_target_fn = _import_percolate_store_resolve_target()
+                    declares_basename_rename = bool(
+                        _resolve_target_fn(engine_ctx.store, target.name).get(
+                            'basename_rename'
+                        )
+                    )
+                # Same tolerated-degradation contract as the exemption block
+                # above: an undeclared target, an absent or unwired store, or an
+                # unimportable helper means "cannot tell whether this row
+                # renames", which suppresses the banner rather than aborting a
+                # preview over a purely explanatory line.
+                except (ImportError, OSError, ValueError, RuntimeError, KeyError,
+                        AttributeError, TypeError):
+                    declares_basename_rename = False
+            if should_warn_unresolved_rename_exemption(
+                dry_run=dry_run,
+                renamed_file_names=renamed_file_names,
+                mode_descriptor=mode_descriptor,
+                declares_basename_rename=declares_basename_rename,
             ):
                 # Say it AT the output it explains, not only in the run-level engine
                 # banner 200 lines up. With no exemption set, the sync preview below
@@ -10036,10 +10329,9 @@ def process_target(
                 # run-cries-wolf-on-the-rename-exemption.md); until they do, the
                 # preview has to say which of the two it is showing.
                 print(
-                    "  Rename exemption: UNAVAILABLE (engine not loaded) — this row's "
-                    "published rename targets preview as REMOVE, their source names as "
-                    "NEW. Absent exemption, not a failing rename map; a real run "
-                    "resolves it.",
+                    "  Rename exemption: UNRESOLVED — this row's published rename "
+                    "targets preview as REMOVE, their source names as NEW. Absent "
+                    "exemption, not a failing rename map; a real run resolves it.",
                     file=out,
                 )
             row_sync_changed = set()
@@ -11301,8 +11593,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(
                 f"[publish.py] BUSY: {_lock_root} is held by another publish — "
                 f"waited {_publish_lock_wait_secs():.0f}s, nothing was written. "
-                f"Let it land and re-run, or wait inside one process instead of "
-                f"retrying: {_PUBLISH_LOCK_WAIT_ENV}=<seconds>. ({exc})",
+                f"Re-run once it lands. {_PUBLISH_LOCK_WAIT_ENV}=<seconds> only "
+                f"SHORTENS this wait; the ceiling cannot be raised. ({exc})",
                 file=sys.stderr,
             )
             return 75
@@ -11836,6 +12128,21 @@ def main(argv: Optional[List[str]] = None) -> int:
                 deduped_roots,
                 target_filtered=bool(args.target),
             )
+        # § chunk C3 (docs/plans/2026-08-28-a-dropped-module-must-not-leave-
+        # its-test-behind.md) — wires C2's `run_assembled_mirror_gate` into
+        # the driver as an end-of-run leg, over the same `deduped_roots` /
+        # `end_of_run_rows_by_repo_root` shape as the legs above. FAIL-HARD
+        # unconditionally (see that function's own docstring for the
+        # judgement-call rationale, mirroring `argv_parity_ok` immediately
+        # above); a declared exemption in `setup/publish-allowlist-
+        # declarations.yaml`'s `assembled_mirror_gate_exemptions` is the
+        # only way past a refusal -- no override flag.
+        with _time_phase(round_timings, "<round>", "dispatch_end_of_run_assembled_mirror_gate"):
+            assembled_mirror_gate_ok = dispatch_end_of_run_assembled_mirror_gate(
+                deduped_roots,
+                rows_by_repo_root=end_of_run_rows_by_repo_root,
+                target_filtered=bool(args.target),
+            )
         gates_ok = (
             identity_ok
             and install_doc_ok
@@ -11844,6 +12151,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             and entrypoint_gate_ok
             and drift_check_ok
             and argv_parity_ok
+            and assembled_mirror_gate_ok
         )
         if not gates_ok:
             print(

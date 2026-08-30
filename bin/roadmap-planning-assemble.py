@@ -43,6 +43,7 @@ _TRANSPORT_FAIL = 3
 
 
 def _main(argv: list[str]) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import require_dispatch_engine_on_path  # noqa: E402
 
     try:

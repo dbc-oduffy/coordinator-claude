@@ -200,10 +200,19 @@ def main(argv: list[str] | None = None) -> int:
         # reaches stderr. Re-derive it here rather than let an unknown --type
         # read as a transport failure.
         hint = _supported_types_hint()
-        if hint and args.type_ not in hint.split(", "):
+        unsupported_type = bool(hint) and args.type_ not in hint.split(", ")
+        if unsupported_type:
             msg += f"\nquery-record-history: --type {args.type_!r} is not a supported type; supported: {hint}"
         print(msg, file=sys.stderr)
-        return 2
+        # 2 = usage error (fix the call), 1 = op failure (may be transient).
+        # These were both 2, which cost a consumer a distinction it acts on:
+        # example-cockpit-repo's cache classifies an unknown type as
+        # `not-configured` and an op failure as `upstream`, and a single 2
+        # forced it to parse stderr prose to tell them apart — which is not a
+        # contract (cross-repo/inbox/2026-08-20-example-cockpit-repo-em-record-
+        # history-four-consumer-asks.md, ask 3). The collapse was an
+        # acknowledged outlier in this file's own docstring, never a ruling.
+        return 2 if unsupported_type else 1
 
     records = result.get("records", []) if isinstance(result, dict) else []
     # `is not None`, NOT truthiness — `--limit 0` is an explicit "zero

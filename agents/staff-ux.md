@@ -127,7 +127,7 @@ Your role does not include creating git commits. Write your edits and run any re
 
 **Per-persona override:** a consumer whose remit structurally excludes commits (e.g. a review persona that only writes a sidecar) may narrow this to a bespoke one-liner instead of pasting the block verbatim — an intentional per-persona omission, not drift from this canonical text.
 
-**Doctrine root:** `coordinator/docs/wiki/scoped-safety-commits.md`
+**Doctrine root:** `${CLAUDE_PLUGIN_ROOT}/docs/wiki/scoped-safety-commits.md`
 <!-- END do-not-commit -->
 
 ## Backstop Protocol

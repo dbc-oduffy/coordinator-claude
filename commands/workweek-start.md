@@ -40,7 +40,7 @@ Step 8 fills `Week starting:`, `Last /workweek-start:`, and priorities on the fi
 
 ## Step 1: Assemble the Week-Cadence Brief
 
-Run (shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown): `& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.cmd" brief --cadence week`
+Run (shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown): `& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.exe" brief --cadence week`
 
 Computes the cadence-invariant orient spine in one read-only pass (env/effort drift, addon/doctor
 health, inbound cross-repo memo surfacing, project-RAG staleness, handoff triage, agent-worktree
@@ -91,7 +91,7 @@ authoring, and the HEADER.md reset-or-update mechanics.
 Regenerate `docs/exec-summary.md`'s MANAGED sections (identity + progress) from disk; the two HAND
 sections (what makes it special, near-term goals) are preserved verbatim:
 
-Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\generate-exec-summary.cmd"`
+Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\generate-exec-summary.exe"`
 
 Silent if the generator or the file is absent (`repo-setup` Phase 3d.5 creates it on onboarded
 repos). Kill-switch for the staleness banner: `COORDINATOR_EXECSUMMARY_STATUS_OFF`.
@@ -134,11 +134,11 @@ re-nudges once data exists (that's `/workweek-complete` Step 4i's freshness-nudg
 Delegates scaffolding to `coordinator:strategic-self-description-refresh`; this step never authors
 the scaffold itself. Shared with `/workweek-complete` Step 4j via one extracted script.
 
-Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-competitor-positioning-nudge.cmd"`
+Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-competitor-positioning-nudge.exe"`
 
 If the PM declines, record it so the nudge doesn't recur for the cooldown window:
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\check-competitor-positioning-nudge.cmd" --record-decline`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\check-competitor-positioning-nudge.exe" --record-decline`
 
 ---
 
@@ -157,7 +157,7 @@ Resolve `<SID_SHORT>` as `workweek-trail-scope.py` does: `CLAUDE_SESSION_ID` /
 
 For **each** priority, author one `period=week` goal artifact:
 
-Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" scaffold-goal --title "<priority title>" --sid-short "<SID_SHORT>"`
+Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.exe" scaffold-goal --title "<priority title>" --sid-short "<SID_SHORT>"`
 
 Prints the goal artifact's path — capture as `_GOAL_OUT` for Step 8. Confine authored prose to
 `objective` and each key result's `text`; leave `parent_goal_id` null unless the PM names a parent
@@ -198,7 +198,7 @@ disposition to the PM before acting on it.
 4. Write this session's priorities fragment (Step 7 format).
 5. For each priority's goal artifact, emit the weekly goal event — sourced FROM the artifact's
    `period_value`/`objective` fields so the emitted event and the on-disk goal agree byte-for-byte:
-   Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" emit-goal-event --goal "<goal artifact path>"`
+   Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.exe" emit-goal-event --goal "<goal artifact path>"`
 
 **`update_in_place`** — no `/workweek-complete` since the last `/workweek-start` (a mid-week
 re-run):
@@ -211,11 +211,11 @@ re-run):
 **In both cases,** commit HEADER.md, this session's priorities fragment, and this session's goal
 artifacts:
 
-Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" commit-priorities --sid-short "<SID_SHORT>"`
+Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.exe" commit-priorities --sid-short "<SID_SHORT>"`
 
 A full reset also commits the archived daily files:
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" commit-archive-reset --prior-week-start "<prior-week-start>"`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.exe" commit-archive-reset --prior-week-start "<prior-week-start>"`
 
 ---
 
@@ -225,7 +225,7 @@ Run the opt-in per-repo hook (declared via `workweek_start_post_command:` in
 `coordinator.local.md`) here — before Step 10, so it settles at `/workweek-start`'s own close
 rather than after the chained `/workday-start`.
 
-Shape per `coordinator/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.cmd" ceremony-hook --ceremony workweek-start`
+Shape per `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`; PowerShell shown: `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-start-goal-and-priorities.exe" ceremony-hook --ceremony workweek-start`
 
 Empty `$_HOOK_OUT` when unconfigured — nothing renders. A configured command's summary line
 renders in the Output section below.

@@ -44,6 +44,8 @@ _USAGE = "Usage: baton-drift-sweep.py (no arguments)"
 
 _BOOTSTRAP_DONE = False
 
+_BOOTSTRAPPED_NAMES = ("require_dispatch_engine_on_path", "resolve_checked_repo_root")
+
 
 def _bootstrap_engine() -> None:
     """Bind `coordinator_core` on the DISPATCH axis, then the LOCATOR-axis
@@ -94,10 +96,27 @@ def __getattr__(name: str):
     API missing until `main()` runs, and a `global`-bound name is module-visible
     only after its binder has been called. Only fires for names not already in
     `__dict__`, so once the bootstrap has run the plain global wins.
+
+    NEGATIVE SPEC -- the forced re-run is not belt-and-braces. `_bootstrap_engine()`
+    short-circuits on `_BOOTSTRAP_DONE`, so a name that leaves `__dict__` AFTER the
+    bootstrap has run is never rebound by a plain call. `mock.patch.object` does
+    exactly that: it reads the name through this hook (so the value is not in
+    `__dict__` at enter), sets its mock, and on exit `delattr`s rather than
+    restoring -- then probes `hasattr`, which lands here with the flag already set.
+    Without the reset that probe raises KeyError instead of returning the name.
     """
-    if name in ("require_dispatch_engine_on_path", "resolve_checked_repo_root"):
+    if name in _BOOTSTRAPPED_NAMES:
         _bootstrap_engine()
-        return globals()[name]
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

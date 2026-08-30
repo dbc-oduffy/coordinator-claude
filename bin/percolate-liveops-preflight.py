@@ -182,7 +182,12 @@ def __getattr__(name: str):
     in this module's `__dict__`."""
     if name in _CLAUDE_KLABAUTER_RESOLVER_NAMES:
         _bootstrap_claude_klabauter_resolver()
-        return globals()[name]
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -195,12 +200,16 @@ def _bootstrap_claude_klabauter_resolver() -> None:
     replaced the retired per-repo exemption family). Bound at module scope
     (C6k import-motion: module bodies stay inert on both the warm door and
     the un-bootstrapped settings-home forwarder load routes). Idempotent by
-    construction -- see `__getattr__` above.
+    construction: the all-names guard covers every name in
+    `_CLAUDE_KLABAUTER_RESOLVER_NAMES`, not a single sentinel, and each
+    freshly-imported name is published via `globals().setdefault(...)`, so a
+    caller's monkeypatch of just one of these names is left alone even when
+    another is still missing -- see `__getattr__` above.
     """
-    if "_resolve_claude_klabauter_source_root" in globals():
+    if all(n in globals() for n in _CLAUDE_KLABAUTER_RESOLVER_NAMES):
         return
 
-    global ClaudeKlabauterResolutionError, _claude_klabauter_ml_dir, _resolve_claude_klabauter_source_root
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
 
     _resolve_claude_klabauter_lib_dir = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "..", "lib", "resolve-claude-klabauter"
@@ -208,10 +217,17 @@ def _bootstrap_claude_klabauter_resolver() -> None:
     if _resolve_claude_klabauter_lib_dir not in sys.path:
         sys.path.insert(0, _resolve_claude_klabauter_lib_dir)
     from _resolve_claude_klabauter import (
-        ClaudeKlabauterResolutionError,
-        _ml_dir as _claude_klabauter_ml_dir,
-        _resolve_claude_klabauter_root as _resolve_claude_klabauter_source_root,
+        ClaudeKlabauterResolutionError as _ClaudeKlabauterResolutionError,
+        _ml_dir as _claude_klabauter_ml_dir_fn,
+        _resolve_claude_klabauter_root as _resolve_claude_klabauter_source_root_fn,
     )
+
+    for _name, _value in (
+        ("ClaudeKlabauterResolutionError", _ClaudeKlabauterResolutionError),
+        ("_claude_klabauter_ml_dir", _claude_klabauter_ml_dir_fn),
+        ("_resolve_claude_klabauter_source_root", _resolve_claude_klabauter_source_root_fn),
+    ):
+        globals().setdefault(_name, _value)
 
 
 def _run(liveness_mod, peer_roster_mod, machine_resolver_mod) -> int:

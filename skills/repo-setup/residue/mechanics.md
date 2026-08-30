@@ -19,7 +19,7 @@ re-run if wrong.* Legacy values (`unreal`, `meta`, bare `web`) get a one-line mi
 warning — never auto-rewritten.
 
 **Runtime marker scan.** Run (Shape W, `snippets/resolve-coordinator-bin.md`)
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\detect-project-runtime.cmd"`. Advisory only — warn and
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\detect-project-runtime.exe"`. Advisory only — warn and
 continue, never abort onboarding, if the forwarder or its engine-plane target is unresolvable.
 Output is advisory stdout; no skill/agent/hook reads it programmatically.
 
@@ -86,7 +86,10 @@ install/repair/exec-bit self-heal in one call. Skip if a custom hook exists with
 self-heal pattern; silent no-op when no session-id env var resolves.
 
 **Git config hardening**: `coordinator-configure-git` (Shape W) —
-`gc.autoDetach false` + `core.checkStat minimal`. Idempotent.
+`gc.autoDetach false` + `core.checkStat minimal`. Idempotent. Cwd-only, and not the sole
+mechanism: the install's git-perf-config fleet sweep (`coordinator_core.install.git_perf_config`,
+Claude-klabauter) applies per-repo git settings across every registered worktree. This call stays as
+belt-and-braces for a repo onboarded between sweeps.
 
 **Meta-repo pre-commit exec-bit gate** (conditional): `install-meta-repo-precommit-hook <meta-root>`
 (Shape W), meta-repo root passed explicitly (`~/.claude`) so the install is cwd-independent. The

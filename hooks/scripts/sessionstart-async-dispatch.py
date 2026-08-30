@@ -93,23 +93,34 @@ _UNMATCHED_SOURCE_BREADCRUMB = (
 
 
 REGISTRY: Tuple[StartGuard, ...] = (
-    # FIRST, but NOT because the guards below need a warm engine -- both were
-    # read and neither imports `coordinator_core` nor dispatches anything (one
-    # shells to the machine-local registry, the other does zero-spawn path
-    # resolution). This is simply the only guard here that reaches the engine at
-    # all, so it goes first to start the spawn as early as possible.
-    # All five sources — omitting `resume`/`compact`/`fork` would lose warm start
-    # for exactly the long-lived sessions that benefit most from it, which is why
-    # the op declares that same set as its own SESSIONSTART_MATCHERS.
-    StartGuard("sessionstart_warm_start",
-               "sessionstart-warm-start.py",
-               frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("session_start_register_doe_claude_root",
                "session-start-register-doe-claude-root.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
     StartGuard("session_start_repair_prepare_commit_msg_hook",
                "session-start-repair-prepare-commit-msg-hook.py",
                frozenset({"startup"})),
+    # LIFECYCLE OWNER FOR THE http FORWARDER, folded here rather than given its
+    # own registration. Its module docstring said "NOT REGISTERED HERE ... the
+    # DR's own Consequences section defers that wiring to a later chunk" -- this
+    # is that chunk (C10). Left unregistered it was inert: the resident forwarder
+    # on this box was started once by hand and nothing revived it.
+    #
+    # THIS IS LOAD-BEARING THE MOMENT ANY ENTRY IS type: "http". A dead forwarder
+    # is not a deny, it is a CONNECTION REFUSAL at the harness -- a transport
+    # error, which the http path FAILS OPEN on. Every guard behind that transport
+    # then goes silently inert fleet-wide, which is a worse shape than the outage
+    # 084654c8b reverted: an outage announces itself, a silent disarm does not.
+    #
+    # All five sources deliberately. The forwarder is a MACHINE-WIDE resident, so
+    # the session that finds it missing is whichever one starts next -- there is
+    # no reason that should be a `startup` in particular, and narrowing this set
+    # would leave a box whose sessions all resume/fork with no forwarder at all.
+    # Costs nothing on the overwhelmingly common path: the guard probe-binds,
+    # loses to the incumbent, and treats losing as success (its own "ENSURE, NOT
+    # SPAWN-BLINDLY" contract). Async and never-waits, per its own "NEVER WAIT".
+    StartGuard("sessionstart_ensure_http_forwarder",
+               "sessionstart-ensure-http-forwarder.py",
+               frozenset({"startup", "resume", "clear", "compact", "fork"})),
 )
 
 

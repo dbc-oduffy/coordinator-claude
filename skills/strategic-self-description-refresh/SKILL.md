@@ -52,7 +52,7 @@ Write-capable on both the canonical and draft files. Observe:
   only into a field the human hasn't overridden.
 - **NEVER delete or truncate `self-description.yaml`.** If absent, create fresh via Shape W
   (`snippets/resolve-coordinator-bin.md`):
-  `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type strategic-self-description` —
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type strategic-self-description` —
   never treat a missing canonical file as license to bulk-write unreviewed content.
 - **The draft may be archived/cleared ONLY after its fields are reconciled into the canonical
   file (or explicitly rejected) this same session.** Deleting an unreconciled draft destroys the

@@ -39,8 +39,8 @@ def main(argv: list[str]) -> int:
 
     from coordinator_core.workday_complete.autonomous_verb import main as _sub_main
 
-    return _sub_main(argv[1:])
+    return _sub_main(argv)
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(main(sys.argv[1:]))

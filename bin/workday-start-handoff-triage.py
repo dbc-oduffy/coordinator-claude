@@ -138,11 +138,19 @@ def _frontmatter_status_is_executing(frontmatter_lines: list[str]) -> bool:
 # --------------------------------------------------------------------------
 
 
-def _git_last_commit_epochs_batch(plan_paths: list[Path]) -> dict[Path, int | None]:
+def _git_last_commit_epochs_batch(
+    plan_paths: list[Path], cwd: str | None = None
+) -> dict[Path, int | None]:
     """Resolve each `plan_paths` entry's most-recent-commit epoch via ONE
     multi-pathspec `git log` walk plus in-memory grouping, instead of one
     `git log -1 -- <path>` subprocess per plan (the N+1 git-spawn class this
     batching chunk exists to close).
+
+    `cwd` is threaded from the already-parameterised `plans_dir` (C7(b),
+    2026-08-27 orient_assemble reader repo-scope plan) so the `git log`
+    subprocess below runs against the CALLER's repo rather than whatever
+    directory the process happened to start in. Default `None` preserves the
+    prior behavior (subprocess inherits the process cwd) exactly.
 
     This is a per-path last-touch-timestamp query, not a range query (no
     positive/negative ref sets to combine) — `reachable(...) \\ reachable(...)`
@@ -167,8 +175,11 @@ def _git_last_commit_epochs_batch(plan_paths: list[Path]) -> dict[Path, int | No
     # how the pathspec argument itself was spelled, so normalize both the
     # pathspecs sent to git and the lookup key off the CWD-relative form
     # (the CLI's own callers always pass CWD-relative plan paths in
-    # practice; the relpath call is a no-op for those).
-    relspecs = [os.path.relpath(str(p)) for p in plan_paths]
+    # practice; the relpath call is a no-op for those). relpath's `start`
+    # MUST match the subprocess's actual `cwd` (below) — computing pathspecs
+    # relative to the process cwd while git itself runs from a different
+    # `cwd` would silently mis-resolve every pathspec once the two diverge.
+    relspecs = [os.path.relpath(str(p), start=cwd) for p in plan_paths]
     pathspecs = [Path(r).as_posix() for r in relspecs]
     try:
         proc = subprocess.run(
@@ -193,6 +204,7 @@ def _git_last_commit_epochs_batch(plan_paths: list[Path]) -> dict[Path, int | No
             ],
             capture_output=True,
             text=True,
+            cwd=cwd,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except OSError:
@@ -250,7 +262,7 @@ def find_stale_executing_plans(
             continue
         executing_paths.append(plan_path)
 
-    epochs = _git_last_commit_epochs_batch(executing_paths)
+    epochs = _git_last_commit_epochs_batch(executing_paths, cwd=plans_dir)
 
     results: list[str] = []
     for plan_path in executing_paths:
@@ -327,8 +339,12 @@ _AWAITING_GATE_WHERE = "deployment_state=awaiting_gate AND status=open"
 def _cmd_ready(args: argparse.Namespace) -> int:
     from records_query import query_records  # noqa: PLC0415 (deliberate: avoid import cost on unrelated subcommands)
 
+    explicit_root = getattr(args, "repo_root", None)
     try:
-        out = query_records(_HANDOFF_TYPE, _READY_WHERE, "markdown-list", 0, sort="-created")
+        out = query_records(
+            _HANDOFF_TYPE, _READY_WHERE, "markdown-list", 0, sort="-created",
+            explicit_root=explicit_root,
+        )
     except RuntimeError as exc:
         print(f"workday-start-handoff-triage.py: ready: {exc}", file=sys.stderr)
         return _SETUP_ERROR
@@ -339,12 +355,15 @@ def _cmd_ready(args: argparse.Namespace) -> int:
 def _cmd_awaiting_gate(args: argparse.Namespace) -> int:
     from records_query import query_records  # noqa: PLC0415
 
+    explicit_root = getattr(args, "repo_root", None)
     try:
         full_listing = query_records(
-            _HANDOFF_TYPE, _AWAITING_GATE_WHERE, "markdown-list", 0, sort="-created"
+            _HANDOFF_TYPE, _AWAITING_GATE_WHERE, "markdown-list", 0, sort="-created",
+            explicit_root=explicit_root,
         )
         stale_listing = query_records(
-            _HANDOFF_TYPE, _AWAITING_GATE_WHERE, "markdown-list", 0, older_than="6d"
+            _HANDOFF_TYPE, _AWAITING_GATE_WHERE, "markdown-list", 0, older_than="6d",
+            explicit_root=explicit_root,
         )
     except RuntimeError as exc:
         print(f"workday-start-handoff-triage.py: awaiting-gate: {exc}", file=sys.stderr)
@@ -389,10 +408,22 @@ def _build_parser() -> argparse.ArgumentParser:
     trim_notes.set_defaults(func=_cmd_trim_notes)
 
     ready = subparsers.add_parser("ready", help="List actionable-now (ready_to_fire) handoffs.")
+    ready.add_argument(
+        "--repo-root", dest="repo_root", default=None,
+        help="Explicit repo root forwarded to records_query.query_records "
+        "(explicit_root=...); omitted preserves the prior cwd-relative "
+        "resolution unchanged.",
+    )
     ready.set_defaults(func=_cmd_ready)
 
     awaiting_gate = subparsers.add_parser(
         "awaiting-gate", help="List awaiting_gate handoffs + the >6d stale subset."
+    )
+    awaiting_gate.add_argument(
+        "--repo-root", dest="repo_root", default=None,
+        help="Explicit repo root forwarded to records_query.query_records "
+        "(explicit_root=...); omitted preserves the prior cwd-relative "
+        "resolution unchanged.",
     )
     awaiting_gate.set_defaults(func=_cmd_awaiting_gate)
 

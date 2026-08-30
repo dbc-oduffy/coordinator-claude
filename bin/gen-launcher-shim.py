@@ -468,10 +468,13 @@ def _cmd_localappdata_rung() -> str:
     entrypoint): all of them resolve the identical interpreter on a given
     host, so a single cache primes every launcher after the first cold
     resolution rather than each entrypoint paying its own first-miss cost.
-    `coordinator_core.install.substrate._write_agent_cmd_forwarder` emits
-    the same rung, against the same cache file, for the DoE-owned forwarder
-    family -- deliberately the same path so a resolution either family
-    performs warms the other.
+    `coordinator_core.install.substrate._write_agent_cmd_forwarder`
+    formerly emitted the same rung, against the same cache file, for the
+    settings-home-installed agent-helper forwarder family -- that writer is
+    deleted (91771f631d, "the cmd forwarder dies": every install-side name
+    gets the native door image or the bare-Python forwarder now, never a
+    `.cmd`); this repo-tree generator's own `render_cmd` is unaffected and
+    still shares this cache file's naming with nothing left to share it.
 
     Returns two strings: the read-side block (spliced in ahead of the
     `where python.exe` for-loop) and the write-side block (spliced in behind
@@ -782,12 +785,16 @@ def _ps1_localappdata_rung() -> tuple[str, str]:
     function's docstring for the rung's rationale).
 
     A SEPARATE cache file from the `.cmd` rung's (`python-bin-cache-ps1.txt`,
-    not `python-bin-cache.txt`) -- mirrors `_write_agent_ps1_forwarder`'s own
-    choice in `coordinator_core.install.substrate`, whose docstring states the
-    reason: a `.cmd` and a `.ps1` invoked with the SAME bare name resolve to
-    DIFFERENT files (PowerShell prefers the `.ps1`), so nothing guarantees the
-    two dialects agree on interpreter shape, and a shared cache would let one
-    dialect serve a value it never itself validated.
+    not `python-bin-cache.txt`) -- formerly mirrored
+    `_write_agent_ps1_forwarder`'s own choice in
+    `coordinator_core.install.substrate` (deleted 2026-08-29, DR-365: the
+    install-side `.ps1` leg is condemned outright, see that module's
+    gravestone), whose docstring stated the reason: a `.cmd` and a `.ps1`
+    invoked with the SAME bare name resolve to DIFFERENT files (PowerShell
+    prefers the `.ps1`), so nothing guarantees the two dialects agree on
+    interpreter shape, and a shared cache would let one dialect serve a
+    value it never itself validated. This repo-tree generator's own
+    `render_ps1` keeps the same separation on its own terms.
 
     `Move-Item -Force` supplies the same atomic-rename guarantee `move` gives
     the `.cmd` rung; a `[System.Guid]` temp name is PowerShell's collision
