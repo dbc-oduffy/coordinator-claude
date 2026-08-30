@@ -288,6 +288,8 @@ This is the **plan-time twin** of the dispatch-time "promote shared-API to a pre
 
 Global or cadence-scoped verification (Tier F/Tier U) still has a legitimate home — it is just never a chunk's test surface and never a plan deliverable. It is **EM-owned, at the wave boundary or the cadence gate**: `execute-plan/SKILL.md` (line ~209) specifies that mechanism (the EM runs the global/registry check itself, once, after a wave's chunks land Tier-T-green, under a live test-invocation grant). A plan should rely on that mechanism existing, not re-author it into a chunk brief.
 
+**The rule holds at every altitude a plan states a criterion, not only at the chunk's test-surface row.** A fast-tier or full-suite run going green is never a valid criterion anywhere on the plan artifact — not a chunk's test surface, not `prime_exit_criterion`, not a `gated_exit_criteria` row. The plan's own targeted tests (plus its acceptance oracle, if any) are its exit step, scaffolded into the plan rather than left for an executor to remember from this wiki page. `coordinator/templates/plans/plan.md.tmpl` § `## Exit criteria — verification` is the scaffold SSOT for that rule's text — read it there; this section does not restate it.
+
 **Worked example.** One plan's chunk row named, among its deliverables, "run full suite green" — a Tier-U instruction baked into the chunk brief itself. That's the anti-pattern this section exists to catch: it reads fine at plan-review time and only surfaces as malformed once execute-plan tries to dispatch it. A corrected row would instead name the chunk's own scoped test file — the file the chunk itself writes, run at Tier T — as the test surface, with the full-suite run dropped from the chunk entirely; if a global check is warranted it belongs to the EM's wave-boundary verification, not the chunk's write-files or deliverables list. That plan's dispatch-ledger row went uncorrected on disk for a time — a live specimen of the anti-pattern this section exists to catch.
 
 **What is mechanically enforced, and what is not.** `hooks/scripts/nudge-plan-test-surface-tier.py` advises at plan-write time, but only on suite-shaped **commands** in imperative position — it delegates to the shared engine-plane suite-invocation classifier, which reads commands, not English. The worked example above (`run full suite green`) yields zero classifier hits: it is prose, so the hook stays silent on the very row that motivated this section. That is a deliberate coverage boundary, not a defect to route around by bolting prose-matching onto the hook — matching English in a corpus this dense with quoted commands and negated examples buys false positives faster than it buys catches. The prose form is caught by plan review. **The hook's silence is not evidence the rule is satisfied.**
@@ -432,24 +434,29 @@ lives in a sibling. No plan is required to serve a KR, and this never gates clos
 
 `gated_exit_criteria` is a top-level frontmatter list, sibling to `prime_exit_criterion`, that
 discharges the fleet brightlines — `work-proportionate-to-question`, `multi-os-first-class`
-(macOS/Windows/Linux), `no-single-machine-assumptions` (no hardcoded paths), and
-`work-vs-question-ratio` — as a machine-readable field on
+(macOS/Windows/Linux), `no-single-machine-assumptions` (no hardcoded paths),
+`work-vs-question-ratio`, and `right-not-merely-working` — as a machine-readable field on
 the plan artifact the executor holds, not prose remembered from a doctrine page (the brightline
 rule's prior sole home: `CLAUDE.md` and the global `~/.claude/CLAUDE.md` — not the similarly-named
 review-partition brightline in `coordinator/skills/workstream-complete/SKILL.md`, an unrelated
-rule that happens to share the word). Every plan scaffolds all four rows from
+rule that happens to share the word). Every plan scaffolds all five rows from
 `coordinator/templates/plans/plan.md.tmpl`; do not delete a row because it seems inapplicable —
-narrow its `statement` instead. `plan.schema.json` requires all four slugs to be present when
+narrow its `statement` instead. `plan.schema.json` requires all five slugs to be present when
 `gated_exit_criteria` is set, so this is schema-gated, not convention-only.
 
 `work-vs-question-ratio` is narrower than `work-proportionate-to-question` by design: discharge it
 by naming, per function or corpus-scale value introduced, the bounded question it answers. See
 `coordinator/docs/wiki/coordinator-tripwires/waste-is-gated-at-authoring-not-caught-at-review.md`.
 
+`right-not-merely-working` gates code quality, never test-suite outcome. Discharge it by naming,
+per surface delivered, the simpler or cheaper shape considered and rejected and why the delivered
+one is right — not merely working. Portability stays `multi-os-first-class`'s row, never this
+one's.
+
 Each row is `{brightline, statement, met}`:
 
 - **`brightline`** is one of the fixed slugs scaffolded in the template — do not rename or add
-  slugs ad hoc; a fourth brightline (or a reviewer-facing variant) gets its own plan chunk, not a
+  slugs ad hoc; a sixth brightline (or a reviewer-facing variant) gets its own plan chunk, not a
   freehand row here.
 - **`statement`** is authored at plan-write time: what evidence at close-out would show this
   brightline held for THIS plan's delivered work — the same falsifiable-sentence discipline as

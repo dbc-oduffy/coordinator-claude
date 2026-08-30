@@ -66,15 +66,14 @@ citation -> `estimate.tshirt`), not subject-matter-signal-gated, so they are rea
 roster's tier walk. **They never gate:** their `blocking_verdicts` entry is `null`, identical to
 `coordinator:docs-checker` — they challenge, they do not block.
 
-**Accepted deviation — fires at XL only, not "L or XL."** The tier walk's consumer bucketing
-(`XS/S -> lightweight`, `M/L -> standard`, `XL/XXL -> full`, `coordinator/tests/
-test_review_roster_fragment.py:56`) lives in the sizing-consumer's dispatch-emit engine, outside
-this repo, and cannot express "L" without also catching every M plan (50/177 sizings on disk,
-28%) — a standing PM ruling forbids firing their below L. Putting them in `full` therefore fires them
-at XL only (the XXL half of `full` is moot: XXL routes to roadmap planning at the sizing lobby,
-zero XXL sizings on disk today). The L gap (25/177 sizings, 14%) is a tracked follow-up needing a
-finer size seam in that engine — see `state/improvement-queue/` — never a second threshold
-surface here.
+**They fire at M and above.** The tier walk's consumer bucketing (`XS/S -> lightweight`,
+`M/L -> standard`, `XL/XXL -> full`, `coordinator/tests/test_review_roster_fragment.py:56`) lives in
+the sizing-consumer's dispatch-emit engine, outside this repo, and cannot express a floor between M
+and L. They are therefore rostered in **both** `standard` and `full`, which makes M-and-above one
+rule rather than a threshold this file re-derives. Their `effort: low` is what makes that
+affordable at M volume — the challenge is a set of standing questions, not a deep technical audit.
+Never add a second threshold surface here to carve M back out; the roster membership IS the
+threshold.
 
 ---
 

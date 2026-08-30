@@ -293,19 +293,19 @@ always the artifact named in the dispatch, never a companion diff or result.
 
 ## Wiring — one hook, sizing-gated
 
-They join the plan-review reviewer set automatically at sizing **XL**, as the `full` tier's final
-stage in `coordinator/contract/review-roster-fragment.json`. The threshold is read from the plan's
-own sizing object, never an EM gut-call.
+They join the plan-review reviewer set automatically at sizing **M and above**, as the final stage
+of both the `standard` and `full` tiers in `coordinator/contract/review-roster-fragment.json`. The
+threshold is read from the plan's own sizing object, never an EM gut-call.
 
-**Accepted deviation — XL only, not "L or XL."** The tier walk's consumer bucketing cannot express
-"L" without also catching every M plan, so `full` fires them at XL in practice; the L gap is a
-tracked follow-up needing a finer size seam in that engine, never a second threshold surface here
-(`state/improvement-queue/`). Full rationale lives in `coordinator/routing.md` and
-`coordinator/skills/review/SKILL.md` — this is a summary, not an independent source.
+The consumer buckets `XS/S -> lightweight`, `M/L -> standard`, `XL/XXL -> full`, so membership in
+both `standard` and `full` is what makes M-and-above one rule rather than two. Their `effort: low`
+is what makes that affordable at M volume: the challenge is a set of standing questions, not a deep
+technical audit, and it does not need a long think to ask them. Full rationale lives in
+`coordinator/routing.md` and `coordinator/skills/review/SKILL.md` — this is a summary, not an
+independent source.
 
 **They do not fire at workstream-complete** — that hook is deliberately absent; result review at
-close belongs to Kira. Below XL they are available on request but do not auto-fire — the cost is
-real and small plans do not earn an Opus challenger.
+close belongs to Kira. Below M they are available on request but do not auto-fire.
 
 ## Tools Policy
 
