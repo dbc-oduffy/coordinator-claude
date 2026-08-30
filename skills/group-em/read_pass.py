@@ -48,7 +48,13 @@ gem-13 stub for the source measurements and the binding contract):
 
 - The reader (`gem-11`) is tried first, per peer. Only when it reports
   `UNAVAILABLE` for THIS peer does the fallback leg run at all -- see the
-  "per-peer, not repo-global" note on `classify_peer` below.
+  "per-peer, not repo-global" note on `classify_peer` below. A reader
+  `PAUSED` verdict is cross-checked against this same read pass's own live
+  `claude agents --json` status for the peer: `status == "busy"` contradicts
+  it, so the peer is reported (state `PAUSED`, reason
+  `live-busy-contradicts-paused`) but never a candidate -- the snapshot is
+  simply older than the peer's current work. No other reader verdict is
+  cross-checked, and no age threshold is used for this check.
 - `busy` is a strong positive signal on its own: precision 470/472 = 99.58%,
   recall 470/491 = 95.72% over the full capture. Mapped straight to
   `STATE_PRODUCING`, never a candidate -- no transcript read needed. A
@@ -300,12 +306,19 @@ def classify_peer(
 
     reader_verdict = rsr.read_receiver_state(repo_root, session_id, now=now)
     if reader_verdict["verdict"] != rsr.VERDICT_UNAVAILABLE:
+        live_status = peer.get("status")
+        contradicted = (
+            reader_verdict["verdict"] == STATE_PAUSED and live_status == "busy"
+        )
+        reason = (
+            "live-busy-contradicts-paused" if contradicted else reader_verdict["reason"]
+        )
         return {
             "session_id": session_id,
             "source": "reader",
             "state": reader_verdict["verdict"],
-            "reason": reader_verdict["reason"],
-            "candidate": reader_verdict["verdict"] == STATE_PAUSED,
+            "reason": reason,
+            "candidate": reader_verdict["verdict"] == STATE_PAUSED and not contradicted,
         }
 
     status = peer.get("status")
