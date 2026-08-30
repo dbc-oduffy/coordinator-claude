@@ -1,14 +1,7 @@
 {
-  "round_id": "publish-05ce01e49be74b0e81c006268edd5fb2",
+  "round_id": "publish-d2a32edefb194de0b6b0f749678f7a03",
   "added_or_updated": [
-    "agents/apm.md",
-    "docs/wiki/writing-plans.md",
-    "hooks/tests/block-destructive-rm.security-review.md",
-    "skills/group-em/SKILL.md",
-    "skills/group-em/read_pass.py",
-    "skills/group-em/send_pass.py",
-    "skills/plan/residue/plan-corpus.md",
-    "skills/review/SKILL.md"
+    "skills/group-em/read_pass.py"
   ],
   "removed": [],
   "declared_payload": [
