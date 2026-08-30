@@ -423,6 +423,9 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    # `import lib` is what bootstraps `sys.path` for `raw_cmdline_recovery`
+    # below -- an undocumented dependency on a sibling module's import side
+    # effect, named explicitly here rather than left implicit.
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from raw_cmdline_recovery import UnsoundRawCmdlineTransport, recover_windows_argv
 

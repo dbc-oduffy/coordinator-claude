@@ -86,6 +86,7 @@ def _resolve_plugin_root() -> str:
     script, not a never-block hook, so an unresolvable DoE root must not
     degrade to an exit-0 no-op.
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_registry import _DoeUnresolvable, doe_root
 
     env_root = os.environ.get("CLAUDE_PLUGIN_ROOT")

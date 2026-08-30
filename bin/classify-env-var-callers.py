@@ -180,6 +180,25 @@ _REVIEWED_DISPOSITIONS: dict[str, tuple[str, str]] = {
         "fixture", "passes a tmp_path root to a formatter under test"),
     "coordinator_core/tests/test_engine_root_two_tier.py": (
         "fixture", "builds synthetic live/published roots to exercise the ladder"),
+    "coordinator/bin/tests/test_cc_invoke_provenance_hardening.py": (
+        "fixture", "monkeypatches every resolver with a tmp_path or sentinel and asserts which "
+                   "axis each cc_invoke entrypoint reads; no resolved root is ever used to reach "
+                   "an engine or to read repo content"),
+    "coordinator/bin/tests/test_cc_invoke_provenance_reporting_seams.py": (
+        "fixture", "same shape — pins each entrypoint to its own resolver by substituting "
+                   "distinct dispatch and locator sentinels, precisely because the two ladders "
+                   "can return different roots"),
+
+    "coordinator/bin/tests/engine_stamp_probe.py": (
+        "dispatch", "answers 'is there a stamped engine on this box' by asking cc_invoke's "
+                    "DISPATCH ladder and stat-ing <root>/coordinator_core/_engine_stamp. It "
+                    "stats a file, but the root it wants is the dispatch answer -- its own "
+                    "docstring refuses to import coordinator_core to ask, because that would "
+                    "bind whichever tree pytest put on sys.path first. Routing it to the engine "
+                    "accessor is correct, not the silent failure this bucket guards against. "
+                    "NOTE: it reaches cc_invoke._resolve_claude_klabauter_root, a PRIVATE name across a "
+                    "module boundary -- recorded here so a future cc_invoke refactor has a "
+                    "known consumer instead of breaking this probe silently."),
 }
 
 

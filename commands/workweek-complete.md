@@ -11,13 +11,13 @@ PM-invoked, release-grade close. Week-changelog is the canonical ledger, never `
 
 ## Step 0.9: Tier-U Grant
 
-Shape W (rung 0, `coordinator/snippets/resolve-coordinator-bin.md`):
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.cmd" grant ceremony "workweek-complete Tier-U consumers (Step 2 plugin-ecosystem run.js, Step 7 parallel-code-review full-tier suite)" --ceremony workweek-complete`
+Shape W (rung 0, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" grant ceremony "workweek-complete Tier-U consumers (Step 2 plugin-ecosystem run.js, Step 7 parallel-code-review full-tier suite)" --ceremony workweek-complete`
 before either consumer fires (wiki: why both need it).
 
 ## Step 0.95: Compute the Ceremony Spine
 
-Shape W (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-complete-brief.cmd"`.
+Shape W (rung 0): `& "$env:COORDINATOR_SETTINGS_HOME\bin\workweek-complete-brief.exe"`.
 Returns `directives[]` (render each `detail` verbatim), `judgment_points[]` (resolve every open
 one before its gated directive proceeds; never auto-pick a Tier-3 no-recommendation), `narration`
 (surface verbatim).
@@ -272,7 +272,7 @@ Auto-memory is ephemeral — drains to zero every close.
 
 Shape W (rung 0):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.cmd" --root .`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.exe" --root .`
 
 Exit 0 → Step 18. Exit 1 → prints every residual path attributed to this closing session. For
 EACH: **PROMOTE** (write to its durable home — doctrine, wiki, `docs/decisions/`,

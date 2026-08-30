@@ -58,6 +58,7 @@ def _resolve_plugin_root() -> str:
     schemas/ dir, matching what `coordinator_core.ops.verify_schema_registry_sync
     .run()` expects as its `plugin_root` argument (`plugin_root / "schemas"`).
     """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from coordinator_data_root import data_root
 
     return str(data_root("schemas").parent)

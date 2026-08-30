@@ -522,7 +522,7 @@ def do_pathspec(args: "Args") -> None:
     see `_is_indeterminate_outcome`'s own docstring for the exact,
     deliberately narrow predicate) this caller reconciles BEFORE reporting
     anything: it searches recent branch history for a commit carrying this
-    call's own `Attempt-Id:` trailer via `commit_pipeline
+    call's own `Attempt-Id:` trailer via `commit_reconcile
     ._reconcile_landed_despite_failure` — the same bounded-log-search
     primitive `commit()`'s own reported-failure-but-landed repair already
     uses, reused rather than re-derived (delegate, don't duplicate, this
@@ -680,13 +680,12 @@ def _reconcile_after_indeterminate(
     outcome, search recent branch history for a commit already carrying
     this call's own `Attempt-Id:` trailer BEFORE reporting anything.
 
-    Reuses `commit_pipeline._reconcile_landed_despite_failure` — the exact
+    Reuses `commit_reconcile._reconcile_landed_despite_failure` — the exact
     bounded-log-search primitive named in this plan's dispatch brief as
     prior art — rather than re-implementing a `git log`/`git rev-list`
     bound here: same function, same collision-free-trailer safety argument,
     same "a match inside the window is ours no matter how wide the window
-    is" reasoning (that function's own docstring). Never touches
-    `commit_pipeline.py` itself.
+    is" reasoning (that function's own docstring).
 
     `repo_root` for that call is the git COMMON DIR, matching
     `_commit_via_pipeline_fallback`'s own resolution (this handler's own
@@ -719,7 +718,7 @@ def _reconcile_after_indeterminate(
         resolved = Path(worktree_root) / resolved
 
     require_engine_on_path(__file__)
-    from coordinator_core.ops.ceremony.commit_pipeline import (
+    from coordinator_core.ops.ceremony.commit_reconcile import (
         _reconcile_landed_despite_failure,
     )
 
@@ -1964,8 +1963,7 @@ def do_scoped(
             print(
                 "\nDid you mean:\n" + _scoped_commit_suggestion(subject) + "\n\n"
                 "(dirty files this session touched are pre-filled above — trim 'paths' "
-                "to what THIS workstream owns before running; run_commit_pipeline "
-                "selects the agree-case vs. private-index staging form for you). For a "
+                "to what THIS workstream owns before running). For a "
                 "true emergency, stage explicitly (git add -- <paths>) and set "
                 "COORDINATOR_OVERRIDE_SCOPE=1 — it commits your pre-staged index as-is "
                 "(falls back to staging ALL dirty files, including any concurrent "

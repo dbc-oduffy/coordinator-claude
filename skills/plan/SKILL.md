@@ -42,7 +42,7 @@ _Condition: a planning trigger has arrived; decide whether a plan doc is the rig
   - **Provenance-blind, not just PM-direct-blind.** A picked-up cross-repo memo's `ask` is novel work in THIS repo, sized against the *sender's* substrate — it needs the lobby too. The trampoline fires for it.
   - **Carve-outs — exactly two, no more.** (1) A continuation is exempt only if its baton **cites** work already routed: a resolving `sizing_object`, or a plan — via `origin_plan_id`/`plan_ids`, or via a `deliverable_id` some plan on disk carries, the ordinary mid-execution baton's only link back. Every citation must resolve; an unresolvable one is a broken pointer, not a size — never re-litigate a resolved citation, and never audit a baton for one you were not handed. A baton citing none is unsized whatever its provenance — a spinoff mints its own fresh `deliverable_id`, naming only itself — and the trampoline fires. Tripwire: `A-BATON-IS-NOT-A-SIZING-ARTIFACT`. (2) The express lane is not a plan-side carve-out — PM ruling: *"just do it doesn't make it to planning anyway. that's an exit for the sizing lobby."* Such an ask never reaches `plan`.
 - _Trivial?_ (single-file change, no new abstraction, scope obvious)
-  → Just do it. No plan doc. _See `coordinator/snippets/em-operating-doctrine.md` § How to Plan and Hand Off._
+  → Just do it. No plan doc. _See `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Plan and Hand Off._
 - _Implementation-only ambiguity?_ (choosing between two valid shapes mid-typing)
   → Harness Plan tool inline. No plan doc.
 - _PM has set a session axiom?_ (*"we are going to do X"* / *"build Z this session"* — a directive naming the work, not a question about it)
@@ -61,7 +61,7 @@ _Condition: a planning trigger has arrived; decide whether a plan doc is the rig
 
 ---
 
-**Known boundary:** this floor protects the plan path only — work mis-triaged as trivial at Branch A bypasses both `/shape` and the doubt-check by construction. Mitigation is EM alertness at that row, not a second doubt-check over the trivial path.
+**Known boundary:** this floor protects the plan path only — work mis-triaged as trivial at Branch A bypasses `/shape` and the doubt-check. Mitigation is EM alertness at that row, not a second doubt-check.
 
 ## Exit — Route-Selected Terminal
 
@@ -74,7 +74,7 @@ _Condition: body drafted and saved to `docs/plans/YYYY-MM-DD-<slug>.md`. Which t
 Invoke through the `.cmd` sibling by absolute path via the PowerShell call operator (Shape W) —
 ladder and shapes: `snippets/resolve-coordinator-bin.md`.
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.cmd" --type plan --title "<title>" --sizing-object state/sizings/<the-object-that-routed-you-here>.yaml --out docs/plans/YYYY-MM-DD-<slug>.md`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-doc-new.exe" --type plan --title "<title>" --sizing-object state/sizings/<the-object-that-routed-you-here>.yaml --out docs/plans/YYYY-MM-DD-<slug>.md`
 
 **Pass `--sizing-object` — mandatory to the tool, not merely to you.** `coordinator-doc-new --type plan` hard-refuses without an explicit `--sizing-object`/`--no-sizing-object`, exit 1, nothing written. Branch A refused you entry without a sizing object, so you hold its path. The flag also writes the reverse edge onto the cited sizing (plan FK plus status flip, same transaction) — omit it and the sizing never learns it was routed.
 

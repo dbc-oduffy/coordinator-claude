@@ -87,5 +87,5 @@ while project-specific (non-`[universal]`) entries remain un-routed. Full list +
 
 ## Related
 
-wiki (full reference) · `coordinator/snippets/em-operating-doctrine.md § How to Plan and Hand
+wiki (full reference) · `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md § How to Plan and Hand
 Off, "Improvement Queue"`

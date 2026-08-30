@@ -53,7 +53,7 @@ the engine op lands, the caller's own answer to `p1.repo-classification-ask`) na
 
 ## Procedure
 
-**1. Resolve `$_TARGET_ROOT`** (run before everything else). (shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown) `& "$env:COORDINATOR_SETTINGS_HOME\bin\repo-setup-args-and-register.cmd" resolve-target-root`. It validates the resolved path is an existing directory inside a git repo, printing the absolute path to stdout on success or a fail-loud `ERROR: ...` line on stderr with exit 1 on failure — mirror that idiom, never silently fall back to cwd. When an explicit `--root`/`--target` was passed, change the shell's working directory to `$_TARGET_ROOT` as the first action; every downstream cwd-relative step then transparently targets the sibling repo. When `--root`/`--target` is absent, `$_TARGET_ROOT` resolves to `$(pwd)` and this step is a no-op beyond the resolver call.
+**1. Resolve `$_TARGET_ROOT`** (run before everything else). (shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown) `& "$env:COORDINATOR_SETTINGS_HOME\bin\repo-setup-args-and-register.exe" resolve-target-root`. It validates the resolved path is an existing directory inside a git repo, printing the absolute path to stdout on success or a fail-loud `ERROR: ...` line on stderr with exit 1 on failure — mirror that idiom, never silently fall back to cwd. When an explicit `--root`/`--target` was passed, change the shell's working directory to `$_TARGET_ROOT` as the first action; every downstream cwd-relative step then transparently targets the sibling repo. When `--root`/`--target` is absent, `$_TARGET_ROOT` resolves to `$(pwd)` and this step is a no-op beyond the resolver call.
 
 **2. Load the firing lane's directives.** Read `lanes/<lane>.yaml` in full: its `round_trip_directives[]` supply every value the mechanical procedure below would otherwise need to prompt for, its `terminal_offer_defaults[]` supply the policy default for every terminal offer, and `second_phase_deferred[]` names the agent-work steps that stay unresolved for a later phase. Load once, apply throughout — this skill does not re-derive or select among any of these values.
 
@@ -82,4 +82,4 @@ does not decide it inline.
   entry's `specs[]` or `deliverables[].text` (free-text fields per `coordinator/schemas/workstream.schema.json`)
   — never in `state/orientation_cache.md`, whose `## Active workstreams` heading is name-only, capped
   at 10 entries, and schema-forbidden from carrying free-form prose or citations
-  (`coordinator/pipelines/workday-start-internals.md:265`, `coordinator/docs/wiki/tiered-context-loading.md:57`).
+  (`${CLAUDE_PLUGIN_ROOT}/pipelines/workday-start-internals.md:265`, `${CLAUDE_PLUGIN_ROOT}/docs/wiki/tiered-context-loading.md:57`).

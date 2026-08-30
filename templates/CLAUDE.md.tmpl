@@ -1,17 +1,19 @@
 <!-- coordinator:claude-md-seed:v1 -->
 # Global Development Principles
 
-> **What this file is.** Your personal-layer seed — the global `~/.claude/CLAUDE.md` that Claude Code auto-loads into every project session, every cwd, on every machine you use. It is the one place to say who you are and how you like to work, once, instead of repeating it per-repo.
+> The personal layer: who the PM is and how they work. The operating floor — reviewer roster,
+> plan-enrich-review-execute pipeline, PM/EM engagement contract — lives in
+> `coordinator/snippets/em-operating-doctrine.md` and reaches the main EM session via a
+> SessionStart hook. Don't re-declare it here; two copies drift, and the stale one wins silently.
 >
-> **What this file isn't.** Coordinator doctrine. The operating floor — the reviewer roster, the plan-enrich-review-execute pipeline, the PM/EM engagement contract — lives in `coordinator/snippets/em-operating-doctrine.md` and reaches the main EM session via a SessionStart hook (formerly `coordinator/CLAUDE.md`, reached via Claude Code's nested-CLAUDE.md lazy loading; retired 2026-07-27), not via any `--plugin-dir`-specific delivery mechanism. Do NOT re-declare that doctrine here: duplicating it invites the two copies to drift, and a stale local copy silently overrides the maintained one.
->
-> **It's yours to edit.** The sections below are a starting shape, not a fixed contract. Replace the placeholders, rewrite them in your own voice, delete what doesn't fit, add what's missing. Nothing here is structurally load-bearing — this file compounds in value the more it reflects how you actually work, and it isn't meant to stay templated.
->
-> **Your engagement posture is deliberately NOT in this file.** `coordinator:install` writes it into `.claude/em-context.md` in the repo you install from — a channel that reaches your main session only, never the subagents it dispatches. That is the point: posture describes how you and the EM work together, and a dispatched agent is not party to that relationship, so it should not be reading it. Hand-tune it there; re-running install swaps that block in place rather than appending a second one.
+> Engagement posture is deliberately not in this file. `coordinator:install` writes it to
+> `.claude/em-context.md` in the repo you install from — a channel that reaches the main session
+> only, never dispatched subagents. Posture describes how the PM and EM work together, and a
+> subagent is not party to that relationship.
 
 ## Owner
 
-**{{PM_NAME}}** — *your role* (e.g. software architect, product lead, founder, researcher). *One line of background.* Add whatever helps a fresh session understand who it's working with: professional background, how you like technical tradeoffs explained, what kind of context you want proactively (e.g. the "why" behind a decision, not just the "what"), and anything about how you think that shapes how the EM should engage.
+**{{PM_NAME}}**
 
 ## First Officer Doctrine
 
@@ -35,7 +37,7 @@ say-so: asking before anything external-facing, or before an irreversible action
 
 ## Flag Severity
 
-> Break-Class Is Fix-by-Default, Not Defer-to-PM. This section is the personal-layer home of the fix-vs-ask discriminator that coordinator doctrine points to as `→ global CLAUDE.md § Flag Severity` (in DoE-claude, formerly `coordinator/CLAUDE.md § Challenging the PM`, retired 2026-07-27 — content now at `coordinator/snippets/em-operating-doctrine.md § Push Back, Ask, Don't-Ask, and Close`).
+> Break-Class Is Fix-by-Default, Not Defer-to-PM. This section is the personal-layer home of the fix-vs-ask discriminator that coordinator doctrine points to as `→ global CLAUDE.md § Flag Severity`.
 
 Every fact you surface to the PM is one of two classes; classify *before* flagging.
 
@@ -56,8 +58,6 @@ Read the PM's prompt shape, not just its words. The dialogue runs in one of thre
 
 ## Operating Assumptions
 
-Defaults for working with an agentic EM. Keep them, tune them, or override them — they are starting posture, not fixed policy.
-
 <!-- BEGIN operating-assumptions-portable-core (synced from snippets/operating-assumptions-portable-core.md) -->
 - **Refactors take hours, not sprints.** A critical rewrite is often an afternoon, not a quarter. "Too big" means genuinely complex, not merely large.
 - **Context loss is the real threat, not imperfect code.** Something important leaving context uncaptured is worse than code that needs iteration. Implement fast, capture state, iterate.
@@ -68,19 +68,15 @@ Defaults for working with an agentic EM. Keep them, tune them, or override them 
 
 ## Communication Style
 
-> A short, editable stub — replace this with your own voice. This is the personal/stylistic layer; nothing here changes the safety floor or the fix-vs-ask rules above.
-
-- How direct vs. exploratory you want the default conversation to be, and whether you want pushback when you disagree with a plan or prefer options laid out neutrally.
-- When uncertain, whether you want the EM to say so plainly rather than guess.
-- Any communication quirks worth Claude knowing up front — references or humor you enjoy, phrasing you dislike, how much hedging is too much. Lean in and make this yours; it is one of the highest-leverage things to personalize.
+- **Direct, honest, concise.** Disagreement voiced; uncertainty stated plainly rather than guessed past; no false choices.
+- **Lead with the decision or outcome; evidence only if asked.**
+- **Don't narrate work nobody asked to watch.** Fixed, verified, closed: one line each.
 
 ## Coordinator Operating Doctrine
 
-<!-- Coordinator doctrine (`coordinator/snippets/em-operating-doctrine.md`; formerly
-     `coordinator/CLAUDE.md`, retired 2026-07-27) reaches the main EM session via a SessionStart
-     hook when the coordinator plugin is enabled — not Claude Code's nested-CLAUDE.md lazy
-     loading and not a `--plugin-dir`-specific auto-load. Do NOT re-add an `@import` or
-     re-mirror doctrine sections here — the plugin is the source of truth for the PM/EM
-     engagement contract, the reviewer roster, and the plan-execute pipeline. This file's job is
-     the personal layer above that floor: who you are and how you like to work, not how the
-     pipeline operates. -->
+<!-- Coordinator doctrine (`coordinator/snippets/em-operating-doctrine.md`) reaches the main EM
+     session via a SessionStart hook when the coordinator plugin is enabled — not Claude Code's
+     nested-CLAUDE.md lazy loading and not a `--plugin-dir`-specific auto-load. Do NOT re-add an
+     `@import` or re-mirror doctrine sections here — the plugin is the source of truth for the
+     PM/EM engagement contract, the reviewer roster, and the plan-execute pipeline. This file's
+     job is the personal layer above that floor. -->

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """PostToolUse(*) naked-Python direct port of the former bash EM-side check.
 
-Purpose: Fires in the EM session. Self-throttled 5 min. Reads the EM's
-         dispatched-agents.txt, identifies any running subagent past its
-         model-specific runtime threshold, and emits an awareness
-         additionalContext naming each overrun dispatch.
+Purpose: Fires in the EM session. Emits an awareness additionalContext for
+         push-failure, hooks.json-staleness, zero-tool-use, and
+         session-baton-mint conditions. The former subagent-overrun
+         dispatch-tracking nudge (dispatched-agents.txt scan +
+         model-specific runtime threshold) was stood down 2026-07-31 and
+         excised entirely -- see the SUBAGENT-ARRIVAL-CHECK note below.
 
 This is a SELF-CONTAINED naked-Python hook, not a claude-klabauter-op stub: no
 Claude-klabauter op exists for this EM-side disk-bookkeeping check (grepped
@@ -37,7 +39,7 @@ HOOK_INPUT.session_id is the firing session's distinct id and is reliable as
 the subagent-vs-EM discriminator.
 
 Contract (mirrors the former bash oracle):
-  stdin   -- PostToolUse JSON (session_id, tool_response.agentId, agent_id, ...)
+  stdin   -- PostToolUse JSON (session_id, agent_id, ...)
   stdout  -- one hookSpecificOutput JSON envelope when >=1 dispatch is past
              threshold; NOTHING otherwise
   exit 0  -- ALWAYS, unconditionally, on every code path (advisory hook;
@@ -57,22 +59,13 @@ and is IDENTICAL to the one already ported into claude-klabauter's
 postuse_advisory_dispatch.py::_resolve_subagent_identity) instead of
 shelling out -- pure function, no filesystem I/O, so no fidelity loss.
 
-Escape-hatch env vars (byte-faithful, all honoured exactly as in the bash
-oracle):
-  RUNTIME_TRIPWIRE_RESTAGE_SECONDS -- re-nudge delay after first fire (300)
-  RUNTIME_TRIPWIRE_MAX_TRACK_MIN   -- max-age cap before a dispatch is
-                                      considered too stale to track (90)
-  RUNTIME_TRIPWIRE_OPUS_MIN        -- Opus/unknown-model threshold (25)
-  RUNTIME_TRIPWIRE_SONNET_MIN      -- Sonnet threshold (12)
-  RUNTIME_TRIPWIRE_HAIKU_MIN       -- Haiku threshold (10)
-
 Negative-spec:
   - Does NOT block execution -- PostToolUse is advisory only.
   - Does NOT fire for a subagent-side session (early-exits to the agent-side
     hook's territory) -- see the two-path subagent-detect block below.
-  - Does NOT re-nudge more than once per dispatch (bark-once + single
-    +RESTAGE_SECONDS re-nudge, then permanent silence for that agentId).
-  - Does NOT track a dispatch past MAX_TRACK_MINUTES (stale-dispatch cap).
+  - Does NOT track subagent dispatch overrun any more -- see the
+    SUBAGENT-ARRIVAL-CHECK note below for the excised mechanism and its
+    former `RUNTIME_TRIPWIRE_*` escape-hatch env vars.
 
 Windows note: `git rev-parse` calls are wrapped with CREATE_NO_WINDOW to
 suppress the console-popup flash, matching the pattern already used by
@@ -163,90 +156,18 @@ never stderr, never plain stdout. See docs/wiki/coordinator-tripwires/
 § ZERO-TOOL-USE-DETECT for the full two-stage design and Stage 1
 (`hooks/scripts/subagent-zero-tool-use-detect.py`, SubagentStop).
 
-SUBAGENT-ARRIVAL-CHECK -- STOOD DOWN 2026-07-31 (PM ruling, reversible, not
-a deletion). The overrun nudge this section describes no longer fires:
-`_SUBAGENT_OVERRUN_TRIPWIRE_ENABLED` (declared above the imports) gates the
-whole dispatch-tracking section of `main()` off, and `main()` now returns
-early with only the two unrelated advisories (push-failure, zero-tool-use)
-still emitting. The prose below describing the
-arrival-check design is preserved verbatim as the recoverable record; it
-does not describe live behaviour until the constant is flipped back to
-`True`. See that constant's own docstring for the measured basis and the
-full restore recipe.
-
-SUBAGENT-ARRIVAL-CHECK (added 2026-07-30, restoring what the retired
-SUBAGENTSTOP TRIGGER-LOSS branch used to cover; UNKNOWN reclassified from
-fire-worthy to suppressing on 2026-07-31 -- see below): every dispatch past
-the max-age cap and the per-model runtime threshold used to flow straight
-to a nudge below with no check that the agent was still actually running
--- a dispatch that had already returned (arrived) got nudged anyway. This
-calls the engine op `hooks.subagent_arrival_check`
-(`coordinator_core/hooks/subagent_arrival_check.py`) for exactly the row
-about to be nudged, mirroring `_check_zero_tool_use_surface`'s
-engine-resolve pattern rather than inventing a new one.
-
-As of 2026-07-31 this oracle nudges ONLY on a confirmed `"running"`; both
-`"arrived"` and `"unknown"` suppress. This is a deliberate reversal of the
-2026-07-30 "fail toward firing" contract stated above and in
-`_check_subagent_arrival`'s own docstring: a subagent transcript is not
-durable (measured on this repo at 14 transcript files against 3,083
-distinct agentIds in the audit log), so `"unknown"` is the overwhelmingly
-common NO-INFORMATION case, not evidence of a live agent. Treating it as
-fire-worthy meant this hook fired on essentially every completed dispatch
-(diagnosed cross-repo, 2026-07-31; corroborated by `d75402345`'s own commit
-message, which measured 681 false fires over 26 days across 6 distinct
-agents against a 0.59% genuine stall rate before retiring the mechanism
-this replaced). This arrival oracle -- consulted only for a row already
-past the max-age cap, per-model threshold, and sentinel-state pre-gate
-below -- is the ONLY completion/liveness signal this file consults. There
-is deliberately no `agent-audit.jsonl` cross-check here (see the
-NOT-A-COMPLETION-LOG note immediately below for why one was tried, and
-removed again, on 2026-07-31). DR-047 boundary unchanged: `transcript_path`
-and `agent_id` are passed to the op unopened -- this file never opens a
-transcript or derives a subagent transcript path itself; that is the
-engine's job.
-
-NEAR-INERT-BY-DESIGN, AND TIME-BOXED (stated plainly so no future reader
-mistakes silence for health). Because `"unknown"` is the overwhelmingly
-common arrival state and `"unknown"` suppresses, this hook's overrun nudge
-fires rarely today -- it is closer to off than to accurate. That is the
-deliberately chosen side of the tradeoff, not an oversight: 681 false
-fires over 26 days against a 0.59% genuine stall rate makes a quiet
-false-negative the lesser failure while no durable arrival signal exists.
-It is NOT the intended end state. The replacement is a durable
-subagent-arrival record that survives the transcript disappearing, and it
-is ENGINE-SIDE work, not this file's: arrival is work-state emission, and
-the `agent-audit.jsonl` append is already an engine op (this repo's
-`agent-completion-log.py` is a stub over `coordinator_core.hooks.
-agent_completion_log`). When that record exists, `"unknown"` should stop
-being the common case and this oracle's suppress-on-unknown contract
-should be revisited against the new measured rate -- do not revisit it
-before then on the strength of "the tripwire never fires."
-
-NOT-A-COMPLETION-LOG (`agent-audit.jsonl`, corrected 2026-07-31 after a
-same-day false restoration in this file). `agent-audit.jsonl` is a
-DISPATCH log, not a completion log: every record it carries has exactly
-one shape (`agentId`, `description`, `logged_at`, `name`, `subagent_type`)
--- no exit status, no completion field, no second record type, ever.
-It is written by the SAME `PostToolUse:Agent` event that writes
-`dispatched-agents.txt`, so every row in `dispatched-agents.txt` is
-present in `agent-audit.jsonl` by construction, 100% of the time,
-regardless of whether the dispatch ever returned. A completion check
-against this file therefore does not distinguish "returned" from
-"still running" -- it suppresses EVERY row unconditionally, making the
-overrun nudge permanently inert while still looking like a working guard.
-This is exactly what `d75402345`'s own commit message diagnosed when it
-retired the prior SUBAGENTSTOP TRIGGER-LOSS branch's use of this same
-cross-reference ("both are written by the same PostToolUse:Agent event,
-so 1336/1336 rows matched by construction... It carried no arrival
-information at all"). A 2026-07-31 cross-repo memo misread that retirement
-as the loss of a working oracle and this file briefly (same day) restored
-an `_agent_completed_in_log`-style check on that premise; it was reverted
-within the same day once the dispatch-log-not-completion-log fact was
-verified directly (6,245 audit-log records, one shape, no exceptions;
-2,183/2,183 `dispatched-agents.txt` rows present by construction). DO NOT
-reintroduce an `agent-audit.jsonl` completion cross-check here -- the
-arrival oracle above is the only real signal this hook has.
+SUBAGENT-ARRIVAL-CHECK -- REMOVED (PM ruling 2026-07-31 stood it down;
+excised entirely on the finding that the gate had been `False` since, per
+the overengineering review that also removed the ~620 lines of
+dispatch-tracking/arrival-check structure it gated). The EM-side overrun
+nudge, its dispatch-tracking loop in `main()`, `_check_subagent_arrival`,
+and the four `RUNTIME_TRIPWIRE_*` env vars that only that machinery read
+are gone. Restore is deferred to engine-side work (a durable
+subagent-arrival record) that does not exist yet -- see the removal
+commit message for the full restore recipe salvaged from the excised
+`_SUBAGENT_OVERRUN_TRIPWIRE_ENABLED` constant's own comment. This file now
+emits only the push-failure, hooks.json-staleness, zero-tool-use, and
+session-baton-mint advisories.
 """
 
 from __future__ import annotations
@@ -256,9 +177,7 @@ import json
 import os
 import re
 import sys
-import tempfile
 import threading
-import time
 from pathlib import Path
 
 # Review: coordinatorcode-reviewer -- _session_hub import moved above the
@@ -280,47 +199,6 @@ except Exception:
         except OSError:
             return False
         return True
-
-# ---------------------------------------------------------------------------
-# _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED -- PM ruling, 2026-07-31: reversible
-# stand-down of the EM-side subagent-overrun nudge (the dispatch-tracking
-# loop below the "# --- Self-throttle: 5 minutes ---" comment in main(),
-# through end of function). This is a STAND-DOWN, NOT A DELETION -- no code,
-# tests, or doctrine below this line are removed.
-#
-# Measured basis (this repo's own data, cited in the ruling): 681 fires over
-# 26 days concerning only 6 distinct agents, against a 0.59% genuine stall
-# rate; the EM already receives every agent's result via task-notification
-# regardless of this hook. `7a928d741` demoted the "unknown" arrival state
-# from fire-worthy to suppressing, which stopped the false-fire storm --
-# but since subagent transcripts are absent for ~99.5% of dispatched-agent
-# rows, that same fix left the nudge unable to fire on a real stall. Net
-# effect: a nudge that mostly cannot fire, and when it did fire was ~99.4%
-# wrong.
-#
-# Ruling delivery: two near-duplicate 2026-07-31 cross-repo inbox memos
-# (one titled "runtime-tripwire-stand-down", the other titled
-# "unenforced-always-on-rules"), both stating the same ruling.
-#
-# Flipping this back to True restores the overrun nudge exactly as it was
-# on 2026-07-31 -- no other code change is required in this file. The two
-# companion actions for a full restore live outside this file: (1)
-# re-register the `Stop` hook entry for `runtime-tripwire-stop-watcher.py`
-# in coordinator/hooks/hooks.json (removed alongside this stand-down); (2)
-# nothing else -- the OTHER `em-check.py` registrations in hooks.json
-# (push-failure / zero-tool-use) were never touched by this stand-down and
-# keep firing throughout.
-_SUBAGENT_OVERRUN_TRIPWIRE_ENABLED = False
-
-# Test-only override, NOT a production escape hatch: the pre-existing pytest
-# suite (test_runtime_tripwire_em_side.py) exercises the dispatch-tracking
-# mechanics this stand-down gates off, invoking this script as a subprocess
-# via piped HOOK_INPUT -- a module attribute cannot be monkeypatched across
-# that process boundary, so the suite forces the old path back on per-call
-# via this env var instead of flipping the module constant in source. Unset
-# (or any value other than "1") leaves the stand-down in effect.
-if os.environ.get("_COORDINATOR_TEST_FORCE_SUBAGENT_OVERRUN_TRIPWIRE") == "1":
-    _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED = True
 
 # ---------------------------------------------------------------------------
 # Charset guard -- mirrors the bash oracle's path-traversal rejection.
@@ -419,32 +297,11 @@ def _resolve_subagent_identity(agent_id: str, session_id: str) -> str:
     return ""
 
 
-# ---------------------------------------------------------------------------
-# runtime_threshold_minutes -- byte-faithful port of the former bash thresholds lib.
-# ---------------------------------------------------------------------------
-def _runtime_threshold_minutes(model: str) -> int:
-    """Per-model runtime threshold (minutes). Unknown/empty -> Opus default."""
-    model = model or ""
-    opus_default = int(os.environ.get("RUNTIME_TRIPWIRE_OPUS_MIN", "25") or "25")
-    sonnet_default = int(os.environ.get("RUNTIME_TRIPWIRE_SONNET_MIN", "12") or "12")
-    haiku_default = int(os.environ.get("RUNTIME_TRIPWIRE_HAIKU_MIN", "10") or "10")
-
-    # Explicit 1M-context variants matched before bare family arms.
-    if "[1m]" in model or "-1m" in model:
-        return opus_default
-    if "opus" in model:
-        return opus_default
-    if "sonnet" in model:
-        return sonnet_default
-    if "haiku" in model:
-        return haiku_default
-    return opus_default
-
-
 try:
     from _engine_root import (  # noqa: E402
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
         arm_lazy_ops as _arm_lazy_ops,
+        warn_on_engine_import_divergence as _warn_engine_divergence,
     )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
@@ -455,6 +312,9 @@ except Exception:
 
     def _arm_lazy_ops() -> None:
         return None
+
+    def _warn_engine_divergence(where: str) -> str:
+        return "unresolved"
 try:
     from _message_envelope import resolve_wiki_citation  # noqa: E402
 except Exception:
@@ -566,28 +426,6 @@ def _resolve_zero_tool_use_sessions_dir(git_root: str) -> str:
         return os.path.join(common_dir, "coordinator-sessions")
     except Exception:
         return ""
-
-
-def _resolve_state_root(git_root: str) -> str:
-    """Inline mirror of coordinator_state_root Rule 5 (no --central):
-    claude-klabauter-root/state when cwd git root IS the meta-repo (realpath-equal to
-    <claude-home>/.claude); GIT_ROOT/state otherwise. Fail-open to
-    GIT_ROOT/state on any resolution error -- matches the bash oracle's own
-    fallback when the seam lib fails to source (declare -f check false).
-    """
-    try:
-        claude_home_env = os.environ.get("CLAUDE_HOME") or str(Path.home())
-        meta_root = Path(claude_home_env) / ".claude"
-        git_root_p = Path(git_root)
-        canon_git = str(git_root_p.resolve()) if git_root_p.exists() else str(git_root_p)
-        canon_meta = str(meta_root.resolve()) if meta_root.exists() else str(meta_root)
-        if canon_git == canon_meta:
-            claude_klabauter_root = _resolve_claude_klabauter_root()
-            if claude_klabauter_root:
-                return str(Path(claude_klabauter_root) / "state")
-    except Exception:
-        pass
-    return str(Path(git_root) / "state")
 
 
 def _git_root() -> str:
@@ -769,8 +607,8 @@ def _push_failure_verdict(git_root: str) -> dict | None:
     autopush-advisory-yes-build-the-verdict-op.md` for the origin ask and
     this repo's cross-repo memo inbox for the op-landed reply.
 
-    Dispatch shape mirrors `_check_zero_tool_use_surface`'s and
-    `_check_subagent_arrival`'s own in-process pattern (resolve root,
+    Dispatch shape mirrors `_check_zero_tool_use_surface`'s own in-process
+    pattern (resolve root,
     `sys.path` insert, import the op module so it registers,
     `dispatch_from_hook(...)` -- DR-118's named hook-dispatch seam, above the
     `dispatch_message` telemetry wrapper) -- NOT the `python3 -m
@@ -1646,19 +1484,21 @@ def _check_zero_tool_use_surface(
 # being registered narrowly. Gate: one small JSON read of the session's own
 # `baton.json` (rooted at the git COMMON dir, the same `sessions_dir` main()
 # already resolves for the dispatch-tracking loop below), checked against the
-# FIELD the leg cares about, never mere file existence (Finding 0, mint leg
-# review 2026-08-19 -- an existence-only gate saw `baton.json` created by
-# `pickup_assemble`'s adoption writer, BEFORE this prompt, and silently never
-# captured anything for the life of every pickup session). Absent record, or
-# present with `first_prompt is None` and no `adopted_artifacts` -> pays the
-# mint cost. Present with `adopted_artifacts` set -> return immediately, no
-# matter what `first_prompt` says: a pickup session's identity is already
-# named by the handoff it adopted, and capturing the pickup invocation itself
-# would overwrite that with junk (PM ruling, same review). Present with
-# `first_prompt` already captured and no `adopted_artifacts` -> return
-# immediately: no op call, no `coordinator_core` import, no read-modify-write
-# (AC7, AC10 -- AC7's literal "one stat" wording is superseded by this fix;
-# the field it protects is unchanged). The op's own idempotence
+# FIELD the leg cares about, never mere file existence -- an existence-only
+# gate here would return immediately off a `baton.json` a pickup session's
+# adoption writer already created, and silently never capture a prompt for
+# the rest of that session (history and the specific finding: spike verdict
+# above, "Finding 0"). Absent record, or present with `first_prompt is None`
+# and no `adopted_artifacts` -> pays the mint cost. Present with
+# `adopted_artifacts` set -> return immediately, no matter what
+# `first_prompt` says: a pickup session's identity is already named by the
+# handoff it adopted, and capturing the pickup invocation itself would
+# overwrite that with junk (PM ruling, same review -- see spike verdict).
+# Present with `first_prompt` already captured and no `adopted_artifacts` ->
+# return immediately: no op call, no `coordinator_core` import, no
+# read-modify-write (AC7, AC10 -- see spike verdict for AC7's superseded
+# "one stat" wording; the field it protects is unchanged). The op's own
+# idempotence
 # (`session_baton_mint.py`'s `existing.get("first_prompt") is None` guard)
 # stays the correctness backstop for the race where two prompts land together
 # or the read lies (AC9) -- this gate is an optimization layered on top of
@@ -1671,13 +1511,12 @@ def _check_zero_tool_use_surface(
 # `COORDINATOR_CORE_LAZY_OPS` env var, which leaks to every child spawned
 # without an explicit `env=` -- BEFORE importing
 # `coordinator_core.ops.session_baton_mint`, then its `_handler` is called
-# DIRECTLY. Measured (reproduced on this host over 20 repeat calls, see the
-# spike verdict): 19.9 ms rather than 337.7 ms, with `first_prompt`
-# preservation intact. Routing through `coordinator_core.ipc.dispatch_message`
-# instead hits its registry-miss fallback, which force-imports the whole op
-# surface and lands back at 337.7 ms -- do not "simplify" to that shape.
-# Lazy mode leaves `ipc._REGISTRY` unpopulated; harmless here since only
-# this one op module is ever imported in this leg.
+# DIRECTLY, with `first_prompt` preservation intact, never routed through
+# `coordinator_core.ipc.dispatch_message` -- its registry-miss fallback
+# force-imports the whole op surface, reproducing the cold-import cost this
+# entry path exists to avoid (measured numbers: spike verdict above). Do not
+# "simplify" to that shape. Lazy mode leaves `ipc._REGISTRY` unpopulated;
+# harmless here since only this one op module is ever imported in this leg.
 #
 # Calling `store.merge_baton(...)` directly is FORBIDDEN even though it
 # measures ~3 ms cheaper: it silently overwrites `first_prompt` on every
@@ -1858,16 +1697,16 @@ def _mint_session_baton(
 
     baton_path = os.path.join(sessions_dir, session_id, "baton.json")
 
-    # Gate on the FIELD, not the FILE (Finding 0, mint leg review
-    # 2026-08-19): `baton.json` has a second writer --
+    # Gate on the FIELD, not the FILE: `baton.json` has a second writer --
     # `pickup_assemble._adopt_into_baton` creates the record (via
     # `merge_baton(..., adopted_artifacts=[...])`, no `first_prompt` kwarg)
     # at UserPromptExpansion, BEFORE this UserPromptSubmit leg ever runs. An
-    # existence-only gate saw that file, returned immediately, and never
-    # captured a prompt for the rest of the session -- confirmed on-disk,
-    # 17/17 real pickup records. One small JSON read replaces the old single
-    # stat; still no op call, no `coordinator_core` import, no
-    # read-modify-write in the settled case.
+    # existence-only gate here would return immediately off that
+    # pre-existing file and never capture a prompt for the rest of the
+    # session (history and the specific finding: spike verdict above,
+    # "Finding 0"). One small JSON read replaces the old single stat; still
+    # no op call, no `coordinator_core` import, no read-modify-write in the
+    # settled case.
     try:
         with open(baton_path, "r", encoding="utf-8") as fh:
             record = json.load(fh)
@@ -1942,6 +1781,14 @@ def _mint_session_baton(
 
         _arm_lazy_ops()  # sys attribute, in-process only -- see comment block above
         from coordinator_core.ops.session_baton_mint import _handler
+
+        # The insert above states an intent; this checks whether it took. It is
+        # defeated whenever something earlier in THIS process did a bare
+        # `import coordinator_core` -- on a box carrying an editable install of
+        # the engine, that binds the module cache to the engine's WORKING TREE
+        # and every later insert is a no-op. Once per session, stderr only,
+        # never raises: see `_engine_root.warn_on_engine_import_divergence`.
+        _warn_engine_divergence("session-baton-mint")
 
         params: dict = {"session_id": session_id, "cwd": git_root}
         if isinstance(prompt, str):
@@ -2188,95 +2035,6 @@ def _emit_advisory(
     return 0
 
 
-# ---------------------------------------------------------------------------
-# SUBAGENT-ARRIVAL-CHECK (added 2026-07-30, restoring an arrival gate onto
-# the runtime-overrun nudge after the former SUBAGENTSTOP TRIGGER-LOSS branch
-# was retired from this file -- everything past the max-age cap and
-# per-model threshold used to flow straight to a nudge with no check that
-# the dispatch was still actually running. Calls the claude-klabauter op
-# `hooks.subagent_arrival_check` (coordinator_core/hooks/
-# subagent_arrival_check.py) for exactly the dispatch row about to be
-# nudged -- never for every row in dispatched-agents.txt -- mirroring
-# `_check_zero_tool_use_surface`'s claude-klabauter-resolve pattern (resolve root,
-# sys.path insert, import the op module, `asyncio.run(dispatch_message(...))`)
-# rather than inventing a new one.
-# ---------------------------------------------------------------------------
-
-
-def _check_subagent_arrival(transcript_path: str, agent_id: str) -> str:
-    """Classify one about-to-be-nudged dispatch as "arrived" / "running" /
-    "unknown" via the `hooks.subagent_arrival_check` op. Returns "unknown"
-    on ANY failure -- unresolvable engine, import error, a malformed/
-    non-dict response, or a missing `transcript_path`/`agent_id`.
-
-    As of 2026-07-31 the caller nudges ONLY on a confirmed "running" state;
-    both "arrived" and "unknown" suppress. This reverses the 2026-07-30
-    "fail toward firing on unknown" contract this docstring previously
-    stated -- a subagent transcript proved not durable in practice (14
-    transcript files against 3,083 distinct agentIds in the audit log on
-    this repo), making "unknown" the overwhelmingly common no-information
-    case rather than evidence of a live agent. This is the ONLY completion/
-    liveness signal the caller consults -- see this file's module
-    docstring, NOT-A-COMPLETION-LOG section, for why `agent-audit.jsonl` is
-    NOT also cross-checked (it is a dispatch log, not a completion log; a
-    same-day 2026-07-31 attempt to restore such a check was reverted once
-    that was verified directly).
-
-    Cost gate: call ONLY for a dispatch that has already cleared the
-    max-age cap and the per-model runtime threshold in the caller's loop --
-    i.e. one that is actually about to be nudged, never speculatively for
-    every tracked row. Same round-trip-affordability reasoning as
-    `_check_zero_tool_use_surface`'s own cost gate.
-
-    DR-047 boundary: `transcript_path` (the PARENT session's transcript path,
-    straight off the payload) and `agent_id` are passed through to the op
-    UNOPENED -- this function must never itself open a transcript or derive
-    a subagent transcript path. Path derivation and the file read are the
-    engine's job (see subagent_arrival_check.py's own module docstring).
-
-    ID NAMESPACE -- forward the row's id VERBATIM; do not translate it here.
-    A named teammate's row in dispatched-agents.txt carries the EM-side
-    canonical form `<name>@session-<short8>`, while its transcript on disk is
-    `agent-a<name>-<16 hex>.jsonl`. The forward map (`_resolve_subagent_identity`
-    above) is lossy -- it drops the 16-hex suffix -- so the reverse needs a
-    directory probe, which is path derivation, which is the engine's side of
-    DR-047. Translating (or "correcting") the id here is the wrong repair for
-    an unknown-state named teammate: the op accepts both namespaces and
-    resolves between them itself.
-    """
-    if not transcript_path or not agent_id:
-        return "unknown"
-    try:
-        root = _resolve_claude_klabauter_root()
-        if not root:
-            return "unknown"
-        if root not in sys.path:
-            sys.path.insert(0, root)
-        from coordinator_core.hooks import subagent_arrival_check as _op  # noqa: F401
-        from coordinator_core.ipc import dispatch_message
-
-        msg: dict = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "hooks.subagent_arrival_check",
-            "params": {
-                "transcript_path": transcript_path,
-                "agent_id": agent_id,
-            },
-        }
-        response = asyncio.run(dispatch_message(msg))
-    except Exception:
-        return "unknown"  # engine unresolvable/unimportable/erroring -> fail-open
-
-    result = response.get("result") if isinstance(response, dict) else None
-    if not isinstance(result, dict):
-        return "unknown"
-    state = result.get("state")
-    if state not in ("arrived", "running", "unknown"):
-        return "unknown"
-    return state
-
-
 def main() -> int:
     raw = _read_stdin(2.0)
 
@@ -2292,13 +2050,6 @@ def main() -> int:
     session_id = payload.get("session_id") or ""
     if not isinstance(session_id, str):
         session_id = ""
-
-    tool_response = payload.get("tool_response")
-    if not isinstance(tool_response, dict):
-        tool_response = {}
-    tool_response_agent_id = tool_response.get("agentId") or ""
-    if not isinstance(tool_response_agent_id, str):
-        tool_response_agent_id = ""
 
     # Security: reject SESSION_IDs with path-traversal characters before any
     # path construction. Non-empty ids that deviate are neutralized to empty
@@ -2317,8 +2068,6 @@ def main() -> int:
     git_root = _git_root()
     if not git_root:
         return 0
-
-    state_root = _resolve_state_root(git_root)
 
     # Rooted at the git COMMON dir, never `<git_root>/.git` (see
     # `_resolve_git_common_dir`'s docstring) -- in a worktree that path is a
@@ -2405,6 +2154,8 @@ def main() -> int:
     # Contributes at most one line to _emit_advisory, and only on the call
     # where the baton newly demonstrably exists (confirmed mint, or observed
     # adoption) -- see `_mint_session_baton`'s docstring. ---
+    # --- REPLY-CAP-ESCAPE-FOLD-IN (C3, see block above _check_reply_cap_
+    # escape). Independently wrapped, same as the checks above -- a bug here
     try:
         baton_msg = _mint_session_baton(
             git_root, session_id, sessions_dir, hook_event, payload.get("prompt")
@@ -2412,283 +2163,12 @@ def main() -> int:
     except Exception:
         baton_msg = None
 
-    # --- Subagent-overrun tripwire stand-down (PM ruling, 2026-07-31; see
-    # _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED docstring above imports). When
-    # disabled, skip the entire dispatch-tracking / overrun-nudge section
-    # below and emit only the two surviving advisories (push-failure,
-    # zero-tool-use), matching the shape the existing self-throttle
-    # early-return already uses. ---
-    if not _SUBAGENT_OVERRUN_TRIPWIRE_ENABLED:
-        return _emit_advisory(
-            [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
-            hook_event,
-            on_success=_zero_tool_use_advance,
-        )
-
-    # --- Self-throttle: 5 minutes ---
-    tmpdir = tempfile.gettempdir()
-    throttle_sentinel = os.path.join(tmpdir, f"runtime-tripwire-em-throttle-{session_id}")
-    throttle_seconds = 300
-
-    try:
-        if os.path.isfile(throttle_sentinel):
-            sentinel_mtime = os.path.getmtime(throttle_sentinel)
-            now_f = time.time()
-            if (now_f - sentinel_mtime) < throttle_seconds:
-                return _emit_advisory(
-                    [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
-                    hook_event,
-                    on_success=_zero_tool_use_advance,
-                )
-    except Exception:
-        pass
-    # Throttle sentinel is written AFTER the dispatch loop, only if at least
-    # one nudge fired this pass -- below-threshold passes do NOT consume the
-    # throttle, so the first threshold-crossing fires immediately instead of
-    # being delayed up to 5 min. (This throttle governs the runtime-tripwire
-    # dispatch nudge only -- the push-failure advisory above is unaffected by
-    # it and is emitted above regardless.)
-
-    dispatch_file = (
-        os.path.join(sessions_dir, session_id, "dispatched-agents.txt") if sessions_dir else ""
-    )
-    if not dispatch_file or not os.path.isfile(dispatch_file):
-        return _emit_advisory(
-            [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
-            hook_event,
-            on_success=_zero_tool_use_advance,
-        )
-
-    now = int(time.time())
-    first_fire_list = ""
-    restage_list = ""
-
-    try:
-        restage_seconds = int(os.environ.get("RUNTIME_TRIPWIRE_RESTAGE_SECONDS", "300") or "300")
-    except ValueError:
-        restage_seconds = 300
-    try:
-        max_track_minutes = int(os.environ.get("RUNTIME_TRIPWIRE_MAX_TRACK_MIN", "90") or "90")
-    except ValueError:
-        max_track_minutes = 90
-
-    fire_log = os.path.join(state_root, "runtime-tripwire-fire-log.tsv")
-
-    try:
-        with open(dispatch_file, "r", encoding="utf-8", errors="replace") as fh:
-            lines = fh.readlines()
-    except Exception:
-        lines = []
-
-    for raw_line in lines:
-        line = raw_line.rstrip("\n").rstrip("\r")
-        parts = line.split("\t")
-        agent_id_row = parts[0] if len(parts) > 0 else ""
-        model = parts[1] if len(parts) > 1 else ""
-        subagent_type = parts[2] if len(parts) > 2 else ""
-        dispatched_at_str = parts[3] if len(parts) > 3 else ""
-
-        if not agent_id_row:
-            continue
-
-        # Security: same charset guard as SESSION_ID, applied to agentId
-        # before any path/tempfile construction.
-        if not _ID_CHARSET_RE.match(agent_id_row):
-            continue
-
-        # Skip-if-returning: the triggering PostToolUse event's own return.
-        if tool_response_agent_id and tool_response_agent_id == agent_id_row:
-            continue
-
-        # Deliberately NO `agent-audit.jsonl` completion cross-check here --
-        # see the module docstring's NOT-A-COMPLETION-LOG section. That file
-        # is a dispatch log (written by the same PostToolUse:Agent event as
-        # dispatched-agents.txt), not a completion log; every dispatched row
-        # is present in it by construction regardless of whether it ever
-        # returned, so a membership check against it would suppress every
-        # row unconditionally. The arrival oracle below is the only real
-        # completion/liveness signal this loop has.
-
-        # Backward-compat: missing/non-numeric dispatched_at -> legacy record.
-        if not dispatched_at_str.isdigit():
-            continue
-        dispatched_at = int(dispatched_at_str)
-        if dispatched_at == 0:
-            continue
-
-        elapsed_min = (now - dispatched_at) // 60
-
-        # Max-age cap (skip-if-too-old).
-        if elapsed_min >= max_track_minutes:
-            continue
-
-        threshold_min = _runtime_threshold_minutes(model)
-        if elapsed_min < threshold_min:
-            continue
-
-        agent_sentinel = os.path.join(tmpdir, f"runtime-tripwire-em-{agent_id_row}")
-        restage_sentinel = os.path.join(tmpdir, f"runtime-tripwire-em-restage-{agent_id_row}")
-
-        # SENTINEL-STATE-PRE-GATE: decide whether this row can produce ANY
-        # output this call BEFORE paying the arrival-check engine
-        # round-trip below -- a permanently-silenced row (both sentinels
-        # set) or one still inside its restage wait window produces zero
-        # output regardless of arrival state, so neither case should
-        # reach the engine at all.
-        agent_sentinel_exists = os.path.isfile(agent_sentinel)
-        if agent_sentinel_exists:
-            if os.path.isfile(restage_sentinel):
-                continue  # already re-nudged -> silence
-            try:
-                first_fire_mtime = os.path.getmtime(agent_sentinel)
-            except Exception:
-                first_fire_mtime = 0
-            since_first = now - int(first_fire_mtime)
-            if since_first < restage_seconds:
-                continue
-
-        # SUBAGENT-ARRIVAL-CHECK: only called here, past the max-age cap,
-        # the per-model threshold, and the sentinel-state pre-gate above --
-        # i.e. exactly the row that is about to reach a first-fire or
-        # restage decision this call. As of 2026-07-31 this is the ONLY
-        # completion/liveness signal consulted: nudge ONLY on a confirmed
-        # "running"; both "arrived" and "unknown" suppress. "unknown" is no
-        # longer fail-toward-firing here because a subagent transcript is
-        # not durable (see the module docstring's SUBAGENT-ARRIVAL-CHECK
-        # section for the measured unknown rate) -- and there is
-        # deliberately no `agent-audit.jsonl` cross-check to fall back on
-        # (see the NOT-A-COMPLETION-LOG section: that file is a dispatch
-        # log, not a completion log, and a membership check against it
-        # would suppress every row unconditionally).
-        transcript_path_val = payload.get("transcript_path")
-        if not isinstance(transcript_path_val, str):
-            transcript_path_val = ""
-        try:
-            arrival_state = _check_subagent_arrival(transcript_path_val, agent_id_row)
-        except Exception:
-            arrival_state = "unknown"
-        if arrival_state != "running":
-            continue
-
-        try:
-            os.makedirs(os.path.dirname(fire_log), exist_ok=True)
-        except Exception:
-            pass
-
-        if agent_sentinel_exists:
-            # First fire already happened and since_first >=
-            # restage_seconds (verified in the pre-gate above) -- time
-            # for the single re-nudge.
-            try:
-                # `_symlink_safe_marker` -- same predictable-tempdir
-                # exposure as the other markers in this file; see
-                # `latch_path` above and the bug this closes.
-                _symlink_safe_marker(restage_sentinel)
-            except Exception:
-                pass
-            restage_list += f"  {agent_id_row} | {model} | {elapsed_min} min\n"
-            try:
-                with open(fire_log, "a", encoding="utf-8") as fh:
-                    fh.write(
-                        "%s\t%s\t%s\t%s\t%s\n"
-                        % (
-                            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            agent_id_row,
-                            model,
-                            elapsed_min,
-                            "em-side-restage",
-                        )
-                    )
-            except Exception:
-                pass
-        else:
-            try:
-                _symlink_safe_marker(agent_sentinel)
-            except Exception:
-                pass
-            # Write wrap-signal artifact to agent session dir if present --
-            # the agent still believed to be running.
-            agent_dir = os.path.join(agents_dir, agent_id_row)
-            if os.path.isdir(agent_dir):
-                try:
-                    with open(
-                        os.path.join(agent_dir, "wrap-requested.txt"),
-                        "w",
-                        encoding="utf-8",
-                    ) as fh:
-                        fh.write(
-                            "%s wrap-requested: em-check first-fire at %s min elapsed (%s)\n"
-                            % (
-                                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                                elapsed_min,
-                                model,
-                            )
-                        )
-                except Exception:
-                    pass
-            first_fire_list += f"  {agent_id_row} | {model} | {elapsed_min} min\n"
-            try:
-                with open(fire_log, "a", encoding="utf-8") as fh:
-                    fh.write(
-                        "%s\t%s\t%s\t%s\t%s\n"
-                        % (
-                            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                            agent_id_row,
-                            model,
-                            elapsed_min,
-                            "em-side",
-                        )
-                    )
-            except Exception:
-                pass
-
-    # Throttle sentinel -- write only if at least one nudge fired this pass.
-    if first_fire_list or restage_list:
-        try:
-            _symlink_safe_marker(throttle_sentinel)
-        except Exception:
-            pass
-
-    # Nothing to report from the runtime-tripwire dispatch tracker -- the
-    # push-failure advisory (if any) may still stand alone.
-    if not first_fire_list and not restage_list:
-        return _emit_advisory(
-            [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
-            hook_event,
-            on_success=_zero_tool_use_advance,
-        )
-
-    # --- Emit awareness additionalContext ---
-    nudge = ""
-
-    if first_fire_list:
-        nudge = (
-            "RUNTIME TRIPWIRE — one or more dispatched agents are past their runtime threshold:\n\n"
-            f"{first_fire_list}"
-            "\nEach has received its own wrap-shape nudge (agent-side hook). Agent owns the wrap "
-            "judgment; you (EM) hold authority (trust-but-verify). If an agent reports continued "
-            "progress and you concur on visible disk artifacts, let it finish. Otherwise plan a "
-            "successor dispatch or TaskStop."
-        )
-
-    if restage_list:
-        if nudge:
-            nudge += "\n\n"
-        nudge += (
-            "RUNTIME TRIPWIRE — RE-NUDGE (flagged 5+ minutes ago, still reads as running):\n\n"
-            f"{restage_list}"
-            "\nReassess explicitly: TaskStop, plan a successor dispatch, or accept the runaway. "
-            "After this fire, the hook is silent for these dispatches — the next decision is yours."
-        )
-
-    # Review: doe-claude-em -- F2, em-finding-wrap-is-not-reachability.md:
-    # dropped the docs/wiki/runtime-tripwire.md pointer, resolvable at
-    # format but not percolation-reachable (page not in the seed set) --
-    # same treatment C11 applied to the stop-watcher.py precedent. Message
-    # substance is unchanged; only the dangling pointer is removed.
-
+    # --- Subagent-overrun tripwire: REMOVED (PM ruling 2026-07-31 stood it
+    # down; excised on the finding the gate had been False since -- see the
+    # module docstring's SUBAGENT-ARRIVAL-CHECK note for the restore
+    # pointer). Only the surviving advisories emit now. ---
     return _emit_advisory(
-        [baton_msg, nudge, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
+        [baton_msg, push_failure_msg, hooks_json_stale_msg, zero_tool_use_msg],
         hook_event,
         on_success=_zero_tool_use_advance,
     )

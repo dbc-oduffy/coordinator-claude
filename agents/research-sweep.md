@@ -102,7 +102,7 @@ Write the framing that turns worker findings into a coherent document. **Preserv
    - `id`→`id` (as-is, e.g. "A-001") · `finding`→`claim_text` · `confidence`→`confidence` (direct) · `type`→`type` (`capability`→`fact`; fact/limitation/pattern/recommendation direct) · `evidence_excerpt`→`evidence` · `cross_notebook`→`contested_by` (contradiction) or `corroborated_by` (corroboration), both null if `cross_notebook` is null · `topic_tags`→derive `["nlm", "notebook-{letter-lower}", "{focus-area-slug-from-strategy}"]` · `source_url`→`source_url` · `source_date`→`source_date`.
    - `source_url`/`source_date` carry through only when the worker supplied a non-null value; omit the key entirely when null — never emit `null` or a synthesized placeholder. A fabricated citation is worse than an absent one.
    - Omit (scratch-only, not carried to durable schema): `query`, `notebook_sources`, `transcription_suspect`.
-   - **`source_url` is a published external-consumer contract** (`docs/research/*.claims.json`, `research-claim.schema.json` v1.0.0). Report the count of claims lacking one in your completion message.
+   - **`source_url` is a published external-consumer contract** (`docs/research/*.claims.json`, `research-claim.schema.json` v1.1.0). Report the count of claims lacking one in your completion message.
 
 3. **Write advisory only if substantive** (framing concerns, blind spots, surprising connections, source-ecosystem notes, confidence/quality issues). Replace `.md` with `-advisory.md`; write to BOTH `{output-path-advisory}` and `{scratch-dir}/advisory.md`. Otherwise skip — no placeholder — and note "No advisory" in your completion message.
 4. **Handle notebooks** per § Notebook Cleanup — never delete at sweep-completion.
@@ -228,7 +228,7 @@ name from frontmatter:
 3. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope).
 4. Do NOT delete notebooks (§ Notebook Cleanup) — list each notebook ID and name in the completion message.
 5. Mark your task `completed` via TaskUpdate.
-6. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Merged claims: {scratch-dir}/merged-claims.json ({N} claims), ran_at: {RFC3339 tz-aware}, pipeline: notebooklm. Gap report: {output-path-base}-gap-report.md {or 'No gap report — coverage complete'}. Notebooks preserved for auditor: {count} notebooks — {IDs}. EM: dispatch coverage auditor next, then delete notebooks if CLEANUP_NOTEBOOKS. {Advisory: written to {output-path-advisory} | No advisory}"
+6. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Merged claims: {scratch-dir}/merged-claims.json ({N} claims, {M} lacking source_url), ran_at: {RFC3339 tz-aware}, pipeline: notebooklm. Gap report: {output-path-base}-gap-report.md {or 'No gap report — coverage complete'}. Notebooks preserved for auditor: {count} notebooks — {IDs}. EM: dispatch coverage auditor next, then delete notebooks if CLEANUP_NOTEBOOKS. {Advisory: written to {output-path-advisory} | No advisory}"
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

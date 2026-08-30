@@ -35,7 +35,11 @@ One shell call: `workday-start-day-branch-resolve reap-log` (log to file, don't 
 briefing), then `coordinator-ensure-hooks-fleet` (both hooks, EVERY registered repo — the per-repo
 `coordinator-ensure-*-hook` entrypoints heal only the cwd repo, leaving the rest of the fleet
 silently un-pushed and un-trailered — idempotent, note only on actual repair), then
-`install-meta-repo-precommit-hook "$HOME/.claude"`.
+`install-meta-repo-precommit-hook "$HOME/.claude"`, then
+`python3 coordinator/bin/check-gitignore-template-drift.py` (report-only; renders its output under
+the advisory-probe convention — the `/coordinator:install` Phase 4 diff only fires on a full
+install, so this is the daily cadence that catches drift between installs;
+see `docs/wiki/coordinator-tripwires/gitignore-template-drift-is-a-cadence-gate-not-an-install-only-step.md`).
 
 `untested-platform-advisory` moves to the install surface — it changes only on new-platform
 install, never on a normal morning. Not part of this ceremony.
@@ -120,19 +124,66 @@ memo) otherwise. Stays open: capture didn't land, or an unanswered PM question.
 
 **Dispatch authorization — invoking this skill IS the request.** The dispatches named below are constitutive steps of this skill, not a separate thing to get cleared: invoking a skill requests the actions that skill performs. A harness line permitting dispatch "unless the user requested it" is therefore **satisfied here, not overridden** — no precedence claim is needed and none is made. Re-asking spends the very context the dispatch exists to protect. The rule attaches to skill entry and dissolves no PM-authored gate: keyword-gated skills gate entry, and every gate a skill names for itself still binds — per-session cross-repo-commit assent, ask-before-external-action, and any other this skill's own body names. Tripwire: `UNATTRIBUTED-HARNESS-LINE-IS-NOT-PM`.
 
-**1.45a Inbox blitz:** `workday-start-inbox-blitz-assemble` routes on `state`: `skipped`/
-`inventory` (plain roster stands)/`escalate` (open-count or oldest-age over threshold — surface
-counts, run the blitz). On `escalate`, dispatch **at most 5** Sonnet agents per day (explicit
-bound — a 150-memo inbox can propose far more; queue the remainder for the next escalate rather
-than dispatching unbounded), one per `dispatches[]` entry up to that cap, `brief` and `memos[]`
-passed **verbatim**, never paraphrased. `supersession_candidates[]` are candidates, never
-confirmations. Group PLAN-WEIGHT items by problem/solution space, one baton per space, routed via
-the default above — that per-space rule governs PLAN-WEIGHT only: **every XS/S item from one blitz
+**1.45a Inbox blitz — the inbox ends every morning at zero.** **Every open memo is triaged,
+verified, and disposed of in the same day's run, however many agents that takes.** Disposal means
+closed, or routed into a baton and then closed — a baton is a disposal, not a deferral. The inbox
+is a delivery surface, never a backlog: an item still sitting open when the ceremony ends did not
+get triaged, whatever else was written about it.
+
+`workday-start-inbox-blitz-assemble`'s `state` sizes the response, never whether items are left
+open. `escalate` (open-count or oldest-age over threshold) means surface the counts and fan out;
+`inventory` means the day's clear-down is small enough to run inline or on one agent — it is not
+a licence to leave a roster standing. `skipped` means the inbox is already empty; nothing to do.
+
+There is no cap on agent count: an inbox that accreted for a fortnight is exactly the case the
+blitz exists for, and a bound that leaves part of it untouched re-queues the accretion it was
+dispatched to end. A small inbox gets the same rule for the opposite reason — ten memos left open
+because ten is under a threshold is how the fortnight's accretion starts.
+
+**Size the fan-out from volume, not from a fixed number.** ~30 memos per triage agent is the
+working grain — enough context to see threads across a bucket, small enough to read each memo in
+full. Where a `dispatches[]` bucket exceeds that, shard its `memos[]` across as many agents as
+the count needs and give every shard the same bucket `brief` verbatim; `brief` and `memos[]` are
+passed **verbatim** to every agent, never paraphrased, sharded or not.
+
+**A verify pass rides with its triage and is never the thing that gets dropped.** Each triage
+shard's verify pass is part of that shard, not a separate item competing for budget — an
+unverified triage report is the failure mode the blitz is built to avoid, since a triage pass
+routinely refutes or shrinks a large share of its own findings. Ship both or ship neither.
+
+**Two checks the EM adds to every verify brief, on top of whatever `brief` the op ships.** Both
+are failure modes of the verify pass itself, not of any memo, so a verifier that omits them
+returns confident wrong answers rather than fewer answers:
+
+- **Already-answered, not just accurate.** Confirming a memo's *claim* is not confirming its
+  *ask* is open. Before any verdict, glob the archives on both sides — `cross-repo/archive/`,
+  `state/memo-outbox/sent/`, the completions record — for a later memo, resend, or commit that
+  discharges it. `AN-ANSWERED-ASK-IS-CLOSED-WHATEVER-ITS-BODY-SAYS` governs the verify pass, not
+  only the triage pass's PLAN-WEIGHT rating.
+- **Absence is only evidence from the right directory.** "Not in their inbox" is not "never
+  delivered" — a delivered memo that gets actioned necessarily *leaves* the inbox. Before
+  reporting anything missing, name the directory it would be in if it existed and confirm you
+  looked there. The send path is `state/memo-outbox/sent/` plus the ledger; a stale sibling
+  directory is residue, never a queue.
+
+**A manifest is a snapshot; the tree moves under it.** Peer sessions archive and close memos
+mid-run. An assigned memo that is no longer where the manifest says is a race, not a producer
+defect — check the archival commit's timestamp against the assemble's before reporting one.
+Tripwires: `A-VERIFY-PASS-THAT-SKIPS-THE-ARCHIVE-CONFIRMS-A-DEAD-ASK`.
+
+**Dispatch in waves, not one simultaneous batch.** The machine carries a dozen-plus concurrent EM
+sessions; a 25-agent fan-out fired at once is a machine-wide event. Run triage shards in waves
+sized to what the box will carry, each shard's verify following its own triage. Wave structure
+paces the grind — it never truncates it.
+
+`supersession_candidates[]` are candidates, never confirmations. Group PLAN-WEIGHT items by
+problem/solution space, one baton per space, routed via the default above — that per-space rule governs PLAN-WEIGHT only: **every XS/S item from one blitz
 bundles into one baton**, never one each. The standing "classification is a claim at memo-send
 time" caveat covers cited *defects*; an **ask** is already-answered as often as a defect is
 already-fixed, so before rating one PLAN-WEIGHT glob the sender's `cross-repo/archive/`: a reply
 sitting `actioned` there closes the ask whatever its body says. Tripwires:
-`SMALL-BLITZ-ITEMS-BUNDLE-INTO-ONE-BATON`, `AN-ANSWERED-ASK-IS-CLOSED-WHATEVER-ITS-BODY-SAYS`.
+`SMALL-BLITZ-ITEMS-BUNDLE-INTO-ONE-BATON`, `AN-ANSWERED-ASK-IS-CLOSED-WHATEVER-ITS-BODY-SAYS`,
+`A-BLITZ-THAT-LEAVES-MEMOS-UNTRIAGED-DID-NOT-RUN`, `THE-INBOX-ENDS-EVERY-MORNING-AT-ZERO`.
 
 There is deliberately no `/inbox-blitz` skill (skill-accumulation aversion) — do not re-house
 this.
@@ -238,8 +289,9 @@ Claude-klabauter-em lands; not yet in this batch.
 **1.10.5** MCP registration: per `~/.claude.json mcpServers` entry, skip disabled/off-project,
 count `mcp__<server>__` matches; 0 → `### MCP Tool Registration` line + `/<server>:doctor`.
 
-**1.10.6** `handoff.reconcile_open` is a Step -0.9 judgment point, resolved like any other, never
-rubber-stamped. `### Auto-Reconcile`, after `### Addon Health`.
+**1.10.6** No auto-reconcile step. `handoff.reconcile_open` is dead (K-026, superseded by K-057)
+and is deliberately left unclassified engine-side — classifying or eager-listing it resurrects it
+against the kill bar. Do not wire it, and do not read its absence as a gap.
 
 **1.10.7** `bin/check-fixture-sync.sh` if present/executable — exit 1 `FIXTURE DRIFT:` under
 `### Cross-Repo Fixture Sync`, re-pin via `cross-repo-memo`, never a direct sibling edit.

@@ -31,9 +31,9 @@ ago)."_ <!-- engine-gap: field=cruft_sweep.last_sweep_staleness producer=unknown
 
 ### Step 1 — Run Layer 1 dry-run and parse JSONL
 
-Shape W (`coordinator/snippets/resolve-coordinator-bin.md`):
+Shape W (`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
 
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\cruft-sweep.cmd" --dry-run --json --class all`
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\cruft-sweep.exe" --dry-run --json --class all`
 
 Parse the JSONL stdout by `disposition`: `auto-prune` — summary count only; `confirm-needed` —
 surface via `AskUserQuestion` (Step 3); `skip` — informational, don't surface unless asked;
@@ -75,7 +75,7 @@ Batch related items from the same class into one question where practical. Never
 
 ### Step 4 — Apply after confirmation
 
-Shape W: `& "$env:COORDINATOR_SETTINGS_HOME\bin\cruft-sweep.cmd" --apply --class <selected>`
+Shape W: `& "$env:COORDINATOR_SETTINGS_HOME\bin\cruft-sweep.exe" --apply --class <selected>`
 
 Pass `--parent-root` overrides for confirmed Class 3 items outside the default roots. The script
 appends to the central cruft-sweep log on apply — no separate log write from this skill.

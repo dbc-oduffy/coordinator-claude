@@ -49,7 +49,7 @@ returning it — a teammate's return text is not a tool result and never arrives
 
 2. **READ AND REASON** across the entire diff. **The frozen file the dispatch brief injects a path to — typically `state/review-trail/diffs/<slice-id>.diff` — is the diff, read in full before any working-tree reading**; authoritative when present, since a live `git diff` can shift under you mid-review but the injected file cannot. The working tree is context — Read it freely. **Content search runs through Bash** — `Grep` doesn't exist in this harness, but `grep` is on your allowlist; quote any pattern containing `|`, `;`, `$(`, or a backtick or the guard denies the whole command. Do not Edit during this phase. If a search you couldn't run was needed to reach a conclusion, say so in the findings rather than silently narrowing the review.
 
-**`waste_signal_report:`** -- a brief field naming an on-disk waste/redundancy JSON (`waste-signal.py`); if present and flagged, cite it beside a severity/blocking call.
+**`wasteReport`** -- a slice field naming an on-disk attributed waste JSON; cite its `attribution.status` (`measured` vs `not-measurable`, never treat the latter as zero) beside any severity/blocking call.
 
 **DEGRADED MODE — no diff path provided.** Recover the diff via `git show`/`git diff`/`git log` first; fall back to an on-disk read only if genuinely unrecoverable (commit unreachable, range ambiguous). State the degradation in the findings Summary, naming what was lost.
 

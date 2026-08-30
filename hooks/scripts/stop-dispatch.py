@@ -1,12 +1,22 @@
-"""Stop-event fan-in dispatcher -- five hooks.json Stop registrations, one interpreter.
+"""Stop-event fan-in dispatcher -- six hooks.json Stop registrations, one interpreter.
 
 Folds `runtime-tripwire-em-check.py`, `nudge-harness-directive-dispatch.py`,
-`nudge-unrouted-sizing.py`, `watchdog-undischarged-next-move.py`, and
-`guard-manufactured-blocker.py` into ONE `python3` process on the Stop event,
-following the registry + lazy-scope-descriptor pattern `preuse-write-dispatch.py`
-/ `_guard_runner.py` already ships (fan-in WITHIN one event, never pooling
-ACROSS events -- see `test_bash_guard_hook_stays_per_event.py`, which this
-dispatcher does not touch).
+`nudge-unrouted-sizing.py`, `watchdog-undischarged-next-move.py`,
+`guard-manufactured-blocker.py`, and `stop-em-report-altitude.py` into ONE
+`python3` process on the Stop event, following the registry +
+lazy-scope-descriptor pattern `preuse-write-dispatch.py` / `_guard_runner.py`
+already ships (fan-in WITHIN one event, never pooling ACROSS events -- see
+`test_bash_guard_hook_stays_per_event.py`, which this dispatcher does not
+touch).
+
+`stop-em-report-altitude.py` (the sixth entry, added after the MEASURED
+figure below was taken) is the DoE-side wiring for the EM->PM comms-budget
+advisory op `hooks.em_report_altitude` -- see that shim's own docstring for
+its channel/no-op contract. Prior to this entry, that engine op had NO
+DoE-side caller anywhere in this plugin and its advisory never fired; this
+is NOT one of the five guards `runtime-tripwire-em-check.py` already
+carries live, despite an earlier stale docstring clause here claiming
+otherwise.
 
 MEASURED (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md):
 5 processes/477.9ms -> 1 process/110.7ms on the all-miss path (4.3x), min-of-15
@@ -42,7 +52,7 @@ same process. Does NOT reintroduce a `git rev-parse` spawn anywhere.
 PostToolUse(Skill|Agent) -- untouched by this dispatcher, which only replaces
 its Stop-event registration.
 
-Negative spec: do not add a sixth guard here without updating this module's
+Negative spec: do not add a seventh guard here without updating this module's
 docstring and the hooks.json comment naming the fold set; do not reintroduce a
 `COORDINATOR_STOP_DISPATCH_LAZY`-style eager fallback path in production (the
 lazy+shared-root config is the only shipped behaviour -- the eager mode lived
@@ -53,10 +63,15 @@ C2b restore procedure (asyncRewake stop-watcher, stood down 2026-07-31 per PM
 ruling, script retained on disk untouched, not deleted): re-add a Stop
 registration (matcher "", timeout 1800, async true, asyncRewake true, invoking
 `runtime-tripwire-stop-watcher.py` via the standard runpy trampoline every
-other hooks.json entry uses) PLUS flip `_SUBAGENT_OVERRUN_TRIPWIRE_ENABLED`
-back to True in `runtime-tripwire-em-check.py`. That script's other three
-advisories (push-failure / zero-tool-use / EM-report-altitude) are unrelated
-and stay live regardless.
+other hooks.json entry uses). There is no longer a constant to flip: the
+`_SUBAGENT_OVERRUN_TRIPWIRE_ENABLED` gate and the ~530 lines it guarded were
+excised from `runtime-tripwire-em-check.py` at `2b16d4db8`, so a restore means
+reconstituting that code from git history -- recipe preserved verbatim in
+`archive/debt-backlog/2026-08/2026-08-29-runtime-tripwire-em-check-py-four-overengin-a1f27c2e8c.yaml`
+-- and it still waits on the engine-side durable subagent-arrival record that
+was always its prerequisite. That script's remaining advisories (push-failure /
+hooks.json-staleness / zero-tool-use / session-baton-mint) are unrelated and
+stay live regardless.
 
 Spec: state/audits/2026-08-16-doe-hook-consolidation-feasibility.md
 Prototype this file productionises: (session scratchpad) stop-dispatch.py
@@ -90,10 +105,12 @@ _TAIL_BYTES = 262144
 # Shared context: work every guard would otherwise redo in its own process.
 # --------------------------------------------------------------------------
 class Ctx:
-    """Computed ONCE per Stop event and shared by all five preconditions.
+    """Computed ONCE per Stop event and shared by all six preconditions.
 
-    In the 5-process world each of these is paid up to 5 times: the transcript
-    tail is read by 3 of the 5 guards, and the repo root is walked by 2.
+    In the original 5-process world each of these was paid up to 5 times: the
+    transcript tail was read by 3 of the 5 guards, and the repo root walked
+    by 2. The sixth guard (`stop-em-report-altitude.py`) reuses this same
+    shared `final_assistant_text()` memoisation.
     """
 
     def __init__(self, raw: str) -> None:
@@ -168,12 +185,33 @@ def _pre_em_check(ctx: Ctx) -> bool:
 def _pre_next_move(ctx: Ctx) -> bool:
     # The watchdog reads the per-session next-move ledger AND NOTHING ELSE.
     # No ledger file for this session -> the guard is provably a no-op.
+    #
+    # The path and extension MUST track `_next_move_ledger.py`'s own
+    # `_LEDGER_FILENAME` and storage root, which are its docstring's contract:
+    # `state/subagent-share/<session-id>/next-move-ledger.jsonl`. This
+    # precondition previously named `.git/coordinator-sessions/<sid>/
+    # next-move-ledger.json` -- the pre-2026-08-15 location, and a `.json`
+    # extension the writer has never used. Wrong on both axes, it returned
+    # False for every session, and the Stop leg it gates never ran once
+    # between the C2 anchoring (471e8eba8) and this fix. A precondition that
+    # is always False is indistinguishable on disk from a predicate that
+    # never has anything to say; the tell was 123 ledgers at the real path
+    # and 0 at this one.
+    #
+    # The two literals below are duplicated rather than imported ON PURPOSE:
+    # this precondition runs before any guard module is imported, and pulling
+    # in `_next_move_ledger` (and transitively `_engine_root`) here would pay
+    # that import on every Stop in the fleet to answer a one-`stat` question.
+    # The duplication is pinned instead --
+    # `test_stop_precondition_tracks_the_ledgers_real_path` asserts both
+    # against the writer's own constants, so the drift that killed this leg
+    # cannot reland silently.
     root = ctx.repo_root()
     if not root or not ctx.session_id:
         return False
     return os.path.isfile(
-        os.path.join(root, ".git", "coordinator-sessions", ctx.session_id,
-                     "next-move-ledger.json")
+        os.path.join(root, "state", "subagent-share", ctx.session_id,
+                     "next-move-ledger.jsonl")
     )
 
 
@@ -187,6 +225,27 @@ def _pre_transcript_present(ctx: Ctx) -> bool:
     # The two engine-backed pointer shims both work off the final assistant
     # message; no transcript, no possible fire.
     return bool(ctx.final_assistant_text())
+
+
+def _pre_em_report_altitude(ctx: Ctx) -> bool:
+    # em_report_altitude measures the final assistant message; a subagent's
+    # own Stop (agent_id present) is never an EM->PM message, and no final
+    # assistant text means nothing to measure either way.
+    if ctx.agent_id:
+        return False
+    return bool(ctx.final_assistant_text())
+
+
+def _pre_receiver_state(ctx: Ctx) -> bool:
+    # The producer shim needs a session_id and this session's own transcript;
+    # without either the op is a silent no-op engine-side, so skip the import
+    # entirely. Deliberately does NOT read the transcript -- `os.path.isfile`
+    # only, never `ctx.tail()`: the ladder is the engine's, and paying a tail
+    # read here to decide whether to let the engine do its own tail read would
+    # double the cost to answer nothing.
+    if not ctx.session_id:
+        return False
+    return bool(ctx.transcript_path) and os.path.isfile(ctx.transcript_path)
 
 
 @dataclass(frozen=True)
@@ -205,6 +264,16 @@ REGISTRY: Tuple[StopGuard, ...] = (
               "watchdog-undischarged-next-move.py", _pre_next_move),
     StopGuard("guard_manufactured_blocker",
               "guard-manufactured-blocker.py", _pre_manufactured_blocker),
+    StopGuard("stop_em_report_altitude",
+              "stop-em-report-altitude.py", _pre_em_report_altitude),
+    # A PRODUCER, not a guard -- it always exits 0 with empty stdout, so it
+    # contributes nothing to this dispatcher's CONCATENATE-ALL aggregation and
+    # cannot change any verdict. It rides the fan-in rather than taking a
+    # second `Stop` entry in hooks.json purely for the process cost: a second
+    # entry buys a permanent extra interpreter cold start on every Stop
+    # fleet-wide, where folding it here adds no process at all.
+    StopGuard("receiver_state_sensor",
+              "receiver-state-sensor.py", _pre_receiver_state),
 )
 
 

@@ -54,6 +54,8 @@ report_sidecar:
   - coordinator:staff-ux
   - coordinator:vp-product
   - coordinator:eng-director
+  - coordinator:overengineering-reviewer
+  - coordinator:apm
   - coordinator:code-reviewer-weekly
   - coordinator:coverage-auditor
   - coordinator:doc-link-checker
@@ -127,6 +129,12 @@ report_type_map:
   coordinator:staff-ux: staff-eng-review
   coordinator:vp-product: staff-eng-review
   coordinator:eng-director: staff-eng-review
+  # staff-eng-review, not review-findings: Kira is an Opus persona reviewer emitting
+  # the shared ReviewOutput envelope with a top-level persona delta
+  # (rebuild_recommended/rebuild_rationale/rebuild_scope) — the same shape as the six
+  # rows above, not the tool-shaped per-finding output of the review-findings family.
+  coordinator:overengineering-reviewer: staff-eng-review
+  coordinator:apm: staff-eng-review
   coordinator:repo-scout: assessment
   coordinator:repo-specialist: assessment
   coordinator:research-scout: assessment
@@ -265,6 +273,8 @@ dispatch_tier:
   coordinator:staff-ux: review-execution
   coordinator:vp-product: review-execution
   coordinator:eng-director: review-execution
+  coordinator:overengineering-reviewer: review-execution
+  coordinator:apm: review-execution
   coordinator:docs-checker: review-execution
   coordinator:doc-link-checker: review-execution
   coordinator:plan-coverage-checker: review-execution
@@ -289,6 +299,10 @@ dispatch_tier:
   coordinator:dep-cve-auditor: review-execution
   # no Write/Edit — clause (1) forces exploration tier, same as atlassian-worker/drive-worker
   coordinator:git-commit-agent: exploration
+  # Read+Bash+PowerShell only — clause (1) again: it authors the falsifier script into a
+  # scratch path it runs, and returns the baseline verdict as final message text, so it
+  # can hold no sidecar. Absent from report_sidecar: accordingly.
+  coordinator:exit-criterion-falsifier: exploration
   # Holds Edit, so clause (1) passes. Clause (2)(c): its body hard-requires the
   # pre-provisioned sidecar (Edit only — "never `Write` a new file, never guess a
   # path") and its return is a bare `DONE: <sidecar-path> — <verdict>`, so the whole
@@ -438,6 +452,38 @@ contract_blocks:
     - sidecar-frontmatter-contract
     - persona-persisting-findings
     - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  # Kira runs the fix-vs-ask rubric on the standard ReviewFinding shape, so
+  # reviewer-calibration is INCLUDED (the exclusion carries the burden of argument,
+  # and no behavioral reason exists here). Holds neither Grep nor Glob, and holds the
+  # context7 pair — same block list as staff-eng, verbatim.
+  coordinator:overengineering-reviewer:
+    - persona-dispatch-contract
+    - reviewer-calibration
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
+    - no-grep-glob-harness-note
+    - context7-lazy-load-bootstrap
+  # Angelique (apm) -- adversarial junior-PM PLAN reviewer. staff-eng-review family: she emits
+  # the shared ReviewOutput envelope, not the tool-shaped review-findings output. Same block
+  # list as Kira, minus no-grep-glob-harness-note: apm holds neither Grep nor Glob either, but
+  # she reviews plan PROSE at a cited path rather than hunting duplication across a tree, so the
+  # note has no work to do for her.
+  coordinator:apm:
+    - persona-dispatch-contract
+    - reviewer-calibration
+    - docs-checker-consumption
+    - prior-art-check-consumption
+    - plan-coverage-check-consumption
+    - quota-self-detect-preamble
+    - provisioned-scaffold-precedence
+    - sidecar-frontmatter-contract
+    - persona-persisting-findings
     - context7-lazy-load-bootstrap
   coordinator:staff-ux:
     - persona-dispatch-contract

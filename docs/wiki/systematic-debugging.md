@@ -456,7 +456,24 @@ async function waitFor<T>(
 }
 ```
 
-See `${CLAUDE_PLUGIN_ROOT}/examples/condition-based-waiting-example.ts` for a complete implementation with domain-specific helpers (`waitForEvent`, `waitForEventCount`, `waitForEventMatch`) from an actual debugging session. The example uses generic, self-contained types (`Event`, `EventType`, `EventManager`) with no external imports — copy it directly into any project and substitute your own event type values.
+The same `waitFor` primitive specializes into domain-specific helpers over a generic, self-contained event shape (`Event`, `EventType`, `EventManager`, no external imports — copy directly into any project and substitute your own event type values):
+
+```typescript
+export type EventType = string;
+export interface Event { type: EventType; data?: unknown; timestamp?: number; }
+export interface EventManager { getEvents(channelId: string): Event[]; }
+
+// Wait for a specific event type to appear
+function waitForEvent(manager: EventManager, channelId: string, eventType: EventType, timeoutMs = 5000): Promise<Event> { /* ... */ }
+
+// Wait for N events of a given type to have arrived
+function waitForEventCount(manager: EventManager, channelId: string, eventType: EventType, count: number, timeoutMs = 5000): Promise<Event[]> { /* ... */ }
+
+// Wait for an event matching a custom predicate
+function waitForEventMatch(manager: EventManager, channelId: string, predicate: (event: Event) => boolean, description: string, timeoutMs = 5000): Promise<Event> { /* ... */ }
+```
+
+Each follows the same shape as `waitFor` above: poll every 10ms, resolve on match, reject with a descriptive error past `timeoutMs`.
 
 #### Common Mistakes
 
@@ -540,5 +557,4 @@ When an insert bug is a schema-mismatch (omitting a NOT-NULL column, wrong colum
 ## Reference
 
 - **Aux script:** `find-polluter.py` — bisection-based test polluter finder.
-- **Aux example:** `${CLAUDE_PLUGIN_ROOT}/examples/condition-based-waiting-example.ts` — concrete `waitFor` helpers from a real debugging session.
 - **Related doctrine:** [verification-before-completion](verification-before-completion.md), [stuck-detection](stuck-detection.md).

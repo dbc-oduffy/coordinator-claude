@@ -157,8 +157,16 @@ def _query_records(record_type, where_expr):
     need to distinguish "confirmed zero coverage" from "coverage query
     degraded" thread that signal through. Callers that don't care (e.g. goal
     enumeration) just read ["records"].
+
+    The `lib`/`records_query` bootstrap itself does NOT live here: see
+    `main()`'s call to `_bootstrap_query_records()` before this function is
+    ever reached (2026-08-29 review-finding sweep, Finding 7 — restores a
+    2026-07-22 code-review fix, Finding 1, that the lazy-bootstrap sweep
+    silently regressed by moving the import back into this function, ahead
+    of the `try:` below where an import failure would again escape as a raw
+    unhandled traceback mid-scan on an arbitrary call instead of failing
+    loudly and legibly once at process start).
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from records_query import query_records
 
     try:
@@ -352,7 +360,32 @@ def render_text(coverage):
 # ---------------------------------------------------------------------------
 
 
+def _bootstrap_query_records() -> None:
+    """Bootstrap `coordinator/bin/lib` onto `sys.path` and prove
+    `records_query` is importable, once, at process start.
+
+    Restores a 2026-07-22 code-review fix (Finding 1): a genuine import
+    failure (missing records_query.py, wrong _LIB_DIR, a transitive import
+    error) must fail loudly and legibly once here, rather than escaping as a
+    raw unhandled traceback mid-scan on an arbitrary `_query_records()` call
+    — that call sits inside a `try/except Exception` that intentionally
+    swallows per-type QUERY failures (a missing/misconfigured record type
+    must not abort the whole scan), and an unguarded import failure landing
+    inside that same function, ahead of its `try:`, would escape uncaught on
+    whichever call happened to be first, unpredictably.
+
+    Called from `main()` only — module bodies stay inert on the warm door
+    and the un-bootstrapped settings-home forwarder load route (C6a-C6j
+    import-motion); this is the deferred-import replacement for the former
+    module-scope `import lib` / `from records_query import query_records`
+    pair, not a restoration of the module-scope form itself.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import records_query  # noqa: F401
+
+
 def main(argv=None) -> int:
+    _bootstrap_query_records()
     opts = _parse_args(sys.argv[1:] if argv is None else argv)
 
     try:

@@ -3,7 +3,7 @@
   "hooks": {
     "SessionStart": [
       {
-        "_comment": "SESSIONSTART-DISPATCH FAN-IN (state/audits/2026-08-16-doe-spawn-totality-kill-list.md; state/handoffs/2026-08-16-untitled-6c1eb4ae.md § Next Steps 1) -- the single SYNC SessionStart entrypoint, replacing six of the nine standalone registrations that used to live in this array: the orientation RAM-cache injector (project-orientation.py, PM directive 2026-07-15), the settings.json integrity guard (guard-settings-integrity.py), the foreign-platform-path guard (guard-foreign-platform-paths.py), the C8 write-confinement anchor (session-start-write-bump-anchor.py), C1b EM-role assertion (assert-em-role.py), and the hook-generation self-probe (guard-hook-generation-self-probe.py). Hosting change only, never a policy change: sessionstart-dispatch.py runs all six in one interpreter, registered on the UNION of their two prior matchers (startup|clear|compact for four of them; startup|resume|clear|compact|fork for the other two -- the other two of the nine prior registrations' four distinct matcher sets, startup|compact for sweep-boot and startup alone for the commit-msg-repair hook, are not folded into this dispatcher; see below), each guard internally gated to its OWN original source set via the SessionStart payload's own `source` field (confirmed present, state/reference/anthropic-docs/claude-code/hooks.md § SessionStart) -- never a widened firing set. guard-hook-generation-self-probe.py runs LAST and every guard's captured output is flushed to real stdout/stderr IMMEDIATELY after it runs (never accumulated for one final write) because that guard's own documented fail-open path calls os._exit(0), which would otherwise silently discard an earlier guard's already-collected output — see sessionstart-dispatch.py's own module docstring for the full reasoning. NOT folded here: sweep-boot.py (own 30s-timeout registration, unchanged, immediately below — an explicit handoff instruction that its timeout must not hide behind a short one) and the two hooks that were already async:true (session-start-register-doe-claude-root.py, session-start-repair-prepare-commit-msg-hook.py — folding an async hook into this SYNC dispatcher would force it to block session start, a real behaviour change; they fold into sessionstart-async-dispatch.py instead, two entries below). Timeout 10s: the max individual folded-guard timeout was 8s (guard-hook-generation-self-probe.py); 10s gives brief sequential headroom while every folded guard is documented cheap-by-construction / near-zero-subprocess on its fast path. AMENDED 2026-08-18 -- THE 'HOSTING CHANGE ONLY, NEVER A POLICY CHANGE' CLAIM ABOVE NO LONGER DESCRIBES THE WHOLE ARRAY: day-branch-assert.py (chunk C4a of docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md) is the first genuinely git-MUTATING leg folded into this fan-in -- it cuts the day branch when the tree sits on `main`, which is a policy act, not a banner. Authorised by the PM ruling of 2026-08-18 ('we cut automatically if we're on main. we warn if we are on a branch that is not compliant with our auto-push rules'); recorded so this does not read as an undocumented contract break. It is registered `startup` ONLY and MUST STAY THAT WAY -- compact/resume/fork fire mid-execution and a cut there is the mid-execution mutation doctrine keeps out of bounds. MEASURED boot cost, correcting an earlier estimate that read `one `git branch --show-current` on the early-return path`: that estimate was wrong by an order of magnitude. On the COMPLIANT (non-`main`) path -- the overwhelmingly common one -- this guard costs 4149ms cold / ~1100ms warm and emits ZERO output, because the shim resolves the engine root, imports `coordinator_core.{hooks.day_branch_assert,machine_resolver,daily_day}`, and runs the full `assert_day_branch()` BEFORE anything establishes that the branch is already compliant. Warm split: engine import 193ms, `compute_machine()` 317ms, `assert_day_branch()` 580ms. It is 96% of this whole SYNC fan-in's cost (4149ms of 4302ms across all eight startup guards) and therefore 96% of what this array contributes to interactive boot latency. A cheap pre-gate reclaims nearly all of it without changing semantics on any non-compliant path: read `.git/HEAD` directly and return early only for a `work/*` branch with no pending-push record -- `case_b_verdict`'s own compliance definition. It does NOT consult the machine id or `local_day()`; those feed only the on-`main` cut arm (`_case_a`), which the pre-gate never reaches. Do not restore the old one-git-call claim; it was never true. The local `checkout -b` still applies on the rare lock-winner path, and the network push is still queued to the async fan-in below, deliberately kept out of this array's shared 10s budget.",
+        "_comment": "SESSIONSTART-DISPATCH FAN-IN (state/audits/2026-08-16-doe-spawn-totality-kill-list.md; state/handoffs/2026-08-16-untitled-6c1eb4ae.md § Next Steps 1) -- the single SYNC SessionStart entrypoint, replacing six of the nine standalone registrations that used to live in this array: the orientation RAM-cache injector (project-orientation.py, PM directive 2026-07-15), the settings.json integrity guard (guard-settings-integrity.py), the foreign-platform-path guard (guard-foreign-platform-paths.py), the C8 write-confinement anchor (session-start-write-bump-anchor.py), and the hook-generation self-probe (guard-hook-generation-self-probe.py). AMENDED 2026-08-29 (chunk C1, docs/plans/2026-08-29-restore-em-boot-payload-delivery.md): C1b EM-role assertion (assert-em-role.py) is NO LONGER among the folded six -- it was unfolded back into its own top-level registration below because riding this fan-in's single shared stdout stream meant its payload was captured but truncated away before reaching a session's actual context in 275 of 279 measured archived sessions. It keeps its original `startup|resume|clear|compact|fork` matcher unchanged. Hosting change only, never a policy change: sessionstart-dispatch.py runs the remaining five in one interpreter, registered on the UNION of their two prior matchers (startup|clear|compact for four of them; startup|resume|clear|compact|fork for the other two -- the other two of the nine prior registrations' four distinct matcher sets, startup|compact for sweep-boot and startup alone for the commit-msg-repair hook, are not folded into this dispatcher; see below), each guard internally gated to its OWN original source set via the SessionStart payload's own `source` field (confirmed present, state/reference/anthropic-docs/claude-code/hooks.md § SessionStart) -- never a widened firing set. guard-hook-generation-self-probe.py runs LAST and every guard's captured output is flushed to real stdout/stderr IMMEDIATELY after it runs (never accumulated for one final write) because that guard's own documented fail-open path calls os._exit(0), which would otherwise silently discard an earlier guard's already-collected output — see sessionstart-dispatch.py's own module docstring for the full reasoning. NOT folded here: sweep-boot.py (own 30s-timeout registration, unchanged, immediately below — an explicit handoff instruction that its timeout must not hide behind a short one) and the two hooks that were already async:true (session-start-register-doe-claude-root.py, session-start-repair-prepare-commit-msg-hook.py — folding an async hook into this SYNC dispatcher would force it to block session start, a real behaviour change; they fold into sessionstart-async-dispatch.py instead, two entries below). Timeout 10s: the max individual folded-guard timeout was 8s (guard-hook-generation-self-probe.py); 10s gives brief sequential headroom while every folded guard is documented cheap-by-construction / near-zero-subprocess on its fast path. AMENDED 2026-08-18 -- THE 'HOSTING CHANGE ONLY, NEVER A POLICY CHANGE' CLAIM ABOVE NO LONGER DESCRIBES THE WHOLE ARRAY: day-branch-assert.py (chunk C4a of docs/plans/2026-08-18-enforce-day-branch-cut-tree-invariant.md) is the first genuinely git-MUTATING leg folded into this fan-in -- it cuts the day branch when the tree sits on `main`, which is a policy act, not a banner. Authorised by the PM ruling of 2026-08-18 ('we cut automatically if we're on main. we warn if we are on a branch that is not compliant with our auto-push rules'); recorded so this does not read as an undocumented contract break. It is registered `startup` ONLY and MUST STAY THAT WAY -- compact/resume/fork fire mid-execution and a cut there is the mid-execution mutation doctrine keeps out of bounds. MEASURED boot cost, correcting an earlier estimate that read `one `git branch --show-current` on the early-return path`: that estimate was wrong by an order of magnitude. On the COMPLIANT (non-`main`) path -- the overwhelmingly common one -- this guard costs 4149ms cold / ~1100ms warm and emits ZERO output, because the shim resolves the engine root, imports `coordinator_core.{hooks.day_branch_assert,machine_resolver,daily_day}`, and runs the full `assert_day_branch()` BEFORE anything establishes that the branch is already compliant. Warm split: engine import 193ms, `compute_machine()` 317ms, `assert_day_branch()` 580ms. It is 96% of this whole SYNC fan-in's cost (4149ms of 4302ms across all eight startup guards) and therefore 96% of what this array contributes to interactive boot latency. A cheap pre-gate reclaims nearly all of it without changing semantics on any non-compliant path: read `.git/HEAD` directly and return early only for a `work/*` branch with no pending-push record -- `case_b_verdict`'s own compliance definition. It does NOT consult the machine id or `local_day()`; those feed only the on-`main` cut arm (`_case_a`), which the pre-gate never reaches. Do not restore the old one-git-call claim; it was never true. The local `checkout -b` still applies on the rare lock-winner path, and the network push is still queued to the async fan-in below, deliberately kept out of this array's shared 10s budget.",
         "matcher": "startup|resume|clear|compact|fork",
         "hooks": [
           {
@@ -15,6 +15,24 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/sessionstart-dispatch.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "C1b EM-role assertion (assert-em-role.py), UNFOLDED from the SESSIONSTART-DISPATCH FAN-IN above back into its own top-level registration (chunk C1, docs/plans/2026-08-29-restore-em-boot-payload-delivery.md). Measured across 279 archived session transcripts under ~/.claude/projects/X--DoE-claude/ carrying the `# EM Operating Doctrine` marker: the payload reached a session's actual context (attachment.content) in only 4 while riding the fan-in's single shared stdout stream -- in the other 275 it existed only in the transcript's untruncated attachment.stdout record, captured then truncated away before becoming context. Restored as its own top-level entry rather than reordered to run first inside the fan-in: a reorder would make delivery depend on no sibling leg in that process ever growing its own output, which is the same fragility relocated, not fixed. A dedicated registration gives this payload its own stdout stream and therefore its own preview window, independent of every other guard. Positive control for this shape: sweep-boot.py immediately below is an existing top-level SessionStart registration firing on the same event, and its output reaches a session's `content` field in 104 of the last 120 archived sessions, at lengths well over 2 KB. Matcher preserved EXACTLY as the fan-in declared it: `startup|resume|clear|compact|fork` -- widening or narrowing it is a behaviour change this chunk does not authorise. Accepted cost: this adds back roughly one python3 cold start (~150-230ms, extrapolated from state/audits/2026-08-16-doe-spawn-totality-kill-list.md's per-interpreter figures) to SessionStart, taking that 2026-08-16 fan-in's net saving from -10 to -9 processes -- its own ratified rationale was pure process-count reduction and never depended on preserving any leg's own delivery channel, so this does not reverse that decision on its own terms. See test_sessionstart_em_role_registered.py for the registration pin.",
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 10,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/assert-em-role.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -59,7 +77,7 @@
     ],
     "Stop": [
       {
-        "_comment": "STOP-DISPATCH FAN-IN (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md) -- the single Stop entrypoint, replacing the five standalone registrations that used to live in this array: C1a idle-EM-awareness (runtime-tripwire-em-check.py), the harness-directive dispatch nudge (nudge-harness-directive-dispatch.py, docs/wiki/harness-directive-conflicts.md), the unrouted-sizing nudge (nudge-unrouted-sizing.py, docs/wiki/coordinator-tripwires.md § NUDGE-UNROUTED-SIZING), the C3 undischarged-next-move watchdog Stop leg (watchdog-undischarged-next-move.py -- its OTHER registration, PostToolUse(Skill|Agent), is untouched), and the C5 manufactured-blocker guard (guard-manufactured-blocker.py, docs/plans/2026-08-10-posture-scaled-autonomous-disposition.md). Hosting change only, never a policy change: stop-dispatch.py runs all five predicates in one interpreter via a registry + lazy-scope-descriptor pattern copied from preuse-write-dispatch.py/_guard_runner.py, with per-guard try/except BaseException fail-open isolation and CONCATENATE-ALL aggregation (same contract as _stop_family_runner.py) -- see that module's own docstring for the full guard-by-guard mapping. MEASURED 5 processes/477.9ms -> 1 process/110.7ms on the all-miss path (4.3x). C2b's asyncRewake stop-watcher stays stood-down exactly as before (see stop-dispatch.py for the restore procedure, carried over verbatim from this array's former empty-hooks entry).",
+        "_comment": "STOP-DISPATCH FAN-IN (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md) -- the single Stop entrypoint, replacing the five standalone registrations that used to live in this array: C1a idle-EM-awareness (runtime-tripwire-em-check.py), the harness-directive dispatch nudge (nudge-harness-directive-dispatch.py, docs/wiki/harness-directive-conflicts.md), the unrouted-sizing nudge (nudge-unrouted-sizing.py, docs/wiki/coordinator-tripwires.md § NUDGE-UNROUTED-SIZING), the C3 undischarged-next-move watchdog Stop leg (watchdog-undischarged-next-move.py -- its OTHER registration, PostToolUse(Skill|Agent), is untouched), and the C5 manufactured-blocker guard (guard-manufactured-blocker.py, docs/plans/2026-08-10-posture-scaled-autonomous-disposition.md). Hosting change only, never a policy change: stop-dispatch.py runs all five predicates in one interpreter via a registry + lazy-scope-descriptor pattern copied from preuse-write-dispatch.py/_guard_runner.py, with per-guard try/except BaseException fail-open isolation and CONCATENATE-ALL aggregation (same contract as _stop_family_runner.py) -- see that module's own docstring for the full guard-by-guard mapping. MEASURED 5 processes/477.9ms -> 1 process/110.7ms on the all-miss path (4.3x). C2b's asyncRewake stop-watcher stays stood-down exactly as before (see stop-dispatch.py for the restore procedure, carried over verbatim from this array's former empty-hooks entry). A SIXTH entry was added after the measured figure above was taken: stop-em-report-altitude.py, the DoE-side wiring for the EM->PM comms-budget advisory engine op hooks.em_report_altitude (state/dispatch-briefs/2026-08-29-structural-ten-bullet-cap-on-em-messages/C1.md) -- see that shim's own docstring for its plain-text, always-exit-0, non-blocking channel contract.",
         "matcher": "",
         "hooks": [
           {
@@ -214,19 +232,103 @@
     ],
     "PreToolUse": [
       {
-        "_comment": "PRETOOLUSE-BASH FAN-IN (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md, this dispatch) -- the single PreToolUse(Bash|PowerShell) entrypoint, replacing the three standalone registrations that used to live in this array: GUARD-DOCTRINE-SURFACE-BASH-WRITE (closes the Bash escape from the C7 admission gate -- denies redirect/tee/sed-in-place/interpreter writes to a GOVERNED_AUTHORING_SURFACES entry), GUARD-REPO-SETUP-CLAUDE-HOME-REFUSAL (makes repo-setup's 'never target ~/.claude' precondition an executable refusal), and this dispatcher's own pre-existing engine-backed guard set (rm -rf / destructive-git / commit-scoping, plus validate-commit, folded Phase 2 2026-06-30). Hosting change only, never a policy change for the two newly-folded guards: preuse-bash-dispatch.py runs them FIRST, first-deny-wins (see this file's own module docstring 'FOLD SHAPE'), each behind an import-free lazy-scope precondition and its own try/except BaseException isolation (fail-open for that guard alone, stderr skipped-list breadcrumb) -- only once neither denies does the engine-backed evaluation below run, unchanged from before this fold. Timeout stays 15s: both folded guards are cheap string/regex work (no filesystem stat, no subprocess) that adds low-single-digit ms to the all-miss path, well inside the existing 15s ceiling sized for the engine leg's own worst case. Fold semantics preserved exactly, including each guard's own fail-open/fail-closed asymmetry -- guard-doctrine-surface-bash-write.py fails OPEN only when there is no command to classify at all, and fails CLOSED on an ambiguous/indirected command naming a governed surface; that asymmetry is unchanged by this fold. Same dispatch ALSO narrowed guard-doctrine-surface-bash-write.py's own detection (a MEASURED false positive: a read-only python3 -c payload was denied purely because a governed filename appeared inside a quoted string literal) -- see that script's own module docstring point 11. DEFERRED (C4, docs/plans/2026-08-25-route-the-bash-guard-onto-the-native-htt.md), type STAYS \"command\": docs/decisions/DR-http-hook-forwarder-fixed-port.md authors a type:\"http\" flip for this exact entry but names multi-OS launcher-export parity on its routing key (COORDINATOR_CLONE_ROOT) as a HARD PRECONDITION, not a nice-to-have -- that export exists on no leg today (the two Windows launchers carry only the CLAUDE_CODE_HARBOR_KITE precedent; claude-doe-shim.sh.tmpl, POSIX, has no export at all), and no fixed forwarder port is committed anywhere either (coordinator/hooks/http_hook_forwarder.py's own module docstring). Landing the flip now would fail-closed-deny every Bash call on a POSIX dev clone -- claude-klabauter's fleet floor -- because a dev checkout resolves this hooks.json live via --plugin-dir and key-absent is a DENY under the DR's own routing rule. Same disposition shape as C0b's deferred SessionStart registration (commit c67d641f3): the decision is recorded, the enabling edit is held. Flip this entry's type to \"http\" once the launcher-export legs land and a fixed port is committed, not before; tracked as blocked debt, must not outlive the export landing.",
+        "_comment": "PRETOOLUSE-BASH FAN-IN (state/audits/2026-08-16-doe-hook-consolidation-feasibility.md, this dispatch) -- the single PreToolUse(Bash|PowerShell) entrypoint, replacing the three standalone registrations that used to live in this array: GUARD-DOCTRINE-SURFACE-BASH-WRITE (closes the Bash escape from the C7 admission gate -- denies redirect/tee/sed-in-place/interpreter writes to a GOVERNED_AUTHORING_SURFACES entry), GUARD-REPO-SETUP-CLAUDE-HOME-REFUSAL (makes repo-setup's 'never target ~/.claude' precondition an executable refusal), and this dispatcher's own pre-existing engine-backed guard set (rm -rf / destructive-git / commit-scoping, plus validate-commit, folded Phase 2 2026-06-30). Hosting change only, never a policy change for the two newly-folded guards: preuse-bash-dispatch.py runs them FIRST, first-deny-wins (see this file's own module docstring 'FOLD SHAPE'), each behind an import-free lazy-scope precondition and its own try/except BaseException isolation (fail-open for that guard alone, stderr skipped-list breadcrumb) -- only once neither denies does the engine-backed evaluation below run, unchanged from before this fold. Timeout stays 15s: both folded guards are cheap string/regex work (no filesystem stat, no subprocess) that adds low-single-digit ms to the all-miss path, well inside the existing 15s ceiling sized for the engine leg's own worst case. Fold semantics preserved exactly, including each guard's own fail-open/fail-closed asymmetry -- guard-doctrine-surface-bash-write.py fails OPEN only when there is no command to classify at all, and fails CLOSED on an ambiguous/indirected command naming a governed surface; that asymmetry is unchanged by this fold. Same dispatch ALSO narrowed guard-doctrine-surface-bash-write.py's own detection (a MEASURED false positive: a read-only python3 -c payload was denied purely because a governed filename appeared inside a quoted string literal) -- see that script's own module docstring point 11. FLIPPED to type \"http\" 2026-08-29 (C7, docs/plans/2026-08-27-rehome-the-four-folded-bash-guards-engine-side.md). The deferral this comment used to carry rested on two claims that were both FALSE against disk by the time anyone re-read them, which is exactly how a cleared precondition goes on blocking for months: \"that export exists on no leg today\" -- COORDINATOR_CLONE_ROOT ships on all three legs and has since 2026-08-25 (claude-doe-launcher.cmd.tmpl:256, claude-doe-launcher.ps1.tmpl:208-210, and claude-klabauter coordinator/bin/claude-doe.py:650, commit 3d806b9cb); and \"no fixed forwarder port is committed anywhere either\" -- FIXED_PORT = 47623, http_hook_forwarder.py:156. Both were stale, not wrong when written. WHAT ACTUALLY HAD TO BE TRUE, and now is, each verified rather than argued: (i) the four folded guards run engine-side -- ported and registered as GuardEntry rows in claude-klabauter _build_guard_chain (guard-doctrine-surface-bash-write registers through a wrapper closure, not a GuardEntry literal), and preuse-bash-dispatch.py no longer imports any of them; (ii) the policy inputs survive the transport -- warm_guard.evaluate passes policy_file and resolution_class (claude-klabauter f006bea3a), policy_file derived per call from the payload plugin_root that THIS repo forwarder computes onto the body (f54ffe394), never from the resident server ambient environment; (iii) a receiver-counted DENY was observed reaching the op over http, twice, forwarded_by_event confirming both arrivals reached a live backend rather than the forwarder own no-backend deny (state/audits/2026-08-27-receiver-counted-fire-warm-guard-evaluate.md); (iv) agent_id reaches the payload over http for dispatched subagents, measured on harness 2.1.251 -- the earlier absence was measured on a main-thread call, where the harness documents the field as absent by contract, so it was a property of the CALLER and never of the wire. THE FORWARDER IS NOW LOAD-BEARING AND ITS LIFECYCLE IS WIRED. A dead forwarder is not a deny here -- it is a connection refusal, a transport error, which this path FAILS OPEN on, silently disarming every guard behind it fleet-wide. sessionstart-ensure-http-forwarder.py had sat unregistered since it was written; it is now folded into sessionstart-async-dispatch.py REGISTRY so a box whose forwarder dies revives it on the next session of any source. Do not unregister it while this entry reads \"http\". TO REVERT: set type back to \"command\" with the args block preserved in git history at this commit parent -- 084654c8b is the precedent, a live fleet-wide outage, and reverting is always the correct first move if Bash calls start failing or silently stop being guarded.",
         "matcher": "Bash|PowerShell",
         "hooks": [
           {
-            "type": "command",
-            "command": "python3",
+            "type": "http",
+            "url": "http://127.0.0.1:47623/hook",
             "timeout": 15,
-            "async": false,
-            "args": [
-              "-c",
-              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/preuse-bash-dispatch.py",
-              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            "headers": {
+              "X-Coordinator-Door-Key": "${COORDINATOR_DOOR_KEY}",
+              "X-Coordinator-Clone-Root": "${COORDINATOR_CLONE_ROOT}",
+              "X-Coordinator-Env-Channel": "1",
+              "X-Coordinator-Env-Canary": "${COORDINATOR_PROBE_CANARY}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_CAT_HEREDOC": "${COORDINATOR_ALLOW_CAT_HEREDOC}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_CD_PREFIX": "${COORDINATOR_ALLOW_CD_PREFIX}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_FIND_EXEC": "${COORDINATOR_ALLOW_FIND_EXEC}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_FIND_ROOT": "${COORDINATOR_ALLOW_FIND_ROOT}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_GIT_COMMIT_AMEND": "${COORDINATOR_ALLOW_GIT_COMMIT_AMEND}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_GIT_COMMIT_BARE": "${COORDINATOR_ALLOW_GIT_COMMIT_BARE}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_GREP_VIA_BASH": "${COORDINATOR_ALLOW_GREP_VIA_BASH}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_HEAD_TAIL_PLUMBING": "${COORDINATOR_ALLOW_HEAD_TAIL_PLUMBING}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_HEREDOC_REPO_WRITE": "${COORDINATOR_ALLOW_HEREDOC_REPO_WRITE}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_INVOKE_ARGV_PARAMS": "${COORDINATOR_ALLOW_INVOKE_ARGV_PARAMS}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_MULTIPROBE_BANNER": "${COORDINATOR_ALLOW_MULTIPROBE_BANNER}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_OPTIONAL_LOCKS": "${COORDINATOR_ALLOW_OPTIONAL_LOCKS}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_ORPHAN": "${COORDINATOR_ALLOW_ORPHAN}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_RM": "${COORDINATOR_ALLOW_RM}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_SED_RANGE": "${COORDINATOR_ALLOW_SED_RANGE}",
+              "X-Coordinator-Env-COORDINATOR_ALLOW_X": "${COORDINATOR_ALLOW_X}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_BLANKET_ADD": "${COORDINATOR_OVERRIDE_BLANKET_ADD}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_BRANCH": "${COORDINATOR_OVERRIDE_BRANCH}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET": "${COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_CLAUDE_MD_WRITE": "${COORDINATOR_OVERRIDE_CLAUDE_MD_WRITE}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_DEV_REPO_SENTINEL": "${COORDINATOR_OVERRIDE_DEV_REPO_SENTINEL}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD": "${COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_GIT_CLEAN": "${COORDINATOR_OVERRIDE_GIT_CLEAN}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_GIT_REVERT": "${COORDINATOR_OVERRIDE_GIT_REVERT}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_GREP_VIA_BASH_GUARD": "${COORDINATOR_OVERRIDE_GREP_VIA_BASH_GUARD}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_ILLEGAL_FILENAME": "${COORDINATOR_OVERRIDE_ILLEGAL_FILENAME}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_MULTIPROBE_BANNER": "${COORDINATOR_OVERRIDE_MULTIPROBE_BANNER}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW": "${COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_NO_VERIFY": "${COORDINATOR_OVERRIDE_NO_VERIFY}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_PATHSPEC_DIVERGENCE": "${COORDINATOR_OVERRIDE_PATHSPEC_DIVERGENCE}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION": "${COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_PLUMBING_AND_LOOPS": "${COORDINATOR_OVERRIDE_PLUMBING_AND_LOOPS}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_POWERSHELL_VIA_BASH_GUARD": "${COORDINATOR_OVERRIDE_POWERSHELL_VIA_BASH_GUARD}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_RAW_PID_LIVENESS": "${COORDINATOR_OVERRIDE_RAW_PID_LIVENESS}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_REGISTRATION_QUAD": "${COORDINATOR_OVERRIDE_REGISTRATION_QUAD}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY": "${COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_TEST_SUITE_INVOCATION": "${COORDINATOR_OVERRIDE_TEST_SUITE_INVOCATION}",
+              "X-Coordinator-Env-COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD": "${COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD}",
+              "X-Coordinator-Env-COORDINATOR_SCOPE_STRICT": "${COORDINATOR_SCOPE_STRICT}",
+              "X-Coordinator-Env-COORDINATOR_SCOPE_STRICT_OFF": "${COORDINATOR_SCOPE_STRICT_OFF}"
+            },
+            "allowedEnvVars": [
+              "COORDINATOR_DOOR_KEY",
+              "COORDINATOR_CLONE_ROOT",
+              "COORDINATOR_PROBE_CANARY",
+              "COORDINATOR_ALLOW_CAT_HEREDOC",
+              "COORDINATOR_ALLOW_CD_PREFIX",
+              "COORDINATOR_ALLOW_FIND_EXEC",
+              "COORDINATOR_ALLOW_FIND_ROOT",
+              "COORDINATOR_ALLOW_GIT_COMMIT_AMEND",
+              "COORDINATOR_ALLOW_GIT_COMMIT_BARE",
+              "COORDINATOR_ALLOW_GREP_VIA_BASH",
+              "COORDINATOR_ALLOW_HEAD_TAIL_PLUMBING",
+              "COORDINATOR_ALLOW_HEREDOC_REPO_WRITE",
+              "COORDINATOR_ALLOW_INVOKE_ARGV_PARAMS",
+              "COORDINATOR_ALLOW_MULTIPROBE_BANNER",
+              "COORDINATOR_ALLOW_OPTIONAL_LOCKS",
+              "COORDINATOR_ALLOW_ORPHAN",
+              "COORDINATOR_ALLOW_RM",
+              "COORDINATOR_ALLOW_SED_RANGE",
+              "COORDINATOR_ALLOW_X",
+              "COORDINATOR_OVERRIDE_BLANKET_ADD",
+              "COORDINATOR_OVERRIDE_BRANCH",
+              "COORDINATOR_OVERRIDE_CLAUDEMD_BUDGET",
+              "COORDINATOR_OVERRIDE_CLAUDE_MD_WRITE",
+              "COORDINATOR_OVERRIDE_DEV_REPO_SENTINEL",
+              "COORDINATOR_OVERRIDE_DISPATCH_SUITE_GUARD",
+              "COORDINATOR_OVERRIDE_GIT_CLEAN",
+              "COORDINATOR_OVERRIDE_GIT_REVERT",
+              "COORDINATOR_OVERRIDE_GREP_VIA_BASH_GUARD",
+              "COORDINATOR_OVERRIDE_ILLEGAL_FILENAME",
+              "COORDINATOR_OVERRIDE_MULTIPROBE_BANNER",
+              "COORDINATOR_OVERRIDE_MULTIWAVE_WORKFLOW",
+              "COORDINATOR_OVERRIDE_NO_VERIFY",
+              "COORDINATOR_OVERRIDE_PATHSPEC_DIVERGENCE",
+              "COORDINATOR_OVERRIDE_PHANTOM_STAGED_DELETION",
+              "COORDINATOR_OVERRIDE_PLUMBING_AND_LOOPS",
+              "COORDINATOR_OVERRIDE_POWERSHELL_VIA_BASH_GUARD",
+              "COORDINATOR_OVERRIDE_RAW_PID_LIVENESS",
+              "COORDINATOR_OVERRIDE_REGISTRATION_QUAD",
+              "COORDINATOR_OVERRIDE_SUBAGENT_PLAN_BODY",
+              "COORDINATOR_OVERRIDE_TEST_SUITE_INVOCATION",
+              "COORDINATOR_OVERRIDE_WORKFLOW_MODEL_GUARD",
+              "COORDINATOR_SCOPE_STRICT",
+              "COORDINATOR_SCOPE_STRICT_OFF"
             ]
           }
         ]
@@ -328,6 +430,24 @@
               "-c",
               "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/block-worktree-tool.py",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
+            ]
+          }
+        ]
+      },
+      {
+        "_comment": "NUDGE-AUTONOMOUS-ASKUSERQUESTION -- re-registered (docs/plans/2026-08-29-first-officer-posture-without-autonomous-mode.md § C2) after retirement b33a06c6a (\"measured near-dead: fired at a rate that did not price its per-invocation spawn\"). That objection was a RATE argument against a content-blind advisory; discriminating further would only lower the fire rate again, the wrong axis to clear the bar on. The re-registration clears it on VALUE PER FIRE instead: the hook now reads tool_input.questions[].question and classifies before composing, so a fire that does happen is either a correctly-matched engineering-approach nudge or a short standing non-verdict line -- never the byte-identical, content-blind advisory that made every fire worthless regardless of rate. Cost stays a single naked-Python spawn (no subprocess, no model call, no transcript read) on an inherently rare tool (AskUserQuestion), so a rare-but-correct fire clears the bar a rare-and-useless one did not. Zero-spawn, fail-open, advisory-only (permissionDecision always \"allow\") -- see the script's own module docstring for the full classifier and ALWAYS-EMIT design.",
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3",
+            "timeout": 5,
+            "async": false,
+            "args": [
+              "-c",
+              "import os,sys;b=sys.argv.pop();exec(open(b,encoding='utf-8').read()) if os.path.isfile(b) else sys.stderr.write(\"COORDINATOR HOOK SEAM: bootstrap missing, hooks fail OPEN: \"+b)",
+              "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/nudge-autonomous-askuserquestion.py",
               "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_hook_boot.py"
             ]
           }
@@ -454,8 +574,8 @@
   },
   "x-effective-delivery": {
     "version": 1,
-    "generated_from_sha": "c86a7359ace52725ef3a2b72c52e314e1f8e9a1b",
-    "generated_at": "2026-08-27T13:15:23Z",
+    "generated_from_sha": "e0f0911e67318286b830235c752d27c1b71cf2bc",
+    "generated_at": "2026-08-29T15:56:02Z",
     "generated_from_dirty_tree": true,
     "carriers": {
       "scripts/preuse-write-dispatch.py": {
@@ -553,6 +673,16 @@
             ]
           },
           {
+            "id": "guard_handoff_summary_cap_on_write",
+            "script": "scripts/guard-handoff-summary-cap-on-write.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
             "id": "block_completion_monolith_write",
             "script": "write_guards/block_completion_monolith_write.py",
             "tool_names": [
@@ -642,6 +772,16 @@
           {
             "id": "block_em_hand_edit_pending_review_integration",
             "script": "write_guards/block_em_hand_edit_pending_review_integration.py",
+            "tool_names": [
+              "Write",
+              "Edit",
+              "MultiEdit",
+              "NotebookEdit"
+            ]
+          },
+          {
+            "id": "block_fleet_delegation_write",
+            "script": "write_guards/block_fleet_delegation_write.py",
             "tool_names": [
               "Write",
               "Edit",
@@ -1041,8 +1181,8 @@
           }
         ]
       },
-      "scripts/preuse-bash-dispatch.py": {
-        "script": "scripts/preuse-bash-dispatch.py",
+      "http:http://127.0.0.1:47623/hook": {
+        "script": "http:http://127.0.0.1:47623/hook",
         "matcher": "Bash|PowerShell",
         "guards": [
           {
@@ -1125,6 +1265,14 @@
             ]
           },
           {
+            "id": "block-fleet-delegation-creation",
+            "script": "bash_guards/block_fleet_delegation_creation.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "block-disarm-marker-sentinel-creation",
             "script": "bash_guards/block_disarm_marker_sentinel_creation.py",
             "tool_names": [
@@ -1173,6 +1321,21 @@
             ]
           },
           {
+            "id": "guard-host-subagent-bash-ban",
+            "script": "bash_guards/guard_host_subagent_bash_ban.py",
+            "tool_names": [
+              "Bash"
+            ]
+          },
+          {
+            "id": "guard-host-subagent-bash-spawn-shapes",
+            "script": "bash_guards/guard_host_subagent_bash_spawn_shapes.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
             "id": "check-test-suite-invocation",
             "script": "bash_guards/check_test_suite_invocation.py",
             "tool_names": [
@@ -1191,6 +1354,22 @@
           {
             "id": "block-subagent-guard-grant",
             "script": "bash_guards/block_subagent_guard_grant.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-repo-setup-claude-home-refusal",
+            "script": "bash_guards/guard_repo_setup_claude_home_refusal.py",
+            "tool_names": [
+              "Bash",
+              "PowerShell"
+            ]
+          },
+          {
+            "id": "guard-doctrine-surface-bash-write",
+            "script": "bash_guards/guard_doctrine_surface_bash_write.py",
             "tool_names": [
               "Bash",
               "PowerShell"
@@ -1455,11 +1634,6 @@
             "tool_names": []
           },
           {
-            "id": "assert_em_role",
-            "script": "scripts/assert-em-role.py",
-            "tool_names": []
-          },
-          {
             "id": "bin_drift_refresh",
             "script": "scripts/sessionstart-bin-drift-refresh.py",
             "tool_names": []
@@ -1481,11 +1655,6 @@
         "matcher": "startup|resume|clear|compact|fork",
         "guards": [
           {
-            "id": "sessionstart_warm_start",
-            "script": "scripts/sessionstart-warm-start.py",
-            "tool_names": []
-          },
-          {
             "id": "session_start_register_doe_claude_root",
             "script": "scripts/session-start-register-doe-claude-root.py",
             "tool_names": []
@@ -1493,6 +1662,11 @@
           {
             "id": "session_start_repair_prepare_commit_msg_hook",
             "script": "scripts/session-start-repair-prepare-commit-msg-hook.py",
+            "tool_names": []
+          },
+          {
+            "id": "sessionstart_ensure_http_forwarder",
+            "script": "scripts/sessionstart-ensure-http-forwarder.py",
             "tool_names": []
           }
         ]
@@ -1525,6 +1699,11 @@
             "id": "guard_manufactured_blocker",
             "script": "scripts/guard-manufactured-blocker.py",
             "tool_names": []
+          },
+          {
+            "id": "stop_em_report_altitude",
+            "script": "scripts/stop-em-report-altitude.py",
+            "tool_names": []
           }
         ]
       },
@@ -1556,6 +1735,17 @@
       }
     },
     "direct": [
+      {
+        "id": "assert-em-role.py",
+        "script": "scripts/assert-em-role.py",
+        "tool_names": [
+          "clear",
+          "compact",
+          "fork",
+          "resume",
+          "startup"
+        ]
+      },
       {
         "id": "block-dispatch-suite-invocation.py",
         "script": "scripts/block-dispatch-suite-invocation.py",

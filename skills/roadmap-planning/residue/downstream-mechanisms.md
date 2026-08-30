@@ -3,7 +3,7 @@ not so this run performs them:
 
 - **Readiness view** (POSIX-host form, Shape A; PowerShell hosts: Shape W,
   `snippets/resolve-coordinator-bin.md`). Resolving `roadmap-number-stubs --state <run-id>` prints
-  every stub's `deployment_state` and its gate text, sorted by `(sprint, wave, stub_id)`. It is a *view* for whoever is choosing what to pick up — never a loop this skill runs. `/workday-start` already carries roadmap-stub-aware sections (e.g. Step 1.473's shipped-stub promotion, Step 1.55's recent-roadmap orientation) and is the obvious future home for surfacing this view; neither it nor `/workstream-start` wires the resolver in yet.
+  every stub's `deployment_state` and its gate text, sorted by `(sprint, wave, stub_id)`. It is a *view* for whoever is choosing what to pick up — never a loop this skill runs. Nothing wires the resolver in yet. (see `/workday-start` Steps 1.473, 1.55.)
 - **Gate transitions are not this skill's to make.** A stub moves `awaiting_gate → ready_to_fire` when the `/handoff` or `/workstream-complete` of some *other* session clears its gate. Never auto-transition a sibling's stub, and never pre-emptively mark one ready because its gate looks satisfied from here.
 - **End-of-roadmap review** belongs to whoever closes the roadmap out — a cross-cutting pass over the shipped output, dispatched from `/workstream-complete` once every stub has shipped. Specified below for that session, not queued for this one.
 
@@ -24,7 +24,7 @@ this skill authors the gates it audits.
 
 Named op: **gate-meaningfulness-audit**, invoked by `/handoff` and `/workstream-complete` whenever either is about to write `deployment_state: ready_to_fire` over an existing `awaiting_gate` value (the *unblock* event). NOT invoked from `/pickup` — pickup transitions to `in_flight`, not `ready_to_fire`.
 
-The op resolves prior frontmatter from git (`git show HEAD:state/handoffs/<file>`) and fires only on a detected `awaiting_gate → ready_to_fire` edge. Idempotent under concurrent-EM operation by construction: it fires only on that literal edge observed against the file's current git state, so a stub a concurrent EM already transitioned reads `ready_to_fire` as the prior state and the op skips silently — no double-prompt, no race window where neither EM fires it. Two concurrent EMs both attempting the unblock: whichever's commit lands first owns the audit.
+The op resolves prior frontmatter from git (`git show HEAD:state/handoffs/<file>`) and fires only on a detected `awaiting_gate → ready_to_fire` edge. Idempotent under concurrent-EM operation by construction: it fires only on that literal edge observed against the file's current git state, so a stub a concurrent EM already transitioned reads `ready_to_fire` as the prior state and the op skips silently — no double-prompt, no race window where neither EM fires it. Whichever commit lands first owns the audit.
 
 **Judgment residue (the op surfaces this; it does not resolve it — human/EM call only):** on a detected edge, the op surfaces the prior `blocking_notes` text (falling back to `gate_dependency` for pre-deprecation records that carry the prose there instead) and asks:
 
@@ -47,7 +47,7 @@ Would have caught ESC-5 (G1 went structurally hollow when synthetic-baseline acc
 dispatch ONE Sonnet review across the whole roadmap output — NOT per-wave Opus (empirical finding: end-of-run
 Sonnet beat per-wave Opus on cost without meaningful signal loss). Brief: "Cross-cutting review of
 <run-id> roadmap execution. Flag any drift from stubs, missing acceptance criteria, deferred items
-that should have been fixed in-session." **Dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param, auto-provisioned its sidecar at spawn):
+that should have been fixed in-session."
 
-1. **Dispatch `coordinator:code-reviewer`** (UNNAMED) on the roadmap output. It is auto-provisioned a `review-findings`-typed sidecar at spawn (`report_type_map`, `state/subagent-share/…`); the brief states the doc-handoff contract: write findings there and return a pointer, not a dump — `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. No pre-scaffold, no claim marker. Read the returned path.
+1. **Dispatch `coordinator:code-reviewer`** (UNNAMED — no `name:` param) on the roadmap output. It is auto-provisioned a `review-findings`-typed sidecar at spawn (`report_type_map`, `state/subagent-share/…`); the brief states the doc-handoff contract: write findings there and return a pointer, not a dump — `DONE: <sidecar-path> | verdict: <OK|WARN|BLOCKED> | findings: <N>`. No pre-scaffold, no claim marker. Read the returned path.
 2. **Integrate via `coordinator:review-integrator`** pointing at the on-disk sidecar path from the returned pointer — not an inline finding list (`agents/review-integrator.md` § Intake precondition hard-stops on inline-relayed findings). Surface escalations (ESC-N format) to PM.

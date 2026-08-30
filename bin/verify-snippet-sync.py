@@ -60,19 +60,31 @@ _BOOTSTRAP_DONE = False
 
 
 def _bootstrap_engine() -> None:
-    """Put `_REPO_ROOT` on `sys.path` -- idempotent, safe to call more than
-    once.
+    """Put `_REPO_ROOT` on `sys.path`, AND bootstrap `coordinator/bin/lib`
+    onto it via `import lib` -- idempotent, safe to call more than once.
 
     What moved and what did not: this mutation used to run at MODULE scope,
     which made every import of this file mutate the `sys.path` of a warm
-    server ~50 sessions share. Only the trigger moved; the value inserted is
-    byte-for-byte the same.
+    server ~50 sessions share. Only the trigger moved; the `_REPO_ROOT`
+    value inserted is byte-for-byte the same.
+
+    The `import lib` call is NOT the same mutation carried over -- it is a
+    fix folded in here (2026-08-29 review-finding sweep, Finding 4). This
+    function used to insert `_REPO_ROOT` only, which reads as protection for
+    `_resolve_plugin_root()`'s `from coordinator_registry import ...` below
+    while providing none: `coordinator_registry` lives under
+    `coordinator/bin/lib/`, not the repo root, so that import resolved only
+    because `main()`'s own later `import lib` call happened to run first on
+    every real invocation path. A mid-module entry into `_resolve_plugin_root()`
+    that never reaches `main()` raised `ModuleNotFoundError` on
+    `coordinator_registry`.
     """
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
     if _REPO_ROOT not in sys.path:
         sys.path.insert(0, _REPO_ROOT)
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     _BOOTSTRAP_DONE = True
 
 

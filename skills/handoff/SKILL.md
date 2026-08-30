@@ -24,7 +24,8 @@ self-authored. Tripwire: `A-SESSION-IS-NEVER-STANDALONE`.
 > action is blocked outside this session's reach (a PM decision, a sibling repo, a peer's landing)
 > for longer than this session, and the remit is *resume when the blocker clears*. **3 —
 > plan→execute:** review-integration done and the plan is ready to execute. **4 —
-> review-owed close** (§ Step 0), which still requires genuine context pressure.
+> review-owed close** (§ Step 0): the owed review is un-runnable in this session for a reason on
+> the ratified closed class of un-runnable-here reasons, cited by name.
 
 > **Continuation vs. fork.** This skill writes a *continuation* — work this session was doing that
 > someone resumes. A *different* mid-session topic for someone to pick up cold is `/spinoff`
@@ -89,6 +90,29 @@ STOP and take the next action here.
 **Two triggers skip this gate.** A PM ask is self-authorizing — write it, don't audit it against
 context pressure and don't answer with a trigger analysis. A blocked next action is real too: name
 the blocker and the event that clears it in the successor's remit.
+
+**Trigger 4 (review-owed close) is an instance of this same blocked-next-action skip, not a
+second discharge.** The ratified closed class of un-runnable-here reasons is stated once, at
+`${CLAUDE_PLUGIN_ROOT}/docs/wiki/coordinator-tripwires/two-ceremonies-two-predicates-one-handover.md`
+(which cites its own ruling record) — this is a citation, not a restatement; that tripwire is the
+source, this roster is reproduced inline only so an EM deciding whether trigger 4 fires is not
+forced to open a second file to learn what the class contains. Trigger 4 qualifies only when the
+owed review is un-runnable in this session for a reason on that class — a hard-stop oracle
+disagreement, a
+quota-exhausted dispatch, a live peer's files this session must not touch, or the `review_scale`
+gate returning unresolved on the row-4 brightline inputs where the per-owned-commit summation
+that would otherwise name the scale by hand is itself un-runnable in this session for a
+separately named external reason (not merely un-performed) — each with its clearing event outside
+this session's reach. Name the blocker and the event that clears it, in the
+successor's remit, exactly as above — do not author a parallel discharge for the review case, and
+do not admit a reason off this roster by resemblance or analogy.
+**A successor session existing is not itself a qualifying clearing event:** the clearing event is
+the outside-the-session fact (a PM/reviewer-pool decision, a quota reset, a peer's landing) that
+lets the review actually run, never merely the fact that a successor could pick this up. Naming a
+successor without naming that fact is the "the next session can review this" tell
+`workstream-complete/SKILL.md:82` already forbids, and does not qualify. `/handoff` itself reviews
+nothing (`residue/065-does-not-review.md`) — the successor runs the owed review, against the
+settled diff, at its own close.
 
 **A parked successor's frontmatter is `deployment_state: awaiting_gate` plus a named gate —
 `blocked_by` when a stub or handoff on the graph clears it, `blocking_notes` when nothing on the

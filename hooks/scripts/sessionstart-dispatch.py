@@ -1,13 +1,28 @@
-"""SessionStart sync fan-in dispatcher -- six hooks.json SessionStart
+"""SessionStart sync fan-in dispatcher -- five hooks.json SessionStart
 registrations, one interpreter, source-gated.
 
 Folds `project-orientation.py`, `guard-settings-integrity.py`,
 `guard-foreign-platform-paths.py`, `session-start-write-bump-anchor.py`,
-`assert-em-role.py`, and `guard-hook-generation-self-probe.py` into ONE
+and `guard-hook-generation-self-probe.py` into ONE
 `python3` process, registered on the UNION of their prior matchers
 (`startup|resume|clear|compact|fork`), following the registry +
 dynamic-import pattern `stop-dispatch.py` / `preuse-agent-dispatch.py`
 already ship.
+
+`assert-em-role.py` (C1b) is NOT folded here as of
+docs/plans/2026-08-29-restore-em-boot-payload-delivery.md chunk C1: it is
+its OWN top-level SessionStart registration in hooks.json again, on the
+same `startup|resume|clear|compact|fork` matcher it always carried. Its
+payload was measured reaching a session's actual context in 4 of 279
+archived transcripts carrying the marker -- riding this shared fan-in's
+one stdout stream meant its output was captured but truncated away before
+becoming EM context in the other 275. A separate top-level registration
+gives it its own stdout stream and therefore its own preview window,
+independent of every other guard folded here. Reordering it to run first
+inside this same process was rejected: delivery would then depend on no
+sibling leg ever growing its own output, which is the same fragility
+relocated rather than fixed. See `assert-em-role.py`'s own hooks.json
+entry for the restored registration.
 
 NOT folded, deliberately (see state/subagent-share/892113a3-8c0c-4fa8-bb68-
 13c20ca4aad5/coordinatorexecutor-ef3486a7.md for the full reasoning):
@@ -23,16 +38,18 @@ NOT folded, deliberately (see state/subagent-share/892113a3-8c0c-4fa8-bb68-
     unilaterally -- see `sessionstart-async-dispatch.py`, which folds
     those two instead, preserving their async-ness exactly.
 
-SOURCE-GATING, NOT MATCHER-NARROWING. Across all nine prior registrations,
-matchers spanned FOUR distinct sets: `startup|clear|compact` (four of the
-six folded HERE: project-orientation.py, guard-settings-integrity.py,
-guard-foreign-platform-paths.py, guard-hook-generation-self-probe.py),
-`startup|resume|clear|compact|fork` (the other two folded here:
-session-start-write-bump-anchor.py, assert-em-role.py), `startup|compact`
-(sweep-boot.py -- deliberately NOT folded, see above), and `startup` alone
+SOURCE-GATING, NOT MATCHER-NARROWING. Across the nine registrations that
+predate the 2026-08-16 fan-in, matchers spanned FOUR distinct sets:
+`startup|clear|compact` (four of the five folded HERE: project-orientation.py,
+guard-settings-integrity.py, guard-foreign-platform-paths.py,
+guard-hook-generation-self-probe.py), `startup|resume|clear|compact|fork`
+(the other one folded here, session-start-write-bump-anchor.py --
+assert-em-role.py shared this matcher too but is no longer folded into
+this dispatcher, see above), `startup|compact` (sweep-boot.py --
+deliberately NOT folded, see above), and `startup` alone
 (session-start-repair-prepare-commit-msg-hook.py -- folded into
 sessionstart-async-dispatch.py instead, see above). This dispatcher folds
-only the first two of those four sets -- the six guards in REGISTRY below --
+only the first two of those four sets -- the five guards in REGISTRY below --
 registered on their union (`startup|resume|clear|compact|fork`). Narrowing
 HERE, per guard, on the harness's own SessionStart payload `source` field
 (confirmed present and enumerated exactly as
@@ -99,11 +116,8 @@ those three engine functions grew a parameter accepting pre-read settings
 content -- an engine-plane change, not something this fold can do
 unilaterally. Not fixed in this dispatch; flagged for the engine side.
 
-`project-orientation.py` and `assert-em-role.py` both take `argv` (the
-former needs `--lightweight`, matching its ONLY production invocation
-shape; the latter's `main(argv)` ignores argv entirely per its own `del
-argv` but is called with `[]` rather than relying on this dispatcher's own
-`sys.argv`, which carries no such flags).
+`project-orientation.py` takes `argv` (it needs `--lightweight`, matching
+its ONLY production invocation shape).
 
 Spec: state/audits/2026-08-16-doe-spawn-totality-kill-list.md,
 state/handoffs/2026-08-16-untitled-6c1eb4ae.md § Next Steps 1
@@ -168,8 +182,6 @@ REGISTRY: Tuple[StartGuard, ...] = (
                frozenset({"startup", "clear", "compact"})),
     StartGuard("session_start_write_bump_anchor", "session-start-write-bump-anchor.py",
                frozenset({"startup", "resume", "clear", "compact", "fork"})),
-    StartGuard("assert_em_role", "assert-em-role.py",
-               frozenset({"startup", "resume", "clear", "compact", "fork"}), argv=[]),
     # `startup` only: what it watches changes when someone edits a template, not
     # when a session compacts or clears, and its own daily stamp makes extra
     # firings no-ops anyway. Narrowest set that still reaches every machine.

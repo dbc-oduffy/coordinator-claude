@@ -93,8 +93,11 @@ from pathlib import Path
 # an import-time failure there is caught and reported exactly the same way (stdout
 # "CRASH", traceback on stderr, exit 1) as the module-level guard this replaced.
 # `wc` (workday_ceremony_lib) is bound as a module global by `main()` before any
-# other function in this file that reads it (`wc.git(...)`) can run.
-wc = None  # bound by main() before use; see the bootstrap block at its top.
+# other function in this file that reads it (`wc.git(...)`) can run. No
+# placeholder is bound here (PEP 562): a `wc = None` module-level default
+# would sit in `__dict__` and permanently shadow the `__getattr__` hook below,
+# which fires ONLY for names absent from `__dict__` — a placeholder means
+# every reader gets `None` back instead of triggering the lazy import.
 
 PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _LIB_DIR = os.path.join(PLUGIN_ROOT, "lib")
@@ -122,6 +125,35 @@ def _bootstrap_engine() -> None:
     if _LIB_DIR not in sys.path:
         sys.path.insert(0, _LIB_DIR)
     _BOOTSTRAP_DONE = True
+
+
+def _bootstrap_wc() -> None:
+    """Publish `workday_ceremony_lib` into module globals as `wc` on first
+    access. Deferred import (module scope must stay inert on the warm door);
+    `globals().setdefault` so a caller's monkeypatch of `wc` is never
+    clobbered by a later bootstrap call."""
+    if "wc" in globals():
+        return
+    _bootstrap_engine()
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_dispatch_engine_on_path
+
+    require_dispatch_engine_on_path()
+    import coordinator_core  # noqa: F401
+    import workday_ceremony_lib as _wc
+
+    globals().setdefault("wc", _wc)
+
+
+def __getattr__(name: str):
+    if name == "wc":
+        _bootstrap_wc()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _OVERRIDE_ENV_BASE = {
     "COORDINATOR_OVERRIDE_BRANCH": "1",
@@ -329,6 +361,7 @@ def _handle_rename_push_failure(old: str, new: str, attempted_remote_delete: boo
           local-only rollback with no meta reversal would leave live session
           directories recording the now-nonexistent ``new`` name.
     """
+    _bootstrap_wc()
     ls = wc.git("ls-remote", "--heads", "origin", old, new)
     ls_lines = (ls.stdout or "").splitlines() if ls.returncode == 0 else []
     old_present = any(line.endswith(f"refs/heads/{old}") for line in ls_lines)
@@ -395,6 +428,7 @@ def _rename_across_midnight(old: str, new: str) -> int:
           field and undercounts live peers on exactly the branch a rename
           just touched.
     """
+    _bootstrap_wc()
     rename_env = dict(os.environ)
     rename_env.update(_OVERRIDE_ENV_BASE)
     rename_env["COORDINATOR_OVERRIDE_BRANCH_REASON"] = "workday-start step 0 rename across midnight"
@@ -465,7 +499,7 @@ def main(argv: list[str]) -> int:
     # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
-    import workday_ceremony_lib as wc
+    _bootstrap_wc()
 
     # Test seams — run a single slug block and exit.
     if argv[:1] == ["--self-heal-machine-slug"]:

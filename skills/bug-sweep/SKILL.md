@@ -176,7 +176,7 @@ Reads only changed files — not a re-sweep.
    Rationale: wiki.
 
 1. **Commit fixes** — never narrate the git sequence, never `coordinator-safe-commit`
-   (`docs/wiki/scoped-safety-commits.md`): pass each changed path
+   (`${CLAUDE_PLUGIN_ROOT}/docs/wiki/scoped-safety-commits.md`): pass each changed path
    (<!-- VERBATIM -->`git diff --name-only`) as a `--wave-path` to `backlog-grind-assemble apply
    bug-sweep --wave-path <path>... --granularity per-wave --message "bug-sweep: fixed N bugs
    across M files"` — one op, one commit, engine-scoped so a concurrent session's staged files

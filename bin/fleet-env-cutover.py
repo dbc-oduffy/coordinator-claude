@@ -37,7 +37,21 @@ _BIN_DIR = Path(__file__).resolve().parent
 _RETRY_EXHAUSTED = 2
 
 
+def _bootstrap_engine() -> None:
+    """Put coordinator/bin/lib and the resolved claude-klabauter engine on sys.path.
+
+    Every function in this file that imports `coordinator_core.*` calls this
+    first — `import lib` before `require_colocated_engine_on_path` mirrors
+    the order `main()` already ran this in before the sweep.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+    require_colocated_engine_on_path(__file__)
+
+
 def _report_check(env_root: Path) -> int:
+    _bootstrap_engine()
     from coordinator_core.install import junction
 
     if junction.is_junction(env_root):
@@ -55,11 +69,8 @@ def _report_check(env_root: Path) -> int:
 
 
 def main(argv: "list[str] | None" = None) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_colocated_engine_on_path
-
     try:
-        require_colocated_engine_on_path(__file__)
+        _bootstrap_engine()
     except RuntimeError as exc:
         print(f"fleet-env-cutover.py: could not locate the claude-klabauter engine: {exc}", file=sys.stderr)
         return 1

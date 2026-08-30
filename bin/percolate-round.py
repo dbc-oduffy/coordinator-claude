@@ -10,8 +10,11 @@ single sequenced driver. Every step already has its own CLI
 module SEQUENCES those via subprocess, it does not reimplement any of their
 logic. The commit step is the one exception: `scoped-git-commit` (the
 `ceremony.scoped_git_commit` CLI) was killed 2026-08-23 (PM ruling, DR-344),
-so the commit leg calls `commit_pipeline.run_commit_pipeline` in-process
-instead, mirroring `publish.py::_commit_published_dests` (2026-08-25).
+so the commit leg calls `coordinator_core.git.commit.commit_paths` in-process
+instead (C3, docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-
+pipeline-can-go.md -- repointed off the killed `commit_pipeline.
+run_commit_pipeline`, which itself mirrored `publish.py::
+_commit_published_dests`, 2026-08-25).
 Single-target only: multi-target (no-argument) round orchestration is
 explicitly out of scope (see the originating plan's Out of scope section).
 
@@ -47,7 +50,8 @@ Commit-pathspec provenance (AC7, superseded 2026-08-23 by chunk C4 of
 docs/plans/2026-08-23-rebuild-the-percolate-round-as-six-steps.md AC4/AC5,
 and again 2026-08-26 by chunk C2 of docs/plans/2026-08-26-a-refused-round-
 strands-its-payload-forever.md AC2/AC2b): the pathspec passed to the commit
-leg (`commit_pipeline.run_commit_pipeline`, § C6, 2026-08-25) is derived from
+leg (`coordinator_core.git.commit.commit_paths`, repointed C3 2026-08-29 off
+the § C6 2026-08-25 `commit_pipeline.run_commit_pipeline`) is derived from
 a `RoundManifest` (`coordinator_core.percolate.manifest`) publish.py's real
 run persists to disk (`_read_fresh_round_manifest`), never from a re-parse of
 that run's printed `NEW:`/`UPDATE:`/`DELETE:`/`REMOVE:` lines, and never from
@@ -144,9 +148,9 @@ Exit codes:
 Negative-spec: does NOT create or touch `setup/percolate-state/<target>
 .lastsync` or any `allow-xrepo-write` marker (it DOES read/write/clear its
 own, differently-named round-failure marker — see module docstring above),
-does NOT edit `commit_pipeline.py` or `percolate-gate.py` (both
+does NOT edit `coordinator_core/git/commit.py` or `percolate-gate.py` (both
 owned elsewhere — the commit leg below is a CALLER of
-`commit_pipeline.run_commit_pipeline`, not an editor of it), does NOT drive
+`coordinator_core.git.commit.commit_paths`, not an editor of it), does NOT drive
 Branch 0's interactive first-run setup walk (a target that fails the branch0-gate
 check here is a usage error pointing back at `/percolate <target>` to walk
 setup, not something this CLI attempts itself), and does NOT support
@@ -204,25 +208,26 @@ def __getattr__(name: str):
     again for that name."""
     if name in _ENGINE_BOUND_NAMES:
         _bootstrap_engine()
-        return globals()[name]
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _bootstrap_engine() -> None:
     """Bind every `_ENGINE_BOUND_NAMES` module global. Called once, first
     thing in `main()` (or lazily via `__getattr__` above, for a caller that
-    reaches for one of these names before `main()` runs). Idempotent:
-    re-running would rebind these to a second, independently-imported set of
-    objects (Python caches modules in `sys.modules`, so a second `import`
-    here returns the SAME objects as the first -- unlike `percolate-mirror.
-    py`'s `_load_round_module()`, which builds a fresh module object per
-    call -- but this guard is kept anyway so a caller's monkeypatch of one of
-    these globals is never silently reset by a later incidental trigger)."""
-    global _RoundLockTimeout, _CONTENDED_LOCK_WAIT_ENV, _round_lock_wait_secs
-    global _round_held_lock, _INHERITED_LOCK_ROOTS_ENV, publish_lane
-    global _RoundManifest, _read_manifest, _default_manifest_path
-
-    if "_round_held_lock" in globals():
+    reaches for one of these names before `main()` runs). Idempotent by
+    construction: the all-names guard covers every name in
+    `_ENGINE_BOUND_NAMES`, not a single sentinel, and each freshly-imported
+    name is published via `globals().setdefault(...)` -- so a caller's
+    monkeypatch of just one of these globals (e.g. `publish_lane`) is left
+    alone even when some other bootstrapped name is still missing, rather
+    than being clobbered by a later incidental trigger."""
+    if all(n in globals() for n in _ENGINE_BOUND_NAMES):
         return
 
     # Moved out of module scope (was two unconditional sys.path.insert calls
@@ -251,15 +256,18 @@ def _bootstrap_engine() -> None:
         default_manifest_path as _default_manifest_path_,
     )
 
-    _RoundLockTimeout = _RoundLockTimeout_
-    _CONTENDED_LOCK_WAIT_ENV = _CONTENDED_LOCK_WAIT_ENV_
-    _round_lock_wait_secs = _round_lock_wait_secs_
-    _round_held_lock = _round_held_lock_
-    _INHERITED_LOCK_ROOTS_ENV = _INHERITED_LOCK_ROOTS_ENV_
-    publish_lane = _publish_lane_
-    _RoundManifest = _RoundManifest_
-    _read_manifest = _read_manifest_
-    _default_manifest_path = _default_manifest_path_
+    for _name, _value in (
+        ("_RoundLockTimeout", _RoundLockTimeout_),
+        ("_CONTENDED_LOCK_WAIT_ENV", _CONTENDED_LOCK_WAIT_ENV_),
+        ("_round_lock_wait_secs", _round_lock_wait_secs_),
+        ("_round_held_lock", _round_held_lock_),
+        ("_INHERITED_LOCK_ROOTS_ENV", _INHERITED_LOCK_ROOTS_ENV_),
+        ("publish_lane", _publish_lane_),
+        ("_RoundManifest", _RoundManifest_),
+        ("_read_manifest", _read_manifest_),
+        ("_default_manifest_path", _default_manifest_path_),
+    ):
+        globals().setdefault(_name, _value)
 
 
 GENERATES = []  # writes only round-failure markers and pushes commits under the resolved percolate `dest` (a foreign publish-mirror repo), never a fixed claude-klabauter-tracked path
@@ -287,16 +295,21 @@ def _lock_busy_message(dest: str, exc: Exception) -> str:
     in a mirror would retry harder, spawning a fresh process per attempt
     against a queue that was never going to clear faster for the pressure.
 
-    Negative-spec: does NOT advise retrying in a loop. Retrying is the
-    behaviour this message exists to stop; waiting inside one process is what
-    the knob buys.
+    Negative-spec: does NOT advise retrying in a loop, and does NOT offer the
+    knob as a way to wait LONGER. `coordinator_core.locked_write ::
+    contended_lock_wait_secs` clamps both the env var and its `default`
+    parameter with `min` against `CONTENDED_LOCK_WAIT_SECS` — the knob narrows
+    only, by the 2026-08-21 PM ruling (DR-344), because a session that raises
+    it leaves a process asleep on a box with 50-70 peers queued. Saying
+    otherwise sent an operator to set a larger number, wait the same ceiling,
+    and hit this line again — the retry loop this message exists to stop.
     """
     _bootstrap_engine()
     return (
         f"dest '{dest}' is held by another round — waited "
-        f"{_round_lock_wait_secs():.0f}s, nothing was written. Let it land and "
-        f"re-run, or wait inside one process instead of retrying: "
-        f"{_CONTENDED_LOCK_WAIT_ENV}=<seconds>. ({exc})"
+        f"{_round_lock_wait_secs():.0f}s, nothing was written. Re-run once it "
+        f"lands. {_CONTENDED_LOCK_WAIT_ENV}=<seconds> only SHORTENS this wait; "
+        f"the ceiling cannot be raised. ({exc})"
     )
 
 
@@ -1448,8 +1461,8 @@ def _filter_commit_pathspec(
     dest_root: Path, dest_root_norm: str, seen: dict, *, repo_root: Optional[str] = None
 ) -> Tuple[List[str], Dict[str, int]]:
     """Drops three benign-decline classes from the derived pathspec BEFORE it
-    reaches the commit leg (`commit_pipeline.run_commit_pipeline`), so a real
-    round no longer names 100+ paths
+    reaches the commit leg (`coordinator_core.git.commit.commit_paths`), so a
+    real round no longer names 100+ paths
     it already knows cannot land (`_round_refusal_reason` gates the push on
     `declined_paths` being empty, so these otherwise-benign declines used to
     block the publish from ever pushing itself):
@@ -1871,11 +1884,11 @@ def _build_commit_subject(
     gitignored-at-dest, already-absent-deletion, and beneath-a-publish-
     staging-directory paths (§ `_filter_commit_pathspec`) — the honest count
     of paths this call is about to hand the commit leg
-    (`commit_pipeline.run_commit_pipeline`).
+    (`coordinator_core.git.commit.commit_paths`).
 
     A commit message is fixed at commit-invocation time (it IS the `-m`
     argument), so this cannot wait for a post-commit landed-diff count
-    the commit leg's own `PipelineResult` does not report (see
+    the commit leg's own `CommitOutcome` does not report (see
     `_report_commit_residual` for the closest available post-commit
     signal, printed separately on stderr rather than folded in here).
     Reporting `pathspec`'s size as if it were "modified" would just move
@@ -1914,7 +1927,7 @@ def _report_commit_residual(
     """Surfaces, on stderr, the gap this module used to discard silently:
     `real_changes` is publish.py's own dest-working-tree comparison (see
     `_build_commit_subject`); `pathspec` is what actually gets named to
-    the commit leg (`commit_pipeline.run_commit_pipeline`), now derived from
+    the commit leg (`coordinator_core.git.commit.commit_paths`), now derived from
     `declared_payload` vs dest HEAD (§ `_pathspec_from_manifest`) rather than
     from `real_changes`' own worktree baseline. A round that reports a
     subject sized off `real_changes` while `pathspec` (or the eventual
@@ -2745,17 +2758,27 @@ def _cmd_round_default(
             )
             # `scoped-git-commit` (the `ceremony.scoped_git_commit` CLI) was
             # killed 2026-08-23 (PM ruling, DR-344) — deleted, not suspended.
-            # Re-pointed at `commit_pipeline.run_commit_pipeline` in-process
-            # (2026-08-25), mirroring `publish.py::_commit_published_dests`
-            # — same mechanism (the killed CLI was a trampoline over this
-            # exact function), one fewer interpreter start, and no per-item
-            # process amplification. `push_mode=PUSH_MODE_NEVER`: this round
-            # owns its own commit -> CI-smoke -> push sequence (DR-301) and
-            # ends this step at a local commit; `_push_dest` below drives the
-            # push once CI smoke is green.
-            import uuid  # noqa: PLC0415 - lazy, keeps this driver's import cost off every non-commit run
+            # C3 (docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-
+            # the-pipeline-can-go.md): repointed off the killed
+            # `commit_pipeline.run_commit_pipeline` onto the sanctioned
+            # zero-spawn shape, `coordinator_core.git.commit.commit_paths`.
+            # No `push_mode` to carry any more -- this round always owned its
+            # own commit -> CI-smoke -> push sequence (DR-301) and ended this
+            # step at a local commit; `commit_paths` has no push leg at all,
+            # so `_push_dest` below still drives the push once CI smoke is
+            # green, unchanged.
+            from functools import partial  # noqa: PLC0415
 
-            from coordinator_core.ops.ceremony import commit_pipeline  # noqa: PLC0415
+            from coordinator_core.git.commit import (  # noqa: PLC0415
+                CommitRefused,
+                FilterUnsupported,
+                commit_paths,
+                hash_worktree_blobs_via_spawn,
+            )
+            from coordinator_core.ops.ceremony import git_native as _gn  # noqa: PLC0415
+            from coordinator_core.ops.ceremony.commit_message import (  # noqa: PLC0415
+                compose_message,
+            )
             from coordinator_core.ops.session_context import (  # noqa: PLC0415
                 resolve_current_session_id,
             )
@@ -2771,24 +2794,67 @@ def _cmd_round_default(
                     "as executable at dest."
                 )
 
-            pipeline_result = commit_pipeline.run_commit_pipeline(
-                repo_root,
-                session_id=f"percolate-round-{uuid.uuid4().hex}",
-                subject=subject,
-                stage_paths=pathspec,
-                caller_paths=set(pathspec),
-                push_mode=commit_pipeline.PUSH_MODE_NEVER,
-            )
-            sha = pipeline_result.committed_sha or ("(sha unverified)" if pipeline_result.sha_unverified else "?")
-            declined_paths, gitignored_declines = _partition_gitignored_declines(
-                _declined_paths_from_stage(pipeline_result.stage)
-            )
+            # `commit_paths` has no tolerant pre-stage: a missing or
+            # gitignored path in `paths` is a hard `CommitRefused`, not a
+            # silent decline the way `explicit_stage()` used to handle it.
+            # Pre-filter here so the never-silent-drop `declined_paths`
+            # report (`_declined_paths_from_stage`'s successor, below) still
+            # fires, and so a gitignored dest artifact (`__pycache__/*.pyc`
+            # reappearing between the pre-commit filter and this call) is
+            # still excluded rather than committed.
+            declined_paths: "List[Dict[str, str]]" = []
+            present_paths: List[str] = []
+            for p in pathspec:
+                if not (Path(repo_root) / p).exists():
+                    declined_paths.append({
+                        "path": p,
+                        "reason": (
+                            "not found in the worktree or index, and not "
+                            "attributable to a deletion (never existed, or "
+                            "already removed by something other than a "
+                            "tracked deletion)"
+                        ),
+                    })
+                else:
+                    present_paths.append(p)
+            ignore_result = _gn.check_ignore(repo_root, present_paths) if present_paths else None
+            gitignored_set = set()
+            if ignore_result is not None and ignore_result.ok:
+                gitignored_set = {
+                    m[3] for m in _gn.parse_check_ignore_stdin_z(ignore_result.stdout)
+                }
+            if gitignored_set:
+                present_paths = [p for p in present_paths if p not in gitignored_set]
+                declined_paths.extend(
+                    {"path": p, "reason": "excluded by .gitignore"} for p in gitignored_set
+                )
+
+            declined_paths, gitignored_declines = _partition_gitignored_declines(declined_paths)
             if gitignored_declines:
                 print(
                     f"percolate-round: {len(gitignored_declines)} path(s) declined as "
                     "gitignored at dest — not a round failure.",
                 )
-            committed = pipeline_result.committed_sha is not None or pipeline_result.sha_unverified
+
+            commit_failed = False
+            commit_diagnostics: List[str] = []
+            sha = "?"
+            try:
+                if present_paths:
+                    outcome = commit_paths(
+                        repo_root,
+                        present_paths,
+                        compose_message(subject=subject),
+                        blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=repo_root),
+                    )
+                    sha = outcome.sha
+                    committed = True
+                else:
+                    committed = False
+            except (CommitRefused, FilterUnsupported) as exc:
+                commit_failed = True
+                commit_diagnostics = [str(exc)]
+                committed = False
             if committed and declined_paths:
                 print(
                     f"percolate-round: commit {sha[:12]} LANDED, but "
@@ -2805,11 +2871,11 @@ def _cmd_round_default(
                         print(f"  {entry}", file=sys.stderr)
                 _write_round_failure_marker(target, percolate_root, "declined_paths", sha)
                 return _EXIT_FAIL
-            if pipeline_result.commit_failed:
+            if commit_failed:
                 _print_step_failure(
-                    "commit (run_commit_pipeline)",
+                    "commit (ceremony.commit_v2)",
                     [],
-                    "; ".join(pipeline_result.diagnostics) or pipeline_result.reason or "commit_failed",
+                    "; ".join(commit_diagnostics) or "commit_failed",
                 )
                 return _EXIT_FAIL
 

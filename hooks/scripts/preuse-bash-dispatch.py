@@ -1,75 +1,16 @@
 #!/usr/bin/env python3
-"""PreToolUse(Bash|PowerShell) fan-in dispatcher -- three hooks.json
-`Bash|PowerShell`-matcher registrations, one interpreter
-(state/audits/2026-08-16-doe-hook-consolidation-feasibility.md, this
-dispatch's own fold: `guard-doctrine-surface-bash-write.py` and
-`guard-repo-setup-claude-home-refusal.py` are folded IN, ahead of the
-engine-backed dispatch this file already hosted, following the same
-registry + dynamic-import + first-deny-wins shape `preuse-agent-dispatch.py`
-already ships for the Agent-matcher leg of PreToolUse.
+"""PreToolUse(Bash|PowerShell) fan-in dispatcher -- the sole
+`Bash|PowerShell`-matcher registration in hooks.json
+(state/audits/2026-08-16-doe-hook-consolidation-feasibility.md).
 
-FOLD SHAPE -- FIRST-DENY-WINS, NOT CONCATENATE-ALL, mirroring
-`preuse-agent-dispatch.py`'s own choice for the same reason: each of the two
-folded guards is a hard exit-0/exit-2 refusal (never an advisory), so the
-first one that denies is the whole verdict -- there is nothing for a second
-guard's text to add once the command is already blocked. The three folded
-guards run BEFORE the engine dispatch below (cheaper, DoE-resident, no
-sibling-repo resolution), in their PRIOR hooks.json registration order
-(`guard-doctrine-surface-bash-write.py`, then
-`guard-repo-setup-claude-home-refusal.py`, then
-`guard-host-subagent-bash-ban.py`) -- registration order was never
-policy-significant among them (their predicates are structurally disjoint:
-one keys on a governed-doctrine-surface mention, one on the repo-setup
-scaffold mechanism naming Claude Home, one on caller identity), so
-preserving it is a convenience, not a behaviour dependency. THE POPULATION
-IS THREE, not two: a count taken from this file's prose rather than from
-`_BASH_GUARD_REGISTRY` has already been used to size a transport flip, and a
-flip sized against two would drop `guard-host-subagent-bash-ban` silently.
-Only once NONE denies does this
-file's own engine-backed evaluation run, exactly as it did standalone.
-
-LAZY SCOPE DESCRIPTORS, AND WHAT EACH ONE ACTUALLY COSTS. Each of the THREE
-folded guards carries a precondition that avoids importing the guard module
-itself for calls it cannot apply to. This is the same "a guard's expensive
-work must not run when its precondition is false" shape `stop-dispatch.py`
-ships for the Stop event. The three are NOT equally cheap, and reading them
-as uniformly free has already produced one wrong cost estimate:
-
-  `_pre_repo_setup`     genuinely free -- two substring tests on the command
-                        text, no import, no stat, no regex.
-  `_pre_doctrine_surface`  NOT import-free. It imports `_claude_md_ledger`
-                        for `GOVERNED_AUTHORING_SURFACES` on every
-                        Bash/PowerShell call carrying a command, and each
-                        hook fire is a fresh process, so that load is paid
-                        per fire rather than amortised. Cheaper than loading
-                        the 1531-line guard, which is the point, but not
-                        nothing. It also fails OPEN into the guard when the
-                        ledger will not import (returns True), so a broken
-                        ledger costs the full guard load on every call.
-  `_pre_host_bash_ban`  does not filter Bash AT ALL -- it is
-                        `tool_name == "Bash"`, true for every Bash fire. Its
-                        real predicate is caller identity (a subagent
-                        `agent_id`), which this signature cannot see, so the
-                        guard module loads on every Bash call to discover
-                        it is inert. PowerShell traffic skips it; Bash
-                        traffic never does.
-
-Any sizing of this dispatcher's per-fire cost has to price those three
-separately. "Most fires short-circuit before importing any guard module" is
-true of PowerShell and false of Bash.
-
-FAILURE ISOLATION. Each of the three folded guards runs inside its own
-`try/except BaseException`, with a stderr skipped-list breadcrumb on the
-guard that raised -- one guard crashing removes only that guard's coverage
-(fail-open for it alone) and the dispatcher proceeds to the next guard, then
-to the engine dispatch, exactly as `stop-dispatch.py`/`preuse-agent-
-dispatch.py` isolate their own folded guards. This is a NEW isolation layer,
-not a narrowing of either guard's own contract: both guards already fail
-open internally on a malformed payload or an uncatchable classification (see
-each guard's own module docstring) -- this outer wrapper only catches a
-genuinely unexpected crash in THIS file's own invocation plumbing (a bug in
-`_import_guard`/`_invoke`, a malformed `sys.modules` entry), the same narrow
-residual `preuse-agent-dispatch.py`'s own docstring names for its guards 1-3.
+The four guards this dispatcher used to fold in-process
+(`guard-doctrine-surface-bash-write.py`, `guard-repo-setup-claude-home-
+refusal.py`, `guard-host-subagent-bash-ban.py`,
+`guard-host-subagent-bash-spawn-shapes.py`) are now registered by the
+control-plane engine itself; this stub is a pure relay to the engine-backed
+dispatch below. The four guard scripts still live on disk in this directory
+and remain independently invocable -- only the fold machinery that used to
+invoke them from here is gone.
 
 Original module purpose (still the majority of this file, unchanged below):
 replaces the former ~11-script bash dispatcher (which itself folded the
@@ -161,20 +102,11 @@ wants this value forwarded, that is a fresh ask, not a revival of dead code.
 
 from __future__ import annotations
 
-import contextlib
-import importlib.util
 import inspect
-import io
 import json
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Tuple
 
-
-_HOOKS_DIR = str(Path(__file__).resolve().parent)
-if _HOOKS_DIR not in sys.path:
-    sys.path.insert(0, _HOOKS_DIR)
 try:
     from _engine_root import (  # noqa: E402
         arm_lazy_ops as _arm_lazy_ops,
@@ -192,235 +124,6 @@ except Exception:
 
     def _arm_lazy_ops() -> None:
         return None
-
-
-# --------------------------------------------------------------------------
-# Fold: guard-doctrine-surface-bash-write.py + guard-repo-setup-claude-home-
-# refusal.py, first-deny-wins, ahead of the engine dispatch below. See module
-# docstring "FOLD SHAPE" / "LAZY SCOPE DESCRIPTORS" / "FAILURE ISOLATION".
-# --------------------------------------------------------------------------
-
-_COMMAND_TOOL_NAMES = ("Bash", "PowerShell")
-
-
-def _extract_command_for_preconditions(raw: str) -> "Tuple[Optional[str], Optional[str]]":
-    """Best-effort, side-effect-free ``(tool_name, command)`` extraction from
-    the raw stdin payload -- used ONLY to compute the folded guards'
-    lazy-import preconditions below. Never raises; any parse failure yields
-    ``(None, None)``, which simply skips both guards' import -- matching
-    what each guard's own ``main()`` would independently decide (fail open)
-    on the identical malformed input, so skipping the import here changes no
-    observable behaviour."""
-    try:
-        payload = json.loads(raw) if raw else {}
-        if not isinstance(payload, dict):
-            return None, None
-        tool_name = payload.get("tool_name")
-        tool_input = payload.get("tool_input")
-        cmd = tool_input.get("command") if isinstance(tool_input, dict) else None
-        return (
-            tool_name if isinstance(tool_name, str) else None,
-            cmd if isinstance(cmd, str) else None,
-        )
-    except Exception:
-        return None, None
-
-
-def _pre_doctrine_surface(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
-    if tool_name not in _COMMAND_TOOL_NAMES or not cmd:
-        return False
-    try:
-        from _claude_md_ledger import GOVERNED_AUTHORING_SURFACES
-    except Exception:
-        # Cannot cheaply prefilter without the ledger module -- import the
-        # guard itself and let IT decide, rather than silently skipping a
-        # command this precondition could not classify.
-        return True
-    lowered = cmd.lower()
-    for surface in GOVERNED_AUTHORING_SURFACES:
-        if surface.lower() in lowered or surface.rsplit("/", 1)[-1].lower() in lowered:
-            return True
-    return False
-
-
-def _pre_repo_setup(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
-    if tool_name not in _COMMAND_TOOL_NAMES or not cmd:
-        return False
-    return "repo-setup-args-and-register" in cmd or "scaffold_structure" in cmd
-
-
-def _pre_host_bash_ban(tool_name: "Optional[str]", cmd: "Optional[str]") -> bool:
-    """Bash only, and only when the payload carries a subagent `agent_id`.
-
-    Deliberately NOT keyed on `cmd` — this guard's predicate is *who is calling which tool*, not
-    what the command says, so a command-text precondition would be the wrong filter entirely. The
-    `agent_id` read happens inside the guard rather than here because this signature only receives
-    the tool name and command; the tool-name test alone already skips every PowerShell call, which
-    is the bulk of shell traffic on the host that opts in.
-    """
-    return tool_name == "Bash"
-
-
-@dataclass(frozen=True)
-class _BashGuard:
-    module_key: str
-    filename: str
-    precondition: Callable[["Optional[str]", "Optional[str]"], bool]
-
-
-# Prior hooks.json registration order -- see module docstring "FOLD SHAPE"
-# for why preserving it is a convenience, not a behaviour dependency.
-_BASH_GUARD_REGISTRY: "Tuple[_BashGuard, ...]" = (
-    _BashGuard("guard_doctrine_surface_bash_write", "guard-doctrine-surface-bash-write.py",
-               _pre_doctrine_surface),
-    _BashGuard("guard_repo_setup_claude_home_refusal", "guard-repo-setup-claude-home-refusal.py",
-               _pre_repo_setup),
-    # Host-opt-in only (`subagent_bash_policy: deny` in coordinator.local.md) and inert everywhere
-    # else, so ordering against the two above is not policy-significant: their predicates key on
-    # command text, this one on caller identity. Last because it is the newest, not because it is
-    # the weakest.
-    _BashGuard("guard_host_subagent_bash_ban", "guard-host-subagent-bash-ban.py",
-               _pre_host_bash_ban),
-    # Shape-scoped successor to the entry above: same subagent cohort, but it denies the
-    # spawn-storm shapes rather than the tool. Gated on its own separate host opt-in
-    # (`subagent_bash_spawn_shapes: deny`) and inert without it, so registering both is not a
-    # double policy -- a host picks one, neither, or, deliberately, each for its own reason.
-    _BashGuard("guard_host_subagent_bash_spawn_shapes",
-               "guard-host-subagent-bash-spawn-shapes.py",
-               _pre_host_bash_ban),
-)
-
-
-class _ByteSink:
-    """Binary-mode facade for `_BufferedTextCapture.buffer`: writes bytes straight
-    through, UNMODIFIED, into the SAME ordered `io.BytesIO` the text channel's
-    `write(str)` encodes into -- no decode, no round-trip at capture time. Both
-    folded guards here write their deny message via `sys.stderr.buffer.write()`
-    (Windows CRLF-translation fix -- see each guard's own module docstring, and
-    `_stop_family_runner.py`'s `_ByteSink` docstring for the full rationale). This
-    dispatcher's own re-emission (below) writes `.encode("utf-8")` through
-    `sys.stderr.buffer`, never the text wrapper, so that guarantee survives the
-    round trip to the real process stderr."""
-
-    def __init__(self, sink: "io.BytesIO") -> None:
-        self._sink = sink
-
-    def write(self, data: bytes) -> int:
-        return self._sink.write(data)
-
-    def flush(self) -> None:
-        pass
-
-
-class _BufferedTextCapture(io.StringIO):
-    """Same shim `stop-dispatch.py`/`preuse-agent-dispatch.py` use: both
-    folded guards write their deny message via `sys.stderr.buffer.write()`
-    (Windows CRLF-translation fix -- see each guard's own module docstring),
-    which a plain `io.StringIO` has no `.buffer` attribute for. Both channels
-    land in ONE ordered `io.BytesIO` -- `write(str)` encodes into it,
-    `.buffer.write(bytes)` writes into it unmodified -- so `combined()`/
-    `combined_bytes()` are order-preserving AND byte-exact, rather than
-    concatenating two separately-accumulated buffers."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._bytes = io.BytesIO()
-        self.buffer = _ByteSink(self._bytes)
-
-    def write(self, s: str) -> int:
-        self._bytes.write(s.encode("utf-8"))
-        return len(s)
-
-    def combined(self) -> str:
-        return self.combined_bytes().decode("utf-8", "replace")
-
-    def combined_bytes(self) -> bytes:
-        return self._bytes.getvalue()
-
-    def getvalue(self) -> str:
-        return self.combined()
-
-
-def _import_bash_guard(guard: "_BashGuard") -> Any:
-    if guard.module_key in sys.modules:
-        return sys.modules[guard.module_key]
-    spec = importlib.util.spec_from_file_location(
-        guard.module_key, str(Path(_HOOKS_DIR) / guard.filename)
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError(guard.filename)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[guard.module_key] = mod
-    try:
-        spec.loader.exec_module(mod)
-    except BaseException:
-        sys.modules.pop(guard.module_key, None)
-        raise
-    return mod
-
-
-def _invoke_bash_guard(main_fn: Callable[[], int], stdin_text: str) -> "Tuple[int, str]":
-    old_stdin = sys.stdin
-    err_buf = _BufferedTextCapture()
-    rc = 0
-    with contextlib.redirect_stderr(err_buf):
-        sys.stdin = io.StringIO(stdin_text)
-        try:
-            try:
-                rc = main_fn()
-            except SystemExit as exc:
-                rc = exc.code if isinstance(exc.code, int) else 0
-        finally:
-            sys.stdin = old_stdin
-    return (rc or 0), err_buf.combined()
-
-
-def _run_folded_bash_guards(raw: str) -> "Optional[int]":
-    """Runs the folded guards in `_BASH_GUARD_REGISTRY` order, first-deny-wins.
-    Walks the registry rather than a fixed list, so the count lives in one
-    place. Returns 2 (already having
-    written the denying guard's stderr) the moment one denies; returns
-    ``None`` once neither denies (or both were skipped/crashed), signalling
-    the caller to fall through to the engine dispatch."""
-    tool_name, cmd = _extract_command_for_preconditions(raw)
-    skipped: "List[str]" = []
-
-    for guard in _BASH_GUARD_REGISTRY:
-        try:
-            if not guard.precondition(tool_name, cmd):
-                continue
-        except BaseException:
-            skipped.append(guard.module_key + " (precondition)")
-            continue
-        try:
-            mod = _import_bash_guard(guard)
-            rc, err = _invoke_bash_guard(mod.main, raw)
-        except BaseException:
-            skipped.append(guard.module_key)
-            continue
-        if rc == 2:
-            if skipped:
-                sys.stderr.write(
-                    "[preuse-bash-dispatch] guard(s) skipped (fail-open for "
-                    "those only): " + ", ".join(skipped) + "\n"
-                )
-            if err:
-                # Re-emit through .buffer, never the text wrapper -- err came
-                # from _BufferedTextCapture.combined(), which may carry a
-                # guard's raw sys.stderr.buffer.write() bytes (Windows
-                # CRLF-translation fix); a text-mode write here would
-                # reintroduce exactly the translation that convention exists
-                # to avoid. See _ByteSink's own docstring above.
-                sys.stderr.buffer.write(err.encode("utf-8"))
-                sys.stderr.buffer.flush()
-            return 2
-
-    if skipped:
-        sys.stderr.write(
-            "[preuse-bash-dispatch] guard(s) skipped (fail-open for those "
-            "only): " + ", ".join(skipped) + "\n"
-        )
-    return None
 
 
 def main() -> int:
@@ -443,18 +146,13 @@ def main() -> int:
     # confinement guards onto resolved caller-context first.
     raw = sys.stdin.read()
 
-    # The payload reaches both the folded guards and the engine dispatch with
-    # the tool_name the caller actually used. NEVER normalize it, here or at
-    # any transport layer: the engine's guards read the dialect themselves and
-    # gate their PowerShell conversions on it, so a rewritten tool_name does
-    # not widen coverage, it silently deletes the conversions that depend on
-    # the real value. If a matcher ever needs a normalized form, compute a
-    # LOCAL value for that gate and leave payload["tool_name"] untouched.
-    # First-deny-wins: a 2 here is the whole verdict.
-    folded_rc = _run_folded_bash_guards(raw)
-    if folded_rc is not None:
-        return folded_rc
-
+    # The payload reaches the engine dispatch with the tool_name the caller
+    # actually used. NEVER normalize it, here or at any transport layer: the
+    # engine's guards read the dialect themselves and gate their PowerShell
+    # conversions on it, so a rewritten tool_name does not widen coverage, it
+    # silently deletes the conversions that depend on the real value. If a
+    # matcher ever needs a normalized form, compute a LOCAL value for that
+    # gate and leave payload["tool_name"] untouched.
     root, resolution_class, _provenance = _resolve_engine()
     if not root:
         return 0  # fail-open ALLOW — engine unresolvable on this machine

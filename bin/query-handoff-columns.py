@@ -75,14 +75,66 @@ def _no_legacy() -> None:
     raise RuntimeError("query-handoff-columns: native seam required (no bash fallback)")
 
 
+_BOOTSTRAP_NAMES = ("cc_invoke", "resolve_checked_repo_root")
+
+
+def _bootstrap_imports() -> None:
+    """Bind every non-stdlib dependency this door needs at module scope
+    (C6k import-motion: the module body stays inert on both the warm door
+    and the un-bootstrapped settings-home forwarder load routes). Idempotent
+    by construction: a name already bound (via a prior call, or a test
+    reaching for `mod.resolve_checked_repo_root` ahead of calling `main()`)
+    is left alone rather than clobbered by a real import.
+    """
+    if all(n in globals() for n in _BOOTSTRAP_NAMES):
+        return
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke as _cc_invoke
+    from repo_identity import resolve_checked_repo_root as _rccr
+
+    for _name, _value in (
+        ("cc_invoke", _cc_invoke),
+        ("resolve_checked_repo_root", _rccr),
+    ):
+        globals().setdefault(_name, _value)
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for a bootstrapped name (`cc_invoke`,
+    `resolve_checked_repo_root`) before `main()` has run -- this file's own
+    test suite patches `resolve_checked_repo_root` as a module attribute
+    ahead of calling `mod.main()` / `mod._resolve_repo_root()` -- triggers
+    `_bootstrap_imports()` lazily rather than finding the name absent.
+
+    NEGATIVE SPEC -- the bootstrap guard checks ALL of `_BOOTSTRAP_NAMES`,
+    not a single sentinel: a caller's `mock.patch.object` of just one
+    bootstrapped name (e.g. `cc_invoke`) leaves the others unbound, and the
+    all-names guard makes `_bootstrap_imports()` re-run. The re-run publishes
+    each freshly-imported name via `globals().setdefault(...)`, so it binds
+    exactly the still-missing names and leaves the caller's patched name
+    untouched -- it does NOT rebind every name in `_BOOTSTRAP_NAMES`. No
+    pop/restore snapshot is needed because a partially-bound state is never
+    mistaken for a fully-bound one.
+    """
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_imports()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _resolve_repo_root() -> str:
     """Resolve the repo root via the checked resolver (`repo_identity.
     resolve_checked_repo_root`) — mirrors emit-cockpit-snapshot.py's own
     migrated `_resolve_repo_root`. READER (AC10): a MISMATCH verdict is
     warned to stderr and the resolved root used anyway (DR-277); UNRESOLVED
     never refuses either (AC4)."""
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_imports()
 
     repo_root, verdict = resolve_checked_repo_root(explicit_root=None)
     if repo_root is None:
@@ -147,8 +199,7 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
+    _bootstrap_imports()
 
     argv = sys.argv[1:] if argv is None else argv
     params = _parse_args(argv)

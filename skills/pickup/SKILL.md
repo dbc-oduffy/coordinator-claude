@@ -115,7 +115,10 @@ before summarizing, acting, or editing any field — acting on a paraphrase is t
 **Verify your response as hard as their premise.** The fired guidance points adversarially at the
 sender, never at your own fix. Visibility isn't resolution — easy item fixed and hard ones surfaced
 is *partial*, so say partial and give each open item an owner. Claim no mechanism you didn't read
-this session.
+this session. **A premise claim about a peer repo names the ref it was read at** — `origin/main`, a
+branch, or a SHA. "Verified against `<repo>` HEAD" cannot distinguish *on main* from *on someone's
+unmerged branch*, and that gap fails silent: green check, live call that has never worked.
+Tripwire: `VERIFIED-AGAINST-HEAD-DOES-NOT-NAME-A-BRANCH`.
 
 **Branch-guard.** `gates.branch.current_branch` is emitted but passive — nothing raises it for you.
 A shared branch can inherit `main` from a sibling's merge; confirm you're off it before anything

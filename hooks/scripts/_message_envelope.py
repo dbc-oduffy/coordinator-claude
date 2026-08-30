@@ -364,7 +364,36 @@ def compose(
 #: observed across the 16 `_WIKI_ANCHOR` constants and the six hand-rolled
 #: runtime-tripwire "Reference:" citations (see the C2 plan chunk body for
 #: the full site list).
-_WIKI_CITATION_RE = re.compile(r"(?:coordinator/)?docs/wiki/([A-Za-z0-9_.-]+\.md)")
+#:
+#: The page part spans SUBDIRECTORIES, not just a flat page name: real
+#: anchors live at `docs/wiki/coordinator-tripwires/<page>.md` and
+#: `docs/wiki/coordinator-tripwires/tripwire-registry/<page>.md`. Each
+#: interior segment must itself match the same conservative character class
+#: and the final one must end `.md`, so a directory-only target
+#: (`docs/wiki/`, `docs/wiki/coordinator-tripwires/`) still does not match
+#: and is emitted verbatim -- resolving one to an absolute path would point
+#: a reader at a directory, not a page.
+#: CROSS-TRANSPORT CONTRACT, not a local edit. The control-plane engine's
+#: ported bash guards mirror THIS pattern by construction so the cold
+#: transport (here) and the warm/resident transport emit byte-identical deny
+#: text, and a cold-vs-warm parity oracle asserts over it. Widening this
+#: pattern to nested anchors turned 19 of that oracle's cases red mid-flight
+#: -- the widening was correct and the oracle is what caught it, but the
+#: lesson is that editing this regex changes test outcomes outside this
+#: repo. Re-check the engine-side copy at source before touching it; do not
+#: reason about it from here.
+#:
+#: KNOWN DEFECT, coordinated fix or none: `resolve_wiki_citation` below emits
+#: an ABSOLUTE path, so on a marketplace-shaped install -- where the plugin
+#: root sits under the operator's home directory -- deny text names that
+#: home directory. Not reproducible from a development clone, whose root is
+#: outside the home tree; the engine side has a register lint that catches
+#: it, this side has no equivalent, and both transports share the property.
+#: Suppressing it on one transport alone re-opens the divergence both sides
+#: just closed, so it is a coordinated change, not a local cleanup.
+_WIKI_CITATION_RE = re.compile(
+    r"(?:coordinator/)?docs/wiki/((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.md)"
+)
 
 
 def _coordinator_dir() -> "Path":
@@ -390,6 +419,40 @@ def _coordinator_dir() -> "Path":
     `assert-em-role.py`, `project-orientation.py`), and its return value is
     the plugin root only in the source-repo layout, not the installed one."""
     return Path(__file__).resolve().parent.parent.parent
+
+
+def _render_resolved(path: "Path") -> str:
+    """Render an already-resolved citation path for a reader.
+
+    A resolved path is not automatically fit to send. On an INSTALLED layout
+    the plugin lives under the operator's home, so the absolute form carries
+    their account name into text whose audience is a dispatched subagent --
+    an identity token the repo-relative literal never held. Resolution is
+    what introduces it, which is why this cannot be left to the caller: the
+    leak is invisible on a source-repo checkout (every dev box) and fires on
+    the layout users actually run.
+
+    Collapsed to `~/` when the path is under the home directory, native
+    absolute otherwise -- a root outside home (a system-wide install) has no
+    identity to hide and stays as it is.
+
+    THE SEPARATOR IS LOAD-BEARING, NOT COSMETIC. The remainder is emitted
+    POSIX-style even on Windows because `~\\...` does not expand for the
+    reader (measured against the tool a denied subagent reads with: `~/`
+    opens, `~\\` reports the file does not exist), while `~/` does. Building
+    this with `str(Path("~") / relative)` yields the backslash form on
+    Windows and trades the identity leak for an unopenable citation -- the
+    same defect the resolver exists to fix, on the one platform where the
+    leak matters most.
+
+    Fails open to the absolute form: a home directory that cannot be
+    determined is a rendering question, never a reason to drop a citation.
+    """
+    try:
+        relative = path.relative_to(Path.home())
+    except (ValueError, RuntimeError, OSError):
+        return str(path)
+    return f"~/{relative.as_posix()}" if relative.parts else "~"
 
 
 def resolve_wiki_citation(text: str) -> str:
@@ -420,7 +483,7 @@ def resolve_wiki_citation(text: str) -> str:
         start = match.start()
         if start > 0 and text[start - 1] not in " \t\n(['\"`":
             return match.group(0)
-        return str(_coordinator_dir() / "docs" / "wiki" / match.group(1))
+        return _render_resolved(_coordinator_dir() / "docs" / "wiki" / match.group(1))
 
     return _WIKI_CITATION_RE.sub(_sub, text)
 

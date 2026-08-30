@@ -11,14 +11,25 @@ hand-run the old snapshot-rollback runbook** for anything this command covers.
 
 ## Backing script
 
-No settings-home forwarder for this script — resolve the engine root yourself: `REPO_CLAUDE_KLABAUTER`
-env override (repo-identity, stays first), then the engine-root rung — `COORDINATOR_ENGINE_ROOT`
-(the name is not
-permanent; the dual-read window closes onto a single rung)
-— then (rung 0 / Shape W, PowerShell hosts)
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\machine-local.cmd" get repos.claude_klabauter`.
-None resolving to an existing directory: stop, report "engine root unresolved — set
-REPO_CLAUDE_KLABAUTER, or run: `machine-local set repos.claude_klabauter <path>`".
+No settings-home forwarder for this script — resolve the engine root with the ratified resolver.
+Never hand-roll a precedence chain here: a second copy of the ladder is a second thing to drift.
+
+```
+"${COORDINATOR_PYTHON:-python3}" "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/_engine_root.py"
+```
+
+- PowerShell hosts: `& $env:COORDINATOR_PYTHON "$env:CLAUDE_PLUGIN_ROOT\hooks\scripts\_engine_root.py"`
+  (`python3` when unset).
+
+It prints the resolved root on stdout and owns the whole ladder: the live-tree env overrides
+first (the manual test-and-execute carve-out), then the published engine mirror — which is the
+ordinary answer on a healthy box. **The engine root is the published mirror, not an authoring
+checkout**; an authoring tree moves under concurrent sessions, so resolving against one makes the
+engine a moving target.
+
+Empty output: stop, report "engine root unresolved" — never guess a path. (The resolver
+prints an empty line on a total miss rather than failing, so empty output IS the miss
+signal; do not wait for a non-zero exit it does not produce.)
 
 Python interpreter: `COORDINATOR_PYTHON` env override, else `python3`.
 
@@ -86,8 +97,9 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
 14. **Git-config hardening** — REVERSE. Unset `core.checkStat`, `gc.autoDetach`, and the
     Windows-only `help.format`/`web.browser`/`browser.noop.cmd` triple (as a unit — never
     partial), each only when unchanged since install.
-15. **Global `git lfs install` filters** — DELIBERATELY-NOT-REVERSED. No manual command offered;
-    `git lfs uninstall` is the operator's own call.
+15. **Global `git lfs install --skip-repo` filters** — DELIBERATELY-NOT-REVERSED. Config-only (never
+    touched repo hooks — Phase 1's git-LFS step never runs a repo-level `git lfs install`, only this
+    global-config form). No manual command offered; `git lfs uninstall` is the operator's own call.
 16. **Shell-init-guard seam** — REVERSE. Locate the sentinel-guarded resource-cap rc block, strip
     it; fail loud on a hand-modified block.
 17. **Operator `~/.claude` git-hook gate regions** — REVERSE, across `pre-commit`, `post-merge`,
@@ -96,13 +108,16 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     certain nothing else needs it: delete the `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` entry from
     `~/.claude/settings.json`'s `env` block.
 19. **`settings.local.json` sibling-plugin seeds** — DELIBERATELY-NOT-REVERSED. Manual per key: set
-    the specific `<plugin>@<marketplace>` entry to `false` in `~/.claude/settings.local.json`.
+    the specific `<plugin>@<marketplace>` entry to `false` under `~/.claude/settings.local.json`'s
+    `enabledPlugins` block.
 20. **`~/.claude/CLAUDE.md` personal-layer seed** — DELIBERATELY-NOT-REVERSED. No manual command
     offered.
 21. **`coordinator-setup-state.yaml` receipt** — REVERSE via
     `coordinator-setup-state clear setup_concluded`, or delete the file if it holds no other
     milestones.
-22. **Discovered-repo `repos.*` entries** — DELIBERATELY-NOT-REVERSED. Not swept by any flag.
+22. **Discovered-repo `repos.*` entries** — DELIBERATELY-NOT-REVERSED. Not swept by any flag:
+    `repos.*` is general-purpose sibling-repo addressing infra, useful independent of
+    coordinator, and other tooling may already depend on entries seeded here.
 23. **Four project-repo writes** — REVERSE, driven by a new install-time record
     (`coordinator.installed_repos`). Interactive: offers removal of `.claude/em-context.md`, the
     `.gitignore` append (only if byte-identical), `coordinator.local.md`, the currency stamp.
@@ -112,6 +127,25 @@ set: `REVERSE`, `DELIBERATELY-NOT-REVERSED`, `CANNOT-REVERSE-SAFELY`. Rationale 
     Roll back manually from an elevated terminal:
     `python "<plugin-root>\templates\bin\install-git-bash-fast-profile.py" --uninstall` — it strips
     the block and round-trips the file to byte-identical stock (no-op if never installed).
+26. **`~/.local/bin` PATH block** — REVERSE. `install-substrate.py` Step 3e appends a
+    sentinel-guarded block putting `~/.local/bin` on PATH for the standalone `claude` CLI. Strip
+    the sentinel-guarded region from the interactive rc; fail loud on a hand-modified block, and
+    leave `~/.local/bin` itself and anything in it alone — the directory is the operator's, not
+    coordinator's.
+27. **Machine and contributor slugs** — REVERSE. Clear `coordinator.machine_slug` and
+    `coordinator.contributor_slug` from the machine-local registry, each only if unchanged
+    since install.
+28. **Step Zero environment normalization** — CANNOT-REVERSE-SAFELY. `normalize-env.py` installs
+    toolchains (uv, Python) and sets global `git config core.longpaths` that the operator's other
+    work may now depend on; nothing here removes them. It writes TWO backup shapes and
+    `normalize-env.py --restore <backup-file>` treats them differently: the `.bash_profile.coordinator-backup.<ts>`
+    leg is copied back automatically, while the `.coordinator-env-backup.<ts>` PATH/pymanager leg
+    only PRINTS the commands to run in your parent shell — you still execute those by hand.
+    Both backup paths are printed at install time.
+29. **`check-gitignore-template-drift` appended rules** — DELIBERATELY-NOT-REVERSED. Report-only
+    by default; only mutates behind explicit `--apply` (appends missing `.gitignore` rules verbatim
+    from the template) and never runs `git rm --cached` itself. An appended ignore rule is not
+    something uninstall retracts.
 
 ## Uninstall boundary
 

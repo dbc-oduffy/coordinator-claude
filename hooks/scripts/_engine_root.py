@@ -631,6 +631,34 @@ def _resolve_published_engine() -> str | None:
     a resolved engine. No other rung in this module performs it — the other
     rungs resolve a checkout the caller already knows how to fail on.
 
+    **Stamp gate (2026-08-29).** The engine plane's own dispatch axis now
+    treats "an engine root is a stamped build" as load-bearing, not merely
+    measured — a directory only counts as a resolvable engine when it
+    carries a valid `coordinator_core/_engine_stamp`
+    (`docs/plans/2026-08-19-an-engine-root-is-a-stamped-build.md` § C2/C4 on
+    their side; `coordinator_core.warm.engine_root.is_engine_root` is their
+    canonical predicate). This module cannot import that predicate — it
+    must not import `coordinator_core` at all (module docstring) — so the
+    check is reimplemented locally, at the SAME validity bar their
+    predicate uses (readable and non-empty, not merely present: a partial
+    write can leave a zero-byte file behind) rather than the cheaper bare
+    `isfile` their own bootstrap hot-path (`engine_bootstrap.py` rung 1.5)
+    accepts for its own, differently-costed reason. This is the ONLY rung
+    in this module that resolves `RESOLUTION_RESOLVED_ENGINE` — see
+    `resolve_claude_klabauter_root_with_provenance`'s ladder, every one of whose
+    published-engine returns flows through this function's `root` — so
+    gating here alone makes "no unstamped tree is ever the resolved engine"
+    true on this ladder too, matching the reciprocal heads-up this
+    responds to (`cross-repo/inbox/2026-08-19-claude-klabauter-em-engine-
+    root-ladder-coupling-heads-up.md`).
+
+    Per-call cost: one additional `Path.read_bytes()` on a single-line file
+    (the stamp is `sha:<sha>\n`, a few dozen bytes) — one more syscall on
+    top of the two `is_dir()` checks this rung already pays, on the hot
+    path this rung reaches only when a published engine is registered at
+    all (most machines never reach this rung — see `resolve_claude_klabauter_root_
+    with_provenance`'s own cost framing for the rungs ahead of this one).
+
     Zero-spawn, fail-open, never raises — any registry-read or filesystem
     exception yields `None`, same contract as every other rung in this
     module.
@@ -644,6 +672,12 @@ def _resolve_published_engine() -> str | None:
         if not root_path.is_dir():
             return None
         if not (root_path / "coordinator_core").is_dir():
+            return None
+        try:
+            stamp_bytes = (root_path / "coordinator_core" / "_engine_stamp").read_bytes()
+        except OSError:
+            return None
+        if not stamp_bytes:
             return None
         return root
     except Exception:
@@ -1241,6 +1275,156 @@ def arm_lazy_ops() -> None:
     import sys
 
     sys._coordinator_core_lazy_ops = True  # type: ignore[attr-defined]
+
+
+def place_engine_root_on_path(root: str) -> str:
+    """Put the resolved engine `root` on `sys.path` where it can actually win,
+    WITHOUT displacing the hooks dir from index 0. Returns `root` unchanged so a
+    caller can end on `return place_engine_root_on_path(root)`.
+
+    This is the one primitive every hook uses to reach the engine; do not
+    hand-roll the placement at a call site.
+
+    **Why not `sys.path.append`, which the runner contract used to mandate.**
+    The contract's requirement is that the hooks dir stay AHEAD of the engine
+    root, so a module-NAME collision resolves toward the doctrine-plane-local
+    helper. Appending satisfies that and nothing else: it puts the root at the
+    END of `sys.path`, behind site-packages, and therefore behind an editable
+    install of the engine (`__editable__.coordinator_core-*.pth` naming the
+    WORKING TREE). On such a box the resolver answers the published mirror and
+    the import returns the working tree -- in a clean process, every time, with
+    nothing else having run. Append cannot lose to a late import because it has
+    already lost to site-packages.
+
+    Index 1 satisfies the contract's ACTUAL requirement and outranks
+    site-packages: hooks dir at 0, engine root at 1. When the hooks dir is not
+    at index 0 (a caller that resolved the engine before its own
+    self-resolution), the root goes to index 0 -- being outranked by
+    site-packages is the failure this exists to prevent, and there is no
+    collision to lose because the hooks dir is not competing yet.
+
+    Idempotent: a root already at index 0 or 1 is left alone. A root elsewhere
+    on `sys.path` -- e.g. appended by an older caller in the same process -- is
+    MOVED, because leaving it where it cannot win is the whole defect.
+
+    Never raises: `sys.path` manipulation cannot fail, and a falsy root is a
+    no-op returning what it was given.
+
+    Placement is necessary, not sufficient -- it loses to a module cache already
+    bound by an earlier bare import. Confirm the outcome with
+    `engine_import_provenance()`; see
+    [[A-FRONT-INSERTED-ENGINE-ROOT-LOSES-TO-THE-MODULE-CACHE]].
+    """
+    import sys
+
+    if not root:
+        return root
+
+    hooks_dir = str(Path(__file__).resolve().parent)
+    target = 1 if (sys.path and sys.path[0] == hooks_dir) else 0
+
+    if root in sys.path[:2]:
+        return root
+    while root in sys.path:
+        sys.path.remove(root)
+    sys.path.insert(target, root)
+    return root
+
+
+PROVENANCE_UNIMPORTED = "unimported"
+PROVENANCE_MATCH = "match"
+PROVENANCE_DIVERGENT = "divergent"
+PROVENANCE_UNRESOLVED = "unresolved"
+
+
+def engine_import_provenance() -> tuple[str, str | None, str | None]:
+    """Where the ALREADY-IMPORTED `coordinator_core` actually came from,
+    against the root this module resolves. Returns
+    `(verdict, imported_file, engine_root)` where verdict is one of
+    `PROVENANCE_UNIMPORTED` / `PROVENANCE_MATCH` / `PROVENANCE_DIVERGENT` /
+    `PROVENANCE_UNRESOLVED`.
+
+    Why this is not redundant with `sys.path.insert(0, root)`. Front-inserting
+    the resolved root is the correct guard and it wins in a clean process, but
+    it is defeated by the module cache: once ANYTHING in the process has done a
+    bare `import coordinator_core`, `sys.modules` is bound and every later
+    insert is a no-op. On a box with an editable install
+    (`site-packages/__editable__.coordinator_core-*.pth` naming the engine's
+    WORKING TREE) that ambient path is on `sys.path` from site init, so the
+    losing case is the default rather than the exception. The insert asserts
+    an intent; this asserts the outcome.
+
+    Negative spec -- what this deliberately does NOT do:
+
+    - It does NOT import `coordinator_core`. A consumer that has not imported
+      the engine gets `PROVENANCE_UNIMPORTED`, never an import as a side
+      effect of asking a question. Calling this on a hot-path hook that never
+      touches the engine must stay free.
+    - It does NOT raise, on any input or any filesystem state. Hooks call it;
+      `UserPromptSubmit` is blocking and a non-zero exit rejects the human's
+      prompt. Every fallible step degrades to `PROVENANCE_UNRESOLVED`.
+    - It does NOT mutate `sys.path` to repair a divergence. By the time this
+      can observe one, the module object is already bound and handed out;
+      re-pathing would produce a second, differently-rooted copy of the same
+      package, which is strictly worse than one wrong copy.
+
+    The failure this exists to make visible is silent, not loud: both trees
+    export the same names, so a consumer reading the wrong one differs only in
+    behaviour or timing that will not reproduce elsewhere -- and can still pass
+    every budget and assertion it is checked against.
+    """
+    try:
+        import sys
+
+        module = sys.modules.get("coordinator_core")
+        if module is None:
+            return (PROVENANCE_UNIMPORTED, None, None)
+
+        imported_file = getattr(module, "__file__", None)
+        if not imported_file:
+            return (PROVENANCE_UNRESOLVED, None, None)
+
+        root = resolve_claude_klabauter_root()
+        if not root:
+            return (PROVENANCE_UNRESOLVED, str(imported_file), None)
+
+        imported_resolved = Path(imported_file).resolve()
+        root_resolved = Path(root).resolve()
+        try:
+            imported_resolved.relative_to(root_resolved)
+        except ValueError:
+            return (PROVENANCE_DIVERGENT, str(imported_resolved), str(root_resolved))
+        return (PROVENANCE_MATCH, str(imported_resolved), str(root_resolved))
+    except Exception as exc:
+        _warn_fail_open("engine_import_provenance", exc)
+        return (PROVENANCE_UNRESOLVED, None, None)
+
+
+def warn_on_engine_import_divergence(where: str) -> str:
+    """Emit ONE stderr line if the imported engine is not the resolved one,
+    and return the verdict. Never raises; safe on a blocking hook.
+
+    Deliberately a warning and not a hard failure at the hook seam: a
+    divergent engine still executes, and converting an observability gap into
+    a prompt rejection trades a silent problem for a louder one the operator
+    did not ask for. Tests are where this verdict is an assertion -- see
+    `coordinator/tests/test_engine_import_provenance.py`.
+    """
+    verdict, imported_file, root = engine_import_provenance()
+    if verdict != PROVENANCE_DIVERGENT:
+        return verdict
+    try:
+        import sys
+
+        sys.stderr.write(
+            f"[_engine_root] engine import divergence in {where}: "
+            f"imported {imported_file!r}, resolved root {root!r} -- "
+            "an earlier bare `import coordinator_core` bound the module cache "
+            "before the front-insert ran\n"
+        )
+    except Exception:
+        pass
+    return verdict
 
 
 if __name__ == "__main__":

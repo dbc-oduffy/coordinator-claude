@@ -698,7 +698,7 @@ def _run_boot_sweep(root: Optional[str]) -> None:
 def _session_reap_due(repo_root: Optional[str]) -> bool:
     """Cheap, zero-subprocess pre-gate over the session.reap op's own 12h cadence marker.
 
-    The op self-gates (claude-klabauter
+    The op self-gates (the engine's
     `coordinator_core/ops/session/reap.py`: `_CADENCE_SECONDS`, `.last-reap`
     mtime persistence) and remains the sole authority on whether a reap
     actually runs. This function exists ONLY to avoid paying a cc_invoke
@@ -730,16 +730,16 @@ def _session_reap_due(repo_root: Optional[str]) -> bool:
 
 
 def _reap_sessions(root: Optional[str]) -> None:
-    """Fourth leg: invoke claude-klabauter's `session.reap` cadence reaper.
+    """Fourth leg: invoke the engine's `session.reap` cadence reaper.
 
     Closes the gap recorded in
     `cross-repo/inbox/2026-08-14-claude-klabauter-em-session-reaper-lost-its-caller.md`:
     the op, its trampoline (`coordinator/bin/reap-sessions.py`) and its
-    sub-reaps are live and tested in claude-klabauter, but the registration that used to
+    sub-reaps are live and tested on the engine side, but the registration that
     reach them went with `session-init.py` in the 2026-07-15 full-kill and was
     never re-homed. `sessionend-archive-session.py` still names this reaper as
     the backstop for the sessions its own fail-open legs miss (crash, kill,
-    unparsable stdin, unresolvable claude-klabauter root), so with no caller that
+    unparsable stdin, unresolvable engine root), so with no caller that
     documented backstop was not running at all.
 
     Cost of the absence, measured rather than argued: `compute_scope`'s Step 3b
@@ -747,7 +747,7 @@ def _reap_sessions(root: Optional[str]) -> None:
     inline on the commit hot path, so unreaped residue is paid by every commit
     of every session on the box -- 203-266 ms process time against a corpus of
     1893 dirs (45 of them live), versus 94-109 ms once reaped. That is a
-    standing breach of claude-klabauter's own "one process over 200 ms needs a fix"
+    standing breach of the engine's own "one process over 200 ms needs a fix"
     brightline, and it rebuilds from zero within days without a cadence caller.
 
     NOT registered as its own `hooks.json` SessionStart entry, for the reasons
@@ -783,8 +783,8 @@ def _reap_sessions(root: Optional[str]) -> None:
     Opt-out: `COORDINATOR_SESSION_REAP_OFF` (any non-empty value).
 
     Spec backlink: cross-repo/inbox/2026-08-14-claude-klabauter-em-session-reaper-lost-its-caller.md
-    Spec backlink: claude-klabauter `coordinator_core/ops/session/reap.py` (op + cadence gate)
-    Spec backlink: claude-klabauter `state/bug-backlog/2026-08-25-compute-scope-costs-219-391ms-on-the-comm-7b3e91d4c2a6.yaml`
+    Spec backlink: engine `coordinator_core/ops/session/reap.py` (op + cadence gate)
+    Spec backlink: engine `state/bug-backlog/2026-08-25-compute-scope-costs-219-391ms-on-the-comm-7b3e91d4c2a6.yaml`
     """
     if os.environ.get("COORDINATOR_SESSION_REAP_OFF"):
         return

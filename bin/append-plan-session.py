@@ -79,8 +79,49 @@ import sys
 
 _BIN_DIR = os.path.dirname(os.path.abspath(__file__))
 
+_BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
+
+
+def _bootstrap_aps() -> None:
+    """Bind `resolve_checked_repo_root` at module scope, guarded so a caller
+    that already set the name on this module (a test's `mock.patch.object`)
+    is never clobbered by a later real import."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
+    global resolve_checked_repo_root
+    if "resolve_checked_repo_root" not in globals():
+        from repo_identity import resolve_checked_repo_root as _rcr
+
+        resolve_checked_repo_root = _rcr
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for `resolve_checked_repo_root`
+    before `main()`/`_resolve_repo_root()` has run -- a test monkeypatching
+    this module -- triggers `_bootstrap_aps()` lazily instead of finding the
+    name absent.
+
+    NEGATIVE SPEC -- `_bootstrap_aps()` guards on the single name's own
+    presence, so this hook never needs a forced re-run: a name missing from
+    `__dict__` is always filled by the plain call above.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_aps()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 def _no_console_creationflags() -> dict:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+
     try:
         from coordinator_core.win_portability import (
             no_console_creationflags as _impl,
@@ -116,7 +157,7 @@ def _resolve_repo_root() -> str | None:
     the bash oracle's `return 1` on the same failure). UNRESOLVED never
     refuses (AC4).
     """
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_aps()
 
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":

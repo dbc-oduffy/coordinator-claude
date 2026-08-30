@@ -94,6 +94,7 @@ def _claude_home() -> str:
     Mirrors coordinator-queue-append._claude_home(). Delegates to
     machine_local_impl_resolve.claude_home() (shared resolver).
     """
+    _bootstrap_imports()
     return _mlir_claude_home()
 
 
@@ -107,6 +108,7 @@ def _machine_local_get(key: str):
     machine_local_impl_resolve.machine_local_impl_path() (shared resolver —
     review: code-reviewer F3, was a hand-rolled duplicate of that ladder).
     """
+    _bootstrap_imports()
     impl = _mlir_machine_local_impl_path(_MACHINE_LOCAL_IMPL_ENV)
     try:
         from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
@@ -136,6 +138,7 @@ def _claude_klabauter_root():
     Mirrors coordinator-queue-append._claude_klabauter_root().
     Spec backlink: pln-stop-the-rot-claude-klabauter-state-home-placement-4cc787 § AC1 / AC13
     """
+    _bootstrap_imports()
     override = (coordinator_engine_root_env(__name__) or "").strip()
     if override:
         return override

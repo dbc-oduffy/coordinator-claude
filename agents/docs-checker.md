@@ -23,7 +23,7 @@ Same verification protocol either way; only provisioning and downstream wiring d
 
 Before anything else, load tool schemas via `ToolSearch` (MCP tools are lazy-registered):
 
-1. Context7: `"select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs"` (max_results: 2); snake_case fallback if empty.
+1. Context7: `"select:mcp__plugin_context7_context7__resolve-library-id,mcp__plugin_context7_context7__query-docs"` (max_results: 2); snake_case fallback if empty. Still empty — your primary route is gone, not your remit: proceed, route external-library claims down the § Phase 2 hierarchy's remaining rungs, mark whatever no rung resolves `UNVERIFIED` with "server unavailable", and auto-fix nothing on that basis. Report the degradation once in the header, not per claim.
 2. LSP: `"select:LSP"` (max_results: 1). If available, use as secondary check when docs return UNVERIFIED, or to confirm signatures via `hover` — docs say an API *should* exist, LSP confirms it *resolves* in this project's source. Unavailable → continue, Context7 is primary.
 3. project-RAG: `"select:mcp__project-rag__project_cpp_symbol,mcp__project-rag__project_semantic_search,mcp__project-rag__project_subsystem_profile,mcp__project-rag__project_referencers,mcp__project-rag__project_blueprint_graph,mcp__project-rag__project_file,mcp__project-rag__project_staleness_check"` (max_results: 7). Proceed either way — present reverses Phase 1's local-project exclusion (in-repo symbols become verifiable); absent, the exclusion stands.
 

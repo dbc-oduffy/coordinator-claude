@@ -364,6 +364,7 @@ _GUARD_TEST_TREE_GIT_FIXTURE_SPAWN = "guard-test-tree-git-fixture-spawn.py"
 _GUARD_PYTHON_SYNTAX_ON_WRITE = "guard-python-syntax-on-write.py"
 _GUARD_DOCTRINE_SURFACE_RATIO = "guard-doctrine-surface-ratio.py"
 _GUARD_POSIX_INVOCATION_DOCTRINE_WRITE = "guard-posix-invocation-doctrine-write.py"
+_GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE = "guard-handoff-summary-cap-on-write.py"
 
 REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
     RegisteredGuard(
@@ -478,6 +479,18 @@ REAL_GUARD_REGISTRY: Tuple[RegisteredGuard, ...] = (
                 "coordinator/commands/",
                 "coordinator/docs/wiki/",
             ),
+        ),
+    ),
+    RegisteredGuard(
+        module_key="guard_handoff_summary_cap_on_write",
+        module_path=str(Path(_HOOKS_DIR) / _GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE),
+        descriptor=GuardScopeDescriptor(
+            guard_module=_GUARD_HANDOFF_SUMMARY_CAP_ON_WRITE,
+            # Real scope (the guard's own `is_in_scope`) is ".md" files
+            # under a `state/handoffs/` directory (live or archived). This
+            # descriptor is exactly that predicate.
+            path_suffixes=frozenset({".md"}),
+            directory_substrings=("state/handoffs/",),
         ),
     ),
 )

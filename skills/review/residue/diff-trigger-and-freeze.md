@@ -13,7 +13,7 @@ order: 10
 
 - Before dispatch, freeze the diff by invoking the claude-klabauter-resident `freeze-review-diff` via the settings-home forwarder — never a hand-typed `git diff > file` payload, and never a hand-rolled claude-klabauter-root resolution ladder:
 
-  `& "$env:COORDINATOR_SETTINGS_HOME\bin\freeze-review-diff.cmd" --range "<scope-appropriate-range>" --slice-id "<slice-id>"`
+  `& "$env:COORDINATOR_SETTINGS_HOME\bin\freeze-review-diff.exe" --range "<scope-appropriate-range>" --slice-id "<slice-id>"`
   (shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown)
 
   The CLI writes `state/review-trail/diffs/<slice-id>.diff` and `<slice-id>.head.sha` and prints the resolved `.diff` path on stdout — capture it as `$DIFF_PATH` and fail loud on non-zero exit rather than dispatching the reviewer over an unfrozen diff. `<slice-id>` — the branch slug, plan stem, or chunk id the dispatch is scoped to.

@@ -329,6 +329,50 @@ def _parse_args(argv):
     }
 
 
+_BOOTSTRAP_NAMES = ("resolve_checked_repo_root",)
+
+
+def _bootstrap_repo_identity() -> None:
+    """Bind `repo_identity.resolve_checked_repo_root` at module scope
+    (C6k import-motion: the module body stays inert on both the warm door
+    and the un-bootstrapped settings-home forwarder load routes). Idempotent
+    by construction: a name already bound (via a prior call, or a test
+    reaching for `mod.resolve_checked_repo_root` ahead of calling
+    `mod._resolve_coordinator_root()`) is left alone rather than clobbered
+    by a real import.
+    """
+    if "resolve_checked_repo_root" in globals():
+        return
+
+    global resolve_checked_repo_root
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from repo_identity import resolve_checked_repo_root
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for `resolve_checked_repo_root`
+    before `main()` has run -- this file's own test suite patches it as a
+    module attribute ahead of calling `mod._resolve_coordinator_root()` --
+    triggers `_bootstrap_repo_identity()` lazily rather than finding the
+    name absent.
+
+    NEGATIVE SPEC -- `_BOOTSTRAP_NAMES` holds exactly one name here, so the
+    sentinel guard in `_bootstrap_repo_identity()` is already an all-names
+    guard; no pop/restore snapshot is needed because there is no OTHER
+    bootstrapped name whose binding could be left partial.
+    """
+    if name in _BOOTSTRAP_NAMES:
+        _bootstrap_repo_identity()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _resolve_coordinator_root():
     """Mirror the bash oracle's COORDINATOR_ROOT resolution + mismatch warning.
 
@@ -352,8 +396,7 @@ def _resolve_coordinator_root():
     call. Gating a cwd-derived MISMATCH before the override was even read
     defeated the override's whole purpose.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_repo_identity()
 
     override = os.environ.get("COORDINATOR_ROOT", "")
     warn_suppress = os.environ.get("COORDINATOR_ROOT_WARN_SUPPRESS", "") == "1"

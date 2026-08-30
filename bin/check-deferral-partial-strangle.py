@@ -89,6 +89,7 @@ def _fetch_result() -> dict:
         result = envelope.get("result", {})
         return result if isinstance(result, dict) else {}
 
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _resolve_claude_klabauter_root, cc_invoke  # noqa: E402
 
     try:

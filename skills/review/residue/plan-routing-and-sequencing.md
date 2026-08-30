@@ -21,9 +21,6 @@ order: 6
 - _PM has explicitly waived review on a non-trivial plan?_ ("ship it", "skip review", "straight to execution")
   → Exit; this skill does not run. Log the waiver in the plan frontmatter (`review: skipped per PM direction YYYY-MM-DD`).
 
-_See `coordinator/snippets/em-operating-doctrine.md` § How to Dispatch — `/staff-session` is PM-gated; ask first._
+_See `${CLAUDE_PLUGIN_ROOT}/snippets/em-operating-doctrine.md` § How to Dispatch — `/staff-session` is PM-gated; ask first._
 
-**Sequencing (HARD RULE):**
-- Default → sequential. Integrate Reviewer 1's findings via `coordinator:review-integrator` BEFORE dispatching Reviewer 2.
-- The merge-gate parallel-review carve-out does NOT apply to plan reviews — plans are never parallelized.
-- _See `coordinator/skills/review/SKILL.md` § A.3 — Sequencing._
+**Sequencing (HARD RULE):** `coordinator/skills/review/SKILL.md` § A.3 governs unchanged — sequential, and the merge-gate parallel carve-out never reaches a plan review.

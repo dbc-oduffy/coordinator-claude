@@ -74,10 +74,25 @@ def __getattr__(name: str):
     module global at import time. Only fires when the name is NOT already
     present in this module's `__dict__` -- once `_bootstrap_imports()` has
     run once (via this hook or via `main()`), the plain global wins on every
-    later lookup and this function is not called again for that name."""
+    later lookup and this function is not called again for that name.
+
+    NEGATIVE SPEC -- the bootstrap guard checks ALL of `_BOOTSTRAP_NAMES`,
+    not a single sentinel: `mock.patch.object`/`monkeypatch.setattr` reading
+    one name through this hook and `delattr`ing it on exit (rather than
+    restoring it) is exactly the case the all-names guard covers -- a name
+    absent from `__dict__` means `_bootstrap_imports()` re-runs. The re-run
+    publishes each freshly-imported name via `globals().setdefault(...)`, so
+    it rebinds exactly what is missing and leaves any OTHER already-present
+    bootstrapped name untouched. No pop/restore snapshot is needed because a
+    partially-bound state is never mistaken for a fully-bound one."""
     if name in _BOOTSTRAP_NAMES:
         _bootstrap_imports()
-        return globals()[name]
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -91,21 +106,26 @@ def _bootstrap_imports() -> None:
     `monkeypatch.setattr(mod, "resolve_checked_repo_root", ...)` ahead of
     calling `main()`) is left alone rather than clobbered by a real import.
     """
-    if "resolve_checked_repo_root" in globals():
+    if all(n in globals() for n in _BOOTSTRAP_NAMES):
         return
-
-    global resolve_checked_repo_root, survey, apply_dispositions
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import ensure_engine_on_path
-    from repo_identity import resolve_checked_repo_root
+    from repo_identity import resolve_checked_repo_root as _rccr
 
     ensure_engine_on_path(__file__)
 
     from coordinator_core.ops.reap_in_flight_claims import (
-        apply_dispositions,
-        survey,
+        apply_dispositions as _apply_dispositions,
+        survey as _survey,
     )
+
+    for _name, _value in (
+        ("resolve_checked_repo_root", _rccr),
+        ("survey", _survey),
+        ("apply_dispositions", _apply_dispositions),
+    ):
+        globals().setdefault(_name, _value)
 
 HELP_TEXT = """\
 reap-orphaned-in-flight-handoffs — release crash-orphaned in_flight handoff
@@ -155,7 +175,7 @@ def _parse_args(argv: List[str]) -> "tuple[Optional[dict], Optional[int]]":
     return cfg, None
 
 
-def _resolve_repo_root(explicit_root: Optional[str]) -> Optional[str]:
+def _checked_repo_root(explicit_root: Optional[str]) -> Optional[str]:
     """The checked resolver (repo_identity) — a MISMATCH is advisory only
     (warn to stderr, proceed with the resolved root); UNRESOLVED never
     refuses. An explicit --repo-root bypasses the resolver/gate entirely
@@ -184,7 +204,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if terminal_rc is not None:
         return terminal_rc
 
-    repo_root = _resolve_repo_root(cfg["repo_root"])
+    repo_root = _checked_repo_root(cfg["repo_root"])
     if not repo_root:
         sys.stderr.write(
             f"{SELF_NAME}: cannot resolve git repo root from {os.getcwd()}\n"

@@ -23,37 +23,74 @@ a helper-missing error (exit 127 on every host measured), **not** the `-32006` t
 contract prescribes. A caller written against that contract handles the wrong failure shape. Never
 route a ceremony commit through those launchers.
 
-**The staging property survives; the validation surface did not.**
-`coordinator_core.ops.ceremony.commit_pipeline.run_commit_pipeline` is intact and is the route. But
-the retired op was not a thin wrapper over it — it was 2058 lines with a single call into the
-pipeline, and the other ~2000 were its own: `_reject_sweeping_pathspec`,
-its stale-index, path-shaped-message and directory-expansion
-rejections, and the ledger/declined-paths envelope. None of that moved. **A caller who
-hands the pipeline a sweeping or stale pathspec will not be stopped** — verify the pathspec
-yourself before calling, and anyone rebuilding the op as a wrapper over the pipeline silently drops
-all of it. The pipeline
-is the route — its own docstring is "Run the full stage -> gate -> commit -> [push] critical
-section". It calls `git_native.commit_scoped`, which chooses between the agree-case pathspec form
-and a private-index commit by reading observed index/worktree state, **and** it runs the commit gates.
+**The route is `ceremony.commit_v2`, over `coordinator_core.git.commit.commit_paths`.**
+`run_commit_pipeline` is gone — killed at the process-time bar, not deprecated, so an import of
+`coordinator_core.ops.ceremony.commit_pipeline` raises `ModuleNotFoundError`. Its replacement
+builds a tree from the explicit paths handed to it rather than reading the index, which is what
+makes it incapable of sweeping a peer's staged work.
 
-**Read the gates off source, never off prose** — they are the `*_gate(` calls in
-`run_commit_pipeline`'s own body, in the engine at
-`coordinator_core/ops/ceremony/commit_pipeline.py`. A list here would be a pinned constant
-standing in for a property: right the day written, silent the day a gate is added
-(`A-PINNED-CONSTANT-STANDING-IN-FOR-A-PROPERTY`).
+Parameters: `paths` (repo-relative, list), `message`, `deleted_paths` (list), `prefer_staged`
+(list), `repo` (the repo root — **not** `repo_root`; that keyword raises `TypeError`). At least
+one of `paths` / `deleted_paths` is required. Always pass `blob_fallback=partial(
+hash_worktree_blobs_via_spawn, cwd=<repo root>)` — without it, a path carrying CR bytes under a
+`text`/`text=auto`/`eol=` attribute (also LFS clean-filter paths, unresolved `[attr]` macros)
+raises `FilterUnsupported` and nothing lands. Which files those are is a property of the repo's
+`.gitattributes`, not of the OS: here `* text=auto` with `*.md` unpinned means every markdown
+file refuses on a CRLF checkout, while LF-pinned `.py`/`.json`/`.yaml`/`.sh` pass in process.
+Pass it unconditionally rather than predicting your pathspec's composition.
+
+**A deletion goes in `deleted_paths`, never in `paths`.** A deleted path passed as `paths` reaches
+`commit_paths`' own `read_bytes` and comes back
+`cannot read <path>: [Errno 2] No such file or directory` — which reads as the op being unable to
+commit deletions at all. It can; the parameter is the whole difference.
+
+**The validation surface did not survive, and never lived here.** The retired op was 2058 lines
+with a single call into the pipeline; the other ~2000 were its own `_reject_sweeping_pathspec`,
+its stale-index, path-shaped-message and directory-expansion rejections, and the
+ledger/declined-paths envelope. None of that moved to the replacement either. **A caller who hands
+a sweeping or stale pathspec will not be stopped** — verify the pathspec yourself before calling.
+
+**No gate fires inside a commit any more — deliberately, and it is not a capability loss for
+all four.** `run_commit_pipeline` ran four gates immediately before landing: `deletion_block_gate`,
+`dirty_tree_gate`, `carry_gate`, `op_scope_coverage_gate`. It was killed at the 500ms brightline
+and the replacement runs none of them. That is recorded, not accidental: claude-klabauter
+`docs/plans/2026-08-29-the-push-subsystem-leaves-and-then-the-pipeline-can-go.md` § C4, with the
+exposure tracked at `state/bug-backlog/2026-08-29-the-commit-v2-route-runs-none-of-the-fou-3e8811d511b7.yaml`.
+
+**Unwired is not absent, and the difference decides what you do about it.** Two of the four keep a
+standalone route you can run by hand:
+
+- `deletion_block_gate` — live via `commit_gates.main()`, reached by
+  `coordinator/bin/check-workstream-complete-deletion-blocks`. The Step-2.67 Kept/Deleted claim
+  check still exists; it just no longer fires automatically inside your commit.
+- `carry_gate` — live via `baton_assemble/apply.py`'s `_dispatch_handoff_carry_gate` (over the
+  PREDECESSOR's array only) and the standalone `coordinator/bin/handoff-carry-gate` CLI.
+- `dirty_tree_gate` — **no caller anywhere.** Nothing imports it, no CLI reaches it, only its own
+  tests. `commit_paths` building its tree from explicit paths subsumes part of what it protected,
+  which is likely why it went quietly.
+- `op_scope_coverage_gate` — in `commit_gates.py`, with no in-commit caller.
+
+So: **verifying the pathspec yourself is the only automatic check on a commit today**, and the two
+standalone gates above are opt-in — run them when the commit warrants it. Do not reinstate the
+gates inline on your own initiative: they were dropped for measured process cost, and the tracked
+proposal is a spike measuring each in-process before choosing a shape. Read the live state off
+source rather than this list — `grep -n "_gate(" coordinator_core/ops/ceremony/commit_v2.py
+coordinator_core/git/commit.py`, and `commit_gates.py`'s own module docstring, which now opens
+with why it has no in-commit caller. A list of gate names here is a pinned constant standing in
+for a property (`A-PINNED-CONSTANT-STANDING-IN-FOR-A-PROPERTY`) — which is exactly how the earlier
+text came to promise gates that no longer run.
 
 
-Calling `commit_scoped` directly gets you the staging safety and **silently skips every one**. The
-failure is quiet and shaped like success, so it will not announce itself: a commit that removes a
-path bypasses `deletion_block_gate`, the gate built to adjudicate exactly that. If you have a
-named reason to call `commit_scoped` anyway, invoke the gates you need in-process and **say which
-you skipped and why in the commit message** — a skipped gate is a recorded decision, never a
-silent consequence of picking the cheaper call. That choice is the whole point on a tree shared with a dozen live peers —
+`deletion_block_gate` was the gate built to adjudicate a commit that removes a path, and it no
+longer runs on any route — so a deletion is now adjudicated by the caller's own pathspec check
+and nothing else. If you invoke a gate in-process for a reason, **say which and why in the commit
+message**; a gate is a recorded decision, never a silent consequence of which call you picked.
+Pathspec discipline is the whole point on a tree shared with a dozen live peers —
 a hand-written `git commit -m <subj> -- <paths>` reads the **worktree** for the named paths and
 silently discards your staging, which is the recurring incident this machinery exists to prevent
 (tripwire `OFFER-PATHSPEC-DIVERGENCE`).
 
-**So: no hand-rolled equivalent.** If you cannot dispatch, call `run_commit_pipeline` — not
+**So: no hand-rolled equivalent.** If you cannot dispatch, invoke `ceremony.commit_v2` — not
 `commit_scoped`, not a reconstruction of its horn-picking, and never a bare `git commit`, which
 commits the whole shared index including a peer's staged work.
 

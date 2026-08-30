@@ -117,6 +117,71 @@ import tempfile
 
 GENERATES = []  # writes only a NamedTemporaryFile params payload (deleted after the subprocess call) and prints to stdout — the goal.append write itself happens inside the dispatched coordinator_core.invoke subprocess, not this trampoline
 
+_BOOTSTRAPPED_NAMES = (
+    "resolve_checked_repo_root",
+    "_op_timeout_ceiling",
+    "_resolve_claude_klabauter_root",
+    "_timeout_exceeded_message",
+)
+
+
+def _bootstrap_age() -> None:
+    """Bind the deferred cc_invoke/repo_identity names this module's own
+    functions read as globals, each guarded independently so a caller (a
+    test's `mock.patch.object`/plain assignment ahead of `main()`) that has
+    already set one of these names on the module is never clobbered by a
+    later real import -- only a name still absent from `__dict__` is bound.
+    """
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
+    global resolve_checked_repo_root
+    if "resolve_checked_repo_root" not in globals():
+        from repo_identity import resolve_checked_repo_root as _rcr
+
+        resolve_checked_repo_root = _rcr
+
+    global _op_timeout_ceiling, _resolve_claude_klabauter_root, _timeout_exceeded_message
+    if (
+        "_op_timeout_ceiling" not in globals()
+        or "_resolve_claude_klabauter_root" not in globals()
+        or "_timeout_exceeded_message" not in globals()
+    ):
+        from cc_invoke import (
+            _op_timeout_ceiling as _otc,
+            _resolve_claude_klabauter_root as _rmr,
+            _timeout_exceeded_message as _tem,
+        )
+
+        if "_op_timeout_ceiling" not in globals():
+            _op_timeout_ceiling = _otc
+        if "_resolve_claude_klabauter_root" not in globals():
+            _resolve_claude_klabauter_root = _rmr
+        if "_timeout_exceeded_message" not in globals():
+            _timeout_exceeded_message = _tem
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for one of `_BOOTSTRAPPED_NAMES`
+    before `main()`/`_cc_invoke_bare()` has run -- a test monkeypatching this
+    module, or any consumer importing it rather than executing it -- triggers
+    `_bootstrap_age()` lazily instead of finding the name absent.
+
+    NEGATIVE SPEC -- `_bootstrap_age()` guards each name independently (no
+    single flag/sentinel), so this hook never needs a forced re-run: a name
+    missing from `__dict__` is always filled by the plain call above, and a
+    name a caller already set (test stub, `mock.patch.object`) is never
+    clobbered by it.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_age()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[str, object]:
     """Spawn coordinator_core.invoke in --bare mode and return the bare result dict.
@@ -133,7 +198,7 @@ def _cc_invoke_bare(op: str, params: dict[str, object], repo_root: str) -> dict[
     own `_op_timeout_ceiling`/`_timeout_exceeded_message` (not re-derived here) — see
     Review note on the except-branch below.
     """
-    from cc_invoke import _op_timeout_ceiling, _resolve_claude_klabauter_root, _timeout_exceeded_message
+    _bootstrap_age()
 
     claude_klabauter_root = _resolve_claude_klabauter_root()
 
@@ -397,7 +462,7 @@ def _resolve_repo_root() -> str:
     UNRESOLVED verdict NEVER refuses (AC4) -- it just means the check could
     not run; the resolved root (or lack thereof) is still honored below.
     """
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_age()
 
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":

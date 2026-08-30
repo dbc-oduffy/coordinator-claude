@@ -120,10 +120,25 @@ def __getattr__(name: str):
     time. Only fires when the name is NOT already present in this module's
     `__dict__` -- once `_bootstrap_imports()` has run once (via this hook or
     via `main()`), the plain global wins on every later lookup and this
-    function is not called again for that name."""
+    function is not called again for that name.
+
+    NEGATIVE SPEC -- the bootstrap guard checks ALL of `_BOOTSTRAP_NAMES`,
+    not a single sentinel: `mock.patch.object` teardown, which `delattr`s
+    rather than restoring and then probes via `hasattr`, is exactly the case
+    the all-names guard covers -- a name absent from `__dict__` means
+    `_bootstrap_imports()` re-runs. The re-run publishes each
+    freshly-imported name via `globals().setdefault(...)`, so it rebinds
+    exactly what is missing and leaves any OTHER already-present
+    bootstrapped name untouched. No pop/restore snapshot is needed because a
+    partially-bound state is never mistaken for a fully-bound one."""
     if name in _BOOTSTRAP_NAMES:
         _bootstrap_imports()
-        return globals()[name]
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -136,14 +151,18 @@ def _bootstrap_imports() -> None:
     `mod.cc_invoke` ahead of calling `main()`) is left alone rather than
     clobbered by a real import.
     """
-    if "cc_invoke" in globals():
+    if all(n in globals() for n in _BOOTSTRAP_NAMES):
         return
 
-    global cc_invoke, _resolve_claude_klabauter_root
-
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
-    from cc_invoke import _resolve_claude_klabauter_root
+    import cc_invoke as _cc_invoke
+    from cc_invoke import _resolve_claude_klabauter_root as _resolve_claude_klabauter_root_fn
+
+    for _name, _value in (
+        ("cc_invoke", _cc_invoke),
+        ("_resolve_claude_klabauter_root", _resolve_claude_klabauter_root_fn),
+    ):
+        globals().setdefault(_name, _value)
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -89,6 +89,31 @@ set "_py=__PYTHON_BIN__"
 if "%_py%"=="__PYTHON_BIN__" set "_py="
 if not "%_py%"=="" goto :run_baked
 
+REM INTERPRETER CACHE, tier 1a, ahead of tier 1b above. Per DR-303
+REM (docs/decisions/DR-303-windows-spawn-economics-is-a-fix-not-a-desig.md):
+REM the settings-home cache above can itself be poisoned when a synced
+REM settings-home carries the OTHER machine's resolved path (a Mac-baked or
+REM Dropbox-style shared settings-home). This cache lives under
+REM %LOCALAPPDATA%, which never roams or syncs between machines, so a value
+REM found here is trustworthy on THIS host even when the settings-home tier
+REM is not. Same shared cache file the engine-side launcher family and the
+REM DoE claude-home forwarder use, so a resolution any of them performs
+REM warms this one too. Guarded by if-exist slash non-empty exactly like the
+REM tiers above -- self-heals when the cached path is stale or foreign.
+if not defined LOCALAPPDATA goto :skip_localappdata_read
+set "_cachefile=%LOCALAPPDATA%\coordinator\python-bin-cache.txt"
+if not exist "%_cachefile%" goto :skip_localappdata_read
+set "_cached="
+set /p _cached=<"%_cachefile%"
+if "%_cached%"=="" goto :skip_localappdata_read
+set "_cached=%_cached:"=%"
+set "_cachedtest=%_cached:WindowsApps=%"
+if not "%_cachedtest%"=="%_cached%" goto :skip_localappdata_read
+if not exist "%_cached%" goto :skip_localappdata_read
+set "_py=%_cached%"
+goto :run_baked
+:skip_localappdata_read
+
 if not exist "%_pycache%" goto :probe_path
 set /p _py=<"%_pycache%"
 if "%_py%"=="" goto :probe_path
@@ -118,6 +143,34 @@ REM echo then the redirect, would either capture a trailing space into the cache
 REM path or, when the path ends in a digit, be parsed as a numbered-handle redirect.
 :cache_and_run
 2>nul >"%_pycache%" echo %_py%
+
+REM Persist the resolved interpreter to the %LOCALAPPDATA% cache too (DR-303),
+REM so a future run on THIS host hits tier 1a even if the settings-home tier
+REM above is later poisoned by a sync. Every writer resolves the same _py
+REM value (deterministic per machine), so a write-write race can only ever
+REM race identical content into the target. Written inside a per-writer temp
+REM DIRECTORY (mkdir is atomic, unlike a bare %RANDOM% filename), then moved
+REM into place with move (atomic same-volume rename, never an in-place
+REM write) -- a losing writer's move silently no-ops, no retry needed.
+if not defined LOCALAPPDATA goto :run_baked
+set "_cachedir=%LOCALAPPDATA%\coordinator"
+if exist "%_cachedir%\" goto :cache_write
+mkdir "%_cachedir%" 2>nul
+:cache_write
+set "_tmpdir=%_cachedir%\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"
+2>nul mkdir "%_tmpdir%"
+if not errorlevel 1 goto :cache_write_got_dir
+set "_tmpdir=%_cachedir%\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"
+2>nul mkdir "%_tmpdir%"
+if not errorlevel 1 goto :cache_write_got_dir
+set "_tmpdir=%_cachedir%\python-bin-cache.%RANDOM%%RANDOM%%RANDOM%.tmp"
+2>nul mkdir "%_tmpdir%"
+if errorlevel 1 goto :run_baked
+:cache_write_got_dir
+set "_tmpfile=%_tmpdir%\python-bin-cache.tmp"
+>"%_tmpfile%" echo %_py%
+move /y "%_tmpfile%" "%_cachefile%" >nul 2>nul
+2>nul rd /s /q "%_tmpdir%"
 goto :run_baked
 
 :run_baked

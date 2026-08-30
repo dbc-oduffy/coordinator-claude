@@ -405,6 +405,35 @@ def main() -> int:
                 "cwd": cwd,
             },
         ),
+        # RECEIVER-STATE FOLD -- the SubagentStop half of the producer trigger
+        # the engine's receiver-state sensor has been waiting on. Its Stop half
+        # is `receiver-state-sensor.py`, riding the `stop-dispatch.py` fan-in.
+        # Folded here for the same reason the review mark is: a third
+        # SubagentStop entry in hooks.json would buy a third permanent
+        # interpreter cold start on every subagent stop fleet-wide, where an
+        # extra tuple in this list adds no process at all.
+        #
+        # `agent_transcript_path`, NEVER `transcript_path` -- AC10 above binds
+        # this op exactly as it binds the zero-tool-use op, and for the same
+        # reason: the decoy is the PARENT session's transcript, valid and
+        # tool-call-rich, so reading it would write a confident ladder verdict
+        # about the wrong session rather than failing loudly.
+        #
+        # `pid` is omitted (a stop payload carries none, and this hook's own
+        # pid is not the session's) and `delegation_evidence` is passed false
+        # rather than derived -- the op declines to derive it and the ask to
+        # widen it is out to the engine team. Both dispositions, and why
+        # neither is a design, are in `receiver-state-sensor.py`'s docstring;
+        # the two legs must stay in step, which is why they are pinned to each
+        # other by `test_both_receiver_state_legs_pass_the_same_params`.
+        (
+            "hooks.receiver_state_sensor",
+            {
+                "session_id": session_id,
+                "transcript_path": agent_transcript_path,
+                "delegation_evidence": "false",
+            },
+        ),
     ]
 
     # dispatch_ops_from_hook builds the envelope itself and omits

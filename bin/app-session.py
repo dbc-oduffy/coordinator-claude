@@ -67,6 +67,56 @@ import sys
 _USAGE_FAIL = 2
 _TRANSPORT_FAIL = 3
 
+_BOOTSTRAP_DONE = False
+
+_BOOTSTRAPPED_NAMES = ("cc_invoke",)
+
+
+def _bootstrap_engine() -> None:
+    """Bootstrap `coordinator/bin/lib` onto `sys.path` and bind `cc_invoke`
+    as a module global -- `main()` used to `import cc_invoke` locally,
+    which left it absent from this module's `__dict__` for a test that
+    monkeypatches `_cli_mod.cc_invoke.route` before calling `main()`.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global cc_invoke
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    cc_invoke.ensure_engine_on_path(__file__)
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for `cc_invoke` before `main()` has
+    run -- a test monkeypatching `_cli_mod.cc_invoke` -- triggers
+    `_bootstrap_engine()` lazily instead of finding the name absent.
+
+    NEGATIVE SPEC -- the forced re-run is not belt-and-braces.
+    `_bootstrap_engine()` short-circuits on `_BOOTSTRAP_DONE`, so a name
+    that leaves `__dict__` AFTER the bootstrap has run is never rebound by
+    a plain call. `mock.patch.object` does exactly that: it reads the name
+    through this hook (so the value is not in `__dict__` at enter), sets
+    its mock, and on exit `delattr`s rather than restoring -- then probes
+    `hasattr`, which lands here with the flag already set. Without the
+    reset that probe raises KeyError instead of returning the name.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 _VERBS = {
     "launch": "app_session.launch",
     "census": "app_session.census",
@@ -107,10 +157,7 @@ def _usage(prog: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
-
-    cc_invoke.ensure_engine_on_path(__file__)
+    _bootstrap_engine()
 
     argv = sys.argv[1:] if argv is None else argv
     prog = "app-session"

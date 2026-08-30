@@ -116,6 +116,7 @@ def compose_frontmatter(
     kind: str | None = None,
     scoped_to: dict[str, str] | None = None,
     sent_by: str | None = None,
+    draft: bool = False,
 ) -> str:
     """Compose the YAML frontmatter block for a memo.
 
@@ -178,7 +179,19 @@ def compose_frontmatter(
     today = _today()
     # Canonical terminal status is 'actioned' (open → actioned). 'action_taken'
     # is a grandfathered pre-2026-05-21 value — do not stamp it on new memos.
-    status = "actioned" if self_receipt else "open"
+    # `draft` is the OUTBOX status (2026-08-30): a staged draft under
+    # state/memo-outbox/ that memo.send has not delivered yet. It is a
+    # different lifecycle point from `open` (delivered, awaiting the
+    # receiver) and `actioned` (terminal), and _outbox_frontmatter_rules
+    # REQUIRES it -- a scaffolder emitting `open` produces a file that
+    # validator rejects. `self_receipt` still wins: a self-receipt is
+    # terminal by construction and is never a draft.
+    if self_receipt:
+        status = "actioned"
+    elif draft:
+        status = "draft"
+    else:
+        status = "open"
     # All string values are quoted so '#', leading '[', and trailing-space-before-':'
     # in titles don't truncate via the YAML parser. 'topic' lives in the filename,
     # not the schema — intentionally absent from frontmatter.
@@ -221,6 +234,7 @@ def compose_memo(
     kind: str | None = None,
     scoped_to: dict[str, str] | None = None,
     sent_by: str | None = None,
+    draft: bool = False,
 ) -> str:
     """Compose the full memo document (frontmatter + body).
 
@@ -231,6 +245,7 @@ def compose_memo(
     SEND time, this function only forwards it.
     """
     frontmatter = compose_frontmatter(
+        draft=draft,
         from_id=from_id,
         title=title,
         to=to,

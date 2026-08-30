@@ -45,11 +45,14 @@ Exit codes:
   0 — no drift, uncited-only drift, orphaned-forwarder drift, CONTENT-axis
       drift, or a clean skip (engine root unresolvable) — every case except
       the one below.
-  1 — the cited-but-missing set (forwarder_drift.py's `cited_missing`) is
-      non-empty: at least one settings-home/bin forwarder that a live
-      DoE-claude prompt surface names is missing. Never fires on "could not
-      determine" (AC6) — only on a positively-computed non-empty set. The
-      CONTENT axis never contributes to this exit code (AC7).
+  1 — either CITED population (forwarder_drift.py's `cited_missing` OR
+      `extension_mismatch`) is non-empty: at least one settings-home/bin
+      forwarder that a live DoE-claude prompt surface names is missing
+      (`cited_missing`, NAME axis) or is cited under an extension
+      settings-home/bin did not actually install for that base name
+      (`extension_mismatch`, EXTENSION axis, Windows-only). Never fires on
+      "could not determine" (AC6) — only on a positively-computed non-empty
+      set. The CONTENT axis never contributes to this exit code (AC7).
 
 Spec backlink: cross-repo/inbox/2026-07-23-claude-central-em-claude-klabauter-pickup-assemble-heads-up.md
 Spec backlink: pln-auto-arm-the-dual-boot-for-mak-a41c72 § C2

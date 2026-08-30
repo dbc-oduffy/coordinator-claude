@@ -86,6 +86,7 @@ def _no_console_kw() -> dict:
     window (Review: code-reviewer P2 — matched to the pattern ccbdbecc2 applied
     to sweep-boot.py/standup.py/render-project-tracker/refresh-plugin-live-install.py)."""
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import _resolve_claude_klabauter_root, require_dispatch_engine_on_path
 
         claude_klabauter_root = require_dispatch_engine_on_path()
@@ -157,6 +158,29 @@ this blitz actually produced:
   - A CLAIM ABOUT A SCHEMA the schema itself contradicts -- the claim
     quotes a shape from memory or an older version; the live schema on disk
     disagrees.
+
+Two checks run BEFORE any verdict. A verify pass that skips them does not
+return fewer answers -- it returns confident wrong ones, under the stamp
+that makes a finding trusted:
+  - ALREADY-ANSWERED, NOT JUST ACCURATE. Whether a claim is true and
+    whether its ask is still open are different questions, and the second
+    one decides whether anyone dispatches. Glob BOTH sides' archives --
+    `cross-repo/archive/`, `state/memo-outbox/sent/`, the completions
+    record -- for a later memo, resend, or commit that discharges the ask.
+    An accurate claim whose ask is already discharged is REFUTED for
+    dispatch purposes; name the artifact that closed it.
+  - ABSENCE IS ONLY EVIDENCE FROM THE RIGHT DIRECTORY. Before reporting
+    anything missing, name the directory it would be in if it existed and
+    confirm you looked there. "Not in the peer's `inbox/`" is not "never
+    delivered" -- an actioned memo necessarily LEAVES the inbox, so an
+    inbox-only sweep reads every successful delivery as a loss. Same shape
+    catches a stale directory mistaken for a live queue.
+
+A manifest is a snapshot, not the tree. Peer sessions archive memos mid-run
+on a shared worktree. Before filing a moved or missing memo as a producer
+defect, compare the archival commit timestamp against this manifest's
+assemble time -- earlier means you raced the archive, not that a producer
+dropped anything.
 
 Report: CONFIRMED or REFUTED per finding/route, with your basis, appended as
 a "Verification" section to the same report file at `{report_path}`. Do not
@@ -283,6 +307,7 @@ def _fetch_result(repo_root: str) -> dict:
         result = envelope.get("result", envelope)
         return result if isinstance(result, dict) else {}
 
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _resolve_claude_klabauter_root, cc_invoke  # noqa: E402
 
     try:
@@ -432,6 +457,7 @@ def _resolve_repo_root() -> str:
     if env:
         return env
     try:
+        import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
         from cc_invoke import require_dispatch_engine_on_path
 
         require_dispatch_engine_on_path()

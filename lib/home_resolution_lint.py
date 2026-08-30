@@ -613,16 +613,33 @@ class HomeResolutionLintEngine:
     @staticmethod
     def _contains_userprofile_rung(node: ast.AST) -> bool:
         """Structurally walks `node` for a genuine `environ.get("USERPROFILE",
-        ...)` call, recognising it reached through a wrapping call or a
-        ternary -- the same expression shapes `_contains_path_home_call`
-        recognises for `Path.home()`. Replaces the old raw-source-text
-        `"USERPROFILE" in nearby` window match: a rung must structurally
-        BE (or wrap) a USERPROFILE env read, not merely sit a few lines
-        near one, to exempt a site."""
+        ...)` call, recognising EVERY wrapping shape `_contains_path_home_call`
+        recognises for `Path.home()`: a wrapping call (`str(environ.get(
+        "USERPROFILE"))`), a path-join `BinOp` (`environ.get("USERPROFILE") /
+        ".claude"`, either operand), an attribute chain on top of the call
+        (`environ.get("USERPROFILE").rstrip(...)`), a ternary, and nested
+        combinations. Replaces the old raw-source-text `"USERPROFILE" in
+        nearby` window match: a rung must structurally BE (or wrap) a
+        USERPROFILE env read, not merely sit a few lines near one, to exempt
+        a site.
+
+        The `BinOp`/`Attribute` arms are the parity this docstring always
+        claimed and the body did not carry: a site spelling its USERPROFILE
+        rung as a path-join or a chained call went unrecognised and surfaced
+        as a false-positive `bare_or` violation, while the byte-identical
+        shape around `Path.home()` was accepted by the sibling walker."""
         if HomeResolutionLintEngine._is_environ_get_userprofile(node):
             return True
         if isinstance(node, ast.Call):
+            if HomeResolutionLintEngine._contains_userprofile_rung(node.func):
+                return True
             return any(HomeResolutionLintEngine._contains_userprofile_rung(arg) for arg in node.args)
+        if isinstance(node, ast.Attribute):
+            return HomeResolutionLintEngine._contains_userprofile_rung(node.value)
+        if isinstance(node, ast.BinOp):
+            return HomeResolutionLintEngine._contains_userprofile_rung(
+                node.left
+            ) or HomeResolutionLintEngine._contains_userprofile_rung(node.right)
         if isinstance(node, ast.IfExp):
             return HomeResolutionLintEngine._contains_userprofile_rung(
                 node.body

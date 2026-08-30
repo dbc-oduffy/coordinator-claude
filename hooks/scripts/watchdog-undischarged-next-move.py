@@ -34,7 +34,7 @@ dual-matcher pattern used by `guard-manufactured-blocker.py`'s Stop-only
 sibling registrations elsewhere in `hooks.json`.
 
 EMISSION -- a STATIC seam table (`_SEAM_TABLE` below), never an inference.
-Three obligations:
+Five obligations:
   sizing-routed    opens on Skill(coordinator:sizing); the resolved next
                    action is read off the JUST-WRITTEN sizing object's
                    `route` (via the session's git `touched.txt`, the same
@@ -49,6 +49,14 @@ Three obligations:
                    obligation -- its terminal is an executor dispatch, not
                    review, and that obligation is already covered by
                    sizing-routed opened at sizing time.
+  execute->wave    opens on Skill(coordinator:execute-plan); discharged by
+                   the next Agent dispatch. Needs no sizing object: this
+                   skill's terminal is fixed by the skill itself ("no
+                   per-chunk reviewer gate ... ship Phase N green, dispatch
+                   Phase N+1 immediately, no checkpoint offer"), so a turn
+                   that enters plan execution and ends without dispatching
+                   anything is the undischarged case by construction, with
+                   no route lookup needed to know it.
   review-a1-a2     opens on Skill(coordinator:review); discharged by the
                    next Agent dispatch (the reviewer persona named at A.2
                    varies per review -- the Staff Engineer/the Game Dev Reviewer/the Data Science Reviewer/the Front-End Reviewer/the UX Reviewer/the Director of Engineering --
@@ -56,6 +64,16 @@ Three obligations:
                    module can match against, so discharge is a deliberately
                    broad "any Agent call after Skill(coordinator:review)"
                    rather than a narrower, unverifiable persona match).
+  pickup->next-move
+                   opens on Skill(coordinator:pickup), unconditionally --
+                   pickup is mutually exclusive with sizing, so there is
+                   no sizing object to read a route off, and the whole
+                   lane was invisible while emission required one. Its
+                   terminal is heterogeneous (apply a handoff, dispatch an
+                   executor, mint a successor), so it discharges on ANY
+                   subsequent Skill OR Agent call -- the `Skill|Agent`
+                   wildcard kind, the same "no verifiable identity" logic
+                   as review-a1-a2 widened one step.
 
 ROUTE TERMINALS -- only routes with a machine-resolved next call get an
 obligation opened at all (`_ROUTE_TERMINAL` below): `dispatch`/
@@ -121,6 +139,8 @@ import _next_move_ledger as _ledger  # noqa: E402
 _SEAM_SIZING_ROUTED = "sizing-routed"
 _SEAM_PLAN_REVIEW = "plan->review"
 _SEAM_REVIEW_A1_A2 = "review-a1-a2"
+_SEAM_EXECUTE_WAVE = "execute->wave"
+_SEAM_PICKUP_NEXT_MOVE = "pickup->next-move"
 
 # route -> the literal next_action a routed sizing object machine-resolves.
 # `pm-decision` and `goal-setting` are deliberately absent -- see module
@@ -134,7 +154,17 @@ _ROUTE_TERMINAL = {
 }
 
 _REVIEW_NEXT_ACTION = "Agent(<named Opus reviewer>)"
+_EXECUTE_NEXT_ACTION = "Agent(coordinator:executor)"
 _REVIEW_TERMINAL = "Skill(coordinator:review)"
+
+# The pickup lane's terminal is heterogeneous by construction (apply a
+# handoff, dispatch an executor, mint a successor), so its obligation
+# carries the wildcard call kind below rather than one fixed identity --
+# the same "no verifiable identity to match against" reasoning that makes
+# `review-a1-a2` discharge on any `Agent` call, widened one step to cover
+# `Skill` as well.
+_ANY_CALL_KIND = "Skill|Agent"
+_PICKUP_NEXT_ACTION = "Skill|Agent(the narrated next move)"
 
 _SIZING_PATH_RE = re.compile(r"^state/sizings/[^/]+\.ya?ml$")
 _APPETITE_DIVERGENCE_DETENT = "appetite_exceeded"
@@ -295,6 +325,8 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
     kind, ident = _split_call(next_action)
     if kind is None:
         return False
+    if kind == _ANY_CALL_KIND:
+        return tool_name in ("Skill", "Agent")
     if kind == "Skill":
         if tool_name != "Skill" or not isinstance(tool_input, dict):
             return False
@@ -365,6 +397,18 @@ def _handle_post_tool_use(payload: dict) -> None:
     if skill == "coordinator:review":
         _ledger.open_obligation(
             session_id, _SEAM_REVIEW_A1_A2, _SEAM_REVIEW_A1_A2, _REVIEW_NEXT_ACTION
+        )
+        return
+
+    if skill == "coordinator:pickup":
+        _ledger.open_obligation(
+            session_id, _SEAM_PICKUP_NEXT_MOVE, _SEAM_PICKUP_NEXT_MOVE, _PICKUP_NEXT_ACTION
+        )
+        return
+
+    if skill == "coordinator:execute-plan":
+        _ledger.open_obligation(
+            session_id, _SEAM_EXECUTE_WAVE, _SEAM_EXECUTE_WAVE, _EXECUTE_NEXT_ACTION
         )
         return
 

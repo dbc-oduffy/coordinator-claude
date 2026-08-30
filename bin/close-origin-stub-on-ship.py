@@ -64,6 +64,42 @@ import argparse
 import os
 import sys
 
+_BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
+
+
+def _bootstrap_cos() -> None:
+    """Bind `resolve_checked_repo_root` at module scope, guarded so a caller
+    that already set the name on this module (a test's `mock.patch.object`)
+    is never clobbered by a later real import."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
+    global resolve_checked_repo_root
+    if "resolve_checked_repo_root" not in globals():
+        from repo_identity import resolve_checked_repo_root as _rcr
+
+        resolve_checked_repo_root = _rcr
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for `resolve_checked_repo_root`
+    before `main()`/`_repo_root()` has run -- a test monkeypatching this
+    module -- triggers `_bootstrap_cos()` lazily instead of finding the name
+    absent.
+
+    NEGATIVE SPEC -- `_bootstrap_cos()` guards on the single name's own
+    presence, so this hook never needs a forced re-run: a name missing from
+    `__dict__` is always filled by the plain call above.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_cos()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 def _legacy_fn():
     """Big-bang cutover: no bash fallback. Always raises.
@@ -89,8 +125,7 @@ def _repo_root() -> str:
     refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
     preserving this script's pre-existing best-effort behavior.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_cos()
 
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":

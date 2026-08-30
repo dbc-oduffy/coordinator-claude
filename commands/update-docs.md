@@ -17,7 +17,7 @@ merge urge to the EM instead.
 
 Unless a row below says otherwise: **non-zero exit → surface path+error to PM, don't auto-fix,
 don't abort. Zero/nothing found → no Phase 14 line.** All CLIs run per
-`coordinator/snippets/resolve-coordinator-bin.md` — Shape W (`& "$env:COORDINATOR_SETTINGS_HOME\bin\<name>.cmd"`)
+`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — Shape W (`& "$env:COORDINATOR_SETTINGS_HOME\bin\<name>.exe"`)
 on PowerShell, `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/<name>"` on
 POSIX hosts. Rationale, worked examples, and incident write-ups for any row: wiki.
 

@@ -46,8 +46,12 @@ boundaries: ship Phase N green, dispatch Phase N+1 immediately, no checkpoint of
 1. Read the plan in full.
 2. Unless `/autonomous`: run `pickup-assemble stamp-check <plan-path>` FIRST, before minting —
    minting takes a fresh timestamp when the body sha differs from a prior stamp, so minting first
-   would erase the staleness signal this check exists to catch. FRESH or STALE-bookkeeping (the
-   latter re-stamps via `--append-note`, never `--note`) → proceed; a business-fail of "carries no
+   would erase the staleness signal this check exists to catch. FRESH or STALE-bookkeeping →
+   proceed, and on STALE-bookkeeping proceed **without re-stamping**: the stamp is correct and
+   only ratification fields moved, so a re-stamp writes more of exactly what it just classified
+   as bookkeeping, and advancing `stamp_commit` throws away the accumulated drift a later
+   substantive edit has to stand out against. `stale-bookkeeping` promotes no `d-stamp`
+   directive; UNSTAMPABLE still does, and that one is mechanical. A business-fail of "carries no
    `execution_authorized_sha`" means there is nothing to compare yet → proceed, not a refusal.
    STALE-substantive surfaces the delta and STOPS. THEN mint the record from this invocation:
    `review-exec-auth-stamp authorize-invocation <plan-path> --typed-command /execute-plan
@@ -94,7 +98,7 @@ invisible, per `coordinator-tripwires/plan-status-ladder.md`.
 prescribing EM-sequenced chunk-at-a-time execution, is overridden here: the vehicle follows from
 the classification below, default a background Workflow. Note the override in one line and
 continue — do not ask. A vehicle prohibition traceable to a genuine Workflow-inexpressible shape
-(`docs/wiki/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
+(`${CLAUDE_PLUGIN_ROOT}/docs/wiki/workflow-orchestration.md` § What qualifies as a carve-out) is the one that survives.
 Tripwire: `A-PLAN-DOES-NOT-PICK-THE-EXECUTION-VEHICLE`.
 
 **Classify every chunk pair before dispatching — this decides whether you can run them together:**
@@ -146,9 +150,9 @@ their permissions, costed to their session, completion arriving as a task notifi
 (`{"script": ..., "handle": {...}}`; the handle's `fire_id` is what `workflow.fire_status`
 re-reads). The resulting workflow is native to that child, not to any operator: it runs under the
 child's own `--allowedTools` (no `PowerShell`; denials surface only as `permission_denials` in the
-final JSON envelope, which reads identically to a chunk that made no edit), `claude -p` terminates
-still-running background work at its 600s ceiling, the run cannot be resumed, and the fire log is
-written only at process exit — so a live run and a killed one are indistinguishable through it.
+final JSON envelope, which reads identically to a chunk that made no edit), the run cannot be
+resumed, and the fire log is written only at process exit — so a live run and a killed one are
+indistinguishable through it.
 Correct where no session exists to call the tool, and wrong everywhere a session does.
 
 **There is no hand-dispatch fallback.** If the dispatch refuses — the `Workflow` call, or on the
@@ -295,10 +299,17 @@ commit:**
    (full-plan-shipped), or reports remaining uncommitted chunks and skips the stamp
    (Phase-5-halted). Folding the stamp into your own commit is acceptable — state that you did.
 
-**Offer, phase-aware, never parroted.** Full plan shipped → offer `/workstream-complete`, note
-`/merge-to-main`/`/workday-complete` ship it. Halted on a Phase 5 emergency → do not offer
-`/workstream-complete`; offer resolve-and-resume, `/handoff`, or commit-and-stop. Never
-auto-invoke any of those or `coordinator:finishing-a-development-branch`.
+**Offer, stamp-aware, never parroted.** The branch is whether step 4 stamped `implemented`, never
+how shipped the session feels. Stamped → offer `/workstream-complete`, note
+`/merge-to-main`/`/workday-complete` ship it. Unstamped for **any** reason — Phase 5 halt, open
+spine row, a leg unmet in another repo → do not offer `/workstream-complete`; offer
+resolve-and-resume, `/handoff`, or commit-and-stop. An accurate "partial and honest" report does not
+earn the offer. Never auto-invoke any of those or `coordinator:finishing-a-development-branch`.
+Tripwire: `AN-HONEST-INCOMPLETE-DOES-NOT-EARN-THE-WRAP-OFFER`.
+
+**A cross-repo leg names its failing conjunct, not its repo** — *undeclared*, *unaddressed*, or
+*unanswered* per `coordinator/snippets/cross-repo-block-exchange.md`. Tripwire:
+`A-SENT-MEMO-IS-NOT-AN-EXCHANGE`.
 
 ---
 

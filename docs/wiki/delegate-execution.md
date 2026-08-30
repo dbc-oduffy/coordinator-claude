@@ -333,10 +333,11 @@ From the live bug-blitz smoke run, two defects were discovered in the original d
 2. **Scope sweep** — coordinator-safe-commit consulted touched-files from the long-lived session, absorbing 46 unrelated dirty files from concurrent workstreams.
 
 **Fix pattern (now canonical):** Executors **edit-and-report only** (no self-commit). EM serializes
-commits at wave gate by invoking the `ceremony.scoped_git_commit` op — `worktree_root`, the
-wave's `paths`, and the commit `message` — rather than hand-rolling git. This pattern prevents
-both absorption and scope sweep. The op inherits its underlying commit pipeline's mechanism
-selection (private index when staged content diverges from the worktree, ordinary pathspec
+commits at wave gate by invoking the `ceremony.commit_v2` op — `repo` (the repo root), the
+wave's `paths` (plus `deleted_paths` for removals), and the commit `message` — rather than
+hand-rolling git. This pattern prevents both absorption and scope sweep. The op needs no mechanism
+selection at all: it builds the commit's tree from the named paths and never reads the shared
+index. The older two-horn account below (private index when staged content diverges, ordinary pathspec
 commit when it agrees) rather than the caller having to pick one by hand — see
 `scoped-safety-commits.md § SC-DR-015`.
 

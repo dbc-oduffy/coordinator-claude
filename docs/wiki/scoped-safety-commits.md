@@ -78,7 +78,7 @@ The session directory is created on first touch (or at `/workstream-start`). It 
 │   └── meta.json           # session goal, branch, last-activity, PID
 ```
 
-**Bash tool calls are not tracked by the hook.** Parsing arbitrary shell for write effects is unsound — heredocs, xargs, redirections in subshells, scripts invoking scripts. The mtime fallback (Component 2) is the sole detector for Bash-driven edits. This is intentional; the hook does not maintain a regex catalog of Bash write patterns.
+**Bash tool calls are not tracked by the hook.** Parsing arbitrary shell for write effects is unsound — heredocs, xargs, redirections in subshells, scripts invoking scripts. This is intentional; the hook does not maintain a regex catalog of Bash write patterns. **Nothing detects a Bash write in its place** — always-on adoption of unclaimed dirt is retired (§ Component 2), so the gap is total, named, and closes only at an operator's explicit pathspec (SC-DR-022).
 
 **Negative-spec — this exclusion is about PARSING, never about attribution.** SC-DR-001 rejected shell-parsing on static-analysis grounds alone (see Decision Records). It does not license the inverse reading that some *other* write-time detector would be admissible if only it avoided parsing: no write-time detector attributes soundly either, because a post-hoc mtime or `git status` delta bracketing a Bash call cannot distinguish "my Bash wrote this" from "a live peer wrote it during my Bash call." **The architecture never attributes Bash writes at write time and does not need to** — detection is session-local and post-hoc; *attribution is resolved at read time, by subtraction, biased safe* (Component 2: mtime is included only where no other active session claims the path; Component 3's Foreign-set subtract; `:146`'s named residual). Any future proposal to close a Bash-write gap belongs at the read-time projection, not at the hook matcher.
 
@@ -93,9 +93,11 @@ Release interacts with the Bash-write exclusion above: a path released after a c
 
 The two readers want opposite answers under ambiguity, which is why "was that write mine or a peer's?" never has to be answered.
 
-### 2. mtime Fallback at Commit Time
+### 2. Unclaimed-Dirt Enumeration at Commit Time (the mtime fallback is RETIRED)
 
-At commit time, the helper includes any currently dirty file whose mtime is after `started_at` — but only after cross-session set-subtraction (Component 3). This catches Bash-driven edits the hook missed (build outputs, scripted rewrites, generated files). mtime is additive input to scope computation, not a direct staging list — a file is included from mtime only if no other active session's `touched.txt` claims it.
+**The helper no longer unions mtime-dirty paths into scope, and no read-time mechanism adopts a Bash write on its own.** Always-on adoption of unclaimed dirt was retired on the engine plane; scope is computed from the claim index alone, and a dirty path no session claims is *named*, never staged. Do not rebuild an mtime-style adoption fallback: adopting on recency is the attribution question SC-DR-001's negative-spec and DR-258 both refuse.
+
+What this component still owes, and it is load-bearing: **enumeration**. SC-DR-022 half 1 — the operator's `--include-orphans` remedy for the SC-DR-021 (d2) residual — is safe *only* because the refusal names the candidate paths. A report that folds a session's own shell-written file into an aggregate count leaves the operator with nothing to adopt. An `unclaimed` bucket (dirty, claimed by nobody, listed by path) is therefore doctrine; automatic adoption of that bucket is not.
 
 ### 3. Scoped Commit Helper (`coordinator-safe-commit`)
 
@@ -108,13 +110,13 @@ coordinator engine coordinator/bin/coordinator-safe-commit
 **Scope computation:**
 
 ```
-MY_SCOPE = (touched.txt ∪ mtime_dirty_since_started_at) − ⋃(other_active_sessions.touched.txt)
+MY_SCOPE = touched.txt − ⋃(other_active_sessions.touched.txt)
 ```
 
 The helper:
 - Runs `git add -- <MY_SCOPE>` (explicit pathspec, only this session's files)
 - Commits with the provided subject
-- **Orphan policy:** A file is dirty, no session claims it, mtime > `started_at` → warn: "orphan dirty paths: X, Y — not staged; commit explicitly if yours." Does NOT auto-stage orphans.
+- **Orphan policy:** A file is dirty and no session claims it → warn, naming every such path: "orphan dirty paths: X, Y — not staged; commit explicitly if yours." Does NOT auto-stage orphans, and never adopts on recency.
 - If paths are claimed by another active session's `touched.txt`, logs "skipping X — owned by session B" and continues.
 
 **A large unattributable-file count is expected noise, NEVER a reason to hold your commit.** On a hot shared `work/*` branch, dozens of dirty paths owned by concurrent peers is the normal steady state — 97 files across 11 live sessions, 28+27 growing mid-ceremony, 51 more on another occasion — all observed-normal, not anomalies. The orphan policy above exists precisely so that count cannot reach your commit: orphans are warned, never auto-staged, and sibling-claimed paths are skipped. A scoped `git add -- <your paths> && git commit -- <your paths>` is unaffected by how dirty the rest of the tree is, so **commit your own pathspec regardless** — do not wait for a "quiet window" and do not attempt to disposition peer-owned files. Deferring a finished, scoped commit because the tree looks busy is the commit-hesitancy anti-pattern, and it has real cost: the deferred work is what a crash loses, and a real `--amend`-with-no-pathspec incident (which destroyed a peer session's commit message) began as exactly this hesitation.
@@ -137,7 +139,7 @@ Motivated by TWO distinct failure shapes: (1) a session ran `git add -- <path>` 
 
 **Multi-session overlap on the SAME file is accepted collateral, by explicit PM ruling — not a defect this mechanism solves.** "that's a hazard of a many-EM workflow." This mechanism only prevents the bare-commit-sweep shape and the forgotten-commit shape above; it does not arbitrate two sessions that both legitimately touched one file.
 
-**A separate, narrower hazard exists here, and its population and resolution direction are measured, not assumed (a sibling-repo measurement):** a dirty file with NO `touched.txt` record anywhere is invisible to the exact/broadened choice above (that only governs sub-agent fan-out) — it instead flows through `compute_scope()`'s own pre-existing mtime fallback. Twelve SIGKILL runs measured that the population reaching this path is **not** a crashed peer, contrary to the earlier framing here: a crashed session's `touched.txt` survives process death intact (`locked_write.locked_rmw`'s atomic mkstemp+replace under an `flock` the kernel releases on death — no held handle, no session-end flush needed), and a live peer computing scope over a dead session's files finds them still claimed by that survivor and skips them, never adopts them. What actually flows through the fallback is a healthy, running peer's Bash-mediated or engine write: `track_touched_files` records only `Write`/`Edit`/`MultiEdit`/`NotebookEdit`, so anything landed via Bash, `git apply`, or a script has no session's `touched.txt` entry — the normal path for a large class of writes, not an exceptional one. **The "or the engine itself" clause that previously stood here is stale and is struck:** an engine op routed through the dispatch chokepoint now self-reports the paths it actually wrote, so it *does* record a claim. See § SC-DR-021 for what that producer covers and, more importantly, what it deliberately does not. The resolution direction moved with the measurement: an mtime-only candidate with no owning `touched.txt` record now falls to an `orphans` bucket instead of silently joining the caller's `safe_paths` — an orphan is visible and recoverable, a misattributed commit is silent and corrupts `Session-Id`-trailer-derived coverage/chain-ancestry accounting. Declined paths are logged to the session-end diagnostics sink, bounded, advisory-only, never blocking a commit — this is the same orphan-warned-never-auto-staged pattern the rest of this doctrine already uses, not a new mechanism.
+**A separate, narrower hazard exists here, and its population and resolution direction are measured, not assumed (a sibling-repo measurement):** a dirty file with NO `touched.txt` record anywhere is invisible to the exact/broadened choice above (that only governs sub-agent fan-out) — it instead flowed through `compute_scope()`'s then-existing mtime fallback (since retired — § Component 2). Twelve SIGKILL runs measured that the population reaching this path is **not** a crashed peer, contrary to the earlier framing here: a crashed session's `touched.txt` survives process death intact (`locked_write.locked_rmw`'s atomic mkstemp+replace under an `flock` the kernel releases on death — no held handle, no session-end flush needed), and a live peer computing scope over a dead session's files finds them still claimed by that survivor and skips them, never adopts them. What actually flows through the fallback is a healthy, running peer's Bash-mediated or engine write: `track_touched_files` records only `Write`/`Edit`/`MultiEdit`/`NotebookEdit`, so anything landed via Bash, `git apply`, or a script has no session's `touched.txt` entry — the normal path for a large class of writes, not an exceptional one. **The "or the engine itself" clause that previously stood here is stale and is struck:** an engine op routed through the dispatch chokepoint now self-reports the paths it actually wrote, so it *does* record a claim. See § SC-DR-021 for what that producer covers and, more importantly, what it deliberately does not. The resolution direction moved with the measurement, and then moved again: an unclaimed candidate never joins the caller's `safe_paths`, and `compute_offer`'s `orphans` key is now empty by contract — the dirty view is a separate read. **The unclaimed set is therefore not enumerated anywhere at the offer today** — that enumeration is what § Component 2 still owes, and SC-DR-022 half 1 depends on it — an orphan is visible and recoverable, a misattributed commit is silent and corrupts `Session-Id`-trailer-derived coverage/chain-ancestry accounting. Declined paths are logged to the session-end diagnostics sink, bounded, advisory-only, never blocking a commit — this is the same orphan-warned-never-auto-staged pattern the rest of this doctrine already uses, not a new mechanism.
 
 **Trigger reliability matters as much as the computation.** `/handoff` is a voluntary skill invocation — an EM that never runs it never gets the rescue. The reliable, unattended trigger is a `SessionEnd` hook (fires exactly once, when a session is genuinely over, regardless of whether `/handoff` ran — see the existing `sessionend-archive-session.py` hook for the same-shaped precedent). As of this writing that wiring is NOT yet registered in `coordinator/hooks/hooks.json` — `/handoff` is the only wired consumer. `/workday-complete`, `/workstream-complete`, and `/merge-to-main` are deliberate end-of-work ceremonies an EM chooses to run, not unattended triggers either, so a session that stops without invoking ANY of these currently has no rescue.
 
@@ -234,7 +236,7 @@ The fix was a deterministic gate on the helper, not a doctrine line.
 
 On a PowerShell host (Shape W — see `coordinator/snippets/resolve-coordinator-bin.md`):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --expected-branch <name> "<subject>"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --expected-branch <name> "<subject>"`
 
 The helper aborted before staging on mismatch, printed reflog entries for both current and expected branches, and emitted:
 
@@ -280,7 +282,7 @@ The trailing `-- <paths>` scopes the commit to those paths regardless of index s
 
 PowerShell (Shape W):
 
-    $env:CLAUDE_INVOKING_COMMAND = "workstream-start"; & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --blanket "chore: workstream-start sweep — pre-orientation capture"
+    $env:CLAUDE_INVOKING_COMMAND = "workstream-start"; & "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --blanket "chore: workstream-start sweep — pre-orientation capture"
 
 Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `update-docs`, `relay-protocol`, `distillation`. The helper rejects `--blanket` from all other callers. (`/workday-complete` was removed from the allow-list — it now uses a path-classifier instead of `--blanket`; see § Carve-Outs and Why.)
 
@@ -288,7 +290,7 @@ Only valid when `$CLAUDE_INVOKING_COMMAND` is one of: `workstream-start`, `updat
 
 PowerShell (Shape W):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --scope-from state/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --scope-from state/handoffs/<workstream>/handoff.md "pickup: <workstream> — resume"`
 
 Pulls pathspecs from the handoff frontmatter's `scope:` field. Both bookends (handoff prep, pickup safety commit) use the same declared scope — honest and consistent.
 
@@ -296,7 +298,7 @@ Pulls pathspecs from the handoff frontmatter's `scope:` field. Both bookends (ha
 
 PowerShell (Shape W):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --dry-run "subject"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --dry-run "subject"`
 
 Shows what would be staged and committed. Does not commit. Use to verify scope before important commits.
 
@@ -314,7 +316,7 @@ Bypasses scope guard. Logged to `.git/coordinator-sessions/<id>/overrides.log` f
 
 The following ceremonies use blanket staging by design:
 
-**`/workstream-start`** — fires autonomously ("Do not ask permission") and multiple times per day, so the carve-out's safety does not rest on "concurrent-sweep risk is structurally low, user just initiated the session". The carve-out is safe because **the blanket path subtracts live-sibling-claimed paths by construction**. Before committing, the helper computes a Foreign set — paths claimed by a live sibling session's `touched.txt`, minus the own session's claims, minus agent-claimed paths — and **unstages those paths via `git reset HEAD --`**, leaving them untouched in the sibling's tree. True orphans (dirty files claimed by no live session, mtime > `started_at`) are still captured. The subject (`"chore: workstream-start sweep — pre-orientation capture"`) is honest about the sweep intent.
+**`/workstream-start`** — fires autonomously ("Do not ask permission") and multiple times per day, so the carve-out's safety does not rest on "concurrent-sweep risk is structurally low, user just initiated the session". The carve-out is safe because **the blanket path subtracts live-sibling-claimed paths by construction**. Before committing, the helper computes a Foreign set — paths claimed by a live sibling session's `touched.txt`, minus the own session's claims, minus agent-claimed paths — and **unstages those paths via `git reset HEAD --`**, leaving them untouched in the sibling's tree. True orphans (dirty files claimed by no live session) are reported, not captured. The subject (`"chore: workstream-start sweep — pre-orientation capture"`) is honest about the sweep intent.
 
 In other words: the blanket path does not sweep the whole tree unconditionally — it sweeps (tree minus sibling claims). `/workstream-start`'s autonomy and frequency are safe because the mechanism is **sibling-safe-by-construction**, not because concurrency is rare.
 
@@ -416,17 +418,17 @@ The touch-tracker hook should have caught any `Write` or `Edit` call. Check whet
 
 **"I'm getting a scope warning for a file I touched via Bash"**
 
-Bash edits aren't tracked by the hook — intentionally. They fall to mtime detection at commit time. However, the mtime path cross-subtracts other sessions' touch lists: if another session claims the file in its `touched.txt`, the mtime fallback won't include it in your scope. If the file is genuinely yours and Bash-edited, use `--include-orphans` to claim it:
+Bash edits aren't tracked by the hook — intentionally — and nothing detects them in the hook's place (§ Component 2: the mtime fallback is retired). A Bash-written file is unclaimed by construction; it is *named* in the unclaimed/orphan report, never staged for you. If the file is genuinely yours and Bash-edited, adopt it explicitly with `--include-orphans` (an operator's act, never an agent's — SC-DR-022):
 
 **Preferred — audited, overlap-checked:**
 
 In a single-EM environment (one live session), PowerShell (Shape W):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --include-orphans <path> "subject"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --include-orphans <path> "subject"`
 
 In a concurrent-EM environment (multiple live sessions), combine with `--scope-from`:
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --scope-from <handoff.md> --include-orphans <path> "subject"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --scope-from <handoff.md> --include-orphans <path> "subject"`
 
 The helper resolves the pathspec, checks the runtime overlap gate (first claimant wins), writes
 an audit log at `.git/coordinator-sessions/<id>/orphan-claims.log`, and annotates the file with
@@ -435,21 +437,21 @@ an audit log at `.git/coordinator-sessions/<id>/orphan-claims.log`, and annotate
 **Fallback — when `--include-orphans` is unavailable (older helper version):**
 
     git add <path>
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" "subject"`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" "subject"`
 
 The explicit `git add` preloads the index; the helper proceeds from there. Use this only when
 the `--include-orphans` flag is not yet available — it lacks the overlap gate and audit trail.
 
 **"Helper says scope is empty"**
 
-Your session hasn't touched any files via tracked tools, and mtime fallback found nothing after subtraction. Check:
+Your session hasn't touched any files via tracked tools. Check:
 - Does `.git/coordinator-sessions/<id>/touched.txt` exist? If not, the session directory wasn't initialized — the hook may not have fired yet (first session with no tracked edits).
 - Is the session id resolving correctly? `echo $CLAUDE_CODE_SESSION_ID` (the platform-injected, authoritative source, and the only source — resolution is env-only) — it should match a `.git/coordinator-sessions/<id>/` dir. If it flips between reads, two sessions are live.
-- Did you only make Bash-driven edits? Those fall to mtime — they'll appear if another session doesn't claim them.
+- Did you only make Bash-driven edits? Those are never auto-detected — look for them in the unclaimed/orphan report and adopt them explicitly.
 
 **"I'm on a different branch than my session started on"**
 
-mtime fallback becomes ambiguous across branch switches — "dirty since started_at" mixes pre- and post-checkout state. Commit before `git checkout`. If you're already in this state, use explicit `git add <paths>` to be precise, then commit normally.
+Dirty-tree reporting becomes ambiguous across branch switches — the dirty set mixes pre- and post-checkout state. Commit before `git checkout`. If you're already in this state, use explicit `git add <paths>` to be precise, then commit normally.
 
 **"The helper misidentified my session — it's blocking my files and/or sweeping someone else's"** (inverse failure mode)
 
@@ -740,7 +742,7 @@ The upstream plugin source lives in the doctrine-authoring repo, resolved via th
 
 *Problem:* Should the hook parse Bash tool calls to detect write effects (heredocs, redirections, `tee`, etc.)?
 
-*Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. mtime fallback at commit time is the sole Bash-edit detector. Intentional gap documented here rather than papered over with an unsound heuristic.
+*Decision:* No. Parsing arbitrary shell for write effects is unsound and creates a growing regex catalog with false confidence. The gap is total and named rather than papered over with an unsound heuristic: no write-time detector replaces the parse, and always-on read-time adoption of unclaimed dirt is retired (§ Component 2, SC-DR-022).
 
 *Alternatives considered:* Bash-write heuristic regex (rejected — too many edge cases). Requiring explicit `git add` for all Bash-driven edits (acceptable fallback, documented in Troubleshooting).
 
@@ -971,9 +973,9 @@ Two things about this sequence that are easy to get wrong:
 
 Verified clean on both axes: it neither reads the worktree nor touches the shared index, and it leaves a peer's staged entries and worktree edits exactly as it found them. The agree-case bullet above is unaffected — the ordinary `git add -- <paths> && git commit -- <paths>` remains correct and is still the overwhelmingly common path.
 
-**This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is `ceremony.scoped_git_commit` (`coordinator_core/ops/ceremony/scoped_git_commit.py`): it takes the path set, fails loud on an empty set or a directory pathspec, and computes the branch itself from `diverging_paths()` (`coordinator_core/git/divergence.py`) rather than asking the caller to classify the horn — agree takes `git add -- <paths> && git commit -F <msg> -- <paths>`; diverge takes the private-index sequence above (HEAD captured once, `commit-tree -p <old>`, 4-argument compare-and-swap `update-ref`). **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is not the fallback advice; call the op.
+**This wanted a tool, not a third prose rule — and now has one.** Requiring an operator to hand-assemble a private index mid-commit was the same failure shape SC-DR-015 exists to name: a rule discharged by remembering. The discharge is now `ceremony.commit_v2` (`coordinator_core/git/commit.py` :: `commit_paths`), and it dissolves the horn rather than picking between its sides: it builds the commit's tree from the explicit `paths` it is given (deletions in `deleted_paths`) instead of reading the index at all, so there is no agree-vs-diverge case to compute and no private-index sequence to assemble. `ceremony.scoped_git_commit` and its `diverging_paths()` horn-picking are deleted. **Prefer the op over hand-rolling the recipe.** Where the op isn't reachable, the recipe above is still correct — it's what the op implements — but "not partial-staging on a shared tree" is not the fallback advice; call the op.
 
-**Never resolve this by widening.** `git add -A` / `git add .` remain hard-denied (SC-DR-014's structural floor stands, unchanged). `git commit -a` / `-am` is prohibited too, but by the scoped-commit *form* (SC-DR-008), not by SC-DR-014 — and its enforcement is asymmetric: hard-denied for a dispatched agent (`block_subagent_commit`), advisory-only on the EM path, where `_bt_commit_has_sweep_all_flag` excludes the `-a` family from C7's index probe under PM Ruling 2 of `docs/plans/2026-08-01-advisory-firing-shape-predicate.md` and the check falls back to warning on the full staged set. Prohibited-by-doctrine, advisory-in-enforcement is the actual state; do not read the prohibition as a claim that the EM-path guard denies it. This ruling makes scoped committing *safer*, never optional.
+**Never resolve this by widening.** `git add -A` / `git add .` remain hard-denied (SC-DR-014's structural floor stands, unchanged). `git commit -a` / `-am` is prohibited too, but by the scoped-commit *form* (SC-DR-008), not by SC-DR-014 — and its enforcement is asymmetric: hard-denied for a dispatched agent (`block_subagent_commit`), advisory-only on the EM path, where `_bt_commit_has_sweep_all_flag` excludes the `-a` family from C7's index probe under the advisory-firing-shape ruling and the check falls back to warning on the full staged set. Prohibited-by-doctrine, advisory-in-enforcement is the actual state; do not read the prohibition as a claim that the EM-path guard denies it. This ruling makes scoped committing *safer*, never optional.
 
 **What this supersedes and what it leaves standing.**
 
@@ -1163,8 +1165,8 @@ This is the consuming-side failure mode of the blanket-add hazard catalogued in 
 **Use `--dry-run` whenever the helper is the unit under test.** PowerShell (Shape W — see
 `coordinator/snippets/resolve-coordinator-bin.md`):
 
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --dry-run "subject"`   # shows scope without committing
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.cmd" --dry-run --expected-branch <name> "subject"`  # gate test
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --dry-run "subject"`   # shows scope without committing
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-safe-commit.exe" --dry-run --expected-branch <name> "subject"`  # gate test
 
 The EM is subject to the same eager-helpful failure mode the doctrine attributes to executors. The gate is opt-in by caller; a test invocation IS the happy path and the happy path commits.
 
@@ -1394,8 +1396,7 @@ oracle, and Check 5 (`check_validate_commit`) fires whenever `staged ⊄ MY_SCOP
 foreign paths and the likely owning session.
 
 Run the reported incident against it: the swept paths were claimed in the *waiting* session's
-`touched.txt`, so they are excluded from the sweeper's mtime fallback (Component 2 includes a path
-only where no other active session claims it) and absent from the sweeper's own touch list.
+`touched.txt`, so they are claimed by that session and absent from the sweeper's own touch list.
 `staged ⊄ MY_SCOPE` fires on both absorbing commits, at commit time, before either landed.
 
 > **It warned.** The default posture is warn-only, and the sibling plane has now ratified that it
@@ -1691,8 +1692,9 @@ text is not authorization.
 
 ### Verified properties this ruling rests on
 
-Read from the engine as written, not as assumed (`coordinator_core/ops/ceremony/scoped_git_commit.py`,
-`ops/session/safe_commit_offer.py`, 2026-08-04):
+Read from the engine as written, not as assumed (as of 2026-08-04, against the since-deleted
+`coordinator_core/ops/ceremony/scoped_git_commit.py` and `ops/session/safe_commit_offer.py`; the
+current route is `coordinator_core/git/commit.py` :: `commit_paths`):
 
 - **Adoption never relaxes the live-peer case.** `include_orphans` threads to
   `assert_paths_in_session_scope(allow_orphans=…)`, which denies a live-peer-claimed path

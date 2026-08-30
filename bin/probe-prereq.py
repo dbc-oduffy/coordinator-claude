@@ -104,6 +104,7 @@ def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.Compl
     it. Reason recorded in
     state/audits/2026-08-06-self-spawn-isolation-boundary-classification.md.
     """
+    _ensure_repo_root()
     from coordinator_core.win_portability import no_console_creationflags
 
     try:
@@ -122,6 +123,7 @@ def _run(argv: List[str], *, timeout: float = 10.0) -> Optional[subprocess.Compl
 
 def _cmd_python3(args: argparse.Namespace) -> int:
     del args
+    _ensure_repo_root()
     from coordinator_core.install import prereq_probe
 
     line = prereq_probe.probe_python()
@@ -139,6 +141,7 @@ def _cmd_git_lfs_enable(args: argparse.Namespace) -> int:
     result line below, which callers parse). The install's own return is
     discarded on purpose — `probe_git_lfs()` is the oracle for whether it took.
     """
+    _ensure_repo_root()
     from coordinator_core.install import prereq_probe
 
     if args.check_only:

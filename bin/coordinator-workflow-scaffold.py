@@ -99,22 +99,28 @@ cc_invoke_bare = None  # type: ignore  # bound by _bootstrap_imports()
 is_timeout_error = None  # type: ignore  # bound by _bootstrap_imports()
 none_scoped_repo_refusal = None  # type: ignore  # bound by _bootstrap_imports()
 
-
 def _bootstrap_imports() -> None:
     """Import every non-stdlib dependency this module needs and bind it at
     module scope, called from main() (C6d import-motion: module bodies stay
     inert on both the warm door and the un-bootstrapped settings-home
     forwarder load routes).
+
+    `cc_invoke_bare` alone is guarded on its own current value, rather than
+    a separate done-flag, so a caller's `mod.cc_invoke_bare = stub`
+    monkeypatch set BEFORE the first `main()` call is never clobbered by a
+    same-process bootstrap that runs after it; the other three names carry
+    no test-facing monkeypatch contract and are safe to rebind every call.
     """
     global StructuralPinError, cc_invoke_bare, is_timeout_error, none_scoped_repo_refusal
 
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import (
-        StructuralPinError,
-        cc_invoke_bare,
-        is_timeout_error,
-        none_scoped_repo_refusal,
-    )
+    import cc_invoke as _cc_invoke_mod
+
+    StructuralPinError = _cc_invoke_mod.StructuralPinError
+    is_timeout_error = _cc_invoke_mod.is_timeout_error
+    none_scoped_repo_refusal = _cc_invoke_mod.none_scoped_repo_refusal
+    if cc_invoke_bare is None:
+        cc_invoke_bare = _cc_invoke_mod.cc_invoke_bare
 
 
 class _TransportError(Exception):

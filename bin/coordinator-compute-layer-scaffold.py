@@ -75,6 +75,28 @@ GENERATES = []  # writes only to the caller-supplied --out path (or stdout when 
 
 _PROG = "coordinator-compute-layer-scaffold.py"
 
+StructuralPinError = None  # type: ignore  # bound by _bootstrap_cc_invoke()
+cc_invoke_bare = None  # type: ignore  # bound by _bootstrap_cc_invoke()
+
+
+def _bootstrap_cc_invoke() -> None:
+    """Import `StructuralPinError`/`cc_invoke_bare` and bind them at module
+    scope, called from `_cc_invoke()` (module body stays inert on both the
+    warm door and the un-bootstrapped settings-home forwarder load routes).
+
+    `cc_invoke_bare` alone is guarded on its own current value so a
+    caller's `mod.cc_invoke_bare = stub` monkeypatch set BEFORE the first
+    call is never clobbered by a same-process bootstrap that runs after it.
+    """
+    global StructuralPinError, cc_invoke_bare
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke as _cc_invoke_mod
+
+    StructuralPinError = _cc_invoke_mod.StructuralPinError
+    if cc_invoke_bare is None:
+        cc_invoke_bare = _cc_invoke_mod.cc_invoke_bare
+
 
 class _TransportError(Exception):
     """Raised on a genuine transport/engine failure — timeout, ImportError/
@@ -96,8 +118,7 @@ def _cc_invoke(op: str, params: dict, repo_root: str) -> dict:
     its single RuntimeError-shaped failure surface into this script's own
     _TransportError (exit 3) vs _OpError (exit 2) exit-code contract.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import StructuralPinError, cc_invoke_bare
+    _bootstrap_cc_invoke()
 
     try:
         return cc_invoke_bare(op, params, repo_root)

@@ -47,7 +47,7 @@ session's handoff without an explicit successor link or a named dead-end reason.
 memo to a named receiver — today that means the doctrine-plane→engine-repo pair specifically,
 not a fleet-wide broadcast — the named receiver is still waiting: draft and send that receiver a
 stand-down notice via the settings-home forwarder (Shape W, per
-`snippets/resolve-coordinator-bin.md`) — `& "$env:COORDINATOR_SETTINGS_HOME\bin\cross-repo-memo.cmd"`
+`snippets/resolve-coordinator-bin.md`) — `& "$env:COORDINATOR_SETTINGS_HOME\bin\cross-repo-memo.exe"`
 — before hand-authoring `closed_reason`, so they don't keep waiting on a workstream that already
 ended.
 

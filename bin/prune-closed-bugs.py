@@ -51,6 +51,81 @@ from __future__ import annotations
 import os
 import sys
 
+_BOOTSTRAPPED_NAMES = (
+    "cc_invoke",
+    "RouteMutationError",
+    "is_timeout_error",
+    "route_mutation",
+    "resolve_checked_repo_root",
+)
+
+
+def _bootstrap_pcb() -> None:
+    """Bind the deferred cc_invoke/repo_identity names this module's own
+    functions read as globals, each guarded independently so a caller (this
+    file's own test suite, which does plain `mod.route_mutation =
+    fake_route_mutation` / `mod._resolve_repo_root = fake_resolver`
+    assignments, or `mock.patch.object(mod, "resolve_checked_repo_root",
+    ...)`, ahead of calling `mod.main()`) that has already set one of these
+    names on the module is never clobbered by a later real import -- only a
+    name still absent from `__dict__` is bound. Per-name (not a single
+    flag/sentinel) because a test may stub `route_mutation` while leaving
+    `cc_invoke` for this bootstrap to still provide (`mod.cc_invoke` is read
+    directly by `_install_route()`-shaped test helpers)."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
+    global cc_invoke, RouteMutationError, is_timeout_error, route_mutation
+    if "cc_invoke" not in globals():
+        import cc_invoke as _cc_invoke_mod
+
+        cc_invoke = _cc_invoke_mod
+    if (
+        "RouteMutationError" not in globals()
+        or "is_timeout_error" not in globals()
+        or "route_mutation" not in globals()
+    ):
+        from cc_invoke import (
+            RouteMutationError as _RME,
+            is_timeout_error as _ITE,
+            route_mutation as _RM,
+        )
+
+        if "RouteMutationError" not in globals():
+            RouteMutationError = _RME
+        if "is_timeout_error" not in globals():
+            is_timeout_error = _ITE
+        if "route_mutation" not in globals():
+            route_mutation = _RM
+
+    global resolve_checked_repo_root
+    if "resolve_checked_repo_root" not in globals():
+        from repo_identity import resolve_checked_repo_root as _rcr
+
+        resolve_checked_repo_root = _rcr
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for one of `_BOOTSTRAPPED_NAMES`
+    before `main()`/`_resolve_repo_root()` has run -- a test monkeypatching
+    this module, or any consumer importing it rather than executing it --
+    triggers `_bootstrap_pcb()` lazily instead of finding the name absent.
+
+    NEGATIVE SPEC -- `_bootstrap_pcb()` guards each name independently (no
+    single flag/sentinel), so this hook never needs a forced re-run: a name
+    missing from `__dict__` is always filled by the plain call above, and a
+    name a caller already set (test stub, `mock.patch.object`) is never
+    clobbered by it.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_pcb()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 def _no_fallback() -> None:
     raise RuntimeError(
@@ -66,8 +141,7 @@ def _resolve_repo_root() -> str:
     refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
     preserving this script's pre-existing best-effort behavior.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_pcb()
 
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":
@@ -76,9 +150,7 @@ def _resolve_repo_root() -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
-    from cc_invoke import RouteMutationError, is_timeout_error, route_mutation
+    _bootstrap_pcb()
 
     argv = sys.argv[1:] if argv is None else argv
     dry_run_only = False

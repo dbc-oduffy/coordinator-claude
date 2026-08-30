@@ -227,7 +227,7 @@ The coordinator may request a post-mortem in this format with `Detection: extern
 
 ## RAG-Bait Conventions
 
-Follow `docs/wiki/rag-bait-conventions.md` — purpose docstrings, spec backlinks, negative-spec blocks. Required surfaces, authorial latitude on wording, canonical CONTEXT.md vocabulary only.
+Follow `${CLAUDE_PLUGIN_ROOT}/docs/wiki/rag-bait-conventions.md` — purpose docstrings, spec backlinks, negative-spec blocks. Required surfaces, authorial latitude on wording, canonical CONTEXT.md vocabulary only.
 
 ## Candidate-Restatement Disposition (`change_kind: wiki-append` / `wiki-new`)
 

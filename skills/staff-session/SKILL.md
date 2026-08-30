@@ -64,7 +64,7 @@ explicit override list.
 **Resolve the roster via the CLI, not a hand-maintained table:**
 
 Shape W (rung 0) — ladder and shapes: `snippets/resolve-coordinator-bin.md`.
-    `& "$env:COORDINATOR_SETTINGS_HOME\bin\staff-session-assemble.cmd" --session-mode <plan|review> (--domain-signal "<category>" | --slug <slug> [--slug <slug> ...]) --json`
+    `& "$env:COORDINATOR_SETTINGS_HOME\bin\staff-session-assemble.exe" --session-mode <plan|review> (--domain-signal "<category>" | --slug <slug> [--slug <slug> ...]) --json`
 
 Returns `{personas: [{slug, agent_file, subagent_type}, ...], narration, source}`. Fails loud
 (usage exit) on an unresolvable domain signal, unknown slug, or `the Director of Engineering` as a debater — surface that

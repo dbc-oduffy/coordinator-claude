@@ -1215,6 +1215,85 @@ def _has_var_assignment_indirection(segments: "list[str]") -> bool:
     return False
 
 
+_ASSIGN_NAME_RE = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_]*)=")
+_VAR_DEREF_RE = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
+
+
+def _governed_bound_variables(segments: "list[str]") -> "set[str]":
+    """Variable names bound to a governed path, following aliases.
+
+    ``p=CLAUDE.md`` binds ``p`` directly; ``q=$p`` then binds ``q`` too. The
+    fixed-point loop is bounded (an alias chain longer than the segment count
+    cannot exist) so a pathological command cannot spin here."""
+    bound: "set[str]" = set()
+    for _ in range(len(segments) + 1):
+        changed = False
+        for segment in segments:
+            match = _ASSIGN_NAME_RE.match(segment)
+            if not match:
+                continue
+            name = match.group(1)
+            if name in bound:
+                continue
+            value = segment[match.end() :]
+            if _mentions_governed_identifier(segment) or any(
+                deref in bound for deref in _VAR_DEREF_RE.findall(value)
+            ):
+                bound.add(name)
+                changed = True
+        if not changed:
+            break
+    return bound
+
+
+def _assignment_indirection_reaches_a_write(segments: "list[str]") -> bool:
+    """Point 4's by-SINK narrowing -- MEASURED FALSE POSITIVE FIX.
+
+    Point 4 denied on "some segment assigns a governed path to a variable"
+    AND "a write marker exists ANYWHERE in the whole command". The second
+    conjunct never asked what the write actually TARGETS, so a command that
+    merely READS the governed file through the variable and writes somewhere
+    unrelated was denied. Reproduced independently by two sessions in one day
+    (2026-08-28), minimal pair, the only difference being the assignment:
+
+        p=<governed> ; cat $p ; echo x > /tmp/probe.txt   -> denied (wrong)
+        cat <governed> ;        echo x > /tmp/probe.txt   -> allowed
+
+    This mirrors, for point 4, exactly the narrowing
+    ``_has_write_marker_for_point3`` already applies to point 3: a REDIRECT
+    counts as evidence of a governed write only when its own target names one
+    -- here, when the target dereferences a variable bound to a governed path
+    (``> $p``, ``> "${p}"``) or names a governed identifier outright.
+
+    FAIL-CLOSED EVERYWHERE ELSE, deliberately. Only the plain-redirect shape
+    is analysable by target token. A segment carrying any OTHER write marker
+    (``tee``, ``cp``/``mv``, ``sed -i``, an interpreter payload, ``xargs``)
+    keeps point 4's original broad behaviour, because this hook cannot cheaply
+    tell ``tee $p`` from ``tee /tmp/x``. Narrowing those needs argument
+    parsing per marker family; it is not attempted here, and a future
+    narrowing must add them one measured family at a time.
+    """
+    bound = _governed_bound_variables(segments)
+    for segment in segments:
+        if not _has_write_marker(segment):
+            continue
+        if not _has_redirect_marker(segment):
+            return True  # unanalysable marker family -- fail closed
+        without_redirect = _BARE_REDIRECT_RE.sub(
+            " ", _SAFE_REDIRECT_RE.sub(" ", segment)
+        )
+        if _has_write_marker(without_redirect):
+            return True  # a second, unanalysable marker rides along
+        target = _redirect_target_token(segment)
+        if not target:
+            return True  # cannot resolve the destination -- fail closed
+        if _mentions_governed_identifier(target):
+            return True
+        if any(deref in bound for deref in _VAR_DEREF_RE.findall(target)):
+            return True
+    return False
+
+
 def _has_xargs_pipe_indirection(segments: "list[str]") -> bool:
     """Point 10 (new) -- Review: security-audit-worker, "critical" finding,
     genuinely new root cause distinct from the command-substitution/quote
@@ -1257,6 +1336,100 @@ _OS_EXEC_RE = re.compile(
 
 def _has_os_exec_marker(text: str) -> bool:
     return bool(_OS_EXEC_RE.search(text))
+
+
+#: The one write shape whose sink is analysable inside an interpreter payload:
+#: a write-mode ``open(<literal>, ...)``. Everything else -- every other marker
+#: family, a non-literal path, a ``.write*`` not chained directly onto such an
+#: open -- keeps the segment unanalysable and fails closed. See
+#: ``_interpreter_write_sinks_are_ungoverned`` for why the analysable set is
+#: this small and must stay so.
+_OPEN_CALL_RE = re.compile(r"\bopen\s*\(")
+_WRITE_MODE_RE = re.compile(r"['\"][^'\"]*[wax][^'\"]*['\"]")
+_LITERAL_FIRST_ARG_RE = re.compile(r"\A\s*(['\"])(?P<path>[^'\"]*)\1\s*(?:,|\Z)")
+_TRAILING_WRITE_CALL_RE = re.compile(r"\A\s*\.\s*write(?:_text|_bytes)?\s*\(")
+
+
+def _open_call_spans(segment: str) -> "list[tuple[int, int, str]]":
+    """Every ``open(`` call in ``segment`` as ``(start, end, args)``, where
+    ``end`` is one past the call's matching close paren and ``args`` is the
+    raw argument text. Depth-counted rather than regex-matched: an argument
+    list can itself contain parens (``open(str(p), 'w')``), and a regex that
+    stops at the first ``)`` would truncate the mode and read a write as a
+    read. A call whose paren never closes is skipped, so a truncated payload
+    contributes no analysable span and the caller falls back to closed."""
+    spans: "list[tuple[int, int, str]]" = []
+    for match in _OPEN_CALL_RE.finditer(segment):
+        depth = 0
+        i = match.end() - 1
+        while i < len(segment):
+            if segment[i] == "(":
+                depth += 1
+            elif segment[i] == ")":
+                depth -= 1
+                if depth == 0:
+                    spans.append((match.start(), i + 1, segment[match.end():i]))
+                    break
+            i += 1
+    return spans
+
+
+def _interpreter_write_sinks_are_ungoverned(segment: str) -> bool:
+    """True only when EVERY write in an interpreter payload is an analysable
+    literal-path ``open()`` in a write mode and none of those paths names a
+    governed surface.
+
+    PORTED FROM THE ENGINE, deliberately, replacing a wider local attempt.
+    This file is the doctrine-plane reference for
+    ``coordinator_core.bash_guards.guard_doctrine_surface_bash_write``, which
+    is the registered implementation; the two must not answer the same
+    question differently.
+
+    The earlier local version tried to resolve each write's sink through
+    payload variable bindings and a chained-receiver walk -- effectively
+    dataflow over unparsed interpreter text, which module docstring point 5
+    exists to forbid. Review found five holes across two rounds, three of
+    them regressions that OPENED governed writes the pre-narrowing code had
+    denied: a trailing reassignment defeated last-write-wins binding
+    (``p='<gov>'; open(p,'w').write('x'); p='/tmp/safe'``), ``os.write`` was
+    read as a benign handle call, and Ruby's ``File.write('<gov>', ...)``
+    class method was mistaken for a file handle. Analysing less is what makes
+    this sound: no bindings, no receiver walk, no dataflow.
+
+    FAIL-CLOSED EVERYWHERE ELSE. Only the adjacent
+    ``open(<literal>, <write mode>)`` shape -- optionally chained into
+    ``.write()``/``.write_text()``/``.write_bytes()`` -- is analysed. A
+    write-mode ``open()`` whose path is not a string literal is unresolvable
+    and declines, as does any write marker left standing once the analysable
+    opens are blanked out: a redirect, ``tee``, ``sed -i``, ``.write_text``
+    on a ``Path``, or ``.write(`` on a name bound earlier. Widening this to a
+    bound file object needs dataflow this guard does not have and must not
+    fake.
+
+    READS ARE NOT SINKS. A read-mode ``open('<governed>')`` is left standing
+    on purpose: reading a governed surface is exactly the shape this
+    narrowing exists to stop denying."""
+    blanked = list(segment)
+    analysable = False
+    for start, end, args in _open_call_spans(segment):
+        if "," not in args or not _WRITE_MODE_RE.search(args[args.find(",") + 1:]):
+            continue  # read-mode open -- not a sink, leave it standing
+        literal = _LITERAL_FIRST_ARG_RE.match(args)
+        if literal is None:
+            return False  # write target is not a literal -- unresolvable
+        if _mentions_governed_identifier(literal.group("path")):
+            return False  # the write names a governed surface
+        analysable = True
+        stop = end
+        chained = _TRAILING_WRITE_CALL_RE.match(segment[end:])
+        if chained is not None:
+            stop = end + chained.end()
+        for i in range(start, stop):
+            blanked[i] = " "
+    if not analysable:
+        return False
+    return not _has_write_marker("".join(blanked))
+
 
 
 def _is_interpreter_read_shape(segment: str) -> bool:
@@ -1324,7 +1497,7 @@ def _is_interpreter_read_shape(segment: str) -> bool:
         return False
     if _python_dash_m_module(segment) is not None:
         return False
-    if _has_write_marker(segment):
+    if _has_write_marker(segment) and not _interpreter_write_sinks_are_ungoverned(segment):
         return False
     if _has_os_exec_marker(segment):
         return False
@@ -1385,7 +1558,9 @@ def is_denied_bash_write(cmd: str) -> bool:
     # dispatch brief's second reproduction.
     stripped_cmd = _strip_heredoc_bodies(cmd)
     stripped_segments = _split_top_level_segments(stripped_cmd)
-    if _has_var_assignment_indirection(stripped_segments) and _has_write_marker(stripped_cmd):
+    if _has_var_assignment_indirection(
+        stripped_segments
+    ) and _assignment_indirection_reaches_a_write(stripped_segments):
         return True
 
     # Point 4's companion for the one case the strip above cannot cover: a

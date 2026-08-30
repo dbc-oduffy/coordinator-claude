@@ -18,7 +18,8 @@ Spec backlink: pln-queue-triage-terminus-ops-clus-043c40 § C7
 
 A third leg, `age-ping` (`queue.age_ping`), was deleted 2026-08-27 under the
 brightline kill bar — it cost ~425-465ms of process time per dispatch and had
-no live caller. See docs/gravestones/queue-age-ping.md.
+no live caller. See `state/kill-ledger.md` § K-063; its requirement is now
+discharged write-side by `coordinator_core/orientation/expired_grant_signal.py`.
 
 Op keys (do not confuse the second with `queue.scaffold_baton` — the module
 that registers it is `queue_scaffold_baton.py` by filename convention only;

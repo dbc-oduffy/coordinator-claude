@@ -93,9 +93,38 @@ _LAUNCHER_CMD_NAME = "wsc-coverage-gate-runner.cmd"
 def _run_session_claim_cli(slug: str) -> tuple[int, str]:
     """Invoke the sibling session-claim-cli's claim-plan subcommand and return
     (returncode, combined_stdout_and_stderr) — combined the same way the ported
-    bash captured `claim_out=$(... 2>&1)`. Isolated for test monkeypatching."""
+    bash captured `claim_out=$(... 2>&1)`. Isolated for test monkeypatching.
+
+    The child's environment carries THIS process's already-resolved session
+    id explicitly, rather than being left to re-resolve one of its own.
+    `session.core.resolve_session_id`'s tier 0 is a ContextVar — in-process
+    by construction — so a request that carried its caller's identity across
+    the warm-server wire loses it at this `subprocess.run` boundary, and the
+    child falls through to tiers 1-3, the ambient environment. Inside the
+    warm server that environment belongs to WHOEVER SPAWNED THE SERVER, not
+    to the session being served (`session.core.carried_session_id`'s own
+    docstring: use the carried identity "for any MUTATING op whose effect is
+    attributed to a session"). A plan execution lock is exactly that: the
+    record's `session_id` is what a blocked peer reads to decide whether a
+    live session legitimately holds the plan, and a wrong one there is
+    indistinguishable from a real claim — it blocks the plan's true owner
+    while naming an uninvolved session as the holder.
+
+    NOT a fabricated identity: the child env is left untouched when this
+    process cannot resolve one either, so the "unresolvable session id"
+    refusal still fires in the child exactly as before. This closes the
+    DROP, not the absence — a warm request that arrives carrying no identity
+    at all still reaches the ambient answer, and no propagation here can
+    invent what the wire never sent.
+    """
     _ensure_repo_root_on_path()
     from coordinator_core.win_portability import no_console_creationflags
+    from coordinator_core.session import core as session_core
+
+    child_env = None
+    resolved_sid = session_core.resolve_session_id()
+    if resolved_sid:
+        child_env = {**os.environ, "COORDINATOR_SESSION_ID": resolved_sid}
 
     cmd = [sys.executable, os.path.join(_SCRIPT_DIR, "session-claim-cli.py"), "claim-plan", slug]
     proc = subprocess.run(
@@ -104,6 +133,7 @@ def _run_session_claim_cli(slug: str) -> tuple[int, str]:
         stderr=subprocess.STDOUT,
         text=True,
         check=False,
+        env=child_env,
         **no_console_creationflags(),  # popup-safe-env-suppressed
     )
     return proc.returncode, proc.stdout

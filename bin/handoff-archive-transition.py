@@ -141,6 +141,62 @@ def _no_console_kw() -> dict:
 _HAS_LIVE_CHILDREN_SCRIPT = os.path.join(_BIN_DIR, "handoff-has-live-children.py")
 
 
+_BOOTSTRAP_DONE = False
+
+_BOOTSTRAPPED_NAMES = ("cc_invoke",)
+
+
+def _bootstrap_cc_invoke() -> None:
+    """Bind the `cc_invoke` module (coordinator/bin/lib's dispatch shim) as a
+    module-level global, idempotent; safe to call more than once.
+
+    Every function in this file already does its own local `import cc_invoke`
+    at its use site — that pattern is unchanged and is what keeps the module
+    body inert on both load routes (warm-serve invariant). This binder exists
+    ONLY to serve `cc_invoke` as a module ATTRIBUTE via `__getattr__` below,
+    for a caller that imports this module without calling `main()` (a test
+    monkeypatching `_cli.cc_invoke.route_mutation`, e.g.) and therefore never
+    triggers any of those local imports."""
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    global cc_invoke
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke as _cc_invoke
+
+    cc_invoke = _cc_invoke
+    _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reading `cc_invoke` off this module BEFORE
+    `main()` has run -- a test monkeypatching `_cli.cc_invoke.route_mutation`,
+    or any consumer importing this module rather than executing it -- gets
+    the real module lazily instead of an AttributeError.
+
+    NEGATIVE SPEC -- the forced re-run is not belt-and-braces.
+    `_bootstrap_cc_invoke()` short-circuits on `_BOOTSTRAP_DONE`, so a name
+    that leaves `__dict__` AFTER the bootstrap has run is never rebound by a
+    plain call. `mock.patch.object` does exactly that: it reads the name
+    through this hook (so the value is not in `__dict__` at enter), sets its
+    mock, and on exit `delattr`s rather than restoring -- then probes
+    `hasattr`, which lands here with the flag already set. Without the reset
+    that probe raises KeyError instead of returning the name."""
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_cc_invoke()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_cc_invoke()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _no_fallback():
     raise RuntimeError(
         f"{PROG}: handoff.archive_transition requires the native seam (no bash "

@@ -11,8 +11,6 @@ generator: bin/generate-exec-summary.py
 > One-screen "why this project matters" brief. The two MANAGED sections are refreshed by
 > `bin/generate-exec-summary.py` from disk artifacts; the two HAND sections are yours to
 > author once and are preserved verbatim on every regeneration.
->
-> Spec backlink: docs/wiki/exec-summary-artifact.md
 
 ## What this project is
 

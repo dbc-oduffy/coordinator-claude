@@ -95,7 +95,11 @@ The four guards below survive as the memo eligibility base:
    plan/spec).
 2. **`shipped_in:` present.** Missing → surface to PM, do not delete.
 3. **Active-reference check.** No live citation across `docs/`, `tasks/`, `archive/specs/`,
-   plugin sources (provenance-marker tombstones excluded).
+   plugin sources, **or any test tree** (provenance-marker tombstones excluded). Test trees are
+   named explicitly because a test reads an artifact as a RUNTIME ORACLE, not as a citation: the
+   reference is a path string the test opens, so deleting the artifact does not fail the sweep, it
+   fails the suite — at an arbitrary later run, with a `FileNotFoundError` naming a path and
+   nothing naming distillation. Repointing cannot recover it; there is no file to point at.
 4. **Distillation-log row.** ≥8-word domain-prose reason (Phase 5c).
 
 **A cross-repo archive memo is eligible for delete ONLY if all five guards pass** (same 1-4 above,

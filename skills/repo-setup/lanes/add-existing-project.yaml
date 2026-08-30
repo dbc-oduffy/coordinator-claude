@@ -1,6 +1,6 @@
 # Lane: add-existing-project. A repo built without coordinator: existing code, README, commit
 # history for Phase 1.5 to read. See CONTRACT.md for the shape every lane follows.
-# spec_backlink: docs/plans/2026-08-20-repo-setup-as-a-product-surface.md (C2)
+# spec_backlink: archive/specs/2026-08/2026-08-20-repo-setup-as-a-product-surface.md (C2)
 # census_backlink: state/plan-sidecars/2026-08-20-repo-setup-computed-form.census-steps.md
 
 lane: add-existing-project

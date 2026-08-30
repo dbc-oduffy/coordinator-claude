@@ -219,7 +219,7 @@ Your job: produce the best plan the team can build — ready for `/enrich-and-re
 {Best approach from the team's positions. When debaters diverged, note which approach the synthesis adopted and why.}
 
 ## Implementation Plan
-{Detailed tasks per `docs/wiki/writing-plans.md`. For each stub or major step:}
+{Detailed tasks per `${CLAUDE_PLUGIN_ROOT}/docs/wiki/writing-plans.md`. For each stub or major step:}
 
 ### Step N: {Name}
 **File:** `{path/to/file}`
@@ -392,5 +392,5 @@ Your role does not include creating git commits. Write your edits and run any re
 
 **Per-persona override:** a consumer whose remit structurally excludes commits (e.g. a review persona that only writes a sidecar) may narrow this to a bespoke one-liner instead of pasting the block verbatim — an intentional per-persona omission, not drift from this canonical text.
 
-**Doctrine root:** `coordinator/docs/wiki/scoped-safety-commits.md`
+**Doctrine root:** `${CLAUDE_PLUGIN_ROOT}/docs/wiki/scoped-safety-commits.md`
 <!-- END do-not-commit -->

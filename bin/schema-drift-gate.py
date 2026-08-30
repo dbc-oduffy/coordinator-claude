@@ -45,6 +45,37 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _OP = "schema.drift_gate"
 
+_BOOTSTRAPPED_NAMES = ("cc_invoke",)
+
+
+def _bootstrap_cc_invoke() -> None:
+    """Import `cc_invoke` into this module's globals, deferred out of
+    module scope so a warm-serve import of this file stays inert until
+    `main()` runs."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke
+
+    globals()["cc_invoke"] = cc_invoke
+
+
+def __getattr__(name: str):
+    """PEP 562 hook serving `cc_invoke` to a test that reads/replaces it
+    off this module without calling `main()` first (e.g.
+    `mod.cc_invoke.route = fake_route`).
+
+    Negative-spec: does NOT serve any other name -- an unrelated
+    AttributeError still raises normally.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_cc_invoke()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 def _legacy_fn() -> "NoReturn":  # type: ignore[name-defined]
     raise RuntimeError(
@@ -55,8 +86,9 @@ def _legacy_fn() -> "NoReturn":  # type: ignore[name-defined]
 
 
 def main(argv: list[str] | None = None) -> int:
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
+    if any(n not in globals() for n in _BOOTSTRAPPED_NAMES):
+        _bootstrap_cc_invoke()
+    cc_invoke = globals()["cc_invoke"]
 
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] in ("--help", "-h"):

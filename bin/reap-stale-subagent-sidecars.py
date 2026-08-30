@@ -117,9 +117,16 @@ def _bootstrap_imports() -> None:
     global require_dispatch_engine_on_path, resolve_checked_repo_root
     global no_console_creationflags
 
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_dispatch_engine_on_path
+    if all(
+        _n in globals()
+        for _n in ("require_dispatch_engine_on_path", "resolve_checked_repo_root", "no_console_creationflags")
+    ):
+        return
 
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    import cc_invoke as _cc_invoke_mod
+
+    globals().setdefault("require_dispatch_engine_on_path", _cc_invoke_mod.require_dispatch_engine_on_path)
     require_dispatch_engine_on_path()
     # LOAD-BEARING, NOT DEAD. Do not delete on an unused-import sweep: this line is
     # what BINDS coordinator_core, and binding it HERE is the whole fix.
@@ -133,8 +140,17 @@ def _bootstrap_imports() -> None:
     # docs/research/engine-provenance-carrier-dependence.md
     import coordinator_core  # noqa: F401
 
-    from repo_identity import resolve_checked_repo_root
-    from coordinator_core.win_portability import no_console_creationflags
+    from repo_identity import resolve_checked_repo_root as _resolve_checked_repo_root
+    from coordinator_core import win_portability as _win_portability_mod
+
+    # `globals().setdefault`, not a bare `from X import Y` rebind: a caller's
+    # monkeypatch of one of these names (e.g. a test's `mod.resolve_checked_repo_root
+    # = ...`) must never be clobbered by a later bootstrap call — see this
+    # function's own per-name guard above and the module's __getattr__ absence
+    # note (no PEP 562 hook here; every reader of these names is a function in
+    # THIS module, so a bootstrap call at each read site is what serves them).
+    globals().setdefault("resolve_checked_repo_root", _resolve_checked_repo_root)
+    globals().setdefault("no_console_creationflags", _win_portability_mod.no_console_creationflags)
 
 #: Default age floor in days — mirrors the retired review-trail/findings
 #: aged-reap precedent this op supersedes (state-placement-law.md § the
@@ -157,6 +173,7 @@ def _resolve_session_live():
     In-process import (no subprocess, no bash) — same trampoline shape as
     reap-orphaned-in-flight-handoffs.py's _resolve_session_live.
     """
+    _bootstrap_imports()
     claude_klabauter_root = require_dispatch_engine_on_path()
     from coordinator_core.session.liveness import session_live
     return session_live
@@ -245,6 +262,7 @@ def _tracked_paths(repo_root: str, rel_paths: list, under: str = "state/subagent
     so callers need no format awareness."""
     if not rel_paths:
         return set()
+    _bootstrap_imports()
     result = subprocess.run(
         ["git", "ls-files", "--", _Path(under).as_posix()],
         cwd=repo_root, capture_output=True, text=True, check=False, **no_console_creationflags(),

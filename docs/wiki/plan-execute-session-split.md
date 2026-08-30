@@ -210,8 +210,10 @@ not paraphrase.
      what the PM approved. **Substantive** — a new chunk or task-spine row, a changed file target,
      altered scope or acceptance criteria, a reversed decision, or a row moving between groupings
      without the corresponding grouping's `digest` being recomputed — is.
-  3. Bookkeeping-only → re-stamp to the current body and record why in
-     `execution_authorized_note`, via the re-stamp CLI's `--append-note <text>` flag — do not
+  3. Bookkeeping-only → **proceed, and do not re-stamp** (why:
+     `execute-plan-residue.md` § Authorization stamp). Re-stamp on UNSTAMPABLE and on a Group-EM
+     delegated approval; there, record why in
+     `execution_authorized_note` via the CLI's `--append-note <text>` flag — do not
      overwrite the PM's verbatim utterance. `--append-note` appends `<text>` onto whatever the field
      already holds (onto an absent or empty note it behaves as a plain set — no leading separator);
      `--note` is the sibling flag and still REPLACES the field wholesale, which is correct for the

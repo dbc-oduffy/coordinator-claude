@@ -44,7 +44,7 @@ the PM's call, not yours.
 
 ## Phase 0.5-3: Invoke the Workflow
 
-Invoke `coordinator/pipelines/deep-architecture-survey/survey.workflow.js`, passing
+Invoke `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-architecture-survey/survey.workflow.js`, passing
 `INPUT.consumeGate` from Phase 0's step 7 — its own header comment documents the full input
 shape; read it there, not a hand-copy here. It owns the whole extraction-through-synthesis
 pipeline end to end — never hand-orchestrate it. Resume a rate-limit wipe with
@@ -76,8 +76,8 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
 5. Atomic commit, two scoped calls, never `git add -A`:
    `git add -- docs/architecture/ state/health-ledger.md`
    `git commit -m "deep-architecture-survey: [first run|refresh] — [N] systems mapped; Last full audit bumped" -- docs/architecture/ state/health-ledger.md`
-6. Rotation target (Shape W, `coordinator/snippets/resolve-coordinator-bin.md`):
-   `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.cmd" --since "30d" --where "nature=roadmap" --format json`
+6. Rotation target (Shape W, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`):
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\query-completions.exe" --since "30d" --where "nature=roadmap" --format json`
    Scoring rules: wiki.
 7. Report to PM:
    ```markdown

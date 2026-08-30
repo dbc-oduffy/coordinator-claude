@@ -58,7 +58,13 @@ One observation (`how`), run once, against HEAD, before any work:
   already TRUE. Stated from the criterion's own words, the same way `how` is — never inferred from
   what the work is expected to produce, which would smuggle plan-shaped knowledge past the denial
   list.
-- **`sha`** — the commit SHA the baseline was taken at (`git rev-parse HEAD`).
+- **`sha`** — the commit SHA the baseline was taken at (`git rev-parse HEAD`). It is transcribed
+  verbatim into the plan's `prime_exit_criterion.falsifier.baseline_ref`, which the schema types
+  as a bare 40-character sha and close-out parses as one
+  (`coordinator/schemas/plan.schema.json`, `prime_exit_criterion.falsifier.baseline_ref`). Report
+  it bare — no date, no agent name, no "taken at" prose around it. A decorated value refuses the
+  close-out stamp (`baseline_ref_malformed`) months later, at the one moment nobody is looking at
+  this file.
 
 ## A Baseline That Passes Is a Result, Not a Failed Dispatch
 
@@ -127,6 +133,16 @@ doesn't actually measure the statement just to have something scriptable.
 
 Do not pick an interpretation silently and run with it. Report the ambiguity, the readings you
 considered, and stop — this is the EM's wording to fix, not yours to resolve by guessing.
+
+### A pattern that cannot match reads exactly like an honest negative
+
+Never express a regex word boundary as `\b` in a falsifier — write it as an explicit character
+class (`(?:^|[^0-9a-fA-F])…`). A shell-mediated write path turns `\b` into a `0x08` BACKSPACE byte,
+and the corrupted line survives `grep`, `sed`, a diff, and visual review; the conjunct then reports
+NEGATIVE against a substrate that plainly satisfies it. Same hazard for `\t`, `\n`, `\r`, `\f`,
+`\v`, `\a` where the escape, not the character, is meant. Confirm a suspect line by dumping bytes
+(`repr()`, `cat -v`), never by re-reading it through the channel that wrote it. Tripwire:
+`A-REGEX-BOUNDARY-ESCAPE-CAN-BE-REWRITTEN-INTO-A-CONTROL-BYTE`.
 
 ### Denial-list contamination
 

@@ -83,6 +83,43 @@ yaml-frontmatter example:
 """
 
 
+_BOOTSTRAPPED_NAMES = ("resolve_checked_repo_root",)
+
+
+def _bootstrap_csl() -> None:
+    """Bind `resolve_checked_repo_root` at module scope, guarded so a caller
+    that already set the name on this module (a test's `mock.patch.object`)
+    is never clobbered by a later real import."""
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+
+    global resolve_checked_repo_root
+    if "resolve_checked_repo_root" not in globals():
+        from repo_identity import resolve_checked_repo_root as _rcr
+
+        resolve_checked_repo_root = _rcr
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for `resolve_checked_repo_root`
+    before `main()`/`_resolve_git_root()` has run -- a test monkeypatching
+    this module -- triggers `_bootstrap_csl()` lazily instead of finding the
+    name absent.
+
+    NEGATIVE SPEC -- `_bootstrap_csl()` guards on the single name's own
+    presence, so this hook never needs a forced re-run: a name missing from
+    `__dict__` is always filled by the plain call above.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_csl()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _resolve_session_id() -> str:
     for var in _SESSION_ID_ENV_TIERS:
         val = os.environ.get(var, "")
@@ -100,8 +137,7 @@ def _resolve_git_root() -> str | None:
     maps this to "not inside a git repo", exit 1 -- matching pre-existing
     behavior).
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_csl()
 
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":

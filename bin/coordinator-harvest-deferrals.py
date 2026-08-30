@@ -255,14 +255,22 @@ def _bootstrap_engine() -> None:
         # `sys.path[0]`, but the in-process dispatch every consumes-manifest CLI is
         # ALSO invoked through (`workstream_complete.apply._load_cli_module`, via
         # `importlib.util.spec_from_file_location`) never gets that implicit entry
-        # — only an actual `__main__` script does. Left unguarded, this import
-        # always raised `ModuleNotFoundError` under in-process dispatch, so every
+        # — only an actual `__main__` script does. `import lib` (above) only puts
+        # `_LIB_DIR` on `sys.path`, never `_BIN_DIR` itself, so it does not cover
+        # this import. Left unguarded, this import always raised
+        # `ModuleNotFoundError` under in-process dispatch, so every
         # `d-harvest-deferrals-*` directive (workstream_complete/directives_lessons_
         # plan.py's `build_deferral_harvest_directives`, ungated, fires once per
         # governing plan) always landed in `report["failed"]` (2026-07-27
         # arg-mismatch audit — a load-time defect found alongside, not caused by,
-        # the prog-slot mismatch this audit chunk targets). Mirrors the `_LIB_DIR`
-        # sys.path insertion immediately above.
+        # the prog-slot mismatch this audit chunk targets). The lazy-bootstrap
+        # sweep (2026-08) deleted the `_BIN_DIR` sys.path insert that fixed this
+        # while moving the import into this function, silently reintroducing the
+        # regression; restored here, guarded and idempotent, scoped to this one
+        # sibling-module import (NOT a general per-file `sys.path` preamble —
+        # `import lib` above already covers everything under `_LIB_DIR`).
+        if _BIN_DIR not in sys.path:
+            sys.path.insert(0, _BIN_DIR)
         from _queue_append_locator import find_cli_cmd
         
         # Grouping-approval contract (2026-07-29). Selection on a GOVERNED plan keys

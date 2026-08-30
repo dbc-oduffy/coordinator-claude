@@ -68,6 +68,27 @@ import json
 import sys
 from pathlib import Path
 
+require_colocated_engine_on_path = None  # type: ignore  # bound by _bootstrap_cc_invoke()
+
+
+def _bootstrap_cc_invoke() -> None:
+    """Import `require_colocated_engine_on_path` and bind it at module
+    scope, called from `_cmd_archive_session()` (module body stays inert on
+    both the warm door and the un-bootstrapped settings-home forwarder load
+    routes).
+
+    Guarded on its own current value so a caller's
+    `mock.patch.object(mod, "require_colocated_engine_on_path", ...)` set
+    BEFORE the subcommand runs is never clobbered by this bootstrap.
+    """
+    global require_colocated_engine_on_path
+    if require_colocated_engine_on_path is not None:
+        return
+
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
+    from cc_invoke import require_colocated_engine_on_path
+
+
 _REVIEW_TRAIL_FLAGS = (
     "--review-sha-range",
     "--review-reviewer",
@@ -242,8 +263,7 @@ def _cmd_archive_session(args: argparse.Namespace) -> int:
         print("wsc-close.py archive-session: --sid required", file=sys.stderr)
         return 1
 
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from cc_invoke import require_colocated_engine_on_path
+    _bootstrap_cc_invoke()
 
     try:
         require_colocated_engine_on_path(__file__)

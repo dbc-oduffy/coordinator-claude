@@ -80,6 +80,7 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from cc_invoke import _resolve_claude_klabauter_root, cc_invoke  # noqa: E402
 
     try:

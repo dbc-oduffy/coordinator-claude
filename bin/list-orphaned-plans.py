@@ -57,9 +57,20 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _BOOTSTRAP_DONE = False
 
+_BOOTSTRAPPED_NAMES = (
+    "list_orphaned",
+    "AGING_THRESHOLD_DAYS",
+    "truncate_external_text",
+    "show_toplevel",
+)
+
 
 def _bootstrap_engine() -> None:
-    """Put the repo root on sys.path so `coordinator_core` imports resolve.
+    """Put the repo root on sys.path so `coordinator_core` imports resolve,
+    and bind the deferred names (`list_orphaned`, `AGING_THRESHOLD_DAYS`,
+    `truncate_external_text`, `show_toplevel`) every sibling function reads
+    as a global -- `test_list_orphaned_plans.py` monkeypatches
+    `cli.list_orphaned` before calling `main()`.
 
     Moved out of module scope: this used to mutate sys.path on every import
     of this file, a process global ~50 warm-server sessions share. Only the
@@ -70,7 +81,43 @@ def _bootstrap_engine() -> None:
         return
     if str(_REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(_REPO_ROOT))
+
+    global list_orphaned, AGING_THRESHOLD_DAYS, truncate_external_text, show_toplevel
+    from coordinator_core.ops.draft_plan_aging import AGING_THRESHOLD_DAYS, list_orphaned
+    from coordinator_core.orient_assemble.reader_result import truncate_external_text
+    from coordinator_core.git.repo_root import show_toplevel
+
     _BOOTSTRAP_DONE = True
+
+
+def __getattr__(name: str):
+    """PEP 562 hook so a caller reaching for a deferred name (a test
+    monkeypatching `cli.list_orphaned` before `main()` has run, or any
+    consumer importing rather than executing this module) triggers
+    `_bootstrap_engine()` lazily instead of finding the name absent.
+
+    NEGATIVE SPEC -- the forced re-run is not belt-and-braces.
+    `_bootstrap_engine()` short-circuits on `_BOOTSTRAP_DONE`, so a name
+    that leaves `__dict__` AFTER the bootstrap has run is never rebound by
+    a plain call. `mock.patch.object` does exactly that: it reads the name
+    through this hook (so the value is not in `__dict__` at enter), sets
+    its mock, and on exit `delattr`s rather than restoring -- then probes
+    `hasattr`, which lands here with the flag already set. Without the
+    reset that probe raises KeyError instead of returning the name.
+    """
+    if name in _BOOTSTRAPPED_NAMES:
+        _bootstrap_engine()
+        if name not in globals():
+            global _BOOTSTRAP_DONE
+            _BOOTSTRAP_DONE = False
+            _bootstrap_engine()
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 _USAGE_FAIL = 2
@@ -90,8 +137,6 @@ def _resolve_repo_root(positional: str | None) -> str | None:
     reader both keep the explicit-repo_root discipline instead.
     """
     _bootstrap_engine()
-    from coordinator_core.git.repo_root import show_toplevel
-
     if positional:
         return positional
     return show_toplevel()
@@ -107,9 +152,6 @@ def _usage(prog: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _bootstrap_engine()
-    from coordinator_core.ops.draft_plan_aging import AGING_THRESHOLD_DAYS, list_orphaned
-    from coordinator_core.orient_assemble.reader_result import truncate_external_text
-
     argv = sys.argv[1:] if argv is None else argv
     prog = "list-orphaned-plans"
 

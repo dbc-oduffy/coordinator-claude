@@ -304,11 +304,17 @@ def is_denied_repo_setup_claude_home(
 
 def _compose_deny_message() -> Message:
     prose = (
-        "BLOCKED: repo-setup's scaffold cannot target ~/.claude (Claude "
-        "Central / example-doctrine-mirror-repo-v3) -- it is a backup repo, not a working "
-        "tree, and DoE-claude is already its own project. Run repo-setup "
-        "against the DoE-claude clone instead: "
-        "/repo-setup --root <path-to-DoE-claude>."
+        # Names no repo, deliberately. Every repo name this text used to carry
+        # was an unreachable pointer for the dispatched agent reading it --
+        # including the one hiding in the remedy line, which named a specific
+        # clone the reader may not have. Pointing at the reader's OWN clone
+        # path clears them all at once, and "not a working tree" is the
+        # operative fact, which stands without the names that explained it.
+        # Byte-parity with the engine-plane port's deny text is this text's
+        # contract: reword both paths in one change, never one alone.
+        "BLOCKED: repo-setup's scaffold cannot target ~/.claude -- it is not "
+        "a working tree. Run repo-setup against the project clone you mean to "
+        "set up: /repo-setup --root <path-to-that-clone>."
     )
     return compose(prose)
 

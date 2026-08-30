@@ -43,41 +43,115 @@ below stops that, even when the dispatch brief is wrong or under-scoped.
 Never a raw `git commit`, `git add -A`/`.`/`-u`, `git commit -a`, `coordinator-safe-commit`, or
 the retired `scoped-git-commit` trampoline.
 
-**Leg 1 — the pipeline, always first:**
-`coordinator_core.ops.ceremony.commit_pipeline.run_commit_pipeline`, per
-`snippets/scoped-commit-route.md`.
+**Leg 1 — the commit op, always first:** `ceremony.commit_v2`, over
+`coordinator_core.git.commit.commit_paths`, per `snippets/scoped-commit-route.md`.
+`run_commit_pipeline` was killed at the process-time bar; importing it raises
+`ModuleNotFoundError`, which is a stale reference, never evidence that leg 1 is unavailable.
 
 `coordinator_core` is NOT importable from a bare interpreter — it lives in the engine clone, off
 your `sys.path`. Resolve the root as the live hooks do, with this exact prologue:
 
 ```python
 import os, subprocess, sys
-_root = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.join(
-    subprocess.run(["git", "rev-parse", "--show-toplevel"],
-                   capture_output=True, text=True, check=True).stdout.strip(),
-    "coordinator")
+
+def _plugin_root():
+    env = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if env and os.path.isfile(os.path.join(env, "hooks", "scripts", "_engine_root.py")):
+        return env
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        cand = os.path.join(top, "coordinator")
+        if os.path.isfile(os.path.join(cand, "hooks", "scripts", "_engine_root.py")):
+            return cand
+    except subprocess.CalledProcessError:
+        pass
+    pointer = os.path.join(os.path.expanduser("~"), ".claude", ".doe-root")
+    with open(pointer, encoding="utf-8") as fh:
+        return os.path.join(fh.read().strip(), "coordinator")
+
+_root = _plugin_root()
 sys.path.insert(0, os.path.join(_root, "hooks", "scripts"))
 from _engine_root import resolve_claude_klabauter_root
 sys.path.insert(0, resolve_claude_klabauter_root())
-from coordinator_core.ops.ceremony.commit_pipeline import run_commit_pipeline
+from functools import partial
+from coordinator_core.git.commit import commit_paths, hash_worktree_blobs_via_spawn
 ```
 
-Neither branch is optional — `CLAUDE_PLUGIN_ROOT` is set in some dispatch contexts, absent in
-others.
+No rung is optional. `CLAUDE_PLUGIN_ROOT` is set in some dispatch contexts and absent in others,
+and `<repo>/coordinator` only holds the plugin tree in DoE-claude — in every repo that does not
+vendor it, that rung has no `_engine_root.py` and the import dies. Each rung is therefore
+probed for the file it must supply rather than assumed, with `~/.claude/.doe-root` as the
+durable pointer that answers from any repo.
 
 **Running that prologue is your first commit action, not a skippable preliminary.** Run it
-verbatim, then call `run_commit_pipeline` in the same interpreter. **A `ModuleNotFoundError` met
+verbatim, then call `commit_paths` in the same interpreter. **A `ModuleNotFoundError` met
 without running it is not an attempt at leg 1**, and no leg-1-unavailable claim stands without the
 prologue and its verbatim traceback (§ Reporting contract, item 4).
 Neither a missing `<repo>/.doe-root` nor `scoped-git-commit`'s presence diagnoses anything —
 reporting either as the blocker fabricates one.
 
-The pipeline stages the paths given, **then builds the commit from an explicit pathspec under a
-throwaway index, never the shared one** — a peer's staged path cannot ride along. Staging happens;
-it is not what the commit is built from. It runs the commit gates too, which is why you never
-shortcut to `git_native.commit_scoped`: same commit, no gates. The pipeline is **not** the retired
-op — no pathspec validation moved with it, so § Verify before committing is all that stands between
-a wrong-but-well-formed pathspec and a commit.
+**The call shape, because guessing it costs the gates.** There is no `pathspec` parameter;
+inventing one raises `TypeError`, which reads as leg-1-unavailable and drops you to the ungated
+leg 2 — a silent gate bypass wearing a successful commit.
+
+**The repo-root keyword is `repo`, never `repo_root`.** Same failure mode: `repo_root=` raises
+`TypeError: commit_paths() got an unexpected keyword argument`, which reads as leg-1-unavailable
+and lands you on leg 2, where `block_subagent_commit` denies you by design — both legs look dead
+and the phase reports BLOCKED with nothing actually broken.
+
+**`blob_fallback` is not optional, and omitting it looks like a route failure.** `commit_paths`
+refuses — `FilterUnsupported: N path(s) need a checkin conversion this module does not reproduce
+... and no blob_fallback was supplied` — for any path carrying CR bytes under a `text`/`text=auto`
+/`eol=` attribute, plus LFS `filter.*.clean` paths and unresolved `[attr]` macros. It does not
+guess a sha it cannot prove. **Which files that is depends entirely on the repo's
+`.gitattributes`, so never carry an answer between repos.** A blanket `* text=auto` plus an
+unpinned `*.md` means every markdown file refuses on a CRLF checkout, while LF-pinned kinds
+(`.py`, `.json`, `.yaml`, `.sh`) pass in process; a repo that LF-pins broadly may never see it.
+Determine it, don't assume it: `git check-attr text eol -- <path>`, plus whether the file carries
+CR bytes. Simpler still, always pass the fallback — you cannot know a pathspec's composition in
+advance. It is the one `ceremony.commit_v2` itself injects, and it costs one batched
+`git hash-object` spawn only for the paths the in-process check refuses.
+
+**A path you are DELETING goes in `deleted_paths`, never `paths`.** A deleted path in `paths`
+reaches `read_bytes` and returns `cannot read <path>: [Errno 2] No such file or directory`. That
+error reads as "this route cannot commit deletions" and it is not — the parameter is the whole
+difference. At least one of `paths` / `deleted_paths` must be non-empty.
+
+<!-- VERBATIM -->
+```python
+commit_paths(
+    repo=worktree_root,            # repo root
+    paths=paths,                   # files that exist — your verified pathspec
+    deleted_paths=deleted,         # files being removed; [] when there are none
+    message=f"{subject}\n\n{body}",
+    blob_fallback=partial(hash_worktree_blobs_via_spawn, cwd=worktree_root),
+)
+```
+
+It builds the commit's tree from the explicit paths you hand it **rather than reading the shared
+index** — a peer's staged path cannot ride along.
+
+**It runs no commit gates, and that is deliberate.** The four gates `run_commit_pipeline` ran
+(`deletion_block_gate`, `dirty_tree_gate`, `carry_gate`, `op_scope_coverage_gate`) lost their
+in-commit caller when it was killed at the process-time bar; two of them keep standalone CLI
+routes, but nothing fires inside a commit. The retired op's pathspec validation did not move
+across either. **§ Verify before committing is now the only thing standing between a
+wrong-but-well-formed pathspec and a commit** — it is not a belt-and-braces check over a gated
+route, it is the whole check. Treat it that way, and never report a commit as "all gates passed":
+none ran.
+
+**Verify by SHA, never by tree cleanliness.** After committing, confirm with `git log` that a
+commit carrying your subject exists, and report that SHA. A post-commit tree is clean by
+construction, and reading "nothing left to stage" as a refusal is how a landed commit gets
+reported as BLOCKED — measured four times on 2026-08-29, every one of them a commit that had
+actually landed. If your own verification finds no diff, check `git log` for your subject BEFORE
+concluding anything failed.
+
+**A guard denial naming `ceremony.commit_v2` is not leg 1 being unavailable.** `block_subagent_commit`
+is keyed on caller identity, so it fires for a dispatched agent and not for the EM: the raw
+`git commit` fallback is denied for you by design. Take the denial as routing you to the op above,
+not as evidence the route is broken.
 
 **Leg 2 — plain `git commit -m <subject> -- <paths>`, last resort,** on the SAME verified
 pathspec. It reads the *worktree*, bypassing your index, and runs no gate

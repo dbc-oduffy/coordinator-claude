@@ -22,15 +22,15 @@ including the test-suite step inside `workday-complete-assemble`, which is the s
 expensive thing this ceremony runs (source its magnitude from `python
 coordinator/tests/_spawn_budget.py`, never a hardcoded number here):
 
-POSIX hosts: Shape A, `coordinator/snippets/resolve-coordinator-bin.md` — resolve
+POSIX hosts: Shape A, `${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md` — resolve
 `tier-u-grant-cli`, then `workday-complete-args-and-validate parse-front-door`, then
 `workday-complete-args-and-validate check-cross-machine`, each with `"${ARGUMENTS:-}"`.
 
 PowerShell hosts (rung 0, Shape W, same snippet), one command per line:
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.cmd" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.cmd" parse-front-door "$ARGUMENTS"
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.cmd" check-cross-machine "$ARGUMENTS"
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\tier-u-grant-cli.exe" grant ceremony "workday-complete Tier-U consumers" --ceremony workday-complete
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.exe" parse-front-door "$ARGUMENTS"
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-args-and-validate.exe" check-cross-machine "$ARGUMENTS"
 
 Capture stdout+exit code of each; non-zero on either stops. `eval` the front-door's stdout to set
 `$FOR_DATE`/`$ONLY_MODE`/`$ONLY_FLAG`/`$SCOPE_SUMMARY`. The cross-machine check fails loud on a
@@ -43,7 +43,7 @@ ${FOR_DATE:+--for-date "$FOR_DATE"} $ONLY_FLAG ${SCOPE_SUMMARY:+--scope-summary=
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.cmd" brief $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $(if ($SCOPE_SUMMARY) { "--scope-summary=$SCOPE_SUMMARY" })
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" brief $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG $(if ($SCOPE_SUMMARY) { "--scope-summary=$SCOPE_SUMMARY" })
 
 Splice `$ONLY_FLAG`/`${SCOPE_SUMMARY:+...}` exactly as shown — do not hand-derive (wiki).
 
@@ -74,7 +74,7 @@ judgment_point_id -> {"disposition": "<value>"}>' ${FOR_DATE:+--for-date "$FOR_D
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.cmd" apply --decisions '<json map of judgment_point_id -> {"disposition": "<value>"}>' $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-assemble.exe" apply --decisions '<json map of judgment_point_id -> {"disposition": "<value>"}>' $(if ($FOR_DATE) { "--for-date", $FOR_DATE }) $ONLY_FLAG
 
 Read `landed`/`blocked`/`failed`; `blocked` returns to Step 5. Exit-code tables: wiki.
 
@@ -91,7 +91,7 @@ POSIX hosts: Shape A, resolving `workday-complete-close stitch-sidecar`.
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-close.cmd" stitch-sidecar
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\workday-complete-close.exe" stitch-sidecar
 
 Pass `--today` with the target day under `$ONLY_MODE=1`. Non-zero is a HARD FAIL. Verify the
 stitch landed via a single-line Grep/read check on
@@ -120,8 +120,8 @@ POSIX hosts: Shape A, resolving `day-coverage-sweep <resolved day, YYYY-MM-DD>` 
 
 PowerShell hosts (rung 0, Shape W), one command per line:
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\day-coverage-sweep.cmd" <resolved day, YYYY-MM-DD>
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\baton-drift-sweep.cmd"
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\day-coverage-sweep.exe" <resolved day, YYYY-MM-DD>
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\baton-drift-sweep.exe"
 
 Skip both under `$ONLY_MODE=1`. Read their counts straight off, never collapsed to one number
 (`foreign`/`sibling_homed` are not gaps; `stranded` must be zero, `held` need not be — wiki).
@@ -130,7 +130,7 @@ POSIX hosts: Shape A, resolving `check-auto-memory-drained --root .`.
 
 PowerShell hosts (rung 0, Shape W):
 
-    & "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.cmd" --root .
+    & "$env:COORDINATOR_SETTINGS_HOME\bin\check-auto-memory-drained.exe" --root .
 
 Blocking. Exit 1 names every residual path owned by this session — resolve PROMOTE (durable home,
 restated in its own voice) or DROP per path, delete, re-run to confirm exit 0 (disposition detail:

@@ -68,7 +68,7 @@ import os
 import sys
 from pathlib import Path
 
-_BOOTSTRAP_NAMES = ("load_family_records", "route", "cc_invoke")
+_BOOTSTRAP_NAMES = ("load_family_records", "route", "cc_invoke", "resolve_checked_repo_root")
 
 
 def __getattr__(name: str):
@@ -86,7 +86,12 @@ def __getattr__(name: str):
     again for that name."""
     if name in _BOOTSTRAP_NAMES:
         _bootstrap_imports()
-        return globals()[name]
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(
+                f"module {__name__!r} has no attribute {name!r}"
+            ) from None
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -106,19 +111,24 @@ def _bootstrap_imports() -> None:
     never pays coordinator_core.ops's eager op-registration sweep it does not
     need (it only wants the read seam).
     """
-    if "load_family_records" in globals():
-        return
-
-    global load_family_records, route, cc_invoke
-
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    import cc_invoke
-    from cc_invoke import route
 
-    _repo_root = str(Path(__file__).resolve().parent.parent.parent)
-    if _repo_root not in sys.path:
-        sys.path.insert(0, _repo_root)
-    from coordinator_core.ops.queue_family import load_family_records
+    if "load_family_records" not in globals():
+        global load_family_records, route, cc_invoke
+
+        import cc_invoke
+        from cc_invoke import route
+
+        _repo_root = str(Path(__file__).resolve().parent.parent.parent)
+        if _repo_root not in sys.path:
+            sys.path.insert(0, _repo_root)
+        from coordinator_core.ops.queue_family import load_family_records
+
+    global resolve_checked_repo_root
+    if "resolve_checked_repo_root" not in globals():
+        from repo_identity import resolve_checked_repo_root as _rcr
+
+        resolve_checked_repo_root = _rcr
 
 
 def _no_fallback() -> None:
@@ -135,8 +145,7 @@ def _resolve_repo_root() -> str:
     refuses (AC4). Falls back to os.getcwd() when no root at all resolves,
     preserving this script's pre-existing best-effort behavior.
     """
-    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
-    from repo_identity import resolve_checked_repo_root
+    _bootstrap_imports()
 
     root, verdict = resolve_checked_repo_root(explicit_root=None)
     if verdict["verdict"] == "MISMATCH":

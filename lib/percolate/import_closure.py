@@ -102,6 +102,32 @@ tree question is meaningless for a `bin/`or `lib/` row, whose files import
 row."""
 
 
+NEVER_PUBLISHED_ROOTS = frozenset({"scripts", "bin"})
+"""First-party import roots that no publish row ever carries, so an import
+rooted here is unresolvable in the published tree unconditionally — no
+tree lookup needed, and no row-scoping question to get wrong.
+
+WHY THESE TWO AND NOT `coordinator`/`lib`, measured 2026-08-29 rather than
+reasoned: widening the graded set over `coordinator_core/` (3199 files)
+newly grades 9 imports across 6 files. Four are `scripts.gen_*`. The other
+five are `coordinator.lib.*`, and TWO of those files SHIP —
+`tests/test_home_resolution_lint.py` and
+`install/tests/test_fleet_env_publish_reachability.py` are both present in
+published mirror `c587c774`, where `coordinator/lib/percolate/allowlist.py`,
+`targets.py` and `home_resolution_lint.py` all resolve. `coordinator` and
+`lib` are SEPARATELY PUBLISHED ROWS: their names resolve in the assembled
+union and not in any single row's restricted tree, so grading them per-row
+manufactures false positives — the same defect as the 372 measured on
+`-coordinator-bin` (2026-08-13) that this gate's row scoping exists to
+avoid. The assembled union is `assembled_mirror_gate`'s question, not this
+one's.
+
+`scripts/` publishes only `setup.py`/`setup.cmd` and `bin/` is not a
+first-party import root in any row, so neither can produce that false
+positive. These are exactly the roots the klabauter#3 orphans were rooted
+in, and the reason a fail-closed gate passed them for three weeks."""
+
+
 _IMPORT_ERROR_CATCHING_NAMES = frozenset(
     {"ImportError", "ModuleNotFoundError", "Exception", "BaseException"}
 )
@@ -326,8 +352,13 @@ def _extract_top_level_imports(py_source: str, filename: str) -> tuple[set[str],
     `find_import_closure_violations`):
 
       - `from coordinator_core import X`        -> bare_names += {"X"}
-      - `from coordinator_core.X import ...`     -> module_refs += {"X"}
-      - `import coordinator_core.X`              -> module_refs += {"X"}
+      - `from coordinator_core.X.Y import ...`   -> module_refs += {"X.Y"}
+      - `import coordinator_core.X.Y`            -> module_refs += {"X.Y"}
+
+    `module_refs` carries the FULL dotted remainder, not its first
+    component. Truncating it (`remainder.split(".", 1)[0]`, the shape here
+    until 2026-08-28) graded a missing submodule against its present parent
+    package and passed.
 
     The first shape is ambiguous on its own: `X` may name a submodule
     (`from coordinator_core import chain_attribution` — the shape that
@@ -337,15 +368,37 @@ def _extract_top_level_imports(py_source: str, filename: str) -> tuple[set[str],
     lazy re-exports, see that file's `_LAZY_REEXPORTS` / `__all__`). The
     two dotted shapes are unambiguous: `X` always names a real submodule
     path component, never a package attribute — `from
-    coordinator_core.telemetry.op_latency import ...` always requires
-    `telemetry/` to exist as a tree entry, full stop (when it appears
-    unguarded — see above).
+    coordinator_core.telemetry.op_latency import ...` requires BOTH
+    `telemetry/` and `telemetry/op_latency.py` to exist as tree entries,
+    full stop (when it appears unguarded — see above).
 
     A bare `import coordinator_core` (no dotted remainder) and a relative
     import (`level > 0`) name no `coordinator_core` top-level entry and are
     ignored."""
-    tree = ast.parse(py_source, filename=filename)
+    bare_names, module_refs, _ = _extract_from_tree(ast.parse(py_source, filename=filename))
+    return bare_names, module_refs
+
+
+def _extract_from_tree(tree: ast.Module) -> tuple[set[str], set[str], set[str]]:
+    """`_extract_top_level_imports`'s body over an already-parsed module.
+
+    Split out so the walk parses each file ONCE: this single walk populates
+    all three return sets in one pass, including the never-published-roots
+    collection below, rather than a second walk over the same tree.
+    Re-parsing per grader took the walk from 7.4s to 14.5s over 3208 files
+    (measured 2026-08-29) — the same answer for double the process time,
+    on a gate the brightline governs; the folded single-walk shape measures
+    8.2s.
+    `_extract_top_level_imports` stays a source-taking wrapper returning
+    only the first two, because its own regression pin calls it that way.
+
+    The third set is every unguarded import rooted in
+    `NEVER_PUBLISHED_ROOTS`, carried out of THIS walk rather than a second
+    one: those entries ask nothing of the tree — the root is never
+    published, so the import cannot resolve there whatever the tree holds,
+    and there is no `_resolves_in_tree` call to make."""
     bare_names: set[str] = set()
+    never_published: set[str] = set()
     module_refs: set[str] = set()
     for node in _unguarded_import_nodes(tree):
         if isinstance(node, ast.ImportFrom):
@@ -355,23 +408,39 @@ def _extract_top_level_imports(py_source: str, filename: str) -> tuple[set[str],
                 for alias in node.names:
                     bare_names.add(alias.name)
             elif node.module and node.module.startswith(PACKAGE_NAME + "."):
-                remainder = node.module[len(PACKAGE_NAME) + 1 :]
-                module_refs.add(remainder.split(".", 1)[0])
+                module_refs.add(node.module[len(PACKAGE_NAME) + 1 :])
+            elif node.module and node.module.split(".", 1)[0] in NEVER_PUBLISHED_ROOTS:
+                never_published.add(node.module)
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name == PACKAGE_NAME:
                     continue
                 if alias.name.startswith(PACKAGE_NAME + "."):
-                    remainder = alias.name[len(PACKAGE_NAME) + 1 :]
-                    module_refs.add(remainder.split(".", 1)[0])
-    return bare_names, module_refs
+                    module_refs.add(alias.name[len(PACKAGE_NAME) + 1 :])
+                elif alias.name.split(".", 1)[0] in NEVER_PUBLISHED_ROOTS:
+                    never_published.add(alias.name)
+    return bare_names, module_refs, never_published
 
 
 def _resolves_in_tree(tree_root: Path, entry: str) -> bool:
-    """An import target resolves inside the restricted tree either as a
-    top-level module file (`X.py`) or a top-level package directory
-    (`X/`)."""
-    return (tree_root / f"{entry}.py").is_file() or (tree_root / entry).is_dir()
+    """An import target resolves inside the restricted tree as a module file
+    (`X.py`) or a package directory (`X/`) at the FULL dotted depth it names.
+
+    Depth is load-bearing, not a refinement. Until 2026-08-28 both this
+    function and `_extract_top_level_imports` truncated to the first
+    component, so `coordinator_core.benchmarks.leaf_spawn_migration_verify`
+    was graded as `benchmarks` — present — and passed while the module it
+    actually names was absent from the published tree. That shipped for
+    three weeks and was reported from outside (klabauter#3). A dotted entry
+    is a real submodule path component by construction (see
+    `_extract_top_level_imports`), so every component must exist.
+
+    "Package present, module absent" and "package absent" are both
+    violations and must stay distinguishable from "resolves": a resolver
+    that answers True because some PREFIX of the path exists is the exact
+    defect this replaced."""
+    candidate = tree_root.joinpath(*entry.split("."))
+    return candidate.with_suffix(".py").is_file() or candidate.is_dir()
 
 
 def _package_init_attribute_names(tree_root: Path) -> set[str]:
@@ -415,11 +484,12 @@ def _package_init_attribute_names(tree_root: Path) -> set[str]:
     return names
 
 
-def find_import_closure_violations(tree_root: Path) -> list[tuple[str, str]]:
+def find_import_closure_violations(tree_root: Path) -> tuple[int, list[tuple[str, str]]]:
     """Walk every `.py` file physically inside `tree_root` and return
-    `(restricted-tree-relative path, unresolved entry)` pairs for each
-    `coordinator_core` top-level import that does not resolve inside
-    `tree_root`. A file that never landed in `tree_root` (because its own
+    `(examined_count, violations)`, where each violation is a
+    `(restricted-tree-relative path, unresolved entry)` pair for each
+    `coordinator_core` import that does not resolve inside `tree_root` at
+    the full dotted depth it names. A file that never landed in `tree_root` (because its own
     top-level module is not allowlisted) is never walked, so its imports
     are never inspected — this is the structural reason an unpublished
     module importing another unpublished module cannot trip this gate.
@@ -429,20 +499,31 @@ def find_import_closure_violations(tree_root: Path) -> list[tuple[str, str]]:
     exports (`_package_init_attribute_names`) — the dotted shapes
     (`from coordinator_core.X import ...`, `import coordinator_core.X`)
     get no such exemption, since `X` there always names a real submodule
-    path component."""
+    path component.
+
+    NEGATIVE SPEC: do not extend the bare-shape exemption to dotted
+    entries. `_package_init_attribute_names` exists because `from
+    coordinator_core import X` is ambiguous between a submodule and a
+    re-exported attribute; a dotted path is not ambiguous, and exempting it
+    would restore the hole this gate closed."""
     violations: list[tuple[str, str]] = []
+    examined = 0
     init_attrs = _package_init_attribute_names(tree_root)
     for py_file in sorted(tree_root.rglob("*.py")):
         rel = py_file.relative_to(tree_root).as_posix()
         source = py_file.read_text(encoding="utf-8")
         try:
-            bare_names, module_refs = _extract_top_level_imports(source, filename=rel)
+            tree = ast.parse(source, filename=rel)
         except SyntaxError:
             continue
+        bare_names, module_refs, never_published = _extract_from_tree(tree)
+        examined += 1
         for entry in sorted(bare_names):
             if not _resolves_in_tree(tree_root, entry) and entry not in init_attrs:
                 violations.append((rel, entry))
         for entry in sorted(module_refs):
             if not _resolves_in_tree(tree_root, entry):
                 violations.append((rel, entry))
-    return violations
+        for entry in sorted(never_published):
+            violations.append((rel, entry))
+    return examined, violations

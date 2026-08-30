@@ -31,7 +31,7 @@ Single-shot; race window and lifecycle: wiki.
 The session-cadence orient spine (health, staleness, handoff triage, branch checks, ...) is
 computed for you. PowerShell hosts (Shape W,
 `snippets/resolve-coordinator-bin.md`):
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.cmd" brief --cadence session`. Read the JSON. Every `directives[]` entry names a CLI to run when not
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\orient-assemble.exe" brief --cadence session`. Read the JSON. Every `directives[]` entry names a CLI to run when not
 `already_satisfied`; every `judgment_points[]` entry is an open branch to resolve yourself —
 present each with its `dispositions[]`, pick, don't drop any. Don't hand-run what these compute.
 

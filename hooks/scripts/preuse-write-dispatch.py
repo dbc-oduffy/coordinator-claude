@@ -42,6 +42,7 @@ try:
     from _engine_root import (  # noqa: E402
         arm_lazy_ops as _arm_lazy_ops,
         resolve_claude_klabauter_root as _resolve_claude_klabauter_root,
+        place_engine_root_on_path as _place_engine_root_on_path,
     )
 except Exception:
     # Defensive fallback -- a hook script copied/deployed WITHOUT its
@@ -50,6 +51,13 @@ except Exception:
     def _resolve_claude_klabauter_root() -> str | None:
         return None
 
+
+    def _place_engine_root_on_path(root):
+        # Fallback mirrors the primitive's placement rule: never index 0 when the
+        # hooks dir holds it, never the tail where site-packages outranks us.
+        if root and root not in sys.path[:2]:
+            sys.path.insert(1 if sys.path else 0, root)
+        return root
     def _arm_lazy_ops() -> None:
         return None
 
@@ -120,8 +128,11 @@ def main() -> int:
     # of the engine root on sys.path, so a module-name collision between a
     # doctrine-plane-local helper and a same-named engine-side module resolves toward
     # the doctrine-plane-local helper.
-    if root not in sys.path:
-        sys.path.append(root)
+    # Index-1 placement via the shared primitive: hooks dir stays at 0, engine root
+    # outranks site-packages. A bare append put it BEHIND an editable install of the
+    # engine, so the resolver answered the mirror and the import returned the working
+    # tree -- see _engine_root.place_engine_root_on_path.
+    _place_engine_root_on_path(root)
 
     # Must precede the first coordinator_core.* import -- see
     # _engine_root.arm_lazy_ops for the ~90ms package-init cost this avoids.

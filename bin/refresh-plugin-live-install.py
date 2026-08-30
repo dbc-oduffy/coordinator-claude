@@ -127,10 +127,21 @@ def _bootstrap_lib() -> None:
     re-importing a bound module is a dict lookup. Called at each deferred-import
     site rather than at module scope on purpose -- module bodies stay inert on
     the un-bootstrapped forwarder load route, and hoisting this would undo that.
+
+    NEGATIVE SPEC (2026-08-29 review-finding sweep, Finding 5): this used to
+    ALSO carry its own ``bin_dir not in sys.path: sys.path.insert(0, bin_dir)``
+    preamble ahead of ``import lib`` -- a per-file ``sys.path`` mutation the
+    lazy-bootstrap sweep's own brief forbids, reached from twelve call sites
+    in this module and mutating a shared warm process on every one of them.
+    It is deleted, not relocated: ``coordinator/bin/lib/__init__.py`` is the
+    ONE place ``coordinator/bin/lib`` is put on ``sys.path`` (see its own
+    docstring), and a script's own directory is already ``sys.path[0]`` for a
+    direct run, with the warm door's ``invoke_from_argv.py`` covering the
+    warm-serve path -- both of which put ``coordinator/bin`` itself (this
+    module's own directory, the prerequisite for the bare ``import lib``
+    below to resolve at all) on ``sys.path`` before this function is ever
+    reached. Do not restore the deleted insert.
     """
-    bin_dir = os.path.dirname(os.path.abspath(__file__))
-    if bin_dir not in sys.path:
-        sys.path.insert(0, bin_dir)
     import lib  # noqa: F401 -- bootstraps coordinator/bin/lib onto sys.path
 
 
@@ -337,6 +348,7 @@ def _parse_argv_command(
     ``shlex.split`` failure (e.g. unbalanced quotes) or an empty/unresolvable
     first token.
     """
+    _bootstrap_lib()
     from win_argv import win_safe_shlex_split
 
     try:
