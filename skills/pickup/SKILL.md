@@ -114,7 +114,12 @@ before summarizing, acting, or editing any field — acting on a paraphrase is t
 
 **Verify your response as hard as their premise.** The fired guidance points adversarially at the
 sender, never at your own fix. Visibility isn't resolution — easy item fixed and hard ones surfaced
-is *partial*, so say partial and give each open item an owner. Claim no mechanism you didn't read
+is *partial*, so say partial and **land each open item in a surface you can write at will** — a
+`bug-backlog`/`debt-backlog`/`improvement-queue` row, a spine row, or a commit. Not "an owner" (no
+queue schema has the field), not "surfaced to the PM", and not a spinoff you proposed: a spinoff is
+the PM's to grant, so suggest it *beside* the landing, never instead of it. Anything whose
+existence depends on someone else's next move is a gamble, not a record. Claim no mechanism you
+didn't read
 this session. **A premise claim about a peer repo names the ref it was read at** — `origin/main`, a
 branch, or a SHA. "Verified against `<repo>` HEAD" cannot distinguish *on main* from *on someone's
 unmerged branch*, and that gap fails silent: green check, live call that has never worked.
@@ -172,16 +177,6 @@ one that was never made. Tripwire: `A-BATON-IS-NOT-A-SIZING-ARTIFACT`.
 **Pickup mutates frontmatter in place and commits — it never moves a file.** The archival move,
 supersede flip, and archive-fallback resolution are engine-computed bookkeeping.
 
-**Push checkpoint — `push.outstanding`.** Push runs on a cadence, not on every commit, and this
-is one of its named checkpoints. Once the commit has landed, call the primitive once and block on
-it (~150ms, synchronous — no detach or background wrapper):
-
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
-
-Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
-`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
-branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
-never hand-roll a `git push` beside it.
 
 - No action items, roadmaps, or trackers — that's `/workstream-start`.
 - "Key Decisions Made" is context to internalize, not to re-litigate absent evidence it was wrong.

@@ -16,9 +16,11 @@
 # borderline tree indexed: adding a pattern later is cheap, and a tree nobody can
 # retrieve is invisible rather than obviously missing.
 #
-# What deliberately STAYS indexed in a coordinator repo: the plans, decisions,
-# wiki, lessons, sizings and queues under `docs/` and `state/`. In a doctrine
-# repo the prose IS the corpus, not noise around the code.
+# What deliberately STAYS indexed in a coordinator repo: the RECORD — decisions,
+# wiki, lessons and queues under `docs/` and `state/`. In a doctrine repo the
+# prose IS the corpus, not noise around the code. Drafts and work-state (plans,
+# handoffs, sizings, sidecars) are excluded below and served instead by the
+# structural tier, which reads them off disk with no staleness window.
 
 # Terminal and superseded. Retained for provenance, not for retrieval — a query
 # that surfaces an archived baton over its live successor is a wrong answer.
@@ -42,6 +44,44 @@ cross-repo/archive/**
 state/subagent-share/**
 state/review-trail/**
 
+# Fast-moving work-state. The semantic surface is the WRONG tier for these, on a
+# refresh-cost argument rather than a value one: an embeddings run is slow and
+# infrequent, so a tree that turns over daily is stale in the index almost all of
+# the time, and a confidently-returned stale baton is worse than no hit at all.
+#
+# These trees are not being made unreachable — they are being routed to the tier
+# that serves them better. `project_workstate_query` (source='local-fence') reads
+# these off disk at call time with no staleness window whatsoever, and
+# `project_fleet_frontmatter_query` reads graph.db, which reprimes far faster
+# than the embedding corpus. Structural retrieval over fast-moving state beats
+# semantic retrieval over a stale snapshot of it.
+#
+# This costs no prior-art capability, which is worth stating explicitly because
+# it looks like it should. "Has anyone tried this before?" is a wiki-and-
+# decisions question by construction: plans are drafts that get distilled into
+# `coordinator/docs/wiki/` and `docs/decisions/`, and both stay indexed. A plan
+# holding prior art its wiki page does not is a DISTILLATION gap, to be fixed by
+# distilling it — not a retrieval gap to be worked around by indexing drafts.
+# Searching the drafts instead is how the answer ends up sourced from the
+# superseded version.
+#
+# Standing dependency: this holds only while the wiki is actually reachable
+# semantically. These exclusions are not safe in isolation — they are safe
+# *given* an indexed wiki. If your wiki tree is outside the embedding corpus,
+# prior-art recall runs on the structural tier alone and this trade is not the
+# one described above.
+state/handoffs/**
+docs/plans/**
+
+# Same rule, same reasoning. Sizings are per-ask triage records with the same
+# daily turnover as the handoffs above. Plan sidecars are per-plan working
+# artifacts and follow their plan out of the corpus by construction — leaving 746
+# sidecar files indexed while their plans are not would retrieve the scaffolding
+# without the thing it was scaffolding, which is the same claim-severed-from-
+# verdict hazard that put subagent-share on this list.
+state/sizings/**
+state/plan-sidecars/**
+
 # Swept scratch — non-durable working space by convention.
 tasks/**
 scratchpad/**
@@ -49,6 +89,24 @@ scratchpad/**
 # Tool caches and derived indexes — regenerable, never authored.
 .pytest_cache/**
 .structural-index/**
+__pycache__/**
+coordinator/dist/**
+
+# project-rag's own runtime artifacts, which land in this tree rather than its
+# own: bm25 caches, chunk-distribution dumps, embed-sidecar logs. This is the
+# data dir `project_health` reports as orphaned. Indexing a retrieval engine's
+# scratch into the corpus it serves is a loop worth breaking explicitly.
+Saved/**
+
+# Working scratch, same class as `scratchpad/**` and `tasks/**` above under
+# different names.
+scratch/**
+state/scratch/**
+
+# Per-dispatch ephemera, same class as subagent-share above: a brief is the
+# instruction handed to one worker for one run, superseded by whatever that run
+# produced.
+state/dispatch-briefs/**
 
 # Machine-generated caches that are single enormous files. These dominate a
 # chunk budget out of all proportion to their size on disk: project-rag-ue-addon

@@ -2,7 +2,7 @@
 name: research-sweep
 description: "Opus NotebookLM sweep — blocked until workers finish, assesses claim coverage, fills gaps, frames the final document."
 model: opus
-effort: medium
+effort: low
 tools: ["Read", "Write", "Edit", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet", "ToolSearch", "mcp__notebooklm-mcp__notebook_query", "mcp__notebooklm-mcp__cross_notebook_query", "mcp__notebooklm-mcp__notebook_list"]
 color: red
 access-mode: read-write
@@ -98,7 +98,7 @@ Write the framing that turns worker findings into a coherent document. **Preserv
 
    **Run-stem note:** flag "Run-stem lacks pipeline identifier" in your completion message if the output path is missing `nlm` in the stem (e.g. `...-{topic-slug}-nlm.md`).
 
-2. **Write the merged claims array to `{scratch-dir}/merged-claims.json`.** **You never write `{output-path-base}.claims.json` or its `.claims.meta.json` sidecar** — that pair has exactly one writer, invoked by the EM after you report (you have no Bash). Stamp `ran_at`, RFC3339 timezone-aware, **at the moment you merge** (you hold the only real one — a date recovered from the run-stem does not satisfy it), and report it plus `pipeline: notebooklm`. Merge all workers' `{letter}-claims.json` arrays into one array, mapping fields to `research-claim.schema.json`:
+2. **Write the merged claims array to `{scratch-dir}/merged-claims.json`.** **You never write `{output-path-base}.claims.json` or its `.claims.meta.json` sidecar** — that pair has exactly one writer, invoked by the EM after you report. **Do not report `ran_at`: you have no Bash, therefore no clock**, and an estimate in RFC3339 clothing passes `claims-emit`'s shape validation indistinguishably from a measured value. Writing this file IS the stamp — the EM reads its mtime. Report `pipeline: notebooklm`. Merge all workers' `{letter}-claims.json` arrays into one array, mapping fields to `research-claim.schema.json`:
    - `id`→`id` (as-is, e.g. "A-001") · `finding`→`claim_text` · `confidence`→`confidence` (direct) · `type`→`type` (`capability`→`fact`; fact/limitation/pattern/recommendation direct) · `evidence_excerpt`→`evidence` · `cross_notebook`→`contested_by` (contradiction) or `corroborated_by` (corroboration), both null if `cross_notebook` is null · `topic_tags`→derive `["nlm", "notebook-{letter-lower}", "{focus-area-slug-from-strategy}"]` · `source_url`→`source_url` · `source_date`→`source_date`.
    - `source_url`/`source_date` carry through only when the worker supplied a non-null value; omit the key entirely when null — never emit `null` or a synthesized placeholder. A fabricated citation is worse than an absent one.
    - Omit (scratch-only, not carried to durable schema): `query`, `notebook_sources`, `transcription_suspect`.
@@ -224,11 +224,11 @@ name from frontmatter:
 ## Completion
 
 1. Write the final document to the output path (research-synthesis frontmatter prepended — Phase 3 step 1).
-2. Write the merged claims array to `{scratch-dir}/merged-claims.json`, stamping `ran_at` (Phase 3 step 2).
+2. Write the merged claims array to `{scratch-dir}/merged-claims.json` (Phase 3 step 2) — writing it IS the `ran_at` stamp, via its mtime.
 3. Write advisory to `{output-path-advisory}` AND `{scratch-dir}/advisory.md` (if applicable — skip if nothing beyond scope).
 4. Do NOT delete notebooks (§ Notebook Cleanup) — list each notebook ID and name in the completion message.
 5. Mark your task `completed` via TaskUpdate.
-6. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Merged claims: {scratch-dir}/merged-claims.json ({N} claims, {M} lacking source_url), ran_at: {RFC3339 tz-aware}, pipeline: notebooklm. Gap report: {output-path-base}-gap-report.md {or 'No gap report — coverage complete'}. Notebooks preserved for auditor: {count} notebooks — {IDs}. EM: dispatch coverage auditor next, then delete notebooks if CLEANUP_NOTEBOOKS. {Advisory: written to {output-path-advisory} | No advisory}"
+6. Send a brief completion message to the EM: "NotebookLM research on '{topic}' complete. Output: {output-path}. Merged claims: {scratch-dir}/merged-claims.json ({N} claims, {M} lacking source_url), pipeline: notebooklm. Gap report: {output-path-base}-gap-report.md {or 'No gap report — coverage complete'}. Notebooks preserved for auditor: {count} notebooks — {IDs}. EM: dispatch coverage auditor next, then delete notebooks if CLEANUP_NOTEBOOKS. {Advisory: written to {output-path-advisory} | No advisory}"
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

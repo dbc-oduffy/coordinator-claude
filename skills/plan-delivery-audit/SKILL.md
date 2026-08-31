@@ -52,10 +52,11 @@ command or treat an unrun suite as passing.
 
 **Oracle 3 — review (archive-aware).** Trail records live at BOTH `state/review-trail/**/*.json`
 AND `archive/review-trail/**/*.json` — `/workweek-complete` moves the current week's records into
-`archive/review-trail/<week>/` on every reset, so a live-only glob under-counts. Read via
-(shape per `snippets/resolve-coordinator-bin.md`; PowerShell shown):
-
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\list-review-trail-records.exe"`
+`archive/review-trail/<week>/` on every reset, so a live-only glob under-counts. There is no
+lister CLI — the per-commit review-trail writer/lister family was retired with no launcher of any
+kind, replaced by a binary review receipt. Walk both trees directly:
+glob `state/review-trail/**/*.json` and `archive/review-trail/**/*.json`, union the results, and
+sort by **basename**, not full path — week-subdirectory ordering inverts on a full-path sort.
 
 For each returned record, call `coordinator_core.git_ancestry.is_covered(commit, start_sha,
 end_sha)` — the single source of truth for the covered-by-range polarity — for each of the
@@ -107,7 +108,7 @@ don't clobber each other.
 ## Dispatch sequencing
 
 Phase 2 (~10 min): parallel Oracle-2(a) scouts, one per implemented plan, per the dispatch shape
-above. Concurrently (EM-side): run Oracle 2(b) once for the batch, and Oracle 3 per plan via
-`list-review-trail-records` + `is_covered`. Phase 3 (~3 min): apply the decision tree to every
+above. Concurrently (EM-side): run Oracle 2(b) once for the batch, and Oracle 3 per plan via the
+direct trail-tree walk (§ Oracle 3) + `is_covered`. Phase 3 (~3 min): apply the decision tree to every
 plan, write the output table, and surface any DELIVERED-UNREVIEWED plans to the PM with a
 `code-reviewer` dispatch recommendation — don't dispatch it autonomously, the PM may defer.

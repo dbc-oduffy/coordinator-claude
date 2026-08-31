@@ -40,6 +40,13 @@ import subprocess
 import sys
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_LIB_DIR = os.path.join(_SCRIPT_DIR, "lib")
+
+# The two helper imports below are deferred and sys.path-dependent: `coordinator_safe_name`
+# and `cc_invoke` both live in bin/lib, which is not a package and is on no default path.
+# Self-resolve it from __file__, never cwd — this runs as a pre-commit gate from any repo.
+if _LIB_DIR not in sys.path:
+    sys.path.insert(0, _LIB_DIR)
 
 
 def _csn_check(component: str) -> str | None:

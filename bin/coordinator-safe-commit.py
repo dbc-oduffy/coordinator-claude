@@ -123,8 +123,11 @@ commit` was ITSELF killed 2026-08-27 (200ms process-time bar,
 again, to `ceremony.commit_v2` (docs/plans/2026-08-27-something-must-commit-
 ceremony-commit-v2.md, C7) — see `do_pathspec`'s own docstring for the
 current wiring. Incompatible with `--blanket`, `--scope-from`,
-`--include-orphans`, `--allow-out-of-scope-dirty`, and `--body-file` (the op
-has no body/orphan-claim/handoff-scope support of its own).
+`--include-orphans`, and `--allow-out-of-scope-dirty` (the op has no
+orphan-claim/handoff-scope support of its own). `--body-file` WAS on that
+list and is not any more (2026-08-31): the exclusion cited the killed
+`scoped-git-commit`, while `ceremony.commit_v2`'s `message` is a plain
+string this caller already composes.
 
 Negative-spec: `--dry-run` must NEVER reach `git add`/`git commit` and must
 be gated in EVERY mode branch, the `-- <paths>` pathspec form included --
@@ -342,7 +345,9 @@ through the `ceremony.commit_v2` op
 `scoped-git-commit` CLI (DR-344, 2026-08-23) nor the killed `ceremony.commit`
 op it repointed to before (2026-08-27, 200ms process-time bar).
 Still incompatible with --blanket, --scope-from, --include-orphans,
---allow-out-of-scope-dirty, and --body-file.
+and --allow-out-of-scope-dirty. --body-file IS supported here (2026-08-31):
+put a long message in a file so its prose never enters the command string,
+where the harness's own destructive-action scan reads argv.
 
 Whether a caller may commit at all is enforced by the
 coordinator_core/bash_guards/block_subagent_commit.py PreToolUse(Bash)
@@ -447,11 +452,23 @@ def parse_args(argv: Sequence[str]) -> Args:
             raise UsageError("`-- <paths>` cannot be combined with --include-orphans.")
         if args.allow_out_of_scope_dirty:
             raise UsageError("`-- <paths>` cannot be combined with --allow-out-of-scope-dirty.")
-        if args.body_file:
-            raise UsageError(
-                "`-- <paths>` cannot be combined with --body-file "
-                "(scoped-git-commit has no body support)."
-            )
+        # `--body-file` IS supported on this form as of 2026-08-31. The
+        # refusal that stood here cited `scoped-git-commit`, a CLI DR-344
+        # killed on 2026-08-23; this form has routed through
+        # `ceremony.commit_v2` since 2026-08-27, whose `message` param is a
+        # plain string that `do_pathspec` already composes. Nothing needed
+        # building -- the constraint had outlived the thing that imposed it,
+        # which is the killed-name-persists-in-a-string-keyed-check class.
+        #
+        # It is not merely a tidy-up. `-- <paths>` is the ONLY form scoped-
+        # commit discipline permits, so while this refusal stood, every
+        # sanctioned commit had to put its entire prose in argv -- where the
+        # harness's own destructive-action scan reads it as operands. A
+        # commit message describing a path separator was refused as
+        # `Remove-Item on system path '/'`; rewording let the identical
+        # commit through. That scan is not ours to fix, but handing it the
+        # prose was, and `--body-file` is how a caller stops.
+        pass
 
     if args.body_file:
         try:
@@ -497,9 +514,14 @@ def do_pathspec(args: "Args") -> None:
     `params.paths`/`params.deleted_paths` are split from `args.paths` via
     `_split_paths_for_commit_v2` (a path absent from the worktree is a
     deletion) -- this wrapper's whole job here is "commit exactly these
-    paths", so nothing narrows or widens that set. No session id,
-    orphan-claim, or handoff-scope machinery applies to this explicit-path
-    form, mirroring the killed CLI's own scope. There is no in-process
+    paths", so nothing narrows or widens that set. No orphan-claim or
+    handoff-scope machinery applies to this explicit-path form, mirroring
+    the killed CLI's own scope. OWNERSHIP is no longer in that exemption:
+    `_refuse_contested_pathspec` runs ahead of the dispatch and refuses a
+    path a live peer still holds (see its docstring for the incident that
+    closed the gap). It does not narrow the set either -- it refuses the
+    whole call, so "commit exactly these paths, or none of them" still
+    holds. There is no in-process
     fallback for an unregistered op any more: `ceremony.commit_v2` not being
     registered is a real, reportable failure now, not something to route
     around by re-entering a killed handler (see this plan's own note on why
@@ -542,13 +564,26 @@ def do_pathspec(args: "Args") -> None:
     # the warm-reach probe before ever reaching the cold-spawn fallback.
     require_engine_on_path(__file__)
 
-    worktree_root = os.getcwd()
+    worktree_root = _worktree_root_from_cwd()
     attempt_id = uuid.uuid4().hex
     attempt_trailer = f"Attempt-Id: {attempt_id}"
     pre_sha = _resolve_pre_sha_for_reconcile(worktree_root)
 
+    _refuse_contested_pathspec(args.paths, worktree_root)
+
     present_paths, deleted_paths = _split_paths_for_commit_v2(worktree_root, args.paths)
-    message = f"{args.subject}\n\n{attempt_trailer}"
+    # Body BEFORE the trailer: `Attempt-Id:` is a trailer, and git's own
+    # trailer parsing reads the LAST paragraph. Composing them the other way
+    # round would push the trailer into the middle of the message, where
+    # `commit_reconcile`'s post-indeterminate search cannot find it -- and
+    # that search is the only thing standing between a timed-out commit and
+    # a blind retry that double-commits.
+    body = args.body.strip() if args.body else ""
+    message = (
+        f"{args.subject}\n\n{body}\n\n{attempt_trailer}"
+        if body
+        else f"{args.subject}\n\n{attempt_trailer}"
+    )
     params = {
         "paths": present_paths,
         "deleted_paths": deleted_paths,
@@ -566,6 +601,21 @@ def do_pathspec(args: "Args") -> None:
         print(f"ERROR: ceremony.commit_v2: {exc}", file=sys.stderr)
         sys.exit(1)
 
+    if result.get("nothing_to_commit"):
+        # SEPARATED FROM THE GENERIC REFUSAL because the two need opposite
+        # things from the reader. A generic refusal says the route failed; this
+        # says the route worked and there was nothing there -- which, when the
+        # caller believed it had just written something, means the write is the
+        # thing that did not land. That is the sentence a session took at face
+        # value from `committed sha=` and lost a twelve-finding review pass to.
+        print(
+            "NOTHING TO COMMIT: every named path already matches HEAD -- no "
+            "commit was made and HEAD is unmoved. If you expected a change, "
+            "your edit never landed.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if not result.get("committed"):
         print(
             f"ERROR: ceremony.commit_v2 did not commit: {result.get('error') or result}",
@@ -573,7 +623,210 @@ def do_pathspec(args: "Args") -> None:
         )
         sys.exit(1)
 
+    # WARNINGS PRINT BESIDE THE SHA, and their absence here was half of the
+    # zero-delta bug rather than a cosmetic gap: `ceremony.commit_v2` has
+    # raised structured warnings for a while -- passed-over staged bytes,
+    # repaired line endings, and now declared paths that contributed nothing
+    # -- and this helper dropped every one of them on the floor, leaving
+    # `committed sha=` as the whole of what a caller saw. A fact returned to a
+    # surface that does not print it is not reported.
+    for warning in result.get("warnings") or ():
+        print(f"WARNING: {warning}", file=sys.stderr)
+
     print(f"committed sha={result.get('sha')}", file=sys.stderr)
+
+
+def _holder_context(worktree_root: str, sid: str, path: str) -> str:
+    """One holder's identity, rendered so the caller can act on the refusal.
+
+    A bare `sid[:8]` is not an address, and worse, it is stale by default: a
+    session RE-POINTS its id while keeping its name (measured 2026-08-31 by
+    claude-klabauter-ad: six re-points across five of twelve peers in one
+    shift, one session twice). So the sid printed here can name a session
+    that no longer exists under it, and attributing on one produced a
+    three-hop misattribution that reached a peer's execution wave as a false
+    premise that same day. `harness_registry.snapshot()` holds the stable
+    name -- the thing `SendMessage` actually accepts -- and answers in 5.4ms
+    over 31 records, so the name is resolved HERE, at the moment of the
+    refusal, never carried in from a record or a document that mentions it.
+
+    A sid with no registry entry is reported as unnamed, never as dead: this
+    helper runs only inside a branch `contested_by_live_peers` has already
+    decided, so liveness is established before the name is looked up and the
+    label may not contradict it. A label reading "stale id" here produced
+    "held by live session(s) 6ab7b0d8 (stale id...)" -- self-contradicting in
+    one line, and a peer who believed the stale half left an artifact dirty
+    rather than commit it. What the miss means is that the sid has no
+    resolvable name, and the caller cannot reach the holder by one: printing
+    it bare as if it were an address is how a guard teaches the fleet to
+    route around it, which costs the true positives too.
+
+    Two facts make the sid actionable, and both are already on disk:
+    the holder's baton title (what they are working on, so the caller can
+    tell live work from residue), and how long the TOUCH has gone
+    unreleased. An 11h-old claim on a file whose work is committed reads
+    differently from a 2-minute-old one, and the caller currently cannot
+    distinguish them.
+
+    Best-effort in every part: an unreadable baton, a missing sink, or any
+    exception degrades to the bare sid rather than raising. This runs only
+    in the already-contested branch, never on the common path.
+    """
+    bits: List[str] = []
+    try:
+        _import_session()
+        from coordinator_core.session import harness_registry  # noqa: PLC0415
+
+        record = harness_registry.snapshot().get(sid)
+    except Exception:
+        record = None
+    name = getattr(record, "name", None) if record is not None else None
+    if name:
+        bits.append(f"{name} [{sid[:8]}]")
+    else:
+        bits.append(f"{sid[:8]} (live, no name in the harness registry)")
+    sessions_dir = os.path.join(worktree_root, ".git", "coordinator-sessions", sid)
+    try:
+        import json  # noqa: PLC0415
+
+        with open(os.path.join(sessions_dir, "baton.json"), encoding="utf-8") as fh:
+            title = (json.load(fh) or {}).get("title")
+        if title:
+            bits.append(f'"{str(title)[:70]}"')
+    except Exception:
+        pass
+    try:
+        last_ts = None
+        with open(
+            os.path.join(sessions_dir, "touch-record.jsonl"), encoding="utf-8"
+        ) as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or path not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except Exception:
+                    continue
+                if rec.get("path") == path and rec.get("verb") == "T":
+                    last_ts = rec.get("ts") or last_ts
+        if last_ts:
+            hours = (time.time() - float(last_ts)) / 3600.0
+            bits.append(
+                f"held {hours:.1f}h" if hours >= 1 else f"held {hours * 60:.0f}m"
+            )
+    except Exception:
+        pass
+    return " ".join(bits)
+
+
+def _refuse_contested_pathspec(paths: Sequence[str], worktree_root: str) -> None:
+    """The ownership gate the explicit-pathspec form never had.
+
+    `do_pathspec`'s own docstring states the anti-scope it inherited from
+    the killed `scoped-git-commit` CLI -- "no session id, orphan-claim, or
+    handoff-scope machinery applies to this explicit-path form" -- and
+    `main`'s dispatch comment still says the delegate "does its own
+    session/ownership gating". That delegate is gone (DR-344 killed it
+    2026-08-23) and its replacement, `ceremony.commit_v2`, is a thin
+    envelope over `commit.commit_paths` that gates nothing: it releases
+    claims AFTER the commit and checks none before it. So the one commit
+    route doctrine mandates was the one route with no ownership check on
+    it, while `check_validate_commit`'s whole Check-5 apparatus -- peer
+    claims, foreign hunks, the C11 content-hash refusal -- guards only what
+    its own regex matches, a literal `git commit`.
+
+    Measured 2026-08-31 on work/machine-a/2026-08-18to31: sessions d12e25cf
+    and 1ad288d0 each held uncommitted hunks in
+    `coordinator_core/workstream_complete/__init__.py`; e74e4ce8 committed
+    the whole file at 40abe011d0 for an unrelated fix and landed both,
+    under a message describing neither and, for one of them, without its
+    regression tests. Nothing warned any of the three, and e74e4ce8's
+    session dir carries no `scope-warnings.log` for it. Check 5's C11 hash
+    arm could not have caught this even had it run: e74e4ce8 wrote the file
+    LAST, so its own recorded hash matched disk exactly, and that arm only
+    ever sees a peer edit landing AFTER this session's last write. A peer's
+    hunk already sitting in a file this session then edits is invisible to
+    it. Live-peer CLAIMS are the signal that was available and unread.
+
+    REFUSES rather than warning: a warning on stderr competes with
+    `ceremony.commit_v2`'s own warnings beside a `committed sha=` line for a
+    commit that has already landed, and what has landed on a shared branch
+    a peer then commits on top of is not revertible by the session that
+    noticed. Refusing costs the caller a round-trip; warning costs someone
+    else their work.
+
+    FAILS OPEN on everything -- an unresolvable session id, an unreadable
+    sink, any exception -- via `contested_by_live_peers`'s own contract plus
+    the ring here. ~62ms process time when nothing is contested (the common
+    case), ~140ms when something is; both inside the 500ms brightline this
+    route already spends a `cc_invoke` round trip against.
+    """
+    try:
+        cs_core, _cs_liveness, cs_scope, _cs_claims = _import_session()
+        # NOT `resolve_session_id` (this file's own helper): that one is
+        # fail-CLOSED by design and exits(1) on an ambiguous or unavailable
+        # identity. Here an unresolved identity must mean "cannot establish
+        # a contest", never "refuse the commit" -- so the lib call alone,
+        # with no auto-detect fallback and no exit.
+        session_id = cs_core.resolve_session_id()
+        if not session_id:
+            return
+        contested = cs_scope.contested_by_live_peers(
+            list(paths), session_id, worktree_root
+        )
+    except Exception:
+        return
+    if not contested:
+        return
+    for path in sorted(contested):
+        owners = "; ".join(
+            _holder_context(worktree_root, o, path) for o in contested[path]
+        )
+        print(
+            f"BLOCKED: {path} is also held by live session(s) {owners} -- "
+            "committing it lands their uncommitted work under your message.",
+            file=sys.stderr,
+        )
+    print(
+        "Drop the named path(s) from the pathspec, or coordinate with the "
+        "holder(s) first BY NAME -- a session id re-points, a name does not. "
+        "A holder releases a path it no longer needs with "
+        "`session-claim-cli release-artifact artifact <path>`; "
+        "`session-claim-cli who-claims-path <path>` lists every holder. "
+        "A holder shown without a name is live but not addressable from "
+        "here: drop that path and commit the rest -- it frees when that "
+        "session commits or releases.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _worktree_root_from_cwd() -> str:
+    """The repo toplevel, walked up from the process cwd with zero spawns.
+
+    NOT `os.getcwd()`, which is what this used to be. `args.paths` are
+    repo-relative and `ceremony.commit_v2` resolves them against
+    `main_worktree_root(repo_root)`, so a caller invoked from a SUBDIRECTORY
+    made the two roots disagree: `_split_paths_for_commit_v2` probed
+    `<cwd>/<repo-relative path>`, missed, and forwarded the miss as
+    `params.deleted_paths` -- a negative existence probe becoming a positive
+    deletion declaration for a file that was never gone. Both signatures of
+    the committer-P0 fall out of that one line
+    (`state/audits/2026-08-31-committer-p0-*`).
+
+    Falls back to the cwd when no `.git` is found: this is a path
+    computation, not a gate, and the ordinary refusals downstream are what
+    report an unresolvable repo.
+    """
+    here = os.path.abspath(os.getcwd())
+    while True:
+        if os.path.exists(os.path.join(here, ".git")):
+            return here
+        parent = os.path.dirname(here)
+        if parent == here:
+            return os.path.abspath(os.getcwd())
+        here = parent
 
 
 def _split_paths_for_commit_v2(worktree_root: str, paths: Sequence[str]) -> "tuple[List[str], List[str]]":
@@ -581,16 +834,99 @@ def _split_paths_for_commit_v2(worktree_root: str, paths: Sequence[str]) -> "tup
     `ceremony.commit_v2`'s `params.paths`/`params.deleted_paths` split -- a
     distinction the killed `ceremony.commit`'s `stage_paths`/`caller_paths`
     shape never needed (`git add` handled a missing path as a deletion
-    transparently). A path absent from the worktree is treated as deleted;
-    everything else is treated as present (added/modified)."""
+    transparently).
+
+    A path absent from the worktree is treated as deleted ONLY IF HEAD carries
+    it. It used to be treated as deleted unconditionally, and that was the
+    committer-P0: a failed existence probe became a positive deletion
+    declaration, so a caller invoked from a subdirectory silently deleted every
+    path it named, and an untracked new file was silently skipped instead of
+    committed (state/audits/2026-08-31-committer-p0-*).
+
+    The root bug is fixed upstream (`_worktree_root_from_cwd`), but a probe can
+    still answer False for a file that exists -- `os.path.exists` returns False
+    on ANY OSError, including a Windows sharing violation on a file one of the
+    ~50 concurrent peers holds open. So the inference itself is closed here:
+    absent from BOTH the worktree and HEAD is not a deletion anyone could have
+    meant, and it refuses rather than guessing which."""
     present: List[str] = []
-    deleted: List[str] = []
+    missing: List[str] = []
     for p in paths:
-        if p and os.path.exists(os.path.join(worktree_root, p)):
+        if not p:
+            continue
+        if os.path.exists(os.path.join(worktree_root, p)):
             present.append(p)
-        elif p:
-            deleted.append(p)
+        else:
+            missing.append(p)
+
+    if not missing:
+        return present, []
+
+    # One batched spawn, and only when something is actually missing -- the
+    # ordinary commit names no missing path and pays nothing.
+    tracked = _paths_tracked_at_head(worktree_root, missing)
+    deleted = [p for p in missing if p in tracked]
+    unknown = [p for p in missing if p not in tracked]
+    if unknown:
+        for p in unknown:
+            print(
+                f"BLOCKED: {p} is neither in the worktree nor in HEAD -- "
+                "refusing to commit it as a deletion.",
+                file=sys.stderr,
+            )
+        print(
+            "Check the path, or run from the repo root. To commit a real "
+            "deletion the path must exist in HEAD.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     return present, deleted
+
+
+def _paths_tracked_at_head(worktree_root: str, paths: Sequence[str]) -> "set[str]":
+    """Which of `paths` HEAD carries, in one spawn.
+
+    Fails CLOSED: if the probe cannot answer, the caller refuses rather than
+    inferring a deletion. Treating an unanswerable probe as "not a deletion"
+    would reinstate the P0 in its quieter form -- a guess dressed as a fact.
+
+    `-r` (Review: coordinator:code-reviewer Finding 2, 8f787b71-c) -- without
+    it, a directory pathspec absent from the worktree but present in HEAD
+    matches its single tree-mode (040000) entry by that exact directory
+    name, and `_split_paths_for_commit_v2` would classify the directory
+    itself as a "deleted file" and forward it into `deleted_paths`, which
+    `ceremony.commit_v2` expects to hold file paths only. `-r` expands the
+    listing to the tree's recursive file entries (`dir/file.txt`, ...),
+    which never exact-match the bare directory name the caller asked about,
+    so an absent directory now falls into the `unknown` branch below and is
+    refused rather than silently misclassified as a file deletion.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            worktree_root,
+            "ls-tree",
+            "-r",
+            "-z",
+            "--name-only",
+            "HEAD",
+            "--",
+            *paths,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or "").strip() or "git ls-tree failed"
+        print(
+            "BLOCKED: could not read HEAD to tell a deletion from a bad "
+            f"path: {detail}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return {line for line in result.stdout.split("\0") if line}
 
 
 def _is_indeterminate_outcome(exc: RuntimeError) -> bool:
@@ -2560,9 +2896,14 @@ def main(argv: Sequence[str]) -> None:
         sys.exit(1)
 
     if args.paths:
-        # Pathspec-passthrough (Defect 1): the delegate (`scoped-git-commit`)
-        # does its own session/ownership gating — no need to resolve THIS
-        # wrapper's session id or run the self-heal lock reap first.
+        # Pathspec-passthrough (Defect 1). This comment used to read "the
+        # delegate (`scoped-git-commit`) does its own session/ownership
+        # gating — no need to resolve THIS wrapper's session id". That
+        # delegate was killed by DR-344 and its replacement gates nothing,
+        # so for three months the sentence excused an absence it described
+        # as coverage; `_refuse_contested_pathspec` (called inside
+        # `do_pathspec`) is now what actually holds it. The lock reap is
+        # still deliberately skipped here.
         #
         # 2026-08-28, real incident #3 of the same class as the two this
         # file's module docstring already records: this branch dispatched
@@ -2577,7 +2918,7 @@ def main(argv: Sequence[str]) -> None:
         # where a preview could still intercept.
         if args.dry_run:
             present, deleted = _split_paths_for_commit_v2(
-                os.getcwd(), args.paths
+                _worktree_root_from_cwd(), args.paths
             )
             print(
                 f"DRY RUN — pathspec: would commit {len(present)} path(s) "

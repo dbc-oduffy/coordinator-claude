@@ -55,6 +55,7 @@ printed no-op message verbatim, stop. Exit 1: continue.
 | 11i (EM) | `update-docs-probes queue-prune-sweep`. Pruned: fold into the commit, report the count. |
 | 11j (EM) | `reap-stale-subagent-sidecars` — reaps on session liveness AND an age floor AND a status carve-out, never `status:` alone. Reaped: `git rm` into the commit, report the count. |
 | 11k (EM) | Follow `pipelines/update-docs/claudemeta-manifest-cadence.md`. DoE-specific, no-op elsewhere. |
+| 11m (EM) | `${CLAUDE_PLUGIN_ROOT}/bin/check-citation-integrity.py` — the doctrine corpus's citation ratchet. **No-launcher, plugin-local script — rung 3 of `resolve-coordinator-bin.md`'s precedence ladder, not the settings-home form line 20 prescribes for other rows.** Deliberate skip, exit 0, when `state/baselines/citation-integrity.json` is absent for the corpus being checked — not "script absent". Exit 1 names the NEW violations per class against that baseline. **Never auto-repair them**: a citation that merely MENTIONS a filename is not a broken link, and repairing a mention makes the docs false — see `citation-integrity.md`. Report them; a genuine one is the reporter's to fix by hand. |
 | 13 (EM) | Skip on `--no-distill`. `update-docs-probes distill-threshold` (fires ≥50 artifacts, OR >14 days stale, OR no log + ≥20). Exit 1: announce to PM, chain `/distill` via Skill tool. |
 | 14 (EM) | Report, below. |
 | 15 (EM, `~/.claude` only) | Elsewhere: "Phase 15: skipped — not running from ~/.claude." Else follow `pipelines/update-docs/cross-repo-registry-refresh.md`. |
@@ -88,3 +89,12 @@ Append a line only if its condition holds:
 
 Every other phase's count/file-list is never its own line — the commit already carries it, and
 its absence is not evidence the phase was skipped. Do not re-add "for completeness" (why: wiki).
+
+**Maintenance checkpoint — `git.maintenance` hourly tier.** Fires after Phase 9's push, advisory,
+non-zero reported, ceremony continues:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"hourly","repo":"<repo-root>"}'`
+
+Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
+(`scope='none'`); `repo` goes in the JSON params, not omitted. The op maps `tier=hourly` to
+`--task=commit-graph`, never `--schedule=hourly` — no schedule flag appears at this call site.

@@ -274,7 +274,14 @@ except Exception:
         return None
 
 def main() -> int:
-    raw = sys.stdin.read()
+    # Fail-open: a stdin read failure (e.g. undecodable bytes under a
+    # non-UTF-8 console codepage) must degrade to an empty payload, not
+    # propagate -- matching the sibling hook block-dispatch-suite-invocation.py
+    # and this file's own documented contract to exit 0 unconditionally.
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        raw = ""
 
     try:
         data: Any = json.loads(raw)

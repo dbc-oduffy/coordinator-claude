@@ -31,7 +31,6 @@ import subprocess
 import sys
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-_QUEUE_APPEND = os.path.join(_THIS_DIR, "coordinator-queue-append.py")
 
 
 def _bootstrap_imports() -> None:
@@ -64,6 +63,33 @@ def _bootstrap_imports() -> None:
 # When set, the dedup scan looks under <QUEUE_APPEND_OUTPUT_ROOT>/state/lessons/
 # (matching where coordinator-queue-append writes when this env var is set).
 _QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
+_ISOLATION_ROOT_WARNED: set[str] = set()
+
+
+def _isolation_root(env_var: str, caller_name: str) -> str | None:
+    """Local twin of `bin/lib/cli_shared.isolation_root_if_under_test` — see that
+    docstring for the defect this closes.
+
+    Deliberately dependency-free (stdlib only, no `cli_shared` import) rather than
+    delegating: this module's bootstrap is order-sensitive, and forcing it early
+    just to read an env var re-resolves the registry inside a caller's
+    env-stripped window and changes which roots resolve. The predicate is four
+    lines; the ordering hazard is not worth sharing them.
+    """
+    value = (os.environ.get(env_var) or "").strip()
+    if not value:
+        return None
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return value
+    if env_var not in _ISOLATION_ROOT_WARNED:
+        _ISOLATION_ROOT_WARNED.add(env_var)
+        print(
+            f"{caller_name}: ignoring inherited {env_var}={value} — a test-isolation "
+            f"redirect outside a test run. Writing to the resolved repo path instead.",
+            file=sys.stderr,
+        )
+    return None
+
 
 # Mirrors coordinator-queue-append._CLAUDE_HOME_ENV for test isolation.
 # Review: code-reviewer (F4) — unused for resolution since _claude_home()
@@ -179,7 +205,9 @@ def _lessons_dir():
     Fix: align with queue-append._output_path else-branch (stop-the-rot taxonomy).
     Spec backlink: state/bug-backlog/2026-07-06-lesson-add-dedup-scans-wrong-dir-in-meta.yaml
     """
-    override = os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV)
+    override = _isolation_root(
+        _QUEUE_APPEND_OUTPUT_ROOT_ENV, "coordinator-lesson-add"
+    )
     if override:
         return os.path.join(override, "state", "lessons")
     root = _git_root()
@@ -286,8 +314,20 @@ def main(argv: "list[str] | None" = None) -> int:
         ),
     )
     parser.add_argument(
-        "--title", required=True, metavar="TEXT",
-        help="One-line lesson title (required).",
+        "--title", default=None, metavar="TEXT",
+        help=(
+            "One-line lesson title. Exactly one of --title / --title-file "
+            "is required."
+        ),
+    )
+    parser.add_argument(
+        "--title-file", dest="title_file", default=None, metavar="PATH",
+        help=(
+            "Read the lesson title from PATH ('-' for stdin) instead of "
+            "--title. Exactly one of --title / --title-file is required. "
+            "The only title transport that survives every launcher leg "
+            "intact — see --title's own refusal for why."
+        ),
     )
     parser.add_argument(
         "--body", default=None, metavar="TEXT",
@@ -333,6 +373,14 @@ def main(argv: "list[str] | None" = None) -> int:
         ),
     )
     parser.add_argument(
+        "--why-file", dest="why_file", default=None, metavar="PATH",
+        help=(
+            "Read --why from PATH ('-' for stdin) instead of an inline "
+            "value (optional). The only --why transport that survives "
+            "every launcher leg intact — see --why's own refusal for why."
+        ),
+    )
+    parser.add_argument(
         "--how-to-apply", dest="how_to_apply", default=None, metavar="TEXT",
         help=(
             "Actionable guidance for applying this lesson in future situations (optional). "
@@ -346,11 +394,19 @@ def main(argv: "list[str] | None" = None) -> int:
 
     args = parser.parse_args(argv)
 
-    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
+    from coordinator_core.argv_fidelity import (
+        ArgvFidelityError,
+        refuse_newline_argv,
+        resolve_body,
+        resolve_optional_prose,
+    )
 
     try:
         refuse_newline_argv(args.body, flag_name="--body")
         args.body = resolve_body(args.body, args.body_file)
+        refuse_newline_argv(args.title, flag_name="--title")
+        args.title = resolve_body(args.title, args.title_file, flag_name="--title")
+        args.why = resolve_optional_prose(args.why, args.why_file, flag_name="--why")
     except ArgvFidelityError as exc:
         parser.error(str(exc))
 
@@ -366,8 +422,27 @@ def main(argv: "list[str] | None" = None) -> int:
             )
             return 1
 
+    # `_queue_append_locator` is a sibling module in this script's own
+    # directory. Direct `__main__` execution implicitly puts _THIS_DIR on
+    # sys.path[0], but in-process dispatch (workstream_complete.apply, since
+    # this CLI is a CONSUMES_MANIFEST member) does not — mirrors the guard in
+    # coordinator-harvest-deferrals.py for the same import.
+    if _THIS_DIR not in sys.path:
+        sys.path.insert(0, _THIS_DIR)
+    from _queue_append_locator import find_cli_cmd
+
+    cli_cmd = find_cli_cmd(_THIS_DIR, "coordinator-queue-append")
+    if cli_cmd is None:
+        print(
+            "no python interpreter resolvable for coordinator-queue-append"
+            " (sys.executable is " + repr(sys.executable) + ")"
+            " — run coordinator-queue-append.py directly",
+            file=sys.stderr,
+        )
+        return 1
+
     cmd = [
-        sys.executable, _QUEUE_APPEND,
+        *cli_cmd,
         "--schema", "lessons",
         "--title", args.title,
         "--body", args.body,
@@ -387,11 +462,29 @@ def main(argv: "list[str] | None" = None) -> int:
         cmd += ["--how-to-apply", args.how_to_apply]
 
     from coordinator_core.win_portability import no_console_creationflags, no_console_passthrough_kwargs
+    from coordinator_core.session.core import subprocess_identity_env
 
+    # `env=` is not optional here. This CLI is a CONSUMES_MANIFEST member that
+    # `workstream_complete.apply` loads and runs IN-PROCESS -- inside the warm
+    # server when the ceremony came through the warm door. The child below is
+    # the one leg that leaves that process, and an inherited environment names
+    # the server's spawner, so `coordinator-queue-append` cold-resolved a live
+    # peer and filed this session's lesson under it (backlog
+    # 2026-08-30-the-warm-engine-touch-records-a-session-9c5555208afd).
+    # `subprocess_identity_env` carries the caller's resolved id across the
+    # boundary, and STRIPS the identity vars when there is none to carry --
+    # see its own docstring for why inheritance is never the fallback.
     result = subprocess.run(
         cmd,
+        env=subprocess_identity_env(),
         **no_console_passthrough_kwargs(),
     )
+    if result.returncode != 0:
+        print(
+            "coordinator-queue-append exited " + str(result.returncode)
+            + " — no lesson was written",
+            file=sys.stderr,
+        )
     return result.returncode
 
 

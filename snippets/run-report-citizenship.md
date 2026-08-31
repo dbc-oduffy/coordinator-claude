@@ -37,6 +37,16 @@ report via exit-report only.
 distinct from the reviewer-persona `kind:`/`reviewer:`/`verdict:`/`findings_count:`/`plan:` shape
 and the G2 emitter shape.
 
+**`integrated_from:` — `review-integrator` only, and this list is not optional for you.** A
+`review-integrator` run that triaged anything MUST also carry `integrated_from`: the reviewer-sidecar
+stems it triaged, at column zero, written as its last action (`agents/review-integrator.md` §
+Terminal Stamp). Never indented — the scaffold's `divergence:` pair is itself indented, and appending
+at that indent nests the key under it and discards the stamp silently.
+`guard-kira-verdict-routed.py` joins a Kira verdict to its integrator on this key alone, so an
+unstamped run is indistinguishable at close from one that was never dispatched and hard-stops the
+EM's close. Triaged nothing → omit the key entirely; no empty list, no sentinel. Every other persona
+receiving this block ignores this paragraph.
+
 **Status transitions.** `open` OR `dispatched` (writer-set at spawn — see below) → `in_flight` (you
 set this as your first action after reading your brief) → `complete | blocked | thrashing` (you set
 this at exit, matching your exit-report tag).

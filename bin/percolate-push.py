@@ -105,6 +105,9 @@ Exit codes:
         could not be read, or because a round-failure marker is present
         (or unparseable) for this target — DR-301's two replacement
         predicates.
+    75 — the dest is held by an in-flight percolate/publish round (`git
+        push` never ran) — `EX_TEMPFAIL`, naming the holder, not a defect.
+        See `docs/reference/percolate-lock-contention.md`.
 """
 from __future__ import annotations
 
@@ -119,9 +122,40 @@ from typing import List, Optional, Tuple
 _BIN_DIR = Path(__file__).resolve().parent
 _PERCOLATE_GATE = _BIN_DIR / "percolate-gate.py"
 
+# `_LIB_DIR` resolves this module's own short-form import
+# (`from percolate.wire_contract import publish_contention_wait_secs`);
+# `_REPO_ROOT` resolves the absolute-form import `coordinator_core.locked_write`
+# uses (`import coordinator_core...`). Same two-rung shape as
+# `percolate-gate.py::_bootstrap_engine` and `percolate-round.py`'s own
+# `_bootstrap_engine`, but bound at module scope rather than lazily: this
+# file has exactly one subcommand (`_build_parser` registers a single
+# `set_defaults(func=_cmd_push)`), and `_cmd_push` calls into the engine
+# unconditionally, so a lazy-bootstrap PEP 562 hook here deferred nothing —
+# every invocation paid the same imports and `sys.path` mutation it would
+# have paid at module import (staff-eng-review finding 1).
+_LIB_DIR = _BIN_DIR.parent / "lib"
+_REPO_ROOT = _BIN_DIR.parent.parent
+for _rung in (_LIB_DIR, _REPO_ROOT):
+    if str(_rung) not in sys.path:
+        sys.path.insert(0, str(_rung))
+
+from coordinator_core.locked_write import (  # type: ignore[import-not-found]  # noqa: E402
+    LockTimeout as _PushLockTimeout,
+    held_lock as _push_held_lock,
+)
+from percolate.wire_contract import (  # type: ignore[import-not-found]  # noqa: E402
+    lock_busy_message as _lock_busy_message,
+    publish_contention_wait_secs as _publish_contention_wait_secs,
+)
+
 _EXIT_OK = 0
 _EXIT_FAIL = 1
 _EXIT_USAGE = 2
+#: Contended dest lock: a round is already writing this destination, nothing
+#: is broken. Value 75 is `EX_TEMPFAIL` (sysexits.h), the same code
+#: `percolate-round.py::_EXIT_LOCK_BUSY` and `publish.py`'s own lock-timeout
+#: leg use for the identical "queue, not a defect" distinction.
+_EXIT_LOCK_BUSY = 75
 
 # Declared release channels (docs/reference/klabauter-release-channels.md,
 # C5/C1). A branch in this set is push-only, `gh` never invoked — same as
@@ -506,65 +540,104 @@ def _cmd_push(args: argparse.Namespace) -> int:
     if dest is None:
         return _EXIT_USAGE
 
-    # DR-301's two replacement predicates — see module docstring.
-    dest_refusal, has_commits_to_push, branch_head = _check_dest_state(dest)
-    if dest_refusal:
-        print(dest_refusal, file=sys.stderr)
-        return _EXIT_USAGE
+    # Lock span (TOCTOU fix, staff-eng finding 4): opens immediately after
+    # `_resolve_dest` and covers everything from the first dest read through
+    # the last dest mutation — `_check_dest_state`, the round-failure marker
+    # check, `_resolve_default_branch`, and the push itself. A lock that
+    # wrapped only `git push` left the DR-301 predicates evaluated against an
+    # unlocked dest: a round could start writing between the check and the
+    # push, and when a round IS mid-write the dest is dirty, so
+    # `_check_dest_state` would refuse first with `_EXIT_USAGE` and a
+    # dirty-dest message — the operator never seeing the intended
+    # `_EXIT_LOCK_BUSY`/holder-named refusal at all. `percolate-gate.py`'s
+    # three subprocess legs (`resolve-root`, `branch0-gate`, `list-targets`,
+    # all already run above) stay outside: they read the registry, not the
+    # dest. `_check_gh_repo_scope`/`_open_and_merge_pr` stay outside too:
+    # remote-side, post-push.
+    try:
+        with _push_held_lock(
+            Path(dest),
+            holder_label=f"percolate-push:{target}",
+            timeout=_publish_contention_wait_secs(),
+        ):
+            # DR-301's two replacement predicates — see module docstring.
+            dest_refusal, has_commits_to_push, branch_head = _check_dest_state(dest)
+            if dest_refusal:
+                print(dest_refusal, file=sys.stderr)
+                return _EXIT_USAGE
 
-    marker_refusal = _check_round_failure_marker(target, percolate_root)
-    if marker_refusal:
-        print(marker_refusal, file=sys.stderr)
-        return _EXIT_USAGE
+            marker_refusal = _check_round_failure_marker(target, percolate_root)
+            if marker_refusal:
+                print(marker_refusal, file=sys.stderr)
+                return _EXIT_USAGE
 
-    # Branch-topology leg (AC8) — resolved via `git`, never `gh`, so the
-    # dormant/default-branch case never touches `gh` at all. Resolved
-    # BEFORE deciding whether to short-circuit on "nothing to push": on a
-    # non-default branch, ahead==0 means "already pushed", not "done" —
-    # the PR leg still has to run (or resume) on retry. Review:
-    # coordinator:code-reviewer P1 — a `has_commits_to_push == False` early
-    # return here used to short-circuit the PR leg unconditionally, so a
-    # push that succeeded but whose PR leg then failed (default-branch
-    # resolution, missing scope, `gh pr create`/`merge`) read as clean
-    # success on every subsequent invocation, with the PR never opened or
-    # merged.
-    default_branch, default_branch_refusal = _resolve_default_branch(dest)
-    if default_branch_refusal:
-        print(default_branch_refusal, file=sys.stderr)
-        return _EXIT_FAIL
+            # Branch-topology leg (AC8) — resolved via `git`, never `gh`, so
+            # the dormant/default-branch case never touches `gh` at all.
+            # Resolved BEFORE deciding whether to short-circuit on "nothing
+            # to push": on a non-default branch, ahead==0 means "already
+            # pushed", not "done" — the PR leg still has to run (or resume)
+            # on retry. Review: coordinator:code-reviewer P1 — a
+            # `has_commits_to_push == False` early return here used to
+            # short-circuit the PR leg unconditionally, so a push that
+            # succeeded but whose PR leg then failed (default-branch
+            # resolution, missing scope, `gh pr create`/`merge`) read as
+            # clean success on every subsequent invocation, with the PR
+            # never opened or merged.
+            default_branch, default_branch_refusal = _resolve_default_branch(dest)
+            if default_branch_refusal:
+                print(default_branch_refusal, file=sys.stderr)
+                return _EXIT_FAIL
 
-    if not has_commits_to_push and (
-        branch_head == default_branch or branch_head in _RELEASE_CHANNELS
-    ):
+            if not has_commits_to_push and (
+                branch_head == default_branch or branch_head in _RELEASE_CHANNELS
+            ):
+                print(
+                    f"percolate-push: {dest} is already in sync with its upstream — nothing to push.",
+                    file=sys.stderr,
+                )
+                return _EXIT_OK
+
+            if has_commits_to_push:
+                # Captured, never inherited: `_run` forces CREATE_NO_WINDOW,
+                # and on Windows an inherited-stdio child under that flag
+                # writes into a suppressed console, so a
+                # `capture_output=False` push discards git's own failure text
+                # and surfaces a bare exit 128 with nothing to act on.
+                # Measured 2026-08-19 against claude-klabauter: exit 128,
+                # zero bytes on both streams, through both a shell and an
+                # explicitly redirected `Start-Process`. The push is the one
+                # leg whose stderr a caller cannot reconstruct from anywhere
+                # else.
+                result = _run(["git", "-C", dest, "push"])
+                if result.stdout:
+                    print(result.stdout, end="")
+                if result.returncode != 0:
+                    print(
+                        f"percolate-push: `git -C {dest} push` failed (exit {result.returncode}):",
+                        file=sys.stderr,
+                    )
+                    print(
+                        (result.stderr or "").strip() or "(git wrote nothing to stderr)",
+                        file=sys.stderr,
+                    )
+                    return result.returncode
+                if result.stderr:
+                    # git reports normal push progress on stderr; echo it so a
+                    # successful push is as legible as a failed one.
+                    print(result.stderr, end="", file=sys.stderr)
+    except _PushLockTimeout as exc:
+        # Same register as `percolate-round.py::_lock_busy_message` /
+        # `publish.py`'s own lock-timeout leg: a held dest is a queue, not a
+        # defect. `publish_contention_wait_secs()` returns 0.0 (deny at
+        # once) unless `COORDINATOR_ALLOW_PERCOLATE_QUEUE` is set, so this
+        # normally fires immediately rather than sleeping. Message built by
+        # the shared `wire_contract.lock_busy_message` — see
+        # `docs/reference/percolate-lock-contention.md`.
         print(
-            f"percolate-push: {dest} is already in sync with its upstream — nothing to push.",
+            f"percolate-push: {_lock_busy_message(dest, exc)}",
             file=sys.stderr,
         )
-        return _EXIT_OK
-
-    if has_commits_to_push:
-        # Captured, never inherited: `_run` forces CREATE_NO_WINDOW, and on
-        # Windows an inherited-stdio child under that flag writes into a
-        # suppressed console, so a `capture_output=False` push discards git's
-        # own failure text and surfaces a bare exit 128 with nothing to act
-        # on. Measured 2026-08-19 against claude-klabauter: exit 128, zero
-        # bytes on both streams, through both a shell and an explicitly
-        # redirected `Start-Process`. The push is the one leg whose stderr a
-        # caller cannot reconstruct from anywhere else.
-        result = _run(["git", "-C", dest, "push"])
-        if result.stdout:
-            print(result.stdout, end="")
-        if result.returncode != 0:
-            print(
-                f"percolate-push: `git -C {dest} push` failed (exit {result.returncode}):",
-                file=sys.stderr,
-            )
-            print((result.stderr or "").strip() or "(git wrote nothing to stderr)", file=sys.stderr)
-            return result.returncode
-        if result.stderr:
-            # git reports normal push progress on stderr; echo it so a
-            # successful push is as legible as a failed one.
-            print(result.stderr, end="", file=sys.stderr)
+        return _EXIT_LOCK_BUSY
 
     if branch_head == default_branch or branch_head in _RELEASE_CHANNELS:
         return _EXIT_OK

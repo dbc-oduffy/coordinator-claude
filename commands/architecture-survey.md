@@ -30,7 +30,7 @@ Announce the resolved mode before starting.
    never through the settings home — `coordinator/bin/` in THIS repo carries no settings-home
    forwarder (`snippets/resolve-coordinator-bin.md` rung 3: never point a no-forwarder CLI at the
    settings home), so resolve it against the plugin root:
-   `python <plugin-root>/coordinator/bin/survey-consume-gate.py`, feeding it the JSON config
+   `python <plugin-root>/bin/survey-consume-gate.py`, feeding it the JSON config
    (`repo_root`, `claude_klabauter_root`, `run_id`, `census_buckets`, `mode`, `since`, `system_dirs`,
    `excluded_dirs`) on stdin. Capture its stdout verbatim and pass it straight into the
    Workflow's `INPUT.consumeGate` — a pure pass-through, do not branch on `ok`/
@@ -56,9 +56,19 @@ detail: wiki.
 EM-side, after the Workflow returns — its runtime has no filesystem/subprocess primitive, so
 neither stage can run inside it. Why: wiki.
 
-1. Run `python <plugin-root>/coordinator/bin/atlas-citation-check.py` over the emitted atlas
-   pages. Record exit status and every listed unresolvable citation for Phase 5's report — a
+1. Check the emitted atlas pages' citations with the engine-side `check-doctrine-citations` CLI,
+   which HAS a settings-home launcher — Shape W shown, Shape A/B on a POSIX host:
+   `& "$env:COORDINATOR_SETTINGS_HOME\bin\check-doctrine-citations.exe" --corpus docs/architecture`
+   Record exit status and every listed unresolvable/ambiguous citation for Phase 5's report — a
    non-zero exit means the run does not report clean.
+
+   **This covers path resolution only.** The atlas-specific half — symbol and record citations
+   resolved by lookup, the verbatim quoted span asserted present in the cited record, and the
+   atlas-global coverage/reciprocity bookkeeping — is `atlas-citation-check.py`, which does NOT
+   exist: it is chunk C4 / AC5 of `docs/plans/2026-08-20-make-the-atlas-mechanical.md`, held open
+   by a declared `external_gate` on project-rag shipping `md_symbols`/`doc_links`/`refs`. Do not
+   invoke it and do not report its exit status until that chunk lands; a clean run of the
+   resolution check above is not a clean atlas-accuracy run.
 2. Dispatch `atlas-clarity-reviewer` once per page (parallel, never batched). Collect verdicts to
    the sidecar.
 
@@ -92,7 +102,7 @@ Out of scope for every agent here: `gh pr create/merge`, `git push origin main`,
    **cartography_used:** [true / false]
    **In-scope file count:** [N] (from `counts.bucketed_total`; N/A on agentic fallback)
    **oversized_signal:** [unavailable — REQUIRED when cartography_used is true / N/A on fallback]
-   **atlas-citation-check:** [exit 0 clean / exit N — unresolvable citations listed]
+   **Atlas citation check:** [exit 0 clean / exit N — unresolvable citations listed]
    **Clarity review:** [N pages reviewed; flagged verdicts / none]
    ```
 8. Clean scratch — only after commit succeeds:

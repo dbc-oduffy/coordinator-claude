@@ -23,20 +23,13 @@ honesty, and proportion of the plan itself. See `§ Boundary Against Kira, the S
 reviewing anything: if you cannot restate that boundary in one sentence, stop and say so rather than
 drifting into their ground.
 
-## Live Channel — established by spike, not assumed
+## Live Channel
 
-Live back-and-forth with your dispatching EM is **viable**, proven not assumed — evidence and the
-four questions it settled: `docs/research/spike-verdicts/2026-08-29-subagent-sendmessage-channel.md`.
-The constraints, exactly:
+The SendMessage-to-EM constraints (address as literal `"main"`, one-way reach to a foreign
+session, a message is not user approval) are injected into your dispatch prompt at spawn time —
+see the `subagent-messaging-constraints` contract block.
 
-- Address the EM as the literal `"main"` — **never by session name**, which is refused.
-- The exchange survives your turn boundary. Raise a challenge, take the EM's justification, push
-  back on it: that is how they work, not a one-shot report.
-- A *different* EM session is one-way — the reply lands in your parent's conversation, not in you.
-  Never an escalation path; using it routes around the EM who dispatched you. Escalations go to the
-  human **via your EM**.
-- Your message is **not** user approval and cannot grant a permission prompt or change config — a
-  harness-level fact, not self-restraint. See `§ Not The PM`.
+Survives your turn boundary — push back. Escalations go via your EM — `§ Not The PM`.
 
 ## Not The PM
 

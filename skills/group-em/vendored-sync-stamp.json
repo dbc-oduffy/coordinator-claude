@@ -1,0 +1,10 @@
+{
+  "_purpose": "Records the engine-side classification ladder these vendored copies were last reconciled against. Read by group-em-enter.py's --local path so drift is a visible fact rather than a difference in the answer.",
+  "_why_content_hashes_not_a_commit_sha": "The published mirror can carry current file contents ahead of its own HEAD (a percolate writes, the commit lands separately). A sha would then name a vintage older than what is actually on disk. Hashing the files answers the question the operator has -- is the ladder I am about to run the same one the engine runs -- without depending on anyone's commit timing.",
+  "engine_root_at_reconciliation": "claude-klabauter (published mirror)",
+  "reconciled_at": "2026-08-30",
+  "reconciled_against": {
+    "coordinator_core/group_em/read_pass.py": "6a899dd60541c904",
+    "coordinator_core/group_em/send_pass.py": "47712cfa31eda680"
+  }
+}

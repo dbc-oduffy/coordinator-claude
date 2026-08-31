@@ -81,8 +81,18 @@ worktrees, ever.
 
 `TaskCreate`: goal task (item list, tail mode); per-item task (id, spec path, wave, footprint,
 verification, `pending`, empty `tried_and_abandoned`); hibernate-only tail tasks ("Verify pushes,"
-"Hibernate PC"). Update `tried_and_abandoned` before any new approach; read it back after
-compaction before retrying anything.
+"Hibernate PC").
+
+<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
+`TaskCreate` absent from this session's surface
+(`ToolSearch("select:TaskCreate")` returns nothing) → fall back to `coordinator-tasks-mirror` for
+the same flight-recorder role; do not assume either state without checking. When Task* is
+unavailable, dispatch the phases in order, waiting on each completion notification — that is the
+ordering a `blockedBy` chain would otherwise express.
+<!-- END task-tool-availability -->
+
+Update `tried_and_abandoned` before any new approach; read it back after compaction before retrying
+anything.
 
 ## Phase 4: Confirm and Fire
 

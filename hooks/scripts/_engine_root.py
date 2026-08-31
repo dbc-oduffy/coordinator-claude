@@ -387,8 +387,16 @@ def _engine_working_repo_roots(reg_dir: Path) -> list[str]:
     return list(seen.keys())
 
 
-def resolve_publish_mirror_roster() -> list[tuple[str, str]]:
-    """Every registered `publish.mirrors.*` entry, as `(path, owner)` pairs.
+def resolve_publish_mirror_roster() -> list[tuple[str, str, str]]:
+    """Every registered `publish.mirrors.*` entry, as `(path, owner, key)` triples.
+
+    2026-08-30 (DR-188 Option D, chunk C3): the `key` element (the
+    `publish.mirrors.<key>` registry segment) was added so callers can test a
+    row against `resolve_own_publish_target_keys()` -- the per-mirror gate
+    that replaces the old unconditional roster leg in
+    `engine_resolution_banner`. Every existing caller that destructured
+    `(path, owner)` pairs must be updated to the 3-tuple; this is a
+    deliberate breaking shape change, not an additive one.
 
     Spec: 2026-08-08 publish-mirror-roster-on-the-engine-boot plan. The read
     side of a write-time guard that already exists: `bump_out_of_repo_tool_write`,
@@ -483,7 +491,7 @@ def resolve_publish_mirror_roster() -> list[tuple[str, str]]:
 
     # Pass 2: collect `.path` entries, first-seen order across the same
     # local-then-tracked scan, de-duplicated on the resolved path.
-    roster: list[tuple[str, str]] = []
+    roster: list[tuple[str, str, str]] = []
     seen_paths: dict[str, None] = {}
     for flat in flattened:
         for k, v in flat.items():
@@ -500,9 +508,66 @@ def resolve_publish_mirror_roster() -> list[tuple[str, str]]:
             if v in seen_paths:
                 continue
             seen_paths[v] = None
-            roster.append((v, owners.get(key) or "unknown owner"))
+            roster.append((v, owners.get(key) or "unknown owner", key))
 
     return roster
+
+
+def resolve_own_publish_target_keys(repo_root: str | Path | None = None) -> set[str]:
+    """Every `publish-mirror:<key>` sigil declared in THIS repo's own
+    `setup/publish-targets.portable` -- the declared publish topology this
+    repo owns, as distinct from `resolve_publish_mirror_roster()`'s
+    per-machine registered mirror set.
+
+    Spec: 2026-08-30 foreign-repo-identity-suppression plan, chunk C3
+    (DR-188 Option D). A registered publish-mirror roster row is foreign
+    identity to a session UNLESS it is either that session's own resolved
+    engine root, or one of its OWN declared publish targets -- this function
+    answers the second half. Reads the portable, TRACKED file (never the
+    machine-local registry): a mirror this repo does not itself publish to
+    is not "its own topology" merely because some registry entry happens to
+    be populated on this machine.
+
+    `repo_root` defaults to `_session_repo_root()` -- the session's own repo
+    root, never this plugin's own installed location -- matching every other
+    session-facing resolver in this module. Row grammar: pipe-delimited,
+    `name|mode|<dest-sigil>|source_subdir|dest_subdir[|...]` (see
+    `setup/publish-targets.portable`'s own header comment); only the
+    `publish-mirror:<key>` dest-sigil form (field index 2) is relevant here --
+    `repo:<key>` rows name working-repo destinations, a different namespace,
+    and are ignored.
+
+    Zero-spawn, never raises: an absent file, an unreadable file, or a
+    malformed row all degrade to an empty set rather than raising, matching
+    this module's standing fail-open convention.
+    """
+    try:
+        root = Path(repo_root) if repo_root is not None else _session_repo_root()
+    except Exception:
+        root = None
+    if root is None:
+        return set()
+
+    portable = Path(root) / "setup" / "publish-targets.portable"
+    try:
+        text = portable.read_text(encoding="utf-8")
+    except Exception:
+        return set()
+
+    keys: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        fields = stripped.split("|")
+        if len(fields) < 3:
+            continue
+        dest = fields[2].strip()
+        if dest.startswith("publish-mirror:"):
+            key = dest[len("publish-mirror:") :].strip()
+            if key:
+                keys.add(key)
+    return keys
 
 
 def _same_repo_path(a: str, b: str) -> bool:

@@ -31,12 +31,11 @@ classification outcome, `_classify` never decided whether to speak, only
 which paragraph to print, and the matched paragraph essentially never
 printed. This version deletes the classifier and its whitelist entirely
 and emits ONE unconditional advisory at a firing posture -- the standing
-rule (first-officer posture: approach/structure/naming/sequencing/
-break-class fixes are the EM's to decide and report, not to ask;
-direction-class asks -- scope, product direction, prioritization, an
-irreversible or external action -- are correct to ask) plus an explicit
-statement that this advisory renders no verdict on the question at hand and
-blocks nothing. It no longer reads `tool_input.questions` at all.
+ask bar (`global-doctrine/CLAUDE.md` § Flag Severity: break-class is the
+EM's to decide and report, not to ask; direction-class is correct to ask)
+plus an explicit statement that this advisory renders no verdict on the
+question at hand and blocks nothing. It no longer reads
+`tool_input.questions` at all.
 
 Fires when the autonomous sentinel /tmp/autonomous-run-<SESSION_ID> is
 present, OR the resolved `engagement_posture` (see `_posture.py`) is

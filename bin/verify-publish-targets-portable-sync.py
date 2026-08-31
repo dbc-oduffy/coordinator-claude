@@ -296,6 +296,11 @@ def _doe_tracked_path() -> Path:
     try:
         root = doe_root()
     except _DoeUnresolvable as exc:
+        # foreign-identity: NOT-REACHABLE — basis: DELIBERATE INVOCATION, not true
+        # unreachability. Publish-targets verify/sync CLI (same shape as
+        # verify_dist_publish_repo_sync.py, audit row 16); a third-repo session cannot
+        # hit this ambiently, but a foreign-repo operator CAN reach it by typing the
+        # command.
         print(
             "verify-publish-targets-portable-sync.py: cannot resolve the "
             f"DoE-claude repo root ({exc}). Set repos.doe_claude in the "

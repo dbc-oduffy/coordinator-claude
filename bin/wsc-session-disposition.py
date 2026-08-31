@@ -83,7 +83,7 @@
 # both are valid answers, not failures). 2 usage error (bad/missing
 # subcommand or flag). 3 transport failure — repo root unresolvable (no
 # `--repo-root` and `git rev-parse --show-toplevel` failed). 4 session id
-# unresolvable — no tier (em_sid/CLAUDE_SESSION_ID/CLAUDE_CODE_SESSION_ID)
+# unresolvable — no tier (COORDINATOR_SESSION_ID/CLAUDE_SESSION_ID/CLAUDE_CODE_SESSION_ID)
 # resolved (KS-5, 2026-08-07): refusing to run the detector chain against an
 # unidentified session, rather than reporting a single-session disposition
 # that would read as a clean chain-end coverage gate skip. Detector-level
@@ -182,11 +182,56 @@ _SESSION_ID_UNRESOLVED = 4
 # ---------------------------------------------------------------------------
 
 
+def _session_core():
+    """`coordinator_core.session.core`, imported plainly. Every entry path
+    into this module bootstraps `coordinator_core` onto `sys.path` before
+    any call can reach `resolve_session_id`: all three CLI arms and
+    `main()` call `_bootstrap_engine_imports()` first, and the in-process
+    path (`compute_session_shape_gate`) has already imported
+    `coordinator_core` to load this module by path."""
+    from coordinator_core.session import core as _core
+
+    return _core
+
+
 def resolve_session_id(_repo_root: Path) -> str:
-    """Resolve the current session id, first hit wins: the em_sid env var, then
-    CLAUDE_SESSION_ID, then CLAUDE_CODE_SESSION_ID, then a hex-timestamp
-    fallback (last 6 digits of the current epoch second, mirroring the
-    ported bash's `date +%s | tail -c 7 | head -c 6`).
+    """Resolve the current session id, via the canonical
+    `session.core.SESSION_ENV_PRECEDENCE` ladder
+    (COORDINATOR_SESSION_ID, CLAUDE_SESSION_ID, CLAUDE_CODE_SESSION_ID) —
+    both COLD only. Under a warm-served request only the CALLER's carried
+    identity counts, and an uncarried one resolves to "".
+
+    See `resolve_session_id_with_source` for the full resolution logic —
+    including the split-copy degrade case (`_FallbackResolution`,
+    `SOURCE_UNREPORTED_OLD_ENGINE`) — that this function's body delegates to
+    and this docstring does not restate. <!-- Review: coordinator:code-reviewer — Finding 2, docstring cross-reference -->
+
+    WARM SPLIT, and the incident that put it here (2026-08-30). This
+    resolver used to read `os.environ` unconditionally. Inside the resident
+    warm server that environment belongs to whoever SPAWNED the server, not
+    to the session being served, so `/workstream-complete` built its entire
+    ceremony on a stranger. Reproduced live: session
+    56043240-f71b-447a-bf56-4ee49f92ab33 ran
+    `workstream-complete-assemble.exe brief` (warm published door) and got
+    directives keyed to `--sid 1189eead-f3eb-4c54-a790-236258043b0d`, a
+    LIVE PEER; the same tree's cold `.cmd` door, seconds apart, resolved
+    56043240 correctly. `apply` on that brief would have written a
+    completion entry crediting the peer's six deliverables and their
+    archived baton to this session's close. Filed
+    `state/bug-backlog/2026-08-30-close-ceremony-clis-resolve-a-live-peer-
+    b558b27c74e7.yaml`.
+
+    Delegating to `session.core.attributable_session_id` is what closes it:
+    it reads the per-request ContextVar alone under warm (tier 0, the
+    identity the caller carried) and the env ladder alone when cold, where
+    `os.environ` IS the caller's own.
+
+    An empty return is the DESIGNED outcome for a warm request that carried
+    no identity, not a failure to try. Callers must fail loud on it rather
+    than classify: `_cmd_resolve` returns `_SESSION_ID_UNRESOLVED`, and
+    `workstream_complete.compute_session_shape_gate` raises. An absent id is
+    recoverable; a confidently wrong one is not, because no reader
+    downstream can tell it from a genuine one.
 
     `_repo_root` is unused by this env-var-only resolution — kept for call
     signature conformance with `_cmd_resolve`'s call site and this module's
@@ -208,11 +253,97 @@ def resolve_session_id(_repo_root: Path) -> str:
     rather than let it silently resolve "single-session" (the same
     false-clean failure mode the sentinel removal fixed, reached by a
     different route)."""
-    for var in ("em_sid", "CLAUDE_SESSION_ID", "CLAUDE_CODE_SESSION_ID"):
-        val = os.environ.get(var, "")
-        if val:
-            return val
-    return ""
+    return resolve_session_id_with_source(_repo_root).session_id
+
+
+#: `resolve_session_id_with_source(...).source` when the ENGINE COPY this CLI
+#: is calling predates provenance reporting. Says "nobody asked" rather than
+#: naming an input, because none was read: the id is correct, its provenance
+#: is simply not available from that copy. Distinct from `unresolved` (no id
+#: at all) and from `resolved-source-unaccounted` (the engine reported and
+#: could not account for it) -- three different facts, three values.
+SOURCE_UNREPORTED_OLD_ENGINE = "unreported-engine-predates-provenance"
+
+
+class _FallbackResolution(NamedTuple):
+    """Structural stand-in for `session.core.SessionIdResolution` when the
+    engine copy does not define it. Same four fields in the same order, so
+    every reader (`compute_session_shape_gate`, this module's own callers)
+    is indifferent to which one it got."""
+
+    session_id: str
+    source: str
+    warm: bool
+    pid: int
+
+
+def resolve_session_id_with_source(_repo_root=None):
+    """`resolve_session_id`, plus WHICH INPUT named the session and under
+    which pid — a `session.core.SessionIdResolution`.
+
+    The instrument `state/bug-backlog/2026-08-30-close-ceremony-clis-resolve-
+    a-live-peer-b558b27c74e7.yaml` asks for, at the site that row was filed
+    against. That row's own account of the failure is three gates each
+    reporting a locally-true fact about a session nobody had named out loud:
+    `gates.review_receipt` looked under a peer's `state/subagent-share/`
+    directory and truthfully found no receipt, `landed_reconciliation` and
+    `open_spine_row_worklist` truthfully found no governing plan. Every one
+    of those was keyed on an id the ceremony never printed and never sourced.
+    A reader could only catch it, as the filing EM did, by recognising
+    unfamiliar deliverable ids further downstream.
+
+    Resolution itself is `session.core`'s to answer and is NOT re-derived
+    here — this function's whole job is the split-copy degrade below, for
+    an engine copy that predates provenance reporting.
+    """
+    core = _session_core()
+    with_source = getattr(core, "attributable_session_id_with_source", None)
+    record = getattr(core, "SessionIdResolution", None)
+    if with_source is None or record is None:
+        # SPLIT-COPY DEGRADE, and it is load-bearing, not defensive padding.
+        # This bin script and the engine it calls are DIFFERENT COPIES on this
+        # box: `.cmd`/`.exe` both resolve the engine from the published
+        # klabauter mirror while the CLI runs from the repo tree, so a
+        # provenance accessor that landed here has not landed there until a
+        # publish round. Calling it unguarded took the whole close ceremony
+        # down through the cold door -- an AttributeError inside `brief`'s
+        # structural backstop, hit the first time this ran for real. The
+        # resolution itself needs no new engine surface, so degrade to it and
+        # report the provenance as unavailable rather than inventing one.
+        # Review: coordinator:code-reviewer (Finding 1, P1) — the degrade
+        # guarded only the two attributes that happened to break on the copy
+        # that surfaced this bug. `in_warm_served_request` is a plain
+        # attribute read below; an engine copy old enough to lack it
+        # reproduces the same AttributeError outage one attribute later.
+        # `getattr` it with a safe default rather than treat it as load-bearing.
+        in_warm = getattr(core, "in_warm_served_request", None)
+        return _FallbackResolution(
+            session_id=_resolve_session_id_engine_only(core),
+            source=SOURCE_UNREPORTED_OLD_ENGINE,
+            warm=bool(in_warm()) if in_warm is not None else False,
+            pid=os.getpid(),
+        )
+    return with_source()
+
+
+def _resolve_session_id_engine_only(core) -> str:
+    """The id alone, through whichever accessor this engine copy has.
+
+    `attributable_session_id` is the warm/cold-correct one and is what every
+    current engine carries; the `resolve_session_id` arm is for a copy older
+    than that accessor too, where blending is the pre-existing behaviour and
+    refusing outright would break every close against it.
+
+    # Review: coordinator:code-reviewer (Finding 1, P1) — `core.resolve_session_id`
+    # is read as a plain attribute, not `getattr`-guarded, and that is
+    # deliberate rather than an oversight: it is the oldest surface in this
+    # resolution ladder and predates every engine copy this bin script can
+    # meet. If a copy is missing IT, the module cannot resolve a session id
+    # by any route — a different failure (this engine copy cannot function
+    # at all) from a version-skew degrade, and not one this function can
+    # paper over with a fallback."""
+    accessor = getattr(core, "attributable_session_id", None) or core.resolve_session_id
+    return accessor() or ""
 
 
 # ---------------------------------------------------------------------------
@@ -1893,7 +2024,8 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
         # instead.
         print(
             "wsc-session-disposition: session id could not be resolved via any tier "
-            "(em_sid/CLAUDE_SESSION_ID/CLAUDE_CODE_SESSION_ID) — refusing to classify "
+            "(warm: the caller carried no identity; cold: COORDINATOR_SESSION_ID/"
+            "CLAUDE_SESSION_ID/CLAUDE_CODE_SESSION_ID) — refusing to classify "
             "chain-terminal disposition against an unidentified session (KS-5: the "
             "fabricated-epoch fallback that used to paper over this was removed as "
             "strictly worse than reporting unresolved)",

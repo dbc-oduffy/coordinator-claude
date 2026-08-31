@@ -156,6 +156,15 @@ except Exception:
     def session_id_is_real(session_id: object) -> bool:
         return bool(session_id)
 
+try:
+    from _git_common_dir import resolve_git_common_dir as _resolve_git_common_dir  # noqa: E402
+except Exception:
+    # Defensive fallback -- a deploy missing its sibling _git_common_dir.py
+    # must still fail open (empty common dir -> callers skip) rather than
+    # crash on import.
+    def _resolve_git_common_dir(git_root: str) -> str:
+        return ""
+
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # Windows CreateProcess flags (no-op values on POSIX; only used when os.name == "nt").
@@ -262,62 +271,6 @@ def _git_root() -> str:
     except Exception:
         pass
     return ""
-
-
-def _resolve_git_common_dir(git_root: str) -> str:
-    """Resolve the git COMMON dir for `git_root` without spawning a
-    subprocess. Fail-open to "" on any error.
-
-    THIS IS A DUPLICATE of the canonical copy in
-    `offer-exploration-tier-dispatch.py` (~line 186) -- hooks are standalone
-    scripts and cannot import each other, so the duplication is deliberate.
-    Keep every copy in step -- a divergence would mean different hooks
-    resolve the same session's bookkeeping directory to different locations
-    under a worktree, silently breaking correlation between them.
-
-    In an ordinary clone, `<git_root>/.git` IS the common dir (a directory).
-    In a worktree, `<git_root>/.git` is a FILE containing a single
-    `gitdir: <path>` line pointing at the worktree's own private git dir
-    (`<path>` may be relative to `git_root`); that private git dir in turn
-    contains a `commondir` file naming the actual shared common dir (again
-    possibly relative -- this time to the private git dir itself). Blindly
-    joining `git_root + ".git"` (this file's shape before this fix) silently
-    resolves to a location that doesn't exist as a directory under a
-    worktree -- the PID lock, dispatch-tracking file, and completion log
-    this hook reads/writes there would silently never persist.
-    """
-    try:
-        dot_git = os.path.join(git_root, ".git")
-        if os.path.isdir(dot_git):
-            return dot_git
-        if os.path.isfile(dot_git):
-            with open(dot_git, "r", encoding="utf-8", errors="replace") as fh:
-                text = fh.read().strip()
-            if not text.startswith("gitdir:"):
-                return ""
-            gitdir_value = text[len("gitdir:"):].strip()
-            git_dir = (
-                gitdir_value
-                if os.path.isabs(gitdir_value)
-                else os.path.normpath(os.path.join(git_root, gitdir_value))
-            )
-            if not os.path.isdir(git_dir):
-                return ""
-            commondir_file = os.path.join(git_dir, "commondir")
-            if os.path.isfile(commondir_file):
-                with open(commondir_file, "r", encoding="utf-8", errors="replace") as fh:
-                    common_value = fh.read().strip()
-                if not common_value:
-                    return git_dir
-                return (
-                    common_value
-                    if os.path.isabs(common_value)
-                    else os.path.normpath(os.path.join(git_dir, common_value))
-                )
-            return git_dir
-        return ""
-    except Exception:
-        return ""
 
 
 def _agent_completed(completion_log: Path, agent_id: str) -> bool:

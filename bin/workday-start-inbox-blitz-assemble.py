@@ -340,6 +340,34 @@ def _partition(candidates: list) -> tuple[list, dict, list, dict]:
     return buckets, summary, supersessions, trigger
 
 
+def _unused_report_path(today: str, bucket_name: str) -> str:
+    """Return a `state/audits/` report path for this bucket that no earlier
+    run has already written.
+
+    First run of a day keeps the plain `{today}-inbox-blitz-{bucket}.md`
+    name, so the ordinary case is unchanged and stays greppable. A same-day
+    re-run takes `-run2`, `-run3`, and so on -- never the occupied name. See
+    `_build_dispatches`' docstring for the 2026-08-31 loss this closes.
+
+    Deliberately probes the filesystem rather than minting a uuid or
+    timestamp suffix: the report path appears in the dispatch brief a model
+    reads and in the EM's own report, so a name a human can recognise and
+    type is worth one stat per bucket. Bounded at 99 attempts, then falls
+    back to the timestamped form rather than looping or raising -- this
+    module promises "Always exit 0", and an assemble that dies because a
+    directory is crowded would be a worse failure than an ugly filename.
+    """
+    base = f"state/audits/{today}-inbox-blitz-{bucket_name}"
+    candidate = f"{base}.md"
+    if not os.path.exists(candidate):
+        return candidate
+    for n in range(2, 100):
+        candidate = f"{base}-run{n}.md"
+        if not os.path.exists(candidate):
+            return candidate
+    stamp = datetime.datetime.now().strftime("%H%M%S")
+    return f"{base}-{stamp}.md"
+
 def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
     """One paired {triage, verify} dispatch per NON-EMPTY bucket, each triage
     dispatch carrying its own finished brief and an assembler-assigned
@@ -352,6 +380,18 @@ def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
     The verify stage needs the triage report's LOCATION, not its CONTENT —
     this function runs before any report exists, so it assigns the path
     rather than reading anything back.
+
+    The path carries a per-run discriminator, not just the date. Keyed on
+    `{date}-{bucket}` alone, a SECOND blitz on the same day silently
+    overwrites the first bucket's report in place — and because the verify
+    stage is handed only the path, it then verifies whatever the later run
+    wrote as though it were its own pass's output. Observed 2026-08-31: a
+    00:26 run wrote all three buckets, a ~10h-later run re-wrote `rest`, and
+    one memo triaged only by the earlier pass ended up in no surviving
+    report, still open with nothing recording that it had been triaged at
+    all. Nothing errored, and nothing made the loss visible. A blitz's
+    triage record is the only artifact standing between an inbox and a
+    re-grind, so it is never overwritten on the strength of sharing a date.
 
     Op-supplied dict fields (`id`/`path` on a bucket candidate, `newer`/
     `older`/`basis` on a supersession candidate) are read defensively —
@@ -377,7 +417,7 @@ def _build_dispatches(buckets: list, supersessions: list) -> tuple[list, int]:
             memos.append(m)
         if not memos:
             continue
-        report_path = f"state/audits/{today}-inbox-blitz-{bucket_name}.md"
+        report_path = _unused_report_path(today, bucket_name)
         not_verified = _NOT_VERIFIED_SENTENCE.format(report_path=report_path)
         brief = brief_template.format(not_verified=not_verified)
         if bucket_name == "dominant":

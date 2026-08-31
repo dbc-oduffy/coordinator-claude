@@ -12,21 +12,50 @@ completeness_checklist gate. It is NOT called unconditionally; absent
 completeness_checklist baton field -> this helper is never invoked.
 
 Usage:
-    coordinator-tasks-mirror.py init <name> <item1_title> [<item2_title>...]
+    coordinator-tasks-mirror.py [--repo-root PATH] init <name> <item1_title> [<item2_title>...]
         -- Create the mirror file with all items as open.
            <name>  = sanitized slug for the checklist (used as the yaml filename stem)
 
-    coordinator-tasks-mirror.py update <name> <item_title> <state>
+    coordinator-tasks-mirror.py [--repo-root PATH] update <name> <item_title> <state>
         -- Update a single item's state in the mirror.
            <state> = open | done
 
-<sid> resolution: coordinator_core.session.core.resolve_session_id(cwd) — the same
-canonical 4-tier chain the retired bash oracle sourced from coordinator-session.sh's
-cs_resolve_session_id:
+    --repo-root PATH may appear anywhere in argv (before or after the
+    positionals) and is stripped before positional parsing. It threads
+    through to resolve_checked_repo_root(explicit_root=PATH), returning the
+    EXPLICIT verdict — ungated, since a caller-supplied root never touched
+    cwd. This is the deliberate-cross-repo escape hatch for a session
+    anchored in repo A dispatching a workflow with cwd=<sibling repo B>;
+    the MISMATCH gate for the None (cwd-derived) case is untouched.
+    Only "--repo-root" is recognized as a flag here -- every other token,
+    including one beginning with "-", is left as positional text so a
+    free-form title is never misparsed as a flag.
+
+<sid> resolution: coordinator_core.session.core.resolve_session_id(cwd) — tiers
+1-3 only, the env ladder the retired bash oracle sourced from
+coordinator-session.sh's cs_resolve_session_id:
     Tier 1: $COORDINATOR_SESSION_ID
     Tier 2: $CLAUDE_SESSION_ID
     Tier 3: $CLAUDE_CODE_SESSION_ID
-    Tier 4: .git/coordinator-sessions/.current-session-id (ambiguity-aware)
+
+The former Tier 4 (.git/coordinator-sessions/.current-session-id sentinel, plus
+its ambiguity guard) was REMOVED from the resolver (KS-4, 2026-08-07): unsound
+last-writer-wins under this fleet's concurrency, and its sole writer was deleted
+by PM directive. It is documented here because its absence is load-bearing for
+this script's cross-repo arm: the resolver reads env vars ONLY and ignores the
+`cwd` it is handed (retained for API compatibility), so nothing about where this
+script runs can influence which session its journal is filed under. There is no
+cwd-derived tier left to mis-attribute through. An unresolvable sid returns ""
+and this script refuses — never guesses.
+
+Verified 2026-08-30 against the live cross-repo caller (klabauter `candidate`
+@ e959b4ef0d, `workflow_fire/fire.py`): `build_fire_env` inherits the parent
+environment and never narrows it, and the fired driver's harness always
+populates CLAUDE_CODE_SESSION_ID with its OWN id, so tier 3 hits
+unconditionally on that path. Note also that `workflow.fire`'s `cwd` argument
+is never passed to Popen — the driver's process cwd is the FIRING repo, not
+the sibling the work targets. That is precisely why --repo-root has to be
+stated explicitly here: there is no correct root to infer from cwd.
 
 Windows de-bash campaign (Plan C, Wave E3-d, per-op port): replaces the bash helper
 bin/coordinator-tasks-mirror.sh, which sourced coordinator/lib/coordinator-claude-klabauter-root.sh
@@ -77,19 +106,27 @@ def _resolve_session_id(cwd: str) -> str:
     return _resolve(cwd)
 
 
-def _resolve_repo_root() -> tuple[str | None, str | None]:
-    """Resolve the current git worktree root via the checked resolver.
+def _resolve_repo_root(explicit_root: str | None = None) -> tuple[str | None, str | None]:
+    """Resolve the target repo root via the checked resolver.
 
     WRITER script: this entry writes state/tasks/<sid>/<slug>.yaml under the
     resolved repo. Returns (root, mismatch_message) — on a positive
     MISMATCH, root is None and mismatch_message carries the refusal text
     (DR-277 carve-out: prevents a write into a foreign tree). UNRESOLVED
     never refuses (DR-277, AC4).
+
+    explicit_root: when set (from a caller-supplied --repo-root), passed
+    straight through as resolve_checked_repo_root(explicit_root=...),
+    which returns the EXPLICIT verdict and is never gated by MISMATCH —
+    a caller-supplied root never touched cwd, so the cwd-drift-vs-
+    deliberate-cross-repo ambiguity the MISMATCH gate exists for does not
+    apply. The None (cwd-derived) arm's MISMATCH/no-git-root/UNRESOLVED
+    behaviour is unchanged.
     """
     import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from repo_identity import resolve_checked_repo_root
 
-    root, verdict = resolve_checked_repo_root(explicit_root=None)
+    root, verdict = resolve_checked_repo_root(explicit_root=explicit_root)
     if verdict["verdict"] == "MISMATCH":
         return None, verdict["message"]
     if not root:
@@ -227,16 +264,50 @@ def cmd_update(repo_root: str, sid: str, name: str, title: str, state: str) -> i
     return 0
 
 
+def _extract_repo_root_flag(args: list[str]) -> tuple[list[str], str | None, str | None]:
+    """Strip a `--repo-root PATH` flag out of args wherever it appears.
+
+    Only the literal token "--repo-root" is treated as a flag; every other
+    token — including one starting with "-" — is left untouched in the
+    returned positional list, so a free-form title beginning with "-" is
+    never swallowed as an unrecognized flag.
+
+    Returns (remaining_positional_args, repo_root_or_None, error_or_None).
+    On error, remaining_positional_args and repo_root_or_None are
+    meaningless and the caller must print error_or_None to stderr and exit 1.
+    """
+    out: list[str] = []
+    repo_root: str | None = None
+    i = 0
+    n = len(args)
+    while i < n:
+        arg = args[i]
+        if arg == "--repo-root":
+            if i + 1 >= n:
+                return [], None, "ERROR: --repo-root requires a value"
+            repo_root = args[i + 1]
+            i += 2
+            continue
+        out.append(arg)
+        i += 1
+    return out, repo_root, None
+
+
 def main(argv: list[str]) -> int:
-    args = argv[1:]
+    raw_args = argv[1:]
+    args, explicit_repo_root, flag_error = _extract_repo_root_flag(raw_args)
+    if flag_error is not None:
+        print(flag_error, file=sys.stderr)
+        return 1
+
     if len(args) < 2:
-        print("Usage: coordinator-tasks-mirror.py init <name> [<title>...]", file=sys.stderr)
-        print("       coordinator-tasks-mirror.py update <name> <title> <state>", file=sys.stderr)
+        print("Usage: coordinator-tasks-mirror.py [--repo-root PATH] init <name> [<title>...]", file=sys.stderr)
+        print("       coordinator-tasks-mirror.py [--repo-root PATH] update <name> <title> <state>", file=sys.stderr)
         return 1
 
     cmd, name = args[0], args[1]
 
-    repo_root, mismatch_message = _resolve_repo_root()
+    repo_root, mismatch_message = _resolve_repo_root(explicit_repo_root)
     if repo_root is None:
         if mismatch_message:
             print(mismatch_message, file=sys.stderr)
@@ -251,7 +322,7 @@ def main(argv: list[str]) -> int:
         return 1
 
     if not sid:
-        print("ERROR: could not resolve session id (all 4 tiers empty/ambiguous).", file=sys.stderr)
+        print("ERROR: could not resolve session id; $COORDINATOR_SESSION_ID, $CLAUDE_SESSION_ID and $CLAUDE_CODE_SESSION_ID are all empty.", file=sys.stderr)
         print("Set COORDINATOR_SESSION_ID to an explicit value and retry.", file=sys.stderr)
         return 1
 

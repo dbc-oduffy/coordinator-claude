@@ -20,14 +20,9 @@ Team roles, timing ceilings, data contracts (`strategy.md`, `sources.md`,
 lifecycle, and why the fidelity relay doesn't apply here all live in
 `${CLAUDE_PLUGIN_ROOT}/pipelines/deep-research/notebooklm/team-protocol.md` — read there, don't re-derive.
 
-**Precondition — raise the teams flag first.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` defaults to
-`"0"`. Set it to `"1"` in `~/.claude/settings.json` before Step 3, and back to `"0"` when the run
-ends, badly or well. No restart is needed; the value is re-read on each spawn.
-
-**This one fails quietly if you skip it.** Step 3 spawns the first teammate *before* any task is
-created, so at `"0"` that spawn degrades into an ordinary blocking subagent that runs a full
-notebook ingest, and only the later `TaskCreate` errors — leaving a live NotebookLM notebook, a
-half-finished run, and no team. Check the flag; do not discover this from the wreckage.
+**Precondition — teams are on, standing.** `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS` defaults to
+`"1"` on every machine (`coordinator/templates/settings-manifest.md`) and stays there; this
+pipeline does not raise or lower it.
 
 **Announce at start:** "I'm running `/coordinator:notebooklm-research` to research {topic} using
 NotebookLM."
@@ -80,6 +75,13 @@ Spawn the first teammate via `Agent` — the team auto-forms. Create a `sweep` t
 task, and one `worker-{letter}` task per notebook. Block each worker on `scout`; block `sweep`
 on every worker task.
 
+<!-- BEGIN task-tool-availability (synced from snippets/task-tool-availability.md) -->
+`TaskCreate` absent from this session's surface (`ToolSearch("select:TaskCreate")` returns nothing)
+→ fall back to `coordinator-tasks-mirror` for the same flight-recorder role; do not assume either
+state without checking. When Task* is unavailable, dispatch the phases in order, waiting on each
+completion notification — that is the ordering a `blockedBy` chain would otherwise express.
+<!-- END task-tool-availability -->
+
 ### Step 4 — Spawn teammates
 
 Fill and spawn the scout/worker(s)/sweep prompt templates from
@@ -99,15 +101,22 @@ The sweep does **not** delete notebooks even with `--cleanup` — deletion is de
 the coverage auditor's sidecar exists (team-protocol.md § Coverage-Auditor Lifecycle).
 
 **6a — Read + emit claims.** Read `{output-path}`, verify it's substantive. Check for and read
-an advisory file if present. Emit the durable claims pair (you write it, not the sweep — take
-`--ran-at` and the pipeline token from the sweep's completion message, never derive them):
+an advisory file if present. Emit the durable claims pair (you write it, not the sweep). Take the pipeline
+token from the sweep's completion message; **take `--ran-at` from the mtime of
+`{scratch-dir}/merged-claims.json`, never from the message** — the sweep has no shell and no
+clock, so a timestamp it states is an estimate that `claims-emit`'s RFC3339 shape check cannot
+distinguish from a measured value:
+
+```powershell
+$RanAt = (Get-Item "{scratch-dir}/merged-claims.json").LastWriteTimeUtc.ToString("yyyy-MM-ddTHH:mm:ssZ")
+```
 
 Shape W (`${CLAUDE_PLUGIN_ROOT}/snippets/resolve-coordinator-bin.md`). PowerShell has no native stdin
 redirect operator, so the `.exe` launcher is invoked through `cmd /c` for the `<` redirect only —
 the launcher still runs directly by absolute path, no bareword resolution involved:
 
 ```powershell
-cmd /c "\"$env:COORDINATOR_SETTINGS_HOME\bin\claims-emit.exe\" --producer notebooklm-research --out {output-path-base} --ran-at {ran_at from sweep's completion message} --pipeline notebooklm < \"{scratch-dir}/merged-claims.json\""
+cmd /c "\"$env:COORDINATOR_SETTINGS_HOME\bin\claims-emit.exe\" --producer notebooklm-research --out {output-path-base} --ran-at $RanAt --pipeline notebooklm < \"{scratch-dir}/merged-claims.json\""
 ```
 
 **6b — Coverage auditor.** Dispatch it as a plain (non-teammate) `Agent(...)` — never a named

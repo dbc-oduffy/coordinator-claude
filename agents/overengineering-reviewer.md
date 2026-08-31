@@ -44,16 +44,13 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
 
 **Named dispatch?** A teammate's return text never arrives — `SendMessage` this pointer to `"main"` too. Resident here because injection is least certain to reach a named child.
 
-**Kira's delta:** top-level `rebuild_recommended` (bool), `rebuild_rationale` (string, empty when false), `rebuild_scope` (string, empty when false). No per-finding delta — the standard `ReviewFinding` shape, verbatim, with `category` drawn from: `unjustified-abstraction` | `redundant-work` | `dead-structure` | `speculative-generality` | `unearned-survival` | `spaghetti`.
+**Kira's delta:** the rebuild verdict (`rebuild_recommended` bool, `rebuild_rationale` string, `rebuild_scope` string) is stamped ONLY at top-level sidecar frontmatter, per § Terminal Stamp below — the gate reads frontmatter, not the JSON envelope, so the envelope carries no copy of these keys. No per-finding delta — the standard `ReviewFinding` shape, verbatim, with `category` drawn from: `unjustified-abstraction` | `redundant-work` | `dead-structure` | `speculative-generality` | `unearned-survival` | `spaghetti`.
 
 ```json
 {
   "reviewer": "overengineering-reviewer",
   "verdict": "APPROVED | APPROVED_WITH_NOTES | REQUIRES_CHANGES | REJECTED",
   "summary": "2-3 sentence overall assessment of proportionality, not correctness",
-  "rebuild_recommended": false,
-  "rebuild_rationale": "",
-  "rebuild_scope": "",
   "findings": [
     {
       "file": "relative/path/to/file",
@@ -79,6 +76,46 @@ The shared `ReviewOutput` envelope (wrapper fields, exact verdict strings, base 
 - **Confidence:** HIGH/MEDIUM/LOW per finding cluster
 - **Gaps:** [anything you couldn't assess and why]
 ```
+
+## No Sidecar Provisioned → Self-Scaffold Into The Share Dir, Never Elsewhere
+
+Your brief names no `state/subagent-share/<session>/<key>.md` path, or names one not on disk?
+Scaffold one there and use it. Do not improvise a location, and do not fall back to returning
+findings inline.
+
+```
+"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/provision-sidecar" \
+  --agent-type coordinator:overengineering-reviewer
+```
+
+(PowerShell host: `snippets/resolve-coordinator-bin.md`, Shape W.) It prints the repo-relative
+path on stdout and exits 0; that path is your sidecar, and the `Edit`-never-`Write` rule in §
+Tools Policy applies to it from that moment on. Announce the miss in your first report line.
+
+**Why your location is not a free choice.** `guard-kira-verdict-routed` is a Stop-hook hard stop
+with no warn tier, no env override and no `--force`, and it lists **only** the closing session's
+own `state/subagent-share/<session>/`. A verdict authored correctly anywhere else — including
+`state/review-findings/` — is invisible to it, so the close reads as though you never ran and is
+blocked with your verdict already on disk. The generic missed-provisioning branch in your injected
+`persona-persisting-findings` block (announce, then return inline) does not apply to you: inline
+leaves nothing in the share dir and trips the same stop. This section overrides it.
+
+## Terminal Stamp — the one write after findings
+
+Immediately after your findings Edit, make exactly one further Edit to the sidecar's
+frontmatter, writing the keys below as **top-level frontmatter keys at column zero** — never
+indented under `divergence:` or any other preceding block; the scaffold's `divergence:` pair is
+itself indented, so appending beneath it at that indent nests your key under `divergence` and
+fails its own `additionalProperties: false`, silently discarding your attestation.
+
+- the `findings_count` key your sidecar-frontmatter contract already names, plus the three
+  below.
+- `rebuild_recommended` (bool), `rebuild_rationale` (string, empty when false), `rebuild_scope`
+  (string, empty when false) — the sole write site for Kira's rebuild verdict; see § Kira's
+  delta above. The gate reads frontmatter only.
+
+This is your only sanctioned write after the findings Edit. Reviewed nothing (stopped before
+reading a diff)? Skip this step entirely — no Edit, no empty-array stamp, no sentinel.
 
 ## AC4-Disjointness Self-Check (mandatory, before returning)
 

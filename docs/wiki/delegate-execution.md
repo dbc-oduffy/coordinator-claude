@@ -418,7 +418,7 @@ The git commit log by chunk-id prefix (`git log --oneline -- <plan-path>`; a sub
 4. Exit transition: update `status: in_flight` → `status: complete | blocked | thrashing`.
 5. Append `commits:` list when the executor commits (one SHA per line).
 
-**Executors do NOT stamp `**Status:**` into the plan body.** The plan body is immutable to executors; a PreToolUse tripwire (`hooks/scripts/preuse-write-dispatch.py`, registered as `EXECUTOR-PLAN-BODY-IMMUTABLE` in `coordinator-tripwires.md`) denies subagent Edit/Write on `docs/plans/**/*.md`. The sidecar path at `tasks/<plan-slug>/flight/` is carved out from that deny rule.
+**Executors do NOT stamp `**Status:**` into the plan body.** The plan body is immutable to executors; a PreToolUse tripwire (`hooks/scripts/preuse-write-dispatch.py`, registered as `EXECUTOR-PLAN-BODY-IMMUTABLE` in `coordinator/docs/wiki/coordinator-tripwires/`) denies subagent Edit/Write on `docs/plans/**/*.md`. The sidecar path at `tasks/<plan-slug>/flight/` is carved out from that deny rule.
 
 ### Status state machine
 

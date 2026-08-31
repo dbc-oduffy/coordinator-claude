@@ -24,13 +24,13 @@ Contract:
              reaper is the backstop for anything this hook misses) and must
              never block session teardown. Every failure mode -- unparsable
              stdin, absent session_id, unresolvable claude-klabauter root, a
-             non-zero/timed-out wsc-close.py -- degrades to a silent no-op.
+             non-zero/timed-out archive-session-scope.py -- degrades to a silent no-op.
 
 Why a subprocess shim rather than an in-process coordinator_core import
 (unlike track-dispatched-agents.py / nudge-em-code-dispatch.py, which import
 and call a claude-klabauter op directly): the archival logic already lives behind a
 CLI surface purpose-built for this exact call --
-`coordinator/bin/wsc-close.py archive-session --sid <sid>` (claude-klabauter,
+`coordinator/bin/archive-session-scope.py archive-session --sid <sid>` (claude-klabauter,
 see its own module docstring) -- ported there from this repo's
 workstream-complete SKILL.md specifically so the tail-arg assembly and the
 session-scope archive share one non-fatal-by-design entrypoint. Re-importing
@@ -84,15 +84,23 @@ except Exception:
         return None
 
 
-def _note_missing_session_id(payload: dict) -> None:
-    """Append one line recording a SessionEnd payload that carried no usable
-    `session_id`, so the "this hook silently never ran" failure mode is
+def _note_degradation(payload: dict, note: str) -> None:
+    """Append one line recording a condition under which this hook archived
+    NOTHING, so the "this hook silently never ran" failure mode is
     discoverable by grep instead of being invisible.
 
-    Deliberately does NOT use the per-session dir (there is no session key --
-    that is the whole problem) and does NOT raise: a diagnostics write that
-    could itself break session teardown would be worse than the blind spot it
-    documents. Every failure here is swallowed.
+    Two callers, both silent-no-op seams on the SOLE archival occasion for a
+    session's claim directory (the 24h reap is a backstop, not a second
+    occasion): a payload with no usable `session_id`, and an absent archival
+    CLI. The second is the one the engine plane can cause -- the CLI path is
+    hardcoded against the resolved engine root, so a rename on that side stops
+    every session archiving on this host with nothing erroring and nothing
+    logged. A line here is what turns that into something someone can find.
+
+    Deliberately does NOT use the per-session dir (one caller has no session
+    key -- that is its whole problem) and does NOT raise: a diagnostics write
+    that could itself break session teardown would be worse than the blind
+    spot it documents. Every failure here is swallowed.
     """
     try:
         cwd = payload.get("cwd")
@@ -114,10 +122,7 @@ def _note_missing_session_id(payload: dict) -> None:
                 with (log_dir / "sessionend-archive-diagnostics.log").open(
                     "a", encoding="utf-8"
                 ) as fh:
-                    fh.write(
-                        f"[{stamp}] SessionEnd payload carried no usable session_id; "
-                        f"archival skipped. payload_keys=[{keys}]\n"
-                    )
+                    fh.write(f"[{stamp}] {note} payload_keys=[{keys}]\n")
                 return
     except Exception:
         return
@@ -144,20 +149,34 @@ def main() -> int:
         # slow directory growth reaped 24h later -- a failure indistinguishable
         # from healthy operation. Leave a breadcrumb so that case is
         # discoverable instead of invisible.
-        _note_missing_session_id(payload)
+        _note_degradation(
+            payload,
+            "SessionEnd payload carried no usable session_id; archival skipped.",
+        )
         return 0
 
     root = _resolve_claude_klabauter_root()
     if not root:
         return 0  # fail-open -- claude-klabauter unresolvable on this machine
 
-    wsc_close = Path(root) / "coordinator" / "bin" / "wsc-close.py"
-    if not wsc_close.is_file():
-        return 0  # fail-open -- CLI not present on this checkout
+    archive_cli = Path(root) / "coordinator" / "bin" / "archive-session-scope.py"
+    if not archive_cli.is_file():
+        # Fail-open, but never silently. This path is hardcoded against a tree
+        # this repo does not own, so a rename on that side degrades the sole
+        # archival occasion in the system to a no-op with nothing erroring --
+        # and the 24h reap hides the consequence, leaving slow directory growth
+        # that looks exactly like health.
+        _note_degradation(
+            payload,
+            f"archival CLI absent at {archive_cli}; claim dir NOT archived this "
+            "session, 24h reap is the only remaining backstop. If the engine "
+            "plane renamed it, repoint this hook.",
+        )
+        return 0
 
     try:
         subprocess.run(
-            [sys.executable, str(wsc_close), "archive-session", "--sid", session_id],
+            [sys.executable, str(archive_cli), "archive-session", "--sid", session_id],
             timeout=10,
             capture_output=True,
             check=False,

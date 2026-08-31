@@ -635,9 +635,12 @@ def repo_key_to_em_id(key: str) -> str:
 
     Special-case: repos.doe_claude → the manifest-derived canonical central
     identity (see _central_canonical_id() — identity.centralReceiverIds[0],
-    currently "doe-claude-em"; "claude-central-em" is a retired identity still
-    valid as a receiver alias in CENTRAL_RECEIVER_IDS, but no longer the
-    canonical return, so downstream comparisons converge on one current string).
+    currently "doe-claude-em"). "claude-central-em", "central-em" and "central"
+    were RETIRED OUTRIGHT from identity.centralReceiverIds by DoE at their
+    b787bf0f0 (2026-08-26): they are not aliases, not members of
+    CENTRAL_RECEIVER_IDS, and do not resolve — their absence is the operative
+    rule and a send to one is meant to fail loudly. Sequenced with this repo's
+    own test_central_receiver_ids narrowing at 4164ae195.
 
     Otherwise applies REPO_ALIASES for doctrine-shortname divergence (e.g.
     example_game_workbench_repo → example-game-repo → example-game-repo-em), then converts remaining

@@ -1543,6 +1543,32 @@ def _locate_existing_definition(content: str, key: str) -> dict | None:
     if fm:
         return {"kind": "flat", "match": fm}
 
+    # Hand-authored top-level scalar with a QUOTED string value, matched only
+    # within the preamble (before the first `[section]`) so a same-named leaf
+    # in an unrelated table cannot be mistaken for it.
+    #
+    # Negative-spec: deliberately does NOT match an unquoted (int/bool/float)
+    # value — `machine-local set` only ever writes string values, so matching
+    # `schema = 1` here would let `set --global schema 2` rewrite it to
+    # `schema = "2"`, silently changing a reader-visible TOML type on a
+    # git-tracked, cross-machine file. That case falls through to the
+    # "unmodifiable shape" refusal below (or, for meta-keys `_flatten_nested`
+    # itself excludes from resolution, to the post-build round-trip's
+    # duplicate-key parse failure) — a hard refusal, not a type-changing
+    # rewrite or a silent no-op. See TestCmdSetGlobalTopLevelScalarBlock case D.
+    if "." not in key:
+        next_section_pat_preamble = re.compile(r"^\[", re.MULTILINE)
+        nm_preamble = next_section_pat_preamble.search(content)
+        preamble_end = nm_preamble.start() if nm_preamble else len(content)
+        preamble = content[:preamble_end]
+        bare_pat = re.compile(
+            r'^(\s*' + re.escape(key) + r'\s*=\s*)(?:"[^"]*"|\'[^\']*\')([ \t]*(?:#[^\n]*)?)',
+            re.MULTILINE,
+        )
+        bm = bare_pat.search(preamble)
+        if bm:
+            return {"kind": "flat", "match": bm}
+
     parts = key.split(".")
     next_section_pat = re.compile(r"^\[", re.MULTILINE)
 

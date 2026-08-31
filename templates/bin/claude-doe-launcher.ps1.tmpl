@@ -193,9 +193,33 @@ if (-not $__cdlHarborKitePresent) { $env:CLAUDE_CODE_HARBOR_KITE = '1' }
 # names the operator's live shell directory, not the clone the session launched
 # from.
 #
-# The value is the CLONE ROOT, not $pluginDir: $pluginDir is <clone>/coordinator
-# (the --plugin-dir the harness consumes), and the routing key names the clone
-# itself.
+# The value names the STAMPED ENGINE clone, and is NOT derivable from
+# $pluginDir. $pluginDir is <doctrine-clone>/coordinator, so its parent is the
+# DOCTRINE clone -- which carries no `coordinator_core/_engine_stamp` and can
+# never satisfy `front_door_routing :: resolve_route`, whose identity check is
+# `is_engine_root`. Exporting it answered `root_unstamped` on every fire. The
+# engine clone is reachable from no path arithmetic over $pluginDir at all; it
+# has to be resolved from the machine-local channels below.
+#
+# Ladder, cheapest rung first, mirroring claude-doe.py ::
+# _resolve_stamped_engine_root (claude-klabauter) -- the two must agree, and a
+# disagreement produces no error anywhere, just a session the front door
+# rejects:
+#   1. <settings-home>/machine-local/.claude-klabauter-root -- one file read.
+#   2. `repos.claude_klabauter` from registry.local.toml then registry.toml.
+# Each candidate must be a directory AND carry a readable, non-empty stamp; an
+# unstamped rung-1 pointer falls through to rung 2 rather than short-circuiting.
+#
+# NO SUBPROCESS, deliberately: this is the session-launch hot path, and
+# `coordinator_core.engine_root`'s own rung 2 shells out to `machine-local` for
+# this same key. The registry keys are flat, dotted and quoted at top level
+# (`"repos.claude_klabauter" = '...'`), so a per-line regex is the whole read --
+# no TOML parser needed for a top-level lookup.
+#
+# FAIL CLOSED on a miss: export NOTHING rather than an unstamped path.
+# `key-absent` is the honest answer for a box with no published engine
+# registered; a declared-but-wrong value would claim a routing intent never
+# formed. Never blocks a launch -- the whole lookup is wrapped.
 #
 # setdefault, never overwrite: an operator who has already exported this key is
 # pinning a clone deliberately, and this launcher must not silently override
@@ -207,7 +231,78 @@ if (-not $__cdlHarborKitePresent) { $env:CLAUDE_CODE_HARBOR_KITE = '1' }
 # they launch afterwards by hand.
 $__cdlCloneRootPresent = Test-Path -LiteralPath Env:\COORDINATOR_CLONE_ROOT
 $__cdlCloneRootPrior = if ($__cdlCloneRootPresent) { $env:COORDINATOR_CLONE_ROOT } else { $null }
-if (-not $__cdlCloneRootPresent) { $env:COORDINATOR_CLONE_ROOT = (Split-Path -Parent $pluginDir) }
+if (-not $__cdlCloneRootPresent) {
+    $__cdlEngineRoot = $null
+    try {
+        $__cdlSettingsHome = $env:COORDINATOR_SETTINGS_HOME
+        if (-not $__cdlSettingsHome) {
+            # CLAUDE_HOME -> HOME -> USERPROFILE, the same order
+            # claude-doe.py :: _resolve_home_for_clone_shim walks.
+            $__cdlHomeDir = $env:CLAUDE_HOME
+            if (-not $__cdlHomeDir) { $__cdlHomeDir = $env:HOME }
+            if (-not $__cdlHomeDir) { $__cdlHomeDir = $env:USERPROFILE }
+            if ($__cdlHomeDir) {
+                $__cdlSettingsHome = Join-Path $__cdlHomeDir '.coordinator-claude-settings'
+            }
+        }
+        if ($__cdlSettingsHome) {
+            $__cdlMlDir = $env:MACHINE_LOCAL_REGISTRY_DIR
+            if (-not $__cdlMlDir) { $__cdlMlDir = Join-Path $__cdlSettingsHome 'machine-local' }
+
+            # ONE stamp gate, shared by both rungs. Two copies could gate
+            # differently, and a rung that accepted an unstamped root would export
+            # exactly the identity this whole change removed.
+            # Only the stamp's BYTES matter (skew.write_engine_stamp's own
+            # contract) -- readable and non-empty, never parsed.
+            $__cdlIsStampedEngine = {
+                param($Candidate)
+                if (-not $Candidate) { return $false }
+                if (-not (Test-Path -LiteralPath $Candidate -PathType Container)) { return $false }
+                $stamp = Join-Path (Join-Path $Candidate 'coordinator_core') '_engine_stamp'
+                $item = Get-Item -LiteralPath $stamp -ErrorAction SilentlyContinue
+                return [bool]($item -and -not $item.PSIsContainer -and $item.Length -gt 0)
+            }
+
+            # Rung 1 -- the pointer, one file read.
+            $__cdlPointed = (Get-Content -LiteralPath (Join-Path $__cdlMlDir '.claude-klabauter-root') -Raw -ErrorAction SilentlyContinue)
+            if ($__cdlPointed) { $__cdlPointed = ([string]$__cdlPointed).Trim() }
+            if (& $__cdlIsStampedEngine $__cdlPointed) { $__cdlEngineRoot = $__cdlPointed }
+
+            # Rung 2 -- the registry, and LAZY: not read at all when rung 1
+            # answered. The steady state on a healthy box is pointer-present-and-
+            # stamped, so reading these two files there spent work for an answer
+            # already in hand -- which contradicted this block's own hot-path
+            # claim above. The .cmd leg was already lazy; this matches it.
+            #
+            # Per-machine local wins on collision, and the FIRST file carrying a
+            # non-empty value ends the walk whether or not that value turns out to
+            # be stamped -- registry.toml is not consulted behind a
+            # registry.local.toml that answered.
+            if (-not $__cdlEngineRoot) {
+                foreach ($__cdlRegName in @('registry.local.toml', 'registry.toml')) {
+                    $__cdlRegHit = ''
+                    $__cdlRegLines = Get-Content -LiteralPath (Join-Path $__cdlMlDir $__cdlRegName) -ErrorAction SilentlyContinue
+                    foreach ($__cdlLine in $__cdlRegLines) {
+                        $__cdlMatch = [regex]::Match($__cdlLine, '^\s*"repos\.claude_klabauter"\s*=\s*(?:''([^'']*)''|"([^"]*)")')
+                        if ($__cdlMatch.Success) {
+                            $__cdlRegHit = if ($__cdlMatch.Groups[1].Success) { $__cdlMatch.Groups[1].Value } else { $__cdlMatch.Groups[2].Value }
+                            break
+                        }
+                    }
+                    $__cdlRegHit = $__cdlRegHit.Trim()
+                    if ($__cdlRegHit) {
+                        if (& $__cdlIsStampedEngine $__cdlRegHit) { $__cdlEngineRoot = $__cdlRegHit }
+                        break
+                    }
+                }
+            }
+        }
+    } catch {
+        # Swallowed deliberately: a launch must never fail over a best-effort
+        # routing-key lookup. The miss path is the fail-closed path below.
+    }
+    if ($__cdlEngineRoot) { $env:COORDINATOR_CLONE_ROOT = $__cdlEngineRoot }
+}
 
 # Export the http-hook override-channel CANARY. A `type: "http"` registration
 # reaches the caller's environment only through interpolated headers -- the POST

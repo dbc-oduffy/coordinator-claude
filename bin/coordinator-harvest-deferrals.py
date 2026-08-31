@@ -406,10 +406,58 @@ _VALID_QUEUE_SCOPES = ("project", "central")
 
 _SUBPROCESS_TIMEOUT_SECS = 30
 
+
+def _child_identity_env() -> dict:
+    """The environment both spawns below must run under, never the inherited one.
+
+    Each `cmd` here names a MUTATING, touch-recording CLI. Inherited identity
+    vars name whoever spawned the process this one runs inside — the warm
+    server's own spawner when a ceremony reaches this code in-process — so the
+    child files its writes under a live peer and the author's later commit is
+    refused on a provably-foreign owner. See
+    `session.core.subprocess_identity_env` for the measured instance and for
+    why an unresolvable identity strips the vars rather than inheriting them.
+
+    Import is call-time: `_bootstrap_engine()` has run by the time either
+    caller reaches its spawn, and module scope here stays engine-free.
+    """
+    _bootstrap_engine()
+    from coordinator_core.session.core import subprocess_identity_env
+
+    return subprocess_identity_env()
+
+
 # Write-seam env-override names — MUST mirror the write seams' own resolution
 # precedence exactly (see _candidate_search_dirs' write-seam-parity comment
 # below for the failure mode this guards against).
 _QUEUE_APPEND_OUTPUT_ROOT_ENV = "QUEUE_APPEND_OUTPUT_ROOT"
+_ISOLATION_ROOT_WARNED: set[str] = set()
+
+
+def _isolation_root(env_var: str, caller_name: str) -> str | None:
+    """Local twin of `bin/lib/cli_shared.isolation_root_if_under_test` — see that
+    docstring for the defect this closes.
+
+    Deliberately dependency-free (stdlib only, no `cli_shared` import) rather than
+    delegating: this module's bootstrap is order-sensitive, and forcing it early
+    just to read an env var re-resolves the registry inside a caller's
+    env-stripped window and changes which roots resolve. The predicate is four
+    lines; the ordering hazard is not worth sharing them.
+    """
+    value = (os.environ.get(env_var) or "").strip()
+    if not value:
+        return None
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return value
+    if env_var not in _ISOLATION_ROOT_WARNED:
+        _ISOLATION_ROOT_WARNED.add(env_var)
+        print(
+            f"{caller_name}: ignoring inherited {env_var}={value} — a test-isolation "
+            f"redirect outside a test run. Writing to the resolved repo path instead.",
+            file=sys.stderr,
+        )
+    return None
+
 _LESSON_PROMOTE_OUTBOX_ROOT_ENV = "LESSON_PROMOTE_OUTBOX_ROOT"
 
 
@@ -964,7 +1012,9 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     dirs: list[str] = []
     root = _repo_root()
 
-    queue_override = os.environ.get(_QUEUE_APPEND_OUTPUT_ROOT_ENV, "").strip()
+    queue_override = _isolation_root(
+        _QUEUE_APPEND_OUTPUT_ROOT_ENV, "coordinator-harvest-deferrals"
+    )
     if queue_override:
         dirs.append(os.path.join(queue_override, "state", "improvement-queue"))
     elif root:
@@ -974,7 +1024,9 @@ def _candidate_search_dirs(row: dict) -> list[str]:
     # VERBATIM when set (it IS the lessons-outbox dir itself, unlike
     # QUEUE_APPEND_OUTPUT_ROOT which is a root that "state/improvement-queue" is
     # joined onto) — do not append "state/lessons-outbox" onto it here.
-    lessons_override = os.environ.get(_LESSON_PROMOTE_OUTBOX_ROOT_ENV, "").strip()
+    lessons_override = _isolation_root(
+        _LESSON_PROMOTE_OUTBOX_ROOT_ENV, "coordinator-harvest-deferrals"
+    )
     if lessons_override:
         dirs.append(lessons_override)
 
@@ -1100,7 +1152,13 @@ def _run_queue_append(row: dict, key: str, dry_run: bool) -> bool:
         cmd.extend(["--case-against", str(case_against)])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_SUBPROCESS_TIMEOUT_SECS,
+            env=_child_identity_env(),
+        )
     except subprocess.TimeoutExpired:
         print(
             f"error: coordinator-harvest-deferrals: coordinator-queue-append timed out "
@@ -1172,7 +1230,13 @@ def _run_lesson_promote(row: dict, key: str, dry_run: bool) -> bool:
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT_SECS)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=_SUBPROCESS_TIMEOUT_SECS,
+            env=_child_identity_env(),
+        )
     except subprocess.TimeoutExpired:
         print(
             f"error: coordinator-harvest-deferrals: coordinator-lesson-promote timed out "

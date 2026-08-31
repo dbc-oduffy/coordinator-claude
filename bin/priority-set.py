@@ -25,7 +25,14 @@ Options:
                            it writes a real entry, it does not delete the file.
     --set-by <who>         Identifier of the session/agent/person setting this
                            priority. Optional.
-    --note <text>          Optional free-form note.
+    --note <text>          Optional free-form note. Mutually exclusive with
+                           --note-file; a newline-bearing inline --note is
+                           REFUSED (names --note-file) rather than silently
+                           truncated by the .cmd forwarder's un-re-quoted
+                           `%*` expansion.
+    --note-file <path>     Lossless file transport for --note. `-` reads
+                           stdin. Prefer this over inline --note for any
+                           multi-line or quote-bearing note.
     --timeout <secs>       Max seconds to wait for the cross-process lock.
                            Capped at 2.0 (MAX_TIMEOUT_SECS): a larger value is
                            clamped, with a stderr notice, never honoured. Ask
@@ -96,7 +103,8 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
     target_kind = ""
     priority = ""
     set_by = ""
-    note = ""
+    note: str | None = None
+    note_file: str | None = None
     timeout = ""
 
     i = 0
@@ -133,6 +141,12 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
                 sys.exit(1)
             note = argv[i + 1]
             i += 2
+        elif arg == "--note-file":
+            if i + 1 >= n:
+                print("ERROR: --note-file requires an argument", file=sys.stderr)
+                sys.exit(1)
+            note_file = argv[i + 1]
+            i += 2
         elif arg == "--timeout":
             if i + 1 >= n:
                 print("ERROR: --timeout requires an argument", file=sys.stderr)
@@ -163,12 +177,38 @@ def _parse_args(argv: list[str]) -> dict[str, object]:
     }
     if set_by:
         params["set_by"] = set_by
-    if note:
-        params["note"] = note
+    resolved_note = _resolve_note(note, note_file)
+    if resolved_note:
+        params["note"] = resolved_note
     if timeout:
         params["timeout"] = _clamp_timeout(timeout)
 
     return params
+
+
+def _resolve_note(note: str | None, note_file: str | None) -> str | None:
+    """Resolve --note losslessly from its inline form or --note-file sibling.
+
+    Imports coordinator_core.argv_fidelity lazily, here rather than at
+    module scope: this door reaches priority.set only across the cc_invoke
+    process boundary and must stay importable (for --help / usage errors)
+    without a resolvable coordinator_core on sys.path. refuse_newline_argv
+    is called directly (not merely through resolve_optional_prose) so a
+    newline-bearing inline --note is refused outright, naming --note-file,
+    rather than silently truncated by the .cmd forwarder's un-re-quoted
+    `%*` expansion (the corruption this plan's exit criterion closes) --
+    mirrors coordinator/bin/archive-stamp-cli.py's _resolve_prose_pair.
+    """
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
+
+    if note is None and note_file is None:
+        return None
+    try:
+        refuse_newline_argv(note, flag_name="--note")
+        return resolve_body(note, note_file, flag_name="--note")
+    except ArgvFidelityError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 _BOOTSTRAP_NAMES = ("cc_invoke", "mutation_refusal_message", "resolve_checked_repo_root")

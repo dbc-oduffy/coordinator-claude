@@ -145,11 +145,15 @@ surface-symmetry list — that absence is not a gap.
 
 ## 1a.1–1a.3 git steps — rationale
 
-**Git-config hardening.** `gc.autoDetach false` prevents detached GC child
-orphaning `.git/index.lock` on Git-for-Windows; `core.checkStat minimal`
-ignores NTFS-unstable `ctime/ino/dev` fields causing phantom-dirty tree.
-`gc.autoDetach` is per-repo scoped (global would change auto-gc in unrelated
-repos); `core.checkStat minimal` is machine-wide and benign everywhere. The
+**Git-config hardening.** `gc.auto 0` disables auto-gc entirely, removing
+both the detached GC child that orphans `.git/index.lock` on Git-for-Windows
+and the foreground repack a killed session could abandon half-written (see
+H21, `concurrent-em-hazards.md`); ceremony-triggered `git maintenance run`
+plus the stale-lock/tmp-pack reaper CLI replace what auto-gc did.
+`core.checkStat minimal` ignores NTFS-unstable `ctime/ino/dev` fields causing
+phantom-dirty tree. `gc.auto` is per-repo scoped (global would change auto-gc
+in unrelated repos); `core.checkStat minimal` is machine-wide and benign
+everywhere. The
 writer also neutralizes the Windows git-help browser launch (Git for Windows
 ships no `man`, so `git help`/`--help` hijacks the default browser) —
 machine-wide, Windows-only, skipped when the operator already set

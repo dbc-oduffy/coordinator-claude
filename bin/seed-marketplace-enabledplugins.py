@@ -194,7 +194,7 @@ def _bootstrap_engine() -> None:
         _write_surface = _WriteSurfaceDeclaration(
             writer_id="seed-marketplace-enabledplugins",
             # Review: coordinator:code-reviewer — bare filename, not a fake dotted
-            # path: `write_surface_manifest._dotted_module_path` returns None for
+            # path: `write_surface_discovery._dotted_module_path` returns None for
             # any hyphenated segment and falls back to file-location loading, so
             # this is never a real importable path; matches the sibling convention
             # in setup-github-auth-1password.py.

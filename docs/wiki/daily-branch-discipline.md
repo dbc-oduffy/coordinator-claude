@@ -35,7 +35,7 @@ serialized on a tree-keyed lock so exactly one session performs it and the rest 
 at session `startup` only, never on `compact`/`resume`/`fork`. Authorising ruling: PM, 2026-08-18 —
 *"we cut automatically if we're on main. we warn if we are on a branch that is not compliant with
 our auto-push rules."* See
-`coordinator-tripwires/day-branch-auto-cut-supersedes-pm-gate.md` before "fixing" this back.
+`docs/wiki/coordinator-tripwires/day-branch-auto-cut-supersedes-pm-gate.md` before "fixing" this back.
 
 A non-`main` branch that violates the auto-push rules (not `work/*` shape, or a pending-push
 record on disk) **warns and is never switched**. Everything else — mid-execution switches while a

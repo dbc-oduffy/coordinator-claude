@@ -139,3 +139,16 @@ the same fact as a literal guard pass.
 
 **Prior-art-checker** consults `docs/wiki/codebase-judgment/` (Phase 2.5 output) on every plan
 check — cached Opus-tier judgment at Sonnet cost, zero additional wiring.
+
+---
+
+## Maintenance Checkpoint
+
+**`git.maintenance` hourly tier.** Fires after PIPELINE.md Phase 5's safety commit, advisory,
+non-zero reported, run continues:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"hourly","repo":"<repo-root>"}'`
+
+Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
+(`scope='none'`); `repo` goes in the JSON params, not omitted. The op maps `tier=hourly` to
+`--task=commit-graph`, never `--schedule=hourly` — no schedule flag appears at this call site.

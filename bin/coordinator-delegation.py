@@ -11,7 +11,8 @@
 # unlike tier-u-grant-cli's `grant_directive` forwarding, because this
 # writer's argument shape (designated pid/create_time resolution, the
 # lease-to-expires_at conversion) is owned here, not by C2):
-#   grant --pid <pid> --classes <c1,c2,...> --lease-hours <N> --note <text>
+#   grant --pid <pid> --classes <c1,c2,...> --lease-hours <N>
+#         (--note <text> | --note-file <path>)
 #       -> resolves the designated (pid, create_time) pair via a direct
 #          psutil probe of --pid, converts --lease-hours into an
 #          `expires_at` measured from THIS CALL's wall clock, and rejects
@@ -78,7 +79,7 @@ CEILING_SENTENCE = "this raises the cost of forgery and does not prevent it"
 #: directly rather than going through this CLI).
 _MAX_LEASE_HOURS = 12
 
-_SUBCOMMANDS = "subcommands: grant --pid <pid> --classes <c1,c2,...> --lease-hours <N> --note <text> | show | revoke"
+_SUBCOMMANDS = "subcommands: grant --pid <pid> --classes <c1,c2,...> --lease-hours <N> (--note <text> | --note-file <path>) | show | revoke"
 
 _HELP_FLAGS = ("--help", "-h", "help")
 
@@ -148,9 +149,20 @@ def _resolve_designated(mod, pid_text: str) -> tuple[int, float] | None:
 def _cmd_grant(mod, rest: list[str]) -> int:
     print(CEILING_SENTENCE)
     flags = _parse_flags(
-        rest, required=("--pid", "--classes", "--lease-hours", "--note")
+        rest,
+        required=("--pid", "--classes", "--lease-hours"),
+        optional=("--note", "--note-file"),
     )
     if flags is None:
+        return _usage("coordinator-delegation grant")
+
+    from coordinator_core.argv_fidelity import ArgvFidelityError, refuse_newline_argv, resolve_body
+
+    try:
+        refuse_newline_argv(flags.get("--note"), flag_name="--note")
+        note = resolve_body(flags.get("--note"), flags.get("--note-file"), flag_name="--note")
+    except ArgvFidelityError as exc:
+        print(f"coordinator-delegation: {exc}", file=sys.stderr)
         return _usage("coordinator-delegation grant")
 
     designated = _resolve_designated(mod, flags["--pid"])
@@ -206,7 +218,7 @@ def _cmd_grant(mod, rest: list[str]) -> int:
         granted_at=granted_at,
         expires_at=expires_at,
         granted_by="human",
-        note=flags["--note"],
+        note=note,
     )
     if not ok:
         print(f"coordinator-delegation: grant rejected: {reason}", file=sys.stderr)

@@ -64,6 +64,34 @@ does not decide WHEN in the publish pipeline to call
 allowlist-declarations.yaml` or any exemption ledger — that wiring is
 `coordinator/bin/publish.py`'s job (C3, same plan, not this chunk).
 
+## The third verdict: NOT-APPLICABLE
+
+`_verify_isolation_precondition` reads one bit off `tree_root`'s contents —
+whether a `coordinator_core/` directory is there. That bit reads identically
+for two different destinations: one that structurally never carries the
+engine (this gate has nothing to say about it, by construction) and one
+that is SUPPOSED to carry the engine but whose sync silently dropped it this
+round (the exact truncated-mirror defect this gate exists to catch). Absence
+alone cannot tell those apart, and this module — MECHANISM ONLY, per
+`## Scope` above — is forbidden from reading `setup/publish-targets.
+portable` or any ledger to tell them apart itself.
+
+So the caller (`publish.py`'s `dispatch_end_of_run_assembled_mirror_gate`)
+resolves the discriminator — is `coordinator_core` part of this
+destination's DECLARED scope, read from the UNFILTERED target row set, never
+from `tree_root`'s own contents (circular) and never from the current
+invocation's possibly `--target`-filtered row subset (narrow-door regression,
+see `docs/plans/2026-08-31-the-mirror-gate-collects-the-whole-tree.md`) —
+and passes the answer in as `run_assembled_mirror_gate`'s
+`coordinator_core_in_declared_scope` keyword. This module accepts that fact;
+it does not compute it.
+
+Only when BOTH agree — the tree lacks the directory AND the destination's
+declared scope never claimed it — does this function return
+`not_applicable=True`. Declared-scope-includes-it-but-tree-lacks-it keeps
+refusing via the pre-existing `isolation_unverified` path, unchanged: NOT-
+APPLICABLE never absolves a truncated engine mirror.
+
 ## What "isolated from claude-klabauter" actually means here (measured 2026-08-29)
 
 This module does NOT run the child in a separate interpreter and does NOT
@@ -116,6 +144,7 @@ for the denominator-carrying, capped render.
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import subprocess
@@ -124,6 +153,48 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
+
+_NESTED_ENV_SCRUB_SOURCE = (
+    Path(__file__).resolve().parents[2] / "bin" / "tests" / "test_zero_test_module_ratchet.py"
+)
+"""This module already spawns pytest as a nested subprocess and already
+solved scrubbing the outer run's own pytest env vars out of that child's
+environment (`_NESTED_PYTEST_ENV_SCRUB`) — a peer's `PYTEST_ADDOPTS`
+turning xdist worker death under memory pressure into a partial-collection
+summary this gate would otherwise misread as a tree defect. Reused by
+file-path import (this file lives outside any package `bin/` or `bin/tests`
+participates in from here) rather than duplicated into a second list that
+could drift from the one actually exercised by that suite."""
+
+
+def _load_nested_pytest_env_scrub() -> "tuple[str, ...]":
+    spec = importlib.util.spec_from_file_location(
+        "_zero_test_module_ratchet_env_scrub", _NESTED_ENV_SCRUB_SOURCE
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"could not build a module spec for {_NESTED_ENV_SCRUB_SOURCE}")
+    module = importlib.util.module_from_spec(spec)
+    # That module imports from `coordinator_core`, so executing it requires
+    # the repo root on `sys.path`. Under pytest the rootdir supplies it and
+    # this is invisible; a caller importing THIS module standalone (the
+    # exit-criterion falsifier does exactly that) gets a ModuleNotFoundError
+    # from a line that reads like a pure constant lookup. The reuse is
+    # deliberate -- one scrub list, not two that drift -- but reuse across a
+    # package boundary owes its own import precondition rather than
+    # inheriting one by luck.
+    repo_root = str(_NESTED_ENV_SCRUB_SOURCE.parents[3])
+    added = repo_root not in sys.path
+    if added:
+        sys.path.insert(0, repo_root)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added:
+            sys.path.remove(repo_root)
+    return module._NESTED_PYTEST_ENV_SCRUB
+
+
+_PYTEST_ENV_SCRUB = _load_nested_pytest_env_scrub()
 
 MARKER_EXPRESSION = "not cadence and not pending_fix and not designed_red"
 """The tree's own documented fast-tier marker expression (parent plan's
@@ -203,7 +274,147 @@ class MirrorCollectionResult:
     relies on — see that function's own docstring. `passed` is always
     False alongside this; no subprocess ran, so `exit_code` is None and
     `collected_count`/`errored` carry the same fail-closed values a
-    `TimeoutExpired` reports."""
+    `TimeoutExpired` reports.
+
+    Mutually exclusive with `not_applicable` below: both are reached from
+    the SAME `_verify_isolation_precondition` failure, but the caller's
+    `coordinator_core_in_declared_scope` argument decides which one — never
+    both, and never this one without a subprocess having been skipped."""
+
+    not_applicable: bool = False
+    """True only when `run_assembled_mirror_gate` was told (via its
+    `coordinator_core_in_declared_scope` argument) that `coordinator_core`
+    is NOT part of this destination's DECLARED scope, and
+    `_verify_isolation_precondition` independently found it absent from
+    `tree_root` too — the two facts agreeing that this gate structurally
+    has nothing to say about this tree, by construction, rather than by an
+    unmet-but-expected precondition. No subprocess ran; `passed` is False
+    alongside this the same way it is for `isolation_unverified`, but a
+    caller MUST read `not_applicable` before `passed` — this is not a
+    refusal (see `dispatch_end_of_run_assembled_mirror_gate` in
+    `publish.py`, which proceeds the round rather than gating on it).
+
+    Deliberately excluded from `is_incomplete`/`is_load_indeterminate`
+    below: those predicates answer "does this result carry a claim worth
+    an operator's exemption", and a structurally-inapplicable tree carries
+    no claim to exempt — there is nothing here for a declared exemption to
+    waive, the same way there is nothing for it to waive on a clean PASS.
+    A caller that reaches this field via `is_incomplete=False` would
+    otherwise misread it as a clean CONTENT verdict claiming "found 0
+    tests" (see `verdict_obtained`'s own docstring for why that collapse is
+    exactly the one this whole result shape exists to keep apart) — reading
+    `not_applicable` first, before either `passed` or `is_incomplete`, is
+    how a caller keeps the three cases (result / INCOMPLETE / NOT-
+    APPLICABLE) distinguishable. See this module's own docstring, "The
+    third verdict", for the caller-side discriminator that produces this
+    field's argument in the first place: whether `coordinator_core` sits in
+    the destination's DECLARED scope, read from the UNFILTERED target row
+    set — never from `tree_root`'s contents (that would be circular, since
+    `_verify_isolation_precondition` already reads `tree_root`'s contents)
+    and never from the current invocation's possibly `--target`-filtered
+    row subset (a single non-engine row filtered in against an
+    engine-declaring destination must still refuse, not read as
+    not-applicable — see `docs/plans/2026-08-31-the-mirror-gate-collects-
+    the-whole-tree.md`'s narrow-door regression)."""
+
+    timeout_s: float = DEFAULT_TIMEOUT_S
+    """The budget actually enforced for the run that produced this result —
+    i.e. the `timeout_s` value passed to `run_assembled_mirror_gate`, never
+    the module default read cold. `format_refusal`'s TIMED OUT and
+    INCOMPLETE renderings read this field, not `DEFAULT_TIMEOUT_S`, so a
+    caller overriding the budget gets a refusal naming the number that was
+    actually enforced rather than one that was never in effect."""
+
+    verdict_obtained: bool = False
+    """True only where `run_assembled_mirror_gate` positively established
+    that a CONTENT verdict about the tree WAS reached — a recognised
+    `_parse_collection_summary` shape from a child that exited on its own.
+    Set False for: empty or unrecognised stdout (a pytest child killed
+    without writing a recognisable summary — memory pressure, an
+    OS/job-object kill, a plugin segfault), a negative `returncode` even
+    alongside stdout that happens to parse (signal death means the run
+    never finished on its own), a spawn `OSError`, a timeout, and the
+    isolation refusal.
+
+    THE DEFAULT IS FALSE, AND THE DIRECTION IS THE WHOLE POINT. It was
+    True on landing, reasoned as backwards compatibility: a fixture that
+    had never heard of this field would keep the `is_incomplete` reading
+    the old `timed_out or isolation_unverified` gave it. That is the wrong
+    axis for a fail-closed gate. A default of True makes OMISSION an
+    ASSERTION that a verdict was obtained, so a future construction site
+    that forgets this field reads as a clean CONTENT verdict — which a
+    declared exemption may then waive, which is precisely the shape
+    `is_incomplete` was widened to close, reintroduced through a default
+    instead of through an enumeration. False costs a content site one
+    explicit keyword and costs a forgetful one nothing but a refusal.
+    Note the sibling `isolation_unverified: bool = False` already defaults
+    the safe way; this now matches it. See `is_incomplete` for why this
+    must feed the predicate rather than be enumerated as a third named
+    cause, and `is_load_indeterminate` for why a forgotten flag here would
+    have been exemptible."""
+
+    @property
+    def is_incomplete(self) -> bool:
+        """True iff this result carries NO claim about the tree's content at
+        all — the predicate is "was a verdict obtained", never an
+        enumeration of the causes that can produce one. `timed_out` and
+        `isolation_unverified` are two SPECIFIC named causes; `verdict_
+        obtained=False` is the general case, covering every other way a
+        subprocess can exit without reaching a recognised CONTENT verdict
+        (a pytest child killed without writing a summary, a signal-killed
+        child, a `subprocess.OSError` from process creation itself). Prior
+        to this field, this property was `timed_out or isolation_
+        unverified` — an enumeration of two known causes that a killed
+        child with empty stdout satisfied neither of, so it silently read
+        as a clean CONTENT verdict a declared exemption could then waive.
+        Distinct from `errored`: a collection that ran to completion,
+        parsed, and reported collection errors DID reach a verdict about
+        the tree (a bad one) and is a CONTENT result, `is_incomplete
+        =False`. An INCOMPLETE result must never be treated as evidence
+        about the tree by any caller.
+
+        NOT the predicate a caller should gate an exemption lookup on —
+        see `is_load_indeterminate` for that, and its docstring for why the
+        two came apart.
+
+        Excludes `not_applicable`: that field marks a tree this gate has
+        NOTHING to say about, by construction (see its own docstring) —
+        distinct from a tree this gate tried and failed to reach a verdict
+        on. A caller checking `is_incomplete` after already reading
+        `not_applicable` (as `dispatch_end_of_run_assembled_mirror_gate`
+        does) never observes the two overlap, but this predicate is kept
+        correct standalone regardless of call order."""
+        return (
+            not self.not_applicable
+            and (self.timed_out or self.isolation_unverified or not self.verdict_obtained)
+        )
+
+    @property
+    def is_load_indeterminate(self) -> bool:
+        """True iff this result reached no content verdict for a reason that
+        is a function of the BOX rather than of the tree — the subset of
+        `is_incomplete` a declared exemption can never legitimately waive.
+
+        `dispatch_end_of_run_assembled_mirror_gate` gates its exemption
+        lookup on THIS, not on `is_incomplete`. The two are not the same
+        predicate and conflating them closed a real publish lane:
+        `isolation_unverified` is a pure function of `tree_root`'s
+        contents (`_verify_isolation_precondition` asks whether a
+        `coordinator_core/` directory is there, and asks nothing else), so
+        it is deterministic, load-independent, and reproducible — a mirror
+        that structurally never carries the engine refuses this way on
+        every round, on an idle box, forever. That is exactly the standing,
+        named tradeoff the exemption ledger exists to let an operator
+        declare. A timeout is the opposite: it says nothing about the tree,
+        it says the box was busy, and waiving it would let load reach the
+        verdict — the prime exit criterion's own negation
+        (`docs/plans/2026-08-31-the-mirror-gate-collects-the-whole-tree.md`).
+
+        Defined as a subtraction rather than an enumeration, so every
+        further no-verdict cause added to `is_incomplete` is
+        non-exemptible by default and only a deliberate edit here can make
+        one waivable."""
+        return self.is_incomplete and not self.isolation_unverified
 
 
 def _tail(text: str, n_lines: int = 40) -> str:
@@ -211,19 +422,34 @@ def _tail(text: str, n_lines: int = 40) -> str:
     return "\n".join(lines[-n_lines:])
 
 
-def _parse_collection_summary(stdout: str) -> "tuple[int, bool]":
-    """Return `(collected_count, errored)` parsed from pytest's `-q
-    --collect-only` stdout. `errored` is True whenever the summary reads as
-    an interrupted/erroring collection rather than a clean (possibly
+def _parse_collection_summary(stdout: str) -> "tuple[int, bool, bool]":
+    """Return `(collected_count, errored, recognized)` parsed from pytest's
+    `-q --collect-only` stdout. `errored` is True whenever the summary reads
+    as an interrupted/erroring collection rather than a clean (possibly
     zero-result) one — see `MirrorCollectionResult`'s own docstring for why
-    the two zero-count shapes must stay distinguishable.
+    the two zero-count shapes must stay distinguishable. `recognized` is
+    True only when `stdout` matched one of the summary shapes this function
+    actually understands (a collected-count line, an interrupted/error
+    tail line, or a "no tests" tail line); empty stdout and any OTHER
+    unrecognised shape set `recognized=False` — the caller (`run_assembled_
+    mirror_gate`) reads that as NO CONTENT VERDICT was obtained (`is_
+    incomplete=True`), never as a claim that the tree is bad. A pytest
+    child killed without writing a summary (memory pressure, an OS/job-
+    object kill, a plugin segfault) produces exactly this shape: empty
+    stdout used to collapse into the same `errored=True` a genuine
+    collection error produces, which let a declared exemption waive a run
+    that never reached a verdict at all.
 
-    Deliberately over-collects into `errored=True` on any summary shape
-    this function does not recognise: this feeds a publish refusal gate,
-    and misreading a genuine collection error as a clean empty collection
-    is the dangerous direction, not the reverse (same asymmetry
-    `import_closure.py`'s `_unguarded_import_nodes` documents for its own
-    guard/unguarded split).
+    Deliberately still over-collects into `errored=True` (alongside
+    `recognized=False`) on any summary shape this function does not
+    recognise: this feeds a publish refusal gate, and misreading a genuine
+    collection error as a clean empty collection is the dangerous
+    direction, not the reverse (same asymmetry `import_closure.py`'s
+    `_unguarded_import_nodes` documents for its own guard/unguarded
+    split). `errored=True, recognized=False` still refuses via `passed`;
+    it now ALSO refuses as INCOMPLETE via `is_incomplete`, rather than
+    being read as a bad-tree CONTENT verdict an exemption ledger could
+    waive.
 
     Ordering dependency: the "N tests collected" match is checked BEFORE
     the tail-line error/interrupted check, which is only safe because this
@@ -239,7 +465,7 @@ def _parse_collection_summary(stdout: str) -> "tuple[int, bool]":
     collection run, not assumed."""
     stripped = stdout.rstrip()
     if not stripped:
-        return 0, True
+        return 0, True, False
     tail_line = stripped.splitlines()[-1]
 
     m = _COLLECTED_COUNT_RE.search(stdout)
@@ -258,38 +484,54 @@ def _parse_collection_summary(stdout: str) -> "tuple[int, bool]":
         line_end = stdout.find("\n", m.start())
         summary_line = stdout[line_start:] if line_end == -1 else stdout[line_start:line_end]
         if _SUMMARY_ERROR_CLAUSE_RE.search(summary_line) or _INTERRUPTED_RE.search(stdout):
-            return int(m.group(1)), True
-        return int(m.group(1)), False
+            return int(m.group(1)), True, True
+        return int(m.group(1)), False, True
 
     if _INTERRUPTED_RE.search(tail_line) or _ERROR_TAIL_RE.search(tail_line):
-        return 0, True
+        return 0, True, True
 
     if _NO_TESTS_RE.search(tail_line):
-        return 0, False
+        return 0, False, True
 
     # Unrecognised summary shape — fail closed into "errored" rather than
-    # silently reporting a clean zero (see docstring).
-    return 0, True
+    # silently reporting a clean zero (see docstring), AND report it as
+    # unrecognised so the caller treats this as INCOMPLETE, not as a
+    # content verdict about the tree.
+    return 0, True, False
 
 
 def _subprocess_env() -> "dict[str, str]":
-    """A copy of the current environment with `PYTHONPATH` removed — the
-    only generic vector by which claude-klabauter's own source tree could leak onto
-    the child's `sys.path` via an explicit path entry. This closes ONE
-    channel, not all of them: it does not and cannot prevent the child from
-    resolving `coordinator_core` via an ambient editable install on the
-    interpreter it runs under (see this module's own docstring, "What
-    'isolated from claude-klabauter' actually means here"). Combined with
-    `cwd=tree_root` in the caller (Python's own `-m pytest` invocation adds
-    the CURRENT directory, not the parent process's, to `sys.path[0]`), the
-    combination is sufficient in practice ONLY because `sys.path[0]`
-    precedence lets `cwd` shadow a same-named ambient install — a reliance
+    """A copy of the current environment with `PYTHONPATH` and every var in
+    `_PYTEST_ENV_SCRUB` removed. `PYTHONPATH` is the only generic vector by
+    which claude-klabauter's own source tree could leak onto the child's `sys.path`
+    via an explicit path entry — this closes ONE channel, not all of them:
+    it does not and cannot prevent the child from resolving
+    `coordinator_core` via an ambient editable install on the interpreter
+    it runs under (see this module's own docstring, "What 'isolated from
+    claude-klabauter' actually means here"). Combined with `cwd=tree_root` in the
+    caller (Python's own `-m pytest` invocation adds the CURRENT directory,
+    not the parent process's, to `sys.path[0]`), the combination is
+    sufficient in practice ONLY because `sys.path[0]` precedence lets `cwd`
+    shadow a same-named ambient install — a reliance
     `_verify_isolation_precondition` checks rather than assumes. There is no
     portable way to positively assert an empty `sys.path` from outside the
     child process, so this function closes the one channel it directly
-    controls: the environment it hands the child."""
+    controls: the environment it hands the child.
+
+    `_PYTEST_ENV_SCRUB` closes a second, load-shaped channel: a peer
+    session's `PYTEST_ADDOPTS` (e.g. `-n auto`) reaches this child
+    unscrubbed, an xdist worker dies under memory pressure, and the
+    resulting partial-collection summary with an error clause gets
+    misread as a verdict about THIS tree rather than about a setting this
+    module never asked for. `--continue-on-collection-errors` in
+    particular would also break `_parse_collection_summary`'s own ordering
+    assumption (see that function's docstring) — this module never passes
+    that flag itself, but an inherited `PYTEST_ADDOPTS` could add it
+    unseen."""
     env = dict(os.environ)
     env.pop("PYTHONPATH", None)
+    for var in _PYTEST_ENV_SCRUB:
+        env.pop(var, None)
     return env
 
 
@@ -317,6 +559,7 @@ def run_assembled_mirror_gate(
     *,
     python_executable: "str | None" = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    coordinator_core_in_declared_scope: bool = True,
 ) -> MirrorCollectionResult:
     """Run the tree's own documented fast-tier command, in `--collect-only
     -q` form, as a subprocess with `cwd=tree_root` and `PYTHONPATH`
@@ -341,12 +584,28 @@ def run_assembled_mirror_gate(
     gate itself runs under, per every other subprocess-spawning site in
     this plan's family (no separate interpreter resolution invented here).
 
+    `coordinator_core_in_declared_scope` — the caller-supplied fact this
+    module's own MECHANISM-only scope forbids it from computing itself (see
+    module docstring, "The third verdict"): whether `coordinator_core` is
+    part of this destination's DECLARED scope, read by the caller from the
+    UNFILTERED target row set. Defaults to `True` so a caller that does not
+    pass it gets EXACTLY today's behaviour — a missing `coordinator_core/`
+    directory always refuses as `isolation_unverified`, never silently
+    reads as not-applicable by omission. Only when this is explicitly
+    `False`, AND `_verify_isolation_precondition` independently finds
+    `tree_root` missing the directory too, does this function return
+    `not_applicable=True` instead of refusing.
+
     A `subprocess.TimeoutExpired` is caught and reported as
-    `passed=False, errored=True, timed_out=True` rather than propagated —
-    a gate that raises out of a caller's `run_pre_sync_gates` loop on a
-    slow tree is a crash, not a refusal, and the parent plan's own budget
-    note treats "exceeds ~60s" as an escalation signal for the WIRING
-    caller (C3) to act on, not a reason for this function to blow up.
+    `passed=False, errored=True, timed_out=True` (so `is_incomplete=True`)
+    rather than propagated — a gate that raises out of a caller's
+    `run_pre_sync_gates` loop on a slow tree is a crash, not a refusal, and
+    the parent plan's own budget note treats "exceeds ~60s" as an
+    escalation signal for the WIRING caller (C3) to act on, not a reason
+    for this function to blow up. An `OSError` from process creation
+    itself (a saturated box refusing a new process) is caught the same
+    way, reported `verdict_obtained=False` (so `is_incomplete=True`),
+    never propagated: this function Never Raises.
     """
     tree_root = Path(tree_root)
     executable = python_executable or sys.executable
@@ -361,6 +620,27 @@ def run_assembled_mirror_gate(
     )
 
     if not _verify_isolation_precondition(tree_root):
+        if not coordinator_core_in_declared_scope:
+            return MirrorCollectionResult(
+                passed=False,
+                collected_count=0,
+                errored=False,
+                exit_code=None,
+                timed_out=False,
+                elapsed_s=0.0,
+                command=command,
+                tree_root=str(tree_root),
+                stdout_tail="",
+                stderr_tail=(
+                    "assembled-mirror-gate: NOT APPLICABLE — coordinator_core "
+                    "is not part of this destination's declared scope and is "
+                    "absent from tree_root; this gate has nothing to say "
+                    "about this tree, by construction. No subprocess run."
+                ),
+                not_applicable=True,
+                timeout_s=timeout_s,
+                verdict_obtained=False,
+            )
         return MirrorCollectionResult(
             passed=False,
             collected_count=0,
@@ -379,6 +659,8 @@ def run_assembled_mirror_gate(
                 "_verify_isolation_precondition)."
             ),
             isolation_unverified=True,
+            timeout_s=timeout_s,
+            verdict_obtained=False,
         )
 
     start = time.perf_counter()
@@ -406,11 +688,48 @@ def run_assembled_mirror_gate(
             tree_root=str(tree_root),
             stdout_tail=_tail(exc.stdout or ""),
             stderr_tail=_tail(exc.stderr or ""),
+            timeout_s=timeout_s,
+            verdict_obtained=False,
+        )
+    except OSError as exc:
+        # Process creation itself failed (e.g. a saturated box refusing a
+        # new process) -- this function's own docstring promises "Never
+        # raises"; propagating an OSError out of a caller with no
+        # try/except turns a refusal into a crash. Reported the same way a
+        # TimeoutExpired is: no subprocess ran to completion, so this
+        # carries no claim about the tree's content.
+        elapsed_s = time.perf_counter() - start
+        return MirrorCollectionResult(
+            passed=False,
+            collected_count=0,
+            errored=True,
+            exit_code=None,
+            timed_out=False,
+            elapsed_s=elapsed_s,
+            command=command,
+            tree_root=str(tree_root),
+            stdout_tail="",
+            stderr_tail=f"assembled-mirror-gate: refused — process creation failed: {exc}",
+            timeout_s=timeout_s,
+            verdict_obtained=False,
         )
     elapsed_s = time.perf_counter() - start
 
-    collected_count, errored = _parse_collection_summary(result.stdout)
-    passed = result.returncode == 0 and not errored
+    collected_count, errored, recognized = _parse_collection_summary(result.stdout)
+    # A negative returncode means the child died to a signal rather than
+    # exiting on its own -- e.g. an OS/job-object kill under memory
+    # pressure. Whatever stdout it managed to write before that, even if it
+    # happens to match a recognised summary shape, is not evidence the
+    # collection actually finished; treat it the same as an unrecognised
+    # summary. `returncode < 0` is POSIX-only signal-death signalling;
+    # Windows job-object kills report a large positive code instead, which
+    # this branch does not claim to catch -- the unrecognised-summary path
+    # above is what closes that shape.
+    signal_killed = result.returncode is not None and result.returncode < 0
+    verdict_obtained = recognized and not signal_killed
+    if not verdict_obtained:
+        errored = True
+    passed = verdict_obtained and result.returncode == 0 and not errored
 
     return MirrorCollectionResult(
         passed=passed,
@@ -423,6 +742,8 @@ def run_assembled_mirror_gate(
         tree_root=str(tree_root),
         stdout_tail=_tail(result.stdout),
         stderr_tail=_tail(result.stderr),
+        timeout_s=timeout_s,
+        verdict_obtained=verdict_obtained,
     )
 
 
@@ -657,9 +978,21 @@ def format_refusal(result: MirrorCollectionResult) -> str:
     errored/clean-zero distinction reproduces the abstention defect this
     plan exists to close."""
     if result.isolation_unverified:
-        shape = "ISOLATION UNVERIFIED — no subprocess run"
+        shape = (
+            "INCOMPLETE — ISOLATION UNVERIFIED, no subprocess run "
+            f"(budget {result.timeout_s:.0f}s)"
+        )
     elif result.timed_out:
-        shape = f"TIMED OUT after {result.elapsed_s:.1f}s (budget {DEFAULT_TIMEOUT_S:.0f}s)"
+        shape = (
+            f"INCOMPLETE — TIMED OUT after {result.elapsed_s:.1f}s "
+            f"(budget {result.timeout_s:.0f}s)"
+        )
+    elif result.is_incomplete:
+        shape = (
+            "INCOMPLETE — NO VERDICT OBTAINED (unrecognised collection "
+            f"summary, signal-killed child, or a spawn failure), exit="
+            f"{result.exit_code}"
+        )
     elif result.errored:
         shape = (
             f"collection ERRORED (exit={result.exit_code}), "

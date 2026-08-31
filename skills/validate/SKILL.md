@@ -83,7 +83,7 @@ A `ceremony_test_cmds` entry's execution is not durable on its own — record it
 it was written:
 
 ```
-tier-last-run record --entry <name> --cmd <the command run, verbatim> --exit <its exit code>
+python coordinator/bin/tier-last-run.py record --entry <name> --cmd <the command run, verbatim> --exit <its exit code>
 ```
 
 Run this immediately after invoking a ceremony tier by hand, not only from inside an automated

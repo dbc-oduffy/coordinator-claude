@@ -171,14 +171,13 @@ def _git_last_commit_epochs_batch(
     result: dict[Path, int | None] = {p: None for p in plan_paths}
     if not plan_paths:
         return result
-    # `git log --name-only` reports paths repo-root-relative regardless of
-    # how the pathspec argument itself was spelled, so normalize both the
-    # pathspecs sent to git and the lookup key off the CWD-relative form
-    # (the CLI's own callers always pass CWD-relative plan paths in
-    # practice; the relpath call is a no-op for those). relpath's `start`
-    # MUST match the subprocess's actual `cwd` (below) — computing pathspecs
-    # relative to the process cwd while git itself runs from a different
-    # `cwd` would silently mis-resolve every pathspec once the two diverge.
+    # Both the pathspecs and the lookup keys are the CWD-relative form.
+    # relpath's `start` MUST match the subprocess's actual `cwd` (below) —
+    # computing pathspecs relative to the process cwd while git itself runs
+    # from a different `cwd` silently mis-resolves every pathspec once the
+    # two diverge. `--relative` (below) is what makes the OUTPUT side agree:
+    # without it `--name-only` reports repo-root-relative names, which match
+    # these keys only while `cwd` happens to be the repo root.
     relspecs = [os.path.relpath(str(p), start=cwd) for p in plan_paths]
     pathspecs = [Path(r).as_posix() for r in relspecs]
     try:
@@ -199,6 +198,15 @@ def _git_last_commit_epochs_batch(
                 # first parent (implied by non-TREESAME-to-every-parent),
                 # so first-parent diffing always emits its file list.
                 "--diff-merges=first-parent",
+                # Emit names relative to `cwd`, matching `posix_to_path`'s
+                # keys. Without this, a non-repo-root `cwd` makes git report
+                # repo-root-relative names that match no key, so EVERY path
+                # resolves to None and the caller silently finds nothing --
+                # no error, no empty-result signal. Latent from this
+                # function's first batched form (every caller passed
+                # cwd=None, i.e. the repo root, where the two forms
+                # coincide) and activated by C13 passing cwd=plans_dir.
+                "--relative",
                 "--",
                 *pathspecs,
             ],
@@ -337,6 +345,7 @@ _AWAITING_GATE_WHERE = "deployment_state=awaiting_gate AND status=open"
 
 
 def _cmd_ready(args: argparse.Namespace) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from records_query import query_records  # noqa: PLC0415 (deliberate: avoid import cost on unrelated subcommands)
 
     explicit_root = getattr(args, "repo_root", None)
@@ -353,6 +362,7 @@ def _cmd_ready(args: argparse.Namespace) -> int:
 
 
 def _cmd_awaiting_gate(args: argparse.Namespace) -> int:
+    import lib  # noqa: F401 — bootstraps coordinator/bin/lib onto sys.path
     from records_query import query_records  # noqa: PLC0415
 
     explicit_root = getattr(args, "repo_root", None)

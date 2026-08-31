@@ -52,7 +52,7 @@ Minor release. Headline change: centralize the `CLAUDE_HOME` / `$HOME/.claude` p
 
 ### Changed
 
-- **`commands/setup.md`** trimmed from 718 → 500 lines. Phase 3 (substrate + resolvers + Windows PATH/AppX) now a contract description that invokes `install-substrate.sh`; Phase 2 Step 4 (working-repos discovery) invokes `discover-working-repos.sh`. Phase 7 status table grows new rows for machine-local directory / tracked files / bin resolvers / Windows PATH+shims / registry seed; the four substrate rows are explicitly marked hard-preconditions (`FATAL` halts the chain).
+- **`coordinator/commands/install.md`** trimmed from 718 → 500 lines. Phase 3 (substrate + resolvers + Windows PATH/AppX) now a contract description that invokes `install-substrate.sh`; Phase 2 Step 4 (working-repos discovery) invokes `discover-working-repos.sh`. Phase 7 status table grows new rows for machine-local directory / tracked files / bin resolvers / Windows PATH+shims / registry seed; the four substrate rows are explicitly marked hard-preconditions (`FATAL` halts the chain).
 - **`templates/bin/machine-local.cmd`** uses `%~dp0machine-local` instead of `%USERPROFILE%/.claude/bin/machine-local` — same `CLAUDE_HOME` correctness fix applied to `claude-home.cmd`. The shim now tracks wherever `$HOME/.claude/bin/` lives, including non-default install roots.
 - **`commands/workday-start.md`** — 545 → 496 lines. Prose compaction only; no extraction. Doctrine preserved (every step number, precedence rule, exit code, behavioral trigger intact).
 - **`commands/workweek-complete.md`** — 651 → 498 lines. Step 7 prelude extracted to `lib/workweek-trail-scope.sh`; Step 4c UBT-gate, Step 4f enabledPlugins-drift, and Step 9.2 editorial-worker prose-compacted. All MANDATORY steps and gate behaviors preserved.
@@ -84,7 +84,7 @@ Closes incompleteness in the 2026-05-19 `coordinator_whoami` + `$HOME/.claude/ma
 
 #### Changed (substrate)
 
-- **`commands/setup.md` Phase 3 See: line** cites `coordinator-doctor.md` as the canonical post-install verification surface.
+- **`coordinator/commands/install.md` Phase 3 See: line** cites `coordinator-doctor.md` as the canonical post-install verification surface.
 - **`docs/wiki/machine-local-registry.md`** prose aligned to template ground-truth: `repos.example-game-repo` → `repos.example_game_workbench_repo` across §4 (naming + shell examples) and §8(f) anti-pattern. Template (`registry.toml.example`) is operative; the wiki now matches.
 - **`docs/wiki/percolate-setup.md` Step 2** default-registers via `machine-local set publish.targets.<name>`; the legacy `publish-targets.sh` path is reachable only via `--legacy` flag.
 - **`setup/publish.sh`** uses a portable PY fallback chain (`python3 || py -3 || python` with fail-loud) instead of bare `python`, so the script works on Linux/macOS AND Windows Git Bash. Smoke `--dry-run` clean across 4 targets.
@@ -223,7 +223,7 @@ CLAUDE.md tightening (40.6k→33.9k chars; rule density preserved, redundant inl
 - `git branch --show-current` Windows case-fragility: `coordinator-auto-push` canonicalizes via `git for-each-ref` before push, eliminating mixed-case daily-branch push failures.
 
 ### Removed
-- **`remember` plugin removed.** Agent-summarized session memory (rolling daily/weekly/archive files under `.remember/`) was duplicating the work the handoff/commit/plan pipeline already does, at worse fidelity, with its own staleness modes and Windows-path-quirks. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. Rationale captured in the loop-closure chapter of the (now-retired) evolution doc set. Live references purged from README, `setup/install.sh`, `docs/architecture.md`, `docs/getting-started.md`, `docs/agent-install.md`, `docs/safety.md`. `setup/patch-remember-plugin.sh` deleted. Historical references in older changelog entries and in the registry-submission-readiness design plan left intact as historical record.
+- **`remember` plugin removed.** Agent-summarized session memory (rolling daily/weekly/archive files under `.remember/`) was duplicating the work the handoff/commit/plan pipeline already does, at worse fidelity, with its own staleness modes and Windows-path-quirks. Recording-without-routing was the wrong layer to invest in; v2.0.0 invested in *consumers* (prior-art-checker, `/learn-lessons`, `/bug-blitz`) instead. Rationale captured in the loop-closure chapter of the (now-retired) evolution doc set. Live references purged from README, `setup/install.sh`, `docs/architecture.md`, `docs/wiki/getting-started.md`, `docs/agent-install.md`, `dist/publish-repo-docs/safety.md`. `setup/patch-remember-plugin.sh` deleted. Historical references in older changelog entries and in the registry-submission-readiness design plan left intact as historical record.
 
 ## [1.10.0] — 2026-05-06
 
@@ -255,11 +255,11 @@ The originating design plan (workweek-cadence-split) was reviewed by the Staff E
 
 ### Theme B — Reviewer premise challenge (layered W1–W5 defense)
 
-Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 example-game-repo `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `state/lessons.md` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
+Closes the "shape-correct, premise-wrong" gap surfaced by the 2026-05-04 example-game-repo `.uplugin Modules` incident: a plan was empirically refuted post-review because it reintroduced something `state/lessons/` and the wiki had explicitly forbidden 5 days earlier; no checkpoint surfaced the prior prohibition. The layered defense adds challenge points across the pipeline so the same failure mode is caught at multiple stages rather than relying on any single agent.
 
 #### Added
 - **W1 — `writing-plans` skill** gains a negative-search step and a reversal-verb hint that suggests a staff-session at PM discretion when a plan reverses a recently-shipped decision.
-- **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `state/lessons.md`.
+- **W2 — `repo-specialist` agent** gains a counter-evidence pass with a hard always-read rule for `state/lessons/`.
 - **W3 — `staff-eng` (the Staff Engineer)** gains "Pass 0 — Premise & Alternatives" with three new structured fields, a `REJECTED` verdict (refuted alone — no architectural-superiority clause), and five hard guardrails. Self-reviewed `REJECTED`-trigger inconsistency caught and integrated.
 - **W4 — `staff-game-dev` (the Game Dev Reviewer (`game-dev:staff-game-dev`))** gets a mirror of W3 so game-dev plans receive the same premise scrutiny.
 - **W5 — `review-integrator`** treats `REJECTED` as advisory; EM override requires a verbatim PM quote.
@@ -334,7 +334,7 @@ Promotes the `docs-checker` Sonnet agent from optional reporting-only to a sugge
 
 ### Added
 - **`docs/wiki/docs-checker-pre-review.md`** — full doctrine page: EM Decision Rules table (always-run for C++/UE; EM judgment elsewhere; freshness-marked against the current model), AUTO-FIX allowlist + hard prohibitions, scope constraint (artifact-only, never referenced files), project-RAG staleness rule, sidecar YAML schema, edit-budget cap, integrator-bypass rollback story.
-- **`plugins/coordinator/snippets/docs-checker-consumption.md`** — canonical consumer-side block (synced into all five Opus reviewer prompts).
+- **`snippets/docs-checker-consumption.md`** — canonical consumer-side block (synced into all five Opus reviewer prompts).
 - **`plugins/coordinator/bin/verify-docs-checker-sync.sh`** — sync verifier with `--fix` and `--list` modes; clone of `verify-calibration-sync.sh`.
 - **`plugins/coordinator/CLAUDE.md`** new section "Pre-Review Mechanical Verification" (terse rule + pointer to wiki) + tripwire under "Adding a Convention to the Coordinator System".
 
@@ -415,7 +415,7 @@ The git tree is the only authoritative answer to "is this shipped." Handoffs, do
 A run of small, related changes converging on one principle: the code we ship runs on machines we've never seen, in projects we don't own, in shells we didn't configure. Portability is the baseline, not a feature.
 
 ### Added
-- **Agent-driven install as first-class path** — `README.md` Quick Start replaces the `git clone && bash install.sh` block with a paste-to-agent prompt pointing at `docs/agent-install.md`. The agent reads the playbook, runs the installer, validates the result, and queues `/repo-setup` (was `/project-onboarding` pre-2026-06-08) as the immediate post-restart step. New `docs/agent-install.md` is written second-person to the agent — prereq checks, plugin selection guidance, manual fallback section, failure modes. Manual install steps remain in `docs/getting-started.md` but are no longer surfaced from the front page.
+- **Agent-driven install as first-class path** — `README.md` Quick Start replaces the `git clone && bash install.sh` block with a paste-to-agent prompt pointing at `docs/agent-install.md`. The agent reads the playbook, runs the installer, validates the result, and queues `/repo-setup` (was `/project-onboarding` pre-2026-06-08) as the immediate post-restart step. New `docs/agent-install.md` is written second-person to the agent — prereq checks, plugin selection guidance, manual fallback section, failure modes. Manual install steps remain in `docs/wiki/getting-started.md` but are no longer surfaced from the front page.
 - **Doctrine rule: "Build For Someone Else's Machine"** (in `coordinator/CLAUDE.md`) — generalizes the older "Shipped Code Has No Home Field" intuition into a concrete fallback chain: explicit flag → env var → marker auto-discovery → silent skip (opt-in) or hard error with remediation (explicitly invoked). Hardcoded local paths are last-resort only. Project-scoped tools need a cwd-scope guard. Test fixtures and battle-story comments are exempt.
 - **Project-RAG project-scope guard** — single-source preamble (`snippets/project-rag-preamble.md`) gains a guard so agents skip project-RAG calls when the indexed repo doesn't match the current working directory. Propagated to all 8 sentinel-fenced consumers via `bin/verify-preamble-sync.sh --fix`. Prevents wrong-project pollution when an agent is dispatched in repo A while project-RAG is indexed against repo B.
 
@@ -471,7 +471,7 @@ Superpowers gave us our start — we installed it when plugins first shipped, be
 Anthropic now enforces mandatory user permission grants for any writes inside the `.claude/` directory (recursively). Several default output paths were inside `.claude/`, causing permission friction for autonomous pipelines and subagents.
 
 **Changes:**
-- **Research output fallback:** `$HOME/.claude/docs/research/` → `$HOME/docs/research/` in `notebooklm/commands/research.md`, `notebooklm/pipelines/team-protocol.md`, and both cache versions (1.0.0, 1.1.0).
+- **Research output fallback:** `$HOME/.claude/docs/research/` → `$HOME/docs/research/` in `commands/research.md`, `notebooklm/pipelines/team-protocol.md`, and both cache versions (1.0.0, 1.1.0).
 - **`settings.json` permissions:** Added explicit `Edit($HOME/.claude/**)` and `Write($HOME/.claude/**)` allow entries to cover platform-owned paths (task storage, plan mode output, team metadata) that cannot be relocated.
 - **Task storage documentation:** The `$HOME/.claude/tasks/{team-name}/N.json` reference in `deep-research/pipelines/team-protocol.md` and `structured-team-protocol.md` (source + cache) now notes these are platform-internal and must not be directly read/written by agents.
 

@@ -2,7 +2,7 @@
 name: research-synthesizer
 description: "Opus web-research sweep — blocked until specialists finish, runs an adversarial coverage check, fills gaps, writes the summary."
 model: opus
-effort: medium
+effort: low
 tools: ["Read", "Write", "Edit", "ToolSearch", "WebSearch", "WebFetch", "SendMessage", "TaskUpdate", "TaskList", "TaskGet"]
 color: blue
 access-mode: read-write
@@ -283,18 +283,32 @@ stripping its `docs/research/` prefix and `.md` suffix (e.g. `2026-06-30-topic-w
 **You never write `docs/research/{run-stem}.claims.json` or its `.claims.meta.json` sidecar** —
 that pair has exactly one writer, invoked by the EM after you report. You write the merged array
 to `{scratch-dir}/merged-claims.json` (all specialist `{LETTER}-claims.json` arrays concatenated,
-fields unaltered, a bare top-level JSON array) and report the two facts the EM cannot
-reconstruct: `ran_at`, RFC3339 timezone-aware, stamped **at the moment you merge** (you hold the
-only real one — a date recovered from `{run-stem}` does not satisfy it), and `pipeline: web`.
+a bare top-level JSON array) and report `pipeline: web`.
+
+**"Concatenated" is not "verbatim" — the merge sanitises, and only sanitises.** Never reword,
+re-rank, drop, or add a claim; never alter a field's meaning. But two mechanical repairs are
+yours, because `claims-emit` validates per record and rejects the whole batch on the first
+offender: **strip every null-valued key** (an optional field carries a scalar of its declared
+type or is absent — never `null`), and **flatten any dict or list found in a string-typed field
+to prose**. A specialist emitting `"counter_evidence": null` is the known producer defect; passing
+it through fails the emission and costs the EM the repair.
+
+**Do not report `ran_at` — you have no clock.** Your `tools` list grants no shell, so any
+timestamp you produce is an estimate wearing a measured value's format, and `claims-emit`
+validates only its *shape*. The merge moment is recorded for you as the mtime of
+`{scratch-dir}/merged-claims.json` the instant you write it; the EM reads that. If you find
+yourself about to state a time, state instead that you wrote the merged array — that IS the
+stamp.
 
 **Completion steps:** (1) write the final document to the output path AND
 `{scratch-dir}/synthesis.md` (normal mode) or `{scratch-dir}/deepening-delta.md` (merge mode);
-(2) write the merged array to `{scratch-dir}/merged-claims.json`, stamping `ran_at` (normal mode
-only); (3) confirm the durable gap-report exists, writing it if missing (normal mode
+(2) write the merged array to `{scratch-dir}/merged-claims.json` (normal mode
+only) — writing it IS the `ran_at` stamp, via its mtime; (3) confirm the durable gap-report exists, writing it if missing (normal mode
 only); (4) write advisory to `{advisory-path}` AND `{scratch-dir}/advisory.md` if applicable;
 (5) mark your task completed via TaskUpdate; (6) send a brief completion message to the EM ("No
 advisory" if skipped; "Durable: {run-stem}.md + -gap-report.md. Merged claims:
-{scratch-dir}/merged-claims.json, ran_at: {RFC3339 tz-aware}, pipeline: web").
+{scratch-dir}/merged-claims.json, pipeline: web") — no `ran_at`; the EM takes it from the
+merged file's mtime.
 
 <!-- BEGIN guard-encounter-preamble (synced from snippets/guard-encounter-preamble.md) -->
 

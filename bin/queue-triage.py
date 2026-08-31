@@ -68,6 +68,7 @@ _BOOTSTRAPPED_NAMES = (
     "ArgvFidelityError",
     "refuse_newline_argv",
     "resolve_body",
+    "resolve_optional_prose",
     "show_toplevel",
 )
 
@@ -109,6 +110,7 @@ def _bootstrap_engine() -> None:
             ArgvFidelityError,
             refuse_newline_argv,
             resolve_body,
+            resolve_optional_prose,
         )
         from coordinator_core.git.repo_root import show_toplevel  # noqa: E402
     finally:
@@ -305,6 +307,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "(themed shape), or '-' to read it from stdin",
     )
     p_scaffold.add_argument("--title", default=None)
+    p_scaffold.add_argument("--title-file", default=None, dest="title_file")
     p_scaffold.add_argument("--branch", default=None)
     p_scaffold.add_argument("--kind", default=None)
     p_scaffold.add_argument("--workstream", default=None)
@@ -405,6 +408,9 @@ def main(argv: list[str] | None = None) -> int:
             refuse_newline_argv(args.body, flag_name="--body")
             if args.body is not None or args.body_file is not None:
                 args.body = resolve_body(args.body, args.body_file)
+            args.title = resolve_optional_prose(
+                args.title, args.title_file, flag_name="--title"
+            )
         except ArgvFidelityError as exc:
             parser.error(str(exc))
         result, exit_code = _dispatch_mutation(

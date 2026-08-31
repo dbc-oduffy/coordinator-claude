@@ -37,7 +37,7 @@ EMISSION -- a STATIC seam table (`_SEAM_TABLE` below), never an inference.
 Five obligations:
   sizing-routed    opens on Skill(coordinator:sizing); the resolved next
                    action is read off the JUST-WRITTEN sizing object's
-                   `route` (via the session's git `touched.txt`, the same
+                   `route` (via the session's git `touch-record.jsonl`, same
                    technique `guard-manufactured-blocker.py` uses to find
                    "the session's routed sizing object" -- reimplemented
                    here as a self-contained line-scan, no shared import,
@@ -130,6 +130,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _posture import resolve_posture  # noqa: E402
 import _next_move_ledger as _ledger  # noqa: E402
+from _touch_record import _touch_lines, _touch_record_jsonl_paths, _touched_txt_paths  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Static seam table (emission side). See module docstring for the full
@@ -154,7 +155,17 @@ _ROUTE_TERMINAL = {
 }
 
 _REVIEW_NEXT_ACTION = "Agent(<named Opus reviewer>)"
-_EXECUTE_NEXT_ACTION = "Agent(coordinator:executor)"
+# `execute->wave` discharges on the Workflow vehicle as well as a direct
+# Agent dispatch, and the Workflow leg is the DEFAULT path, not the exotic
+# one: `/execute-plan` emits a `.mjs` and fires it with
+# `Workflow({scriptPath})`, so the executor dispatches happen INSIDE the
+# fired run, in a separate process this hook's PostToolUse leg never sees.
+# Keyed on `Agent` alone, the obligation opened by Skill(coordinator:
+# execute-plan) could not be discharged by the very call that discharges it
+# in practice, and the Stop leg fired "Agent(coordinator:executor)" at an EM
+# that had just dispatched the whole plan. The seam is "did this turn hand
+# the work to an executor", and firing the emitted script is exactly that.
+_EXECUTE_NEXT_ACTION = "Agent|Workflow(coordinator:executor or the emitted plan script)"
 _REVIEW_TERMINAL = "Skill(coordinator:review)"
 
 # The pickup lane's terminal is heterogeneous by construction (apply a
@@ -212,16 +223,6 @@ def _resolve_git_dir(dot_git: str):
     return os.path.normpath(target)
 
 
-def _touch_path(line: str):
-    line = line.strip()
-    if not line:
-        return None
-    parts = line.split()
-    if len(parts) >= 3 and parts[0] in ("T", "R"):
-        return parts[-1]
-    return line
-
-
 def _extract_scalar(lines, key: str):
     prefix = key + ":"
     for line in lines:
@@ -266,21 +267,35 @@ def _is_null_scalar(value):
 
 def _newest_touched_sizing_path(repo_root: str, session_id: str):
     """Return the most-recently-touched `state/sizings/*.yaml` path this
-    session wrote, or None. `touched.txt` is append-ordered, so the last
-    matching line is the most recent touch."""
+    session wrote, or None.
+
+    Source-then-recency, NOT `_touch_lines`'s concatenated list order: a
+    partially-migrated session can carry a `state/sizings/` match in BOTH
+    `touch-record.jsonl` (new) and `touched.txt` (legacy). Every new-file
+    row postdates every legacy-file row for a given session -- the legacy
+    writer stopped before the new writer started, never interleaved -- so
+    the correct newest match is the LAST matching row in the new file if
+    the new file has any match at all, falling back to the legacy file's
+    last matching row only when the new file has none. Taking the last
+    match of the naive new+legacy concatenation instead lets a legacy row
+    that merely sorts later in the list mask a genuinely newer new-file
+    row -- exactly the partially-migrated case this reader exists to
+    handle correctly.
+    """
     git_dir = _resolve_git_dir(os.path.join(repo_root, ".git"))
     if not git_dir:
         return None
-    touched_path = os.path.join(git_dir, "coordinator-sessions", session_id, "touched.txt")
-    try:
-        with open(touched_path, "r", encoding="utf-8", errors="replace") as fh:
-            raw_lines = fh.readlines()
-    except OSError:
-        return None
+    session_dir = os.path.join(git_dir, "coordinator-sessions", session_id)
+
     candidate = None
-    for raw_line in raw_lines:
-        rel = _touch_path(raw_line)
-        if rel and _SIZING_PATH_RE.match(rel):
+    for rel in _touch_record_jsonl_paths(session_dir):
+        if _SIZING_PATH_RE.match(rel):
+            candidate = rel
+    if candidate is not None:
+        return candidate
+
+    for rel in _touched_txt_paths(session_dir):
+        if _SIZING_PATH_RE.match(rel):
             candidate = rel
     return candidate
 
@@ -325,8 +340,14 @@ def _matches_next_action(next_action: str, tool_name, tool_input) -> bool:
     kind, ident = _split_call(next_action)
     if kind is None:
         return False
-    if kind == _ANY_CALL_KIND:
-        return tool_name in ("Skill", "Agent")
+    if "|" in kind:
+        # A pipe-joined kind is a set of accepted tool names, not one name:
+        # `Skill|Agent` (the pickup lane's heterogeneous terminal) and
+        # `Agent|Workflow` (an executor dispatch, direct or via the fired
+        # emission) both discharge on ANY member. Matching the set rather
+        # than special-casing one literal keeps a third vehicle from
+        # needing another branch here.
+        return tool_name in tuple(part for part in kind.split("|") if part)
     if kind == "Skill":
         if tool_name != "Skill" or not isinstance(tool_input, dict):
             return False
@@ -455,6 +476,16 @@ def _handle_stop(payload: dict) -> int:
     session_id = payload.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         return 0
+
+    # Fold the engine plane's obligations-inbound rows BEFORE the read. The
+    # intake exists so that only one plane ever rewrites this ledger (see
+    # `_next_move_ledger`'s intake section); folding here is what makes an
+    # engine-resolved obligation reachable by this Stop read at all. It never
+    # raises and a deferred drain simply leaves the rows for the next one.
+    try:
+        _ledger.drain_intake(session_id)
+    except Exception:  # noqa: BLE001
+        pass
 
     record = _ledger.find_undischarged_unfired(session_id)
     if record is None:

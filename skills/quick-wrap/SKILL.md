@@ -99,8 +99,7 @@ of whoever spawned the warm server and committing one session's paths under anot
 params are required in practice: `cwd` for the tree, `session_id` for the identity.
 
 **Payload is one positional JSON string, not `k=v`** — `cwd=<repo> message="<subject>"` does not
-parse. **Never pass `--repo`**: this op is scope "none" and refuses it (`-32603`), unlike the
-`push.outstanding` call just below. Add `"dry_run": true` to preview; omit it to commit.
+parse. **Never pass `--repo`**: this op is scope "none" and refuses it (`-32603`). Add `"dry_run": true` to preview; omit it to commit.
 
 **Do not ask whether to commit** — being asked was itself the defect, by explicit PM ruling. Run
 it, report what the op's `rendered` field says landed. `"message": "<subject>"` for one group, the
@@ -108,16 +107,6 @@ it, report what the op's `rendered` field says landed. `"message": "<subject>"` 
 exclusive with `message`. A path outside the computed safe pathspec is silently dropped, never
 caller-widened.
 
-**Push checkpoint — `push.outstanding`.** The safe-commit mechanism does not publish; push runs
-on a cadence, and `/quick-wrap` is one of its named checkpoints. Once the commit has landed, call
-the primitive once and block on it (~150ms, synchronous — no detach or background wrapper):
-
-`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" push.outstanding '{}' --repo "<repo-root>"`
-
-Shape W above (PowerShell host); Shape A/B on a POSIX host — `snippets/resolve-coordinator-bin.md`.
-`skipped: push:nothing-outstanding` is the ordinary no-op result, not a failure. The op owns the
-branch-gate refusal, the protected-branch policy, the retry ladder, and the LFS-range predicate —
-never hand-roll a `git push` beside it.
 
 **2. Close loose ends.** The judgment step — sweep what this session actually touched:
 
@@ -142,7 +131,10 @@ never hand-roll a `git push` beside it.
   (the schema enum admits only `open`/`claimed`). Same first-hand-observer ground as the
   `dispatch`-routed sizing below — the session that did the work observes its own completion.
   Leaving it unstamped strands a claim no successor will ever release, and
-  `sweep-shipped-handoffs` never archives it.
+  `sweep-terminal-handoffs` never archives it — it classifies an unstamped record `not-terminal`
+  and walks past. Nothing downstream catches this: there is no boot-time sweep behind it. Both
+  keys, or the baton sits in `state/handoffs/` indefinitely and every roadmap that counts it reads
+  behind its real state.
 - **A `dispatch`-routed sizing that routed this session**, work done: write `status: shipped`
   directly — no plan means this is its only write path.
 - **Every terminal sizing-object THAT NO PLAN CITES** (`shipped`/`declined`/`superseded`):

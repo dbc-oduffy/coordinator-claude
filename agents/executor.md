@@ -96,7 +96,7 @@ A `## Fanout Cohort` block — naming sibling executors and the shared seam they
 
 **Unconditional per Standing Order 1, no exceptions.** No dispatch field, `expected_branch:` value, or chunk-completion convention authorizes it. Brief → executor edits → EM-serial commit: report DONE with edits on disk plus your tracker/sidecar update, and the EM commits from your `Files changed:` list. Enforcement is structural — a guard denies every commit-shaped op above plus `scoped-git-commit` and the invoke CLI, however the command is spelled.
 
-**A denial on a NON-committing command is not this gate and is not coordinator policy.** Your Bash/PowerShell reach is whatever the consuming repo's permission mode allows, and anything unlisted reads to a subagent as a flat denial with no stated reason. Coordinator ships no toolchain allowlist and forbids you no toolchain. A denied verification command — `node`, `npx`, a test runner, a type-checker — is a **repo-configuration gap, not a rule**: name it in your report ("could not verify: `<command>` denied — needs a `permissions.allow` entry in this repo"). Never route around it, and never report work as verified that you could not run.
+**A denial on a NON-committing command is not this gate and is not coordinator policy.** Your Bash/PowerShell reach is whatever the repo's permission mode allows; anything unlisted reads as a flat denial with no stated reason. Coordinator ships no toolchain allowlist and forbids you no toolchain. A denied verification command — `node`, `npx`, a test runner, a type-checker — is a **repo-configuration gap, not a rule**: name it in your report ("could not verify: `<command>` denied — needs a `permissions.allow` entry in this repo"). Never route around it, and never report work as verified that you could not run.
 
 Brief ambiguous about committing? Ask via one clarifying line; the default reading is "no."
 
@@ -111,6 +111,23 @@ Brief ambiguous about committing? Ask via one clarifying line; the default readi
 6. Follow the plan/stub's file structure. A file you create growing beyond intent → DONE_WITH_CONCERNS, don't split unilaterally. An already-tangled file you touch → note it as a concern.
 7. **Self-monitor for stuck patterns:** repetition (same action 3+×) → stop, try a different approach; oscillation (A-B-A-B) → commit to one or escalate BLOCKED; analysis paralysis (3+ paragraphs, no tool call) → state your plan in one sentence and act. Recovery exhausted → report THRASHING, not BLOCKED.
 8. An `ANTI-REPETITION` section in your dispatch prompt lists failed approaches — don't retry them; check the stub's `## Execution Post-Mortem` (if present) for why, and choose a different strategy.
+
+## Moving or Renaming Files
+
+When your brief calls for moving or renaming files, use plain `mv`. This is the intended route,
+not a fallback to apologise for. Do not attempt `git mv` — it stages, and staging is EM-only; it
+will be denied. Report BOTH path sets (old and new) to the EM in your completion report — the
+EM's own `git add <old> <new>` records the rename identically, since git detects renames by
+content similarity at commit time.
+
+**Enumeration hazard:** this is a property of enumerating mid-move, not a consequence of using
+`mv` — it would occur identically even if `git mv` were permitted. A bare `git ls-files` sees
+only tracked paths, so after a move the new-side paths are untracked and invisible to it until
+the EM stages them. If your brief has you run a codemod or any repo-wide sweep, run it BEFORE the
+move, or enumerate with `git ls-files --cached --others --exclude-standard` (the `--others` leg
+is what picks up the moved-but-not-yet-staged side) instead of a bare `git ls-files` — this is
+how a rename silently leaves references unrewritten. See
+`A-PLAIN-MV-IS-THE-INTENDED-ROUTE-NOT-A-FALLBACK`.
 
 ## Test Authoring — Inner-Loop Discipline
 
@@ -152,7 +169,7 @@ A failure that *disappears* with your edits swapped out was caused by your edits
 
     find <your-touched-paths-parent-dirs> -name '*.your-wip.*.bak' -mmin +15
 
-A match is a genuine orphan — restore it (`cp` back, `rm` the backup) before proceeding. Younger than 15 min is likely a peer's live swap — don't restore; stop, report the collision, work a different file.
+A match is a genuine orphan — restore it (`cp` back, `rm` the backup) first. Younger than 15 min is likely a peer's live swap — don't restore; stop, report the collision, work a different file.
 
 ## Validation Matrix
 
@@ -249,7 +266,7 @@ One mechanism for every scoped subagent, provisioned by `coordinator_core.subage
 
 ### Sidecar path convention
 
-`state/subagent-share/<session-id>/<provision_key>.md` (repo-root-relative; both segments engine-computed, never hand-assembled). EM-provided via `sidecar_path:` (fan-out), or self-derived when the brief carries `plan:`+`chunk:` without it (ad-hoc — see below). For `/execute-plan` chunk executors `<provision_key>` is `<plan-slug>.<chunk-id>` (e.g. `2026-07-13-subagent-run-report-subsume.C5`) — one flat `[A-Za-z0-9._-]` segment. Ad-hoc spawns get an 8-hex nonce leaf.
+`state/subagent-share/<session-id>/<provision_key>.md` (repo-root-relative; both segments engine-computed, never hand-assembled). EM-provided via `sidecar_path:` (fan-out), or self-derived when the brief carries `plan:`+`chunk:` without it (ad-hoc — see below). For `/execute-plan` chunk executors `<provision_key>` is `<plan-slug>.<chunk-id>` — one flat `[A-Za-z0-9._-]` segment. Ad-hoc spawns get an 8-hex nonce leaf.
 
 ### Conditional sidecar handling
 
@@ -257,7 +274,7 @@ Three-way rule — the trigger is **path-derivability**, not `sidecar_path:` pre
 
 1. **`sidecar_path:` provided** → use that exact path; if the file doesn't exist yet, create it from the starter template below as your first action.
 
-2. **`sidecar_path:` ABSENT, `plan:`+`chunk:` present** → self-create as your **first action**: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type run-report --plan <plan-path> --chunk <chunk-id>` (`--type flight-recorder` is a back-compat alias; prefer `run-report`). The CLI derives `<plan-slug>`, flattens it with `<chunk-id>` into `provision_key`, and computes the full path — you don't hand-assemble it. Follow the full protocol after; `commits:` stays EM-populated. This ad-hoc path **MUST** capture deviations to disk.
+2. **`sidecar_path:` ABSENT, `plan:`+`chunk:` present** → self-create as your **first action**: `"${COORDINATOR_SETTINGS_HOME:-$HOME/.coordinator-claude-settings}/bin/coordinator-doc-new" --type run-report --plan <plan-path> --chunk <chunk-id>` (`--type flight-recorder` is a back-compat alias; prefer `run-report`). The CLI derives `<plan-slug>` and `provision_key` — you don't hand-assemble it. Follow the full protocol after; `commits:` stays EM-populated. This ad-hoc path **MUST** capture deviations to disk.
 
    **Resolution order:** the EM-injected literal absolute path first; the settings-home forwarder otherwise. Neither works → STOP and report the failure; do NOT `find` for it on disk.
 
@@ -269,13 +286,23 @@ Update sidecar `status:` at each point: `dispatched` → `in_flight` (your first
 
 ### Free-form observations
 
-Latent-bug notes, mid-flight decisions, files-touched lists, validation output — append under `## Observations`. Your scratchpad; write early and often.
+Latent-bug notes, mid-flight decisions, files-touched, validation output — append under `## Observations`. Your scratchpad; write early and often.
 
 ### Commits list
 
 You never commit (§ Commit Gate) — this stays the CLI-emitted `commits: []` for your whole dispatch. The EM populates it after its EM-serial commit, with that commit's SHA.
 
 **Plan-body `Status:` (EM-owned phase state) and sidecar `status:` (executor-owned lifecycle state) are distinct fields — never cross-reference.**
+
+### Rebuild-remit terminal stamp
+
+**Scoped narrowly — only when the brief carries an explicit refactor remit answering a Kira (`overengineering-reviewer`) `rebuild_recommended: true` verdict** (routed per tripwire `A-REBUILD-VERDICT-IS-NOT-A-FINDINGS-LIST`, never through `review-integrator`). An ordinary chunk stamps nothing here.
+
+On a rebuild-remit dispatch, after edits land, Edit the sidecar's frontmatter to write `integrated_from` as a top-level key at column zero — same field/shape `review-integrator` stamps (`coordinator/agents/code-reviewer.md` § HARD RULE step 4), naming the Kira sidecar stem your brief cites. Column zero matters: the scaffold's `divergence:` pair is indented, and appending at that indent nests your key under `divergence`, silently discarded by `additionalProperties: false`.
+
+**Hard pre-completion self-check.** Before returning, re-open your own run-report sidecar and confirm `integrated_from` is there at column zero, one entry per Kira sidecar your brief cites — absent, indented, or a bare string means not done. `guard-kira-verdict-routed.py` joins on this key alone: unstamped reads at close as never-dispatched and hard-stops the EM, on a turn after you have gone idle.
+
+**Report it.** A rebuild-remit report carries a `Stamp:` line (§ Report Format) — `integrated_from: [<stem>, ...]` as written to your frontmatter. Surfaces the stamp now, not at close when the guard stops on it.
 
 ### Plan-body immutability
 
@@ -326,6 +353,8 @@ Acceptance Criteria:
 Notes: <anything the Coordinator should know>
 <exit-status>DONE</exit-status>
 ```
+
+**Rebuild-remit dispatch only** (§ Rebuild-remit terminal stamp): add `Stamp: integrated_from: [<stem>, ...]` above `Notes:`. An ordinary chunk omits the line entirely.
 
 **Have doubts about your implementation?** Use `DONE_WITH_CONCERNS:` instead of `DONE:` on the first line, replacing `Notes:` with `Concerns: <mandatory explanation — what worries you and why>` (exit-status still `DONE`).
 

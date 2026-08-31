@@ -128,6 +128,43 @@ class ProvenanceDivergenceError(RuntimeError):
     """
 
 
+class WarmDispatchIndeterminate(RuntimeError):
+    """Marks a MUTATING op whose request was delivered to the warm engine and
+    never answered (JSON-RPC -32004), distinct from an op that failed.
+
+    THE POINT IS THE DISCRIMINATION, NOT THE NAME. `-32004` is the one refusal
+    that says nothing about whether the write landed, and the client cannot
+    narrow it: `warm/client.py :: _try_warm_dispatch_inner` sets `delivered`
+    immediately after `flush()`, and that function's own zero-byte branch
+    concedes what flush proves — "the bytes left THIS process into the pipe
+    buffer -- it never proved the server read them". There is no acknowledgement
+    between the kernel pipe buffer and the server's dispatch, so delivered-then-
+    stalled and died-mid-flight are indistinguishable at that layer BY
+    CONSTRUCTION. Nothing downstream can recover the answer from the envelope.
+
+    What a caller CAN do is reconcile against the artifact the op would have
+    written, if it knows the path — which is why this is a distinct type rather
+    than another `RuntimeError`. A caller that owns a deterministic target path
+    (`cross-repo-memo draft` computes `state/memo-outbox/<topic>.md` from argv,
+    before dispatch) catches this by name and stats it, turning "may or may not
+    have landed" into a definite answer. A caller that does not know its target
+    path keeps the existing `except RuntimeError` behaviour unchanged.
+
+    Negative-spec: catching this is NOT licence to retry or to re-run the op
+    cold. Re-executing a delivered mutation is the double-execution the refusal
+    exists to prevent (`state/bug-backlog/2026-08-19-scoped-git-commit-still-
+    reports-a-landed-d4c7d9dc8e14.yaml`). Reconcile, then report; never re-send.
+
+    Subclasses RuntimeError, so every existing `except RuntimeError` caller
+    still catches it unchanged — same pattern as `StructuralPinError` and
+    `ProvenanceDivergenceError` above.
+    """
+
+    def __init__(self, message: str, op: str = "") -> None:
+        super().__init__(message)
+        self.op = op
+
+
 # ---------------------------------------------------------------------------
 # Lazy op registration is unconditional as of 2026-08-22 (the
 # import-path-costs-nothing sprint): coordinator_core.ops never eagerly
@@ -1034,8 +1071,45 @@ def require_dispatch_engine_on_path() -> str:
             f"'{report.engine_root}'. Fix: call this before any earlier "
             "module-level coordinator_core-binding import."
         )
-    _announce_engine_cli_split(root)
+    if _reader_owns_one_of_the_split_trees(root):
+        _announce_engine_cli_split(root)
     return root
+
+
+def _reader_owns_one_of_the_split_trees(dispatch_root: str) -> bool:
+    """Gate for the `require_dispatch_engine_on_path` call site only --
+    `_announce_engine_cli_split` itself stays unconditional (its own direct
+    unit tests, `test_cc_invoke_engine_split_announcement.py`, pin that: they
+    call it directly against synthetic roots with no reader-repo context, and
+    must keep passing unchanged).
+
+    INCIDENTAL disposition (probe row calibration site 2,
+    state/audits/2026-08-30-foreign-repo-identity-disposition-probe.md): the
+    remedy -- publish the engine -- belongs to the owner of one of the two
+    named roots, not to a reader whose own repo is neither. That reader
+    cannot act on the message, so this call site skips it for them. Stays
+    SUBJECT (announces) for a session whose own repo IS one of the two roots.
+
+    Fails OPEN to True (announce) whenever the reader's own repo cannot be
+    resolved or compared, or `resolve_engine_root` disagrees on the CLI half
+    -- an unresolvable reader is not evidence of a third-repo reader, and
+    this is advisory text, never a gate that should go silent on doubt.
+    """
+    try:
+        cli_root = resolve_engine_root(__file__)
+        if not cli_root or not dispatch_root:
+            return True
+        from coordinator_core.git.repo_root import show_toplevel as _show_toplevel
+
+        reader_root = _show_toplevel()
+        if reader_root is None:
+            return True
+        norm_reader = _norm_path_for_split_compare(reader_root)
+        return norm_reader == _norm_path_for_split_compare(
+            cli_root
+        ) or norm_reader == _norm_path_for_split_compare(dispatch_root)
+    except Exception:
+        return True
 
 
 def _is_source_twin(report: "ProvenanceReport") -> bool:
@@ -1380,6 +1454,40 @@ _IMPORT_ERROR_TOKENS = ("importerror", "modulenotfounderror", "no module named")
 _OP_ERROR_DETAIL_CAP = 2000
 
 
+#: `warm.client.WARM_DISPATCH_INDETERMINATE`, restated rather than imported.
+#: `_raise_on_process_failure` runs on a path that is ALREADY failing and whose
+#: docstring forbids it acquiring a second failure mode of its own, so it may not
+#: pay an import that can raise. Kept honest by
+#: `coordinator/bin/tests/test_cc_invoke_indeterminate.py`, which asserts this
+#: equals the engine's own constant — if the engine renumbers, that test fails
+#: rather than this rung silently ceasing to match.
+_WARM_DISPATCH_INDETERMINATE_CODE = -32004
+
+
+def _stdout_error_code(stdout_text: str):
+    """The JSON-RPC `error.code` on a child's stdout envelope, or None.
+
+    Sibling of `_op_error_detail` below, which renders the same envelope for a
+    human; this one recovers the single field the ladder ROUTES on. Split rather
+    than folded into that function because their contracts differ: the detail
+    string is best-effort presentation, while a wrong answer here reclassifies a
+    failure. Never raises — same standing as its sibling, for the same reason.
+    """
+    text = (stdout_text or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    err = parsed.get("error")
+    if isinstance(err, dict):
+        return err.get("code")
+    return None
+
+
 def _op_error_detail(stdout_text: str) -> str:
     """Recover the engine's own failure text from a nonzero-exit child's STDOUT.
 
@@ -1523,6 +1631,23 @@ def _raise_on_process_failure(
             raise StructuralPinError(f"{message}\n{detail}" if detail else message)
         if any(tok in detail.lower() for tok in _IMPORT_ERROR_TOKENS):
             raise _engine_wont_start("stdout")
+        if _stdout_error_code(stdout_text) == _WARM_DISPATCH_INDETERMINATE_CODE:
+            # THE COLD SPAWN IS HOW THIS SHAPE USUALLY ARRIVES, which is not
+            # obvious and is why the rung is here rather than only on the warm
+            # branch. `cc_invoke` warm-reaches first; on a miss it spawns
+            # `coordinator_core.invoke`, and THAT child warm-reaches again
+            # (`invoke/__main__ :: _wait_for_warm_boot`). A server that takes the
+            # child's bytes and never answers produces the -32004 envelope
+            # THERE, printed to stdout with exit 1 per `_exit_code_for_response`
+            # -- so it lands on this ladder, never on rung (4).
+            message = (
+                f"cc_invoke: warm dispatch indeterminate (op={op}, rc={rc}) — the "
+                "request was delivered and never answered; the op MAY have "
+                "completed. Reconcile against real state before re-running."
+            )
+            raise WarmDispatchIndeterminate(
+                f"{message}\n{detail}" if detail else message, op=op
+            )
         message = (
             f"cc_invoke: invoke process exited {rc} (op={op}) — op or dispatch error\n"
             f"  stderr: {stderr_text.strip()}"
@@ -1811,8 +1936,18 @@ def _try_in_process_warm_reach(
 
     Returns the JSON-RPC response dict on a warm hit; returns None on
     EVERY miss (warm disabled, no pipe, busy, someone else's pipe, a stale
-    ENGINE_SKEW server, read-deadline expiry, ...) or when warmth is
-    disabled outright. Never raises.
+    ENGINE_SKEW server, read-deadline expiry, `coordinator_core` not
+    importable at all, ...) or when warmth is disabled outright.
+
+    Never raises — but note WHY, because the reasoning was wrong once and
+    the wrongness was invisible. `try_warm_dispatch` never raising covers
+    the DISPATCH CALL; it says nothing about the three `coordinator_core`
+    imports that precede it, and those are what a bare interpreter with no
+    engine on its import graph actually hits. Three /workday-start health
+    probes hard-crashed on exactly that
+    (`ModuleNotFoundError: No module named 'coordinator_core'`) while every
+    other engine CLI in the same ceremony ran fine. Each import site is now
+    guarded and degrades to the cold spawn.
 
     Mirrors `coordinator_core/invoke/__main__.py :: _dispatch_argv_body`'s
     own steps 6/6a — that function is the oracle for this shape; read it at
@@ -1844,14 +1979,27 @@ def _try_in_process_warm_reach(
 
     Step 4: imports `try_warm_dispatch` from `coordinator_core.warm.client`
     and returns its result directly — `try_warm_dispatch` itself never
-    raises (module docstring), so this function inherits that guarantee.
+    raises (module docstring). That inheritance covers the call and NOT the
+    import, which is why the import carries its own ImportError guard.
     """
-    from coordinator_core.warm.settings import is_warm_enabled
+    try:
+        from coordinator_core.warm.settings import is_warm_enabled
+    except ImportError:
+        # `coordinator_core` is not on this interpreter's import graph. Warmth
+        # is an optimisation with a cold spawn underneath it, and the cold
+        # spawn resolves the engine for itself — so an interpreter that cannot
+        # import the engine in-process takes that path rather than aborting the
+        # caller. Narrowed to ImportError, and to the import alone: anything
+        # `is_warm_enabled()` itself raises is a real defect and propagates.
+        return None
 
     if not is_warm_enabled():
         return None
 
-    from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
+    try:
+        from coordinator_core.op_scopes import WORKTREE_SCOPED_OPS
+    except ImportError:
+        return None
 
     msg: dict[str, Any] = {
         "jsonrpc": "2.0",
@@ -1863,7 +2011,10 @@ def _try_in_process_warm_reach(
         msg["_origin_worktree"] = repo_root
     msg["_caller_cwd"] = os.getcwd()
 
-    from coordinator_core.warm.client import try_warm_dispatch
+    try:
+        from coordinator_core.warm.client import try_warm_dispatch
+    except ImportError:
+        return None
 
     return try_warm_dispatch(msg)
 
@@ -1954,8 +2105,9 @@ def _apply_warm_envelope(
             WARM_DISPATCH_INDETERMINATE = None
         if WARM_DISPATCH_INDETERMINATE is not None and code == WARM_DISPATCH_INDETERMINATE:
             # (1a) delivered-but-unanswered mutation -- refuse, never spawn.
-            raise RuntimeError(
-                f"cc_invoke: warm dispatch indeterminate (op={op}): {message}"
+            raise WarmDispatchIndeterminate(
+                f"cc_invoke: warm dispatch indeterminate (op={op}): {message}",
+                op=op,
             )
 
         try:
@@ -2344,6 +2496,10 @@ def _state1_remediation_message(
     own text instead of sharing the generic one.
     """
     if registry_read_timed_out:
+        # foreign-identity: SUBJECT — same function/reader as the unconditional remediation
+        # below; the reader must resolve claude-klabauter to act on either branch, so naming
+        # it here (to distinguish a transient timeout from genuine non-registration) is part
+        # of the same axis-3 subject-class remedy, not incidental noise.
         return (
             f"cc_invoke: native seam resolution unavailable for op={op!r} — "
             f"{_REGISTRY_READ_TIMEOUT_TOKEN} ({_MACHINE_LOCAL_READ_TIMEOUT_SECS}s bound) "
@@ -2360,6 +2516,8 @@ def _state1_remediation_message(
         if attempted_claude_klabauter_root
         else "  COORDINATOR_ENGINE_ROOT could not be resolved via any rung below.\n"
     )
+    # foreign-identity: SUBJECT — reader must clone/register claude-klabauter; the repo name
+    # and clone URL/registry key are the remedy itself, not incidental context (C3 ruling).
     return (
         f"cc_invoke: native seam unavailable for op={op!r} — claude-klabauter is a mandatory "
         "coordinator dependency in every environment (W0.5 Option B+C, 2026-07-19); there is "
@@ -2530,11 +2688,31 @@ def mutation_refusal_message(op: str, result: Any, *, op_stderr: str = "") -> st
         detail_parts.append(f"failed={failed_count}")
     elif failed_truthy:
         detail_parts.append(f"failed={failed!r} (non-list shape)")
+    else:
+        # A composite result (e.g. sweep-boot's) carries no top-level `failed`
+        # at all — its failures live one level down, in per-family sub-buckets
+        # like result["shipped_handoffs"]["failed"] / result["sizings"]["failed"].
+        # Without this walk, `failed_is_list=False, failed_truthy=False` left
+        # detail_parts with nothing but exit_code/error, so a composite refusal
+        # reported zero detail about which family actually failed.
+        family_failed_parts = []
+        for family, sub in result.items():
+            if isinstance(sub, dict):
+                sub_failed = sub.get("failed")
+                if isinstance(sub_failed, list) and sub_failed:
+                    family_failed_parts.append(f"{family}.failed={len(sub_failed)}")
+        if family_failed_parts:
+            detail_parts.append(f"failed=0 (see {', '.join(family_failed_parts)})")
     if error_text_available:
         detail_parts.append(f"error={error_field!r}")
     message = f"route_mutation: op={op!r} refused ({', '.join(detail_parts)})"
     if op_stderr:
-        message += f"\n  op stderr: {op_stderr}"
+        # _stderr_sink accumulates ALL captured stderr from the child process
+        # across every internal leg/family, regardless of which leg produced
+        # it or whether that leg succeeded — a succeeding leg's own stderr
+        # output lands here just as readily as the refusing leg's. Label it
+        # as such rather than implying it explains the refusal.
+        message += f"\n  child stderr (may include non-fatal/succeeding-leg output): {op_stderr}"
     return message
 
 

@@ -167,6 +167,8 @@ def _query_records(record_type, where_expr):
     unhandled traceback mid-scan on an arbitrary call instead of failing
     loudly and legibly once at process start).
     """
+    import lib  # noqa: F401 — no-op via main()'s bootstrap; carries the direct-
+    # call route (`_load_cli_module` and friends enter here, never through main).
     from records_query import query_records
 
     try:

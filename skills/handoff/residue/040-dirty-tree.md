@@ -24,7 +24,7 @@ Before hand-classifying the dirty tree above, run the auto-commit mechanism — 
 
 **Pass `session_id` explicitly — the op refuses without it.** Scope is "none", so identity is never taken from the environment, and `cwd` does not supply it either: `cwd` selects which tree is scanned, nothing more. With no explicit `params.session_id` and no carried identity on the wire, the op returns `caller identity could not be established` rather than falling back to the engine process's own environment — that environment belongs to whoever spawned the warm server, so the fallback would commit one session's paths under another's claim. Both params are required in practice: `cwd` for the tree, `session_id` for the identity.
 
-**Payload is one positional JSON string, not `k=v`** — `cwd=<repo> message="<subject>"` does not parse. **Never pass `--repo`**: this op is scope "none" and refuses it (`-32603`), unlike the `push.outstanding` call elsewhere in these skills. Add `"dry_run": true` to preview; omit it to commit.
+**Payload is one positional JSON string, not `k=v`** — `cwd=<repo> message="<subject>"` does not parse. **Never pass `--repo`**: this op is scope "none" and refuses it (`-32603`). Add `"dry_run": true` to preview; omit it to commit.
 
 **No confirmation step, by explicit PM ruling — do not add one, including behind a flag.** "I get annoyed when I'm asked if there should be a commit or not. y'all are the engineers." Being asked whether to commit was itself the defect. Run it and report the outcome AFTER the fact — never gate the run on an EM/PM yes.
 

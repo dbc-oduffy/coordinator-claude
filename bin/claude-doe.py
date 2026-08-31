@@ -300,6 +300,152 @@ def _clone_root_from_live_path(live_path: str) -> str:
     return live_path
 
 
+_ENGINE_STAMP_RELATIVE_PARTS = ("coordinator_core", "_engine_stamp")
+
+#: Cheap pointer rung, read ahead of the registry for the same reason
+#: `coordinator_core.engine_root`'s rung 1.5 reads `.claude-klabauter-root` ahead of its
+#: own rung 2: one file read, zero subprocesses, on a launch hot path.
+_PUBLISHED_ENGINE_POINTER = ".claude-klabauter-root"
+
+#: Registry key naming the published engine mirror. Same key
+#: `_resolve_claude_klabauter._resolve_published_engine` reads.
+_PUBLISHED_ENGINE_REGISTRY_KEY = "repos.claude_klabauter"
+
+
+def _is_stamped_engine_root(root: str) -> bool:
+    """True iff `root` carries a readable, non-empty
+    `coordinator_core/_engine_stamp`.
+
+    THIRD implementation of this predicate, and the duplication is forced, not
+    sloppy: `coordinator_core.warm.engine_root :: is_engine_root` and
+    `coordinator/lib/resolve-claude-klabauter/_resolve_claude_klabauter.py :: _is_stamped_engine_root`
+    already declare themselves twins of each other because the latter installs
+    standalone into a bare bin/ with no package context. This file has the same
+    constraint and one more besides -- it is byte-copied by
+    `install.wrapper_onto_path` to the operator's PATH bin dir
+    (`%LOCALAPPDATA%/Programs/bin`, POSIX `~/.local/bin`), which is NOT the
+    settings-home `bin/` where `_resolve_claude_klabauter.py` lands, so there is not even a
+    sibling to path-load. See `_machine_local_argv` for the same no-import rule.
+
+    All three must change in one move. A disagreement between them produces NO
+    ERROR ANYWHERE -- the launcher exports an identity the front door then
+    rejects, every fire answers `root_unstamped`, and every surface stays green
+    while no session on the box can route. That is the failure this file has
+    been shipping since the export landed.
+
+    Only the stamp's BYTES matter (`skew.write_engine_stamp`'s own contract), so
+    this validates readability and non-emptiness and does not parse the content.
+    Never raises."""
+    try:
+        return len(Path(root).joinpath(*_ENGINE_STAMP_RELATIVE_PARTS).read_bytes()) > 0
+    except OSError:
+        return False
+
+
+def _settings_home_for_engine_lookup() -> str | None:
+    """`COORDINATOR_SETTINGS_HOME`, else `<home>/.coordinator-claude-settings`.
+
+    Mirrors `_resolve_claude_klabauter._settings_home`'s precedence, reusing this file's
+    own `_resolve_home_for_clone_shim` for the CLAUDE_HOME -> HOME -> USERPROFILE
+    rung rather than restating it. Returns None instead of raising when nothing
+    resolves: this is a best-effort routing-key lookup, and a launch must never
+    fail over one."""
+    override = os.environ.get("COORDINATOR_SETTINGS_HOME") or ""
+    if override:
+        return override
+    home = _resolve_home_for_clone_shim()
+    if not home:
+        return None
+    return str(Path(home) / ".coordinator-claude-settings")
+
+
+def _published_engine_from_registry(ml_dir: Path) -> str:
+    """Read `repos.claude_klabauter` from `registry.local.toml` then
+    `registry.toml`, per-machine local winning on collision -- the same two files
+    and the same precedence `_resolve_claude_klabauter._registry_value` walks.
+
+    Reads with stdlib `tomllib` rather than shelling to `machine-local`. Rung 2
+    of `coordinator_core.engine_root` DOES shell out, and must not be copied
+    here: this runs on the session-launch hot path, where a 1.3s per-launch
+    subprocess was already deleted once for exactly this reason (see the
+    2026-07-20 note in this file's header). Two file reads, no spawn.
+
+    The keys are flat, dotted, and quoted in these files (`"repos.claude_klabauter"
+    = '...'`), so a top-level lookup is the whole read -- no nested-table walk.
+    Returns "" on any miss or malformed file; never raises."""
+    import tomllib
+
+    for name in ("registry.local.toml", "registry.toml"):
+        try:
+            with open(ml_dir / name, "rb") as fh:
+                value = tomllib.load(fh).get(_PUBLISHED_ENGINE_REGISTRY_KEY) or ""
+        except (OSError, ValueError):
+            continue
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _resolve_stamped_engine_root() -> str | None:
+    """The value `COORDINATOR_CLONE_ROOT` carries: this box's STAMPED ENGINE
+    clone, or None.
+
+    WHY NOT THE DoE CLONE, which this function replaced at the export site: the
+    header is consumed by `coordinator_core.warm.front_door_routing ::
+    resolve_route`, which passes the identity through `warm.engine_root ::
+    resolve_engine_root` and keeps it only if `is_engine_root` holds. A consumer
+    clone (DoE-claude, project-rag, ...) carries no `_engine_stamp` and can never
+    satisfy that, so the previously-exported value routed every fire to
+    `root_unstamped`. The contract question -- engine clone or consumer clone,
+    with no consumer->engine hop in between -- was raised by doe-claude-em on
+    2026-08-27 and answered on 2026-08-30
+    (`state/memo-outbox/sent/clone-root-names-the-engine-and-our-exporter-does-not.md`):
+    it names the ENGINE clone. This is that answer.
+
+    NOTE the asymmetry with `_resolve_doe_clone`, and that it is intended: this
+    is NOT that ladder with a different key. `--plugin-dir` wants the doctrine
+    clone the operator launched, which is a per-session choice; the routing key
+    wants the one stamped engine build on the box, which is not. They resolve
+    different questions from different channels and only coincidentally sit in
+    the same function.
+
+    Ladder, cheapest rung first:
+      1. `<settings-home>/machine-local/.claude-klabauter-root` -- one file read.
+      2. `repos.claude_klabauter` from the machine-local registry.
+    Each candidate must be a directory AND carry a valid stamp; an unstamped
+    rung-1 pointer falls through to rung 2 rather than short-circuiting, since a
+    stale pointer beside a good registry entry is the drift
+    `claude-klabauter-doctor-probe.py`'s root-channels-reconciled probe already watches for.
+
+    FAIL CLOSED on a miss -- returns None, and the caller then exports NOTHING.
+    Exporting an unstamped path instead would answer `root_unstamped`, which
+    claims a routing intent that was never formed; `key_absent` is the honest
+    answer for a box with no published engine registered, and it keeps the
+    export's all-legs-or-none precondition truthful. Never raises."""
+    settings_home = _settings_home_for_engine_lookup()
+    if not settings_home:
+        return None
+
+    ml_override = os.environ.get("MACHINE_LOCAL_REGISTRY_DIR") or ""
+    ml_dir = Path(ml_override) if ml_override else Path(settings_home) / "machine-local"
+
+    candidates = []
+    try:
+        pointed = (ml_dir / _PUBLISHED_ENGINE_POINTER).read_text(encoding="utf-8").strip()
+    except OSError:
+        pointed = ""
+    if pointed:
+        candidates.append(pointed)
+    from_registry = _published_engine_from_registry(ml_dir)
+    if from_registry:
+        candidates.append(from_registry)
+
+    for candidate in candidates:
+        if Path(candidate).is_dir() and _is_stamped_engine_root(candidate):
+            return candidate
+    return None
+
+
 def _resolve_doe_clone(cli_doe_root: str = "") -> str | None:
     """Resolution order documented in the module header. Returns the clone
     root path, or None with a fail-loud message already written to stderr.
@@ -625,29 +771,50 @@ def main(argv: list[str]) -> int:
     # and `body.cwd` answers "which directory", not "which clone" -- a session
     # in clone A standing in clone B routes to B.
     #
-    # `doe_clone`, NOT `doe_coordinator`: the value is the clone ROOT, while
-    # `--plugin-dir` consumes the `<clone>/coordinator` subdirectory. The two
-    # differ by one path segment and the wrong one routes to a directory that is
-    # not an engine root.
+    # The value is the STAMPED ENGINE clone, NOT `doe_clone` and not
+    # `doe_coordinator`. Corrected 2026-08-30; this line shipped `doe_clone` from
+    # the day the export landed, and that value could never satisfy the resolver
+    # on any box.
     #
-    # Sourced from `_resolve_doe_clone` above -- the RESOLVED clone, already
-    # `isdir`-validated. Negative-spec, per DR-087: this must never be derived
-    # from the settings-home `.doe-root` pointer that `claude-doe-shim.sh.tmpl`
-    # reads. That pointer is a demoted mirror, and exporting from it promotes it
-    # to rung-1 `REPO_DOE_CLAUDE` authority -- which is why the POSIX export
-    # belongs HERE, at the resolution site, and not in the shim.
+    # `resolve_route` passes the header identity through `warm.engine_root ::
+    # resolve_engine_root`, which keeps it only if it carries a valid
+    # `coordinator_core/_engine_stamp`. `doe_clone` is the DoE-claude CONSUMER
+    # clone -- the doctrine repo -- which carries no stamp, so every fire since
+    # the flip answered `root_unstamped` and reached no op. doe-claude-em
+    # measured that from the outside on 2026-08-27 and asked which clone the
+    # header names; the answer, and the reasoning, is
+    # `state/memo-outbox/sent/clone-root-names-the-engine-and-our-exporter-does-not.md`:
+    # the ENGINE clone, with no consumer->engine hop anywhere in the routing path.
+    # Resolution and its fail-closed rule: `_resolve_stamped_engine_root` above.
+    #
+    # Negative-spec, per DR-087, and unchanged by the correction: this must never
+    # be derived from the settings-home `.doe-root` pointer that
+    # `claude-doe-shim.sh.tmpl` reads. That pointer is a demoted mirror, and
+    # exporting from it promotes it to rung-1 `REPO_DOE_CLAUDE` authority. It is
+    # also simply the wrong repo now -- it names the consumer clone.
     #
     # `setdefault` for the same reason as the line above: an operator who
     # exports it themselves is making a deliberate choice about which clone
     # their session routes to, and a wrapper that overwrites it removes their
     # only lever.
     #
+    # The `if` is NOT a second operator check -- `setdefault` already is one. It
+    # exists because there is no value to pass when nothing resolves:
+    # `setdefault(VAR, "")` would export the key DECLARED-BUT-EMPTY, which is a
+    # materially different fact from absent on this transport (see the canary
+    # block below, where empty specifically means "vetoed channel"). Absent is
+    # the honest answer, so the export is skipped outright.
+    #
     # This is one leg of an all-legs-or-none precondition: the Windows
     # `.cmd`/`.ps1` launchers carry the mirrored export at their own exec sites.
     # Until both land, a session whose launcher does not export this is
-    # unroutable and fails CLOSED -- loud, never a silent misroute. No
-    # `type: "http"` registration may flip before both legs ship.
-    os.environ.setdefault("COORDINATOR_CLONE_ROOT", doe_clone)
+    # unroutable and fails CLOSED -- loud, never a silent misroute. Those two
+    # legs are DoE-owned and still export the consumer clone as of this change:
+    # on Windows the corrected value does not reach a session until their half
+    # lands.
+    _engine_root = _resolve_stamped_engine_root()
+    if _engine_root:
+        os.environ.setdefault("COORDINATOR_CLONE_ROOT", _engine_root)
 
     # The http-hook override-channel CANARY, mirroring the two Windows legs
     # (`claude-doe-launcher.ps1.tmpl` and `.cmd.tmpl`, which already carry it).

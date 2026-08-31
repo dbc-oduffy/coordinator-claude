@@ -396,6 +396,19 @@ def _git_rev_parse(cwd: Path, ref: str) -> str | None:
     return r.stdout.strip()
 
 
+def _git_worktree_root(cwd: Path) -> Path | None:
+    """`git -C cwd rev-parse --show-toplevel`, resolved — or None on any
+    failure (not a repo, git missing, timeout via the shared subprocess
+    default)."""
+    r = _git(["rev-parse", "--show-toplevel"], cwd)
+    if r.returncode != 0:
+        return None
+    try:
+        return Path(r.stdout.strip()).resolve(strict=True)
+    except (OSError, RuntimeError):
+        return None
+
+
 def _pyproject_hash(path: Path) -> str:
     try:
         data = path.read_bytes()
@@ -1576,6 +1589,30 @@ def _handle_default(
     )
     if live_path is None:
         return 1
+
+    # Work-tree-root guard. `live_path` is operator-supplied registry config
+    # (`plugin.mirrors.<p>.live_path`) and the containment check above only
+    # confirms it sits under the managed plugins dir — it does NOT confirm
+    # `live_path` is itself a git work-tree root rather than a directory
+    # NESTED inside a larger, unrelated repo. A stale row pointing at an
+    # empty stub under `~/.claude/plugins/<name>` satisfies containment
+    # while still living inside `~/.claude`'s own repo, and this leg's
+    # `fetch`/`checkout` below would then run against THAT repo — which is
+    # exactly what detached the operator's `~/.claude` off its working
+    # branch on 2026-08-18 (cross-repo/archive/2026-08-18-doe-claude-em-
+    # refresh-git-leg-can-detach-an-unrelated-repo.md). `check-plugin-drift`
+    # already detects this shape and downgrades itself to `[info]`; this
+    # leg mutates, so it refuses instead.
+    worktree_root = _git_worktree_root(live_path)
+    if worktree_root is None or worktree_root != live_path:
+        eprint(
+            f"{PROG}: ABORT: [git-managed] live_path '{live_path}' for '{plugin}' is not its "
+            f"own git work-tree root (resolved toplevel: {worktree_root}) — refusing to fetch/"
+            "checkout. Fix the registry live_path to point at that repo's actual root, or "
+            "register it under a directory that is not nested inside an unrelated checkout."
+        )
+        return 1
+
     drift_probe = Path(__file__).resolve().parent / "check-plugin-drift.py"
 
     # Step: drift probe / working-tree cleanliness check.

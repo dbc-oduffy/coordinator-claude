@@ -442,7 +442,7 @@ Five distinct surfaces perform `git mv` from `state/handoffs/` (live) → `archi
 4. **`/distill` bounded outlier scan** — does NOT perform the move itself, and does NOT delete: archived handoffs are not a distillation cohort, so `/distill` reads `archive/handoffs/` only for its two-Sonnet outlier scan (chain depth, roadmap batons, reversals) feeding the PM gate. Archived-handoff pruning is `/update-docs` Phase 8b.
 5. **A daily deployment-axis sweep**, engine-resident — keyed on the **DEPLOYMENT axis** (`deployment_state: shipped` + resolvable `shipped_in:`), distinct from the CONSUMPTION axis all four surfaces above use. Archives handoffs that have shipped but were never consumed through the standard lifecycle path (e.g. workstreams that shipped via direct commit without a `/workstream-complete` ceremony).
 
-The five surfaces compose: every consumed/superseded handoff ends up in `archive/handoffs/` eventually, regardless of which session's ceremony triggered the move. Hard-deleting a `state/handoffs/` entry without going through one of these five surfaces is a tripwire — see `coordinator-tripwires.md` § Handoff lifecycle.
+The five surfaces compose: every consumed/superseded handoff ends up in `archive/handoffs/` eventually, regardless of which session's ceremony triggered the move. Hard-deleting a `state/handoffs/` entry without going through one of these five surfaces is a tripwire — see `coordinator/docs/wiki/coordinator-tripwires/` § Handoff lifecycle.
 
 ## Roadmap-only frontmatter fields (`kind: spinoff-roadmap`)
 
@@ -475,7 +475,7 @@ A `authorized_by_pm:` / `priority:` structured frontmatter pair and a body-narra
 
 ## query-records engine — schema and record types
 
-`bin/query-records` (Node, importable as library) is the canonical frontmatter-indexed query CLI. Record types it indexes:
+`bin/query-records` (Python, `coordinator/bin/query-records.py`, importable as library) is the canonical frontmatter-indexed query CLI. Record types it indexes:
 
 - `handoff` — `state/handoffs/*.md` (live)
 - `handoff-archived` — `archive/handoffs/*.md` (archived; see § query-records handoff-archived type for `--older-than` quirk)

@@ -582,12 +582,12 @@ def repomap_staleness_banner(repo_root: Optional[str]) -> None:
         generator_name="generate-repomap.py",
         unresolvable_artifact_desc="repo map",
         very_stale_message=lambda age_hours, gen: (
-            f"── ⚠ Repo map VERY STALE: {age_hours}h old — regenerate: "
-            f"{gen} (or /update-docs) ──\n"
+            f"── ⚠ Repo map VERY STALE: {age_hours}h old — regenerate via "
+            "/update-docs ──\n"
         ),
         stale_message=lambda age_hours, gen: (
             f"── Repo map stale: {age_hours}h old — refresh via "
-            f"/update-docs or {gen} ──\n"
+            "/update-docs ──\n"
         ),
     )
 
@@ -612,12 +612,12 @@ def exec_summary_staleness_banner(repo_root: Optional[str]) -> None:
         generator_name="generate-exec-summary.py",
         unresolvable_artifact_desc="exec-summary",
         very_stale_message=lambda age_hours, gen: (
-            f"── ⚠ Exec-summary VERY STALE: {age_hours}h old — refresh: "
-            f"{gen} ──\n"
+            f"── ⚠ Exec-summary VERY STALE: {age_hours}h old — refresh via "
+            "/workweek-start ──\n"
         ),
         stale_message=lambda age_hours, gen: (
             f"── Exec-summary stale: {age_hours}h old — refresh via "
-            f"{gen} (or /workweek-start) ──\n"
+            "/workweek-start ──\n"
         ),
     )
 
@@ -1333,17 +1333,43 @@ def engine_resolution_banner() -> None:
     signal DR-129 asked for; which sha is a question for a surface that already
     parses the pointer.
 
-    Publish-mirror roster leg (2026-08-08): after the class line, one line is
-    emitted per registered `publish.mirrors.*` entry naming it as NOT a peer
-    repo. This leg is deliberately UNCONDITIONAL on `klass` — the incident it
-    fixes (an agent meeting a mirror path, finding it adjacent to the
-    `repos.*` sibling-receiver namespace, and inferring "peer repo, memo and
-    relay, don't edit") happened on the live-working-tree branch, not the
-    published-engine one, so gating the roster on `klass` would silently miss
-    the exact case it exists to cover. It shares this function's one
-    fail-open try/except rather than getting its own, so a resolver import
-    failure degrades the whole banner the same way it already does — no new
-    failure mode.
+    Publish-mirror roster leg (2026-08-08; re-cut 2026-08-30 per DR-188
+    Option D, chunk C3): after the class line, one line is emitted per
+    registered `publish.mirrors.*` entry naming it as NOT a peer repo — but
+    no longer unconditionally. Each roster row now passes a per-mirror gate,
+    distinct from the plane predicate below: a row prints if and only if it
+    is either THIS session's resolved engine root (`_root`, above — in which
+    case its fact folds into the class line instead, see below) or a
+    declared publish target of this repo's OWN topology
+    (`resolve_own_publish_target_keys()`, reading `setup/publish-
+    targets.portable`). A mirror that is neither is foreign identity to this
+    session and is dropped entirely — this is what closes the exit criterion
+    a bare `klass`-unconditional or plane-only gate could not: "every path
+    shown is either this session's own resolved engine root, or a declared
+    publish target of its own topology; anything else is zero."
+
+    The live-plugin-root disambiguation line and the (filtered) roster rows
+    are further gated on `session_repo_is_plane()` — the session's own repo
+    must be one of the two doctrine/engine planes before either renders at
+    all. In practice this is belt-and-suspenders: a non-plane session's own
+    `setup/publish-targets.portable` never declares a `publish-mirror:`
+    sigil (that file is this repo's own artifact), so the per-mirror gate
+    above already empties `kept_rows` for it — but the plane gate makes that
+    invariant structural rather than incidental to what one file happens to
+    contain. It shares this function's one fail-open try/except rather than
+    getting its own, so a resolver import failure degrades the whole banner
+    the same way it already does — no new failure mode.
+
+    Engine-root row (DR-188 Option D): a session's own resolved engine root
+    is not foreign identity — the class line already gains that path
+    directly from `_root`, independent of the plane gate above, since it is
+    self-identity for every session regardless of which repo it started in
+    (see the class-line rendering below). The roster loop still needs to
+    SKIP that same mirror as a plain "Publish mirror" row — printing it
+    twice, once on the class line and once in the roster, would be noise —
+    so the loop below matches each roster row's path against `_root` via
+    `_same_repo_path` and excludes a match from `kept_rows` before applying
+    the own-publish-target gate to what remains.
 
     Branch leg (2026-08-15): the resolved engine root's checked-out branch
     is appended to the class line so a session can tell klabauter release
@@ -1376,9 +1402,12 @@ def engine_resolution_banner() -> None:
             LIVE_TREE_ENV_VARS,
             RESOLUTION_LIVE_WORKING_TREE,
             RESOLUTION_RESOLVED_ENGINE,
+            _same_repo_path,
             resolve_claude_klabauter_root_with_provenance,
+            resolve_own_publish_target_keys,
             resolve_publish_mirror_roster,
         )
+        from _foreign_path_filter import session_repo_is_plane
 
         _root, klass, _provenance = resolve_claude_klabauter_root_with_provenance()
     except Exception:
@@ -1439,29 +1468,66 @@ def engine_resolution_banner() -> None:
     elif klass == RESOLUTION_LIVE_WORKING_TREE and _provenance == "live-env-dup":
         provenance_suffix = " (env override unhealthy upstream, re-resolved)"
 
-    if klass == RESOLUTION_RESOLVED_ENGINE:
-        # Review: code-reviewer — RESOLUTION_RESOLVED_ENGINE now means a
-        # published engine mirror, not a committed snapshot.
-        _w(f"── Engine: published engine mirror{branch_suffix}{provenance_suffix} ──\n")
-    elif klass == RESOLUTION_LIVE_WORKING_TREE:
-        _w(
-            f"── Engine: sibling LIVE working tree{branch_suffix}{provenance_suffix} — "
-            "uncommitted edits execute ──\n"
-        )
-
+    # DR-188 Option D (chunk C3): resolve the roster and the two gates
+    # BEFORE either class-line arm is rendered, so the resolved arm can fold
+    # in the engine-root row's path in the same write rather than a second
+    # pass. Neither gate's fact is foreign identity to render — see the
+    # docstring's "Engine-root row" / "Publish-mirror roster leg" sections.
     try:
         roster = resolve_publish_mirror_roster()
     except Exception:
         roster = []
 
-    if roster:
+    try:
+        session_root = resolve_repo_root_boot()
+    except Exception:
+        session_root = None
+
+    try:
+        is_plane = bool(session_root) and session_repo_is_plane(session_root)
+    except Exception:
+        is_plane = False
+
+    try:
+        own_target_keys = resolve_own_publish_target_keys(session_root)
+    except Exception:
+        own_target_keys = set()
+
+    kept_rows: list = []
+    for mirror_path, owner, mirror_key in roster:
+        try:
+            is_engine_root_row = bool(_root) and _same_repo_path(mirror_path, _root)
+        except Exception:
+            is_engine_root_row = False
+        if is_engine_root_row:
+            # Folded into the class line below instead — see docstring.
+            continue
+        if mirror_key in own_target_keys:
+            kept_rows.append((mirror_path, owner))
+        # else: neither this session's engine root nor a declared publish
+        # target of THIS repo's own topology — foreign identity, dropped.
+
+    if klass == RESOLUTION_RESOLVED_ENGINE:
+        root_suffix = f" — this session's DoE-plane hooks resolve to {_root}" if _root else ""
+        _w(
+            f"── Engine: published engine mirror{branch_suffix}{provenance_suffix}"
+            f"{root_suffix} ──\n"
+        )
+    elif klass == RESOLUTION_LIVE_WORKING_TREE:
+        _w(
+            f"── Engine: sibling LIVE working tree{branch_suffix}{provenance_suffix} — "
+            "this session's DoE-plane hooks resolve here ──\n"
+        )
+
+    if is_plane and kept_rows:
         _w_live_plugin_root_line()
 
-    for mirror_path, owner in roster:
-        _w(
-            f"── Publish mirror (not a peer repo): {mirror_path} — owned by "
-            f"{owner} ──\n"
-        )
+    if is_plane:
+        for mirror_path, owner in kept_rows:
+            _w(
+                f"── Publish mirror (not a peer repo): {mirror_path} — owned by "
+                f"{owner} ──\n"
+            )
 
 
 def _w_live_plugin_root_line() -> None:

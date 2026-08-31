@@ -309,8 +309,111 @@ def _compute_contention(repo_root: Path | None, session_id: str | None, timeout:
 _PEER_READ_POINTER = (
     "assert-em-role: {repo_count} peer session(s) in this repo, {box_count} "
     "on this machine -- existence only. A count is not a stand-down signal "
-    "and not permission to send.\n\n"
+    "and not permission to send.\n"
 )
+
+# Bounds that make the Group EM clause's worst case a FIXED, measurable
+# number rather than a function of whatever a peer happened to name itself.
+# Without them the leg's budget entry could not be derived at all: peer
+# names are free-form, and a long one would silently push the whole boot
+# payload past the 2,048 B preview window it must fit inside WHOLE
+# (coordinator/tests/test_em_payload_budget.py, PEEK leg).
+_GEM_NAME_MAX_CHARS = 32
+_GEM_SESSION_PREFIX_CHARS = 8
+
+# Identity and a pointer, nothing else. What the role IS, and the standing
+# it does and does not carry over a peer, lives in the wiki page named here
+# -- restating any of it on the boot path would spend the payload's whole
+# remaining headroom on prose every session, to say what one lookup says
+# once. The page is cited by bare filename because that is the greppable
+# form; it resolves under coordinator/docs/wiki/ in the source repo only.
+_GEM_CLAUSE = "G-EM active: {name} ({session}) -- see wiki group-em-standing.md\n\n"
+
+
+def _group_em_nomination_module():
+    """Load group-em-nomination.py by path -- hyphens make its filename
+    unimportable. Same loader as coordinator/bin/statusline.py::
+    _group_em_nomination_module. Best-effort by contract: ANY failure
+    returns None and the caller omits the clause; a broken nomination
+    module must never cost this hook its one job.
+    """
+    try:
+        import importlib.util
+
+        path = _PLUGIN_ROOT / "bin" / "group-em-nomination.py"
+        spec = importlib.util.spec_from_file_location("_assert_em_gem_nomination", path)
+        if spec is None or spec.loader is None:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    except Exception:
+        return None
+
+
+def _group_em_clause(repo_root, timeout: float = 0.3) -> str:
+    """One terse line naming the session that currently holds this repo's Group
+    EM nomination, or "" -- WHICH IS THE COMMON CASE AND NOT A FAILURE.
+
+    Emitted iff a nomination record exists AND its holder is live. No line is
+    emitted for the no-nomination case, and none for a lapsed one: most repos
+    never nominate, and a standing "no Group EM here" line would spend the boot
+    payload's scarcest resource, fleet-wide and every session, to say nothing
+    happened.
+
+    NEVER CACHED, AT ANY LAYER -- resolved fresh every boot, nothing written to
+    disk. ``group-em-nomination.py``'s module docstring sets the rule this
+    obeys: a cached "who is the Group EM" answer that survives a stand-down is
+    a wrong address that looks authoritative, strictly worse than no answer.
+
+    Liveness is the registry join, never the record alone. A nomination whose
+    session is gone renders as no line, because a lapsed holder and no holder
+    authorize precisely the same thing.
+
+    THIS REPO ONLY, AND NEVER A SCAN. ``read_record(repo_root)`` resolves one
+    deterministic path from the repo root and rejects a record whose own
+    `repo_root` disagrees, so a Group EM sitting in some OTHER repo on this
+    machine cannot surface here. If a future pass wants the fleet view, it
+    belongs behind a verb the operator invokes, never here.
+
+    `peer_name` is an advisory snapshot a rename voids; the session prefix is
+    what joins. Both bounded -- see the constants above.
+
+    Bounded like ``_compute_contention`` and for its reason: ``is_live`` scans
+    the harness session registry, and that cost STACKS on that function's own
+    bound plus ``_read_stdin``'s inside one synchronous boot path. Returns ""
+    on any failure or timeout -- the caller degrades to omitting the line,
+    never to a boot error or a partial payload.
+    """
+    if repo_root is None:
+        return ""
+
+    box = {"result": ""}
+
+    def _work() -> None:
+        try:
+            gem = _group_em_nomination_module()
+            if gem is None:
+                return
+            record = gem.read_record(str(repo_root))
+            if not isinstance(record, dict):
+                return
+            live, _row = gem.is_live(record)
+            if not live:
+                return
+            holder = str(record.get("session_id") or "")
+            name = str(record.get("peer_name") or "").strip() or "unnamed"
+            box["result"] = _GEM_CLAUSE.format(
+                name=name[:_GEM_NAME_MAX_CHARS],
+                session=holder[:_GEM_SESSION_PREFIX_CHARS] or "unknown",
+            )
+        except Exception:
+            box["result"] = ""
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    t.join(timeout)
+    return box["result"]
 
 
 def _w(text: str) -> None:
@@ -320,6 +423,28 @@ def _w(text: str) -> None:
     project-orientation.py::_w()'s byte-parity convention.
     """
     sys.stdout.buffer.write(text.encode("utf-8"))
+
+
+def _exc_reason(exc: Exception) -> str:
+    """The WHY of an OSError without the WHERE.
+
+    `del snippet_path` in the composer below drops the absolute path from that
+    banner deliberately -- and `str(OSError)` puts it straight back, because
+    `OSError.__str__` appends the filename it failed on. A session in a third
+    repo then reads a DoE-claude snippets path out of a plugin it never
+    invoked: the exact leak class this surface exists to close, arriving
+    through an exception rather than an f-string.
+
+    `strerror` alone ("No such file or directory") is the part an operator can
+    act on, and `rel_path` is already in the message saying which entry. Falls
+    back to the exception TYPE NAME rather than `str(exc)`, so a non-OSError
+    cannot reintroduce a path through this path either.
+    """
+    strerror = getattr(exc, "strerror", None)
+    if strerror:
+        return str(strerror)
+    return type(exc).__name__
+
 
 
 def _compose_missing_snippet_banner(rel_path: str, snippet_path: Path, exc: Exception, root: str) -> str:
@@ -332,13 +457,14 @@ def _compose_missing_snippet_banner(rel_path: str, snippet_path: Path, exc: Exce
     plumbing; see docs/plans/2026-08-02-guard-message-character-cap.md,
     chunk C1's "Measurement mechanism" section."""
     del snippet_path  # already implied by rel_path; not repeated in the tightened prose
+    reason = _exc_reason(exc)
     if root == _ROOT_PLUGIN:
         return (
-            f"assert-em-role: {rel_path} MISSING ({exc}) -- EM role not "
+            f"assert-em-role: {rel_path} MISSING ({reason}) -- EM role not "
             f"fully asserted; restore coordinator/snippets/{rel_path}.\n\n"
         )
     return (
-        f"assert-em-role: {rel_path} unreadable ({exc}) -- its content was "
+        f"assert-em-role: {rel_path} unreadable ({reason}) -- its content was "
         f"not delivered this session.\n\n"
     )
 
@@ -352,10 +478,9 @@ def _compose_oversize_repo_banner(rel_path: str, byte_len: int) -> str:
     `_compose_missing_snippet_banner` above."""
     return (
         f"assert-em-role: {rel_path} is {byte_len}B, over its "
-        f"{_REPO_SNIPPET_SOFT_CAP_BYTES}B share of the 1,700B delivered-"
-        f"bytes ceiling (doctrine-channel-purposes.md:175, The 2KB-First "
-        f"Rule). Delivered anyway -- consider a wiki for content this "
-        f"large.\n\n"
+        f"{_REPO_SNIPPET_SOFT_CAP_BYTES}B share of the 1,700B ceiling "
+        f"(2KB-First Rule, doctrine-channel-purposes.md:175). Delivered "
+        f"anyway -- consider a wiki.\n\n"
     )
 
 
@@ -408,6 +533,15 @@ def main(argv: list) -> int:
         except Exception:
             pass  # degrade-and-continue -- a future stray brace in the
             # literal prose must not abort the whole hook
+        # Gated on the SAME contention check: with no peers there is no rando
+        # to inoculate against, and a quiet single-session machine stays
+        # byte-identical to a build without this clause.
+        try:
+            gem_clause = _group_em_clause(repo_root)
+            if gem_clause:
+                _w(gem_clause)
+        except Exception:
+            pass  # same degrade-and-continue contract as the pointer above
 
     return 0
 

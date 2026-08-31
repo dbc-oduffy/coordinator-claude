@@ -133,7 +133,6 @@ import difflib
 import importlib.util
 import json
 import re
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -625,16 +624,23 @@ def _cmd_scan_secrets(args: argparse.Namespace) -> int:
 
 _PATHSPEC_BATCH_BUDGET = 6000
 
-# Both `git` calls below were unbounded, and the only thing stopping a hung
-# one from hanging a whole percolate round was the round driver's own
-# `_run(timeout=...)` around the process this file used to be spawned as.
-# `percolate-round.py` now calls these handlers in-process (one interpreter
-# for the round, not one per step), so that outer bound is gone and the bound
-# has to live where the spawn does. Sized at 60s against
-# `percolate-round.py :: _ROUND_SCAN_LEG_TIMEOUT_SECS`, the round's own budget
-# for this leg: a `git log` over a few hundred pathspecs is sub-second, so 60s
-# is a hang detector, never a work budget.
-_GIT_LEG_TIMEOUT_SECS = 60.0
+# The two `git` calls below run through `coordinator_core.git.run.run_git` and
+# are bounded by its LOCAL lane ceiling of 2.0s. They pass no `timeout=` of
+# their own because there is no number they could pass that would matter:
+# `run.py :: _resolve_budget` folds a caller's figure through `min()` against
+# that ceiling, so the 60s hang detector this site used to carry resolved to
+# 2.0s the moment it moved onto the seam. Carrying the constant anyway, with a
+# comment claiming the ceiling was "headroom on top of" it, stated the
+# relationship exactly backwards.
+#
+# 2.0s is the right bound, not merely the one we are given: both calls run
+# `-C <dest>` against a LOCAL working tree (never a remote, so `remote=True`
+# would be a lie to buy 30s), and a `git log` over a few hundred pathspecs is
+# sub-second. A leg of this class exceeding 2.0s is a defect by this repo's
+# own load norm, not a leg that needs a bigger number. If one ever does time
+# out here, the honest fix is a grandfather entry in
+# `test_shared_git_runner.py` with the argument written down -- NOT a wider
+# timeout, which the seam will refuse to honour anyway.
 
 
 def _resolve_target_source_dir(percolate_root: Path, target: str) -> Optional[Path]:
@@ -670,6 +676,9 @@ def _git_log_batched(
 ) -> List[str]:
     """Run ``git log`` over ``rel_paths`` in command-line-safe batches.
 
+    ``log_cmd_base`` carries no leading ``"git"`` — it is passed straight to
+    ``run_git``, which takes args without one.
+
     Windows caps a process command line at 32767 characters, and a mirror row
     can carry hundreds of pathspecs — passing them in one invocation raises
     ``FileNotFoundError: [WinError 206] The filename or extension is too long``
@@ -699,12 +708,12 @@ def _git_log_batched(
     if current:
         batches.append(current)
 
+    from coordinator_core.git.run import run_git  # noqa: E402
+
     by_sha: dict = {}
     for batch in batches:
         cmd = log_cmd_base + revision_args + ["--"] + batch
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=_GIT_LEG_TIMEOUT_SECS
-        )
+        result = run_git(cmd)
         if result.returncode != 0:
             # A destination with no commits yet is a legitimate "no history,
             # so no drift" — not the swallowed-error class this raise exists
@@ -836,14 +845,13 @@ def _cmd_inverse_drift(args: argparse.Namespace) -> int:
         )
         return 1
 
-    log_cmd_base = ["git", "-C", str(dest), "log", "--no-merges", "--format=%h %ad %s", "--date=short"]
+    log_cmd_base = ["-C", str(dest), "log", "--no-merges", "--format=%h %ad %s", "--date=short"]
 
     if anchor_mode == "marker":
-        verify = subprocess.run(
-            ["git", "-C", str(dest), "rev-parse", "--verify", since_ref],
-            capture_output=True,
-            text=True,
-            timeout=_GIT_LEG_TIMEOUT_SECS,
+        from coordinator_core.git.run import run_git  # noqa: E402
+
+        verify = run_git(
+            ["-C", str(dest), "rev-parse", "--verify", since_ref],
         )
         if verify.returncode != 0:
             anchor_mode = "marker-stale"

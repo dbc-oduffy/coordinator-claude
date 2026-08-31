@@ -136,6 +136,15 @@ Blocking. Exit 1 names every residual path owned by this session — resolve PRO
 restated in its own voice) or DROP per path, delete, re-run to confirm exit 0 (disposition detail:
 wiki).
 
+## Step 8b: Maintenance Checkpoint
+
+`git.maintenance` daily tier. Advisory, non-zero reported, ceremony continues:
+
+`& "$env:COORDINATOR_SETTINGS_HOME\bin\coordinator-invoke.exe" git.maintenance '{"tier":"daily","repo":"<repo-root>"}'`
+
+Shape W above / Shape A/B POSIX — `snippets/resolve-coordinator-bin.md`. `--repo` flag refused
+(`scope='none'`); `repo` goes in the JSON params, not omitted.
+
 ## Step 9d: claudemeta Manifest Cadence
 
 Skip the step entirely if `state/reference/generate-claudemeta-manifest.py` is absent —
